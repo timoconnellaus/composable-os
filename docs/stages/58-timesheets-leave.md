@@ -27,8 +27,11 @@ the coordinator, open to override). Build may start.
   [ADR 0851](../adr/0851-differences-from-the-roster-and-approval-of-time.md); amends ADR 0850):
   built in core. The tolerance (`staffing.settings.matchMinutes`, 5, 0 to 30); an entry finished,
   entered or corrected that matches the person's own live shift within it is approved by the host
-  (`approved_by = 'host'`), the rest wait (time with no shift, an approver's entry for someone and
-  a reopened entry always do). The tool-only `staffing.time.waiting`, `differences` (an approver
+  (`approved_by = 'host'`, the claim guarded in the batch), the rest wait (time with no shift, and
+  an entry held, `core_time_entry.held`: an approver's entry for someone, a missing finish entered
+  afterwards, one an approver sent back or reopened, which its person corrects and never
+  withdraws). Differences in minutes, any part of a minute counting as one; no note or reason in
+  `differences`. The tool-only `staffing.time.waiting`, `differences` (an approver
   reads everyone's, a person their own; early and late in whole minutes, unrostered, over 12 hours,
   not recorded for people counted by time; set-based, `staffing/sets.ts`), `approve` (up to 100,
   as is or changed, the recorded times kept beside; all or none), `reject` (with why, the person
@@ -37,7 +40,8 @@ the coordinator, open to override). Build may start.
   Nobody decides their own entry (an admin may when nobody else can). Tests:
   `packages/core/test/staffing-time-approve.test.ts` (the hand-worked fixture across midnight and
   Sydney's clock change), `staffing-time-approve-cost.test.ts` (100 changed approvals in 614
-  statements; differences in 24 statements whatever the range). Left for later steps: not recorded
+  statements; differences in 24 statements whatever the range). Notices name no approver and no
+  time. Amended after the review of PR #417. Left for later steps: not recorded
   from `recordedFrom` (step 3), the 07:00 summary to approvers and Rostering's tools and setting
   (step 5), the screens (step 6).
 - **Step 4, leave** (branch `feat/stage-58-leave`; migration 1271, ADR 0853; amends ADRs 0622,

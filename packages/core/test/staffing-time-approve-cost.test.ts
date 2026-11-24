@@ -202,7 +202,8 @@ describe("approving and the differences at size", () => {
     expect(done.approved).toHaveLength(PEOPLE);
     expect(done.approved.every((e) => e.state === "approved" && e.recorded)).toBe(true);
     expect(statements).toBeGreaterThan(PEOPLE * 2);
-    expect(statements).toBeLessThan(1000);
+    // 614 when written (ADR 0851): pinned near it, so a per-entry read added later shows.
+    expect(statements).toBeLessThanOrEqual(650);
     expect(maxBound).toBeLessThanOrEqual(100);
   });
 
@@ -224,8 +225,9 @@ describe("approving and the differences at size", () => {
     expect(long.answer.items.filter((d) => d.notRecorded).length).toBeGreaterThanOrEqual(
       COUNTED * 29,
     );
-    expect(long.statements).toBeLessThan(60);
-    expect(long.statements - short.statements).toBeLessThanOrEqual(2);
+    // 24 when written (ADR 0851), the same for 7 days or 62.
+    expect(long.statements).toBeLessThanOrEqual(26);
+    expect(long.statements).toBe(short.statements);
     expect(long.maxBound).toBeLessThanOrEqual(100);
     // A year of shifts and entries is in the tables: a week's read reads far fewer rows than a
     // year holds, and 62 days' grows with the range, never with the history.

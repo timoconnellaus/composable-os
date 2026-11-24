@@ -1875,6 +1875,61 @@ Tool-only (a shipped pack's tool): take an offered shift. Nobody approves it, be
 | `warnings[].account` | string or null | yes |   |   |
 | `warnings[].message` | string | yes |   |   |
 
+## staffing.time.approve
+
+Tool-only (a shipped pack's tool): approve time entries that wait (ids, up to 100), as they are or, for those named in `changes`, changed: startsAt and endsAt (local date-times in zone, the entry's own if left out) and the break minutes. The times as recorded are kept beside the approved ones. Whoever approves time, never their own entries. All or none: an entry changed meanwhile fails the whole call. The person is told when their time was approved changed. Returns the approved entries.
+
+|  |  |
+| --- | --- |
+| Permission | `records:write` |
+| Risk | `write` |
+| Audiences | `staff` |
+| Also | called only from a tool's run (`toolOnly`); not offered to MCP clients (`mcp.expose: false`) |
+
+### Input
+
+| Field | Type | Required | Limits | Description |
+| --- | --- | --- | --- | --- |
+| `ids` | array of string | yes | at least 1, at most 100 |   |
+| `changes` | array of object |   | at most 100 |   |
+| `changes[].id` | string | yes | min length 1, max length 64 |   |
+| `changes[].startsAt` | string |   | pattern `^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$` |   |
+| `changes[].endsAt` | string |   | pattern `^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$` |   |
+| `changes[].zone` | string |   | min length 1, max length 64 |   |
+| `changes[].breakMinutes` | integer |   | ≥ 0, ≤ 600 |   |
+
+### Output
+
+| Field | Type | Required | Limits | Description |
+| --- | --- | --- | --- | --- |
+| `approved` | array of object | yes |   |   |
+| `approved[].id` | string | yes |   |   |
+| `approved[].account` | string | yes |   |   |
+| `approved[].state` | `"open"`, `"waiting"`, `"approved"`, `"rejected"` | yes |   |   |
+| `approved[].how` | `"clocked"`, `"entered"`, `"by_approver"` | yes |   |   |
+| `approved[].startsAt` | string | yes |   |   |
+| `approved[].endsAt` | string or null | yes |   |   |
+| `approved[].breakMinutes` | integer | yes | ≥ -9007199254740991, ≤ 9007199254740991 |   |
+| `approved[].minutes` | integer or null | yes |   | Whole minutes worked less the break |
+| `approved[].zone` | string | yes |   |   |
+| `approved[].localDate` | string | yes |   |   |
+| `approved[].against` | object or null | yes |   | A shift, a job, or null for other work |
+| `approved[].against.object` | string | yes |   |   |
+| `approved[].against.id` | string | yes |   |   |
+| `approved[].against.title` | string | yes |   |   |
+| `approved[].against.shift` | boolean | yes |   |   |
+| `approved[].finishMissing` | boolean | yes |   |   |
+| `approved[].note` | string or null | yes |   |   |
+| `approved[].rejectedWhy` | string or null | yes |   |   |
+| `approved[].approval` | object or null | yes |   | host: it matched its shift within the tolerance |
+| `approved[].approval.by` | `"host"`, `"approver"` | yes |   |   |
+| `approved[].approval.at` | string | yes |   |   |
+| `approved[].recorded` | object or null | yes |   | The times as recorded, when an approver approved it changed |
+| `approved[].recorded.startsAt` | string | yes |   |   |
+| `approved[].recorded.endsAt` | string | yes |   |   |
+| `approved[].recorded.breakMinutes` | integer | yes | ≥ -9007199254740991, ≤ 9007199254740991 |   |
+| `approved[].reopenedWhy` | string or null | yes |   |   |
+
 ## staffing.time.clockIn
 
 Tool-only (a shipped pack's tool): start recording the time you work, now (the host's clock; no time is taken from the request). against: one of your own shifts, a job (a record that declares workedOn) or null for other work; left out, your own shift under way or starting within 60 minutes is proposed (the answer says so, to show 'not this shift'). One open entry at a time. key: an idempotency key, so a start retried on a weak connection makes one entry. A person's own act, never an assistant's. Returns the entry.
@@ -1920,12 +1975,20 @@ Tool-only (a shipped pack's tool): start recording the time you work, now (the h
 | `entry.finishMissing` | boolean | yes |   |   |
 | `entry.note` | string or null | yes |   |   |
 | `entry.rejectedWhy` | string or null | yes |   |   |
+| `entry.approval` | object or null | yes |   | host: it matched its shift within the tolerance |
+| `entry.approval.by` | `"host"`, `"approver"` | yes |   |   |
+| `entry.approval.at` | string | yes |   |   |
+| `entry.recorded` | object or null | yes |   | The times as recorded, when an approver approved it changed |
+| `entry.recorded.startsAt` | string | yes |   |   |
+| `entry.recorded.endsAt` | string | yes |   |   |
+| `entry.recorded.breakMinutes` | integer | yes | ≥ -9007199254740991, ≤ 9007199254740991 |   |
+| `entry.reopenedWhy` | string or null | yes |   |   |
 | `proposed` | boolean | yes |   |   |
 | `replayed` | boolean | yes |   |   |
 
 ## staffing.time.clockOut
 
-Tool-only (a shipped pack's tool): finish the entry you started, now (the host's clock), with the unpaid break minutes you took. It then waits for an approver. For an entry whose finish is missing (you forgot), enter the time you finished with staffing.time.edit instead. A person's own act. Returns the entry.
+Tool-only (a shipped pack's tool): finish the entry you started, now (the host's clock), with the unpaid break minutes you took. Approved by the host when it matches your shift within the tolerance (5 minutes by default); otherwise it waits for an approver. For an entry whose finish is missing (you forgot), enter the time you finished with staffing.time.edit instead. A person's own act. Returns the entry.
 
 |  |  |
 | --- | --- |
@@ -1965,10 +2028,84 @@ Tool-only (a shipped pack's tool): finish the entry you started, now (the host's
 | `entry.finishMissing` | boolean | yes |   |   |
 | `entry.note` | string or null | yes |   |   |
 | `entry.rejectedWhy` | string or null | yes |   |   |
+| `entry.approval` | object or null | yes |   | host: it matched its shift within the tolerance |
+| `entry.approval.by` | `"host"`, `"approver"` | yes |   |   |
+| `entry.approval.at` | string | yes |   |   |
+| `entry.recorded` | object or null | yes |   | The times as recorded, when an approver approved it changed |
+| `entry.recorded.startsAt` | string | yes |   |   |
+| `entry.recorded.endsAt` | string | yes |   |   |
+| `entry.recorded.breakMinutes` | integer | yes | ≥ -9007199254740991, ≤ 9007199254740991 |   |
+| `entry.reopenedWhy` | string or null | yes |   |   |
+
+## staffing.time.differences
+
+Tool-only (a shipped pack's tool): the roster beside what was recorded, from `from` to `to` (local dates of each start, at most 62 days): each entry with the minutes it started and finished early or late against its shift and whether that is within the tolerance; unrostered entries (a job, other work); entries over 12 hours; and each past shift of someone counted by time with nothing recorded on it (not recorded). An approver reads everyone's (or one account's); anyone else reads their own only. Nothing about why. A person at the screen. Read-only.
+
+|  |  |
+| --- | --- |
+| Permission | `records:read` |
+| Risk | `read` |
+| Audiences | `staff` |
+| Also | called only from a tool's run (`toolOnly`); not offered to MCP clients (`mcp.expose: false`) |
+
+### Input
+
+| Field | Type | Required | Limits | Description |
+| --- | --- | --- | --- | --- |
+| `from` | string | yes | pattern `^\d{4}-\d{2}-\d{2}$` |   |
+| `to` | string | yes | pattern `^\d{4}-\d{2}-\d{2}$` |   |
+| `account` | string |   | min length 1, max length 64 |   |
+
+### Output
+
+| Field | Type | Required | Limits | Description |
+| --- | --- | --- | --- | --- |
+| `from` | string | yes |   |   |
+| `to` | string | yes |   |   |
+| `tolerance` | integer | yes | ≥ -9007199254740991, ≤ 9007199254740991 |   |
+| `items` | array of object | yes |   |   |
+| `items[].account` | string | yes |   |   |
+| `items[].name` | string | yes |   |   |
+| `items[].entry` | object or null | yes |   | null for a shift with nothing recorded |
+| `items[].entry.id` | string | yes |   |   |
+| `items[].entry.account` | string | yes |   |   |
+| `items[].entry.state` | `"open"`, `"waiting"`, `"approved"`, `"rejected"` | yes |   |   |
+| `items[].entry.how` | `"clocked"`, `"entered"`, `"by_approver"` | yes |   |   |
+| `items[].entry.startsAt` | string | yes |   |   |
+| `items[].entry.endsAt` | string or null | yes |   |   |
+| `items[].entry.breakMinutes` | integer | yes | ≥ -9007199254740991, ≤ 9007199254740991 |   |
+| `items[].entry.minutes` | integer or null | yes |   | Whole minutes worked less the break |
+| `items[].entry.zone` | string | yes |   |   |
+| `items[].entry.localDate` | string | yes |   |   |
+| `items[].entry.against` | object or null | yes |   | A shift, a job, or null for other work |
+| `items[].entry.against.object` | string | yes |   |   |
+| `items[].entry.against.id` | string | yes |   |   |
+| `items[].entry.against.title` | string | yes |   |   |
+| `items[].entry.against.shift` | boolean | yes |   |   |
+| `items[].entry.finishMissing` | boolean | yes |   |   |
+| `items[].entry.approval` | object or null | yes |   | host: it matched its shift within the tolerance |
+| `items[].entry.approval.by` | `"host"`, `"approver"` | yes |   |   |
+| `items[].entry.approval.at` | string | yes |   |   |
+| `items[].entry.recorded` | object or null | yes |   | The times as recorded, when an approver approved it changed |
+| `items[].entry.recorded.startsAt` | string | yes |   |   |
+| `items[].entry.recorded.endsAt` | string | yes |   |   |
+| `items[].entry.recorded.breakMinutes` | integer | yes | ≥ -9007199254740991, ≤ 9007199254740991 |   |
+| `items[].shift` | object or null | yes |   | The shift as rostered, or null for time with no live shift of theirs |
+| `items[].shift.object` | string | yes |   |   |
+| `items[].shift.id` | string | yes |   |   |
+| `items[].shift.title` | string | yes |   |   |
+| `items[].shift.startsAt` | string | yes |   |   |
+| `items[].shift.endsAt` | string | yes |   |   |
+| `items[].startMinutes` | integer or null | yes |   | Whole minutes it started after the shift (negative: before) |
+| `items[].finishMinutes` | integer or null | yes |   | Whole minutes it finished after the shift (negative: before) |
+| `items[].matches` | boolean | yes |   | Within the tolerance at both ends |
+| `items[].notRecorded` | boolean | yes |   | A past shift of someone counted by time with no entry |
+| `items[].unrostered` | boolean | yes |   | An entry with no live shift of theirs: a job or other work |
+| `items[].long` | boolean | yes |   | An entry over 12 hours |
 
 ## staffing.time.edit
 
-Tool-only (a shipped pack's tool): correct one of your own entries before it is approved (open, waiting or rejected): what it was against (null: other work), the break minutes, the note, and for a finished entry its startsAt and endsAt (local date-times in zone). For an open entry whose finish is missing, endsAt enters the time you finished. A rejected entry corrected waits for an approver again. Changing a clocked entry's times makes it entered. A person's own act. Returns the entry.
+Tool-only (a shipped pack's tool): correct one of your own entries before it is approved (open, waiting or rejected): what it was against (null: other work), the break minutes, the note, and for a finished entry its startsAt and endsAt (local date-times in zone). For an open entry whose finish is missing, endsAt enters the time you finished. A rejected entry corrected waits for an approver again (or is approved by the host when it now matches its shift). Changing a clocked entry's times makes it entered. A person's own act. Returns the entry.
 
 |  |  |
 | --- | --- |
@@ -2015,10 +2152,18 @@ Tool-only (a shipped pack's tool): correct one of your own entries before it is 
 | `entry.finishMissing` | boolean | yes |   |   |
 | `entry.note` | string or null | yes |   |   |
 | `entry.rejectedWhy` | string or null | yes |   |   |
+| `entry.approval` | object or null | yes |   | host: it matched its shift within the tolerance |
+| `entry.approval.by` | `"host"`, `"approver"` | yes |   |   |
+| `entry.approval.at` | string | yes |   |   |
+| `entry.recorded` | object or null | yes |   | The times as recorded, when an approver approved it changed |
+| `entry.recorded.startsAt` | string | yes |   |   |
+| `entry.recorded.endsAt` | string | yes |   |   |
+| `entry.recorded.breakMinutes` | integer | yes | ≥ -9007199254740991, ≤ 9007199254740991 |   |
+| `entry.reopenedWhy` | string or null | yes |   |   |
 
 ## staffing.time.enter
 
-Tool-only (a shipped pack's tool): enter time you worked afterwards (you forgot, or had no signal on a site): startsAt and endsAt, local date-times in zone (the organisation's if left out), the unpaid break minutes, and what it was against (one of your own shifts, a job, or null for other work). Up to the setting's days back (14 by default), never in a locked pay period, never overlapping another of your entries. It waits for an approver. A person's own act. Returns the entry.
+Tool-only (a shipped pack's tool): enter time you worked afterwards (you forgot, or had no signal on a site): startsAt and endsAt, local date-times in zone (the organisation's if left out), the unpaid break minutes, and what it was against (one of your own shifts, a job, or null for other work). Up to the setting's days back (14 by default), never in a locked pay period, never overlapping another of your entries. Approved by the host when it matches your shift within the tolerance; otherwise it waits for an approver. A person's own act. Returns the entry.
 
 |  |  |
 | --- | --- |
@@ -2064,6 +2209,73 @@ Tool-only (a shipped pack's tool): enter time you worked afterwards (you forgot,
 | `entry.finishMissing` | boolean | yes |   |   |
 | `entry.note` | string or null | yes |   |   |
 | `entry.rejectedWhy` | string or null | yes |   |   |
+| `entry.approval` | object or null | yes |   | host: it matched its shift within the tolerance |
+| `entry.approval.by` | `"host"`, `"approver"` | yes |   |   |
+| `entry.approval.at` | string | yes |   |   |
+| `entry.recorded` | object or null | yes |   | The times as recorded, when an approver approved it changed |
+| `entry.recorded.startsAt` | string | yes |   |   |
+| `entry.recorded.endsAt` | string | yes |   |   |
+| `entry.recorded.breakMinutes` | integer | yes | ≥ -9007199254740991, ≤ 9007199254740991 |   |
+| `entry.reopenedWhy` | string or null | yes |   |   |
+
+## staffing.time.enterFor
+
+Tool-only (a shipped pack's tool): enter time someone else worked (they forgot, or have no phone), saying why: account, startsAt and endsAt (local date-times in zone, the organisation's if left out), the unpaid break minutes, and what it was against (one of their shifts, a job, or null for other work). Up to the setting's days back, never in a locked pay period. It waits, never approved by the host on a match; whoever entered it may approve it (it is not their own time). Whoever approves time. Returns the entry.
+
+|  |  |
+| --- | --- |
+| Permission | `records:write` |
+| Risk | `write` |
+| Audiences | `staff` |
+| Also | called only from a tool's run (`toolOnly`); not offered to MCP clients (`mcp.expose: false`) |
+
+### Input
+
+| Field | Type | Required | Limits | Description |
+| --- | --- | --- | --- | --- |
+| `account` | string | yes | min length 1, max length 64 |   |
+| `startsAt` | string | yes | pattern `^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$` |   |
+| `endsAt` | string | yes | pattern `^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}$` |   |
+| `zone` | string |   | min length 1, max length 64 |   |
+| `breakMinutes` | integer |   | ≥ 0, ≤ 600 |   |
+| `against` | object or null |   |   |   |
+| `against.object` | string | yes | min length 1, max length 81 |   |
+| `against.id` | string | yes | min length 1, max length 64 |   |
+| `note` | string |   | max length 500 |   |
+| `why` | string | yes | min length 1, max length 200 |   |
+
+### Output
+
+| Field | Type | Required | Limits | Description |
+| --- | --- | --- | --- | --- |
+| `id` | string | yes |   |   |
+| `entry` | object | yes |   |   |
+| `entry.id` | string | yes |   |   |
+| `entry.account` | string | yes |   |   |
+| `entry.state` | `"open"`, `"waiting"`, `"approved"`, `"rejected"` | yes |   |   |
+| `entry.how` | `"clocked"`, `"entered"`, `"by_approver"` | yes |   |   |
+| `entry.startsAt` | string | yes |   |   |
+| `entry.endsAt` | string or null | yes |   |   |
+| `entry.breakMinutes` | integer | yes | ≥ -9007199254740991, ≤ 9007199254740991 |   |
+| `entry.minutes` | integer or null | yes |   | Whole minutes worked less the break |
+| `entry.zone` | string | yes |   |   |
+| `entry.localDate` | string | yes |   |   |
+| `entry.against` | object or null | yes |   | A shift, a job, or null for other work |
+| `entry.against.object` | string | yes |   |   |
+| `entry.against.id` | string | yes |   |   |
+| `entry.against.title` | string | yes |   |   |
+| `entry.against.shift` | boolean | yes |   |   |
+| `entry.finishMissing` | boolean | yes |   |   |
+| `entry.note` | string or null | yes |   |   |
+| `entry.rejectedWhy` | string or null | yes |   |   |
+| `entry.approval` | object or null | yes |   | host: it matched its shift within the tolerance |
+| `entry.approval.by` | `"host"`, `"approver"` | yes |   |   |
+| `entry.approval.at` | string | yes |   |   |
+| `entry.recorded` | object or null | yes |   | The times as recorded, when an approver approved it changed |
+| `entry.recorded.startsAt` | string | yes |   |   |
+| `entry.recorded.endsAt` | string | yes |   |   |
+| `entry.recorded.breakMinutes` | integer | yes | ≥ -9007199254740991, ≤ 9007199254740991 |   |
+| `entry.reopenedWhy` | string or null | yes |   |   |
 
 ## staffing.time.mine
 
@@ -2106,6 +2318,14 @@ Tool-only (a shipped pack's tool): your own time: the entry you have open, the s
 | `open.finishMissing` | boolean | yes |   |   |
 | `open.note` | string or null | yes |   |   |
 | `open.rejectedWhy` | string or null | yes |   |   |
+| `open.approval` | object or null | yes |   | host: it matched its shift within the tolerance |
+| `open.approval.by` | `"host"`, `"approver"` | yes |   |   |
+| `open.approval.at` | string | yes |   |   |
+| `open.recorded` | object or null | yes |   | The times as recorded, when an approver approved it changed |
+| `open.recorded.startsAt` | string | yes |   |   |
+| `open.recorded.endsAt` | string | yes |   |   |
+| `open.recorded.breakMinutes` | integer | yes | ≥ -9007199254740991, ≤ 9007199254740991 |   |
+| `open.reopenedWhy` | string or null | yes |   |   |
 | `proposed` | object or null | yes |   |   |
 | `proposed.object` | string | yes |   |   |
 | `proposed.id` | string | yes |   |   |
@@ -2131,6 +2351,183 @@ Tool-only (a shipped pack's tool): your own time: the entry you have open, the s
 | `items[].finishMissing` | boolean | yes |   |   |
 | `items[].note` | string or null | yes |   |   |
 | `items[].rejectedWhy` | string or null | yes |   |   |
+| `items[].approval` | object or null | yes |   | host: it matched its shift within the tolerance |
+| `items[].approval.by` | `"host"`, `"approver"` | yes |   |   |
+| `items[].approval.at` | string | yes |   |   |
+| `items[].recorded` | object or null | yes |   | The times as recorded, when an approver approved it changed |
+| `items[].recorded.startsAt` | string | yes |   |   |
+| `items[].recorded.endsAt` | string | yes |   |   |
+| `items[].recorded.breakMinutes` | integer | yes | ≥ -9007199254740991, ≤ 9007199254740991 |   |
+| `items[].reopenedWhy` | string or null | yes |   |   |
+
+## staffing.time.reject
+
+Tool-only (a shipped pack's tool): send back a time entry that waits, saying why (seen by the person and whoever approves time). The person is told, corrects it and it waits again. Whoever approves time, never their own entries. Returns the entry.
+
+|  |  |
+| --- | --- |
+| Permission | `records:write` |
+| Risk | `write` |
+| Audiences | `staff` |
+| Also | called only from a tool's run (`toolOnly`); not offered to MCP clients (`mcp.expose: false`) |
+
+### Input
+
+| Field | Type | Required | Limits | Description |
+| --- | --- | --- | --- | --- |
+| `id` | string | yes | min length 1, max length 64 |   |
+| `why` | string | yes | min length 1, max length 200 |   |
+
+### Output
+
+| Field | Type | Required | Limits | Description |
+| --- | --- | --- | --- | --- |
+| `entry` | object | yes |   |   |
+| `entry.id` | string | yes |   |   |
+| `entry.account` | string | yes |   |   |
+| `entry.state` | `"open"`, `"waiting"`, `"approved"`, `"rejected"` | yes |   |   |
+| `entry.how` | `"clocked"`, `"entered"`, `"by_approver"` | yes |   |   |
+| `entry.startsAt` | string | yes |   |   |
+| `entry.endsAt` | string or null | yes |   |   |
+| `entry.breakMinutes` | integer | yes | ≥ -9007199254740991, ≤ 9007199254740991 |   |
+| `entry.minutes` | integer or null | yes |   | Whole minutes worked less the break |
+| `entry.zone` | string | yes |   |   |
+| `entry.localDate` | string | yes |   |   |
+| `entry.against` | object or null | yes |   | A shift, a job, or null for other work |
+| `entry.against.object` | string | yes |   |   |
+| `entry.against.id` | string | yes |   |   |
+| `entry.against.title` | string | yes |   |   |
+| `entry.against.shift` | boolean | yes |   |   |
+| `entry.finishMissing` | boolean | yes |   |   |
+| `entry.note` | string or null | yes |   |   |
+| `entry.rejectedWhy` | string or null | yes |   |   |
+| `entry.approval` | object or null | yes |   | host: it matched its shift within the tolerance |
+| `entry.approval.by` | `"host"`, `"approver"` | yes |   |   |
+| `entry.approval.at` | string | yes |   |   |
+| `entry.recorded` | object or null | yes |   | The times as recorded, when an approver approved it changed |
+| `entry.recorded.startsAt` | string | yes |   |   |
+| `entry.recorded.endsAt` | string | yes |   |   |
+| `entry.recorded.breakMinutes` | integer | yes | ≥ -9007199254740991, ≤ 9007199254740991 |   |
+| `entry.reopenedWhy` | string or null | yes |   |   |
+
+## staffing.time.reopen
+
+Tool-only (a shipped pack's tool): reopen an approved time entry, saying why, while its pay period is open: it waits again (the host does not approve it on a match while reopened). Whoever approves time, never their own entries. Returns the entry.
+
+|  |  |
+| --- | --- |
+| Permission | `records:write` |
+| Risk | `write` |
+| Audiences | `staff` |
+| Also | called only from a tool's run (`toolOnly`); not offered to MCP clients (`mcp.expose: false`) |
+
+### Input
+
+| Field | Type | Required | Limits | Description |
+| --- | --- | --- | --- | --- |
+| `id` | string | yes | min length 1, max length 64 |   |
+| `why` | string | yes | min length 1, max length 200 |   |
+
+### Output
+
+| Field | Type | Required | Limits | Description |
+| --- | --- | --- | --- | --- |
+| `entry` | object | yes |   |   |
+| `entry.id` | string | yes |   |   |
+| `entry.account` | string | yes |   |   |
+| `entry.state` | `"open"`, `"waiting"`, `"approved"`, `"rejected"` | yes |   |   |
+| `entry.how` | `"clocked"`, `"entered"`, `"by_approver"` | yes |   |   |
+| `entry.startsAt` | string | yes |   |   |
+| `entry.endsAt` | string or null | yes |   |   |
+| `entry.breakMinutes` | integer | yes | ≥ -9007199254740991, ≤ 9007199254740991 |   |
+| `entry.minutes` | integer or null | yes |   | Whole minutes worked less the break |
+| `entry.zone` | string | yes |   |   |
+| `entry.localDate` | string | yes |   |   |
+| `entry.against` | object or null | yes |   | A shift, a job, or null for other work |
+| `entry.against.object` | string | yes |   |   |
+| `entry.against.id` | string | yes |   |   |
+| `entry.against.title` | string | yes |   |   |
+| `entry.against.shift` | boolean | yes |   |   |
+| `entry.finishMissing` | boolean | yes |   |   |
+| `entry.note` | string or null | yes |   |   |
+| `entry.rejectedWhy` | string or null | yes |   |   |
+| `entry.approval` | object or null | yes |   | host: it matched its shift within the tolerance |
+| `entry.approval.by` | `"host"`, `"approver"` | yes |   |   |
+| `entry.approval.at` | string | yes |   |   |
+| `entry.recorded` | object or null | yes |   | The times as recorded, when an approver approved it changed |
+| `entry.recorded.startsAt` | string | yes |   |   |
+| `entry.recorded.endsAt` | string | yes |   |   |
+| `entry.recorded.breakMinutes` | integer | yes | ≥ -9007199254740991, ≤ 9007199254740991 |   |
+| `entry.reopenedWhy` | string or null | yes |   |   |
+
+## staffing.time.waiting
+
+Tool-only (a shipped pack's tool): time entries waiting for an approver, dated from `from` to `to` (local dates, default the last 62 days; at most 62), each beside its shift: minutes started and finished early or late, within the tolerance or not, unrostered (a job, other work), over 12 hours. An approver reads everyone's (or one account's); anyone else reads their own only. A person at the screen. Read-only.
+
+|  |  |
+| --- | --- |
+| Permission | `records:read` |
+| Risk | `read` |
+| Audiences | `staff` |
+| Also | called only from a tool's run (`toolOnly`); not offered to MCP clients (`mcp.expose: false`) |
+
+### Input
+
+| Field | Type | Required | Limits | Description |
+| --- | --- | --- | --- | --- |
+| `from` | string |   | pattern `^\d{4}-\d{2}-\d{2}$` |   |
+| `to` | string |   | pattern `^\d{4}-\d{2}-\d{2}$` |   |
+| `account` | string |   | min length 1, max length 64 |   |
+
+### Output
+
+| Field | Type | Required | Limits | Description |
+| --- | --- | --- | --- | --- |
+| `from` | string | yes |   |   |
+| `to` | string | yes |   |   |
+| `tolerance` | integer | yes | ≥ -9007199254740991, ≤ 9007199254740991 |   |
+| `items` | array of object | yes |   |   |
+| `items[].account` | string | yes |   |   |
+| `items[].name` | string | yes |   |   |
+| `items[].entry` | object or null | yes |   |   |
+| `items[].entry.id` | string | yes |   |   |
+| `items[].entry.account` | string | yes |   |   |
+| `items[].entry.state` | `"open"`, `"waiting"`, `"approved"`, `"rejected"` | yes |   |   |
+| `items[].entry.how` | `"clocked"`, `"entered"`, `"by_approver"` | yes |   |   |
+| `items[].entry.startsAt` | string | yes |   |   |
+| `items[].entry.endsAt` | string or null | yes |   |   |
+| `items[].entry.breakMinutes` | integer | yes | ≥ -9007199254740991, ≤ 9007199254740991 |   |
+| `items[].entry.minutes` | integer or null | yes |   | Whole minutes worked less the break |
+| `items[].entry.zone` | string | yes |   |   |
+| `items[].entry.localDate` | string | yes |   |   |
+| `items[].entry.against` | object or null | yes |   | A shift, a job, or null for other work |
+| `items[].entry.against.object` | string | yes |   |   |
+| `items[].entry.against.id` | string | yes |   |   |
+| `items[].entry.against.title` | string | yes |   |   |
+| `items[].entry.against.shift` | boolean | yes |   |   |
+| `items[].entry.finishMissing` | boolean | yes |   |   |
+| `items[].entry.note` | string or null | yes |   |   |
+| `items[].entry.rejectedWhy` | string or null | yes |   |   |
+| `items[].entry.approval` | object or null | yes |   | host: it matched its shift within the tolerance |
+| `items[].entry.approval.by` | `"host"`, `"approver"` | yes |   |   |
+| `items[].entry.approval.at` | string | yes |   |   |
+| `items[].entry.recorded` | object or null | yes |   | The times as recorded, when an approver approved it changed |
+| `items[].entry.recorded.startsAt` | string | yes |   |   |
+| `items[].entry.recorded.endsAt` | string | yes |   |   |
+| `items[].entry.recorded.breakMinutes` | integer | yes | ≥ -9007199254740991, ≤ 9007199254740991 |   |
+| `items[].entry.reopenedWhy` | string or null | yes |   |   |
+| `items[].shift` | object or null | yes |   | The shift as rostered, or null for time with no live shift of theirs |
+| `items[].shift.object` | string | yes |   |   |
+| `items[].shift.id` | string | yes |   |   |
+| `items[].shift.title` | string | yes |   |   |
+| `items[].shift.startsAt` | string | yes |   |   |
+| `items[].shift.endsAt` | string | yes |   |   |
+| `items[].startMinutes` | integer or null | yes |   | Whole minutes it started after the shift (negative: before) |
+| `items[].finishMinutes` | integer or null | yes |   | Whole minutes it finished after the shift (negative: before) |
+| `items[].matches` | boolean | yes |   | Within the tolerance at both ends |
+| `items[].notRecorded` | boolean | yes |   | A past shift of someone counted by time with no entry |
+| `items[].unrostered` | boolean | yes |   | An entry with no live shift of theirs: a job or other work |
+| `items[].long` | boolean | yes |   | An entry over 12 hours |
 
 ## staffing.time.withdraw
 

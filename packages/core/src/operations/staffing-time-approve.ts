@@ -18,13 +18,7 @@ import { defineOperation, type HandlerContext } from "../operation.ts";
 import { jsonList } from "../records/common.ts";
 import { isTimezone } from "../settings.ts";
 import { whenOf } from "../staffing/offers.ts";
-import {
-  actingAccount,
-  mayRoster,
-  queueNotice,
-  rosterers,
-  staffName,
-} from "../staffing/rosterers.ts";
+import { actingAccount, mayRoster, queueNotice, rosterers } from "../staffing/rosterers.ts";
 import {
   addDays,
   changedOne,
@@ -187,10 +181,17 @@ function lockedRefusal(): ConflictError {
 
 // --- Shapes ---------------------------------------------------------------------------------------
 
+// The differences say nothing about why (the spec): no note, and no approver's reason.
+const differenceEntrySchema = entrySchema.omit({
+  note: true,
+  rejectedWhy: true,
+  reopenedWhy: true,
+});
+
 const differenceSchema = z.object({
   account: z.string(),
   name: z.string(),
-  entry: entrySchema.nullable().describe("null for a shift with nothing recorded"),
+  entry: differenceEntrySchema.nullable().describe("null for a shift with nothing recorded"),
   shift: z
     .object({
       object: z.string(),
@@ -229,7 +230,17 @@ const out = (from: string, to: string, d: { tolerance: number; items: Difference
   from,
   to,
   tolerance: d.tolerance,
-  items: d.items as z.infer<typeof differenceSchema>[],
+  items: d.items.map((item) => {
+    if (!item.entry) return { ...item, entry: null };
+    const { note: _note, rejectedWhy: _rejected, reopenedWhy: _reopened, ...entry } = item.entry;
+    return { ...item, entry };
+  }),
+});
+
+// What waits is what an approver decides: the person's note and why it was reopened are part of
+// it (read by the approvers and the person only).
+const waitingOutput = differencesOutput.extend({
+  items: z.array(differenceSchema.extend({ entry: entrySchema.nullable() })),
 });
 
 // --- Reads ----------------------------------------------------------------------------------------
@@ -247,7 +258,7 @@ export const staffingTimeWaiting = defineOperation({
     to: localDate.optional(),
     account: entityId.optional(),
   }),
-  output: differencesOutput,
+  output: waitingOutput,
   permission: "records:read",
   risk: "read",
   toolOnly: true,
@@ -265,7 +276,7 @@ export const staffingTimeWaiting = defineOperation({
       states: ["waiting"],
       notRecorded: false,
     });
-    return out(from, to, found);
+    return { from, to, tolerance: found.tolerance, items: found.items };
   },
 });
 
@@ -361,6 +372,11 @@ export const staffingTimeApprove = defineOperation({
     for (const e of entries) {
       const c = changes.get(e.id);
       if (!c || e.ends === null) continue;
+      if (c.startsAt === undefined && c.endsAt === undefined && c.breakMinutes === undefined) {
+        throw new ValidationError("A change names a start, a finish or a break", {
+          field: "changes",
+        });
+      }
       const checked = c.zone ?? e.zone;
       if (!isTimezone(checked)) {
         throw new ValidationError(`${checked} is not a time zone`, { field: "zone" });
@@ -432,16 +448,14 @@ export const staffingTimeApprove = defineOperation({
     for (const e of entries) {
       if (planned.has(e.id)) changedFor.set(e.account_id, (changedFor.get(e.account_id) ?? 0) + 1);
     }
-    if (changedFor.size) {
-      const name = await staffName(ctx.db, me);
-      for (const [account, n] of changedFor) {
-        await queueNotice(ctx, {
-          to: [account],
-          title: "Your recorded time was approved with changes",
-          body: `${name} approved ${n === 1 ? "an entry" : `${n} entries`} of yours with changed times. See them in My time.`,
-          humanOnly: true,
-        });
-      }
+    // Never who approved, never the times: the person reads them in My time.
+    for (const [account, n] of changedFor) {
+      await queueNotice(ctx, {
+        to: [account],
+        title: "Your recorded time was approved with changes",
+        body: `${n === 1 ? "An entry" : `${n} entries`} of yours ${n === 1 ? "was" : "were"} approved with changed times. See them in My time.`,
+        humanOnly: true,
+      });
     }
     return { approved };
   },
@@ -471,6 +485,9 @@ export const staffingTimeReject = defineOperation({
     const set = {
       state: "rejected" as const,
       rejected_why: input.why,
+      // From now on an approver decides it: the host never approves it on a match, and its person
+      // corrects it rather than withdraw it and enter it again.
+      held: "approver" as const,
       reopened_why: null,
       updated_at: ctx.now,
     };
@@ -484,7 +501,7 @@ export const staffingTimeReject = defineOperation({
     await queueNotice(ctx, {
       to: [entry.account_id],
       title: "Your recorded time was sent back",
-      body: `${await staffName(ctx.db, actingAccount(ctx))} sent back your time from ${await whenOf(ctx, entry.starts, entry.zone)}. See why and correct it in My time.`,
+      body: "An approver sent back an entry of your time. See which, and why, and correct it in My time.",
       humanOnly: true,
     });
     return { entry: await itemOf(ctx, entry.id, rowOf({ ...set, id: entry.id }, entry)) };
@@ -523,6 +540,7 @@ export const staffingTimeReopen = defineOperation({
       approved_by: null,
       approved_at: null,
       reopened_why: input.why,
+      held: "approver" as const,
       updated_at: ctx.now,
     };
     ctx.write(
@@ -595,6 +613,7 @@ export const staffingTimeEnterFor = defineOperation({
       against_record: against?.id ?? null,
       how: "by_approver" as const,
       how_why: input.why,
+      held: "person" as const,
       state: "waiting" as const,
       note: input.note || null,
       made_by: me,

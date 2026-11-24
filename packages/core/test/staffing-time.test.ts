@@ -606,13 +606,9 @@ describe("a missing finish", () => {
       who,
       "2026-06-11T17:05:00.000Z",
     );
-    // The finish entered matches the shift within the tolerance: approved by the host (ADR 0851).
-    expect(fixed.entry).toMatchObject({
-      state: "approved",
-      finishMissing: false,
-      minutes: 227,
-      approval: { by: "host" },
-    });
+    // A finish the host marked missing, entered afterwards, waits for an approver even when it
+    // matches the shift (ADR 0851).
+    expect(fixed.entry).toMatchObject({ state: "waiting", finishMissing: false, minutes: 227 });
   });
 
   it("with no shift, 14 hours after its start", async () => {

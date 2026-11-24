@@ -1358,7 +1358,9 @@ own time), unrostered time (a job, other work, a shift gone since), entries over
 past shifts of people counted by time with nothing recorded (**not recorded**), set-based. An
 entry the person finishes or enters that matches their own live shift within the tolerance
 (Rostering's `staffing.settings.matchMinutes`, 5, 0 to 30) is approved by the host
-(`approved_by = 'host'`); the rest wait. The tool-only `staffing.time.waiting` and `differences`
+(`approved_by = 'host'`); the rest wait, and an entry held (`held`: an approver's entry for
+someone, a missing finish entered afterwards, sent back or reopened by an approver) is never
+approved by the host. The tool-only `staffing.time.waiting` and `differences`
 (an approver reads everyone's, a person their own), `approve` (up to 100, as is or changed, the
 recorded times kept beside), `reject` (with why), `reopen` (with why, while the period is open) and
 `enterFor` (an approver's entry for someone: it always waits) are a person's at the screen; the

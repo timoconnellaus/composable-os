@@ -456,14 +456,20 @@ export async function finishMissing(ctx: HandlerContext, hours: number): Promise
 
 // --- Differences from the roster, and approval on a match (stage 58 step 2, ADR 0851) ----------
 
-/** Whole minutes from `planned` to `actual`, truncated toward zero: positive is later. */
-export const minutesFrom = (planned: number, actual: number) =>
-  Math.trunc((actual - planned) / 60) || 0;
+/**
+ * Minutes from `planned` to `actual`, positive later: any part of a minute counts as a minute
+ * (rounded away from zero), so what shows and what matches agree and nothing past the tolerance
+ * matches (5 minutes and 1 second late shows as 6).
+ */
+export const minutesFrom = (planned: number, actual: number) => {
+  const seconds = actual - planned;
+  return seconds === 0 ? 0 : Math.sign(seconds) * Math.ceil(Math.abs(seconds) / 60);
+};
 
 /**
- * Whether an entry matches its shift: it starts and finishes within `tolerance` whole minutes of
- * the shift's own start and end (early or late). Exact seconds are kept on the entry; the
- * tolerance decides only what shows as a difference and what the host approves.
+ * Whether an entry matches its shift: it starts and finishes within `tolerance` minutes of the
+ * shift's own start and end (early or late), to the second. Exact seconds are kept on the entry;
+ * the tolerance decides only what shows as a difference and what the host approves.
  */
 export function matchesShift(
   entry: { starts: number; ends: number },
@@ -477,25 +483,32 @@ export function matchesShift(
 }
 
 /**
- * Whether the host approves a finished entry as it is recorded (decision 5): the person's own (an
- * approver's entry for them always waits), not reopened by an approver, and against one of the
- * person's own live shifts, starting and finishing within the tolerance of it. Time with no shift
- * (a job, other work) always waits for a person.
+ * Whether the host approves a finished entry as it is recorded (decision 5): not held for a
+ * person (`held`: an approver's entry for someone, a missing finish entered afterwards, one an
+ * approver sent back or reopened), and against one of the person's own live shifts, starting and
+ * finishing within the tolerance of it. Time with no shift (a job, other work) always waits for a
+ * person. Answers the statement for the write's batch that fails it whole (`core_staff_changed`)
+ * unless the shift's claim is still the one matched, or null when the host does not approve.
  */
 export async function hostApproves(
   db: Kysely<CoreDatabase>,
   entry: Pick<
     StoredEntry,
-    "account_id" | "starts" | "ends" | "how" | "against_object" | "against_record" | "reopened_why"
+    "account_id" | "starts" | "ends" | "how" | "against_object" | "against_record" | "held"
   >,
   tolerance: number,
-): Promise<boolean> {
-  if (entry.ends === null || entry.how === "by_approver" || entry.reopened_why) return false;
-  if (!entry.against_object || !entry.against_record) return false;
-  if (!getObject(entry.against_object)?.staffed) return false;
+): Promise<CompiledQuery | null> {
+  if (entry.ends === null || entry.how === "by_approver" || entry.held) return null;
+  if (!entry.against_object || !entry.against_record) return null;
+  if (!getObject(entry.against_object)?.staffed) return null;
   const claim = await claimOf(db, { object: entry.against_object, id: entry.against_record });
-  if (!claim || claim.account_id !== entry.account_id) return false;
-  return matchesShift({ starts: entry.starts, ends: entry.ends }, claim, tolerance);
+  if (!claim || claim.account_id !== entry.account_id) return null;
+  if (!matchesShift({ starts: entry.starts, ends: entry.ends }, claim, tolerance)) return null;
+  // A shift moved or given to someone else after this read fails the write whole.
+  return CompiledQuery.raw(
+    "INSERT INTO core_staff_guard (expected, actual) SELECT 1, count(*) FROM core_staff_time WHERE object_type = ? AND record_id = ? AND account_id = ? AND starts + margin_before = ? AND ends - margin_after = ?",
+    [entry.against_object, entry.against_record, entry.account_id, claim.starts, claim.ends],
+  );
 }
 
 /** One line of the differences: an entry beside its shift, or a shift with nothing recorded. */

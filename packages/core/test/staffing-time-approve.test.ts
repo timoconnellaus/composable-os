@@ -226,6 +226,8 @@ const enter = (
   extra: Record<string, unknown> = {},
 ) => call("enter", { startsAt, endsAt, against, ...extra }, user);
 const shiftRef = (id: string) => ({ object: DUTY, id });
+const plus = (iso: string, minutes: number) =>
+  new Date(Date.parse(iso) + minutes * 60_000).toISOString();
 
 beforeAll(async () => {
   admin = await createUser("admin");
@@ -489,7 +491,7 @@ describe("approving, rejecting, reopening", () => {
     });
   });
 
-  it("rejected: the person is told (not why), corrects it, and it waits again or matches", async () => {
+  it("rejected: the person is told (not why), corrects it, and it waits for an approver again", async () => {
     const who = await named("Cleaner H");
     const shift = await duty(who, syd("2026-09-29T09:00"), syd("2026-09-29T13:00"));
     const e = await enter(who, "2026-09-29T07:00", "2026-09-29T13:00", shiftRef(shift));
@@ -503,12 +505,14 @@ describe("approving, rejecting, reopening", () => {
       "SELECT count(*) AS n FROM core_audit WHERE operation = 'staffing.time.reject' AND (input LIKE '%nine%' OR result LIKE '%nine%')",
     ).first<{ n: number }>();
     expect(audit?.n).toBe(0);
-    // Rejected once more after a correction that still differs; then corrected to match.
+    // Rejected once more after a correction that still differs; then corrected to match: an
+    // approver sent it back, so an approver decides it, never the host (the review of PR #417).
     const still = await call("edit", { id: e.id, startsAt: "2026-09-29T08:00" }, who);
     expect(still.entry).toMatchObject({ state: "waiting", rejectedWhy: null });
     await call("reject", { id: e.id, why: "Still not right" }, manager);
     const fixed = await call("edit", { id: e.id, startsAt: "2026-09-29T09:00" }, who);
-    expect(fixed.entry).toMatchObject({ state: "approved", approval: { by: "host" } });
+    expect(fixed.entry).toMatchObject({ state: "waiting", approval: null });
+    await call("approve", { ids: [e.id] }, manager);
     expect((await refusal(call("reject", { id: e.id, why: "x" }, manager))).details).toMatchObject({
       rule: "time_not_waiting",
     });
@@ -715,5 +719,169 @@ describe("differences from the roster", () => {
       (await refusal(call("differences", { from: "2026-08-01", to: "2026-10-06" }, manager)))
         .details,
     ).toMatchObject({ field: "to" });
+  });
+});
+
+describe("the review of PR #417", () => {
+  it("an entry an approver sent back is never approved by the host, even with only its note changed", async () => {
+    const who = await named("Cleaner R1");
+    const shift = await duty(who, syd("2026-10-01T15:00"), syd("2026-10-01T17:00"));
+    const e = await enter(who, "2026-10-01T15:00", "2026-10-01T17:00", shiftRef(shift));
+    expect(e.entry.state).toBe("approved");
+    // Reopened, then sent back: the person's note alone does not get it approved by the host.
+    await call("reopen", { id: e.id, why: "You were not here" }, manager);
+    await call("reject", { id: e.id, why: "You were not here at all" }, manager);
+    const edited = await call("edit", { id: e.id, note: "I was" }, who);
+    expect(edited.entry).toMatchObject({ state: "waiting", approval: null });
+    expect((await row(e.id))?.approved_by).toBeNull();
+    // A matching entry sent back with no reopen: the same.
+    const other = await duty(who, syd("2026-10-02T15:00"), syd("2026-10-02T17:00"));
+    const f = await enter(who, "2026-10-02T15:00", "2026-10-02T17:20", shiftRef(other));
+    await call("reject", { id: f.id, why: "Check the finish" }, manager);
+    const corrected = await call("edit", { id: f.id, endsAt: "2026-10-02T17:00" }, who);
+    expect(corrected.entry.state).toBe("waiting");
+  });
+
+  it("an entry an approver reopened or sent back is not withdrawn and entered again", async () => {
+    const who = await named("Cleaner R2");
+    const shift = await duty(who, syd("2026-10-01T15:00"), syd("2026-10-01T17:00"));
+    const e = await enter(who, "2026-10-01T15:00", "2026-10-01T17:00", shiftRef(shift));
+    await call("reopen", { id: e.id, why: "Check it" }, manager);
+    expect((await refusal(call("withdraw", { id: e.id }, who))).details).toMatchObject({
+      rule: "time_held",
+    });
+    await call("reject", { id: e.id, why: "Not here" }, manager);
+    expect((await refusal(call("withdraw", { id: e.id }, who))).details).toMatchObject({
+      rule: "time_held",
+    });
+    expect(await row(e.id)).toBeTruthy();
+    // An entry nobody has looked at is still the person's to withdraw.
+    const g = await enter(who, "2026-10-02T15:00", "2026-10-02T16:00", null);
+    expect(await call("withdraw", { id: g.id }, who)).toEqual({ id: g.id });
+  });
+
+  it("the differences say nothing about why: no note and no approver's reason", async () => {
+    const who = await named("Cleaner R3");
+    const e = await enter(who, "2026-10-01T15:00", "2026-10-01T16:00", null, {
+      note: "doctor appointment",
+    });
+    const waiting = await call<Differences>("waiting", { account: who.id }, manager);
+    expect(waiting.items[0]?.entry).toMatchObject({ id: e.id, note: "doctor appointment" });
+    await call("reject", { id: e.id, why: "medical reason secret" }, manager);
+    const read = await call<Differences>(
+      "differences",
+      { from: "2026-10-01", to: "2026-10-01", account: who.id },
+      manager,
+    );
+    expect(read.items).toHaveLength(1);
+    const text = JSON.stringify(read);
+    expect(text).not.toContain("doctor");
+    expect(text).not.toContain("secret");
+    expect(read.items[0]?.entry).not.toHaveProperty("note");
+    expect(read.items[0]?.entry).not.toHaveProperty("rejectedWhy");
+    expect(read.items[0]?.entry).not.toHaveProperty("reopenedWhy");
+  });
+
+  it("the notices name no approver and no time", async () => {
+    const who = await named("Cleaner R4");
+    const a = await enter(who, "2026-10-01T15:00", "2026-10-01T16:00", null);
+    const b = await enter(who, "2026-10-01T17:00", "2026-10-01T18:00", null);
+    await call("reject", { id: a.id, why: "Wrong" }, deputy);
+    await call(
+      "approve",
+      { ids: [b.id], changes: [{ id: b.id, endsAt: "2026-10-01T17:45" }] },
+      deputy,
+    );
+    const notices = await told(who);
+    expect(notices.map((n) => n.title)).toEqual([
+      "Your recorded time was sent back",
+      "Your recorded time was approved with changes",
+    ]);
+    const text = JSON.stringify(notices);
+    for (const word of ["Deputy", "Dee", "15:00", "17:", "2026"]) expect(text).not.toContain(word);
+  });
+
+  it("times the person rewrites on an approver's entry for them are theirs, and still wait", async () => {
+    const who = await named("Cleaner R5");
+    const made = await call(
+      "enterFor",
+      {
+        account: who.id,
+        startsAt: "2026-10-01T09:00",
+        endsAt: "2026-10-01T10:00",
+        why: "Flat phone",
+      },
+      manager,
+    );
+    const rewritten = await call(
+      "edit",
+      { id: made.id, startsAt: "2026-10-01T06:00", endsAt: "2026-10-01T18:00" },
+      who,
+    );
+    expect(rewritten.entry).toMatchObject({ how: "entered", state: "waiting" });
+    expect(await row(made.id)).toMatchObject({
+      how: "entered",
+      how_why: null,
+      made_by: who.id,
+      held: "person",
+    });
+  });
+
+  it("a correction after approval changed is what is recorded; a change of zone alone is refused", async () => {
+    const who = await named("Cleaner R6");
+    const e = await enter(who, "2026-10-01T08:00", "2026-10-01T12:00", null);
+    await call(
+      "approve",
+      { ids: [e.id], changes: [{ id: e.id, startsAt: "2026-10-01T08:15" }] },
+      manager,
+    );
+    await call("reopen", { id: e.id, why: "Check the start" }, manager);
+    await call("edit", { id: e.id, startsAt: "2026-10-01T08:30" }, who);
+    const done = await call<{ approved: Entry[] }>("approve", { ids: [e.id] }, manager);
+    expect(done.approved[0]).toMatchObject({ startsAt: syd("2026-10-01T08:30"), recorded: null });
+    expect(await row(e.id)).toMatchObject({ recorded_starts: null, recorded_ends: null });
+    const f = await enter(who, "2026-10-02T08:00", "2026-10-02T12:00", null);
+    expect(
+      (
+        await refusal(
+          call("approve", { ids: [f.id], changes: [{ id: f.id, zone: "UTC" }] }, manager),
+        )
+      ).details,
+    ).toMatchObject({ field: "changes" });
+  });
+
+  it("the tolerance is to the second: five minutes and one second late does not match", async () => {
+    const who = await named("Cleaner R7");
+    const shift = await duty(who, syd("2026-10-01T15:00"), syd("2026-10-01T17:00"));
+    await call("clockIn", { against: shiftRef(shift) }, who, plus(syd("2026-10-01T15:05"), 1 / 60));
+    const done = await call("clockOut", {}, who, syd("2026-10-01T17:00"));
+    expect(done.entry.state).toBe("waiting");
+    const read = await call<Differences>(
+      "differences",
+      { from: "2026-10-01", to: "2026-10-01", account: who.id },
+      manager,
+    );
+    expect(read.items[0]).toMatchObject({ startMinutes: 6, finishMinutes: 0, matches: false });
+    // With no tolerance, thirty seconds off is a difference too.
+    const other = await duty(who, syd("2026-10-02T15:00"), syd("2026-10-02T17:00"));
+    await setting({ matchMinutes: 0 });
+    try {
+      await call("clockIn", { against: shiftRef(other) }, who, plus(syd("2026-10-02T15:00"), 0.5));
+      const late = await call("clockOut", {}, who, syd("2026-10-02T17:00"));
+      expect(late.entry.state).toBe("waiting");
+    } finally {
+      await setting({});
+    }
+  });
+
+  it("a finish the host marked missing, entered afterwards, waits for an approver", async () => {
+    const who = await named("Cleaner R8");
+    const shift = await duty(who, syd("2026-10-01T15:00"), syd("2026-10-01T17:00"));
+    const start = await call("clockIn", { against: shiftRef(shift) }, who, syd("2026-10-01T15:00"));
+    await env.DB.prepare("UPDATE core_time_entry SET finish_missing = 1 WHERE id = ?")
+      .bind(start.id)
+      .run();
+    const fixed = await call("edit", { id: start.id, endsAt: "2026-10-01T17:00" }, who);
+    expect(fixed.entry).toMatchObject({ state: "waiting", approval: null });
   });
 });

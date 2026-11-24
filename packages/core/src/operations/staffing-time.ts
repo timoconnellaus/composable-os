@@ -100,6 +100,7 @@ export function unchanged(
     eb("against_record", "is", entry.against_record),
     eb("note", "is", entry.note),
     eb("finish_missing", "=", entry.finish_missing),
+    eb("held", "is", entry.held),
     eb("updated_at", "=", entry.updated_at),
   ]);
 }
@@ -257,6 +258,7 @@ export function rowOf(values: Partial<StoredEntry> & Pick<StoredEntry, "id">, ba
     approved_by: null,
     approved_at: null,
     rejected_why: null,
+    held: null,
     reopened_why: null,
     note: null,
     start_key: null,
@@ -274,9 +276,11 @@ export function rowOf(values: Partial<StoredEntry> & Pick<StoredEntry, "id">, ba
  */
 async function finishedState(ctx: HandlerContext, row: StoredEntry) {
   const { matchMinutes } = await timeSettings(ctx.db);
-  return (await hostApproves(ctx.db, row, matchMinutes))
-    ? { state: "approved" as const, approved_by: HOST, approved_at: ctx.now }
-    : { state: "waiting" as const };
+  const guard = await hostApproves(ctx.db, row, matchMinutes);
+  if (!guard) return { state: "waiting" as const };
+  // In the write's batch: the shift's claim is still the one it matched.
+  ctx.write(guard);
+  return { state: "approved" as const, approved_by: HOST, approved_at: ctx.now };
 }
 
 // --- Start and finish ------------------------------------------------------------------------------
@@ -593,6 +597,7 @@ export const staffingTimeEdit = defineOperation({
         : await againstOf(ctx, input.against);
     if (timesChanged) await assertNoOverlap(ctx, account, starts, ends, entry.id);
     const finished = ends !== null;
+    const retimed = timesChanged || breakMins !== entry.break_minutes;
     const base = {
       starts,
       ends,
@@ -604,6 +609,20 @@ export const staffingTimeEdit = defineOperation({
         : {}),
       // Times the person typed are not the host's clock.
       ...(timesChanged && entry.how === "clocked" ? { how: "entered" as const } : {}),
+      // Times the person rewrote on an approver's entry for them are theirs now, not the
+      // approver's: entered, made by them (ADR 0851), and still held for an approver.
+      ...(retimed && entry.how === "by_approver"
+        ? { how: "entered" as const, how_why: null, made_by: account }
+        : {}),
+      // The person's own correction is what they recorded: an earlier approval's change is not
+      // kept beside times it never saw.
+      ...(retimed
+        ? { recorded_starts: null, recorded_ends: null, recorded_break_minutes: null }
+        : {}),
+      // A finish the host had marked missing, entered afterwards, waits for an approver.
+      ...(finished && entry.finish_missing === 1
+        ? { held: entry.held ?? ("person" as const) }
+        : {}),
       finish_missing: finished ? 0 : entry.finish_missing,
       ...(entry.state === "rejected" ? { rejected_why: null } : {}),
       ...(input.note !== undefined ? { note: input.note || null } : {}),
@@ -647,6 +666,14 @@ export const staffingTimeWithdraw = defineOperation({
     await assertTimeCall(ctx, "staffing.time.withdraw");
     const entry = await ownEntry(ctx, input.id);
     const missing = entry.state === "open" && entry.finish_missing === 1;
+    if (entry.held === "approver") {
+      // Sent back or reopened by an approver: corrected, never deleted and entered again for the
+      // host to approve on a match (ADR 0851).
+      throw new ConflictError(
+        "An approver has looked at this entry, so it is corrected rather than withdrawn.",
+        { rule: "time_held" },
+      );
+    }
     if (entry.state !== "waiting" && entry.state !== "rejected" && !missing) {
       throw new ConflictError(
         entry.state === "open"

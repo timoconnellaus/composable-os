@@ -18,40 +18,53 @@ approves their own time (decision 12).
 
 ## Decision
 
-- **The difference** of an entry against a shift is, at each end, the whole minutes (truncated
-  toward zero) from the shift's own start and end (its claim less its margins, ADR 0760) to the
-  entry's: positive later, negative earlier. Worked on instants, so an entry across midnight and a
+- **The difference** of an entry against a shift is, at each end, the minutes from the shift's
+  own start and end (its claim less its margins, ADR 0760) to the entry's, any part of a minute
+  counting as one (rounded away from zero): positive later, negative earlier. Worked on instants, so an entry across midnight and a
   clock change is compared as the time really worked. An entry **matches** when both ends are
   within the **tolerance**: Rostering's setting `matchMinutes` (5 by default, 0 to 30), read
   through `staffing.settings` beside the other recording settings. Exact seconds stay on the
-  entry; the tolerance decides only what shows as a difference and what the host approves. Five
-  minutes and fifty-nine seconds late shows as 5 and matches: a person reads whole minutes.
+  entry; the tolerance decides only what shows as a difference and what the host approves, to the
+  second: five minutes and one second late shows as 6 and does not match (acceptance criterion 6,
+  "within 5 minutes"; the review of PR #417), and with a tolerance of 0 only exact times match.
 - **`staffing.time.differences { from, to, account? }`** (at most 62 local dates, the
   organisation's zone): each entry dated in the range beside its shift (its two differences,
   matches or not), **unrostered** for an entry against no live shift of the person's (a job, other
   work, or a shift cancelled or given to someone else since), **long** for one over 12 hours, and
   **not recorded** for each past live covered shift of someone counted **by time** on its local
   date, with no entry approved, waiting or open against it (whatever the entry's date) and not
-  marked not worked. A by-class coach or someone not counted is never flagged. **Set-based**
+  marked not worked. A by-class coach or someone not counted is never flagged. **Nothing about
+  why**: an entry here carries no note and no approver's reason (`waiting`, what an approver
+  decides, carries the note and why it was reopened). **Set-based**
   (`staffing/sets.ts`): the basis rows of everyone counted by time (one read), their claims (one
   read per hundred people), the range's entries (one read), the shifts' claims, what is recorded
   against the candidates, the not-worked marks and the titles (one read per object each), the
-  names (one per hundred): 24 statements for 30 people over 62 days, the same over 7, and the rows
-  read grow with the range, never the history (`staffing-time-approve-cost.test.ts`). Nothing
+  names (one per hundred): 24 statements for 30 people over 62 days, exactly as many as over 7, and
+  the rows read grow with the range, never the history (`staffing-time-approve-cost.test.ts`
+  pins both). Nothing
   about why. **`staffing.time.waiting`** is the same read of the entries that wait (default the
   last 62 days), with no not-recorded lines.
 - **Approval on a match** (decision 5): an entry the person finishes (`clockOut`), enters
   (`enter`) or corrects (`edit`) that is against one of their own live shifts and matches it is
   approved by the host in the same write (`approved_by = 'host'`, answered as
   `approval: { by: "host" }`, "approved: matched the roster"). Time with no shift (a job, other
-  work) always waits for a person, as does an entry an approver entered for someone and one an
-  approver reopened. The match is read when the entry is written: a shift moved a moment before
-  the batch commits may leave an entry approved against the times it had.
+  work) always waits for a person. So does an entry **held** (`core_time_entry.held`, migration
+  1273, never cleared): `person` for an approver's entry for someone (and when its person rewrites
+  its times: they become `entered` and the person's, `how_why` cleared, still held) and for a
+  finish the host had marked missing that the person entered afterwards (nobody else saw it);
+  `approver` once an approver has sent it back or reopened it, so neither a correction (even of the
+  note alone) nor withdrawing it and entering the same times again gets it approved by the host:
+  **a held `approver` entry is never withdrawn** by its person, only corrected (`time_held`). The
+  claim matched is guarded in the write's batch (`core_staff_guard`): a shift moved or given to
+  someone else after the read fails the write whole.
 - **An approver decides** (`rostering:manage`: whoever rosters, decision 12):
   - **`staffing.time.approve { ids, changes? }`**: up to 100 waiting entries in one batch, each as
-    it is or, when `changes` names it, changed (start, finish, break, a zone). **Approved changed
-    keeps both**: the times as first recorded go to `recorded_starts`, `recorded_ends` and
-    `recorded_break_minutes` and stay there however often it is reopened and changed again. A
+    it is or, when `changes` names it, changed (start, finish, break, and a zone for them; a zone
+    alone is refused). **Approved changed keeps both**: the times as recorded go to
+    `recorded_starts`, `recorded_ends` and `recorded_break_minutes` and stay there however often
+    it is reopened and changed again by an approver; a correction its person makes after a reopen
+    is what they recorded, so it clears them (the approved times would otherwise read as changed
+    from times this approval never saw). A
     change is checked as entered time is (finished, at most 24 hours, the break shorter than the
     time, no overlap, not into a locked period) but not against the days-back setting. **All or
     none**: each update is guarded on the entry exactly as it was read (`core_staff_changed`), so
@@ -78,8 +91,9 @@ approves their own time (decision 12).
   or MCP is refused whatever is granted, reads included. Recording must be switched on
   (`recordsTime`).
 - **What is kept out**: no note, why or changed time reaches the audit log (redacted; summaries
-  name the entries and whose), and no why or time reaches a notice. The person is told when their
-  time is sent back ("See why and correct it in My time") or approved changed. Reads of waiting
+  name the entries and whose), and no why, time or approver's name reaches a notice. The person is
+  told when their time is sent back ("See which, and why, and correct it in My time") or approved
+  changed, and reads the rest in My time. Reads of waiting
   entries and differences are audited as reads.
 - **The approver's answer says "host" or "approver"** for who approved, not a name: a person's own
   reads never name the colleague who approved them (as `myPay` hides who took the list). Step 3's
@@ -93,6 +107,12 @@ approves their own time (decision 12).
   outside tests calls them.
 - **Not recorded** is flagged from the first counted date in the range, not yet from the date pay
   starts counting recorded hours: `recordedFrom` is step 3's setting (ADR 0852), which narrows it.
+- `approve`, `reject` and `reopen` read whether a pay period is locked before the write; nothing
+  refuses an entry's change inside a lock committed meanwhile until step 3's triggers (migration
+  1272), which pay must have before it counts entries.
+- **The withdraw of a rejected entry differs from the spec's state table** (waiting or rejected
+  may be withdrawn): a rejected entry is corrected, and an approver decides it; a rejected entry
+  is never counted for pay and never blocks a lock.
 - The daily summary of waiting entries to approvers at 07:00 is not built in this step; it is the
   host's notice, for step 5 beside the notification words or for the coordinator to place.
 - An entry's shift proposal (`staffing.time.clockIn`, `mine`) now gives the shift's own time, not
@@ -105,7 +125,8 @@ approves their own time (decision 12).
   differs (decision 5).
 - **Comparing rounded hours, or the minutes worked**: an entry can be the right length at the
   wrong time; both ends are compared, and nothing is rounded beyond showing whole minutes.
-- **Approving on a match while an approver has reopened it**: the reopen says a person wants to
-  look; the host approving it again on the person's next correction would undo that.
+- **Approving on a match once an approver has sent it back or reopened it**: the approver said a
+  person wants to look; the host approving it on the person's next correction, or on the same
+  times entered again, would undo that.
 - **Overwriting the recorded times when approved changed**: the person's record of what they
   worked would be lost; both are kept, and pay (step 3) counts the approved ones.
