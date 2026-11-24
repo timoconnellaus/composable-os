@@ -15,45 +15,11 @@ import {
 } from "../src/index.ts";
 import { testRunner } from "./ai-helpers.ts";
 import { createUser } from "./helpers.ts";
+import { meterRowsRead } from "./rows-read-meter.ts";
 
 const PEOPLE = 3000;
-let rowsRead = 0;
-
-/** env.DB, counting meta.rows_read for every statement Kysely runs. */
-const metered = new Proxy(env.DB, {
-  get(target, prop) {
-    if (prop === "prepare") {
-      return (query: string) => {
-        const wrap = (stmt: D1PreparedStatement): D1PreparedStatement =>
-          new Proxy(stmt, {
-            get(s, p) {
-              if (p === "bind") return (...args: unknown[]) => wrap(s.bind(...args));
-              if (p === "all" || p === "run") {
-                return async () => {
-                  const result = await (s[p] as () => Promise<D1Result>)();
-                  rowsRead += result.meta.rows_read;
-                  return result;
-                };
-              }
-              const value = Reflect.get(s, p);
-              return typeof value === "function" ? value.bind(s) : value;
-            },
-          });
-        return wrap(target.prepare(query));
-      };
-    }
-    if (prop === "batch") {
-      return async (statements: D1PreparedStatement[]) => {
-        const results = await target.batch(statements);
-        for (const r of results) rowsRead += r.meta.rows_read;
-        return results;
-      };
-    }
-    const value = Reflect.get(target, prop);
-    return typeof value === "function" ? value.bind(target) : value;
-  },
-});
-const db = createCrmDb(metered);
+const meter = meterRowsRead(env.DB);
+const db = createCrmDb(meter.db);
 const { models } = testRunner();
 const vectors = memoryVectorStore();
 
@@ -66,10 +32,12 @@ function ctx(): InvocationContext {
   return { actor: "human", user: member, origin: { surface: "ui" }, db, models, vectors };
 }
 
+/** The rows a call reads itself. A cold call may scan sqlite_master once (the schema cache). */
 async function measure(name: string, input: unknown): Promise<number> {
-  rowsRead = 0;
+  meter.reset();
   await invokeByName(name, input, ctx());
-  return rowsRead;
+  expect(meter.schemaScans, name).toBeLessThanOrEqual(1);
+  return meter.rows;
 }
 
 beforeAll(async () => {
@@ -95,31 +63,10 @@ beforeAll(async () => {
 
 describe("rows read on the AI paths", () => {
   it("summary.get reads the record, its links and the cache row by key", async () => {
-    // The budget includes one read of sqlite_master, which grows by a row per table and index:
-    // migration 0401 (customer accounts) added 13 and took this from 389 to 402 rows; stages 23,
-    // 25 and 26 (migrations 0410 to 0441) took it to about 454; stage 28's four content tables
-    // and their indexes (migration 0460) to about 480; stage 42's media tables (migration 0510)
-    // to about 501; stage 32a's offers (migration 0532) to about 524; stage 32b's allowances
-    // (migration 0533) and stage 31's recurring bookkeeping and write guard (migration 0560:
-    // three tables, two indexes, a trigger) to about 544; stage 32b's plan changes (migration 0630)
-    // and stage 31a's family link (migration 0650: two tables, two indexes, three triggers) to
-    // about 565; stage 44's agreement documents (migration 0850: four tables, two indexes, ten
-    // triggers, an autoindex for the version's unique key) to about 588; stage 44's acceptances
-    // (migration 0851: four tables, three indexes, ten triggers, the write guard made again) to
-    // about 615; stage 45's time claim (migration 0811: three tables, three indexes, two triggers)
-    // to about 635; stage 44's enforcement (migration 0853: three triggers) to about 638; routine
-    // mail's log and marks (migration 0750) to about 655; stage 45's offers (migration 0812: four
-    // tables, five indexes, three triggers) to about 661; stage 44 step 4's copies (migration
-    // 0854) and stage 45's pay periods (migration 0813: four tables, five indexes, twelve
-    // triggers) to about 691; stage 45's checklists (migration 0815: five tables, seven indexes, ten
-    // triggers) to about 728; a child's paper copy to the guardian (migration 0857: an index, four
-    // triggers) to about 744; stage 44 step 7's cooling off (migration 0856: a column, a table,
-    // four indexes and its key's autoindex, three triggers): 742 measured on the merged tree; main
-    // with stage 49's thing time (migration 1095) measured 767, and stage 54's restricted values
-    // (migration 1190: one table) 768.
+    // About 20 rows of its own; the cold call's one scan of sqlite_master is counted apart.
     expect(
       await measure("summary.get", { subject: { kind: "record", object: "person", id: personId } }),
-    ).toBeLessThan(780);
+    ).toBeLessThan(60);
     expect(
       await measure("summary.get", {
         subject: { kind: "record", object: "organisation", id: orgId },
@@ -142,12 +89,11 @@ describe("rows read on the AI paths", () => {
   });
 
   it("a write adds one queue row, and a drain round reads its batch by key", async () => {
-    rowsRead = 0;
-    await invokeByName("person.update", { id: personId, location: "Lisbon" }, ctx());
-    expect(rowsRead).toBeLessThan(400);
-    rowsRead = 0;
+    expect(await measure("person.update", { id: personId, location: "Lisbon" })).toBeLessThan(400);
+    meter.reset();
     const out = await drainEmbeddingQueue({ db, models, vectors });
     expect(out.embedded).toBe(1);
-    expect(rowsRead).toBeLessThan(200);
+    expect(meter.schemaScans).toBe(0);
+    expect(meter.rows).toBeLessThan(200);
   });
 });
