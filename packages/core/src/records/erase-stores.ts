@@ -1021,8 +1021,9 @@ export async function queueEraseOrders(ctx: HandlerContext, s: StoreSubject): Pr
       .where(sql<SqlBool>`(${theirSubscription}) OR payer_person_id IN ${ids}`),
   );
   // On any checkout or subscription they are on (payer or holder), an address of their own goes;
-  // nothing else of the other Person's is touched. A live subscription whose payer is erased
-  // keeps billing as the provider runs it (ADR 0646: left for later).
+  // nothing else of the other Person's is touched here. A live subscription they are on is ended
+  // at the provider by person.erase itself (subscriptions/erase.ts, ADR 0533), and a checkout left
+  // open for a live payer makes nothing if its erased holder's is confirmed later (events.ts).
   const onIt = sql<SqlBool>`(payer_person_id IN ${ids} OR holder_person_id IN ${ids})
     AND email IS NOT NULL AND lower(email) IN ${addresses}`;
   ctx.write(

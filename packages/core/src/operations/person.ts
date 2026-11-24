@@ -1376,13 +1376,15 @@ export const personErase = defineOperation({
     subscriptionsEnding: z
       .object({
         atPeriodEnd: z.number().describe("Asked to end when the period already paid for ends"),
-        now: z.number().describe("Asked to end at once (paused, unpaid, or waiting for a payment)"),
+        now: z
+          .number()
+          .describe("Asked to end at once (past due, paused, unpaid, or waiting for a payment)"),
         leftForStaff: z
           .number()
           .describe("Could not be asked at the provider: the admins are told to end them"),
       })
       .describe(
-        "Their subscriptions, as payer or holder (issue #293, ADR 0649): nothing is refunded",
+        "Their subscriptions, as payer or holder (issue #293, ADR 0533): nothing is refunded",
       ),
   }),
   permission: "records:erase",
@@ -1410,22 +1412,26 @@ export const personErase = defineOperation({
       names: subject.names,
       addresses: subject.addresses,
     });
-    // Their subscriptions end as a member's own deletion ends them (ADR 0649): asked at the
+    // Their subscriptions end as a member's own deletion ends them (ADR 0533): asked at the
     // provider now, once nothing else of the erase can refuse, and before the commit clears who
-    // is on them.
-    const subscriptionsEnding = await endErasedSubscriptions(ctx, ids);
+    // is on them; a checkout of theirs confirmed meanwhile is asked after the commit.
+    const subscriptions = await endErasedSubscriptions(ctx, ids);
     for (const id of ids) ctx.recordChange({ object: "person", id, action: "erase", diff: {} });
-    return ctx.afterCommit(async () => ({
-      id: input.id,
-      erased: ids,
-      activitiesDeleted: counts.activities,
-      tasksDeleted: counts.tasks,
-      auditRowsRedacted: await countRedactions(ctx.db, "person", input.id),
-      conversationsScrubbed: counts.conversations,
-      ...(await afterErase(ctx, counts)),
-      dependantsWithoutGuardian: leftAlone,
-      subscriptionsEnding,
-    }));
+    return ctx.afterCommit(async () => {
+      // The erase has committed: a failure here must not report it as failed.
+      await subscriptions.afterCommit().catch(() => {});
+      return {
+        id: input.id,
+        erased: ids,
+        activitiesDeleted: counts.activities,
+        tasksDeleted: counts.tasks,
+        auditRowsRedacted: await countRedactions(ctx.db, "person", input.id),
+        conversationsScrubbed: counts.conversations,
+        ...(await afterErase(ctx, counts)),
+        dependantsWithoutGuardian: leftAlone,
+        subscriptionsEnding: subscriptions.counts,
+      };
+    });
   },
 });
 

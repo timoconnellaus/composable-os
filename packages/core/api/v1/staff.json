@@ -46272,7 +46272,7 @@
               },
               "now": {
                 "type": "number",
-                "description": "Asked to end at once (paused, unpaid, or waiting for a payment)"
+                "description": "Asked to end at once (past due, paused, unpaid, or waiting for a payment)"
               },
               "leftForStaff": {
                 "type": "number",
@@ -46285,7 +46285,7 @@
               "leftForStaff"
             ],
             "additionalProperties": false,
-            "description": "Their subscriptions, as payer or holder (issue #293, ADR 0649): nothing is refunded"
+            "description": "Their subscriptions, as payer or holder (issue #293, ADR 0533): nothing is refunded"
           }
         },
         "required": [

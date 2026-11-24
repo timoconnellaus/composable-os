@@ -29,6 +29,7 @@ import { taxCodeOf } from "../orders/tax.ts";
 import { holdsPermission } from "../principals.ts";
 import { callerOf } from "../records/transitions.ts";
 import { coolingOffDaysNow } from "./cooling-off.ts";
+import { refuseWithoutBoth } from "./erase.ts";
 import { loadSubscriptionRow, type SubscriptionRow } from "./events.ts";
 import { holdOfferStatements, prepareOfferTake } from "./offers.ts";
 import {
@@ -471,6 +472,7 @@ export async function cancelNow(
 
 /** Asks the provider to keep `row` going: undoes its end at the period's end, before it comes. */
 export async function resumeSubscription(ctx: HandlerContext, row: SubscriptionRow): Promise<void> {
+  refuseWithoutBoth(row);
   // An end date set at the provider another way (its dashboard) is not undone by setting
   // cancel_at_period_end back, which is all resume asks (Stripe's documented way to stop a
   // pending cancellation); taking a date away changes the period and prorates, which is staff's

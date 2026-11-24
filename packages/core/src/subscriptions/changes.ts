@@ -36,6 +36,7 @@ import { callSubscriptionGatekeeper, paymentsTarget } from "../orders/gateway.ts
 import { grantFieldValue, readGrantItem } from "../orders/grants.ts";
 import { formatMoney, priceLines } from "../orders/orders.ts";
 import { callerOf } from "../records/transitions.ts";
+import { refuseWithoutBoth } from "./erase.ts";
 import type { SubscriptionRow } from "./events.ts";
 
 export type ChangeRow = Selectable<CoreSubscriptionChangeTable>;
@@ -597,6 +598,7 @@ export async function requestUnpause(
   if (ctx.principal.kind !== "staff") {
     throw new ValidationError("Only staff end a pause", { rule: "staff" });
   }
+  refuseWithoutBoth(row);
   const { open, stale } = await openChange(ctx.db, row.id, ctx.now);
   const asked = open ?? stale;
   const scheduled = asked?.kind === "pause" ? asked : null;
