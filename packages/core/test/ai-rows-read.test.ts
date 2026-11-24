@@ -113,7 +113,8 @@ describe("rows read on the AI paths", () => {
     // 0854) and stage 45's pay periods (migration 0813: four tables, five indexes, twelve
     // triggers) to about 691; stage 45's checklists (migration 0815: five tables, seven indexes, ten
     // triggers) to about 728; a child's paper copy to the guardian (migration 0857: an index, four
-    // triggers) to about 744.
+    // triggers) to about 744; stage 44 step 7's cooling off (migration 0856: a column, a table,
+    // four indexes and its key's autoindex, three triggers): 742 measured on the merged tree.
     expect(
       await measure("summary.get", { subject: { kind: "record", object: "person", id: personId } }),
     ).toBeLessThan(760);
