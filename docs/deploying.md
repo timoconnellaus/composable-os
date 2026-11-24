@@ -522,7 +522,19 @@ each release. It publishes nothing until a person turns it on:
 
 This was done for this repository on 2026-11-22; `v0.1.0-beta.8` was the first release the
 workflow published. A package added later (a new pack) needs steps 2 and 3 once, before the
-release that first carries it, or that release's `npm` job fails on it.
+release that first carries it. The release workflow checks this in its `build` job, before the
+release goes public, and stops naming each package that is not on npm yet.
+`scripts/release/test/release-completeness.test.ts` fails when a folder under `packs/` is not
+built as an npm package and carried by the bundle, or a folder under `blocks/` or
+`packs/*/blocks/` is not a block in the client kit, unless its allow-list there says why.
+
+**Dist-tags.** A beta release publishes with `--tag beta`, a stable one with `--tag latest`; the
+workflow never moves a tag otherwise. npm gives a package's first version the `latest` tag too,
+whatever `--tag` says, so until the first stable release `latest` stays on the version first
+published by hand (`0.1.0-beta.7` for the packages of 2026-11-22, later for a pack added after)
+while `beta` follows each beta. That is intended: `latest` is for stable releases. Ask for a beta
+by its tag (`npx @composable-os/cli@beta`, `@composable-os/pack-<id>@beta`); a client repo pins
+exact versions, so it is not affected.
 
 ## Option 1 (recommended): `npx @composable-os/cli install`
 
@@ -542,7 +554,8 @@ node packages/create-composable-os/dist/cli.js install    # or upgrade / rollbac
 ```
 
 Everywhere this guide says `npx @composable-os/cli install`, use `node packages/create-composable-os/dist/cli.js install` for now.
-The release workflow publishes it only when an `NPM_TOKEN` secret is set (the name `create-crm` was taken on npm).
+Until the first stable release, `npx @composable-os/cli@beta install` gets the newest beta ("Dist-tags" under
+"Publishing to npm" above).
 
 It asks for, in order:
 
