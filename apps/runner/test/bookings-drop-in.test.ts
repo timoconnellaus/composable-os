@@ -17,7 +17,6 @@ import { env, exports } from "cloudflare:workers";
 import {
   type ActingUser,
   type CustomerPrincipal,
-  type ExtensionHost,
   type InvocationContext,
   type OutsideInvocationContext,
   onRecordMove,
@@ -29,33 +28,8 @@ import {
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { integrationRuntime } from "../src/integrations/runtime.ts";
 import { setPreset } from "./automation-fixture.ts";
-import { createAdmin, db, host, newCustomer, refusal, run, unique } from "./helpers.ts";
-import { packFiles } from "./pack-files.ts";
-
-const files: Record<string, Record<string, string>> = {
-  programs: packFiles("programs"),
-  bookings: packFiles("bookings"),
-  memberships: packFiles("memberships"),
-};
-const OURS = new Set(Object.keys(files));
-const shippedHost: ExtensionHost = {
-  ...host,
-  shipped: async () => [
-    ...(await host.shipped()).filter((s) => !OURS.has(s.id)),
-    { id: "bookings", version: "0.1.0" },
-    { id: "memberships", version: "0.1.0" },
-    { id: "programs", version: "0.1.0" },
-  ],
-  commitShipped: (id) =>
-    files[id]
-      ? host.commit({
-          id,
-          files: files[id] as Record<string, string>,
-          message: `Shipped ${id} 0.1.0`,
-          author: { name: "Composable OS", email: "release@composableos.dev" },
-        })
-      : host.commitShipped(id),
-};
+import { createAdmin, db, newCustomer, refusal, run, unique } from "./helpers.ts";
+import { gymHost as shippedHost } from "./pack-files.ts";
 
 const integrations = integrationRuntime(env);
 const runner = exports.default as unknown as {
