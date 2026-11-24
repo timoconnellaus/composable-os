@@ -62,6 +62,7 @@ export interface SubmitInput {
   id: string;
   answers: Record<string, unknown>;
   via?: IntakeVia | undefined;
+  version?: number | undefined;
   turnstileToken?: string | undefined;
   shown?: string | undefined;
   honeypot?: string | undefined;
@@ -114,7 +115,10 @@ async function tellAdmins(ctx: HandlerContext, title: string, body: string, dedu
 const columnOf = (object: ObjectDefinition, name: string) =>
   object.fields.find((f) => f.name === name)?.column ?? null;
 
-/** Submissions of `object` made since `since`, of one form when given. */
+/**
+ * Live submissions of `object` made since `since`, of one form when given. `deleted_at IS NULL`
+ * lets the query use the object's indexes, which are all partial on it (the reconciler's).
+ */
 async function countSince(
   ctx: HandlerContext,
   object: ObjectDefinition,
@@ -126,7 +130,8 @@ async function countSince(
   if (!table) return 0;
   const row = await sql<{ n: number }>`
     SELECT count(*) AS n FROM ${sql.table(table)}
-    WHERE created_at > ${since} ${form ? sql`AND ${sql.ref(formColumn)} = ${form}` : sql``}
+    WHERE deleted_at IS NULL AND created_at > ${since}
+      ${form ? sql`AND ${sql.ref(formColumn)} = ${form}` : sql``}
   `.execute(ctx.db);
   return Number(row.rows[0]?.n ?? 0);
 }
@@ -184,7 +189,7 @@ async function mailboxOverLimit(ctx: HandlerContext, form: OpenForm, email: stri
   const rows = await sql<{ email: string | null }>`
     SELECT json_extract(j.value, '$.value') AS email
     FROM ${sql.table(table)} AS t, json_each(t.${sql.ref(answersColumn)}, '$.answers') AS j
-    WHERE t.${sql.ref(formColumn)} = ${form.id} AND t.created_at > ${since}
+    WHERE t.deleted_at IS NULL AND t.${sql.ref(formColumn)} = ${form.id} AND t.created_at > ${since}
       AND json_extract(j.value, '$.kind') = 'email'
     LIMIT 5000
   `.execute(ctx.db);
@@ -200,11 +205,18 @@ async function mailboxOverLimit(ctx: HandlerContext, form: OpenForm, email: stri
 }
 
 /** The answers the destination's listed fields take, from the questions that map to them. */
-function destinationValues(questions: Questions, answers: Answers): Record<string, unknown> {
+function destinationValues(
+  questions: Questions,
+  answers: Answers,
+  listed: readonly string[],
+): Record<string, unknown> {
   const out: Record<string, unknown> = {};
   for (const item of questions.items) {
     const map = "map" in item ? item.map : undefined;
     if (map?.to !== "destination") continue;
+    // Only what the destination's intake lists now: never a field no declaration opened (a pack
+    // upgrade that lists fewer, a version mapped to another destination's fields).
+    if (!listed.includes(map.field)) continue;
     const answer = answers.answers.find((a) => a.key === item.key);
     if (!answer) continue;
     out[map.field] = answer.kind === "choice" ? (answer.values[0] ?? null) : answer.value;
@@ -254,6 +266,16 @@ export async function submitIntake(
 
   // 2. Published, open, within its dates and open to this caller.
   const form = await openForm(ctx, input.object, input.id, asker);
+  // Nothing of an anonymous form's call names the account, a refusal's audit row included
+  // (ADR 0725).
+  if (form.anonymous && asker === "customer") ctx.anonymise?.();
+  // The version the caller was shown (intake.open's): a form published again meanwhile, anonymous
+  // no longer or asking something else, is loaded again before anything is kept.
+  if (input.version !== undefined && input.version !== form.version) {
+    throw new ValidationError("This form has changed: load it again and send", {
+      rule: "intake_reload",
+    });
+  }
 
   // 3. Turnstile, for the public.
   const runtime = ctx.intake ?? NO_INTAKE_RUNTIME;
@@ -334,8 +356,6 @@ export async function submitIntake(
   // 7. The per-mailbox count, then the submitter's Person (none on an anonymous form). Spam makes
   // no Person and fills nothing: it is kept with the caller's own Person or none.
   const view = hostView(ctx, form.anonymous);
-  // Nothing of an anonymous submission names the account that sent it (ADR 0725).
-  if (form.anonymous && asker === "customer") ctx.anonymise?.();
   const given = form.anonymous ? {} : personAnswers(form.questions, answers);
   const typed = given.email && asker !== "customer" ? await usableAddress(ctx, given.email) : null;
   const spam =
@@ -379,7 +399,7 @@ export async function submitIntake(
       view,
       target,
       {
-        ...destinationValues(form.questions, answers),
+        ...destinationValues(form.questions, answers, target.intake.fields),
         [target.intake.person]: submitter.personId,
         ...(target.intake.source ? { [target.intake.source]: INTAKE_SOURCE } : {}),
       },

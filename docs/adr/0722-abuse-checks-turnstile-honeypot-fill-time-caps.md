@@ -33,6 +33,10 @@ limit; the platform's door needs its own checks, in the host, for every way in.
 7. **A sixth submission in 24 hours to one form from one mailbox** (`mailboxKey`, which folds
    `+tags` and dots) is kept in the submission's `spam` state and answered as a real one.
 
+The counts are of live submissions (`deleted_at IS NULL`), so they use the submission object's
+indexes, which the reconciler makes partial on it; the Forms pack declares indexes on `created_at`
+and the form (step 3). A trashed submission no longer counts.
+
 A notice that comes with a refusal (no secret, a cap) is written at once, outside the call's batch,
 so it survives the refusal; its dedupe key keeps it to once. The secret lives only in the runtime
 object the runner hands the `intake.*` handlers (`IntakeRuntime`, `packages/core/src/intake/`):
@@ -54,6 +58,9 @@ client's address.
   default; making it and spam retention settings is the Forms pack's (step 3).
 
 ## Consequences
+- The per-mailbox rule counts typed addresses: anyone who types a member's address five times to
+  one form makes the member's own next answer to it spam (answered as success, kept for staff to
+  mark as not spam). Accepted: the alternative, trusting a typed address, is worse.
 - A deployment opening a form to the public sets `TURNSTILE_SECRET_KEY` on cos-runner and puts the
   site key in its client app (`docs/deploying.md`, "Forms: Turnstile").
 - Turnstile with a real site key on a real hostname is not yet tried on a live host.

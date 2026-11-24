@@ -30,8 +30,17 @@ typed address to a Person (`resolveBuyer`); a form must match it the same way, w
   staff says it came from an unconfirmed address.
 - **Spam makes no Person.** A submission kept as spam (ADR 0722) is linked to the caller's own
   Person when signed in and to none otherwise, and fills nothing.
+- **Two first answers from one new address at once** each try to make a Person; the database keeps
+  one address to one live Person and refuses the second batch. That caller is told "your answers
+  were not kept: please send them again" (`conflict`, `rule: "intake_retry"`, through
+  `explainFailure`, which the pipeline now runs on outside calls as on staff ones); sent again,
+  it is matched to the first's Person.
 
 ## Consequences
+- A stranger's phone or name fills a member's empty phone or name (decision 7 allows it; staff see
+  the submission came from an unconfirmed address).
+- Until erase covers submissions (step 7), `person.erase` does not remove a Person's submissions or
+  the addresses typed in their answers. No shipped pack declares `intake` yet.
 - A stranger who types a member's address attaches a message to the member, which staff see as
   unconfirmed; nothing on the member's record changes and nothing is sent to them but, in step 5,
   the receipt.

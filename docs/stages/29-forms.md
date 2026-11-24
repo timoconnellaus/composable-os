@@ -37,7 +37,12 @@ interview.
   secret, so customers skip it as they skip Turnstile; `intake.open` is the core read a pack's
   `x.forms.form` calls; `notify` is one user (no field holds several); the hourly cap is the
   platform's 200 until step 3's settings; Turnstile off on a testing host is Cloudflare's test
-  keys, not a setting. Not yet tried on a live host.
+  keys, not a setting. After review: a submission's evidence (form, version, answers, certainty,
+  via, rating) is host-only and only the door creates one; `answeredBy`, `anonymous` and
+  `destination` are read from the published version; `intake.submit` takes the version shown;
+  destination fields are filtered by what the intake lists; an anonymous form forgets the caller
+  before any check; counts use `deleted_at IS NULL`; a raced first answer is told to send again.
+  Not yet tried on a live host.
 
 ## Goal
 

@@ -18,8 +18,10 @@ import {
   checkManifest,
   intakeRuntime,
   invoke,
+  listObjects,
   type OutsideInvocationContext,
   type PublicPrincipal,
+  setExtensionObjects,
 } from "../src/index.ts";
 import { erasedAddressHash } from "../src/records/erase-subject.ts";
 import { call, outside } from "./customer-fixtures.ts";
@@ -109,7 +111,9 @@ const formObject = {
       { from: "closed", to: "open", by: ["staff"] },
     ],
   },
-  publishable: { content: ["title", "questions", "thanks"] },
+  publishable: {
+    content: ["title", "questions", "thanks", "answeredBy", "anonymous", "destination"],
+  },
   intake: {
     role: "form",
     questions: "questions",
@@ -199,12 +203,27 @@ const enquiryObject = {
   intake: { role: "destination", person: "person", fields: ["subject"], source: "source" },
 };
 
+/** Another destination: its intake lists summary, not subject (finding 3 of the review). */
+const jobObject = {
+  label: "Job",
+  plural: "Jobs",
+  titleField: "summary",
+  fields: {
+    summary: { type: "text", label: "Summary" },
+    subject: { type: "text", label: "Internal subject" },
+    person: { type: "relation", label: "Person", to: "person" },
+  },
+  intake: { role: "destination", person: "person", fields: ["summary"] },
+};
+const JOB = `${EXT}.job`;
+
 const m = () =>
   manifest(EXT, {
     objects: {
       form: formObject,
       submission: submissionObject,
       enquiry: enquiryObject,
+      job: jobObject,
     } as never,
   });
 
@@ -411,6 +430,7 @@ describe("the intake declaration", () => {
         "objects.form.intake",
         "objects.submission.intake",
         "objects.enquiry.intake",
+        "objects.job.intake",
       ]),
     );
   });
@@ -1037,6 +1057,239 @@ describe("what one submission costs (D1: 1,000 statements a call, 100 bound valu
     expect(batched).toBeLessThan(40);
     expect(statements).toBeLessThan(100);
     expect(maxBound).toBeLessThan(100);
+  });
+});
+
+describe("the review of PR #376", () => {
+  async function submissionOf(form: string) {
+    const [row] = await submissionsOf(form);
+    return row as Record<string, unknown>;
+  }
+  const assistant = () => context(admin, { actor: "assistant" });
+
+  it("a submission's evidence is the host's: no staff write, AI or import changes or forges it (finding 1)", async () => {
+    const form = await makeForm();
+    await send(PUBLIC, form, { email: `${unique("ev")}@example.com`, news: false });
+    const row = await submissionOf(form);
+    const forged = {
+      answers: { answers: [{ kind: "consent", key: "news", value: true }] },
+      certainty: "account",
+    };
+    for (const ctx of [context(admin), assistant()]) {
+      for (const [field, value] of Object.entries({ ...forged, version: 9, via: "app" })) {
+        const error = await invoke(
+          "record.update",
+          { object: SUBMISSION, id: row.id as string, values: { [field]: value } },
+          ctx,
+        ).catch((e) => e);
+        expect(error, field).toMatchObject({
+          code: "invalid_input",
+          details: { rule: "intake_host_only" },
+        });
+      }
+      const created = await invoke(
+        "record.create",
+        {
+          object: SUBMISSION,
+          values: { form, version: 1, person: member.personId, ...forged },
+        },
+        ctx,
+      ).catch((e) => e);
+      expect(created).toMatchObject({ code: "invalid_input" });
+      const bare = await invoke(
+        "record.create",
+        { object: SUBMISSION, values: { note: "by hand" } },
+        ctx,
+      ).catch((e) => e);
+      expect(bare).toMatchObject({ details: { rule: "intake_host_only" } });
+    }
+    const after = await submissionOf(form);
+    expect(after).toMatchObject({ certainty: "address", version: 1, answers: row.answers });
+    // Its Person stays staff's to set (after a merge), and its state staff's to move.
+    await invoke(
+      "record.update",
+      {
+        object: SUBMISSION,
+        id: row.id as string,
+        values: { person: member.personId, status: "inHand" },
+      },
+      context(admin),
+    );
+    expect(await submissionOf(form)).toMatchObject({ person: member.personId, status: "inHand" });
+    expect(await submissionsOf(form)).toHaveLength(1);
+  });
+
+  it("anonymity and who may answer are the published version's, not an unpublished edit's (finding 2)", async () => {
+    const survey1 = await makeForm({ anonymous: true, questions: survey() });
+    await invoke(
+      "record.update",
+      { object: FORM, id: survey1, values: { anonymous: false } },
+      assistant(),
+    );
+    expect((await send(member, survey1, { score: 2, why: "The coach was rude" })).ok).toBe(true);
+    expect(await submissionOf(survey1)).toMatchObject({ person: null, created_by: "public" });
+
+    const staffOnly = await makeForm({ answeredBy: "staff" });
+    await invoke(
+      "record.update",
+      { object: FORM, id: staffOnly, values: { answeredBy: "public" } },
+      assistant(),
+    );
+    const sent = await send(PUBLIC, staffOnly, { email: `${unique("so")}@example.com` });
+    expect(sent).toMatchObject({ ok: false, error: { code: "not_found" } });
+  });
+
+  it("a submission sent to the version it was shown is refused once another is published", async () => {
+    const form = await makeForm();
+    const opened = await call(
+      "intake.open",
+      { object: FORM, id: form },
+      asCaller(member, later(1)),
+    );
+    expect(opened).toMatchObject({ ok: true, value: { version: 1 } });
+    await invoke("record.publish", { object: FORM, id: form }, context(admin));
+    const sent = await call(
+      "intake.submit",
+      { object: FORM, id: form, answers: { email: memberEmail }, version: 1 },
+      asCaller(member, later(10)),
+    );
+    expect(sent).toMatchObject({ ok: false, error: { details: { rule: "intake_reload" } } });
+    expect(await submissionsOf(form)).toHaveLength(0);
+  });
+
+  it("public answers fill only the fields the destination's intake lists (finding 3)", async () => {
+    const mapped = questions();
+    mapped.items.push({
+      kind: "text",
+      key: "about",
+      label: "About",
+      map: { to: "destination", field: "subject" },
+    });
+    const form = await makeForm({ questions: mapped, destination: ENQUIRY });
+    // An edit to another destination, not published: the version answered keeps its own.
+    const remapped = questions();
+    remapped.items.push({
+      kind: "text",
+      key: "about",
+      label: "About",
+      map: { to: "destination", field: "summary" },
+    });
+    await invoke(
+      "record.update",
+      { object: FORM, id: form, values: { destination: JOB, questions: remapped } },
+      context(admin),
+    );
+    const email = `${unique("dst")}@example.com`;
+    expect((await send(PUBLIC, form, { email, about: "public text" })).ok).toBe(true);
+    const person = await personByEmail(email);
+    const jobs = await env.DB.prepare(`SELECT * FROM x_${EXT}_job WHERE person = ?`)
+      .bind(person?.id)
+      .all();
+    expect(jobs.results).toHaveLength(0);
+    expect(
+      await env.DB.prepare(`SELECT subject FROM x_${EXT}_enquiry WHERE person = ?`)
+        .bind(person?.id)
+        .first(),
+    ).toMatchObject({ subject: "public text" });
+
+    // A pack upgrade that lists fewer fields: the published mapping fills nothing it no longer lists.
+    const form2 = await makeForm({ questions: mapped, destination: ENQUIRY });
+    const saved = new Map(listObjects().map((o) => [o.name, o]));
+    try {
+      setExtensionObjects(
+        new Map(
+          [...saved].map(([name, o]) => [
+            name,
+            name === ENQUIRY && o.intake?.role === "destination"
+              ? { ...o, intake: { ...o.intake, fields: [] } }
+              : o,
+          ]),
+        ),
+      );
+      const other = `${unique("dst2")}@example.com`;
+      expect((await send(PUBLIC, form2, { email: other, about: "unlisted now" })).ok).toBe(true);
+      const row = await env.DB.prepare(
+        `SELECT e.subject FROM x_${EXT}_enquiry e JOIN core_person_emails p ON p.person_id = e.person WHERE p.email = ?`,
+      )
+        .bind(other)
+        .first<{ subject: string | null }>();
+      expect(row?.subject ?? null).toBeNull();
+    } finally {
+      setExtensionObjects(saved);
+    }
+  });
+
+  it("a refused answer to an anonymous form names no account or session (finding 4)", async () => {
+    const form = await makeForm({ anonymous: true, questions: survey(), dailyCap: 0 });
+    const sent = await call(
+      "intake.submit",
+      { object: FORM, id: form, answers: { score: 5 } },
+      asCaller(member, later(10), { origin: { surface: "client", sessionId: "ses_refused" } }),
+    );
+    expect(sent).toMatchObject({ ok: false, error: { details: { rule: "intake_cap" } } });
+    const form2 = await makeForm({ anonymous: true, questions: survey() });
+    const bad = await call(
+      "intake.submit",
+      { object: FORM, id: form2, answers: { score: 99 } },
+      asCaller(member, later(10), { origin: { surface: "client", sessionId: "ses_refused" } }),
+    );
+    expect(bad).toMatchObject({ ok: false, error: { details: { rule: "answers" } } });
+    const { results } = await env.DB.prepare(
+      "SELECT user_id, origin FROM core_audit WHERE operation = 'intake.submit' AND outcome = 'error' AND (input LIKE ? OR input LIKE ?)",
+    )
+      .bind(`%${form}%`, `%${form2}%`)
+      .all<{ user_id: string | null; origin: string }>();
+    expect(results).toHaveLength(2);
+    for (const row of results) {
+      expect(row.user_id).toBeNull();
+      expect(row.origin).not.toContain("ses_refused");
+    }
+  });
+
+  it("a trashed submission no longer counts toward the caps (finding 5)", async () => {
+    const form = await makeForm({ dailyCap: 1 });
+    expect((await send(PUBLIC, form, { email: `${unique("tr")}@example.com` })).ok).toBe(true);
+    const row = await submissionOf(form);
+    await env.DB.prepare(`UPDATE x_${EXT}_submission SET deleted_at = ? WHERE id = ?`)
+      .bind(new Date(clockMs).toISOString(), row.id)
+      .run();
+    expect((await send(PUBLIC, form, { email: `${unique("tr")}@example.com` })).ok).toBe(true);
+  });
+
+  it("two first answers from one new address at once: one Person, and any loser is told to send again", async () => {
+    const form = await makeForm();
+    const email = `${unique("race")}@example.com`;
+    const opened = await call(
+      "intake.open",
+      { object: FORM, id: form },
+      asCaller(PUBLIC, later(1)),
+    );
+    const { shown } = (opened as { value: { shown: string } }).value;
+    const at = later(5000);
+    const outcomes = await Promise.all(
+      [1, 2].map(() =>
+        call(
+          "intake.submit",
+          { object: FORM, id: form, answers: { email }, shown, turnstileToken: "good" },
+          asCaller(PUBLIC, at),
+        ),
+      ),
+    );
+    for (const outcome of outcomes) {
+      if (!outcome.ok) {
+        expect(outcome.error).toMatchObject({
+          code: "conflict",
+          details: { rule: "intake_retry" },
+        });
+      }
+    }
+    const people = await env.DB.prepare(
+      "SELECT count(*) AS n FROM core_person_emails WHERE email = ? AND live = 1",
+    )
+      .bind(email)
+      .first<{ n: number }>();
+    expect(Number(people?.n)).toBe(1);
+    expect((await submissionsOf(form)).length).toBe(outcomes.filter((o) => o.ok).length);
   });
 });
 

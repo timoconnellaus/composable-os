@@ -1426,7 +1426,9 @@ hours ("try later", admins told once), checks the answers against the version, k
 one mailbox to one form in 24 hours as spam, and then writes in one batch, as the host's change:
 the submitter's Person by the shared address matcher (`personForAddress`, also `resolveBuyer`'s;
 certainty `account`, `staff` or `address`; only empty fields filled), the submission, a destination
-record and the notice to staff. An anonymous form keeps no Person, and the call forgets the
+record and the notice to staff. Only the door creates a submission, and its form, version, answers,
+certainty, via and rating are the host's alone on every path; who may answer, anonymity and the
+destination are read from the published version, as the questions are. An anonymous form keeps no Person, and the call forgets the
 customer (`ctx.anonymise`): no account or session in its audit row, marks or events. No client
 address, user agent or fingerprint is stored.
 

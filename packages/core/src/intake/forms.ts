@@ -23,7 +23,7 @@ export interface OpenForm {
   object: FormObject;
   submission: SubmissionObject;
   id: string;
-  /** The working copy's values (who may answer, dates, cap, destination: not versioned). */
+  /** The working copy's values (its state, dates, cap and who is told: not versioned). */
   values: Record<string, unknown>;
   /** The published version answered, and its questions. */
   version: number;
@@ -61,8 +61,13 @@ export async function openForm(
   if (!live) throw notFound();
   const { intake } = object;
   const values = record.values;
+  const published = live.content;
+  // Who may answer, anonymity and the destination are the version's, as the questions are: an
+  // edit does not change how a published form treats answers until a person publishes it.
   const answeredBy =
-    typeof values[intake.answeredBy] === "string" ? (values[intake.answeredBy] as string) : null;
+    typeof published[intake.answeredBy] === "string"
+      ? (published[intake.answeredBy] as string)
+      : null;
   if (asker !== "staff") {
     const state = object.states ? values[object.states.field] : null;
     if (typeof state !== "string" || !intake.openIn.includes(state)) throw notFound();
@@ -74,11 +79,16 @@ export async function openForm(
     const open = answeredBy === "public" || (answeredBy === "customers" && asker === "customer");
     if (!open) throw notFound();
   }
-  const questions = live.content[intake.questions] as Questions | null | undefined;
+  const questions = published[intake.questions] as Questions | null | undefined;
   if (!questions || !Array.isArray(questions.items)) throw notFound();
-  const anonymous = intake.anonymous ? isTrue(values[intake.anonymous]) : false;
+  const anonymous = intake.anonymous ? isTrue(published[intake.anonymous]) : false;
   const destination =
-    !anonymous && intake.destination ? destinationObjectOf(values[intake.destination]) : null;
+    !anonymous && intake.destination ? destinationObjectOf(published[intake.destination]) : null;
+  // What a client draws: the published content without the host's own settings.
+  const settings = new Set([intake.answeredBy, intake.anonymous, intake.destination]);
+  const content = Object.fromEntries(
+    Object.entries(published).filter(([key]) => !settings.has(key)),
+  );
   return {
     object,
     submission,
@@ -86,7 +96,7 @@ export async function openForm(
     values,
     version: live.version,
     questions,
-    content: live.content,
+    content,
     anonymous,
     answeredBy,
     destination,

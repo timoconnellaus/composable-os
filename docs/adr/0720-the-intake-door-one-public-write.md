@@ -44,6 +44,20 @@ abuse check between. A door inside the Forms pack would need a second one for Re
   (`ctx.callingTool`, never the input) or the staff run's extension, must own the form object.
   The tool must list the operations in its permissions, as any call. The pack adds no write of its
   own: what the public can cause is exactly what the door does.
+- **A submission is the evidence, and the host's alone.** Only the door creates one: `record.create`,
+  an import, `my.create` or any other create of a submission object is refused
+  (`rule: "intake_host_only"`), whoever asks. Its `form`, `version`, `answers`, `certainty`, `via`
+  and `rating` are written by the host only, by every path, staff and the assistant included. Its
+  Person stays staff's to set (after merging People with one address) and its state staff's to
+  move.
+- **A form's settings that change how answers are treated are versioned.** `answeredBy`,
+  `anonymous` and `destination` must be in `publishable.content`, and the door reads them, as the
+  questions, from the version answered: an unpublished edit (by a person or an AI) cannot open a
+  staff form to the public, turn anonymity off or send answers to another destination. The state,
+  dates, cap and who is told are the working copy's (closing a form early needs no publish).
+  `intake.submit` takes the `version` `intake.open` showed and refuses it once another is published
+  ("load it again"). A destination's fields are filtered again at submit time by what its intake
+  lists now, so a pack upgrade that lists fewer fills nothing it no longer lists.
 - **A form is found only while it takes answers.** Published (a current version), in an `openIn`
   state, within its dates and open to the caller (`public`: anyone; `customers`: signed in;
   `links`: a personal link, stage 29 step 5; `staff`: staff only), else not found, the same answer

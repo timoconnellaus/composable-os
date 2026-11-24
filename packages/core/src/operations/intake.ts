@@ -11,6 +11,7 @@
 // purchase: opening it is a reviewed change (ADR 0402), and `open-operations.json` lists it.
 import { INTAKE_VIAS } from "@composable-os/sdk";
 import { z } from "zod";
+import { ConflictError } from "../errors.ts";
 import { openForm } from "../intake/forms.ts";
 import { NO_INTAKE_RUNTIME } from "../intake/runtime.ts";
 import { askerOf, assertCalledByOwner, type RECEIVED, submitIntake } from "../intake/submit.ts";
@@ -78,6 +79,12 @@ export const intakeSubmit = defineOperation({
       .record(z.string().max(40), z.unknown())
       .describe("The answers by question key, as the client sends them"),
     via: z.enum(INTAKE_VIAS).optional().describe("Which way in: site, app or page"),
+    version: z
+      .number()
+      .int()
+      .positive()
+      .optional()
+      .describe("The version intake.open showed: refused when another has been published since"),
     turnstileToken: z.string().max(4096).optional().describe("A visitor's Turnstile token"),
     shown: z.string().max(200).optional().describe("intake.open's shown token"),
     honeypot: z.string().max(1000).optional().describe("The hidden field a person leaves empty"),
@@ -97,6 +104,15 @@ export const intakeSubmit = defineOperation({
     id: input.id,
     keys: Object.keys(input.answers),
   }),
+  // Two first answers from one new address at once each make a Person; the database keeps one
+  // address to one Person and refuses the second batch. Nothing was kept: the caller sends again,
+  // and is then matched to the Person the first made.
+  async explainFailure(error) {
+    if (error.code !== "conflict") return null;
+    return new ConflictError("Your answers were not kept: please send them again", {
+      rule: "intake_retry",
+    });
+  },
   async handler(input, ctx) {
     return submitIntake(ctx, input) as Promise<typeof RECEIVED>;
   },

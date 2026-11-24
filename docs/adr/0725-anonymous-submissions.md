@@ -15,7 +15,8 @@ that they did.
   (`checkQuestions` with `anonymous`, and the destination check).
 - **Its submission names no one**: no Person, no certainty, no personal link id, and its records'
   `created_by` is `public` whoever sent it.
-- **Nothing of the call names the account.** On a signed-in customer's call, `intake.submit` asks
+- **Nothing of the call names the account.** On a signed-in customer's call, as soon as the form is
+  found to be anonymous (before any other check, so a refusal's audit row too), `intake.submit` asks
   the pipeline to forget the caller (`ctx.anonymise`, given only to a `hostInternal` core
   operation on a customer's call): from then on its audit row has no `user_id` and no session, its
   values' marks no `by_id`, and its record events no user. The audit row still says the actor was a

@@ -2353,6 +2353,14 @@ async function invokeOutside<O extends AnyOperation>(
     try {
       await ctx.db.batch(statements);
     } catch (error) {
+      // A race the database decided: the operation may read again and say what happened, as on
+      // a staff call (stage 29: two first answers from one new address at once).
+      if (op.explainFailure) {
+        const explained = await op
+          .explainFailure(toOperationError(error), input, handlerCtx)
+          .catch(() => null);
+        if (explained) return fail(explained);
+      }
       return fail(error);
     }
   }

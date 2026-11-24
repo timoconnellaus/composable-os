@@ -36,6 +36,31 @@ export function destinationObjectOf(name: unknown): DestinationObject | null {
   return object?.intake?.role === "destination" ? (object as DestinationObject) : null;
 }
 
+/**
+ * A submission's fields only the host writes (ADR 0720): what was answered, to which version, how
+ * sure the host is of the submitter, and which way it came. Its Person stays staff's to set (after
+ * a merge, an address several People had) and its state staff's to move.
+ */
+export function intakeHostFields(object: ObjectDefinition): Set<string> {
+  if (object.intake?.role !== "submission") return new Set();
+  const i = object.intake;
+  return new Set(
+    [i.form, i.version, i.answers, i.certainty, i.via, i.rating].filter(
+      (f): f is string => typeof f === "string",
+    ),
+  );
+}
+
+/** Refuses a submission made by anyone but the host's door (ADR 0720): it is the evidence. */
+export function assertSubmissionByHost(object: ObjectDefinition, by: string | undefined) {
+  if (object.intake?.role === "submission" && by !== "host") {
+    throw new ValidationError(
+      `${object.label}: made only by the answers someone sends, never written directly`,
+      { rule: "intake_host_only" },
+    );
+  }
+}
+
 export const isTrue = (value: unknown) => value === true || value === 1;
 const filled = (value: unknown) => value !== undefined && value !== null && value !== "";
 

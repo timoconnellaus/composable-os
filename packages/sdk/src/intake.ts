@@ -44,7 +44,8 @@ export const INTAKE_SOURCE = "website";
  * - `questions`: a document field with `QUESTIONS_SCHEMA`, one of `publishable.content`: answers
  *   are checked against the published version, and the host checks the questions on every write
  *   (`checkQuestions`, with the form's anonymous flag and its destination's fields).
- * - `answeredBy`: a select whose options are among `INTAKE_ANSWERED_BY`.
+ * - `answeredBy`: a select whose options are among `INTAKE_ANSWERED_BY`. It, `anonymous` and
+ *   `destination` are in `publishable.content` too: the host reads them from the version answered.
  * - `openIn`: the states of the object's `states` in which it takes answers.
  * - `anonymous` (a boolean field), `destination` (a text or select field holding an object's
  *   registry name), `opensAt` and `closesAt` (datetime fields), `dailyCap` (a number field: at
@@ -193,6 +194,17 @@ export function checkObjectIntake(
         `${at}.questions`,
         `${name} must be publishable with "${intake.questions}" in its content: answers are checked against the published version`,
       );
+    }
+    // Who may answer, anonymity and the destination are part of what is published: an edit
+    // changes how a form treats answers only once a person publishes it (ADR 0720).
+    for (const key of ["answeredBy", "anonymous", "destination"] as const) {
+      const local = intake[key];
+      if (local !== undefined && !object.publishable?.content.includes(local)) {
+        contract(
+          `${at}.${key}`,
+          `"${local}" must be in ${name}'s publishable content: it is read from the version answered`,
+        );
+      }
     }
     need("answeredBy", intake.answeredBy, ["select"], "a select");
     const answeredBy = options(intake.answeredBy);
