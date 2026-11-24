@@ -12,7 +12,7 @@ import type { z } from "@composable-os/sdk";
 import { currencyDigits } from "../money.ts";
 import type { checkIn, eventsOnSale, myTickets, orderStart, undoCheckIn } from "../tools.ts";
 
-export { currencyDigits, formatMoney } from "../money.ts";
+export { currencyDigits, formatMoney, formatPrice } from "../money.ts";
 
 type Io<T extends { input: z.ZodType; output: z.ZodType }> = {
   input: z.input<T["input"]>;
@@ -74,13 +74,6 @@ export type StartedOrder = Out<"x.ticketing.orderStart">;
 export type TicketingClient = PackClient<TicketingOperations>;
 
 // --- Plain functions ------------------------------------------------------------------------------
-
-/** A ticket type's price (major unit, as the record holds it) as the buyer reads it. */
-export function formatPrice(price: number | null, currency: string | null): string {
-  return price === null
-    ? ""
-    : `${price.toFixed(currencyDigits(currency))}${currency ? ` ${currency}` : ""}`;
-}
 
 /** The viewer's own time zone, as their device reports it. */
 export function viewerTimeZone(): string {
@@ -147,13 +140,12 @@ export function eventDay(event: { startsAt: string | null; timeZone: string | nu
   const at = new Date(event.startsAt);
   if (Number.isNaN(at.getTime())) return "";
   try {
-    const parts = new Intl.DateTimeFormat("en-CA", {
+    return new Intl.DateTimeFormat("en-CA", {
       timeZone: event.timeZone ?? viewerTimeZone(),
       year: "numeric",
       month: "2-digit",
       day: "2-digit",
     }).format(at);
-    return parts;
   } catch {
     return event.startsAt.slice(0, 10);
   }
@@ -183,6 +175,17 @@ export function availabilityLabel(availability: TicketTypeOnSale["availability"]
     return `Only ${availability.available} left`;
   }
   return null;
+}
+
+const TICKET_STATE_LABELS: Readonly<Record<string, string>> = {
+  valid: "Valid",
+  used: "Used",
+  void: "Cancelled",
+};
+
+/** A ticket's state as its holder reads it (a void ticket is "Cancelled"). Display only. */
+export function ticketStateLabel(state: string | null): string | null {
+  return state === null ? null : (TICKET_STATE_LABELS[state] ?? state);
 }
 
 /** Quantities chosen, by ticket type id. */
@@ -346,7 +349,7 @@ function allTicketingHooks(
         lines,
         estimate: event ? estimate(event, quantities) : { full: 0, deposit: null, currency: null },
         empty: lines.length === 0,
-        max: (type: TicketTypeOnSale) => pickerMax(type),
+        max: pickerMax,
         clear: () => setQuantities({}),
       };
     },
