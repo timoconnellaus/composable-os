@@ -220,6 +220,8 @@ describe("bookings pack (test host)", () => {
         movedFrom: { field: "movedFrom", state: "moved" },
         paidBy: ["memberships.membership", "memberships.pass"],
         waived: "paidOtherwise",
+        // A membership ended by cooling off cancels its bookings ahead as the gym's (ADR 0647).
+        released: "cancelled_by_us",
       },
     });
     // A member writes the class, the state (a cancel) and the holder they choose; never what
