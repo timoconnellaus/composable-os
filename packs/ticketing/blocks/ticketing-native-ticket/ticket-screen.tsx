@@ -73,7 +73,7 @@ const styles = StyleSheet.create({
   card: {
     alignItems: "center",
     justifyContent: "center",
-    backgroundColor: "#ffffff",
+    backgroundColor: theme.color.codeBackground,
     borderRadius: theme.radius,
     padding: theme.space.lg,
     marginVertical: theme.space.md,

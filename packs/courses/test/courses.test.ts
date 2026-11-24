@@ -70,14 +70,14 @@ const outline: Outline = {
 };
 
 describe("the manifest and the outline", () => {
-  it("passes the contract and requires Programs", () => {
+  it("passes the contract and requires Programs and Content", () => {
     const host = createTestHost(courses, {
       validate: {
         knownObjects: ["programs.program", "programs.assignment", "programs.session"],
       },
     });
     expect(host.issues).toEqual([]);
-    expect(host.manifest.requires).toEqual(["programs"]);
+    expect(host.manifest.requires).toEqual(["programs", "content"]);
   });
 
   it("declares the course plan, and a course's access through a subscription to it", () => {

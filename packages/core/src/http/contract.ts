@@ -75,6 +75,11 @@ export interface PackRolesFile {
     restricted: boolean;
     operations: string[];
   }[];
+  /**
+   * The packs each carried pack requires (its manifest's `requires`, ADR 0478), for a pack that
+   * requires any: `cos deploy` installs them with it and `cos add` copies their blocks for it.
+   */
+  requires?: Record<string, string[]>;
 }
 
 function jsonSchema(schema: z.ZodType, io: "input" | "output"): JsonSchema {

@@ -82,8 +82,8 @@ export function DoorScannerScreen({
 const styles = StyleSheet.create({
   count: { fontSize: theme.font.small, color: theme.color.muted, marginBottom: theme.space.sm },
   result: { borderRadius: theme.radius, padding: theme.space.lg, marginTop: theme.space.md },
-  accepted: { backgroundColor: "#dcfce7" },
-  refused: { backgroundColor: "#fee2e2" },
+  accepted: { backgroundColor: theme.color.successSurface },
+  refused: { backgroundColor: theme.color.dangerSurface },
   verdict: { fontSize: theme.font.title, fontWeight: "700", color: theme.color.text },
   message: { fontSize: theme.font.body, color: theme.color.text, marginVertical: theme.space.sm },
 });

@@ -281,7 +281,7 @@ beforeAll(async () => {
   admin = await createAdmin();
   await setPreset("balanced");
   await refreshSchemaRegistry(db.query);
-  for (const id of ["programs", "bookings", "memberships", "ticketing", "courses"]) {
+  for (const id of ["programs", "bookings", "memberships", "ticketing", "content", "courses"]) {
     await run("extension.install", { id, shipped: true }, staff());
   }
   await refreshSchemaRegistry(db.query);

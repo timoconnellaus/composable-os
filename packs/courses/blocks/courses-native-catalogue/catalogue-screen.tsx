@@ -3,10 +3,10 @@
 // (`noPurchase` in block.json). What is published is the host's (`useCatalogue`).
 import type { CoursesHooks } from "@composable-os/pack-courses/client";
 import { levelName } from "@composable-os/pack-courses/client";
-import { Text } from "react-native";
 import { List } from "../native-base/list.tsx";
 import { Row } from "../native-base/row.tsx";
 import { Screen } from "../native-base/screen.tsx";
+import { Text } from "../native-base/text.tsx";
 
 export function CatalogueScreen({
   courses,
@@ -19,7 +19,11 @@ export function CatalogueScreen({
   const { data, isPending, error } = courses.useCatalogue({});
   return (
     <Screen title="Courses">
-      {isPending ? <Text accessibilityRole="progressbar">Loading courses…</Text> : null}
+      {isPending ? (
+        <Text tone="muted" accessibilityRole="progressbar">
+          Loading courses…
+        </Text>
+      ) : null}
       {error ? <Text accessibilityRole="alert">We could not load the courses.</Text> : null}
       {data ? (
         <List empty="No courses yet.">

@@ -1710,7 +1710,8 @@ the runner carries the packs' sources as a Text module.
 **Courses** (`packs/courses`, stage 42; [ADR 0478](adr/0478-the-courses-pack.md)): themes,
 courses and bundles (publishable, sellable with a tax code, granting an enrolment), enrolments and
 progress, an outline of sections of lessons (video, text, a Programs session, a download) whose
-material is for holders. It requires Programs (`requires`, checked at install); progress is
+material is for holders. It requires Programs and Content (`requires`, checked at install; Content
+draws a text lesson, and `cos deploy` installs a required pack product.ts does not list); progress is
 written only with access (`customer.requireAccess`); a session lesson's program is assigned on the
 student's first open by an automation calling `x.programs.assign` (a tool's writes start
 automations, and a tool or an automation may call another extension's tool). Its tools ask the
@@ -2096,7 +2097,11 @@ skin, operations, files, dependsOn, packages) in `blocks/` or `packs/<id>/blocks
 in the release's client kit and copied with `cos add`. The web base layer (`blocks/ui-*`) is
 generated from `packages/ui` (Radix underneath); the native base layer is `blocks/native-base`;
 sign-in ships in both skins. `scripts/check-blocks.mjs` (in `pnpm lint`) refuses a block that
-calculates a price, checks a capacity or checks a permission.
+calculates a price, checks a capacity or checks a permission, and a native block whose text or
+spinner takes no colour from `native-base/theme.ts` or that names a colour of its own (ADR 0424,
+amended 2026-11-24): a dark theme is the theme changed. A block may depend on a block of a pack its
+pack requires (the Courses players on Content's rich text); `cos add` and `cos deploy` read each
+pack's `requires` from the release's `roles.json`.
 
 **Screens in the admin** (stage 47, [ADR 0660](adr/0660-pack-screens-in-the-admin.md)): a shipped
 pack declares its staff screens (`screens` in its manifest: label, web block and export, `nav`,
@@ -2139,7 +2144,7 @@ and the mobile Account tab are plain pages over the same entry.
 | Ticketing | `states`, `capacity`, `sellable`, `customer`, `public`, `customerVia`, a `timezone` field, a pack role, payments | stage 27: objects, tools, check-in and the door role built |
 | Programs | `document`, `publishable` (no public half), `states`, `customer`, `signedIn` | stage 41: steps 1 to 6 built (the spine, the dashboard, views and Person tab, hooks and blocks, draft and import); Ghetto's app is step 7 |
 | Content | `publishable`, rich text, slugs, media | stage 28: steps 1 to 6 built (rich text, `publishable` completed, public reads, media, the editor, the pack: posts and categories, hooks, web and native renderers); the first client's import and blog routes are its own repository's |
-| Courses | `publishable`, `sellable` (grants and a tax code), `access` and holders' parts, `states`, `customer` with `requireAccess`, `requires: ["programs"]`, video media and `media.play` | stage 42: steps 1 to 4, 6, 7 and the draft built ([ADR 0478](adr/0478-the-courses-pack.md)); the import and the first client to come |
+| Courses | `publishable`, `sellable` (grants and a tax code), `access` and holders' parts, `states`, `customer` with `requireAccess`, `requires: ["programs", "content"]`, video media and `media.play` | stage 42: steps 1 to 4, 6, 7 and the draft built ([ADR 0478](adr/0478-the-courses-pack.md)); the import and the first client to come |
 | Bookings | `recurring`, `capacity` and `claims` with a waitlist, `unique`, `staffed` (a class is its coach's shift, stage 45), `occupies` (a class takes a room marked "one booking at a time", stage 49 step 2, [ADR 0765](adr/0765-occupies-the-claim-on-a-thing.md)), `states` with windows, staff-only rules and a requested cancel, `allowance` (spender, `waived`), `public`, `customer` with `guardians`, `customerVia`, `requires: ["programs"]` | stage 31a: steps 1 to 6 built (the behaviours, the pack's spine, [ADR 0504](adr/0504-the-bookings-pack.md); spending with the Memberships pack's memberships and passes, and the waitlist with promotion, [ADR 0520](adr/0520-a-waitlist-on-a-claimant.md); parents booking for their children, [ADR 0540](adr/0540-the-family-link.md)); step 7, attendance, moves and cancelling a class; step 8, drop-ins with `sellable.moves`, [ADR 0560](adr/0560-a-paid-line-moves-a-record-that-exists.md)); step 9, messages, the reminder, the dashboard and the coach's app screen, [ADR 0572](adr/0572-bookings-messages-the-dashboard-and-the-coachs-app-screen.md); step 10 to come |
 | Rostering | `recurring` (duty series, a horizon from its setting), `staffed` (a duty shift is its person's shift), `states`, a pack role (`rostering.team`), grantable and restricted permissions, the roster's rules (`staffing`), the host's tool-only `staffing.*` operations | stage 45: step 4 built (duties, duty series and shifts, the team role, the roster's tools, settings, [ADR 0626](adr/0626-the-rostering-pack-and-bookings-additions.md)); step 6 built (pay periods: `rostering:pay`, restricted and a person's only, who is counted, totals, the not-worked mark, lock, reopen and export, [ADR 0627](adr/0627-pay-periods-the-basis-the-totals-the-lock-and-the-export.md)); step 5 built (each person's private calendar feed: `feed`, `feedRotate`, `feedRevoke`, [ADR 0628](adr/0628-the-staff-calendar-feed-and-the-shared-calendar-writer.md)); step 7 built (the screens as blocks over `@composable-os/pack-rostering/client`, my calendar among them, role clients with grants, `cos rostering import`, [ADR 0629](adr/0629-the-rosters-screens-role-clients-with-grants-and-the-roster-import.md)); checklists (4b) built (a duty's checklist, [ADR 0650](adr/0650-checklists-templates-runs-ticks-and-a-done-run-kept-unchanged.md)) |
 | Daily checklists | no objects: screens and tools over the host's tool-only day-run operations (`checklist.today`, `.day`, `.dayTick`, `.dayDone`, `.days`), tools open to every staff account (`anyStaff`) or held to `checklists:write` (`corePermission`) | built (checklists on their own, [ADR 0651](adr/0651-checklists-on-their-own-a-schedule-a-run-a-day-and-who-may-do-it.md), [ADR 0652](adr/0652-a-tool-for-every-staff-account-and-a-tool-held-to-a-core-permission.md)): Today's checklists (web and the app) and Checklist history; requires nothing |

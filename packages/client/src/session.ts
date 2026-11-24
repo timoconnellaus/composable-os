@@ -61,10 +61,12 @@ async function post<T = Tokens>(
   } catch (error) {
     throw new NetworkError("Could not reach the host to sign in", error);
   }
-  const parsed = JSON.parse(await response.text()) as {
-    data?: T;
-    error?: { code: string; message: string; details?: unknown };
-  };
+  // Something in front of the host (a proxy, a gateway) can answer with a page, not JSON: the
+  // status still says what happened.
+  let parsed: { data?: T; error?: { code: string; message: string; details?: unknown } } = {};
+  try {
+    parsed = JSON.parse(await response.text()) as typeof parsed;
+  } catch {}
   if (response.status === 200 && parsed.data) return parsed.data;
   throw new ApiError(
     parsed.error?.code ?? "internal",
@@ -72,6 +74,42 @@ async function post<T = Tokens>(
     response.status,
     parsed.error?.details,
   );
+}
+
+/** Which part of a sign-in by code failed: asking for the code, or signing in with it. */
+export type SignInStep = "code" | "sign-in";
+
+/**
+ * What to tell someone whose sign-in on a device failed, in plain words with what to do next
+ * (ADR 0455's refusals): sign-in not switched on (503), too many tries (429), no answer (offline),
+ * an address or code the host does not take. A screen shows it and keeps its button, so they can
+ * try again.
+ */
+export function signInErrorWords(error: unknown, step: SignInStep = "code"): string {
+  const e = error !== null && typeof error === "object" ? (error as Record<string, unknown>) : null;
+  if (error instanceof NetworkError || e?.name === "NetworkError") {
+    return "We could not reach the business just now. Check your connection and try again.";
+  }
+  const reason = (e?.details as { reason?: unknown } | undefined)?.reason;
+  if (e?.status === 503 || reason === "sign_in_not_set_up") {
+    return "Signing in is not switched on here yet. Try again later, or ask the business.";
+  }
+  if (e?.status === 429 || e?.code === "rate_limited") {
+    const seconds = (e?.details as { retryAfterSeconds?: unknown } | undefined)?.retryAfterSeconds;
+    const minutes = typeof seconds === "number" && seconds > 0 ? Math.ceil(seconds / 60) : null;
+    return minutes
+      ? `Too many tries. Wait ${minutes} minute${minutes === 1 ? "" : "s"}, then try again.`
+      : "Too many tries. Wait a few minutes, then try again.";
+  }
+  if (reason === "invalid_code") return "That code did not work. Check it, or ask for a new one.";
+  if (e?.status === 400 || e?.code === "invalid_input") {
+    return step === "code"
+      ? "That does not look like an email address. Check it and try again."
+      : "Check the email address and the code, then try again.";
+  }
+  return step === "code"
+    ? "We could not send a code just now. Try again in a moment."
+    : "We could not sign you in just now. Try again in a moment.";
 }
 
 export function tokenSession(options: TokenSessionOptions) {

@@ -282,6 +282,12 @@ beforeAll(async () => {
   );
   expect(JSON.stringify(early)).toContain("requires the programs extension");
   await run("extension.install", { id: "programs", shipped: true }, staff(admin));
+  // And Content, whose rich text blocks draw a text lesson: without it, refused again.
+  const second = await refusal(
+    run("extension.install", { id: "courses", shipped: true }, staff(admin)),
+  );
+  expect(JSON.stringify(second)).toContain("requires the content extension");
+  await run("extension.install", { id: "content", shipped: true }, staff(admin));
   await run("extension.install", { id: "courses", shipped: true }, staff(admin));
   await refreshSchemaRegistry(db.query);
   // Enrolments for a course, for a bundle, and a course subscription (stage 32a, ADR 0488).
