@@ -6,6 +6,7 @@
 import { redactDocument, validateDocument } from "@composable-os/sdk";
 import { createTestHost, type TestHost } from "@composable-os/sdk/testing";
 import { describe, expect, it } from "vitest";
+import { levelName } from "../client/index.ts";
 import courses from "../index.ts";
 import {
   completion,
@@ -192,6 +193,13 @@ describe("the manifest and the outline", () => {
     const twice = structuredClone(outline);
     twice.sections[1]?.lessons.push({ kind: "text", key: "wrists", title: "Again" });
     expect(outlineProblems(twice)).toEqual(['The lesson key "wrists" is in start and train']);
+  });
+});
+
+describe("the client's words", () => {
+  it("names the three levels, and nothing else", () => {
+    expect([1, 2, 3].map(levelName)).toEqual(["Beginner", "Intermediate", "Advanced"]);
+    expect([0, 4, null, undefined].map(levelName)).toEqual([null, null, null, null]);
   });
 });
 
@@ -451,6 +459,52 @@ describe("the tools", () => {
       { caller: STUDENT },
     );
     expect(none.courses).toEqual([]);
+  });
+
+  it("myCourses: reads each bundle once and a published course from the listing", async () => {
+    const enrolment = { holder: "per_student", bundle: "rec_bundle", status: "active" };
+    const host = hostWith({
+      held: ["rec_course"],
+      enrolments: [
+        { id: "rec_e1", ...enrolment, source: "purchase" },
+        { id: "rec_e2", ...enrolment, source: "staff" },
+      ],
+    });
+    const out = await host.runTool<{ courses: { id: string; why: string }[] }>(
+      "myCourses",
+      {},
+      { caller: STUDENT },
+    );
+    expect(out.courses).toEqual([expect.objectContaining({ id: "rec_course", why: "bundle" })]);
+    const calls = host.calls.map((c) => c.operation);
+    expect(calls.filter((c) => c === "public.get")).toHaveLength(1);
+    expect(calls.filter((c) => c === "access.check")).toHaveLength(1);
+    expect(calls).not.toContain("my.get");
+  });
+
+  it("myCourses: asks the host about every course, 100 at a time (access.check's most)", async () => {
+    const ids = Array.from({ length: 101 }, (_, i) => `rec_c${String(i).padStart(3, "0")}`);
+    const host = hostWith({
+      held: ids,
+      enrolments: ids.map((course, i) => ({
+        id: `rec_e${i}`,
+        holder: "per_student",
+        course,
+        status: "active",
+        source: "purchase",
+      })),
+    });
+    for (const id of ids) {
+      host.records.get("courses.course")?.set(id, { id, title: id, price: 1, outline });
+    }
+    const out = await host.runTool<{ courses: { id: string }[] }>(
+      "myCourses",
+      {},
+      { caller: STUDENT },
+    );
+    expect(out.courses.map((c) => c.id)).toEqual(ids);
+    const asked = host.calls.filter((c) => c.operation === "access.check");
+    expect(asked.every((c) => (c.input as { ids: string[] }).ids.length <= 100)).toBe(true);
   });
 
   it("plans: the plans on offer with the host's price and trial days, for anyone", async () => {
