@@ -24,6 +24,36 @@ export function normaliseCustomerEmail(email: string): string | null {
   return parsed.success ? parsed.data : null;
 }
 
+/**
+ * The address's folded form (ADR 0692, #225): normalised, with its `+tag` dropped, on every
+ * domain (`a+1@x` and `a+2@x` are both `a@x`); dots are not folded. Only for deciding "the same
+ * person" in one-per-Person rules, never an identity. Migration 0955 keeps the same rule in
+ * `core_person_emails.folded`.
+ */
+export function foldAddress(email: string): string | null {
+  const address = normaliseCustomerEmail(email);
+  if (!address) return null;
+  const plus = address.indexOf("+");
+  const at = address.indexOf("@");
+  return plus > 0 && plus < at ? address.slice(0, plus) + address.slice(at) : address;
+}
+
+/**
+ * The People one-per-Person rules count as `personId` (ADR 0692): the Person, and every live
+ * Person with an address whose folded form is one of theirs. A subquery of `person_id`, for
+ * `where(column, "in", …)`: four bound values, however many People share the address.
+ */
+export function samePeople(db: Kysely<CoreDatabase>, personId: string) {
+  return db
+    .selectFrom("core_person_emails as mine")
+    .innerJoin("core_person_emails as theirs", "theirs.folded", "mine.folded")
+    .select("theirs.person_id")
+    .where("mine.person_id", "=", personId)
+    .where("mine.live", "=", 1)
+    .where("theirs.live", "=", 1)
+    .union(db.selectFrom("core_person").select("id as person_id").where("id", "=", personId));
+}
+
 export interface CustomerAccount {
   id: string;
   personId: string | null;

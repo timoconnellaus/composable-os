@@ -183,11 +183,14 @@ export async function runListQuery<Row extends { id: string }>(
   ctx: Reader,
   object: ObjectDefinition,
   input: Pick<ListInput, "filter" | "sort" | "cursor" | "limit">,
+  /** A condition the platform adds over the source (a pack role's limit, ADR 0881), never a caller's. */
+  where?: RawBuilder<SqlBool>,
 ): Promise<ListPage<Row>> {
   // biome-ignore lint/suspicious/noExplicitAny: the source is a registry-driven view, not a key of the typed schema; callers name the row type.
-  const query = (ctx.db as Kysely<any>)
+  const source = (ctx.db as Kysely<any>)
     .selectFrom(visibleSource(ctx, object))
     .selectAll() as unknown as SelectQueryBuilder<Record<string, Row>, string, Row>;
+  const query = where ? source.where(where) : source;
   // Filter and sort against the fields the caller may see: for a customer, a field the object
   // does not list is an unknown field here.
   return pageQuery(query, visibleObject(ctx, object), input, object.source);

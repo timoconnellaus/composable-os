@@ -9,9 +9,11 @@ import {
   type ActingUser,
   type AnyOperation,
   coreRegistry,
+  FIXED_ROLE_CORE_GRANTS,
   GRANTABLE_PERMISSIONS,
   type HeldPackRole,
   invoke,
+  type Permission,
   type Role,
   roleLimitsFor,
   type StaffRights,
@@ -332,6 +334,12 @@ describe("a pack role and its grants add up, each call by one authority (ADR 060
       const rights: StaffRights = { packRole: role, grants: [granted] };
       for (const op of all) {
         const input = inputFor(op);
+        // The few core grants a fixed role's account may hold open their own operations, and
+        // nothing else (ADR 0783: people:cards, the card operations).
+        if (FIXED_ROLE_CORE_GRANTS.includes(granted as Permission) && op.permission === granted) {
+          expect(staffAuthority(viewer, rights, op, input), `${granted} ${op.name}`).toBe("grant");
+          continue;
+        }
         expect(staffAuthority(viewer, rights, op, input), `${granted} ${op.name}`).toEqual(
           staffAuthority(viewer, coachOnly, op, input),
         );

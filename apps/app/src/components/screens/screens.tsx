@@ -10,6 +10,7 @@
 // When a screen closes, everything its client read or sent is forgotten (`forgetScreen`).
 
 import { SCREENS } from "virtual:cos-screens";
+import type { HookCalls } from "@composable-os/client";
 import { Skeleton } from "@composable-os/ui/components/skeleton";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { useRouteContext } from "@tanstack/react-router";
@@ -142,7 +143,7 @@ export function ScreenView({
       loaded
         ? loaded.createHooks(
             { useQuery, useMutation, useState, useEffect },
-            staffClient(loaded.calls as Record<string, readonly string[]>, scope, () => {
+            staffClient(loaded.calls as Record<string, HookCalls>, scope, () => {
               // A refusal can mean a right was taken away: ask the host again at once, so a
               // screen that is no longer theirs goes now, not when the cached list goes stale.
               // Refusals that keep coming (retries, polling) ask at most once in a while.
