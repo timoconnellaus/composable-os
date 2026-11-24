@@ -24,8 +24,6 @@ import {
 } from "@composable-os/core";
 import { createCrmDb } from "@composable-os/db";
 
-export { AiNotConfiguredError };
-
 /** waitUntil when inside a request; outside one the promise just runs. */
 function schedule(work: Promise<unknown>) {
   try {
@@ -56,8 +54,8 @@ export function runnerModels(env: object): ModelRunner | null {
 
 /**
  * The judge for cos-runner's environment (ADR 0230), as cos-app builds it: Jev when a key is
- * reachable, otherwise off with no network call. The runner's own placement (sync.jobChange) is
- * a later build step of stage 11; nothing in the runner asks it yet.
+ * reachable, otherwise off with no network call. Asked by a routine's gates (ADR 0343), by
+ * sync.jobChange (ADR 0236) and by outbound.message (ADR 0238).
  */
 export function runnerJudge(env: object): Judge {
   const e = env as JudgeEnv & { DB?: D1Database };

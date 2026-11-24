@@ -26,7 +26,7 @@ export function Sheet({
 }
 
 const styles = StyleSheet.create({
-  scrim: { flex: 1, backgroundColor: "rgba(0,0,0,0.3)" },
+  scrim: { flex: 1, backgroundColor: theme.color.scrim },
   sheet: {
     backgroundColor: theme.color.background,
     padding: theme.space.lg,

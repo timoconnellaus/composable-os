@@ -11,9 +11,10 @@
 // Third-party packages (React, TanStack, Vite, wrangler) come from the npm registry; nothing comes
 // from this checkout.
 import { execFileSync } from "node:child_process";
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join, resolve } from "node:path";
+import { DEFAULT_PRODUCT } from "@composable-os/products";
 
 function arg(name: string, fallback?: string): string {
   const args = process.argv.slice(2);
@@ -26,7 +27,7 @@ function arg(name: string, fallback?: string): string {
 const npmDir = resolve(arg("npm"));
 const bundleDir = resolve(arg("bundle-dir"));
 const version = arg("version");
-const release = arg("release", "crm");
+const release = arg("release", DEFAULT_PRODUCT);
 const keep = process.argv.includes("--keep");
 
 const tarballs = JSON.parse(readFileSync(join(npmDir, "tarballs.json"), "utf8")) as string[];
@@ -48,7 +49,7 @@ const work = mkdtempSync(join(tmpdir(), "cos-npm-check-"));
 try {
   // 1. The CLI, from its tarball alone.
   const tool = join(work, "tool");
-  execFileSync("mkdir", ["-p", tool]);
+  mkdirSync(tool, { recursive: true });
   writeFileSync(
     join(tool, "package.json"),
     JSON.stringify({
@@ -86,7 +87,7 @@ try {
   writeFileSync(join(shop, "package.json"), JSON.stringify(pkg, null, 2));
   // An org extension (the lifecycle pack's source, as test data), checked by the installed `cos`
   // with the SDK source and migrations it carries.
-  execFileSync("mkdir", ["-p", join(shop, "extensions", "lifecycle")]);
+  mkdirSync(join(shop, "extensions", "lifecycle"), { recursive: true });
   writeFileSync(
     join(shop, "extensions", "lifecycle", "index.ts"),
     readFileSync(join(import.meta.dirname, "..", "..", "packs", "lifecycle", "index.ts"), "utf8"),

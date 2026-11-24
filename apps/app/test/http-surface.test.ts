@@ -317,7 +317,10 @@ describe("the caller is the session's", () => {
     const listed = (audience: "customer" | "public") =>
       forPacks(openOperations as OpenOperationsFile, INSTALLED_PACKS)
         .operations.filter(
-          (op) => (op.audiences as string[]).includes(audience) && !("toolOnly" in op),
+          (op) =>
+            (op.audiences as string[]).includes(audience) &&
+            !("toolOnly" in op) &&
+            !("deskOnly" in op),
         )
         .map((op) => op.name)
         .sort();

@@ -105,7 +105,7 @@ function headline(job: Job): string {
   return job.state === "running" ? "Starting" : "";
 }
 
-export function AgentJobComponent({ props }: RendererProps<"agentJob">) {
+export function AgentJobComponent({ props }: Pick<RendererProps<"agentJob">, "props">) {
   const { status, job } = useJob(props.jobId);
   const [busy, setBusy] = useState(false);
   const [details, setDetails] = useState(false);
@@ -210,7 +210,7 @@ export function AgentGrantComponent({ props }: RendererProps<"agentGrant">) {
   const refresh = useRefreshAfterDecision();
   // Once answered, the card follows the agent.
   if (job && job.state !== "awaiting_confirm") {
-    return <AgentJobComponent {...({ props } as unknown as RendererProps<"agentJob">)} />;
+    return <AgentJobComponent props={props} />;
   }
 
   async function answer(decision: "start" | "startReviewing" | "cancel") {

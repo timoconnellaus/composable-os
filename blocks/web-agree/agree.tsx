@@ -88,12 +88,14 @@ export function Agree({
   const [tried, setTried] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  useForgetOnLeave(() => {
+  // Forget what was typed, drawn and answered.
+  const forget = () => {
     setForm(emptyAgreeForm(version));
     recorder.current.clear();
     setTried(false);
     setProblems([]);
-  });
+  };
+  useForgetOnLeave(forget);
   const fieldId = (field: string) => `${id}-${field.replace(/[^A-Za-z0-9_-]/g, "_")}`;
   const problemOf = (field: string) =>
     tried ? problems.find((p) => p.field === field) : undefined;
@@ -120,11 +122,7 @@ export function Agree({
     setBusy(true);
     try {
       await onAgree(agreeInput(version, form, signature));
-      // Done: forget what was typed, drawn and answered.
-      setForm(emptyAgreeForm(version));
-      recorder.current.clear();
-      setTried(false);
-      setProblems([]);
+      forget();
     } catch (e) {
       setError(agreeErrorWords(e));
     } finally {

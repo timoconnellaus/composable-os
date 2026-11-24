@@ -78,7 +78,8 @@ function TasksPage() {
   const all = useAllTasksFilters(view);
   const { object: info } = useObjectInfo("task");
   const timezone = useMemo(browserTimeZone, []);
-  const mine = useOp("task.listMine", { timezone });
+  // Only the My tasks tab shows its count (MyTasks reads the same query).
+  const mine = useOp("task.listMine", { timezone }, { enabled: tab !== "all" });
   const allCount = useQuery({ ...countQueryOptions("task", all.combined), enabled: tab === "all" });
   const mineCount = mine.data
     ? BUCKETS.reduce((n, b) => n + (mine.data?.counts[b.key] ?? 0), 0)

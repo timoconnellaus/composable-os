@@ -28,7 +28,7 @@ export function SignInAndDevices({
   const sessions = account.useSessions();
   const revoke = account.useRevokeSession();
   const [error, setError] = useState<string | null>(null);
-  if (sessions.isPending) return <ActivityIndicator />;
+  if (sessions.isPending) return <ActivityIndicator color={theme.color.muted} />;
   if (sessions.error || !sessions.data) {
     return (
       <Text style={styles.body} accessibilityRole="alert">

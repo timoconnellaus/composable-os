@@ -10,6 +10,7 @@
 // A write carries an idempotency key, the same one across TanStack Query's retries of one call.
 // Query and mutation keys start `["screen", scope]`, so the admin forgets a screen's data when it
 // closes (`forgetScreen`).
+import { type HookCalls, hooksOperations } from "@composable-os/client";
 import type { QueryClient } from "@tanstack/react-query";
 
 /** An error as the HTTP surface sends it, with the host's details. */
@@ -69,7 +70,7 @@ export const screenKey = (scope: string) => ["screen", scope] as const;
  * `scope` keys its queries and mutations (`<pack>/<screen>`, or `blocks` on the development page).
  */
 export function staffClient<C>(
-  calls: Record<string, readonly string[]>,
+  calls: Readonly<Record<string, HookCalls>>,
   scope: string,
   /** Told of a call the host refused as forbidden (a right taken away while the screen is open). */
   onForbidden?: () => void,
@@ -80,9 +81,7 @@ export function staffClient<C>(
       throw error;
     });
   const operations = Object.fromEntries(
-    Object.values(calls)
-      .flat()
-      .map((name) => [name, { kind: "query", invalidates: [] }]),
+    hooksOperations(calls).map((name) => [name, { kind: "query", invalidates: [] }]),
   );
   // One key per call: TanStack Query passes the same variables object to each retry.
   const keys = new WeakMap<object, string>();

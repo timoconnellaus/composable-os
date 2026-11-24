@@ -122,6 +122,8 @@ const SHARED_SECRETS = [
   "AI_KEY_ASSEMBLYAI",
   "TYPESAFE_API_KEY",
 ];
+// cos-runner only: forms' spam check (stage 29, ADR 0722), where a pack's tool and intake.submit run.
+const RUNNER_SECRETS = ["TURNSTILE_SECRET_KEY"];
 // Settings → AI (ADR 0151) stores provider keys as Workers secrets and reads AI Gateway usage
 // with its own narrowly scoped token. It is read from COS_AI_ADMIN_TOKEN (not the deploy token
 // in CLOUDFLARE_API_TOKEN) and set as cos-app's CLOUDFLARE_API_TOKEN secret.
@@ -381,7 +383,10 @@ const sharedSecrets = fromEnv(SHARED_SECRETS);
 
 // 2. cos-runner first: cos-app's service binding needs it, and it provisions the D1 database.
 run("apps/runner", "node", ["scripts/build.mjs", "--outdir", "dist"]);
-const runnerSecrets = secretsArgs(runnerConfigObject.name, sharedSecrets);
+const runnerSecrets = secretsArgs(runnerConfigObject.name, {
+  ...fromEnv(RUNNER_SECRETS),
+  ...sharedSecrets,
+});
 try {
   wrangler("apps/runner", [
     "deploy",

@@ -31,7 +31,7 @@ export function MySubscriptions({
   empty?: string;
 }) {
   const subscriptions = account.useSubscriptions();
-  if (subscriptions.isPending) return <ActivityIndicator />;
+  if (subscriptions.isPending) return <ActivityIndicator color={theme.color.muted} />;
   if (subscriptions.error || !subscriptions.data) {
     return (
       <Text style={styles.body} accessibilityRole="alert">

@@ -203,6 +203,9 @@ describe("the generic writes are for tools only", () => {
     expect(listed.map((op) => op.name)).toEqual([
       // Stage 42 (ADR 0478): which records the caller holds access to, for a pack's tool.
       "access.check",
+      // Stage 29 step 2 (ADR 0720): the public-write door, a pack's form opened and answered.
+      "intake.open",
+      "intake.submit",
       "my.create",
       "my.update",
       // Stage 31a step 8 (ADR 0560): a drop-in booking made with its order, from a pack's tool.

@@ -8,11 +8,12 @@
 import type { BookingsHooks, MarkResult } from "@composable-os/pack-bookings/client";
 import { classTime } from "@composable-os/pack-bookings/client";
 import { useState } from "react";
-import { Text, View } from "react-native";
+import { View } from "react-native";
 import { Button } from "../native-base/button.tsx";
 import { List } from "../native-base/list.tsx";
 import { Row } from "../native-base/row.tsx";
 import { Screen } from "../native-base/screen.tsx";
+import { Text } from "../native-base/text.tsx";
 
 type Hooks = Pick<
   BookingsHooks,
@@ -46,7 +47,11 @@ export function ClassListScreen({
   }
   return (
     <Screen title="Today's classes">
-      {day.isPending ? <Text accessibilityRole="progressbar">Loading the classes…</Text> : null}
+      {day.isPending ? (
+        <Text tone="muted" accessibilityRole="progressbar">
+          Loading the classes…
+        </Text>
+      ) : null}
       {day.error ? <Text accessibilityRole="alert">We could not load today's classes.</Text> : null}
       {day.data ? (
         <List empty="No classes today.">
@@ -98,7 +103,11 @@ function ClassRoster({
   return (
     <Screen title={list.data?.class.title ?? "Class list"}>
       <Button label="Back to today's classes" quiet onPress={onBack} />
-      {list.isPending ? <Text accessibilityRole="progressbar">Loading the list…</Text> : null}
+      {list.isPending ? (
+        <Text tone="muted" accessibilityRole="progressbar">
+          Loading the list…
+        </Text>
+      ) : null}
       {list.error ? <Text accessibilityRole="alert">We could not load the list.</Text> : null}
       {message ? <Text accessibilityRole="alert">{message}</Text> : null}
       {list.data ? (

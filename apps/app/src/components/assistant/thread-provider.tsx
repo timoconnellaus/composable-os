@@ -91,7 +91,7 @@ async function readStream(response: Response, onEvent: (event: AssistantEvent) =
   }
 }
 
-function socketUrl(): string {
+export function socketUrl(): string {
   const scheme = window.location.protocol === "https:" ? "wss:" : "ws:";
   return `${scheme}//${window.location.host}/api/assistant/socket`;
 }

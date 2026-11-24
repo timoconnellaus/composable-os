@@ -28,8 +28,6 @@ export type AssistantRecord = NonNullable<AssistantContext["record"]>;
 export interface AskOptions {
   /** Text to put in the composer (not sent until the person sends it). */
   prompt?: string;
-  /** Send `prompt` straight away. */
-  send?: boolean;
   /** Scope the question to this record (otherwise the page's record, if any). */
   record?: AssistantRecord;
   /** Scope the question to these records (otherwise the list's selection, if any). */

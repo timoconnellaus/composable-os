@@ -14,6 +14,7 @@ import { listObjects } from "../fields/index.ts";
 import type { HandlerContext } from "../operation.ts";
 import { schemaObjectNames } from "../operations/query.ts";
 import { CORE_PERMISSION_NAMESPACES } from "../principals.ts";
+import { followsHostIssues } from "../records/follows.ts";
 import { routineMailAvailableNotice } from "../routine-mail/index.ts";
 import { todayItemSqlIssues } from "../today/declaration.ts";
 import { hasAccessSourceKind } from "../visibility/access.ts";
@@ -167,6 +168,13 @@ export async function checkManifest(
       all.push({ stage: "contract", code: "contract", path: issue.path, message: issue.message });
     }
   }
+  // A cascade across extensions against what is installed (ADR 0841): the parent's states, and
+  // on an upgrade of the parent's extension, what the installed followers follow.
+  if (manifest) {
+    for (const issue of followsHostIssues(manifest)) {
+      all.push({ stage: "contract", code: "contract", path: issue.path, message: issue.message });
+    }
+  }
   // A source of access of a kind the host does not provide gives no one access (ADR 0477).
   for (const [name, object] of Object.entries(manifest?.objects ?? {})) {
     (object.access?.sources ?? []).forEach((source, i) => {
@@ -242,6 +250,20 @@ function outsideDeclarations(manifest: ExtensionManifest): CheckIssue[] {
       });
     }
   }
+  // Following another extension's record puts this extension's moves in that extension's batch,
+  // where a refusal fails its move (ADR 0841): a reviewed change, like calling its tools.
+  for (const [name, object] of Object.entries(manifest.objects)) {
+    const f = object.states?.follows;
+    const to = f ? object.fields[f.relation]?.to : undefined;
+    if (to?.includes(".") && !to.startsWith(`${manifest.id}.`)) {
+      issues.push({
+        stage: "contract",
+        code: "outside_audience",
+        path: `objects.${name}.states.follows`,
+        message: `A runtime extension cannot follow another extension's ${to}. ${why}`,
+      });
+    }
+  }
   // A role changes what a staff account may do, and a tool's permission is what a role holds
   // (ADR 0436): identity and access are not something code written in the app may declare.
   for (const [name, tool] of Object.entries(manifest.tools)) {
@@ -251,6 +273,18 @@ function outsideDeclarations(manifest: ExtensionManifest): CheckIssue[] {
         code: "outside_audience",
         path: `tools.${name}.permission`,
         message: `A runtime extension cannot declare a permission for a staff role. ${why}`,
+      });
+    }
+  }
+  // Who may call a tool beyond its role and grants (ADR 0652) is access too: a tool open to every
+  // staff account, pack roles included, or one held to a core permission.
+  for (const [name, tool] of Object.entries(manifest.tools)) {
+    if (tool.anyStaff || tool.corePermission !== undefined) {
+      issues.push({
+        stage: "contract",
+        code: "outside_audience",
+        path: `tools.${name}.${tool.anyStaff ? "anyStaff" : "corePermission"}`,
+        message: `A runtime extension cannot open a tool to every staff account or hold it to a core permission. ${why}`,
       });
     }
   }
@@ -321,6 +355,16 @@ function outsideDeclarations(manifest: ExtensionManifest): CheckIssue[] {
       code: "outside_audience",
       path: `routineMail.${name}`,
       message: `A runtime extension cannot declare routine mail. ${why}`,
+    });
+  }
+  // A journey signal is recorded by the host in every write's batch and starts journeys that mail
+  // members (stage 53, ADR 0802): only a shipped extension's reviewed declaration says what is one.
+  for (const name of Object.keys(manifest.journeySignals ?? {})) {
+    issues.push({
+      stage: "contract",
+      code: "outside_audience",
+      path: `journeySignals.${name}`,
+      message: `A runtime extension cannot declare journey signals. ${why}`,
     });
   }
   manifest.permissions.modules.forEach((module, i) => {
@@ -395,6 +439,16 @@ function outsideDeclarations(manifest: ExtensionManifest): CheckIssue[] {
         message: `A runtime extension cannot make ${name} something customers and the public can buy. ${why}`,
       });
     }
+    // Stock is sold to customers and the public from a ledger the host keeps (ADR 0680): a
+    // reviewed change, as sellable is.
+    if (object.stock) {
+      issues.push({
+        stage: "contract",
+        code: "outside_audience",
+        path: `objects.${name}.stock`,
+        message: `A runtime extension cannot give ${name} stock the host sells from. ${why}`,
+      });
+    }
     // Who works when feeds pay, and claims staff accounts' time (ADR 0621): a reviewed change.
     if (object.staffed) {
       issues.push({
@@ -402,6 +456,33 @@ function outsideDeclarations(manifest: ExtensionManifest): CheckIssue[] {
         code: "outside_audience",
         path: `objects.${name}.staffed`,
         message: `A runtime extension cannot declare ${name} a shift staff work. ${why}`,
+      });
+    }
+    // Time recorded against a record feeds pay and is a staff record (ADR 0850): a reviewed change.
+    if (object.workedOn) {
+      issues.push({
+        stage: "contract",
+        code: "outside_audience",
+        path: `objects.${name}.workedOn`,
+        message: `A runtime extension cannot declare ${name} something staff record their time against. ${why}`,
+      });
+    }
+    // Who looks after whom opens a pack role's reach to a Person's records (ADRs 0831, 0889).
+    if (object.team) {
+      issues.push({
+        stage: "contract",
+        code: "outside_audience",
+        path: `objects.${name}.team`,
+        message: `A runtime extension cannot declare who on the staff looks after the People ${name} is about. ${why}`,
+      });
+    }
+    // The public-write door (ADR 0720): what the public may create is a reviewed change.
+    if (object.intake) {
+      issues.push({
+        stage: "contract",
+        code: "outside_audience",
+        path: `objects.${name}.intake`,
+        message: `A runtime extension cannot open ${name} to the public's answers. ${why}`,
       });
     }
     // Who ticks what is a staff record, read by the person and rosterers only (ADR 0650).

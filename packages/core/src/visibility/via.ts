@@ -21,7 +21,14 @@ import { type PublicScope, publicScope, signedInScope } from "./public.ts";
 /** What is wrong with an object's `customerVia` declaration (empty when nothing is). */
 export function customerViaProblems(object: ObjectDefinition): string[] {
   const declared = object.customerVia;
-  if (!declared) return [];
+  return declared ? checkVia(object, declared).problems : [];
+}
+
+/** The declaration's problems and, when its link holds, the link. */
+function checkVia(
+  object: ObjectDefinition,
+  declared: CustomerViaDeclaration,
+): { problems: string[]; link: Link | null } {
   const problems: string[] = [];
   if (object.customer) {
     problems.push("an object that declares a customer cannot also declare customerVia");
@@ -38,7 +45,7 @@ export function customerViaProblems(object: ObjectDefinition): string[] {
   }
   const link = resolveLink(object, declared);
   if (typeof link === "string") problems.push(link);
-  return problems;
+  return { problems, link: typeof link === "string" ? null : link };
 }
 
 /** How the caller's own records point here: the `from` view, its pointer and its owner column. */
@@ -106,9 +113,9 @@ export interface ViaScope {
 export function customerViaScope(object: ObjectDefinition, personId: string): ViaScope | null {
   const declared = object.customerVia;
   if (!declared) return null;
-  const problems = customerViaProblems(object);
+  const { problems, link } = checkVia(object, declared);
   // A declaration that does not hold together shows nothing, and says so to whoever built it.
-  if (problems.length) {
+  if (problems.length || !link) {
     throw new Error(`${object.name}: invalid customerVia declaration: ${problems.join("; ")}`);
   }
   // What every signed-in customer (ADR 0447) or the public may read of it: one or the other.
@@ -133,7 +140,7 @@ export function customerViaScope(object: ObjectDefinition, personId: string): Vi
     personId,
     fields,
     columns: [...columns].map(([column, shownOn]) => ({ column, shownOn })),
-    link: resolveLink(object, declared) as Link,
+    link,
     public: shared,
     declaration: declared,
   };

@@ -6,20 +6,11 @@ import type { CoreInput, CoreOutput } from "@composable-os/core";
 import { keepPreviousData } from "@tanstack/react-query";
 import { Link } from "@tanstack/react-router";
 import { CircleAlertIcon, CopyIcon } from "lucide-react";
-import { useEffect, useState } from "react";
 import { useOp } from "#/lib/query";
+import { useDebounced } from "#/lib/use-debounced";
 
 type CheckInput = CoreInput<"duplicate.check">;
 export type DuplicateCheck = CoreOutput<"duplicate.check">;
-
-function useDebounced<T>(value: T, ms: number): T {
-  const [debounced, setDebounced] = useState(value);
-  useEffect(() => {
-    const timer = setTimeout(() => setDebounced(value), ms);
-    return () => clearTimeout(timer);
-  }, [value, ms]);
-  return debounced;
-}
 
 function hasValues(input: CheckInput): boolean {
   return Object.values(input.values).some((v) =>

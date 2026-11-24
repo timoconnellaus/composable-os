@@ -25,6 +25,17 @@ import type { ReleaseManifest } from "./manifest.ts";
 
 export const GATEWAY_ID_VAR = "AI_GATEWAY_ID";
 export const GATEWAY_TOKEN_SECRET = "AI_GATEWAY_TOKEN";
+
+/** An AI_GATEWAY_TOKEN the caller sets in this deploy, if any (then none is generated). */
+export function suppliedGatewayToken(secrets: Record<string, Record<string, string>> | undefined): {
+  token?: string;
+} {
+  for (const values of Object.values(secrets ?? {})) {
+    const token = values[GATEWAY_TOKEN_SECRET];
+    if (token) return { token };
+  }
+  return {};
+}
 /** The permission group the gateway token gets: it can call gateways, not change them. */
 export const GATEWAY_RUN_PERMISSION = "AI Gateway Run";
 /**

@@ -4,22 +4,13 @@
 // what a booking spends and whether a walk-in is already on file are the host's, and this shows
 // its answers.
 import type { BookForResult, BookingsHooks } from "@composable-os/pack-bookings/client";
-import { classTime } from "@composable-os/pack-bookings/client";
+import { classTime, todayIn } from "@composable-os/pack-bookings/client";
 import { useState } from "react";
 import { Button } from "../ui-button/button.tsx";
 import { Input } from "../ui-input/input.tsx";
 import { Label } from "../ui-label/label.tsx";
 
 type Hooks = Pick<BookingsHooks, "useDay" | "useBookFor" | "useFindPeople">;
-
-/** Today's date (YYYY-MM-DD) in `timeZone`. */
-const todayIn = (timeZone: string) =>
-  new Intl.DateTimeFormat("en-CA", {
-    timeZone,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).format(new Date());
 
 /**
  * The front desk as the product's admin shows it (stage 47): today in the desk's own zone (the

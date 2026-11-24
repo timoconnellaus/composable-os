@@ -203,7 +203,6 @@ export async function verifyProvenance(
   );
 }
 
-/** A full (Sigstore) verifier the CLI may add, e.g. one that shells out to `gh attestation verify`. */
 /** Whether `actual` (an `owner/repo` or its github.com URL) is the repository `expected`. */
 export function sameRepository(actual: string | undefined, expected: string): boolean {
   if (!actual) return false;
@@ -211,6 +210,7 @@ export function sameRepository(actual: string | undefined, expected: string): bo
   return norm(actual) === norm(expected);
 }
 
+/** A full (Sigstore) verifier the CLI may add, e.g. one that shells out to `gh attestation verify`. */
 export type ExtraVerifier = (input: {
   bytes: Uint8Array;
   digest: string;

@@ -59,6 +59,7 @@ import type { SenderConfiguratorRpc } from "./configurator/sender-configurator-t
 import {
   AGREEMENT_KEY_PREFIX,
   HOST_PRIVATE_CLASSES,
+  keySpaceOf,
   type QueueClass,
   queueClassOf,
 } from "./queue-class";
@@ -126,19 +127,15 @@ const HISTORY_LIMIT = 200;
 const LIST_LIMIT = 100;
 const HISTORY_PREFIX = "history:";
 /**
- * Idempotency keys (ADR 0574, ADR 0645): `idemc:<class>:<key>` → the send's id, and per class the
- * order they were seen in, each class pruned by its own volume (the agreements mail's slots are
- * bounded by acceptances, and kept longer).
+ * Idempotency keys (ADR 0574, ADR 0645, issue #286): `idemc:<space>:<key>` → the send's id, and
+ * per space the order they were seen in, each space pruned by its own volume (the agreements
+ * mail's slots are bounded by acceptances, and kept longer). A space is one of the host's classes,
+ * or one ordinary caller's (`keySpaceOf`).
  */
 const IDEMPOTENCY_PREFIX = "idemc:";
 const IDEMPOTENCY_ORDER = "idemcorder:";
 const IDEMPOTENCY_LIMIT = 2_000;
-const IDEMPOTENCY_LIMITS: Partial<Record<QueueClass, number>> = { agreements: 20_000 };
-/**
- * Keys remembered before keys were kept per class (`idem:<key>`). A miss reads them too, except
- * the copy's, so a retry across the deploy still finds its first send. Drop after one release.
- */
-const LEGACY_IDEMPOTENCY_PREFIX = "idem:";
+const IDEMPOTENCY_LIMITS: Partial<Record<string, number>> = { agreements: 20_000 };
 const IDEMPOTENCY_KEY = /^[A-Za-z0-9_.:-]{1,200}$/;
 
 /**
@@ -320,10 +317,10 @@ type SessionBackend = {
   resubmit(queue: RpcStub<ApprovalQueue>, id: number): Promise<boolean>;
   /**
    * The send an idempotency key already made (ADR 0574), "busy" while it is being made. Keys are
-   * kept per queue class: one class's key never answers another's send.
+   * kept per space (`keySpaceOf`): one class's, or one caller's, key never answers another's send.
    */
-  recall(queueClass: QueueClass, key: string): number | "busy" | null;
-  remember(queueClass: QueueClass, key: string, id: number | "busy" | null): void;
+  recall(space: string, key: string): number | "busy" | null;
+  remember(space: string, key: string, id: number | "busy" | null): void;
   /** How many sends wait in the same pool as `queueClass`'s (independent host mail, or the rest). */
   pendingIn(queueClass: QueueClass): number;
   listSent(viewer: QueueClass): EmailSendRecord[];
@@ -387,12 +384,13 @@ class EmailSendSessionImpl extends RpcTarget implements EmailSendSession {
       throw new Error("Refused: this copy's agreement was erased, and it is not sent.");
     }
     // A caller retrying a step passes the same key: the send it already made is answered again,
-    // never queued twice (ADR 0574). Keys are remembered per queue class only (not the kind: the
-    // host may decide a routine email held on its retry, or a caller's recipients make it
-    // internal on one try and not the next), so a key only ever answers a send from the same
-    // class of caller.
-    if (key) {
-      const known = this.#backend.recall(queueClass, key);
+    // never queued twice (ADR 0574). Keys are remembered per queue class, and an ordinary
+    // caller's per caller (issue #286), never per kind (the host may decide a routine email held
+    // on its retry, or a caller's recipients make it internal on one try and not the next), so a
+    // key only ever answers a send from the same caller.
+    const space = key ? await keySpaceOf(this.#queue, queueClass) : null;
+    if (key && space) {
+      const known = this.#backend.recall(space, key);
       if (known === "busy") throw new Error("A send with this idempotency key is in progress.");
       if (known !== null) return this.#again(known, queueClass);
     }
@@ -404,7 +402,7 @@ class EmailSendSessionImpl extends RpcTarget implements EmailSendSession {
     ) {
       throw new Error(TOO_MANY_PENDING);
     }
-    if (key) this.#backend.remember(queueClass, key, "busy");
+    if (key && space) this.#backend.remember(space, key, "busy");
     let id: number;
     try {
       id = await this.#backend.submit(
@@ -413,10 +411,10 @@ class EmailSendSessionImpl extends RpcTarget implements EmailSendSession {
         kind,
       );
     } catch (error) {
-      if (key) this.#backend.remember(queueClass, key, null);
+      if (key && space) this.#backend.remember(space, key, null);
       throw error;
     }
-    if (key) this.#backend.remember(queueClass, key, id);
+    if (key && space) this.#backend.remember(space, key, id);
     // An auto-approved send may already have been applied while the submission was in flight.
     return { status: this.#backend.wasSent(id) ? "sent" : "pending", id };
   }
@@ -579,14 +577,8 @@ export class EmailSendGatekeeper
     this.#record(id, email, { status: "sent", sentAt: new Date().toISOString(), messageId });
   }
 
-  #recall(queueClass: QueueClass, key: string): number | "busy" | null {
-    const kv = this.ctx.storage.kv;
-    let value = kv.get<number | string>(`${IDEMPOTENCY_PREFIX}${queueClass}:${key}`);
-    // Upgrade: a key remembered before keys were kept per class (never the copy's). Drop after
-    // one release.
-    if (value === undefined && !key.startsWith(AGREEMENT_KEY_PREFIX)) {
-      value = kv.get<number | string>(LEGACY_IDEMPOTENCY_PREFIX + key);
-    }
+  #recall(space: string, key: string): number | "busy" | null {
+    const value = this.ctx.storage.kv.get<number | string>(`${IDEMPOTENCY_PREFIX}${space}:${key}`);
     if (value === undefined) return null;
     if (typeof value === "number") return value;
     // A send being made, unless it was left so by a crash long enough ago to try again.
@@ -594,12 +586,12 @@ export class EmailSendGatekeeper
   }
 
   /**
-   * Keeps each class's most recent keys (IDEMPOTENCY_LIMIT, more for the agreements mail); older
-   * ones are forgotten (a week of retries). One class's volume never evicts another's keys.
+   * Keeps each space's most recent keys (IDEMPOTENCY_LIMIT, more for the agreements mail); older
+   * ones are forgotten (a week of retries). One space's volume never evicts another's keys.
    */
-  #remember(queueClass: QueueClass, key: string, id: number | "busy" | null): void {
+  #remember(space: string, key: string, id: number | "busy" | null): void {
     const kv = this.ctx.storage.kv;
-    const slot = `${IDEMPOTENCY_PREFIX}${queueClass}:${key}`;
+    const slot = `${IDEMPOTENCY_PREFIX}${space}:${key}`;
     if (id === null) {
       kv.delete(slot);
       return;
@@ -607,13 +599,13 @@ export class EmailSendGatekeeper
     const known = kv.get(slot) !== undefined;
     kv.put(slot, id === "busy" ? `busy:${Date.now()}` : id);
     if (known) return;
-    const order = `${IDEMPOTENCY_ORDER}${queueClass}:`;
+    const order = `${IDEMPOTENCY_ORDER}${space}:`;
     kv.put(`${order}${String(Date.now()).padStart(15, "0")}:${key}`, key);
     const entries = [...kv.list<string>({ prefix: order })];
-    const limit = IDEMPOTENCY_LIMITS[queueClass] ?? IDEMPOTENCY_LIMIT;
+    const limit = IDEMPOTENCY_LIMITS[space] ?? IDEMPOTENCY_LIMIT;
     for (const [entry, old] of entries.slice(0, Math.max(0, entries.length - limit))) {
       kv.delete(entry);
-      kv.delete(`${IDEMPOTENCY_PREFIX}${queueClass}:${old}`);
+      kv.delete(`${IDEMPOTENCY_PREFIX}${space}:${old}`);
     }
   }
 
@@ -774,8 +766,8 @@ export class EmailSendGatekeeper
         });
         return true;
       },
-      recall: (queueClass, key) => this.#recall(queueClass, key),
-      remember: (queueClass, key, id) => this.#remember(queueClass, key, id),
+      recall: (space, key) => this.#recall(space, key),
+      remember: (space, key, id) => this.#remember(space, key, id),
       pendingIn: (queueClass) => this.#pendingIn(queueClass),
 
       listSent: (viewer) => this.#listSent(viewer),

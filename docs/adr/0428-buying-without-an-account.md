@@ -89,3 +89,9 @@ What it records with `recordChange` is checked in full, exactly as before. No ex
   (migration 0853's trigger). An order that closes unpaid (expired, cancelled) deletes them.
 - **Staff starting an order for an address several People share** are refused while anything is
   due there: nobody's acceptances can be read until staff merge them.
+
+## Amendment, 2026-11-24 (stage 29, ADR 0721)
+Whose a typed address is is now one shared matcher, `personForAddress`
+(`packages/core/src/customers/address-person.ts`): `resolveBuyer` calls it, and so does the
+submitter of a form (`intake.submit`). Same rules and same words. See
+[ADR 0721](0721-the-submitters-person-and-certainty.md).

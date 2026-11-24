@@ -1,4 +1,5 @@
-// cos-app's Worker entry. /support/enter and /support/exit (hosted support access,
+// cos-app's Worker entry. The desk origin (its own hostname, src/server/http/desk.ts) is answered
+// first and serves nothing else; then /support/enter and /support/exit (hosted support access,
 // src/server/support.ts) come first; the HTTP surface for client apps (/api/v1/*,
 // src/server/http/api.ts) next; OAuth 2.1 and /mcp (src/server/mcp/handler.ts) wrap TanStack
 // Start, which handles every other request; the cron trigger in wrangler.jsonc runs the scheduled
@@ -42,6 +43,7 @@ export { ClientApp } from "./server/http/bound.ts";
 import { type AssistantHttpEnv, handleSocket, SOCKET_PATH } from "./server/assistant/http.ts";
 import { runAgentJobCron } from "./server/assistant/job-cron.ts";
 import { handleRoutineDeliveries } from "./server/assistant/routines.ts";
+import { isDeskRequest } from "./server/desk.ts";
 import { staffCodesFor } from "./server/host-mail.ts";
 import { handleAgreementPdf, isAgreementPdfPath } from "./server/http/agreement-pdf.ts";
 import {
@@ -51,6 +53,7 @@ import {
   handleCustomerAuth,
   isCustomerAuthPath,
 } from "./server/http/api.ts";
+import { type DeskHandlerEnv, handleDesk, isDeskPath } from "./server/http/desk.ts";
 import { handleNativeStaffSignIn, NATIVE_STAFF_SIGN_IN_PATH } from "./server/http/native.ts";
 import {
   handleStaffFeed,
@@ -91,8 +94,17 @@ export default {
   fetch(request, env, ctx) {
     // Staff sign-in codes go out as the host's own mail (ADR 0455), for whichever route asks.
     provideStaffCodes(env, staffCodesFor(env as unknown as ApiEnv));
+    // The desk origin (stage 44 step 6, ADR 0649): its own hostname for this Worker, serving its
+    // two pages and its calls and nothing else. The staff origin serves none of the desk's paths.
+    if (isDeskRequest(request, env)) {
+      // Its pages go straight to TanStack Start: never through MCP's OAuth wrapper (`app`).
+      return handleDesk(request, env as unknown as DeskHandlerEnv, async (page) =>
+        handler.fetch(page),
+      );
+    }
     // Hosted support access (ADR 0212): a 404 unless COS_SUPPORT_PUBLIC_KEY is set.
     const pathname = new URL(request.url).pathname;
+    if (isDeskPath(pathname)) return new Response("Not found", { status: 404 });
     if (isSupportRoute(pathname)) return handleSupportRoute(request, env);
     // The assistant thread's WebSocket (ADR 0340) goes straight to the person's object: TanStack
     // Start does not pass a 101 response through. Identity is enforced here the same way.

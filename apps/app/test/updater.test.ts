@@ -150,6 +150,42 @@ describe("self-updater runtime", () => {
     ]);
   });
 
+  it("lists the secrets set on the product's own app and runner Workers", async () => {
+    const { cf } = await world();
+    const names = { ...FIXTURE_PRODUCT_DEFINITION.names, app: "shop-app", runner: "shop-runner" };
+    for (const name of ["shop-app", "shop-runner"]) {
+      cf.scripts.set(name, {
+        name,
+        versions: [],
+        secrets: new Map([[`${name}-secret`, "value"]]),
+        schedules: [],
+        workersDev: false,
+        bindings: [],
+      });
+    }
+    const runtime = updaterRuntimeFor(
+      {
+        DB: env.DB,
+        COS_RELEASE_VERSION: "1.0.0",
+        COS_ACCOUNT_ID: ACCOUNT,
+        COS_UPDATE_TOKEN: TOKEN,
+      },
+      {
+        cloudflareApi: "https://cf.test/client/v4",
+        cloudflareFetch: cf.fetch,
+        product: { ...FIXTURE_PRODUCT_DEFINITION, names },
+      },
+    );
+    const state = { accountId: ACCOUNT, gatekeepers: [], workerNames: {} } as Pick<
+      DeploymentState,
+      "accountId" | "gatekeepers" | "workerNames"
+    > as DeploymentState;
+    expect(await runtime.secretsSet(state)).toEqual({
+      "shop-app": ["shop-app-secret"],
+      "shop-runner": ["shop-runner-secret"],
+    });
+  });
+
   it("refuses a tampered bundle and changes nothing", async () => {
     const { cf, github, runtime } = await world();
     const genuine = await buildFixtureRelease({ version: "1.1.0" });

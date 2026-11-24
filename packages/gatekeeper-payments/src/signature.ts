@@ -3,6 +3,8 @@
 // its own deliveries the same way, so its route exercises the same check. `crypto.subtle.verify`
 // compares in constant time.
 
+import { hexEncode } from "@composable-os/gatekeeper-kit/connect-nonce";
+
 /** How far a signed timestamp may be from now, in seconds (Stripe's recommendation). */
 export const TIMESTAMP_TOLERANCE_SECONDS = 5 * 60;
 
@@ -77,8 +79,7 @@ export async function signatureHeader(
   const mac = new Uint8Array(
     await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(`${timestamp}.${body}`)),
   );
-  const hex = [...mac].map((byte) => byte.toString(16).padStart(2, "0")).join("");
-  return `t=${timestamp},v1=${hex}`;
+  return `t=${timestamp},v1=${hexEncode(mac)}`;
 }
 
 function parseSha256Hex(value: string): Uint8Array | undefined {

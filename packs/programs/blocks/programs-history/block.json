@@ -1,0 +1,11 @@
+{
+  "name": "programs-history",
+  "pack": "programs",
+  "skin": "web",
+  "operations": ["my.list", "record.list", "x.programs.sessionGet", "x.programs.logUpdate"],
+  "files": ["history.tsx", "LICENSE"],
+  "dependsOn": ["ui-button", "ui-card", "ui-input"],
+  "packages": {
+    "@composable-os/pack-programs": "*"
+  }
+}

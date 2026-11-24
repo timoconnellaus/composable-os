@@ -12,12 +12,13 @@ import {
   shiftTime,
 } from "@composable-os/pack-rostering/client";
 import { useState } from "react";
-import { Text, View } from "react-native";
+import { View } from "react-native";
 import { Button } from "../native-base/button.tsx";
 import { List } from "../native-base/list.tsx";
 import { Row } from "../native-base/row.tsx";
 import { Screen } from "../native-base/screen.tsx";
 import { Sheet } from "../native-base/sheet.tsx";
+import { Text } from "../native-base/text.tsx";
 
 type Hooks = Pick<RosteringHooks, "useMe" | "useOffers" | "useTake">;
 
@@ -64,7 +65,9 @@ export function OffersScreen({
   return (
     <Screen title="Offered to me">
       {me.isPending || offers.isPending ? (
-        <Text accessibilityRole="progressbar">Loading offers…</Text>
+        <Text tone="muted" accessibilityRole="progressbar">
+          Loading offers…
+        </Text>
       ) : null}
       {me.error || offers.error ? (
         <Text accessibilityRole="alert">{rosterRefusal(me.error ?? offers.error).message}</Text>

@@ -7,6 +7,7 @@
 // tail blocks and reasoning) has each mention replaced with "[erased]".
 import type { MessagePart } from "@composable-os/agent-core";
 import type { ModelMessage } from "ai";
+import { sha256Hex } from "../digest.ts";
 
 export const ERASED = "[erased]";
 
@@ -144,12 +145,7 @@ export const MAX_REFS_PER_TURN = 500;
 
 /** An email as the index holds it: `email:` and the SHA-256 of the lower-cased address. */
 export async function emailRef(email: string): Promise<string> {
-  const digest = await crypto.subtle.digest(
-    "SHA-256",
-    new TextEncoder().encode(email.trim().toLowerCase()),
-  );
-  const hex = [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
-  return `email:${hex}`;
+  return `email:${await sha256Hex(email.trim().toLowerCase())}`;
 }
 
 /** Whether a string is a ref the index accepts. */

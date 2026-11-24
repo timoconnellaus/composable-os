@@ -89,6 +89,17 @@ export interface ExtensionFieldOptions {
   documentPath?: { field: string; path: string; count?: boolean | undefined };
 }
 
+/** A journey signal declared on an object (stage 53, ADR 0802), as the host records it. */
+export interface ObjectSignal {
+  /** `<extension>.<name>`. */
+  id: string;
+  /** The relation field naming the Person. */
+  person: string;
+  enters?: readonly string[];
+  from?: readonly string[];
+  created?: boolean;
+}
+
 export interface ObjectDefinition {
   /** Registry name, also the `object_type` in links, tags, audit and search. */
   name: string;
@@ -115,6 +126,8 @@ export interface ObjectDefinition {
   capacity?: CapacityDefinition;
   /** Extension objects: something that can be bought (stage 27, ADR 0435). */
   sellable?: SellableDefinition;
+  /** Extension objects: things counted on a shelf, kept from a ledger (stage 37, ADR 0680). */
+  stock?: StockDefinition;
   /** Extension objects: uses held (a pass) or spent (a booking) (stage 32b, ADR 0493). */
   allowance?: AllowanceDefinition;
   /**
@@ -133,6 +146,12 @@ export interface ObjectDefinition {
     inlineStep?: boolean;
   };
   /**
+   * Extension objects: the journey signals its shipped extension declares on it (stage 53, ADR
+   * 0802), each with its id (`memberships.started`) and its Person field resolved. The host
+   * records them in the write's batch (journeys/signals.ts).
+   */
+  signals?: readonly ObjectSignal[];
+  /**
    * A fixed state machine (ADR 0425), with registry field names. An object has stages or states,
    * never both.
    */
@@ -148,8 +167,15 @@ export interface ObjectDefinition {
   recurring?: RecurringDefinition;
   /** Extension objects: a shift, who works it, when and on what (stage 45, ADR 0621). */
   staffed?: StaffedDefinition;
+  /** Extension objects: time can be recorded against the record (stage 58, ADR 0850). */
+  workedOn?: WorkedOnDefinition;
   /** Extension objects: a claim on a thing (a room) for the record's time (stage 49, ADR 0765). */
   occupies?: OccupiesDefinition;
+  /**
+   * Extension objects of a shipped pack: the public-write door (stage 29, ADR 0720), a form the
+   * public answers, the submission the host makes, or a destination a form may also make.
+   */
+  intake?: IntakeDefinition;
   /** A checklist its person ticks off (stage 45 step 4b, ADR 0650), with registry names. */
   checklists?: ChecklistsDefinition;
   /**
@@ -213,6 +239,8 @@ export interface PublishableDefinition {
   readonly slug?: string;
   /** The date a reader is shown: a date or datetime content field, filled on publish (ADR 0441). */
   readonly date?: string;
+  /** The states the record may be published in; left out, any (ADR 0810). */
+  readonly publishIn?: readonly string[];
   /**
    * Read and understood (ADR 0702): `who`, the object's "must read" document field; `manage`, the
    * restricted, grantable permission whose holders (and admins) read who has confirmed.
@@ -337,6 +365,16 @@ export interface CapacityDefinition {
   releaseOnRefund: boolean;
 }
 
+/** The stock behaviour as the host enforces it (the SDK's StockSpec, validated), registry names. */
+export interface StockDefinition {
+  /** The number field holding the reorder level, and the one holding how many to order then. */
+  reorderAt?: string | undefined;
+  reorderQty?: string | undefined;
+  show: "exact" | "low" | "availability";
+  /** `low`'s threshold. */
+  lowAt?: number | undefined;
+}
+
 /**
  * The sellable behaviour as the host enforces it (the SDK's SellableSpec, validated), with
  * registry field names and the granted object's registry name.
@@ -374,6 +412,15 @@ export interface SellableDefinition {
   onePerPerson?: string | undefined;
   /** A paid line moves the record it was started for (ADR 0560): the SDK's MovesSpec. */
   moves?: MovesDefinition | undefined;
+  /**
+   * What kind of sale it is in the finance reports and when its money is earned (ADR 0792), with
+   * the defaults filled (category `other`, `at_sale`). `at` is a path as declared.
+   */
+  finance: {
+    category: { key: string; label: string };
+    earned: "at_sale" | "over_period" | "per_use" | "at_date";
+    at?: string | undefined;
+  };
 }
 
 /** What an order does to the record it was started for (ADR 0560), with registry names. */
@@ -571,6 +618,13 @@ export interface StaffedDefinition {
   pattern?: { link: string; who: string } | undefined;
   payBefore?: { field: string } | undefined;
   payAfter?: { field: string } | undefined;
+  /** Minutes kept free before and after, in the claim (ADR 0760): `kind.field` number paths. */
+  claimBefore?: { field: string } | undefined;
+  claimAfter?: { field: string } | undefined;
+  /** A live shift with a person must have an account (ADR 0760). */
+  account?: "required" | undefined;
+  /** Its title may name a client: off the roster for others, never offered (ADR 0761). */
+  private?: boolean | undefined;
   /** What shows a shift was worked (ADR 0627): `object` is the evidence object's registry name. */
   evidence?: { object: string; link: string; by: string } | undefined;
 }
@@ -608,6 +662,20 @@ export interface ChecklistsDefinition {
   opens: string;
   closes: string;
   live: readonly string[];
+}
+
+/**
+ * The SDK's WorkedOnSpec (ADR 0850): field names are local (as `staffed`'s are); `partOfObject` is
+ * the registry name of the record a staffed visit's time also counts to, when declared.
+ */
+export interface WorkedOnDefinition {
+  live: readonly string[];
+  title: string;
+  kind?: string | undefined;
+  place?: string | undefined;
+  readers: string;
+  partOf?: string | undefined;
+  partOfObject?: string | undefined;
 }
 
 /** The SDK's RecurringScheduleSpec with the objects' registry names (ADR 0500). */
@@ -695,3 +763,12 @@ export type AccessSource = RecordAccessSource | KindAccessSource;
 export interface AccessDeclaration {
   readonly sources: readonly AccessSource[];
 }
+
+/**
+ * The SDK's IntakeSpec (ADR 0720): field names are the object's own; a submission's `formObject`
+ * is the registry name of the form object its `form` relation names.
+ */
+export type IntakeDefinition =
+  | import("@composable-os/sdk").IntakeFormSpec
+  | (import("@composable-os/sdk").IntakeSubmissionSpec & { formObject: string })
+  | import("@composable-os/sdk").IntakeDestinationSpec;
