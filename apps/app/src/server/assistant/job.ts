@@ -25,7 +25,6 @@ import {
 } from "@composable-os/agent-core";
 import {
   type ActingUser,
-  type AgentJobHost,
   type AssistantTool,
   agentInstructions,
   agentProfiles,
@@ -58,8 +57,8 @@ import {
   scrubText,
 } from "@composable-os/core";
 import { createCrmDb } from "@composable-os/db";
-import { getAgentByName } from "agents";
 import { aiContextFor } from "../ai.ts";
+import { approvalExpiryDays } from "../approval-expiry.ts";
 import { blobStoreFor, integrationRuntimeFor } from "../integrations.ts";
 import { curatedToolName, type McpCaller } from "../mcp/tools.ts";
 import {
@@ -69,6 +68,7 @@ import {
   type OperationsEnv,
 } from "../operations.ts";
 import type { AssistantAgent } from "./agent.ts";
+import { threadStub } from "./http.ts";
 import { type AssistantMcp, connectAssistantMcp } from "./mcp-client.ts";
 
 export interface AgentJobEnv extends OperationsEnv {
@@ -101,11 +101,6 @@ interface JobSpec {
 }
 
 type Phase = "running" | "reviewing" | "finished";
-
-function int(value: string | undefined, fallback: number): number {
-  const n = Number.parseInt(value ?? "", 10);
-  return Number.isFinite(n) && n > 0 ? n : fallback;
-}
 
 export class AgentJob extends DurableObject<Cloudflare.Env> {
   #abort: AbortController | null = null;
@@ -310,7 +305,7 @@ export class AgentJob extends DurableObject<Cloudflare.Env> {
       origin: { surface: "assistant", sessionId: jobSession(spec.id), jobId: spec.id },
       db,
       floor: parseFloor(env.APPROVAL_FLOOR),
-      approvalExpiryDays: int(env.APPROVAL_EXPIRY_DAYS, 7),
+      approvalExpiryDays: approvalExpiryDays(env.APPROVAL_EXPIRY_DAYS),
       ...(extensionHost ? { extensionHost } : {}),
       ...automationWiring(env),
       ...aiContextFor(env, db),
@@ -352,10 +347,7 @@ export class AgentJob extends DurableObject<Cloudflare.Env> {
   async #parent(userId: string): Promise<DurableObjectStub<AssistantAgent> | null> {
     const namespace = this.#env.ASSISTANT;
     if (!namespace) return null;
-    return (await getAgentByName(
-      namespace as never,
-      `user:${userId}`,
-    )) as unknown as DurableObjectStub<AssistantAgent>;
+    return threadStub(namespace, userId);
   }
 
   async #outsideCard(spec: JobSpec, changeSetId: string, actionId: string) {
@@ -403,6 +395,7 @@ export class AgentJob extends DurableObject<Cloudflare.Env> {
   ): Promise<string> {
     const usage = this.#meta<JobUsage>("usage") as JobUsage;
     const env = this.#env;
+    const agentJobs = agentJobsFor(env);
     const out = (await invokeByName(
       "agent.report",
       {
@@ -417,7 +410,7 @@ export class AgentJob extends DurableObject<Cloudflare.Env> {
         user,
         origin: { surface: "system", jobId: spec.id },
         db: createCrmDb(env.DB),
-        ...(agentJobsFor(env) ? { agentJobs: agentJobsFor(env) as AgentJobHost } : {}),
+        ...(agentJobs ? { agentJobs } : {}),
       },
     )) as { state: string };
     return out.state;

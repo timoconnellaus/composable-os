@@ -36,7 +36,13 @@ export interface AcceptRequest {
   /** The customer account that agreed (self or guardian), or null. */
   accountId?: string | null;
   email?: string | null;
-  channel: "web" | "app" | "paper";
+  channel: "web" | "app" | "paper" | "desk";
+  /**
+   * At the desk (stage 44 step 6, ADR 0649): the session it was made in, which names the staff
+   * account that started it and the enrolled device. The database requires it, claimed and
+   * open, on every `desk` acceptance and on no other (migration 0858).
+   */
+  deskSessionId?: string | null;
   typedName: string;
   signature?: Signature | undefined;
   answers?: readonly Answer[] | undefined;
@@ -297,6 +303,7 @@ export async function planAcceptance(
       how: request.by === "paper" ? "paper" : version.how,
       typed_name: request.typedName,
       channel: request.channel,
+      desk_session_id: request.channel === "desk" ? (request.deskSessionId ?? null) : null,
       accepted_at: now,
       signed_on: request.paper?.signedOn ?? null,
       recorded_by: request.paper?.recordedBy ?? null,

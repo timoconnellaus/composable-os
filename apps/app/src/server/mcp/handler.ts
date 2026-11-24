@@ -35,6 +35,7 @@ import { productName } from "@composable-os/product";
 import { product } from "@composable-os/products/active";
 import { createMcpHandler } from "agents/mcp/server";
 import { aiContextFor } from "../ai.ts";
+import { approvalExpiryDays } from "../approval-expiry.ts";
 import { blobStoreFor, integrationRuntimeFor } from "../integrations.ts";
 import {
   automationWiring,
@@ -149,7 +150,7 @@ export async function serveMcp(
       db,
       floor: parseFloor(env.APPROVAL_FLOOR),
       grantedPermissions: scopePermissions(connection.scopes),
-      approvalExpiryDays: int(env.APPROVAL_EXPIRY_DAYS, 7),
+      approvalExpiryDays: approvalExpiryDays(env.APPROVAL_EXPIRY_DAYS),
       ...(extensionHost ? { extensionHost } : {}),
       ...automationWiring(env),
       ...aiContextFor(env, db),

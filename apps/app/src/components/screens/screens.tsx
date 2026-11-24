@@ -90,8 +90,61 @@ type Loaded = {
   calls: Readonly<Record<string, readonly string[]>>;
 };
 
+/**
+ * Core's own staff screens (`pack: "core"`, `CORE_SCREENS` in screens.mine): the admin's own
+ * components, each a chunk of its own, given nothing from the shell. Stage 44 step 6: Sign at
+ * the desk.
+ */
+const CORE_SCREENS: Readonly<Record<string, () => Promise<ComponentType>>> = {
+  desk: () =>
+    import("#/components/agreements/sign-at-desk").then((m) => m.SignAtDeskScreen as ComponentType),
+};
+
 /** Whether the build holds this screen (a screen the host lists that this build lacks: none). */
-export const isBuiltScreen = (pack: string, key: string) => `${pack}/${key}` in SCREENS;
+export const isBuiltScreen = (pack: string, key: string) =>
+  pack === "core" ? Object.hasOwn(CORE_SCREENS, key) : `${pack}/${key}` in SCREENS;
+
+/** One of core's screens, loaded when shown, in the same boundary as a pack's. */
+function CoreScreenView({ screen }: { screen: MyScreen }) {
+  const [View, setView] = useState<ComponentType | null>(null);
+  const [failed, setFailed] = useState(false);
+  useEffect(() => {
+    let live = true;
+    const load = Object.hasOwn(CORE_SCREENS, screen.key) ? CORE_SCREENS[screen.key] : undefined;
+    if (!load) {
+      setFailed(true);
+      return;
+    }
+    load()
+      .then((component) => {
+        if (live) setView(() => component);
+      })
+      .catch(() => {
+        if (live) setFailed(true);
+      });
+    return () => {
+      live = false;
+    };
+  }, [screen.key]);
+  if (failed) {
+    return (
+      <EmptyState
+        icon={TriangleAlertIcon}
+        title={`${screen.label} could not be loaded`}
+        description="Reload the page to try again."
+        className="my-6"
+      />
+    );
+  }
+  if (!View) return <Skeleton className="h-48" aria-busy="true" />;
+  return (
+    <ScreenBoundary label={screen.label}>
+      <div data-screen={`core/${screen.key}`}>
+        <View />
+      </div>
+    </ScreenBoundary>
+  );
+}
 
 /**
  * One screen, loaded when shown, with its pack's hooks as the prop named for the pack and its
@@ -105,6 +158,11 @@ export function ScreenView({
   /** The record a record screen is shown on; absent when opened from the navigation. */
   recordId?: string;
 }) {
+  if (screen.pack === "core") return <CoreScreenView screen={screen} />;
+  return <PackScreenView screen={screen} {...(recordId ? { recordId } : {})} />;
+}
+
+function PackScreenView({ screen, recordId }: { screen: MyScreen; recordId?: string }) {
   const scope = `${screen.pack}/${screen.key}`;
   const [loaded, setLoaded] = useState<Loaded | null>(null);
   const [failed, setFailed] = useState(false);

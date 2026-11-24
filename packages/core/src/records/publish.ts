@@ -446,6 +446,17 @@ export async function currentVersion(ctx: HandlerContext, object: string, id: st
   return row ? Number(row.version) : null;
 }
 
+/** Whether any scheduled publish is due at `now`: one row of core_publish_schedule's index at most. */
+export async function publishScheduleDue(db: HandlerContext["db"], now: string): Promise<boolean> {
+  const row = await db
+    .selectFrom("core_publish_schedule")
+    .select("record_id")
+    .where("publish_at", "<=", now)
+    .limit(1)
+    .executeTakeFirst();
+  return row !== undefined;
+}
+
 /** Scheduled publishes due at `now`, oldest first. */
 export async function dueSchedules(ctx: HandlerContext, now: string, limit: number) {
   return ctx.db

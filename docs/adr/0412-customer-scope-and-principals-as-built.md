@@ -91,3 +91,11 @@ what "writes are checked the same way" means for a handler that queues its own S
   customer write.
 - The SDK's `customer` key, accounts, sign-in and `me.*` and `my.*` are later steps. Until then
   only test fixtures declare a customer.
+
+## Amendment, 2026-11-24 (stage 29, ADR 0720)
+The seam's "the public change nothing" keeps its one exception, the host's own change recorded with
+`recordHostChange` by a `hostInternal` core operation (ADR 0428), and `intake.submit` is now one of
+those operations: the submission, the submitter's Person and a destination it makes for a form's
+answers. A `hostInternal` core operation on an outside call may also learn the pack tool that made
+the call (`ctx.callingTool`) and, on a customer's call, forget the caller (`ctx.anonymise`, ADR
+0725). See [ADR 0720](0720-the-intake-door-one-public-write.md).

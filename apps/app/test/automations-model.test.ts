@@ -277,6 +277,15 @@ describe("notification links", () => {
     expect(
       notificationHref({ href: null, link: { kind: "record", object: "person", id: "per_1" } }),
     ).toBe("/people/per_1");
+    expect(
+      notificationHref({ href: null, link: { kind: "record", object: "order", id: "ord_1" } }),
+    ).toBe("/orders/ord_1");
+    expect(
+      notificationHref({
+        href: null,
+        link: { kind: "record", object: "subscription", id: "sub_1" },
+      }),
+    ).toBe("/subscriptions/sub_1");
     expect(notificationHref({ href: null, link: { kind: "approval", changeSetId: "chs_1" } })).toBe(
       "/approvals?set=chs_1",
     );

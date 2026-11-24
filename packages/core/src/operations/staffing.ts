@@ -485,7 +485,16 @@ const awaySchema = z.object({
   fromDate: z.string().nullable(),
   untilDate: z.string().nullable(),
   zone: z.string(),
+  /** The approved leave request it came from (stage 58, ADR 0853), or null. */
+  leaveRequest: z.string().nullable(),
 });
+
+/** Whether the business has set any leave type (stage 58, ADR 0853). */
+async function leaveTypesExist(ctx: HandlerContext): Promise<boolean> {
+  return Boolean(
+    await ctx.db.selectFrom("core_leave_type").select("id").limit(1).executeTakeFirst(),
+  );
+}
 
 /** A local `YYYY-MM-DDTHH:MM` in `zone` as unix seconds. */
 export function instantOf(local: string, zone: string): number {
@@ -555,6 +564,14 @@ export const staffingAway = defineOperation({
     assertPersonsOwnAct(ctx, "Saying someone is away");
     const account = await awayAccount(ctx, input.account, "say someone else is away");
     await requireAccount(ctx, account);
+    // Once the business has a leave type, leave is asked for and approved (stage 58, ADR 0853): a
+    // person says `other` or `regular` here. Rows already made stay as they are.
+    if (input.kind === "leave" && (await leaveTypesExist(ctx))) {
+      throw new ValidationError(
+        "Leave is asked for (and approved) as a leave request here. To say you cannot work, say other or regular.",
+        { field: "kind", rule: "leave_is_asked_for" },
+      );
+    }
     const zone = input.zone ?? (await loadGeneralSettings(ctx.db)).timezone;
     if (!isTimezone(zone))
       throw new ValidationError(`${zone} is not a time zone`, { field: "zone" });
@@ -676,7 +693,7 @@ export const staffingBack = defineOperation({
   description:
     "Tool-only (a shipped pack's tool): remove a time someone said they cannot work (they are " +
     "back, or it was wrong). Their own, or anyone's for someone who rosters; a person's own act. " +
-    "Returns its id.",
+    "Approved leave is not removed here: cancel its leave request. Returns its id.",
   input: z.object({ id: z.string().min(1).max(64) }),
   output: z.object({ id: z.string() }),
   permission: "records:write",
@@ -688,12 +705,19 @@ export const staffingBack = defineOperation({
     assertPersonsOwnAct(ctx, "Saying someone is back");
     const row = await ctx.db
       .selectFrom("core_staff_away")
-      .select(["id", "account_id"])
+      .select(["id", "account_id", "leave_request"])
       .where("id", "=", input.id)
       .executeTakeFirst();
     // Someone else's is as if it were not there: other staff never learn that someone is away.
     if (!row || (row.account_id !== actingAccount(ctx) && !(await mayRoster(ctx)))) {
       throw new NotFoundError("unavailability", input.id);
+    }
+    // Approved leave's row goes with its request (stage 58, ADR 0853): cancel the request.
+    if (row.leave_request) {
+      throw new ConflictError("This is approved leave: cancel the leave request instead.", {
+        rule: "leave_request_away",
+        request: row.leave_request,
+      });
     }
     ctx.write(ctx.db.deleteFrom("core_staff_away").where("id", "=", input.id));
     return { id: input.id };
@@ -760,21 +784,26 @@ export const staffingAwayList = defineOperation({
     // person at the screen reads it (ADR 0626).
     const person = ctx.extension?.tool?.calledBy?.actor === "human";
     return {
-      items: rows.map((r) => ({
-        id: r.id,
-        account: r.account_id,
-        name: names.get(r.account_id) ?? "",
-        kind: r.kind,
-        note: person ? r.note : null,
-        startsAt: r.starts_at,
-        endsAt: r.ends_at,
-        weekdays: r.weekdays ? r.weekdays.split(",") : [],
-        startTime: r.start_time,
-        endTime: r.end_time,
-        fromDate: r.from_date,
-        untilDate: r.until_date,
-        zone: r.zone,
-      })),
+      // Approved leave is a person's to read (stage 58, ADR 0853): an assistant acting for its
+      // own person gets the times they said they cannot work, never their leave.
+      items: rows
+        .filter((r) => person || !r.leave_request)
+        .map((r) => ({
+          id: r.id,
+          account: r.account_id,
+          name: names.get(r.account_id) ?? "",
+          kind: r.kind,
+          note: person ? r.note : null,
+          startsAt: r.starts_at,
+          endsAt: r.ends_at,
+          weekdays: r.weekdays ? r.weekdays.split(",") : [],
+          startTime: r.start_time,
+          endTime: r.end_time,
+          fromDate: r.from_date,
+          untilDate: r.until_date,
+          zone: r.zone,
+          leaveRequest: r.leave_request,
+        })),
     };
   },
 });

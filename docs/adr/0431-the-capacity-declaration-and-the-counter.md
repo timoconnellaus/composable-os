@@ -46,3 +46,9 @@ actor, and an extension has to be able to say which of its objects have places.
 - The trash refusal reads the counter before the write: a payment confirmed at the same moment
   could slip in between. The read is by primary key and the window is small; a refusal in the
   batch itself would need another trigger and was not worth it here.
+
+## Amendment, 2026-11-24 (stage 37, ADR 0680)
+The counter also keeps the stock of objects that declare `stock`. For them `places` is never a
+field staff type: it moves only with a movement in the stock ledger (`core_stock_movement`), and
+on hand is `places − taken`. Confirmed stock claims are never released by an order's move (a
+refund, or a cancel after a deposit). See [ADR 0680](0680-the-stock-behaviour.md).

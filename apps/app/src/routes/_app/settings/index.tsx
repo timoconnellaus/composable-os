@@ -26,6 +26,7 @@ import {
   ShieldCheckIcon,
   ShoppingBagIcon,
   SparklesIcon,
+  TabletSmartphoneIcon,
   UserCheckIcon,
   UsersIcon,
   WorkflowIcon,
@@ -47,6 +48,7 @@ function Section({
   description: string;
   to?:
     | "/settings/agreements"
+    | "/settings/devices"
     | "/settings/checklists"
     | "/settings/approval-policy"
     | "/settings/agents"
@@ -255,6 +257,14 @@ function SettingsPage() {
             description="The documents people agree to (terms, a waiver, health questions, a parent's consent), their versions, and where each is needed."
             to="/settings/agreements"
           />
+          {isAdmin && (
+            <Section
+              icon={<TabletSmartphoneIcon className="size-5" />}
+              title="Devices"
+              description="The business's own tablets: enrol one for signing at the desk, see when each was last seen, and revoke a lost one."
+              to="/settings/devices"
+            />
+          )}
           <Section
             icon={<ListChecksIcon className="size-5" />}
             title="Checklists"

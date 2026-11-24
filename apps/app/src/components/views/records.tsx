@@ -2,6 +2,7 @@
 // which returns core and extension fields alike), writing one through the object's own update
 // operation (so validation and stage rules apply), cache keys that the usual write invalidation
 // refreshes, and the card that shows a record.
+import type { CoreInput, CoreOperationName } from "@composable-os/core";
 import type { Filter, Sort } from "@composable-os/core/client";
 import { Avatar, AvatarFallback, AvatarImage } from "@composable-os/ui/components/avatar";
 import { Badge } from "@composable-os/ui/components/badge";
@@ -88,13 +89,12 @@ export async function updateRecord(
     const { status, ...rest } = core;
     await callOp(status === "done" ? "task.complete" : "task.reopen", { id });
     if (!Object.keys(rest).length) return;
-    // biome-ignore lint/suspicious/noExplicitAny: core field names are checked by the operation.
-    await callOp("task.update", { id, ...rest } as any);
+    // Core field names are checked by the operation.
+    await callOp("task.update", { id, ...rest } as CoreInput<"task.update">);
     return;
   }
-  const op = `${info.name}.update` as "person.update";
-  // biome-ignore lint/suspicious/noExplicitAny: core field names are checked by the operation.
-  await callOp(op, { id, ...core } as any);
+  const op = `${info.name}.update` as Extract<CoreOperationName, `${string}.update`>;
+  await callOp(op, { id, ...core } as CoreInput<typeof op>);
 }
 
 /**
@@ -107,12 +107,6 @@ export function missingFieldOf(error: unknown, info: ObjectInfo): FieldInfo | nu
   const name = typeof details?.field === "string" ? details.field : null;
   const field = name ? info.fields.find((f) => f.name === name) : undefined;
   return field && !field.readOnly && field.extension ? field : null;
-}
-
-/** The choices of a select field, in declared order (extension choices or core enum values). */
-export function choiceValues(field: FieldInfo): string[] {
-  const choices = field.options?.choices as { value: string }[] | undefined;
-  return choices?.map((c) => c.value) ?? field.enumValues ?? [];
 }
 
 /** The label of a choice of a select field (extension choices or core enum values). */

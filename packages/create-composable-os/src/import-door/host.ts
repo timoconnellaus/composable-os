@@ -1,7 +1,6 @@
-// The host as an import reaches it (ADR 0470, shared by `cos content import` and `cos courses
-// import`, ADR 0495): its HTTP surface and its staff-token routes, with the bearer token of the
-// person's device session on every call. No Node here: the CLI and the tests against a real host
-// use it alike.
+// The host as an import reaches it (ADR 0470, shared by every `cos ... import`, ADR 0495): its
+// HTTP surface and its staff-token routes, with the bearer token of the person's device session on
+// every call. No Node here: the CLI and the tests against a real host use it alike.
 
 /** How an import reaches the host: the person's session. */
 export interface ImportHost {
@@ -16,6 +15,14 @@ export interface ImportHost {
    * the address is the only credential it needs.
    */
   send?(url: string, init: RequestInit): Promise<Response>;
+}
+
+/** The body as JSON; an error page that is not JSON (a gateway's) reads as `{}`. */
+async function readBody(response: Response): Promise<unknown> {
+  return response.json().catch((error: unknown) => {
+    if (response.ok) throw error;
+    return {};
+  });
 }
 
 async function readError(response: Response): Promise<string> {
@@ -41,7 +48,7 @@ export function sessionHost(
         },
         body: JSON.stringify(input),
       });
-      const body = (await response.json()) as {
+      const body = (await readBody(response)) as {
         data?: T;
         error?: { code: string; message: string; details?: unknown };
       };
@@ -59,7 +66,7 @@ export function sessionHost(
         headers: { "content-type": "application/octet-stream", ...(await headers()) },
         body: new Uint8Array(bytes),
       });
-      const body = (await response.json()) as {
+      const body = (await readBody(response)) as {
         data?: { id: string; existing: boolean };
         error?: { message: string };
       };

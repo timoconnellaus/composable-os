@@ -258,18 +258,18 @@ refusal is gone; the coaches' grants are unchanged. The pack changes no code: `u
 (the assistant acting for a coach without the permission cannot even ask).
 
 ## As built: the coach role and class types for a member's client (2026-11-24)
-- **The coach role** ([ADR 0881](../adr/0881-a-pack-role-limited-to-the-people-its-holder-looks-after.md)):
+- **The coach role** ([ADR 0889](../adr/0889-a-pack-role-limited-to-the-people-its-holder-looks-after.md)):
   `programs.coach`, declared in the pack: the tools `today`, `sessionGet`, `logAdd`, `logUpdate`,
   `sessionComplete`, `history` and `progress` (permission `programs:coach`), and reads of
   assignments and sessions, all limited to the People an active assignment names the account
-  coach of (`coach` on the assignment, `coachId` on `x.programs.assign`, the object's `team`). The
+  coach of (`coach` on the assignment, a person's choice (`personApproves`), the object's `team`). The
   platform gained a role's `looksAfter` and an object's `team`, held by the host on the role's
   reads and inside its tools. Its client (`roles.json`) backs `programs-native-coach-client` and
   the session screen for a client. Tests of what it must not reach: `apps/runner/test/programs-coach.test.ts`.
 - **Class types for a member's client:** `useClassTypes` reads with `my.list` on a customer's
   client and `record.list` on staff's (a hook may name alternatives, `anyOf`, ADR 0453 amended), so
   `programs-native-class-today` is wired in a member's app as shipped.
-- No migration (the coach field comes from the reconciler). ADR 0881 from numbers 0870 to 0889.
+- No migration (the coach field comes from the reconciler). ADR 0889, the last of the numbers 0870 to 0889 this work was given (they overlap blocks BV's and BW's ADR ranges).
 
 ## As built: past sessions in the app (2026-11-24)
 - **The history blocks** (found while putting the first client's app on the platform: Progress
@@ -286,3 +286,49 @@ refusal is gone; the coaches' grants are unchanged. The pack changes no code: `u
   (`apps/runner/test/programs-history.test.ts`); the member's e2e journey now corrects its set in
   the history. Only personal sessions are listed: a class session a member logged on is not
   (ADR 0448, amended).
+
+## As built: a safe, repeatable import (2026-11-24)
+Found while moving the first client's programs onto the platform, before step 7 (ADR 0448 and ADR
+0470, amended; no migration, no new ADR number).
+- **`cos programs import <folder> --host <url> [--dry-run]`**
+  (`packages/create-composable-os/src/programs-import/`), shaped as `cos courses import`: reads
+  `exercises.csv`, `classtypes.csv`, `programs/*.txt` (the shorthand) and `training.csv`, checks
+  them before signing in, finds each training row's person by email, dry-runs every batch on the
+  host, then writes class types, exercises, their easier and harder versions, programs (working
+  copies), past sessions and their sets with `record.import`, import keys swapped for ids batch by
+  batch. A shorthand line it cannot read stops the run with its file and line. Format:
+  `docs/importing.md`, Programs; the order: `skills/import-programs/SKILL.md` (listed in
+  `AGENTS.md`).
+- **`x.programs.importText`** takes a `key` (one program per key, a declared unique rule; updated
+  while it holds what the import last wrote, unchanged when the text is the same, a coach's edit
+  kept and reported as a conflict) and `dryRun` (reads and checks against the layout schema,
+  writes nothing, returns `faults` by path). A `Kind:` line names the kind.
+- **`readProgramText`** (and the layout's types and schema) are exported from the pack's public
+  entry, so the command reads programs with the tool's own reader.
+- **Past sessions and their sets** can be imported: a session's assignment is no longer required
+  (`requireOneOf` assignment or `source`); an imported session is done with no assignment or plan,
+  and it and its sets say `source: import`. Whatever `record.import` writes starts no automation
+  (not even an `includeBulk` one) and sends no notification (`origin.imported`).
+- **An item with an exercise for everyone and levels**: the `levels` item takes optional
+  `exercises`; logging one needs no level and keeps the level taken when given; the builder, the
+  session blocks (web and native) and the hooks show and edit it; the shorthand reads it.
+- **Proof:** `apps/app/test/programs-import.test.ts` (the command's engine against cos-app's real
+  surface: a bad folder, a dry run, the import, a member's own reads, a re-run, a coach's edit
+  kept, nothing started by an import, 25 sets in one batch of 105 statements and at most 20 bound
+  values a statement), `apps/runner/test/programs-authoring.test.ts` (importText with a key and a
+  dry run on the real host), `packs/programs/test/` (the reader, the schema, logging an item with
+  both), `packages/create-composable-os/test/programs-import.test.ts` (the folder's problems by
+  line) and `packages/core/test/automations.test.ts` (the imported origin).
+- **Fixed at review:**
+  - Set numbers and duplicates are now worked out by the identity a set's key is made from, so one
+    set is never written over another.
+  - A key that is too long, or the same key twice, is a problem with its line.
+  - Session names are at most 100 characters.
+  - Erase deletes the import door's kept keys and values that name the subject (ADR 0470).
+  - A member cannot move an imported session back to planned.
+  - `importText`'s read-then-write window is stated in ADR 0448, not closed.
+- **Merged with past sessions in the app:**
+  - The history blocks list imported sessions too: `kind` personal, or `source` import.
+  - A session with no plan lists the sets logged on it.
+  - An item with exercises for everyone lists theirs before the level's (`sessionSets`).
+

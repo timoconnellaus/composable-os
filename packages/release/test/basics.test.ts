@@ -6,6 +6,7 @@ import {
   compareVersions,
   type DeploymentState,
   deployOrder,
+  deskHostname,
   durableObjectMigration,
   gunzip,
   gzip,
@@ -156,6 +157,33 @@ describe("deploy helpers", () => {
     });
     expect(durableObjectMigration(history, "v2")).toBeUndefined();
     expect(() => durableObjectMigration(history, "v9")).toThrow();
+  });
+
+  it("tells the app its desk hostname on a custom domain only (stage 44 step 6, ADR 0649)", async () => {
+    const { manifest } = await buildFixtureRelease({ version: "1.0.0" });
+    const app = {
+      ...(manifest.workers[0] as (typeof manifest.workers)[number]),
+      bindings: [{ type: "plain_text", name: "DESK_HOSTNAME", text: "" }],
+      secrets: [],
+    } as unknown as (typeof manifest.workers)[number];
+    const state = (hostnameMode: string) =>
+      ({
+        accountId: "acc",
+        hostname: "crm.example.com",
+        hostnameMode,
+        workerNames: {},
+        resources: {},
+        vars: {},
+      }) as unknown as DeploymentState;
+    expect(deskHostname(state("custom"))).toBe("desk.crm.example.com");
+    expect(deskHostname(state("workers.dev"))).toBe("");
+    expect(deskHostname(state("dispatch"))).toBe("");
+    expect(workerBindings(app, manifest, state("custom"), {})).toEqual([
+      { type: "plain_text", name: "DESK_HOSTNAME", text: "desk.crm.example.com" },
+    ]);
+    expect(workerBindings(app, manifest, state("workers.dev"), {})).toEqual([
+      { type: "plain_text", name: "DESK_HOSTNAME", text: "" },
+    ]);
   });
 
   it("never uploads as plain text a stored var the release now declares a secret (issue #217)", async () => {

@@ -35,9 +35,7 @@ export function isOverdue(task: Pick<TaskItem, "status" | "dueAt">): boolean {
 
 /** "Due 4 Nov 2026" for dates, with the time for due times. */
 export function formatDue(dueAt: string): string {
-  return /^\d{4}-\d{2}-\d{2}$/.test(dueAt)
-    ? formatDate(`${dueAt}T00:00:00`)
-    : formatDateTime(dueAt);
+  return /^\d{4}-\d{2}-\d{2}$/.test(dueAt) ? formatDate(dueAt) : formatDateTime(dueAt);
 }
 
 export interface TaskListProps {

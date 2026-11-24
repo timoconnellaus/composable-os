@@ -12,6 +12,7 @@
 // (`@composable-os/calendar-file`, ADR 0628, amending ADR 0571), which the host's staff calendar
 // feed uses too: this file says only what an email's event holds.
 import { icsTime, writeCalendar } from "@composable-os/calendar-file";
+import { domainOf } from "./address";
 
 export { icsTime };
 
@@ -52,13 +53,12 @@ export function calendarFile(
   from: { address: string; to: readonly string[] },
   stamp: Date,
 ): string {
-  const domain = from.address.slice(from.address.lastIndexOf("@") + 1).toLowerCase();
   return writeCalendar({
     prodId: "-//Composable OS//Calendar file//EN",
     method: event.cancelled ? "CANCEL" : "PUBLISH",
     events: [
       {
-        uid: `${event.uid}@${domain}`,
+        uid: `${event.uid}@${domainOf(from.address)}`,
         organizer: from.address,
         ...(event.cancelled ? { attendees: from.to } : {}),
         stamp: stamp.toISOString(),

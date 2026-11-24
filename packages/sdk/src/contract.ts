@@ -9,6 +9,7 @@ import type { CapacitySpec, ClaimsSpec } from "./capacity.ts";
 import type { ChecklistsSpec } from "./checklists.ts";
 import type { DocumentPathSpec, DocumentSchema } from "./document.ts";
 import type { FieldTypeName } from "./field-types.ts";
+import type { IntakeSpec } from "./intake.ts";
 import type { JourneySignalSpec } from "./journey-signals.ts";
 import type { OccupiesSpec } from "./occupies.ts";
 import type { RecurringScheduleSpec } from "./recurring.ts";
@@ -16,6 +17,7 @@ import type { RoutineMailModule, RoutineMailSpec } from "./routine-mail.ts";
 import type { SellableSpec } from "./sellable.ts";
 import type { StaffedSpec } from "./staffed.ts";
 import type { StatesSpec } from "./states.ts";
+import type { StockSpec } from "./stock.ts";
 import type { TeamSpec } from "./team.ts";
 import type { UniqueSpec } from "./unique.ts";
 import type { WorkedOnSpec } from "./worked-on.ts";
@@ -270,6 +272,8 @@ export interface ObjectSpec {
   capacity?: CapacitySpec;
   /** Something that can be bought, and what a paid line grants (see SellableSpec, ADR 0435). */
   sellable?: SellableSpec;
+  /** Things counted on a shelf, sold from a ledger the host keeps (see StockSpec, ADR 0680). */
+  stock?: StockSpec;
   /**
    * Uses a record holds (a pass, a membership), or a record that spends one (a booking): see
    * AllowanceSpec, ADRs 0493 and 0494. The host counts and refuses a spend past the limit.
@@ -316,7 +320,7 @@ export interface ObjectSpec {
   /**
    * Who on the staff looks after the Person a record is about (see TeamSpec, ADR 0831): the
    * accounts in its user fields while it is live. A pack role's `looksAfter` reaches records
-   * only for those People (ADR 0881). Only shipped extensions and an org's own may declare it.
+   * only for those People (ADR 0889). Only shipped extensions and an org's own may declare it.
    */
   team?: TeamSpec;
   /**
@@ -325,6 +329,12 @@ export interface ObjectSpec {
    * record on the same thing at an overlapping time, whatever object it is.
    */
   occupies?: OccupiesSpec;
+  /**
+   * The public-write door (see IntakeSpec, ADR 0720): a form the public answers, the submission
+   * the host makes from the answers, or another pack's record a form may also make. Only the
+   * host's `intake.submit` creates a submission; nothing else opens a write to the public.
+   */
+  intake?: IntakeSpec;
   /**
    * A checklist the record's person ticks off (see ChecklistsSpec, ADR 0650): a run of the
    * template its `template` field names, made by the host, ticked by the person (or by someone who
@@ -762,7 +772,7 @@ export interface RoleSpec {
   today?: Readonly<Record<string, string | { at: string; until?: string; zone?: string }>>;
   /**
    * Objects whose records the role reaches only for the People its holder looks after (ADR
-   * 0881), by object: its relation (one record) to `person`. Its holder looks after a Person
+   * 0889), by object: its relation (one record) to `person`. Its holder looks after a Person
    * when a live record of one of this extension's objects that declares a `team` names them in
    * its staff fields (a client's assignment naming the coach). The host holds it on every call
    * the account makes and every call of a tool run it started: a list holds only those People's
