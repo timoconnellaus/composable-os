@@ -112,7 +112,8 @@ export function upgradeHostModules(
   io: Io,
 ): string[] {
   const state = readState(root);
-  const modules = (state.hostModules ??= {});
+  state.hostModules ??= {};
+  const modules = state.hostModules;
   const replaced: string[] = [];
   const edited: string[] = [];
   for (const place of hostModulePlaces(product)) {
