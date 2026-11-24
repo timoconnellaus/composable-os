@@ -102,6 +102,11 @@ const WHY = {
    */
   codes:
     "check-in codes: a Person a code names is live, names compared, given names for their own app",
+  /**
+   * A pack role's limit (ADR 0881): which People the staff account looks after, read to narrow
+   * what its role reaches, never answered to anyone.
+   */
+  role: "a pack role's limit: the People its holder looks after, to narrow a staff read",
 } as const;
 type Why = (typeof WHY)[keyof typeof WHY];
 
@@ -178,6 +183,9 @@ const REMAINING: Record<string, [reads: number, why: Why]> = {
   "orders/moves.ts": [9, WHY.host],
   // ADR 0560: an owed refund's order, read by the minute cron to settle the row.
   "orders/refund-due.ts": [1, WHY.host],
+  // Programs' coach role (ADR 0881): the People an account looks after (its team's live records)
+  // and whether a record is one of theirs; it only narrows what a staff read reaches.
+  "pack-role-looks-after.ts": [4, WHY.role],
   "orders/orders.ts": [2, WHY.host],
   "people-codes/identify.ts": [3, WHY.codes],
   "records/erase-log.ts": [1, WHY.write],

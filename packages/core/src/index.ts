@@ -235,6 +235,13 @@ export {
   type WaitlistDueResult,
 } from "./operations/waitlist.ts";
 export * from "./orders/index.ts";
+export {
+  holdRoleLooksAfter,
+  type LooksAfter,
+  type LooksAfterLimit,
+  type LooksAfterTeam,
+  looksAfterWhere,
+} from "./pack-role-looks-after.ts";
 export { holdRoleToday, type TodayLimit, type TodayLimits } from "./pack-role-today.ts";
 export * from "./pack-roles.ts";
 export {

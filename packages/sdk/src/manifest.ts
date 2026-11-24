@@ -47,6 +47,7 @@ import { routineMailIssues, routineMailManifestSchema } from "./routine-mail.ts"
 import { checkObjectSellable, sellableManifestSchema } from "./sellable.ts";
 import { checkObjectStaffed, staffedManifestSchema } from "./staffed.ts";
 import { checkObjectStates, resolveFieldPath, statesManifestSchema } from "./states.ts";
+import { checkObjectTeam, teamManifestSchema } from "./team.ts";
 import { checkObjectUnique, uniqueManifestSchema } from "./unique.ts";
 import { checkObjectWorkedOn, workedOnManifestSchema } from "./worked-on.ts";
 
@@ -223,6 +224,7 @@ export const objectManifestSchema = z.object({
   recurring: recurringManifestSchema.optional(),
   staffed: staffedManifestSchema.optional(),
   workedOn: workedOnManifestSchema.optional(),
+  team: teamManifestSchema.optional(),
   occupies: occupiesManifestSchema.optional(),
   checklists: checklistsManifestSchema.optional(),
   owner: z.string().max(40).optional(),
@@ -389,6 +391,8 @@ export const roleManifestSchema = z.object({
       ]),
     )
     .optional(),
+  /** Objects whose records the role reaches only for the People its holder looks after (ADR 0881). */
+  looksAfter: z.record(z.string().max(80), z.string().max(40)).optional(),
 });
 export type RoleManifest = z.infer<typeof roleManifestSchema>;
 
@@ -859,6 +863,7 @@ export function toManifest(extension: Extension): ExtensionManifest {
           permissions: [...role.permissions],
           read: [...role.read],
           ...(role.today ? { today: { ...role.today } } : {}),
+          ...(role.looksAfter ? { looksAfter: { ...role.looksAfter } } : {}),
         },
       ]),
     ),
@@ -1271,6 +1276,7 @@ export function validateManifest(
     checkObjectRecurring(m, name, object, contract);
     checkObjectStaffed(m, name, object, contract);
     checkObjectWorkedOn(m, name, object, contract);
+    checkObjectTeam(m, name, object, contract);
     checkObjectOccupies(m, name, object, contract);
     checkObjectChecklists(m, name, object, contract);
     object.requireOneOf?.forEach((group, i) => {
@@ -2149,6 +2155,31 @@ export function validateManifest(
         if (prefix(p) !== prefix(spec.at)) {
           contract(tp, `"${p}" must be read through the same relation as "${spec.at}"`);
         }
+      }
+    }
+    // A role limited to the People its holder looks after (ADR 0881): each object its own, each
+    // path its relation to person, and a team of this extension's to say who looks after whom.
+    const looksAfter = Object.entries(role.looksAfter ?? {});
+    if (looksAfter.length && !Object.values(m.objects).some((o) => o.team)) {
+      contract(
+        `${path}.looksAfter`,
+        "No object of this extension declares a team: nothing says whom its holder looks after",
+      );
+    }
+    for (const [object, relation] of looksAfter) {
+      const lp = `${path}.looksAfter.${object}`;
+      const local = object.startsWith(`${m.id}.`) ? object.slice(m.id.length + 1) : null;
+      const target = local && Object.hasOwn(m.objects, local) ? m.objects[local] : undefined;
+      if (!target) {
+        contract(lp, `"${object}" is not an object of this extension`);
+        continue;
+      }
+      const field = Object.hasOwn(target.fields, relation) ? target.fields[relation] : undefined;
+      if (field?.type !== "relation" || field.to !== "person" || field.many) {
+        contract(lp, `"${relation}" must be a relation field (one record) of ${object} to person`);
+      }
+      if (role.today && Object.hasOwn(role.today, object)) {
+        contract(lp, `${object} is limited to today already: one limit an object`);
       }
     }
   }

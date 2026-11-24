@@ -102,11 +102,13 @@ import {
   type SystemActivityInput,
 } from "./operation.ts";
 import type { VoiceRuntime } from "./operations/voice.ts";
+import { holdRoleLooksAfter, type LooksAfterLimit } from "./pack-role-looks-after.ts";
 import { holdRoleToday, type TodayLimits } from "./pack-role-today.ts";
 import {
   type HeldPackRole,
   loadStaffRights,
   roleLimitsFor,
+  roleLooksAfterFor,
   type StaffRights,
   staffMayCall,
   staffRightsReach,
@@ -172,6 +174,11 @@ export interface InvocationContext {
    * caller's pack role limit to today, held on this call as on the account's own.
    */
   roleToday?: TodayLimits | undefined;
+  /**
+   * Set by platform code only (a tool run, for the staff account that started it, ADR 0881): the
+   * caller's pack role limit to the People they look after, held on this call as on the account's.
+   */
+  roleLooksAfter?: LooksAfterLimit | undefined;
   /**
    * Set by platform code only (a tool run, ADR 0590): who stands behind what the tool writes, from
    * the verified caller that started it (a person, a customer, an AI). Absent: the host.
@@ -729,6 +736,9 @@ async function invokeOnce<O extends AnyOperation>(
   // The limit to today: the account's pack role's when the role is what allows this call (not a
   // pack permission granted to it, ADR 0600), or one a tool run carries for its caller.
   const roleToday: TodayLimits | undefined = roleLimitsFor(rights, op) ?? ctx.roleToday;
+  // The limit to the People the account looks after (ADR 0881), the same way.
+  const roleLooksAfter: LooksAfterLimit | undefined =
+    roleLooksAfterFor(rights, op, ctx.user.id) ?? ctx.roleLooksAfter;
   if (packRole && !staffRightsReach(rights, op)) {
     const error = packRoleRefusal(packRole, op);
     const gate = evaluateGate(
@@ -909,6 +919,7 @@ async function invokeOnce<O extends AnyOperation>(
     grantedPermissions: ctx.grantedPermissions,
     permissionGrants: packRole ? [] : grants,
     ...(roleToday ? { roleToday } : {}),
+    ...(roleLooksAfter ? { roleLooksAfter } : {}),
     ...(ctx.markStanding ? { markStanding: ctx.markStanding } : {}),
     ...(ctx.markGiven ? { markGiven: ctx.markGiven } : {}),
     reason: ctx.reason,
@@ -1097,6 +1108,15 @@ async function invokeOnce<O extends AnyOperation>(
     if (audited) await auditAlone({ ...base, gate: gateDecision, outcome: "error", error: typed });
     throw typed;
   };
+
+  // A pack role limited to the People its holder looks after (ADR 0881): a record of someone
+  // else's is not found and an operation it cannot check is refused, before anything runs (queued,
+  // simulated or overlaid included); a list holds it in its own query (record.list).
+  try {
+    await holdRoleLooksAfter(ctx.db.query, roleLooksAfter, op.name, input);
+  } catch (error) {
+    return fail(error, decision);
+  }
 
   // An agent's grant (ADR 0344). It can only tighten: `auto` stays what the gate said. The handler
   // is dry-run first, because whether a write fills a field or changes a value decides where it

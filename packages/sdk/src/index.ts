@@ -42,5 +42,6 @@ export * from "./sellable.ts";
 export * from "./slug.ts";
 export * from "./staffed.ts";
 export * from "./states.ts";
+export * from "./team.ts";
 export * from "./unique.ts";
 export * from "./worked-on.ts";
