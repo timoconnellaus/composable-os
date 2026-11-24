@@ -2466,6 +2466,19 @@ and tick), whose host operation decides what it may do. The door role is Ticketi
 Stage 14a's roles and teams will extend it.
 _Avoid_: role (alone, it means admin, member or viewer), team, scope
 
+### Owner's client
+
+(stage 60, step 6 built: ADR 0872)
+
+A client the company's mobile app may hold beside its role clients (`mobile.owner: true`,
+`roles/owner.ts`): only the operations the owner's Today needs (Today, the approvals, the notice
+inbox, who is signed in). Not a pack role: any staff account may sign in with it and the host
+decides every call, so a coach sees only what their rights allow. A change to how the system is set
+up is never approved from the app: the host refuses it on a device session ("review on a
+computer"). Its hooks and words are `@composable-os/client`'s `createOwnerHooks`, shared by the
+native block and the web Today.
+_Avoid_: admin app, staff app, owner role
+
 ### Door role
 
 Ticketing's pack role (`ticketing.door`): check tickets in, and read events, ticket types and
