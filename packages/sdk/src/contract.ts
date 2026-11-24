@@ -674,6 +674,23 @@ export interface ToolSpec<In extends z.ZodType = z.ZodType, Out extends z.ZodTyp
    */
   grantLiftsRoleLimits?: boolean;
   /**
+   * Every staff account may call it, pack roles included (ADR 0652): a cleaner's `rostering.team`,
+   * a coach, the door, as well as admins and members. For a tool whose host operation decides
+   * who may do what by a rule of its own (Daily checklists' `today` and `tick`: the checklist's
+   * own "who may do it"), so no role or grant has to name it. A person's own act (`humanOnly`),
+   * for staff only, with no `permission` or `corePermission`. Only shipped extensions and an
+   * org's own may declare it.
+   */
+  anyStaff?: boolean;
+  /**
+   * A core permission a staff caller needs instead of `records:read` or `records:write` (ADR
+   * 0652): one an admin may grant one by one (`checklists:write`). Admins and those granted it
+   * call the tool; nobody else does, and no pack role reaches it (a pack role holds no core
+   * permission). For staff only, with no `permission`. Only shipped extensions and an org's own
+   * may declare it.
+   */
+  corePermission?: string;
+  /**
    * Fields of the input the audit log never keeps (ADR 0626): a note about someone's leave. The
    * call is still audited, with those fields shown as redacted. It only hides more, so any
    * extension may declare it.

@@ -90,7 +90,9 @@
         "packs/rostering/blocks/rostering-pay/**",
         "packs/rostering/blocks/rostering-my-calendar/**",
         "packs/rostering/blocks/rostering-checklist/**",
-        "packs/rostering/blocks/rostering-checklists/**"
+        "packs/rostering/blocks/rostering-checklists/**",
+        "packs/dailychecks/blocks/dailychecks-today/**",
+        "packs/dailychecks/blocks/dailychecks-history/**"
       ],
       "linter": { "rules": { "correctness": { "noReactNativeRawText": "off" } } }
     },

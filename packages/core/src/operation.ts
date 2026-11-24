@@ -455,6 +455,12 @@ export interface OperationDefinition<
    * has no pack permissions and so is an admin's only.
    */
   packRestricted?: boolean;
+  /**
+   * Extension tools only (ADR 0652): every staff account may call the tool, a pack role included
+   * (a cleaner, a coach, the door), with no role or grant naming it. The host operation it calls
+   * holds the rule of who may do what. A shipped pack's or the org's own; a person's own.
+   */
+  packAnyStaff?: boolean;
   risk: RiskClass;
   /**
    * Core operations only, and only ones open to customers or the public: the handler keeps the
@@ -628,6 +634,14 @@ export function operationProblems(op: AnyOperation): string[] {
     }
   } else if (op.packGrantable !== undefined) {
     problems.push("packGrantable needs packPermissions");
+  }
+  if (op.packAnyStaff !== undefined) {
+    if (!/^x\.[a-z][a-z0-9]{1,29}\./.test(op.name ?? "")) {
+      problems.push("packAnyStaff is for extension tools only");
+    }
+    if (op.packPermissions !== undefined || op.packRestricted) {
+      problems.push("packAnyStaff names no pack permission");
+    }
   }
   if (!RISK_CLASSES.includes(op.risk)) problems.push("risk class missing or unknown");
   if (op.actors && (op.actors.length === 0 || op.actors.some((a) => !ACTORS.includes(a)))) {

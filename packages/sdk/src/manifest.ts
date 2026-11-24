@@ -347,6 +347,10 @@ export const toolManifestSchema = z.object({
   personApproves: z.literal(true).optional(),
   /** The grant opens it without the role's limits, on purpose (ADR 0600). */
   grantLiftsRoleLimits: z.literal(true).optional(),
+  /** Every staff account may call it, pack roles included; the host decides (ADR 0652). */
+  anyStaff: z.literal(true).optional(),
+  /** A grantable core permission it needs instead of records:read or records:write (ADR 0652). */
+  corePermission: z.string().max(80).optional(),
   /** Input fields the audit log never keeps (ADR 0626). */
   redact: z.array(z.string().max(40)).max(20).optional(),
   /** Answer keys the host never keeps (ADR 0628). */
@@ -750,6 +754,8 @@ export function toManifest(extension: Extension): ExtensionManifest {
           ...(tool.humanOnly ? { humanOnly: true as const } : {}),
           ...(tool.personApproves ? { personApproves: true as const } : {}),
           ...(tool.grantLiftsRoleLimits ? { grantLiftsRoleLimits: true as const } : {}),
+          ...(tool.anyStaff ? { anyStaff: true as const } : {}),
+          ...(tool.corePermission ? { corePermission: tool.corePermission } : {}),
           ...(tool.redact?.length ? { redact: [...tool.redact] } : {}),
           ...(tool.redactResult?.length ? { redactResult: [...tool.redactResult] } : {}),
           ...(tool.customerFields
@@ -1737,6 +1743,28 @@ export function validateManifest(
         `tools.${name}.humanOnly`,
         `A tool only a person on the staff may call cannot be open to ${open.join(" and ")} callers`,
       );
+    }
+    // Open to every staff account, pack roles too (ADR 0652): a person's own, the host's rule
+    // deciding who may do what, so it names no permission a role or a grant would hold.
+    if (
+      tool.anyStaff &&
+      (!tool.humanOnly || open.length || tool.permission || tool.corePermission)
+    ) {
+      contract(
+        `tools.${name}.anyStaff`,
+        "A tool every staff account may call is a person's own (humanOnly), for staff only, and names no permission or corePermission",
+      );
+    }
+    // A core permission instead of records:read or records:write (ADR 0652): staff only, and not
+    // beside a pack permission (a pack role never holds a core one).
+    if (tool.corePermission !== undefined) {
+      const ns = EXTENSION_PERMISSION_RE.exec(tool.corePermission)?.[1];
+      if (!ns || ns === m.id || open.length || tool.permission) {
+        contract(
+          `tools.${name}.corePermission`,
+          "corePermission names a core permission (<area>:<word>, not this extension's own), for a staff-only tool with no permission",
+        );
+      }
     }
     if (tool.personApproves && (open.length || tool.risk === "read")) {
       contract(
