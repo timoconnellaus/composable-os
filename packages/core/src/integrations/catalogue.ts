@@ -24,9 +24,10 @@ export interface CatalogueEntry {
   devOnly?: boolean;
   /**
    * A contract the gatekeeper serves, beyond the gatekeeper interface: `accounting`, the
-   * accounting session (`packages/gatekeeper-accounting`, stage 61, ADR 0880).
+   * accounting session (`packages/gatekeeper-accounting`, stage 61, ADR 0880); `booking-system`,
+   * the read-only booking-system session (`packages/gatekeeper-booking-system`, stage 65, ADR 0920).
    */
-  implements?: "accounting";
+  implements?: "accounting" | "booking-system";
 }
 
 export const CATALOGUE: readonly CatalogueEntry[] = [
@@ -132,6 +133,16 @@ export const CATALOGUE: readonly CatalogueEntry[] = [
     scopes: ["org"],
     devOnly: true,
     implements: "accounting",
+  },
+  {
+    vendor: "booking-system-fake",
+    title: "Fake booking system (development)",
+    description:
+      "A fake booking system with invented people, memberships, classes and bookings, read only, for development and tests.",
+    connect: "auto",
+    scopes: ["org"],
+    devOnly: true,
+    implements: "booking-system",
   },
   {
     vendor: "fake",

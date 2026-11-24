@@ -53,6 +53,10 @@ Each kind has its own file, wired into `defineExtension` (Deals: the last keys o
    audit log must never keep (a note about someone's leave) lists those fields in `redact`
    (Rostering: `away`). A tool only admins and accounts granted it should call names a
    **restricted** permission (see `write-extension`, Roles; Rostering's `rostering:manage`).
+   In a shipped pack only (ADR 0652): a `humanOnly` tool every staff account should reach, pack
+   roles included, because its host operation decides who may (Daily checklists' `tick`), declares
+   `anyStaff: true` and no permission; a tool only holders of a grantable core permission should
+   call declares `corePermission` (Daily checklists' `history`: `"checklists:write"`).
    `ctx.caller` says who started a tool (`{ kind: "staff", userId, name }`, a
    customer or the public), from the host and never from the input: record who did something
    with it (Ticketing: `checkIn` sets `usedBy`). Extensions cannot read users (`user.*` is never

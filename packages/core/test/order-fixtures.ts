@@ -99,9 +99,14 @@ export interface Buyer {
 }
 
 /** A Person with a customer account, as a signed-in customer's principal. */
-export async function createBuyer(admin: ActingUser, label = "buyer"): Promise<Buyer> {
+export async function createBuyer(
+  admin: ActingUser,
+  label = "buyer",
+  /** Their address, when a test needs a particular one (a plus-addressed one, say). */
+  address?: string,
+): Promise<Buyer> {
   const tag = unique(label).toLowerCase();
-  const email = `${tag}@buyers.example`;
+  const email = address ?? `${tag}@buyers.example`;
   const person = await invoke(
     "person.create",
     { givenName: `Given-${tag}`, emails: [{ email }] },
