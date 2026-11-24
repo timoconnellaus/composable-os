@@ -303,6 +303,18 @@ export function toOperationError(error: unknown): OperationError {
       { rule: "double_booked" },
     );
   }
+  // Two time entries of one staff account that overlap (migration 1270, ADR 0850), or a second
+  // open one: refused by the database for every writer. A write the host read as free names the
+  // other entry itself; this is a race it could not see (twenty starts at once).
+  if (
+    message.includes("core_time_overlap") ||
+    message.includes("UNIQUE constraint failed: core_time_entry.account_id")
+  ) {
+    return new ConflictError(
+      "This overlaps another of this person's time entries (or one is already open), so nothing was changed.",
+      { rule: "time_overlap" },
+    );
+  }
   // An offer of a shift left `open` meanwhile (migration 0812, ADR 0623): taken by someone else a
   // moment before, withdrawn, cancelled or lapsed. Of the writes racing for it exactly one landed.
   if (message.includes("core_staff_offer_closed")) {

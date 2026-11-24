@@ -24,6 +24,7 @@ import {
   type StatesManifest,
   spendsOnList,
   type UniqueManifest,
+  type WorkedOnManifest,
 } from "@composable-os/sdk";
 import {
   compileFormula,
@@ -85,6 +86,8 @@ export interface ObjectDefinitionJson {
   recurring?: RecurringScheduleManifest;
   /** A shift (stage 45, ADR 0621), as declared. */
   staffed?: StaffedManifest;
+  /** A record time can be recorded against (stage 58, ADR 0850), as declared. */
+  workedOn?: WorkedOnManifest;
   /** A checklist its person ticks off (stage 45 step 4b, ADR 0650), as declared. */
   checklists?: ChecklistsManifest;
   owner?: string;
@@ -835,6 +838,25 @@ function staffedDefinition(
   };
 }
 
+/** The workedOn declaration (ADR 0850), with the registry name of what a visit is part of. */
+function workedOnDefinition(
+  object: ObjectState,
+  own: readonly FieldState[],
+): Pick<ObjectDefinition, "workedOn"> {
+  const declared = object.definition.workedOn;
+  if (!declared) return {};
+  const partOfObject = declared.partOf
+    ? own.find((f) => f.localName === declared.partOf)?.definition.to
+    : undefined;
+  return {
+    workedOn: {
+      ...declared,
+      live: [...declared.live],
+      ...(partOfObject ? { partOfObject } : {}),
+    },
+  };
+}
+
 /** The checklists declaration (ADR 0650), with the template's holder's registry name. */
 function checklistsDefinition(
   object: ObjectState,
@@ -1172,6 +1194,7 @@ export function buildRegistry(state: SchemaState): Map<string, ObjectDefinition>
       ...(object.definition.unique?.length ? { unique: object.definition.unique } : {}),
       ...recurringDefinition(object),
       ...staffedDefinition(object, own),
+      ...workedOnDefinition(object, own),
       ...checklistsDefinition(object, own),
       ...(object.definition.owner ? { ownerField: object.definition.owner } : {}),
       ...(object.definition.customer ? { customer: object.definition.customer } : {}),

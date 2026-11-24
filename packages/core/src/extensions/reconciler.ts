@@ -407,6 +407,7 @@ export function planFromState(
       ...(object.unique?.length ? { unique: object.unique } : {}),
       ...(object.recurring ? { recurring: object.recurring } : {}),
       ...(object.staffed ? { staffed: object.staffed } : {}),
+      ...(object.workedOn ? { workedOn: object.workedOn } : {}),
       ...(object.checklists ? { checklists: object.checklists } : {}),
       ...(object.owner ? { owner: object.owner } : {}),
       ...(object.customer ? { customer: object.customer } : {}),

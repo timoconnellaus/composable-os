@@ -101,6 +101,8 @@ export const ID_PREFIXES = {
   staffHours: "soh",
   /** One locked version of a pay period (stage 45 step 6, ADR 0627). */
   payPeriod: "ppe",
+  /** A stretch of time a staff member worked (stage 58, ADR 0850). */
+  timeEntry: "tme",
   /** A checklist template (stage 45 step 4b, ADR 0650). */
   checklist: "ckl",
   /** A run of a checklist on one record, never changed once closed (ADR 0650). */

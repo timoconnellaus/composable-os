@@ -56302,7 +56302,7 @@
     },
     {
       "name": "staffing.due",
-      "description": "Platform use only (the minute cron, as the host): open offers past their cut-off lapse and their offerers and the rosterers are told; once a day the rosterers hear of every shift with nobody on it in the uncovered window. Returns what it did.",
+      "description": "Platform use only (the minute cron, as the host): open offers past their cut-off lapse and their offerers and the rosterers are told; once a day the rosterers hear of every shift with nobody on it in the uncovered window; a time entry left open past its finish is marked finish missing and its person told. Returns what it did.",
       "risk": "write",
       "audiences": [
         "staff"
@@ -56329,12 +56329,18 @@
             "type": "integer",
             "minimum": -9007199254740991,
             "maximum": 9007199254740991
+          },
+          "finishMissing": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
           }
         },
         "required": [
           "lapsed",
           "cancelled",
-          "uncovered"
+          "uncovered",
+          "finishMissing"
         ],
         "additionalProperties": false
       },

@@ -15,6 +15,7 @@ import type { SellableSpec } from "./sellable.ts";
 import type { StaffedSpec } from "./staffed.ts";
 import type { StatesSpec } from "./states.ts";
 import type { UniqueSpec } from "./unique.ts";
+import type { WorkedOnSpec } from "./worked-on.ts";
 
 /** The contract version this SDK writes. The host accepts this and the previous version. */
 export const CONTRACT_VERSION = 1;
@@ -304,6 +305,11 @@ export interface ObjectSpec {
    * write with its warnings (away, not qualified, no one on it).
    */
   staffed?: StaffedSpec;
+  /**
+   * Time can be recorded against the record (see WorkedOnSpec, ADR 0850): a job. Its time is the
+   * staff's time entries against it, read through the host; it keeps no hours of its own.
+   */
+  workedOn?: WorkedOnSpec;
   /**
    * A checklist the record's person ticks off (see ChecklistsSpec, ADR 0650): a run of the
    * template its `template` field names, made by the host, ticked by the person (or by someone who

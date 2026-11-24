@@ -1367,12 +1367,14 @@ export const staffingDueOperation = defineOperation({
   description:
     "Platform use only (the minute cron, as the host): open offers past their cut-off lapse and " +
     "their offerers and the rosterers are told; once a day the rosterers hear of every shift " +
-    "with nobody on it in the uncovered window. Returns what it did.",
+    "with nobody on it in the uncovered window; a time entry left open past its finish is " +
+    "marked finish missing and its person told. Returns what it did.",
   input: z.object({}),
   output: z.object({
     lapsed: z.number().int(),
     cancelled: z.number().int(),
     uncovered: z.number().int(),
+    finishMissing: z.number().int(),
   }),
   permission: "records:write",
   risk: "write",
@@ -1391,9 +1393,11 @@ export const staffingDueOperation = defineOperation({
 export async function runStaffingDue(
   db: CrmDb,
   { floor, clock }: { floor?: GateFloor; clock?: () => Date } = {},
-): Promise<{ lapsed: number; cancelled: number; uncovered: number }> {
+): Promise<{ lapsed: number; cancelled: number; uncovered: number; finishMissing: number }> {
   const now = (clock?.() ?? new Date()).toISOString();
-  if (!(await staffingWorkDue(db.query, now))) return { lapsed: 0, cancelled: 0, uncovered: 0 };
+  if (!(await staffingWorkDue(db.query, now))) {
+    return { lapsed: 0, cancelled: 0, uncovered: 0, finishMissing: 0 };
+  }
   return (await invoke(
     "staffing.due",
     {},
@@ -1405,7 +1409,7 @@ export async function runStaffingDue(
       ...(floor ? { floor } : {}),
       ...(clock ? { clock } : {}),
     },
-  )) as { lapsed: number; cancelled: number; uncovered: number };
+  )) as { lapsed: number; cancelled: number; uncovered: number; finishMissing: number };
 }
 
 export const staffingOperations = [

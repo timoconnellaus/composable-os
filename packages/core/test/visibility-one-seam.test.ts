@@ -200,6 +200,9 @@ const REMAINING: Record<string, [reads: number, why: Why]> = {
   // holders' accounts, their kinds' names and set-up minutes, and the evidence object's marker
   // only (who took a class list, never a booking's person), for someone who handles pay.
   "staffing/pay.ts": [7, WHY.host],
+  // Time entries (stage 58, ADR 0850): a workedOn record's state, title and Trash mark, by id, and
+  // the titles of what a person's own entries are against, by id; nothing of a Person.
+  "staffing/time.ts": [2, WHY.host],
   // The calendar feed (ADR 0628): the token's own shifts, by id from their time claims.
   "staffing/feed.ts": [1, WHY.host],
   // Checklists (stage 45 step 4b, ADR 0650): a record's person, opening and closing times, state,
