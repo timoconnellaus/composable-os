@@ -39,6 +39,14 @@ export type QueueCaller =
     }
   | {
       kind: "system";
+      // Texts (ADR 0672): `phone-check`, a code sent to or checked for a member's own number
+      // (only `callAsHost` opens it); `text-events`, the text gatekeeper's verified receipts and
+      // replies (the hook the host binds when the sender number is bound).
+      purpose: "phone-check" | "text-events";
+      user: ActingUser;
+    }
+  | {
+      kind: "system";
       // The host's sign-in mail (ADR 0456): only `callAsHost` with purpose `sign-in` opens it.
       purpose: "sign-in";
       origin: SignInMailOrigin;
@@ -63,6 +71,8 @@ export type QueueCaller =
         runId: string | null;
         extensionId: string;
         siteOrigin: string | null;
+        /** The row's channel: an email, or a text (ADR 0672). Absent: an email. */
+        channel?: "email" | "text";
       };
     };
 
@@ -96,7 +106,7 @@ export interface QueueHost {
   enableHook(
     id: string,
     facetKey: string,
-    purpose: "sync" | "webhook" | "payments",
+    purpose: "sync" | "webhook" | "payments" | "text-events",
     description: { title: string; description: string },
   ): Promise<void>;
   recordAgentHook(
@@ -309,13 +319,19 @@ export class HostQueue extends RpcTarget {
                       surface: "automation" as const,
                       automationId: `routine-message:${routine.kind}`,
                     },
-              reason: routine.routine
-                ? `Routine email ${routine.kind} (${routine.id})`
-                : routine.ordinary
-                  ? `Routine email ${routine.kind}: routine email is not turned on, so it waits as before`
-                  : `Routine email ${routine.kind}, held for a person: ${routine.heldReason ?? "not routine"}. ` +
-                    "Approving it sends this email, and means you stand behind the values it shows: " +
-                    "later routine email about this record goes out on its own while they stay as they are.",
+              reason:
+                routine.channel === "text"
+                  ? routine.routine
+                    ? `Routine text ${routine.kind} (${routine.id})`
+                    : `Routine text ${routine.kind}, held for a person: ${routine.heldReason ?? "not routine"}. ` +
+                      "Approving it sends this text to the member's number."
+                  : routine.routine
+                    ? `Routine email ${routine.kind} (${routine.id})`
+                    : routine.ordinary
+                      ? `Routine email ${routine.kind}: routine email is not turned on, so it waits as before`
+                      : `Routine email ${routine.kind}, held for a person: ${routine.heldReason ?? "not routine"}. ` +
+                        "Approving it sends this email, and means you stand behind the values it shows: " +
+                        "later routine email about this record goes out on its own while they stay as they are.",
             }
           : {
               actor: "automation" as const,
@@ -430,7 +446,8 @@ export class HostQueue extends RpcTarget {
       this.#caller.kind === "system" &&
       (this.#caller.purpose === "sync" ||
         this.#caller.purpose === "webhook" ||
-        this.#caller.purpose === "payments")
+        this.#caller.purpose === "payments" ||
+        this.#caller.purpose === "text-events")
     ) {
       const purpose = this.#caller.purpose;
       // Enable it once bindHook has returned to the gatekeeper.

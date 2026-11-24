@@ -95,6 +95,8 @@ export const ID_PREFIXES = {
   refundDue: "rdu",
   /** A routine email the host was asked to send (ADR 0590). */
   routineMail: "rml",
+  /** A code sent to a Person's number to check it (stage 30, ADR 0673). */
+  phoneCheck: "phk",
   /** An agreement document (stage 44, ADR 0640). */
   agreementDocument: "agd",
   /** A published version of an agreement document, never changed (stage 44, ADR 0640). */

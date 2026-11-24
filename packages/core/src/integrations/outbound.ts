@@ -84,8 +84,15 @@ export interface OutboundSubmission {
   routineMail?: { routine: boolean; ordinary?: boolean } | undefined;
 }
 
-/** Gatekeeper kinds of routine mail (ADR 0590): email-send's, and the fake outbox's. */
-export const ROUTINE_MAIL_KINDS: ReadonlySet<string> = new Set(["email.routine", "fake.routine"]);
+/**
+ * Gatekeeper kinds of routine messages (ADR 0590, ADR 0672): email-send's, the fake outbox's, and
+ * the text gatekeeper's.
+ */
+export const ROUTINE_MAIL_KINDS: ReadonlySet<string> = new Set([
+  "email.routine",
+  "fake.routine",
+  "text.routine",
+]);
 
 /**
  * A refund sends money back (ADR 0429): a person with `orders:refund` approves each one

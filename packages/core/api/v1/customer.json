@@ -2179,6 +2179,105 @@
       "invalidates": []
     },
     {
+      "name": "me.phone.check",
+      "description": "Checks the code a text sent to one of your own numbers (me.phone.startCheck). A match marks the number as checked: your routine texts may go to it.",
+      "risk": "write",
+      "audiences": ["customer"],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "number": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 40,
+            "description": "One of your own numbers, as it is in your details"
+          },
+          "code": {
+            "type": "string",
+            "pattern": "^\\d{4,10}$"
+          }
+        },
+        "required": ["number", "code"],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "checked": {
+            "type": "boolean"
+          }
+        },
+        "required": ["checked"],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "me.agreements.due",
+        "me.agreements.get",
+        "me.agreements.list",
+        "me.agreements.pdf",
+        "me.attention",
+        "me.family",
+        "me.get",
+        "me.sessions.list",
+        "my.get",
+        "my.list"
+      ]
+    },
+    {
+      "name": "me.phone.startCheck",
+      "description": "Sends a code by text to one of your own mobile numbers, to check it is yours. Type it back with me.phone.check within 10 minutes. At most three codes a day.",
+      "risk": "write",
+      "audiences": ["customer"],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "number": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 40,
+            "description": "One of your own numbers, as it is in your details"
+          }
+        },
+        "required": ["number"],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "started": {
+            "type": "boolean",
+            "const": true
+          },
+          "number": {
+            "type": "string",
+            "description": "The number the code went to, partly hidden"
+          },
+          "minutes": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991,
+            "description": "How long the code may be typed back"
+          }
+        },
+        "required": ["started", "number", "minutes"],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "me.agreements.due",
+        "me.agreements.get",
+        "me.agreements.list",
+        "me.agreements.pdf",
+        "me.attention",
+        "me.family",
+        "me.get",
+        "me.sessions.list",
+        "my.get",
+        "my.list"
+      ]
+    },
+    {
       "name": "me.pin.clear",
       "description": "Remove your PIN, as a signed-in customer: nobody can then check in as you by name and PIN. Your check-in code and cards still work. Clearing when there is none changes nothing.",
       "risk": "write",

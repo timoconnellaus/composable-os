@@ -1507,6 +1507,35 @@ export interface CoreRoutineMailTable {
   updated_at: string;
 }
 
+/** Migration 0911 (ADR 0672): the month's spend on texts, against the text limit. */
+export interface CoreTextSpendTable {
+  /** `YYYY-MM` in the business's zone. */
+  month: string;
+  segments: Defaulted<number>;
+  estimated_minor: Defaulted<number>;
+  reported_minor: Defaulted<number>;
+  updated_at: string;
+}
+
+/** Migration 0911 (ADR 0673): a code sent to a Person's number, and whether it was typed back. */
+export interface CorePhoneCheckTable {
+  id: string;
+  person_id: string;
+  /** International form. */
+  number: string;
+  number_hash: string;
+  how: Defaulted<"code">;
+  started_at: string;
+  checked_at: Defaulted<string | null>;
+}
+
+/** Migration 0911 (ADR 0672): a number that replied STOP, as a salted hash; START deletes it. */
+export interface CoreTextStopTable {
+  number_hash: string;
+  how: "stop_reply";
+  at: string;
+}
+
 /** Migration 0750 (ADR 0590): who stands behind a record field's current value. */
 export interface CoreValueMarkTable {
   object_type: string;
@@ -3668,6 +3697,9 @@ export interface CoreDatabase {
   core_person_link_guard: CorePersonLinkGuardTable;
   core_sellable_refund_due: CoreSellableRefundDueTable;
   core_routine_mail: CoreRoutineMailTable;
+  core_text_spend: CoreTextSpendTable;
+  core_phone_check: CorePhoneCheckTable;
+  core_text_stop: CoreTextStopTable;
   core_value_mark: CoreValueMarkTable;
   core_person_signal: CorePersonSignalTable;
   core_recurrence_series: CoreRecurrenceSeriesTable;

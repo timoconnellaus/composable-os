@@ -24,7 +24,9 @@ import {
   routineKinds,
   siteOriginOf,
 } from "../routine-mail/index.ts";
+import { TEXT_COUNTRY_CODES } from "../routine-mail/numbers.ts";
 import { quietHoursSchema } from "../routine-mail/quiet.ts";
+import { textSpend } from "../routine-mail/texts.ts";
 import { isTimezone, loadApprovalPolicy } from "../settings.ts";
 
 const kindSchema = z.object({
@@ -106,6 +108,18 @@ const settingsOutput = z.object({
     .string()
     .nullable()
     .describe("The name every text begins with; no text goes until it is set"),
+  textLimitMinor: z
+    .number()
+    .int()
+    .describe("The month's text limit in minor units of the business's currency; 0 sends no texts"),
+  textSegmentPriceMinor: z
+    .number()
+    .int()
+    .nullable()
+    .describe("What one text segment costs, in minor units; no text goes until it is set"),
+  textCountries: z
+    .array(z.enum(TEXT_COUNTRY_CODES))
+    .describe("The countries texts may go to, the business's own first; none sends no texts"),
   sendsOnItsOwn: z
     .enum(["auto", "review", "deny"])
     .describe(
@@ -192,6 +206,9 @@ export const routineMailGet = defineOperation({
       quietHours: settings.quietHours,
       quietZone: settings.quietZone,
       senderName: settings.senderName,
+      textLimitMinor: settings.textLimitMinor,
+      textSegmentPriceMinor: settings.textSegmentPriceMinor,
+      textCountries: settings.textCountries,
       sendsOnItsOwn: gate.decision,
     };
   },
@@ -344,7 +361,10 @@ export const routineMailSettingsUpdate = defineOperation({
     "texts and pushes wait (quietHours: { start: '21:00', end: '07:00' }; the same start and end: " +
     "none) and the time zone they are read in (quietZone, e.g. 'Europe/London'), or the name every " +
     "text begins with (senderName, at most 30 characters). A text or push cannot be switched on " +
-    "until quietZone is set, nor a text until senderName is. Only what you pass changes. " +
+    "until quietZone is set, nor a text until senderName is. Texts: the month's limit " +
+    "(textLimitMinor, in minor units of the business's currency; 0 sends none), what one segment " +
+    "costs (textSegmentPriceMinor, from the provider's price list), and the countries texts may " +
+    "go to (textCountries, ISO codes, the business's own first). Only what you pass changes. " +
     "Admins only, and only a human can call it: AI assistants, MCP clients, automations and " +
     "extensions are refused.",
   input: z.object({
@@ -363,6 +383,9 @@ export const routineMailSettingsUpdate = defineOperation({
     quietHours: quietHoursSchema.optional(),
     quietZone: z.string().max(64).nullable().optional(),
     senderName: z.string().max(TEXT_SENDER_MAX).nullable().optional(),
+    textLimitMinor: z.number().int().min(0).max(100_000_000).optional(),
+    textSegmentPriceMinor: z.number().int().min(1).max(100_000).nullable().optional(),
+    textCountries: z.array(z.enum(TEXT_COUNTRY_CODES)).max(TEXT_COUNTRY_CODES.length).optional(),
   }),
   output: z.object({
     packs: z.record(z.string(), z.boolean()),
@@ -378,6 +401,9 @@ export const routineMailSettingsUpdate = defineOperation({
     quietHours: quietHoursSchema,
     quietZone: z.string().nullable(),
     senderName: z.string().nullable(),
+    textLimitMinor: z.number().int(),
+    textSegmentPriceMinor: z.number().int().nullable(),
+    textCountries: z.array(z.enum(TEXT_COUNTRY_CODES)),
   }),
   permission: "settings:manage",
   risk: "write",
@@ -439,6 +465,14 @@ export const routineMailSettingsUpdate = defineOperation({
       quietZone: input.quietZone === undefined ? previous.quietZone : input.quietZone,
       senderName:
         input.senderName === undefined ? previous.senderName : input.senderName?.trim() || null,
+      textLimitMinor: input.textLimitMinor ?? previous.textLimitMinor,
+      textSegmentPriceMinor:
+        input.textSegmentPriceMinor === undefined
+          ? previous.textSegmentPriceMinor
+          : input.textSegmentPriceMinor,
+      textCountries: input.textCountries
+        ? [...new Set(input.textCountries)]
+        : previous.textCountries,
     };
     if (next.quietZone !== null && !isTimezone(next.quietZone)) {
       throw new ValidationError(`${next.quietZone} is not a time zone`, { field: "quietZone" });
@@ -483,8 +517,33 @@ export const routineMailSettingsUpdate = defineOperation({
   },
 });
 
+export const messagesTextSpend = defineOperation({
+  name: "messages.textSpend",
+  description:
+    "This month's spend on texts (ADR 0672): the segments sent, the estimate the limit is " +
+    "counted with (segments times the price per segment set in Settings → Routine email), what " +
+    "the text provider reported, and the month's limit. Amounts in minor units of the business's " +
+    "currency. Admins only. Read-only.",
+  input: z.object({}),
+  output: z.object({
+    month: z.string().describe("YYYY-MM, in the business's zone"),
+    segments: z.number().int(),
+    estimatedMinor: z.number().int(),
+    reportedMinor: z.number().int(),
+    limitMinor: z.number().int(),
+    segmentPriceMinor: z.number().int().nullable(),
+  }),
+  permission: "audit:read",
+  risk: "read",
+  mcp: { idempotent: true },
+  async handler(_input, ctx) {
+    return textSpend(ctx.db, ctx.now);
+  },
+});
+
 export const routineMailOperations = [
   routineMailGet,
   routineMailLog,
   routineMailSettingsUpdate,
+  messagesTextSpend,
 ] as const;

@@ -177,6 +177,18 @@
       "risk": "read"
     },
     {
+      "name": "me.phone.check",
+      "audiences": ["customer"],
+      "risk": "write",
+      "hostInternal": true
+    },
+    {
+      "name": "me.phone.startCheck",
+      "audiences": ["customer"],
+      "risk": "write",
+      "hostInternal": true
+    },
+    {
       "name": "me.pin.clear",
       "audiences": ["customer"],
       "risk": "write",

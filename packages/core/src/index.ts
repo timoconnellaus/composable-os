@@ -344,8 +344,10 @@ export * from "./routine-mail/host-kinds.ts";
 export * from "./routine-mail/host-send.ts";
 export * from "./routine-mail/index.ts";
 export { callerMarks, givenValues, toolRunStanding } from "./routine-mail/marks.ts";
+export { mobileInCountries, TEXT_COUNTRY_CODES } from "./routine-mail/numbers.ts";
 export * from "./routine-mail/quiet.ts";
 export * from "./routine-mail/reach.ts";
+export * from "./routine-mail/texts.ts";
 export {
   AI_SETTINGS,
   BASE_CURRENCY_SETTING,

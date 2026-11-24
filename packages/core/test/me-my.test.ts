@@ -57,6 +57,9 @@ const OPENED = [
   // Stage 31a step 6 (ADR 0540): the caller's own family links.
   "me.family",
   "me.get",
+  // Stage 30 step 3 (ADR 0673): checking one of the caller's own numbers by code.
+  "me.phone.check",
+  "me.phone.startCheck",
   "me.pin.clear",
   "me.pin.set",
   "me.sessions.list",
@@ -92,6 +95,8 @@ describe("what this step opens", () => {
           "me.attention",
           "me.code",
           "me.deleteAccount",
+          "me.phone.check",
+          "me.phone.startCheck",
           "me.pin.clear",
           "me.pin.set",
           "me.sessions.list",

@@ -43530,6 +43530,70 @@
       ]
     },
     {
+      "name": "messages.textSpend",
+      "description": "This month's spend on texts (ADR 0672): the segments sent, the estimate the limit is counted with (segments times the price per segment set in Settings → Routine email), what the text provider reported, and the month's limit. Amounts in minor units of the business's currency. Admins only. Read-only.",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "month": {
+            "type": "string",
+            "description": "YYYY-MM, in the business's zone"
+          },
+          "segments": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "estimatedMinor": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "reportedMinor": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "limitMinor": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "segmentPriceMinor": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "month",
+          "segments",
+          "estimatedMinor",
+          "reportedMinor",
+          "limitMinor",
+          "segmentPriceMinor"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
       "name": "note.open",
       "description": "Open a note to read its text: a sensitive note is listed on timelines without it. Only a person who may read the note (its author, admins, and people the business named one by one) can open it; anyone else gets not found. Every opening is recorded in the audit log, without the text. Read-only.",
       "risk": "read",
@@ -62947,6 +63011,40 @@
               "null"
             ]
           },
+          "textLimitMinor": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991,
+            "description": "The month's text limit in minor units of the business's currency; 0 sends no texts"
+          },
+          "textSegmentPriceMinor": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "What one text segment costs, in minor units; no text goes until it is set"
+          },
+          "textCountries": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "AU",
+                "NZ",
+                "GB",
+                "IE",
+                "US",
+                "CA"
+              ]
+            },
+            "description": "The countries texts may go to, the business's own first; none sends no texts"
+          },
           "sendsOnItsOwn": {
             "type": "string",
             "enum": [
@@ -62967,6 +63065,9 @@
           "quietHours",
           "quietZone",
           "senderName",
+          "textLimitMinor",
+          "textSegmentPriceMinor",
+          "textCountries",
           "sendsOnItsOwn"
         ],
         "additionalProperties": false
@@ -63200,7 +63301,7 @@
     },
     {
       "name": "routineMail.settings.update",
-      "description": "Turn a pack's routine email on (packs: { bookings: true }: its kinds then send without approval; off, each is an ordinary send the policy decides), turn one kind on or off (kinds: { 'bookings.reminder': false }: off sends nothing and queues nothing), or set the business's own site, the only place routine email links to (siteOrigin, an https origin; null removes the links), the organisation's daily limit (orgDailyCap) or how long the log is kept (retentionMonths). Switch a kind's text or push on (channels: { 'bookings.reminder': { push: true } }, only channels the kind declares), whether a member reached by push is also texted (textOnlyWithoutApp), or quiet hours, when texts and pushes wait (quietHours: { start: '21:00', end: '07:00' }; the same start and end: none) and the time zone they are read in (quietZone, e.g. 'Europe/London'), or the name every text begins with (senderName, at most 30 characters). A text or push cannot be switched on until quietZone is set, nor a text until senderName is. Only what you pass changes. Admins only, and only a human can call it: AI assistants, MCP clients, automations and extensions are refused.",
+      "description": "Turn a pack's routine email on (packs: { bookings: true }: its kinds then send without approval; off, each is an ordinary send the policy decides), turn one kind on or off (kinds: { 'bookings.reminder': false }: off sends nothing and queues nothing), or set the business's own site, the only place routine email links to (siteOrigin, an https origin; null removes the links), the organisation's daily limit (orgDailyCap) or how long the log is kept (retentionMonths). Switch a kind's text or push on (channels: { 'bookings.reminder': { push: true } }, only channels the kind declares), whether a member reached by push is also texted (textOnlyWithoutApp), or quiet hours, when texts and pushes wait (quietHours: { start: '21:00', end: '07:00' }; the same start and end: none) and the time zone they are read in (quietZone, e.g. 'Europe/London'), or the name every text begins with (senderName, at most 30 characters). A text or push cannot be switched on until quietZone is set, nor a text until senderName is. Texts: the month's limit (textLimitMinor, in minor units of the business's currency; 0 sends none), what one segment costs (textSegmentPriceMinor, from the provider's price list), and the countries texts may go to (textCountries, ISO codes, the business's own first). Only what you pass changes. Admins only, and only a human can call it: AI assistants, MCP clients, automations and extensions are refused.",
       "risk": "write",
       "audiences": [
         "staff"
@@ -63311,6 +63412,38 @@
                 "type": "null"
               }
             ]
+          },
+          "textLimitMinor": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100000000
+          },
+          "textSegmentPriceMinor": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 100000
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "textCountries": {
+            "maxItems": 6,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "AU",
+                "NZ",
+                "GB",
+                "IE",
+                "US",
+                "CA"
+              ]
+            }
           }
         }
       },
@@ -63401,6 +63534,37 @@
               "string",
               "null"
             ]
+          },
+          "textLimitMinor": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "textSegmentPriceMinor": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "textCountries": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "AU",
+                "NZ",
+                "GB",
+                "IE",
+                "US",
+                "CA"
+              ]
+            }
           }
         },
         "required": [
@@ -63413,7 +63577,10 @@
           "textOnlyWithoutApp",
           "quietHours",
           "quietZone",
-          "senderName"
+          "senderName",
+          "textLimitMinor",
+          "textSegmentPriceMinor",
+          "textCountries"
         ],
         "additionalProperties": false
       },

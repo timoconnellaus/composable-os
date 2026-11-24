@@ -187,6 +187,9 @@ const REMAINING: Record<string, [reads: number, why: Why]> = {
   // Stage 44 (the review of PR #280): order.setPerson reads the People an order's address is
   // theirs (and merges of them) and the order's lines for their agreement points.
   "operations/order.ts": [4, WHY.host],
+  // Stage 30 step 3 (ADR 0673): a member's check of a number reads their own Person's phones (the
+  // principal's, never one from input), to send a code only to a number on their record.
+  "operations/me-phone.ts": [1, WHY.part],
   "operations/organisation.ts": [9, WHY.write],
   "operations/person.ts": [7, WHY.write],
   "operations/person-code.ts": [2, WHY.codes],
@@ -224,6 +227,9 @@ const REMAINING: Record<string, [reads: number, why: Why]> = {
   // Routine mail (ADR 0590): the host reads the record it is about, its order, its person and
   // the orders an address paid itself, for a shipped pack's automation run with no caller.
   "routine-mail/index.ts": [4, WHY.org],
+  // Texts (stage 30 step 3, ADR 0673): the host reads the recipient's phones to find their
+  // textable mobile, for a routine message it is preparing (no caller reads them back).
+  "routine-mail/texts.ts": [1, WHY.org],
   // The roster (stage 45 step 3, ADRs 0623 and 0624): the host reads the shifts' titles, times and
   // person fields (never a booking or a Person) to answer an offer, list uncovered shifts and take
   // a leaver off their future shifts and patterns (writes are staff's, in the operation's batch).

@@ -105,6 +105,9 @@ describe("default closed (criterion 1)", () => {
       // Stage 31a step 6 (ADR 0540): their own family, the children staff linked to them.
       "me.family",
       "me.get",
+      // Stage 30 step 3 (ADR 0673): checking one of their own numbers by a code sent to it.
+      "me.phone.check",
+      "me.phone.startCheck",
       "me.pin.clear",
       "me.pin.set",
       "me.sessions.list",
@@ -473,6 +476,9 @@ describe("the closed handler context (ADR 0413)", () => {
       // Stage 51 step 3 (ADR 0783): codes and PINs are core tables, for the caller's own sign-in.
       "me.code",
       "me.deleteAccount",
+      // Stage 30 step 3 (ADR 0673): the check's own rows, and the code sent after the commit.
+      "me.phone.check",
+      "me.phone.startCheck",
       "me.pin.clear",
       "me.pin.set",
       "me.sessions.list",

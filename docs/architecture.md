@@ -373,14 +373,31 @@ Stage 6a ([ADR 0110](adr/0110-integration-host-per-connection.md) to
   140 characters), and say whether its email is essential, its purpose, whether it is urgent and its
   moment. Each recipient gets a row per channel, held for what its own words show; text and push
   are off per kind until a human admin switches them on, and a Person is reached through one seam
-  (`routine-mail/reach.ts`: a textable number, a registered device), which the text and push
-  gatekeepers fill (stage 30 steps 3 and 4; until then those rows are `no_channel`). Quiet hours
+  (`routine-mail/reach.ts`: a textable number, a registered device; until stage 30 step 4 nobody
+  has a device, so a push row is `no_channel`). Quiet hours
   ([ADR 0676](adr/0676-quiet-hours-and-urgent-messages.md)) hold texts and pushes, never email,
   until the business's window ends; the runner's minute cron releases them or marks them
   `expired`. **Host kinds** (`core.<name>`) are declared in core and asked for by host code
   (`sendHostRoutineMessage`) with an occasion, their email sent through the host's email channel
   (Settings → Notification delivery) on the same routine queue.
-- **Gatekeepers we wrote**: `gatekeeper-email-send`, `gatekeeper-slack-post`, `gatekeeper-webhook`.
+- **Texts** ([ADR 0672](adr/0672-the-text-gatekeeper.md),
+  [ADR 0673](adr/0673-which-number-is-textable.md), stage 30 step 3): a routine message's text
+  goes through `gatekeeper-text`, on the business's own text provider account (one provider
+  interface, a fake, the provider's keys only in the Worker's secrets). Only the host's own queues
+  use it: its routine messages (`routine-mail`: `text.routine`, applied by the host's decision, or
+  `text.send`, which a person reviews with the number partly masked), its phone check
+  (`phone-check`, `me.phone.startCheck` and `me.phone.check`) and its events hook (`text-events`);
+  every caller's queue is refused. A number is textable when it is a Person's primary mobile in a
+  country texts may go to and a person (or a default) stands behind it (`phones:<number>` marks,
+  as addresses), or this Person checked it by code; never one an AI added, nor one another Person
+  checked, nor one that replied STOP. `routine-mail/texts.ts` claims a text with its cost against
+  the month's limit in one statement on `core_text_spend` (past it, `over_limit`; admins told once
+  a day, and at 80% once a month) and within its number's five a day; the minute cron hands ready
+  texts over (one pool of 500 pending at the gatekeeper; a full pool leaves them ready). Verified
+  receipts settle a row `delivered` or `failed`; STOP and START, read at the gatekeeper, keep
+  `core_text_stop` (salted hashes, kept after erase).
+- **Gatekeepers we wrote**: `gatekeeper-email-send`, `gatekeeper-slack-post`, `gatekeeper-webhook`,
+  `gatekeeper-text` (texts, above).
   `gatekeeper-accounting` (stage 61, ADR 0880) is the **accounting contract** every accounting
   gatekeeper serves, not a gatekeeper of its own: the session's types and input checks, the shared
   facet (`AccountingGatekeeper`, which applies each write once by the host's reference, refuses

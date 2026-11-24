@@ -64,8 +64,9 @@ import { isTimezone } from "../settings.ts";
 import { visibleSource } from "../visibility/index.ts";
 import { HOST_KINDS_EXTENSION, hostRoutineKind, hostRoutineKinds } from "./host-kinds.ts";
 import { addressField, CREATED, PRIMARY_ADDRESS, type Standing, valueHash } from "./marks.ts";
+import { TEXT_COUNTRY_CODES } from "./numbers.ts";
 import { DEFAULT_QUIET_HOURS, quietDecision, quietHoursSchema } from "./quiet.ts";
-import { type ChannelReach, NO_REACH, type Reached } from "./reach.ts";
+import { type ChannelReach, HOST_REACH, type Reached } from "./reach.ts";
 
 /** What the calendar file read, among the slots: checked for an email that carries one. */
 const CALENDAR = "$calendar";
@@ -127,6 +128,24 @@ export const routineMailSettingsSchema = z.object({
    * is set.
    */
   senderName: z.string().max(TEXT_SENDER_MAX).nullable().default(null),
+  /**
+   * The month's text limit, in minor units of the business's currency (ADR 0672), a human
+   * admin's: a text that would take the month's spend past it is `over_limit`. 0, the default,
+   * sends no texts.
+   */
+  textLimitMinor: z.number().int().min(0).max(100_000_000).default(0),
+  /**
+   * What one segment costs, in minor units, as the admin read it off the provider's price list:
+   * the estimate the limit is counted with until the provider reports. No text goes until it is
+   * set.
+   */
+  textSegmentPriceMinor: z.number().int().min(1).max(100_000).nullable().default(null),
+  /**
+   * The countries texts may go to (ISO 3166 codes the host knows the numbers of), the business's
+   * own first: a number without its country code is read as the first one's (ADR 0673). None,
+   * the default, sends no texts.
+   */
+  textCountries: z.array(z.enum(TEXT_COUNTRY_CODES)).max(TEXT_COUNTRY_CODES.length).default([]),
 });
 export type RoutineMailSettings = z.infer<typeof routineMailSettingsSchema>;
 
@@ -141,6 +160,9 @@ const DEFAULT_SETTINGS: RoutineMailSettings = {
   quietHours: DEFAULT_QUIET_HOURS,
   quietZone: null,
   senderName: null,
+  textLimitMinor: 0,
+  textSegmentPriceMinor: null,
+  textCountries: [],
 };
 
 export async function loadRoutineMailSettings(db: Db): Promise<RoutineMailSettings> {
@@ -964,7 +986,7 @@ export async function prepareRoutineMail(
     on,
     packOn,
     packSettings: await extensionSettingValues(db, input.extensionId),
-    reach: input.reach ?? NO_REACH,
+    reach: input.reach ?? HOST_REACH,
   });
 }
 
@@ -1038,7 +1060,7 @@ export async function prepareHostRoutineMail(
     on: settings.kinds[kindId] === true,
     packOn: true,
     packSettings: {},
-    reach: input.reach ?? NO_REACH,
+    reach: input.reach ?? HOST_REACH,
   });
 }
 
@@ -1539,11 +1561,13 @@ async function prepareRows(db: Db, p: Prepare): Promise<PreparedRoutineMail> {
           channel === "text" && pushReached && settings.textOnlyWithoutApp
             ? { reason: "reached by push (text only without the app)" }
             : await p.reach[channel](db, personId);
-        let status: "ready" | "waiting" | "held" | "expired" | "no_channel" | "failed" = "ready";
+        let status: "ready" | "waiting" | "held" | "expired" | "no_channel" | "stopped" | "failed" =
+          "ready";
         let waitUntil: string | null = null;
         let error: string | null = null;
         if ("reason" in reached) {
-          status = "no_channel";
+          // A number that replied STOP is the person's own stop, not a missing way to reach them.
+          status = reached.stopped ? "stopped" : "no_channel";
           error = reached.reason;
         } else if (unset || tooLong) {
           status = "failed";
@@ -1842,6 +1866,8 @@ export async function claimRoutineMail(
             eb
               .selectFrom("core_routine_mail as o")
               .select((o) => o.fn.countAll<number>().as("n"))
+              // Emails only: a text has its own caps and the month's limit (ADR 0672).
+              .where("o.channel", "=", "email")
               .where("o.routine", "=", 1)
               .where("o.claimed_at", ">", day)
               .where("o.id", "!=", id),

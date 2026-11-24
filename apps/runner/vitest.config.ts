@@ -17,6 +17,7 @@ type GatekeeperName =
   | "webhook"
   | "email-send"
   | "payments"
+  | "text"
   | "accounting-fake"
   | "booking-system-fake";
 
@@ -107,6 +108,9 @@ export default defineWorkersTestConfig({
           entrypoint: "GatekeeperVendor",
         },
         GATEKEEPER_PAYMENTS: { name: "cos-gatekeeper-payments", entrypoint: "GatekeeperVendor" },
+        GATEKEEPER_TEXT: { name: "cos-gatekeeper-text", entrypoint: "GatekeeperVendor" },
+        // What the fake text provider "sent" and the codes, as a member's phone shows them.
+        TEST_TEXT_PHONES: { name: "cos-gatekeeper-text", entrypoint: "FakeTextControl" },
         GATEKEEPER_ACCOUNTING_FAKE: {
           name: "cos-gatekeeper-accounting-fake",
           entrypoint: "GatekeeperVendor",
@@ -173,6 +177,24 @@ export default defineWorkersTestConfig({
             PAYMENTS_EVENTS: { className: "PaymentsEvents", useSQLite: true },
             FAKE_PAYMENTS: { className: "FakePaymentsLedger", useSQLite: true },
             PAYMENTS_GATEKEEPER: { className: "PaymentsGatekeeper", useSQLite: true },
+          },
+        },
+        {
+          name: "cos-gatekeeper-text",
+          modules: true,
+          scriptPath: await bundleGatekeeper("text"),
+          compatibilityDate: "2026-09-04",
+          compatibilityFlags: ["allow_irrevocable_stub_storage"],
+          bindings: {
+            BASE_URL: "http://crm.test/gatekeeper/text",
+            TEXT_PROVIDER: "fake",
+            TEXT_SENDER_NUMBER: "+61400000999",
+            FAKE_WEBHOOK_SECRET: "fake-text-test-secret",
+          },
+          durableObjects: {
+            TEXT_EVENTS: { className: "TextEvents", useSQLite: true },
+            FAKE_TEXT_LEDGER: { className: "FakeTextLedger", useSQLite: true },
+            TEXT_GATEKEEPER: { className: "TextGatekeeper", useSQLite: true },
           },
         },
         {
