@@ -112,16 +112,16 @@ export function upgradeHostModules(
   io: Io,
 ): string[] {
   const state = readState(root);
-  state.hostModules ??= {};
+  const modules = (state.hostModules ??= {});
   const replaced: string[] = [];
   const edited: string[] = [];
   for (const place of hostModulePlaces(product)) {
     const next = templateText(kit, place);
     if (next === null) continue;
     const path = join(root, place.path);
-    const recorded = state.hostModules[place.path];
+    const recorded = modules[place.path];
     const record = () => {
-      (state.hostModules as NonNullable<State["hostModules"]>)[place.path] = {
+      modules[place.path] = {
         template: place.template,
         version,
         sha256: sha(next),

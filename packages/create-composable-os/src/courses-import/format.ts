@@ -17,7 +17,7 @@
 // schema, its prices, its references. This checks what only the folder can say: files that are
 // there, keys used once, CSV rows that name a course or lesson the folder has.
 import { MEDIA_CAPTION_MAX_BYTES, mediaProblem, sniffFileType } from "@composable-os/sdk";
-import type { Problem } from "../import-door/records.ts";
+import { isObject, type Problem, replaceMarked } from "../import-door/records.ts";
 
 export const FORMAT_VERSION = 1;
 export const COURSE = "courses.course";
@@ -115,9 +115,6 @@ export interface CoursesFolder {
   access: string | null;
   progress: string | null;
 }
-
-const isObject = (v: unknown): v is Record<string, unknown> =>
-  typeof v === "object" && v !== null && !Array.isArray(v);
 
 /** RFC 4180 CSV: quoted fields, doubled quotes, CRLF or LF. Rows with their 1-based line. */
 export function parseCsv(text: string): { line: number; cells: string[] }[] {
@@ -542,8 +539,5 @@ export function readCoursesFolder(folder: CoursesFolder): CoursesPlan {
 
 /** Every `{ $media: ref }` in a value replaced by `id(ref)`. */
 export function withMedia(value: unknown, id: (ref: string) => string): unknown {
-  if (Array.isArray(value)) return value.map((v) => withMedia(v, id));
-  if (!isObject(value)) return value;
-  if (typeof value[MEDIA] === "string" && Object.keys(value).length === 1) return id(value[MEDIA]);
-  return Object.fromEntries(Object.entries(value).map(([k, v]) => [k, withMedia(v, id)]));
+  return replaceMarked(value, MEDIA, id);
 }

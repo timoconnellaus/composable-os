@@ -1,5 +1,5 @@
-// The host as an import reaches it (ADR 0470, shared by `cos content import` and `cos courses
-// import`, ADR 0495): its HTTP surface and its staff-token routes, with the bearer token of the
+// The host as an import reaches it (ADR 0470, shared by every `cos ... import`, ADR 0495): its
+// HTTP surface and its staff-token routes, with the bearer token of the
 // person's device session on every call. No Node here: the CLI and the tests against a real host
 // use it alike.
 
