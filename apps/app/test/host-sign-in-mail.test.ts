@@ -11,8 +11,7 @@ import { createCrmDb } from "@composable-os/db";
 import { beforeAll, describe, expect, it } from "vitest";
 import { staffCodesFor } from "../src/server/host-mail.ts";
 import { type ApiEnv, handleApi } from "../src/server/http/api.ts";
-import { runOperation } from "../src/server/operations.ts";
-import { ORIGIN, signUp, type TestUser, testEnv, unique } from "./mcp-helpers.ts";
+import { callAs, ORIGIN, signUp, type TestUser, testEnv, unique } from "./mcp-helpers.ts";
 
 // Its own env object: cos-app builds customer sign-in once per env, with the real sender and
 // readiness check (not bound-env.ts's capturing one).
@@ -40,15 +39,7 @@ async function post(path: string, body: unknown) {
   return { status: response.status, body: (await response.json()) as Record<string, any> };
 }
 
-async function asAdmin(name: string, input: unknown) {
-  const principal = await createIdentityProvider(hostEnv as never).resolve(
-    new Request(ORIGIN, { headers: { cookie: admin.cookie } }),
-  );
-  const result = await runOperation(hostEnv as never, principal, { name, input }, ORIGIN);
-  if (!result.ok) throw new Error(JSON.stringify(result.error));
-  // biome-ignore lint/suspicious/noExplicitAny: a test reads whatever the operation returns
-  return result.data as any;
-}
+const asAdmin = (name: string, input: unknown) => callAs(hostEnv, admin, name, input);
 
 const codesFor = async (identifier: string) =>
   (

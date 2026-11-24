@@ -22,8 +22,8 @@ coordinator, recorded below; no interview was needed and none is open). Builds a
 public-write door and personal links, and after stage 30's preferences and one-tap stop. Number
 54.
 
-Built so far (see "Built" at the end): step 1 (P1, publishable with an author), step 3 (P3,
-`onlyWith` automations).
+Built so far (see "Built" at the end): step 1 (P1, publishable with an author), step 2 (P2,
+restricted fields), step 3 (P3, `onlyWith` automations).
 
 ## Goal
 
@@ -480,6 +480,17 @@ the trades' moment and review sites are to be checked with each business during 
   a write that moves the record out unpublishes it in its batch (`records/publish.ts`). Tests:
   `packages/core/test/publishable-author.test.ts`. Deviation: consent taken back unpublishes too
   (not only `when`), so consenting again waits for a person's publish (ADR 0810, Consequences).
+- **Step 2, P2: restricted fields** (`feat/stage-54-restricted-fields`, migration 1190, ADR 0811):
+  built. A pack's `text` or `longText` field may declare `restricted: "<pack>:<word>"` (one of its
+  restricted permissions) on an object whose customer reads and writes it; the contract refuses
+  any other use of it (`packages/sdk/src/restricted-fields.ts`). The host keeps the value in
+  `core_restricted_value`, never in the `x_*` table, the registry or any view; the customer writes
+  it and reads their own through the seam (`my.create`, `my.update`, `my.get`, `my.list`); staff
+  read it only with `record.readRestricted`, from the declaring pack's `humanOnly` tool naming the
+  permission, called by a person, every read audited without values; no audit row holds a value;
+  erase and purge delete the author's values and scrub others that name them; dropping the field
+  drops them. Proof: `packages/core/test/restricted-fields.test.ts`. Left for step 4: Reviews'
+  `privateFeedback` and its `reviews.feedback` tool; stage 29's door writes through the same seam.
 - **Step 3 (P3), 2026-11-24.** [ADR 0812](../adr/0812-an-automation-that-runs-only-with-another-pack.md).
   No migration (nothing is stored for the wait; 1190 stays P2's). `onlyWith: ["<extension>"]` on
   `defineAutomation` (`packages/sdk`: the contract, its manifest form, `automation-check.ts`): the
