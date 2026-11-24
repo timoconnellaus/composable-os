@@ -170,3 +170,19 @@ past training had nowhere to go.
   hooks (`At.everyone`) show and edit them; the shorthand writes it as an exercise on the item's
   line with level lines under it.
 
+### Fixed at review (2026-11-24)
+- **One set is never written over another.** Set numbers left out, and duplicates, are worked out
+  after each row's exercise (a key or a name) and person (either of their addresses) are known,
+  by the same identity the set's import key is made from. Two rows that are one set are a problem
+  with both lines. A key longer than the door takes (200), or the same key twice in a batch, is a
+  problem with its line, and the run stops at that batch; a session's name is at most 100
+  characters.
+- **A member cannot reopen an imported session:** the move back to planned is `staffOnly` while
+  the formula `imported` (`source` is `import`) is true.
+- **`x.programs.importText`'s check and write are two calls.** It reads the program, compares the
+  hash, then updates it; `record.update` has no "unchanged since" guard for a record without
+  states, so a coach's save landing between the two (milliseconds) would be overwritten. A save
+  before the run is never overwritten, and two runs cannot make two programs (the unique rule).
+  Closing the window needs a version guard on `record.update` for any object: platform work, not
+  this step's.
+

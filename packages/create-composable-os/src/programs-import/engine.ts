@@ -85,6 +85,12 @@ async function hostBank(host: ImportHost): Promise<BankExercise[]> {
   return out;
 }
 
+/** A batch refused before it was sent: its problems are in the report. */
+class Stopped extends Error {}
+
+/** The longest import key `record.import` takes. */
+const IMPORT_KEY_MAX = 200;
+
 /** The key a past session is found by again: its person (or class), day and name. */
 const sessionKey = (person: string, row: TrainingRow) => `${person}|${row.date}|${row.session}`;
 
@@ -133,7 +139,7 @@ export async function runProgramsImport(
   for (const email of new Set(plan.training.map((r) => r.email))) {
     people.set(email, await personFor(host, email));
   }
-  const training = plan.training.flatMap((row) => {
+  const found = plan.training.flatMap((row) => {
     const who = people.get(row.email);
     if (!who || "problem" in who) {
       report.unmatched.push({ file: row.file, message: who?.problem ?? "No person" });
@@ -141,6 +147,33 @@ export async function runProgramsImport(
     }
     return [{ row, person: who.id }];
   });
+
+  // Each set as the import will key it: its person (two addresses may be one Person) and its
+  // exercise (a key and a name may be one exercise), resolved first. A set number the file leaves
+  // out is counted from those, and two rows that would be one set are a problem, never one set
+  // written over the other.
+  const counted = new Map<string, number>();
+  const seen = new Map<string, string>();
+  const training: { row: TrainingRow; person: string; setNumber: number }[] = [];
+  for (const { row, person } of found) {
+    const folderKey = exerciseKeyOf(row);
+    const exercise = folderKey ? `key:${folderKey}` : `id:${onHost.get(row.exercise)?.id}`;
+    const group = [sessionKey(person, row), row.item ?? "", exercise].join("\u0000");
+    const setNumber = row.setNumber ?? (counted.get(group) ?? 0) + 1;
+    counted.set(group, Math.max(counted.get(group) ?? 0, setNumber));
+    const one = `${group}\u0000${setNumber}`;
+    const other = seen.get(one);
+    if (other) {
+      report.problems.push({
+        file: row.file,
+        message: `set ${setNumber} of ${row.exercise} on ${row.date} is the same set as ${other}'s: give each set its own number`,
+      });
+      continue;
+    }
+    seen.set(one, row.file);
+    training.push({ row, person, setNumber });
+  }
+  if (report.problems.length) return report;
 
   /** Every batch, in order: a dry run with placeholders, or the writes. */
   const batches = async (dryRun: boolean): Promise<ImportResult[]> => {
@@ -166,6 +199,27 @@ export async function runProgramsImport(
       records: { key: string; file: string | null; values: Record<string, unknown> }[],
     ) => {
       if (!records.length) return [];
+      // What record.import would refuse as a whole call, named here by file and line instead.
+      const keys = new Map<string, string | null>();
+      let refused = false;
+      for (const r of records) {
+        if (r.key.length > IMPORT_KEY_MAX) {
+          refused = true;
+          report.problems.push({
+            file: r.file ?? r.key,
+            message: `its import key is ${r.key.length} characters, at most ${IMPORT_KEY_MAX}: shorten the session's name or the key`,
+          });
+        } else if (keys.has(r.key)) {
+          refused = true;
+          report.problems.push({
+            file: r.file ?? r.key,
+            message: `the same record as ${keys.get(r.key) ?? "another row"} (its import key is the same)`,
+          });
+        }
+        keys.set(r.key, r.file);
+      }
+      // The batches after it would name what this one did not make: stop here.
+      if (refused) throw new Stopped();
       if (!dryRun) say(`${label}: ${records.length}…`);
       const results = await importRecords(host, object, records, options);
       out.push(...results);
@@ -280,7 +334,7 @@ export async function runProgramsImport(
     );
 
     // Their sets, each naming its session, person and exercise by id.
-    const logs = training.flatMap(({ row, person }) => {
+    const logs = training.flatMap(({ row, person, setNumber }) => {
       const session = sessionIds.get(sessionKey(person, row));
       const folderKey = exerciseKeyOf(row);
       const exercise = folderKey ? exerciseIds.get(folderKey) : onHost.get(row.exercise)?.id;
@@ -288,16 +342,16 @@ export async function runProgramsImport(
       const name = folderKey ? folderExercise.get(folderKey)?.name : onHost.get(row.exercise)?.name;
       return [
         {
-          key: `${sessionKey(person, row)}|${row.item ?? ""}|${exercise}|${row.setNumber}`,
+          key: `${sessionKey(person, row)}|${row.item ?? ""}|${exercise}|${setNumber}`,
           file: row.file,
           values: {
-            label: `${row.item ?? name ?? "Set"} set ${row.setNumber}`,
+            label: `${row.item ?? name ?? "Set"} set ${setNumber}`,
             person,
             session,
             exercise,
             ...(name ? { exerciseName: name } : {}),
             ...(row.item ? { item: row.item } : {}),
-            setNumber: row.setNumber,
+            setNumber,
             ...(row.level !== null ? { level: row.level } : {}),
             date: row.date,
             ...row.values,
@@ -311,7 +365,10 @@ export async function runProgramsImport(
   };
 
   // 3. The dry run: every batch through the host's own checks, before any write.
-  const dry = await batches(true);
+  const dry = await batches(true).catch((error: unknown) => {
+    if (error instanceof Stopped) return [];
+    throw error;
+  });
   for (const r of dry) {
     if (r.outcome === "invalid") {
       for (const message of r.problems) report.problems.push({ file: r.file ?? r.key, message });

@@ -153,6 +153,10 @@ unknown field in a post file let through (1).
   several skipped all but `includeBulk` ones. Proof: `apps/app/test/programs-import.test.ts` (an
   imported set matches neither an `includeBulk` automation nor a route; the same set written by a
   person matches both) and `packages/core/test/automations.test.ts`.
+- **Erase reaches the door's own table.** `core_import_key` rows whose record was erased, or whose
+  key or `written` values name the subject, are deleted in the erase's batch (`records/erase.ts`,
+  3h). An import's `written` holds what it wrote (a set's person, its notes), which is the
+  subject's data. Proof: `apps/app/test/programs-import.test.ts`.
 - A third command on the door, `cos programs import` (ADR 0448, amended), with the same shape as
   the courses import: the folder checked before signing in, every record dry-run on the host, then
   the batches in order.

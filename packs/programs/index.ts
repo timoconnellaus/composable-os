@@ -392,6 +392,12 @@ export default defineExtension({
         completedBy: { type: "user", label: "Marked by" },
         completedByName: { type: "text", label: "Marked by (name)" },
         source,
+        // Done before the platform: only staff move it back (a member reopening it is not theirs).
+        imported: {
+          type: "formula",
+          label: "Imported",
+          expression: 'coalesce(source, "") = "import"',
+        },
       },
       // An assignment's, or brought in from before (`source: import`).
       requireOneOf: [["assignment", "source"]],
@@ -401,7 +407,12 @@ export default defineExtension({
         moves: [
           { from: "planned", to: "done", by: ["staff", "customer"] },
           { from: "planned", to: "skipped", by: ["staff", "customer"] },
-          { from: ["done", "skipped"], to: "planned", by: ["staff", "customer"] },
+          {
+            from: ["done", "skipped"],
+            to: "planned",
+            by: ["staff", "customer"],
+            staffOnly: "imported",
+          },
         ],
       },
       customer: {

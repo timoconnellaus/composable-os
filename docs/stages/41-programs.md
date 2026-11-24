@@ -289,4 +289,12 @@ Found while moving the first client's programs onto the platform, before step 7 
   dry run on the real host), `packs/programs/test/` (the reader, the schema, logging an item with
   both), `packages/create-composable-os/test/programs-import.test.ts` (the folder's problems by
   line) and `packages/core/test/automations.test.ts` (the imported origin).
+- **Fixed at review:**
+  - Set numbers and duplicates are now worked out by the identity a set's key is made from, so one
+    set is never written over another.
+  - A key that is too long, or the same key twice, is a problem with its line.
+  - Session names are at most 100 characters.
+  - Erase deletes the import door's kept keys and values that name the subject (ADR 0470).
+  - A member cannot move an imported session back to planned.
+  - `importText`'s read-then-write window is stated in ADR 0448, not closed.
 

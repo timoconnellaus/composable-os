@@ -182,6 +182,12 @@ beforeAll(async () => {
     );
     people[who] = { kind: "customer", customerId: `cus_${who}${tag}`, personId: person.id };
   }
+  // One person with two addresses: two rows by either address are the same person's.
+  await invoke(
+    "person.create",
+    { givenName: "cy", emails: [{ email: email("cy") }, { email: email("cy.work") }] },
+    staff(),
+  );
   // An exercise the host's bank has already, which a training row names by its name.
   await invoke(
     "record.create",
@@ -225,6 +231,60 @@ describe("cos programs import against the real host", () => {
     expect(unread.problems.every((p) => p.file.startsWith(`programs/odd-${tag}.txt`))).toBe(true);
     expect(unread.wroteNothing).toBe(true);
     for (const object of [EXERCISE, PROGRAM, SESSION, LOG]) expect(await keyed(object)).toBe(0);
+  });
+
+  it("two rows that are one set are a problem, never one set written over the other", async () => {
+    const row = (who: string, exercise: string, set: number, reps: number, note: string) =>
+      `${email(who)},2025-04-01,Dup ${tag},${exercise},${set},${reps},,,,${note},,,`;
+    const filler = Array.from({ length: 25 }, (_, i) => row("ana", `hollow-${tag}`, i + 1, 1, ""));
+    for (const rows of [
+      // The same exercise by its key and by its name, in different batches of 25 and in one.
+      [
+        row("ana", `pullup-${tag}`, 1, 5, "first"),
+        ...filler,
+        row("ana", `Pull up ${tag}`, 1, 9, "second"),
+      ],
+      [row("ana", `pullup-${tag}`, 1, 5, "first"), row("ana", `pull up ${tag}`, 1, 9, "second")],
+      // The same person by two addresses.
+      [row("cy", `pullup-${tag}`, 1, 5, "first"), row("cy.work", `pullup-${tag}`, 1, 9, "second")],
+    ]) {
+      const report = await run(
+        readProgramsFolder(folder((f) => (f.training = `${f.training}\n${rows.join("\n")}`))),
+      );
+      expect(report.problems).toEqual([
+        {
+          file: `training.csv:${8 + rows.length}`,
+          message: expect.stringContaining(`the same set as training.csv:9's`),
+        },
+      ]);
+      expect(report.wroteNothing).toBe(true);
+    }
+    // Without a set number, the second is counted as the next set: both kept.
+    const counted = await run(
+      readProgramsFolder(
+        folder((f) => {
+          f.training = `${f.training}\n${[
+            `${email("ana")},2025-04-01,Dup ${tag},pullup-${tag},,5,,,,first,,,`,
+            `${email("ana")},2025-04-01,Dup ${tag},Pull up ${tag},,9,,,,second,,,`,
+          ].join("\n")}`;
+        }),
+      ),
+      true,
+    );
+    expect(counted.problems).toEqual([]);
+    expect(counted.records.filter((r) => r.object === LOG)).toHaveLength(8);
+  });
+
+  it("a key longer than the door takes is a problem with its line, not a refused call", async () => {
+    const report = await run(
+      readProgramsFolder(
+        folder((f) => (f.exercises = `${f.exercises}\n${"k".repeat(201)},Long ${tag},reps,,,,`)),
+      ),
+    );
+    expect(report.problems).toEqual([
+      { file: "exercises.csv:6", message: expect.stringContaining("201 characters, at most 200") },
+    ]);
+    expect(report.wroteNothing).toBe(true);
   });
 
   it("a dry run checks everything on the host and writes nothing", async () => {
@@ -450,5 +510,22 @@ describe("cos programs import against the real host", () => {
     expect(batches).toHaveLength(1);
     expect(biggest.statements).toBeLessThanOrEqual(5 * records.length);
     expect(Math.max(...batches.map((b) => b.maxBound))).toBeLessThanOrEqual(100);
+  });
+
+  it("erasing a person takes their imported training out of what the import kept", async () => {
+    const ana = people.ana?.personId as string;
+    const mentions = async () =>
+      (
+        await env.DB.prepare(
+          "SELECT count(*) AS n FROM core_import_key WHERE instr(lower(import_key), lower(?1)) > 0 OR instr(lower(written), lower(?1)) > 0",
+        )
+          .bind(ana)
+          .first<{ n: number }>()
+      )?.n ?? 0;
+    expect(await mentions()).toBeGreaterThan(0);
+    await invoke("person.erase", { id: ana }, staff());
+    expect(await mentions()).toBe(0);
+    // Ben's are kept.
+    expect(await personKeys(SESSION, people.ben?.personId as string)).toBe(1);
   });
 });

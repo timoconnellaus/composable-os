@@ -1553,7 +1553,7 @@ set against its target. Its tools compose the host's operations: `assign`, `toda
 `classToday`, `logAdd`, `logUpdate`, `sessionComplete`, `history`, `progress`, and, for staff,
 `draft` (a working copy from a brief, with the `extract` model role) and `importText` (coaches'
 shorthand into structured targets, unread lines listed; with a key, one program per key and a
-coach's edit never overwritten; with `dryRun`, nothing written). An item of the layout is for
+coach's edit saved before the run kept; with `dryRun`, nothing written). An item of the layout is for
 everyone, has levels, or both. The staff side is declarations: the
 Training dashboard, saved views, the Person page's Training tab and panels. Its headless entry
 (`@composable-os/pack-programs/client`) holds the layout's pure edits and a self-saving working

@@ -526,10 +526,13 @@ the line, or make it a `*` note, rather than lose it.
 
 **`training.csv`**: one row per set. `email`, `date` (`YYYY-MM-DD`, today or before) and
 `exercise` (a key of `exercises.csv`, or the exact name of an exercise in the folder or on the
-host) are required. Optional: `session` (its name; `Training` when left out), `set` (counted in
-the order of the rows when left out), `reps`, `seconds`, `load` (kilograms), `rpe` (1 to 10 in
+host) are required. Optional: `session` (its name, at most 100 characters; `Training` when left out), `set` (counted
+in the order of the rows when left out, per person, day, session, item and exercise), `reps`, `seconds`, `load` (kilograms), `rpe` (1 to 10 in
 halves), `note`, `item` (`A1`), `level`, `program` (a file of `programs/`, without `.txt`), and
-`target_reps`, `target_seconds` and `target_load`. A row says what was done: reps, seconds or load.
+`target_reps`, `target_seconds` and `target_load`. A row says what was done: reps, seconds or load. Two rows that are the
+same set (the same person, day, session, item, exercise and set number, whether the exercise is
+named by its key or its name and the person by either of their addresses) are a problem: the second
+is never written over the first.
 
 ### What it does
 
@@ -551,7 +554,8 @@ one **logged set** against that session, marked `source: import`, with its exerc
 so history, progress, the Training dashboard and the `rec_*` views read imported sets as they read
 logged ones. The dashboard's planned and done sessions leave imported sessions out (they have no
 kind: they were never planned here). A member sees their own imported sessions and sets in the app as they see the rest of
-their training; they cannot log more sets on an imported session (it has no plan).
+their training; they cannot log more sets on an imported session (it has no plan), nor move it
+back to planned (staff can).
 
 **What it brings in starts nothing.** Everything `record.import` writes was done before, somewhere
 else, so its events are marked `imported`: no automation starts from them (not even one that takes
@@ -563,6 +567,10 @@ theirs, a program by its file's name, a session by its person, day and name, a s
 item, exercise and set number. What the source changed is updated while the record still holds
 what the import last wrote; one someone has changed since is reported as a conflict, with its
 fields, and left as it is.
+
+**Erasing a person** removes what the import kept of them too: every import key, and every
+record of what the import last wrote, that names them. A later re-run finds no person for their
+rows and leaves them out.
 
 **Not imported:** assignments of programs to people or class types (a coach assigns a published
 version, and the sessions follow from it), class attendance and bookings (the booking import),

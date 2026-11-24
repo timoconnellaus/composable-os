@@ -56,10 +56,10 @@ describe("the programs folder", () => {
     expect(plan.programs).toEqual([
       { key: "strength", file: "programs/strength.txt", text: "Session: Monday\nA1: Pull up x 5" },
     ]);
-    // Set numbers counted where the file leaves them out; the address as one person's.
+    // A set number left out is counted by the engine, once it knows the exercise and person.
     expect(plan.training.map((r) => [r.file, r.email, r.setNumber, r.values])).toEqual([
-      ["training.csv:2", "ana@example.com", 1, { actualReps: 5, rpe: 8 }],
-      ["training.csv:3", "ana@example.com", 2, { actualReps: 4, rpe: 9 }],
+      ["training.csv:2", "ana@example.com", null, { actualReps: 5, rpe: 8 }],
+      ["training.csv:3", "ana@example.com", null, { actualReps: 4, rpe: 9 }],
       ["training.csv:4", "ana@example.com", 3, { actualReps: 8, actualLoad: 20 }],
     ]);
   });
@@ -84,7 +84,7 @@ describe("the programs folder", () => {
           "ana@example.com,2025-02-30,Pull day,pull,,5,",
           "ana@example.com,2999-01-01,Pull day,pull,,5,",
           "ana@example.com,2025-03-03,Pull day,pull,,,",
-          "ana@example.com,2025-03-03,Pull day,pull,1,5,",
+          `ana@example.com,2025-03-03,${"Long ".repeat(21)},pull,1,5,`,
           "ana@example.com,2025-03-03,Pull day,pull,1,6,",
           "ana@example.com,2025-03-03,Pull day,pull,,lots,",
           "ana@example.com,2025-03-03,Pull day,pull,,5,elsewhere",
@@ -108,7 +108,7 @@ describe("the programs folder", () => {
         message: "2999-01-01 is after today: only past training is imported",
       },
       { file: "training.csv:5", message: "nothing done: give reps, seconds or load" },
-      { file: "training.csv:7", message: "set 1 of pull on 2025-03-03 is there twice" },
+      { file: "training.csv:6", message: "the session's name is longer than 100 characters" },
       { file: "training.csv:8", message: "actualReps is not a number" },
       { file: "training.csv:9", message: 'no file of programs/ is "elsewhere.txt"' },
     ]);

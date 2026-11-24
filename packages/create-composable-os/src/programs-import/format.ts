@@ -26,6 +26,9 @@ export const LOG = "programs.log";
 
 const MEASURES = ["weight_reps", "reps", "time", "hold"] as const;
 
+/** The longest session name: it is part of its sets' import keys (200 characters at most). */
+export const SESSION_NAME_MAX = 100;
+
 /** The folder as its files' text. */
 export interface ProgramsFolder {
   exercises: string | null;
@@ -59,7 +62,11 @@ export interface TrainingRow {
   session: string;
   /** A key of exercises.csv, or the name of an exercise on the host. */
   exercise: string;
-  setNumber: number;
+  /**
+   * The set's number as the file gives it, or null: the engine counts the rest once it knows
+   * which exercise and person a row is (a key and a name can be the same exercise).
+   */
+  setNumber: number | null;
   item: string | null;
   level: number | null;
   program: string | null;
@@ -276,9 +283,6 @@ export function readProgramsFolder(folder: ProgramsFolder): ProgramsPlan {
         });
       } else {
         const programKeys = new Set(plan.programs.map((p) => p.key));
-        /** Sets counted per person, day, session, item and exercise, for rows with no set. */
-        const counted = new Map<string, number>();
-        const taken = new Set<string>();
         for (const { line, cells } of t.rows) {
           const cell = (i: number) => (i >= 0 ? (cells[i] ?? "").trim() : "");
           const at = `${name}:${line}`;
@@ -303,8 +307,8 @@ export function readProgramsFolder(folder: ProgramsFolder): ProgramsPlan {
             problem("no exercise");
             continue;
           }
-          if (session.length > 200) {
-            problem("the session's name is longer than 200 characters");
+          if (session.length > SESSION_NAME_MAX) {
+            problem(`the session's name is longer than ${SESSION_NAME_MAX} characters`);
             continue;
           }
           const program = cell(col.program) || null;
@@ -339,15 +343,11 @@ export function readProgramsFolder(folder: ProgramsFolder): ProgramsPlan {
             continue;
           }
           const item = cell(col.item) || null;
-          const group = [email, date, session, item ?? "", exercise].join("\u0000");
-          const setNumber = set ?? (counted.get(group) ?? 0) + 1;
-          counted.set(group, Math.max(counted.get(group) ?? 0, setNumber));
-          const setKey = `${group}\u0000${setNumber}`;
-          if (taken.has(setKey)) {
-            problem(`set ${setNumber} of ${exercise} on ${date} is there twice`);
+          if (item && !/^[A-Za-z0-9]{1,6}$/.test(item)) {
+            problem(`an item is a label such as A1, not "${item}"`);
             continue;
           }
-          taken.add(setKey);
+          const setNumber = set ?? null;
           const note = cell(col.note);
           plan.training.push({
             file: at,

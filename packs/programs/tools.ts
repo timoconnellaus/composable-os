@@ -1219,7 +1219,8 @@ export const importText = defineTool({
           })
         ).items[0]
       : undefined;
-    // Someone edited it since the import wrote it: never overwritten.
+    // Someone edited it since the import wrote it: left alone (a save between this read and the
+    // update below is not seen: record.update has no version guard, ADR 0448).
     const edited =
       existing !== undefined &&
       importedHashOf(existing.values) !== text(existing.values.importedHash);
