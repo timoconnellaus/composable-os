@@ -35,27 +35,30 @@ import { Label } from "../ui-label/label.tsx";
 
 const DAYS = ["Mon", "Tue", "Wed", "Thu", "Fri", "Sat", "Sun"];
 
+/** The hooks the builder calls. */
+type BuilderHooks = Pick<
+  ProgramsHooks,
+  | "useAssign"
+  | "useBank"
+  | "useClassTypes"
+  | "useCreateProgram"
+  | "useDraft"
+  | "useExercises"
+  | "useImportText"
+  | "usePeople"
+  | "usePrograms"
+  | "usePublish"
+  | "usePublishOffered"
+  | "useRestoreVersion"
+  | "useVersions"
+  | "useWorkingCopy"
+>;
+
 interface Bank {
   byId: Map<string, RecordOut>;
   list: RecordOut[];
   /** The hooks, for a search of the whole bank on the host. */
-  programs: Pick<
-    ProgramsHooks,
-    | "useAssign"
-    | "useBank"
-    | "useClassTypes"
-    | "useCreateProgram"
-    | "useDraft"
-    | "useExercises"
-    | "useImportText"
-    | "usePeople"
-    | "usePrograms"
-    | "usePublish"
-    | "usePublishOffered"
-    | "useRestoreVersion"
-    | "useVersions"
-    | "useWorkingCopy"
-  >;
+  programs: BuilderHooks;
 }
 
 type Change = (next: Layout) => void;
@@ -91,23 +94,7 @@ export function ProgramBuilder({
   programs,
   programId,
 }: {
-  programs: Pick<
-    ProgramsHooks,
-    | "useAssign"
-    | "useBank"
-    | "useClassTypes"
-    | "useCreateProgram"
-    | "useDraft"
-    | "useExercises"
-    | "useImportText"
-    | "usePeople"
-    | "usePrograms"
-    | "usePublish"
-    | "usePublishOffered"
-    | "useRestoreVersion"
-    | "useVersions"
-    | "useWorkingCopy"
-  >;
+  programs: BuilderHooks;
   programId: string;
 }) {
   const copy = programs.useWorkingCopy(programId);
@@ -1222,23 +1209,7 @@ function Versions({
   programId,
   onRestored,
 }: {
-  programs: Pick<
-    ProgramsHooks,
-    | "useAssign"
-    | "useBank"
-    | "useClassTypes"
-    | "useCreateProgram"
-    | "useDraft"
-    | "useExercises"
-    | "useImportText"
-    | "usePeople"
-    | "usePrograms"
-    | "usePublish"
-    | "usePublishOffered"
-    | "useRestoreVersion"
-    | "useVersions"
-    | "useWorkingCopy"
-  >;
+  programs: BuilderHooks;
   programId: string;
   onRestored: (layout: Layout, title?: string) => void;
 }) {
@@ -1332,29 +1303,7 @@ function Versions({
   );
 }
 
-function Assign({
-  programs,
-  programId,
-}: {
-  programs: Pick<
-    ProgramsHooks,
-    | "useAssign"
-    | "useBank"
-    | "useClassTypes"
-    | "useCreateProgram"
-    | "useDraft"
-    | "useExercises"
-    | "useImportText"
-    | "usePeople"
-    | "usePrograms"
-    | "usePublish"
-    | "usePublishOffered"
-    | "useRestoreVersion"
-    | "useVersions"
-    | "useWorkingCopy"
-  >;
-  programId: string;
-}) {
+function Assign({ programs, programId }: { programs: BuilderHooks; programId: string }) {
   const [search, setSearch] = useState("");
   const [person, setPerson] = useState<{ id: string; name: string } | null>(null);
   const [classType, setClassType] = useState("");
@@ -1461,23 +1410,7 @@ export function ProgramList({
   programs,
   onOpen,
 }: {
-  programs: Pick<
-    ProgramsHooks,
-    | "useAssign"
-    | "useBank"
-    | "useClassTypes"
-    | "useCreateProgram"
-    | "useDraft"
-    | "useExercises"
-    | "useImportText"
-    | "usePeople"
-    | "usePrograms"
-    | "usePublish"
-    | "usePublishOffered"
-    | "useRestoreVersion"
-    | "useVersions"
-    | "useWorkingCopy"
-  >;
+  programs: BuilderHooks;
   onOpen: (programId: string) => void;
 }): ReactNode {
   const list = programs.usePrograms();
