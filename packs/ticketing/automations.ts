@@ -6,7 +6,7 @@
 // They add no rule of their own: what is paid, what is owed and when is the host's. Each declares
 // its steps, so the host renders the summary from them.
 import { defineAutomation, formatMoment } from "@composable-os/sdk";
-import { EVENT, type HostPage, isConflict, TICKET, TICKET_TYPE } from "./objects.ts";
+import { EVENT, type HostPage, isConflict, TICKET, TICKET_TYPE } from "./tools.ts";
 
 const DAY_MS = 86_400_000;
 /** Most buyers reminded in one run of the daily balance reminders; the rest wait a day. */

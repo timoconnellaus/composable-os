@@ -3,21 +3,53 @@
 // order, places, who may see a ticket and that a ticket is used once are all the host's. A tool
 // asks, and reports what the host answered.
 import { defineTool, type ExtensionContext, OpsCallError, z } from "@composable-os/sdk";
-import { formatMoney } from "./money.ts";
-import {
-  EVENT,
-  type HostPage,
-  type HostRecord,
-  isConflict,
-  TICKET,
-  TICKET_TYPE,
-} from "./objects.ts";
+
+export const EVENT = "ticketing.event";
+export const TICKET_TYPE = "ticketing.tickettype";
+export const TICKET = "ticketing.ticket";
+
+/** A record as record.get, record.list, my.list and public.list return it. */
+export interface HostRecord {
+  id: string;
+  title: string | null;
+  values: Record<string, unknown>;
+}
+
+/** A page of records. */
+export interface HostPage {
+  items: HostRecord[];
+  nextCursor?: string | null;
+  /** On a sellable object's records (a ticket type): the currency its prices are in. */
+  currency?: string | null;
+}
+
+/** The host refused a move `from` a state the record is no longer in (ADR 0437). */
+export function isConflict(error: unknown): boolean {
+  return error instanceof OpsCallError && error.code === "conflict";
+}
 
 const text = (value: unknown): string | null =>
   value === null || value === undefined ? null : String(value);
 const num = (value: unknown): number | null =>
   typeof value === "number" ? value : value == null ? null : Number(value);
 const sum = (values: number[]): number => values.reduce((total, value) => total + value, 0);
+
+/**
+ * An amount in the minor unit as the door reads it: `300.00 AUD`, `5000 JPY`. The same as the
+ * headless entry's formatMoney, which the blocks use; the host bundles only the extension's own
+ * files, so the tools cannot import client code.
+ */
+function moneyText(minor: number, currency: string): string {
+  let digits = 2;
+  try {
+    digits =
+      new Intl.NumberFormat("en", { style: "currency", currency }).resolvedOptions()
+        .maximumFractionDigits ?? 2;
+  } catch {
+    // Not a currency Intl knows: two places, as the blocks show it.
+  }
+  return `${(minor / 10 ** digits).toFixed(digits)} ${currency}`;
+}
 
 // --- On sale -------------------------------------------------------------------------------------
 
@@ -649,7 +681,7 @@ async function checkInHandler(
     accepted: true,
     message:
       `Valid${name ? `: ${name}` : ""}. Let them in.` +
-      (owing ? ` A balance of ${formatMoney(owing.amount, owing.currency)} is owing.` : ""),
+      (owing ? ` A balance of ${moneyText(owing.amount, owing.currency)} is owing.` : ""),
     ticket: {
       ...before,
       state: "used",
