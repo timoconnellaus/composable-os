@@ -17,7 +17,7 @@ import {
 } from "../src/index.ts";
 import { call, outside, PUBLIC } from "./customer-fixtures.ts";
 import { extId, manifest, reconcile } from "./extension-helpers.ts";
-import { context, createUser, db, unique } from "./helpers.ts";
+import { context, createUser, db, refusal, unique } from "./helpers.ts";
 
 const EXT = extId("rv");
 const REVIEW = `${EXT}.review`;
@@ -82,15 +82,6 @@ async function createCustomer(label: string): Promise<CustomerPrincipal> {
     context(admin),
   );
   return { kind: "customer", customerId: `cus_${tag}`, personId: person.id };
-}
-
-async function refusal(promise: Promise<unknown>) {
-  try {
-    await promise;
-  } catch (error) {
-    return error as { code: string; message: string; details?: Record<string, unknown> };
-  }
-  throw new Error("expected a refusal");
 }
 
 /** The author writes a review through a customer's tool, as stage 29's door will. */

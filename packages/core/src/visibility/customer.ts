@@ -19,6 +19,8 @@ export function customerProblems(object: ObjectDefinition): string[] {
   if (!declared) return [];
   const problems: string[] = [];
   const field = (name: string) => object.fields.find((f) => f.name === name);
+  // A restricted field (ADR 0811) is no registry field: its author reads and writes it apart.
+  const restricted = new Set((object.restricted ?? []).map((f) => f.name));
   const owner = field(declared.field);
   if (!owner?.column) {
     problems.push(`customer.field "${declared.field}" is not a single-valued field`);
@@ -38,6 +40,7 @@ export function customerProblems(object: ObjectDefinition): string[] {
   ] as const) {
     if (new Set(names).size !== names.length) problems.push(`customer.${key} lists a field twice`);
     for (const name of names) {
+      if (restricted.has(name)) continue;
       const f = field(name);
       if (!f) problems.push(`customer.${key} lists "${name}", which is not a field`);
       else if (!viewColumnOf(f))

@@ -102,6 +102,9 @@ jobs:
       # No install: these checks use Node alone.
       - run: node scripts/check-stray-names.mjs
       - run: node scripts/check-skills-version.mjs
+      # The docs site's pages made from Markdown alone (guides, overviews, the glossary): current,
+      # and their links whole (ADR 0930). Node alone, like the checks above.
+      - run: node apps/docs/scripts/generate.mjs --check --markdown-only
 
   # Lint, typecheck and unit tests run as parallel jobs (the unit tests as a matrix of shards). The
   # job named "Lint, typecheck, unit tests" (`check`, below) only gathers their results, so the
@@ -115,6 +118,9 @@ jobs:
       - uses: actions/checkout@v5
       - uses: ./.github/actions/setup
       - run: pnpm lint
+      # The docs site (ADR 0930): every generated page current, every pack, block, core operation
+      # and gatekeeper with its page, every pack with its overview, every internal link whole.
+      - run: pnpm --filter @composable-os/docs check
 
   typecheck:
     name: Typecheck
@@ -127,6 +133,9 @@ jobs:
       - run: pnpm typecheck
       # The landing page (apps/marketing): its build fails on any tracker or third-party load.
       - run: pnpm --filter @composable-os/marketing build
+      # The docs site (apps/docs): the check again, the Starlight build, and its links over the built
+      # pages.
+      - run: pnpm --filter @composable-os/docs build
 
   # The unit tests, split across runners by measured time (scripts/ci-unit-shards.mjs says which
   # packages each shard runs, and `pnpm lint` checks that every package's tests run exactly once).

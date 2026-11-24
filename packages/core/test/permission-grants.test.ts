@@ -22,21 +22,12 @@ import {
   staffRightsReach,
 } from "../src/index.ts";
 import { extId, manifest, reconcile } from "./extension-helpers.ts";
-import { auditChanges, context, createUser, unique } from "./helpers.ts";
+import { auditChanges, context, createUser, refusal, unique } from "./helpers.ts";
 
 const EXT = extId("grant");
 const DOC = `${EXT}.doc`;
 let admin: ActingUser;
 let coach: ActingUser;
-
-async function refusal(promise: Promise<unknown>) {
-  try {
-    await promise;
-  } catch (error) {
-    return error as { code: string; message: string; details?: Record<string, unknown> };
-  }
-  throw new Error("expected a refusal");
-}
 
 const publish = async (user: ActingUser, extra: Record<string, unknown> = {}) => {
   const doc = await invoke(

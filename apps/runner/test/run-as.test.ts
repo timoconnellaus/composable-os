@@ -21,7 +21,8 @@ import { pollIntegrationEvents } from "../src/automations/integration-events.ts"
 import { fakeProviderStub } from "../src/integrations/fake.ts";
 import { hostFor, integrationRuntime } from "../src/integrations/runtime.ts";
 import { runRow, runsOf, setPreset } from "./automation-fixture.ts";
-import { context, createAdmin, db, install, unique } from "./helpers.ts";
+import { connectFake } from "./fake-connection.ts";
+import { context, createAdmin, createMember, db, install, unique } from "./helpers.ts";
 
 const integrations = integrationRuntime(env);
 const runner = exports.default as unknown as {
@@ -108,35 +109,11 @@ function op<T>(
   return invokeByName(name, input, { ...context(user), integrations, ...extra }) as Promise<T>;
 }
 
-async function createMember(): Promise<ActingUser> {
-  const user = await createAdmin();
-  await env.DB.prepare("UPDATE core_user SET role = 'member' WHERE id = ?").bind(user.id).run();
-  return { ...user, role: "member" };
-}
-
 /** A personal fake-provider connection of `owner` with its outbox bound. */
 async function mailbox(owner: ActingUser, scope: "personal" | "org" = "personal") {
-  const created = await op<{
-    connection: { id: string };
-    connect: { url: string; nonce: string };
-  }>(owner, "connection.create", { vendor: "fake", scope, sharingLevel: "full" });
-  const url = `http://crm.test${created.connect.url}`;
-  await runner.gatekeeperFetch("fake", new Request(url));
-  const done = await runner.gatekeeperFetch(
-    "fake",
-    new Request(url, { method: "POST", body: new URLSearchParams({ address }) }),
-  );
-  const ticket = /var ticket = "([^"]+)"/.exec(await done.text())?.[1] ?? "";
-  await op(owner, "connection.completeConnect", {
-    connectionId: created.connection.id,
-    ticket,
-    nonce: created.connect.nonce,
-  });
-  await op(owner, "connection.bindResource", {
-    id: created.connection.id,
-    url: `fake://outbox/${address}`,
-  });
-  return created.connection.id;
+  const id = await connectFake((name, input) => op(owner, name, input), address, scope);
+  await op(owner, "connection.bindResource", { id, url: `fake://outbox/${address}` });
+  return id;
 }
 
 async function automationRow(id: string) {

@@ -9,7 +9,14 @@
 // Whether a member may cool off (stage 44 step 7) is the host's: a block asks, and never works
 // the window out on the device.
 // Whether a change is an upgrade (now, prorated) or a downgrade (next period) is the host's.
-import { type ClientHolding, formatMinor, type PackClient, packHooks } from "@composable-os/client";
+import {
+  type ClientHolding,
+  formatMinor,
+  type PackClient,
+  packHooks,
+  type UseMutation,
+  type UseQuery,
+} from "@composable-os/client";
 import type { z } from "@composable-os/sdk";
 import type { buy, givePass, holdings, mine, passTypes, plans, voidPass } from "../tools.ts";
 
@@ -559,27 +566,7 @@ export function refusalWords(details: { rule?: unknown; reason?: unknown } | und
 
 // --- Hooks ---------------------------------------------------------------------------------------
 
-/** The app's `useQuery`, as far as these hooks use it. */
-export type UseQuery = <T>(options: {
-  queryKey: readonly unknown[];
-  queryFn: () => Promise<T>;
-  enabled?: boolean;
-}) => { data: T | undefined; isPending: boolean; error: unknown };
-
-/** The app's `useMutation`, as far as these hooks use it. */
-export type UseMutation = <I, O>(options: {
-  mutationKey: readonly unknown[];
-  mutationFn: (input: I) => Promise<O>;
-  gcTime?: number;
-}) => {
-  mutate(input: I): void;
-  mutateAsync(input: I): Promise<O>;
-  data: O | undefined;
-  isPending: boolean;
-  error: unknown;
-  /** Forgets the call: its variables and its answer (TanStack Query's `reset`). */
-  reset?: () => void;
-};
+export type { UseMutation, UseQuery } from "@composable-os/client";
 
 /**
  * The operations each hook calls (ADR 0453). The public's client gets the plans, the pass types,

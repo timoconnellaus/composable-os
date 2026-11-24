@@ -17,7 +17,7 @@ import {
   PendingApprovalError,
 } from "../src/index.ts";
 import { extId, manifest, reconcile } from "./extension-helpers.ts";
-import { auditRows, context, createUser, db, setPreset, unique } from "./helpers.ts";
+import { auditRows, context, createUser, db, refusal, setPreset, unique } from "./helpers.ts";
 
 const EXT = extId("ask");
 const DOC = `${EXT}.doc`;
@@ -27,15 +27,6 @@ type AiActor = (typeof AI_ACTORS)[number];
 let admin: ActingUser;
 let member: ActingUser;
 let publisher: ActingUser;
-
-async function refusal(promise: Promise<unknown>) {
-  try {
-    await promise;
-  } catch (error) {
-    return error as { code: string; message: string; details?: Record<string, unknown> };
-  }
-  throw new Error("expected a refusal");
-}
 
 async function queued(promise: Promise<unknown>): Promise<PendingApproval> {
   const error = await promise.then(
