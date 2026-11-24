@@ -97,7 +97,7 @@ export async function assertShippedToolRun(ctx: HandlerContext, name: string): P
  * `unavailable` warnings, so an AI learns clashes and qualifications but never who is away (ADR
  * 0629). Null for a person, who sees them all.
  */
-export function withoutAway(
+function withoutAway(
   ctx: HandlerContext,
 ): (<W extends { code: string }>(warnings: W[]) => W[]) | null {
   if (ctx.extension?.tool?.calledBy?.actor === "human") return null;

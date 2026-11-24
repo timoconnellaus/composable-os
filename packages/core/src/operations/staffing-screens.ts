@@ -72,11 +72,11 @@ const iso = (seconds: number) => new Date(seconds * 1000).toISOString();
 const text = (value: unknown) => (typeof value === "string" && value !== "" ? value : null);
 
 /** The most people one screen's read lists (a business's staff is far fewer). */
-export const PEOPLE_MAX = 200;
+const PEOPLE_MAX = 200;
 /** The most people a shift's candidates are worked out for (each is a few indexed reads). */
-export const CANDIDATES_MAX = 100;
+const CANDIDATES_MAX = 100;
 /** The most series of one object the regular week lists. */
-export const PATTERNS_MAX = 300;
+const PATTERNS_MAX = 300;
 
 /** Active people's staff accounts (never a deactivated one, never an agent), by name. */
 async function activePeople(

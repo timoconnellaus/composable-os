@@ -60,6 +60,7 @@ import {
   ORDER_MAX_LINES,
   ORDER_MAX_QUANTITY,
   type OrderRow,
+  OVERDUE_LIMIT,
   overdueOrders,
   type PricedLine,
   requireState,
@@ -641,7 +642,7 @@ export const orderOverdue = defineOperation({
     "List part-paid orders whose balance is past its due date, oldest first. Nothing happens to " +
     "them by itself: extend the date (order.extendBalanceDue), cancel (order.cancel), or the " +
     "buyer pays. Read-only.",
-  input: z.object({ limit: z.number().int().min(1).max(200).default(50) }),
+  input: z.object({ limit: z.number().int().min(1).max(OVERDUE_LIMIT).default(50) }),
   output: z.object({ items: z.array(orderSchema.omit({ lines: true })) }),
   permission: "records:read",
   risk: "read",

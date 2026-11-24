@@ -55,7 +55,7 @@ export interface RosterShift {
 export type ChecklistState = "not_started" | "in_progress" | "done" | "missed" | "cancelled";
 
 /** The most shifts one object gives one read; more, and the answer says it was cut short. */
-export const PER_OBJECT = 1000;
+const PER_OBJECT = 1000;
 
 // biome-ignore lint/suspicious/noExplicitAny: x_* tables are not in CoreDatabase; names come from the registry.
 type AnyDb = import("kysely").Kysely<any>;
