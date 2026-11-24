@@ -390,6 +390,30 @@
             "slug": "capabilities/agreements/decisions"
           }
         ]
+      },
+      {
+        "label": "Client notes",
+        "collapsed": true,
+        "items": [
+          {
+            "slug": "capabilities/notes"
+          },
+          {
+            "slug": "capabilities/notes/operations"
+          },
+          {
+            "slug": "capabilities/notes/permissions"
+          },
+          {
+            "slug": "capabilities/notes/behaviours"
+          },
+          {
+            "slug": "capabilities/notes/screens"
+          },
+          {
+            "slug": "capabilities/notes/decisions"
+          }
+        ]
       }
     ]
   },

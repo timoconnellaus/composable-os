@@ -11,3 +11,4 @@ A capability is platform work any pack composes: core tables, operations and beh
 | Capability | What it is |
 | --- | --- |
 | [Agreements](/capabilities/agreements/) | Documents a person agrees to or signs (terms, a waiver, health questions, a parent's consent), kept word for word for good, and enforced so nobody pays or books without what is due. |
+| [Client notes](/capabilities/notes/) | Notes staff keep about a person, each with a kind and a level that decides who reads it, written from the kind's template. |
