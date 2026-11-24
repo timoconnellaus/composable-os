@@ -166,3 +166,10 @@ longer holds: an account with a pack role gets the admin's small shell (its scre
 sign out), which makes no call the role is refused, and every other page is "not found". Every pack
 role reaches one core read beside its tools and reads, `screens.mine` (the screens it may open);
 nothing else is opened to pack roles. See [ADR 0660](0660-pack-screens-in-the-admin.md).
+
+## Amendment, 2026-11-24 (checklists on their own, ADR 0652)
+A pack role also reaches a shipped pack's tools declared `anyStaff` (any pack's, wherever it is
+installed): Daily checklists' `today`, `day`, `tick` and `done`, whose host operations answer with
+only the checklists the account may do (ADR 0651). Nothing else is opened: the registry walk in
+`packages/core/test/screens.test.ts` lists exactly these beside each role's own tools, its reads
+and `screens.mine`, and `api/v1/roles.json` lists them for each role's client.

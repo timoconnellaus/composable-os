@@ -791,6 +791,6 @@ describe("what one call reads, at the largest input", () => {
       .first<{ n: number }>();
     expect(Number(open?.n)).toBeLessThanOrEqual(200);
     expect(Object.keys(counted).sort()).toEqual(["cron close", "cronMake", "history", "today"]);
-    process.stdout.write(`statements per call: ${JSON.stringify(counted)}\n`);
+    console.info(`statements per call: ${JSON.stringify(counted)}`);
   }, 300_000);
 });
