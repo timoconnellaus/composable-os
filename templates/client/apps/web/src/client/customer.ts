@@ -237,6 +237,14 @@ export type Operations = {
     output: { id: string; state: ("pending") | ("part_paid") | ("paid") | ("cancelled") | ("expired") | ("refunded"); currency: string; total: number; paid: number; balance: number; refunded: number; pay: ("full") | ("deposit"); deposit: (number) | (null); balanceDueAt: (string) | (null); expiresAt: (string) | (null); paidAt: (string) | (null); createdAt: string; taxAmount: number; taxRefunded: number; taxCountry: (string) | (null); lines: { id: string; position: number; object: string; recordId: string; title: string; quantity: number; unitPrice: number; total: number; taxAmount: number }[]; personId?: (string) | (null); email?: (string) | (null); placedAs?: ("customer") | ("public") | ("staff") };
   };
   /**
+   * How many of a thing a business has (a variant it sells). Staff get on hand, held (by unpaid orders while their buyers pay), available (on hand less held), the reorder level and whether on hand is at or below it, and the last movements of the ledger. Customers and the public get only what the object shows: in stock or sold out, 'only N left', or the number available. Read-only; holds nothing.
+   */
+  "stock.get": {
+    kind: "query";
+    input: { object: string; id: string };
+    output: { object: string; id: string; status: ("in_stock") | ("low") | ("sold_out"); available?: number; onHand?: number; held?: number; place?: string; show?: ("exact") | ("low") | ("availability"); lowAt?: (number) | (null); reorderAt?: (number) | (null); reorderQty?: (number) | (null); low?: boolean; movements?: ({ id: string; kind: ("opening") | ("received") | ("sold") | ("returned") | ("written_off") | ("counted") | ("adjusted") | ("used"); quantity: number; place: string; source: ({ type: string; id: string }) | (null); madeBy: (string) | (null); madeAs: ("staff") | ("host"); note: (string) | (null); unitCost: (number) | (null); at: string })[] };
+  };
+  /**
    * End a subscription when its current paid period (or trial) ends: nothing more is charged, and what it gives lasts until then. A signed-in customer cancels their own; staff any, with the subscriptions:manage permission. Nothing is refunded (a period's refund is order.refund). It can be undone until the period ends (subscription.resume). Asked of the payment provider: the subscription shows it once the provider confirms. Staff can instead end it at once (`now: true`): nothing more is charged, nothing is refunded and what it gives stops when the provider confirms; a customer cannot. A person decides, not an AI assistant.
    */
   "subscription.cancel": {
@@ -357,6 +365,7 @@ export const operations = {
   "order.get": { kind: "query", invalidates: [] },
   "order.start": { kind: "mutation", invalidates: ["order.get","order.view"] },
   "order.view": { kind: "query", invalidates: [] },
+  "stock.get": { kind: "query", invalidates: [] },
   "subscription.cancel": { kind: "mutation", invalidates: ["subscription.coolingOff","subscription.get","subscription.list","subscription.offer.mine","subscription.portal"] },
   "subscription.change": { kind: "mutation", invalidates: ["subscription.coolingOff","subscription.get","subscription.list","subscription.offer.mine","subscription.portal"] },
   "subscription.coolOff": { kind: "mutation", invalidates: ["subscription.coolingOff","subscription.get","subscription.list","subscription.offer.mine","subscription.portal"] },
