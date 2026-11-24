@@ -50,7 +50,8 @@ nobody types, a refund that does not restock, and room for receipts, counts and 
 - **Operations** (`packages/core/src/operations/stock.ts`): `stock.get` (staff, customer, public;
   `records:read`): staff get on hand, held, available, the reorder level and quantity and whether
   on hand is at or below it; outsiders get only what `show` allows, of a record they may read
-  (`packages/core/src/visibility/stock.ts`, as capacity's). `stock.movements` (staff,
+  (`packages/core/src/visibility/stock.ts`, as capacity's); staff also get the last five
+  movements. `stock.movements` (staff,
   `records:read`): the ledger of one record, newest first, paged. `stock.opening` (once per record)
   and `stock.adjust` (signed, with a reason) need **`stock:adjust`, a new core permission**, admins
   by default and grantable one by one (ADR 0449). Both are `alwaysReview` for an assistant and an
@@ -59,6 +60,13 @@ nobody types, a refund that does not restock, and room for receipts, counts and 
 - **Refusals read as stock:** the counter's refusal on a stock record is `invalid_input` with
   `rule: "stock"` (`asked`, `available` for a sale; `onHand`, `held` for a movement); a customer or
   the public is told "There are not enough in stock" and no numbers.
+
+- **The declaration is fixed once an object has records.** The reconciler refuses adding `stock`
+  to an object, or taking it off one, while the object has any record (Trash included) or counter
+  (`stock_change`). Otherwise a counter would keep what it held before: a capacity's `places`, NULL
+  being unlimited, so the database would sell any number; or units sold while stock was off, with
+  no `sold` row, so on hand would no longer be the ledger's sum. Things a business counts are a new
+  object, whose records start with nothing on hand.
 
 ## Consequences
 - Everything that holds and confirms an order's places already holds and confirms its stock:
@@ -75,3 +83,9 @@ nobody types, a refund that does not restock, and room for receipts, counts and 
 - The declaration's rule that a stock object is sellable with `goods` or used by `stockMoves` lands
   with those declarations (steps 2 and 3); in step 1 any extension object may declare stock.
 - The approval queue's dry run judges a sale as capacity does, with capacity's wording.
+- `stock.movements` and `rec_stock_movement` are open to any staff account that reads records, so
+  a received unit cost (from step 2) is too. The spec lets staff and an AI read stock and its
+  movements; a cost hidden from some staff would be a permission of its own, not added here.
+- Trash has no stock rule: a record whose units unpaid orders hold may go to Trash, and those
+  orders confirm or release their claims as usual. Its counter and claims stay with it; nothing is
+  sold that was not on hand.

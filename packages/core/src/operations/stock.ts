@@ -39,6 +39,19 @@ export const stockViewSchema = z.object({
   atReorderLevel: z.boolean().optional(),
   show: z.enum(["exact", "low", "availability"]).optional(),
   lowAt: z.number().nullable().optional(),
+  recent: z
+    .array(
+      z.object({
+        id: z.string(),
+        kind: z.string(),
+        quantity: z.number(),
+        place: z.string(),
+        at: z.string(),
+        note: z.string().nullable(),
+      }),
+    )
+    .optional()
+    .describe("Staff only: the last five movements, newest first; the rest is stock.movements"),
 });
 
 const movementSchema = z.object({
@@ -81,7 +94,7 @@ export const stockGet = defineOperation({
   description:
     "How many of a thing in stock there are (a variant of an item in a shop). Staff get on " +
     "hand (sold ones gone), held (by orders being paid for), available (on hand less held) and " +
-    "the reorder level. Customers and the public get only what the object shows: in stock or " +
+    "the reorder level, and the last five movements. Customers and the public get only what the object shows: in stock or " +
     "sold out, a low-stock warning, or the number available. Read-only; holds nothing.",
   input: z.object(target),
   output: stockViewSchema,

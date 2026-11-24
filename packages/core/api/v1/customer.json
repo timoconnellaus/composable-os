@@ -3234,7 +3234,7 @@
     },
     {
       "name": "stock.get",
-      "description": "How many of a thing in stock there are (a variant of an item in a shop). Staff get on hand (sold ones gone), held (by orders being paid for), available (on hand less held) and the reorder level. Customers and the public get only what the object shows: in stock or sold out, a low-stock warning, or the number available. Read-only; holds nothing.",
+      "description": "How many of a thing in stock there are (a variant of an item in a shop). Staff get on hand (sold ones gone), held (by orders being paid for), available (on hand less held) and the reorder level, and the last five movements. Customers and the public get only what the object shows: in stock or sold out, a low-stock warning, or the number available. Read-only; holds nothing.",
       "risk": "read",
       "audiences": ["customer"],
       "kind": "query",
@@ -3296,6 +3296,35 @@
           },
           "lowAt": {
             "type": ["number", "null"]
+          },
+          "recent": {
+            "description": "Staff only: the last five movements, newest first; the rest is stock.movements",
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "kind": {
+                  "type": "string"
+                },
+                "quantity": {
+                  "type": "number"
+                },
+                "place": {
+                  "type": "string"
+                },
+                "at": {
+                  "type": "string"
+                },
+                "note": {
+                  "type": ["string", "null"]
+                }
+              },
+              "required": ["id", "kind", "quantity", "place", "at", "note"],
+              "additionalProperties": false
+            }
           }
         },
         "required": ["object", "id", "status"],

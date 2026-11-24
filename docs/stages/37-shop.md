@@ -52,7 +52,9 @@ questions at the end refine later steps and block none of the first ones.
   permission, and a pack role never holds a core one: the stockroom role moves stock through the
   pack's records, by step 2's `stockMoves`; a direct correction is for admins and accounts granted
   `stock:adjust`); "sellable with `goods` or
-  used by `stockMoves`" is checked when steps 2 and 3 add those. Left: steps 2 to 14.
+  used by `stockMoves`" is checked when steps 2 and 3 add those. After review: the reconciler
+  refuses adding `stock` to an object with records, or taking it off one (`stock_change`), and
+  `stock.get` gives staff the last five movements. Left: steps 2 to 14.
 
 Vocabulary: "product" is the platform's word for a composition (ADR 0400) and is avoided for what
 a business sells. This spec says **item** (a thing in the shop: "Club hoodie") and **variant** (one

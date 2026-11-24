@@ -17,7 +17,7 @@ import {
   movementStatements,
   PendingApprovalError,
 } from "../src/index.ts";
-import { extId, manifest, reconcile } from "./extension-helpers.ts";
+import { extId, manifest, plan, reconcile } from "./extension-helpers.ts";
 import { context, createUser, db, setPreset, unique } from "./helpers.ts";
 import {
   type Buyer,
@@ -230,6 +230,63 @@ describe("the stock declaration", () => {
   });
 });
 
+// --- Stock added to or taken from an object (the review of #370) ---------------------------------
+
+describe("stock on an object that already has records", () => {
+  const thing = (behaviour: Record<string, unknown>) => ({
+    label: "Thing",
+    plural: "Things",
+    titleField: "name",
+    fields: {
+      name: { type: "text" as const, label: "Name", required: true },
+      price: { type: "currency" as const, label: "Price", currency: CURRENCY },
+      places: { type: "number" as const, label: "Places" },
+    },
+    sellable: { price: "price" },
+    public: { read: ["name", "price"] },
+    ...behaviour,
+  });
+  const issuesOf = async (m: ExtensionManifest) =>
+    (await plan(m)).issues.map((i) => `${i.code} ${i.path}`);
+
+  it("refuses a capacity becoming stock: an unlimited counter would sell without limit", async () => {
+    const id = extId("swap");
+    await reconcile(
+      manifest(id, { objects: { thing: thing({ capacity: { places: "places" } }) } }),
+    );
+    const unlimited = await create(`${id}.thing`, { name: "Unlimited", price: 5 });
+    const next = manifest(id, { version: "1.1.0", objects: { thing: thing({ stock: {} }) } });
+    expect(await issuesOf(next)).toEqual(["stock_change objects.thing.stock"]);
+    // Had it applied, the record's counter would still say unlimited.
+    expect(
+      await env.DB.prepare("SELECT places FROM core_capacity WHERE record_id = ?")
+        .bind(unlimited)
+        .first(),
+    ).toEqual({ places: null });
+  });
+
+  it("refuses taking stock off an object with records, and lets a new object start with it", async () => {
+    const id = extId("drop");
+    await reconcile(manifest(id, { objects: { thing: thing({ stock: {} }) } }));
+    expect(
+      await issuesOf(manifest(id, { version: "1.1.0", objects: { thing: thing({}) } })),
+    ).toEqual([]);
+    const record = await create(`${id}.thing`, { name: "Shaker", price: 9 });
+    await opening(`${id}.thing`, record, 3);
+    expect(
+      await issuesOf(manifest(id, { version: "1.1.0", objects: { thing: thing({}) } })),
+    ).toEqual(["stock_change objects.thing.stock"]);
+  });
+
+  it("an object with no records may gain stock", async () => {
+    const id = extId("gain");
+    await reconcile(manifest(id, { objects: { thing: thing({}) } }));
+    expect(
+      await issuesOf(manifest(id, { version: "1.1.0", objects: { thing: thing({ stock: {} }) } })),
+    ).toEqual([]);
+  });
+});
+
 // --- Opening stock and the ledger -----------------------------------------------------------------
 
 describe("opening stock and corrections", () => {
@@ -258,6 +315,7 @@ describe("opening stock and corrections", () => {
         atReorderLevel: false,
         show: "availability",
         lowAt: null,
+        recent: [expect.objectContaining({ kind: "opening", quantity, place: "default" })],
       });
       expect(await movements(VARIANT, id)).toEqual([
         expect.objectContaining({

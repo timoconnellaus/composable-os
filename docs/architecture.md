@@ -1805,7 +1805,9 @@ read-only `onHand`, `held` and `available`. An order's stock line claims as a ca
 the paid batch writes one `sold` movement per line (one statement) before the confirm, and nothing
 gives confirmed stock back but a return. `stock.opening` and `stock.adjust` need the core
 `stock:adjust` permission and an AI's call waits for a person; `stock.get` tells outsiders only
-what `show` allows; `stock.movements` and `rec_stock_movement` read the ledger.
+what `show` allows; `stock.movements` and `rec_stock_movement` read the ledger. The reconciler
+refuses adding `stock` to an object that has records, or taking it off one, so every stock counter
+started with nothing on hand.
 
 **`allowance`** (stage 32b, ADRs [0493](adr/0493-the-allowance-behaviour.md) and
 [0494](adr/0494-which-holder-pays-and-what-happens-to-uses.md), `packages/sdk/src/allowance.ts`,

@@ -109,7 +109,8 @@ export interface ReconcileIssue {
     | "claims_conflict"
     | "grants_conflict"
     | "staffed_conflict"
-    | "occupies_conflict";
+    | "occupies_conflict"
+    | "stock_change";
   path: string;
   message: string;
   suggestion?: string;
@@ -260,6 +261,26 @@ async function dataIssues(
           code: "unique_conflict",
           path: `objects.${object.localName}.unique.${index.rule}`,
           message: `${object.name}: live records already share these values: ${clash.map((r) => r.ids).join("; ")}. Change or delete them first.`,
+        });
+      }
+    }
+    // Stock added to or taken from an object that has records (ADR 0680, the review of #370):
+    // its counters would keep what they held before (a capacity's places, NULL being unlimited,
+    // or units sold with no `sold` row), so on hand would no longer be the ledger's sum and the
+    // database could sell without limit. Refused while any record or counter exists.
+    if (Boolean(before.definition.stock) !== Boolean(object.definition.stock)) {
+      const rows = await sql<{
+        n: number;
+      }>`SELECT (SELECT count(*) FROM (SELECT 1 FROM ${sql.table(object.tableName)} LIMIT 1)) + (SELECT count(*) FROM (SELECT 1 FROM core_capacity WHERE object_type = ${object.name} LIMIT 1)) AS n`.execute(
+        db,
+      );
+      if (Number(rows.rows[0]?.n ?? 0) > 0) {
+        issues.push({
+          code: "stock_change",
+          path: `objects.${object.localName}.stock`,
+          message: object.definition.stock
+            ? `${object.name} already has records: stock can only be declared on a new object, whose records start with nothing on hand. Declare a new object for the things you count.`
+            : `${object.name} has records with stock: stock cannot be taken off it, or orders being paid would sell with no record in the ledger.`,
         });
       }
     }

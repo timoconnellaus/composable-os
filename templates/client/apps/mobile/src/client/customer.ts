@@ -237,12 +237,12 @@ export type Operations = {
     output: { id: string; state: ("pending") | ("part_paid") | ("paid") | ("cancelled") | ("expired") | ("refunded"); currency: string; total: number; paid: number; balance: number; refunded: number; pay: ("full") | ("deposit"); deposit: (number) | (null); balanceDueAt: (string) | (null); expiresAt: (string) | (null); paidAt: (string) | (null); createdAt: string; taxAmount: number; taxRefunded: number; taxCountry: (string) | (null); lines: { id: string; position: number; object: string; recordId: string; title: string; quantity: number; unitPrice: number; total: number; taxAmount: number }[]; personId?: (string) | (null); email?: (string) | (null); placedAs?: ("customer") | ("public") | ("staff") };
   };
   /**
-   * How many of a thing in stock there are (a variant of an item in a shop). Staff get on hand (sold ones gone), held (by orders being paid for), available (on hand less held) and the reorder level. Customers and the public get only what the object shows: in stock or sold out, a low-stock warning, or the number available. Read-only; holds nothing.
+   * How many of a thing in stock there are (a variant of an item in a shop). Staff get on hand (sold ones gone), held (by orders being paid for), available (on hand less held) and the reorder level, and the last five movements. Customers and the public get only what the object shows: in stock or sold out, a low-stock warning, or the number available. Read-only; holds nothing.
    */
   "stock.get": {
     kind: "query";
     input: { object: string; id: string };
-    output: { object: string; id: string; status: ("in_stock") | ("low") | ("sold_out"); available?: number; onHand?: number; held?: number; reorderAt?: (number) | (null); reorderQty?: (number) | (null); atReorderLevel?: boolean; show?: ("exact") | ("low") | ("availability"); lowAt?: (number) | (null) };
+    output: { object: string; id: string; status: ("in_stock") | ("low") | ("sold_out"); available?: number; onHand?: number; held?: number; reorderAt?: (number) | (null); reorderQty?: (number) | (null); atReorderLevel?: boolean; show?: ("exact") | ("low") | ("availability"); lowAt?: (number) | (null); recent?: ({ id: string; kind: string; quantity: number; place: string; at: string; note: (string) | (null) })[] };
   };
   /**
    * End a subscription when its current paid period (or trial) ends: nothing more is charged, and what it gives lasts until then. A signed-in customer cancels their own; staff any, with the subscriptions:manage permission. Nothing is refunded (a period's refund is order.refund). It can be undone until the period ends (subscription.resume). Asked of the payment provider: the subscription shows it once the provider confirms. Staff can instead end it at once (`now: true`): nothing more is charged, nothing is refunded and what it gives stops when the provider confirms; a customer cannot. A person decides, not an AI assistant.

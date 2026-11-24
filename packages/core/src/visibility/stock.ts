@@ -29,7 +29,22 @@ export interface StockView {
   atReorderLevel?: boolean;
   show?: StockDefinition["show"];
   lowAt?: number | null;
+  /** Staff only: the last movements, newest first (the whole ledger is stock.movements). */
+  recent?: RecentMovement[];
 }
+
+/** A movement as stock.get shows staff. */
+export interface RecentMovement {
+  id: string;
+  kind: string;
+  quantity: number;
+  place: string;
+  at: string;
+  note: string | null;
+}
+
+/** How many movements stock.get gives staff. */
+export const STOCK_RECENT = 5;
 
 /** The status `show` gives for `available` units. */
 export function stockStatus(stock: StockDefinition, available: number): StockStatus {
@@ -114,6 +129,15 @@ export async function readStock(reader: Reader, name: string, id: string): Promi
   const numbers = await readStockNumbers(reader.db, name, id);
   if (reader.principal.kind !== "staff") return outsideStockView(withStock, id, numbers.available);
   const level = await levels(reader, withStock, id);
+  const recent = await reader.db
+    .selectFrom("core_stock_movement")
+    .select(["id", "kind", "quantity", "place", "at", "note"])
+    .where("object_type", "=", name)
+    .where("record_id", "=", id)
+    .orderBy("at", "desc")
+    .orderBy("id", "desc")
+    .limit(STOCK_RECENT)
+    .execute();
   return {
     object: name,
     id,
@@ -123,5 +147,6 @@ export async function readStock(reader: Reader, name: string, id: string): Promi
     atReorderLevel: level.reorderAt !== null && numbers.onHand <= level.reorderAt,
     show: object.stock.show,
     lowAt: object.stock.lowAt ?? null,
+    recent,
   };
 }
