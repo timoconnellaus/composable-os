@@ -163,6 +163,11 @@ export interface HandlerContext {
    * account on this call; absent when it holds no such role. A tool's run carries it on.
    */
   readonly roleToday?: import("./pack-role-today.ts").TodayLimits | undefined;
+  /**
+   * The staff caller's pack role limit to the People they look after (ADR 0881), with the
+   * account it is for; absent when it holds no such role. A tool's run carries it on.
+   */
+  readonly roleLooksAfter?: import("./pack-role-looks-after.ts").LooksAfterLimit | undefined;
   /** The caller's reason for the change, when it gave one (MCP). */
   readonly reason?: string | undefined;
   /**

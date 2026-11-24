@@ -50,6 +50,7 @@ import { newId } from "../ids.ts";
 import { listInputSchema, pageSchema, runListQuery } from "../list.ts";
 import type { RecordRef } from "../operation.ts";
 import { defineOperation, type HandlerContext, personsTool } from "../operation.ts";
+import { looksAfterWhere } from "../pack-role-looks-after.ts";
 import { assertMayChangeMustRead } from "../records/acknowledge.ts";
 import { viewColumnOf } from "../records/columns.ts";
 import { jsonList, restorableUntil, TRASH_RETENTION_DAYS } from "../records/common.ts";
@@ -1658,7 +1659,13 @@ export const recordList = defineOperation({
   mcp: { idempotent: true },
   async handler(input, ctx) {
     const object = requireObject(input.object);
-    const page = await runListQuery<{ id: string }>(ctx, object, input);
+    // A pack role limited to the People its holder looks after (ADR 0881): in the list's own query.
+    const page = await runListQuery<{ id: string }>(
+      ctx,
+      object,
+      input,
+      looksAfterWhere(ctx.roleLooksAfter, object.name, object.source),
+    );
     const items = page.rows.map((row) => {
       const record = fromRow(object, row as Record<string, unknown>);
       if (input.fields) {

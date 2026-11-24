@@ -15,6 +15,7 @@ import type { RoutineMailModule, RoutineMailSpec } from "./routine-mail.ts";
 import type { SellableSpec } from "./sellable.ts";
 import type { StaffedSpec } from "./staffed.ts";
 import type { StatesSpec } from "./states.ts";
+import type { TeamSpec } from "./team.ts";
 import type { UniqueSpec } from "./unique.ts";
 
 /** The contract version this SDK writes. The host accepts this and the previous version. */
@@ -305,6 +306,12 @@ export interface ObjectSpec {
    * write with its warnings (away, not qualified, no one on it).
    */
   staffed?: StaffedSpec;
+  /**
+   * Who on the staff looks after the Person a record is about (see TeamSpec, ADR 0831): the
+   * accounts in its user fields while it is live. A pack role's `looksAfter` reaches records
+   * only for those People (ADR 0881). Only shipped extensions and an org's own may declare it.
+   */
+  team?: TeamSpec;
   /**
    * A claim on a thing (see OccupiesSpec, ADR 0765): while live, the record takes the room (or
    * chair, or hall) it names for its time. The host refuses, in the database, a second live
@@ -720,6 +727,16 @@ export interface RoleSpec {
    * call the account makes and every call of a tool run it started. Other staff are not limited.
    */
   today?: Readonly<Record<string, string | { at: string; until?: string; zone?: string }>>;
+  /**
+   * Objects whose records the role reaches only for the People its holder looks after (ADR
+   * 0881), by object: its relation (one record) to `person`. Its holder looks after a Person
+   * when a live record of one of this extension's objects that declares a `team` names them in
+   * its staff fields (a client's assignment naming the coach). The host holds it on every call
+   * the account makes and every call of a tool run it started: a list holds only those People's
+   * records, a read or a change of another's is not found, a new record must be about one of
+   * them, and any other operation naming the object is refused. Other staff are not limited.
+   */
+  looksAfter?: Readonly<Record<string, string>>;
 }
 
 /**

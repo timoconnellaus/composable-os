@@ -104,7 +104,15 @@ export function rolesSummary(
   manifest:
     | {
         id: string;
-        roles?: Record<string, { label: string; permissions: string[]; read: string[] }>;
+        roles?: Record<
+          string,
+          {
+            label: string;
+            permissions: string[];
+            read: string[];
+            looksAfter?: Record<string, string>;
+          }
+        >;
         grantable?: string[];
         restricted?: string[];
         tools?: Record<string, { permission?: string | string[] }>;
@@ -134,7 +142,11 @@ export function rolesSummary(
           ...roles.map(
             ([name, role]) =>
               `  role ${manifest.id}.${name} (${role.label}): tools with ${role.permissions.join(", ") || "no permission"}; ` +
-              `reads ${role.read.join(", ") || "nothing"}`,
+              `reads ${role.read.join(", ") || "nothing"}` +
+              // Limited to the People its holder looks after (ADR 0881).
+              (role.looksAfter && Object.keys(role.looksAfter).length
+                ? `; only the people its holder looks after on ${Object.keys(role.looksAfter).join(", ")}`
+                : ""),
           ),
         ]
       : []),

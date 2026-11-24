@@ -19,12 +19,14 @@
 // Roles and grants add up (ADR 0600): an account holding a pack role may also be granted pack
 // permissions a pack declares grantable (Bookings' `bookings:desk`), never a core permission.
 // Each call is allowed by one authority, decided here (`staffAuthority`): a grant that opens the
-// tool, else the pack role. The role's limits (today's records only, ADR 0553) bind what the role
-// gives and nothing else, and the pipeline carries them only on a call the role allowed.
+// tool, else the pack role. The role's limits (today's records only, ADR 0553; the People its
+// holder looks after, ADR 0881) bind what the role gives and nothing else, and the pipeline
+// carries them only on a call the role allowed.
 import type { CoreDatabase, CrmDb } from "@composable-os/db";
 import type { ExtensionManifest, RoleManifest } from "@composable-os/sdk";
 import { type Kysely, sql } from "kysely";
 import type { AnyOperation } from "./operation.ts";
+import type { LooksAfter, LooksAfterLimit, LooksAfterTeam } from "./pack-role-looks-after.ts";
 import { holdsPermission, type Role } from "./principals.ts";
 
 /** A pack role as an account holds it. */
@@ -39,6 +41,8 @@ export interface HeldPackRole {
   readonly read: readonly string[];
   /** Objects reached only on the organisation's local today, by the datetime path (ADR 0553). */
   readonly today?: import("./pack-role-today.ts").TodayLimits;
+  /** Objects reached only for the People the holder looks after, and the teams saying so (ADR 0881). */
+  readonly looksAfter?: LooksAfter;
 }
 
 /** The reads a pack role's `read` opens, on the objects it lists. Nothing else reads for it. */
@@ -61,16 +65,45 @@ export const PACK_ROLE_OWN: readonly string[] = ["ack.mine", "ack.confirm"];
 /** `<extension>.<role>`. */
 export const PACK_ROLE_NAME_RE = /^([a-z][a-z0-9]{1,29})\.([a-z][a-zA-Z0-9]{0,39})$/;
 
-/** The roles an installed manifest declares, if its extension may declare any (shipped). */
-function rolesOf(
-  row: { manifest: string | null; status: string | null; source: string | null } | undefined,
-): Record<string, RoleManifest> {
-  if (!row?.manifest || row.status !== "active" || row.source !== "shipped") return {};
-  const manifest = JSON.parse(row.manifest) as Partial<ExtensionManifest>;
-  return manifest.roles ?? {};
+type ManifestRow = { manifest: string | null; status: string | null; source: string | null };
+
+/** The installed manifest, if its extension may declare roles (active and shipped). */
+function manifestOf(row: ManifestRow | undefined): Partial<ExtensionManifest> | null {
+  if (!row?.manifest || row.status !== "active" || row.source !== "shipped") return null;
+  return JSON.parse(row.manifest) as Partial<ExtensionManifest>;
 }
 
-function held(name: string, role: RoleManifest | undefined): HeldPackRole {
+/** The roles an installed manifest declares, if its extension may declare any (shipped). */
+function rolesOf(row: ManifestRow | undefined): Record<string, RoleManifest> {
+  return manifestOf(row)?.roles ?? {};
+}
+
+/** The objects of the manifest that say who looks after whom (`team`, ADR 0831). */
+function teamsOf(extension: string, manifest: Partial<ExtensionManifest> | null): LooksAfterTeam[] {
+  return Object.entries(manifest?.objects ?? {}).flatMap(([local, object]) => {
+    if (!object.team) return [];
+    const live =
+      object.team.live && object.states
+        ? { field: object.states.field, states: Object.freeze([...object.team.live]) }
+        : undefined;
+    // `live` names states the object no longer has: it counts nothing (fail closed).
+    if (object.team.live && !live) return [];
+    return [
+      Object.freeze({
+        object: `${extension}.${local}`,
+        person: object.team.person,
+        staff: Object.freeze([...object.team.staff]),
+        ...(live ? { live: Object.freeze(live) } : {}),
+      }),
+    ];
+  });
+}
+
+function held(
+  name: string,
+  role: RoleManifest | undefined,
+  manifest: Partial<ExtensionManifest> | null = null,
+): HeldPackRole {
   const extension = PACK_ROLE_NAME_RE.exec(name)?.[1] ?? "";
   // Fail closed: a role that cannot be found holds nothing.
   return Object.freeze({
@@ -80,6 +113,14 @@ function held(name: string, role: RoleManifest | undefined): HeldPackRole {
     permissions: Object.freeze([...(role?.permissions ?? [])]),
     read: Object.freeze([...(role?.read ?? [])]),
     ...(role?.today ? { today: Object.freeze({ ...role.today }) } : {}),
+    ...(role?.looksAfter
+      ? {
+          looksAfter: Object.freeze({
+            teams: Object.freeze(teamsOf(extension, manifest)),
+            reach: Object.freeze({ ...role.looksAfter }),
+          }),
+        }
+      : {}),
   });
 }
 
@@ -127,7 +168,8 @@ export async function loadStaffRights(
   const grants = parseGrants(row?.granted_permissions ?? null);
   if (!row?.pack_role) return { packRole: null, grants };
   const local = PACK_ROLE_NAME_RE.exec(row.pack_role)?.[2] ?? "";
-  return { packRole: held(row.pack_role, rolesOf(row)[local]), grants };
+  const manifest = manifestOf(row);
+  return { packRole: held(row.pack_role, manifest?.roles?.[local], manifest), grants };
 }
 
 /** The stored grants: a JSON list of permission names; anything else is none (fail closed). */
@@ -154,7 +196,7 @@ export async function availablePackRoles(
     .execute();
   return rows.flatMap((row) =>
     Object.entries(rolesOf(row)).map(([local, role]) => ({
-      ...held(`${row.id}.${local}`, role),
+      ...held(`${row.id}.${local}`, role, manifestOf(row)),
       description: role.description,
     })),
   );
@@ -244,6 +286,21 @@ export function roleLimitsFor(
 ): import("./pack-role-today.ts").TodayLimits | undefined {
   if (!rights.packRole?.today) return undefined;
   return grantOpens(rights.grants, op) ? undefined : rights.packRole.today;
+}
+
+/**
+ * The pack role's limit to the People its holder looks after a call of `op` holds (ADR 0881): as
+ * for today's (`roleLimitsFor`), the role's unless a grant opens the operation. `userId` is the
+ * account itself, whose People they are.
+ */
+export function roleLooksAfterFor(
+  rights: StaffRights,
+  op: AnyOperation,
+  userId: string,
+): LooksAfterLimit | undefined {
+  const looksAfter = rights.packRole?.looksAfter;
+  if (!looksAfter) return undefined;
+  return grantOpens(rights.grants, op) ? undefined : { userId, ...looksAfter };
 }
 
 /**
