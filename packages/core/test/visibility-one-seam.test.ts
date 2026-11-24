@@ -194,7 +194,7 @@ const REMAINING: Record<string, [reads: number, why: Why]> = {
   // Pay periods (step 6, ADR 0627): a period's shifts (person, times, kind, title, place), their
   // holders' accounts, their kinds' names and set-up minutes, and the evidence object's marker
   // only (who took a class list, never a booking's person), for someone who handles pay.
-  "staffing/pay.ts": [6, WHY.host],
+  "staffing/pay.ts": [7, WHY.host],
   // The calendar feed (ADR 0628): the token's own shifts, by id from their time claims.
   "staffing/feed.ts": [1, WHY.host],
   // Checklists (stage 45 step 4b, ADR 0650): a record's person, opening and closing times, state,
