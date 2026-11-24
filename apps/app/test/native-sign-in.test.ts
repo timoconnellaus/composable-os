@@ -11,7 +11,7 @@
 // - Disabling a staff account ends its device sessions too.
 // - The browser cookie flow is unchanged.
 import { env } from "cloudflare:workers";
-import { createIdentityProvider, provideStaffCodes } from "@composable-os/auth";
+import { provideStaffCodes } from "@composable-os/auth";
 import {
   ApiError,
   type FetchLike,
@@ -24,10 +24,9 @@ import { createCrmDb } from "@composable-os/db";
 import { beforeAll, describe, expect, it } from "vitest";
 import { handleApi, handleCustomerAuth } from "../src/server/http/api.ts";
 import { handleNativeStaffSignIn } from "../src/server/http/native.ts";
-import { runOperation } from "../src/server/operations.ts";
 import { boundTestEnv, sentCodes } from "./bound-env.ts";
 import { browserOrigin, confirmForm, confirmRequest, signInInBrowser } from "./browser-sign-in.ts";
-import { ORIGIN, signUp, type TestUser, unique } from "./mcp-helpers.ts";
+import { callAs, ORIGIN, signUp, type TestUser, unique } from "./mcp-helpers.ts";
 
 const hostEnv = boundTestEnv(env);
 const db = createCrmDb(env.DB);
@@ -114,15 +113,7 @@ async function post(path: string, body: unknown, headers: Record<string, string>
   };
 }
 
-async function asAdmin(name: string, input: unknown) {
-  const principal = await createIdentityProvider(hostEnv as never).resolve(
-    new Request(ORIGIN, { headers: { cookie: admin.cookie } }),
-  );
-  const result = await runOperation(hostEnv as never, principal, { name, input }, ORIGIN);
-  if (!result.ok) throw new Error(JSON.stringify(result.error));
-  // biome-ignore lint/suspicious/noExplicitAny: a test reads whatever the operation returns
-  return result.data as any;
-}
+const asAdmin = (name: string, input: unknown) => callAs(hostEnv, admin, name, input);
 
 /** A shipped pack with one tool its door role holds and one it does not. */
 const DOOR_PACK = {
