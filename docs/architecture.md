@@ -2579,7 +2579,7 @@ As built so far (stage 24; ADRs [0420](adr/0420-packs-as-packages-as-built.md),
   ([ADR 0453](adr/0453-pack-hooks-over-the-clients-operations.md)). `mobile.owner: true` adds the
   **owner's client** (`roles/owner.ts`, from `roles.json`'s `owner`): only Today's, the approvals'
   and the inbox's operations, for any staff account, with `createOwnerHooks` in
-  `@composable-os/client`; the host refuses a setup approval on a staff device session
+  `@composable-os/client`; the host refuses a setup change, made or approved, on a staff device session
   ([ADR 0872](adr/0872-the-owners-client.md)). A web app's
   `operationRoute` passes the browser's allowed calls to `HOST`, same origin only.
 - **Environments** ([ADR 0450](adr/0450-client-environments.md)): `product.ts` may declare

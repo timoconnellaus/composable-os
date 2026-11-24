@@ -50,10 +50,18 @@ only on the screen that says so.
   (ADR 0629's pattern).
 - **A setup change is refused from the company's app, by the host.** The HTTP surface marks a
   staff call made with a device session (`origin.staffDevice: true`, from the session, never from
-  the request; recorded in the audit row's origin). `approval.approve` (and `approval.decide`,
-  which shares its body) refuses an `extension` or `schema` action under it, for an admin too,
-  with `details.reason: "review_on_computer"`; rejecting one is allowed. The decision is still
-  stored as `decided_via: "tap"`; no new value.
+  the request; recorded in the audit row's origin). Under it, a setup change is refused both
+  ways, for an admin too, with `details.reason: "review_on_computer"`:
+  - **called directly**: the pipeline refuses any `extension` or `schema` operation
+    (`extension.install`, `.disable`, `.enable`, `.rollback`, the authoring operations), audited as
+    `forbidden`. A human's setup call is otherwise `auto` at the gate, so without this the phone
+    could make the change itself and skip the approval it may not give;
+  - **approved**: `approval.approve` (and `approval.decide`, which shares its body) refuses an
+    `extension` or `schema` action. This check stays, since an approved action runs under the
+    origin of whoever asked for it, not the approver's.
+
+  Rejecting one is allowed. A phone decision is still stored as `decided_via: "tap"`; no new
+  value.
 
 ## Considered
 - **A `client` column on the device session, set at sign-in to "owner".** The role clients and the
@@ -85,9 +93,13 @@ release serves, none a pack's, none open to customers or the public, no `record.
 `record.list` and `person.list` are type errors; the owner's hooks wire through `staffSession`
 with no cast; an operation the contract lacks is refused);
 `packages/create-composable-os/test/client-repo.test.ts` (`mobile.owner: true` writes
-`roles/owner.ts` with only its operations); `packages/client/test/owner.test.ts` (the words, the
+`roles/owner.ts` with only its operations; a release whose `roles.json` has no `owner` is refused
+with "upgrade first" and writes nothing); `packages/client/test/owner.test.ts` (the words, the
 second step, the refusals, `gcTime: 0` and `forgetToday`, the hooks a client can back);
-`packages/core/test/owner-client-approval.test.ts` (a setup action refused from a device origin
-for an admin and left waiting, rejectable; another action approved; the same setup action decided
-from a browser); `apps/app/test/staff-app.test.ts` (an admin signed in on the phone through the
-real native sign-in and HTTP surface is refused a setup approval with `review_on_computer`).
+`packages/core/test/owner-client-approval.test.ts` (a schema action an AI queued is refused from a
+device origin for an admin and left waiting, and can be rejected; another action approves from the
+phone; the same setup action applies from a browser; the setup operation called directly from a
+device origin is refused, audited and changes nothing, and from a browser runs at once);
+`apps/app/test/staff-app.test.ts` (an admin signed in on the phone through the real native sign-in
+and HTTP surface is refused both approving a setup change and calling `extension.disable`, with
+`review_on_computer`, and the extension stays active).
