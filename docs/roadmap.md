@@ -142,7 +142,7 @@ gets its interview and spec when a client needs it, and not before.
 | 34 | Price adjustments and Offers | Adjustments on orders as a primitive; an Offers pack: promo codes, gift cards, referrals, loyalty | not specced |
 | 35 | Invoices and quotes | Quote, accept, invoice, pay, chase; PDF output; built on orders | not specced |
 | 36 | Shared inbox, Messaging and Help desk | One inbox for email, SMS and in-app chat; campaigns; support requests with replies and response targets | not specced |
-| 37 | Shop | Products, stock (as `capacity`), shipping; built on `sellable` | not specced |
+| 37 | Shop | One catalogue of items and their variants, each marked sold online, in person or both, enforced by the host; a `stock` behaviour on capacity's counter with a ledger (a hold while paying, sold when paid, a refund never restocks), purchase orders and a quick stock-in, counts, write-offs and low-stock notices; online orders collected or posted (fixed postage, free over an amount, by weight later, carriers later through a gatekeeper), members buying at the gym on their own phone; returns recorded by staff; the till sells from the same list and stock; stock in several places designed and built later ([spec](stages/37-shop.md)) | spec agreed (owner interviewed 2026-11-24) |
 | 38 | Knowledge base | Staff procedures and customer help pages; built on Content | not specced |
 | 39 | Jobs and projects | Work with stages, tasks and time spent; built on `stages` and Tasks | not specced |
 | 40 | Rosters | Replaced by stage 45, Rostering | see 45 |
