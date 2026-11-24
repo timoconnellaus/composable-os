@@ -2,6 +2,7 @@
 import type { CoreDatabase } from "@composable-os/db";
 import type { Kysely, Selectable } from "kysely";
 import { z } from "zod";
+import { addDaysToDate } from "../automations/cron.ts";
 import { NotFoundError, ValidationError } from "../errors.ts";
 import { getObject } from "../fields/index.ts";
 import { taskObject } from "../fields/task.ts";
@@ -18,6 +19,7 @@ import {
   recordRefSchema,
   uniqueRefs,
 } from "../records/links.ts";
+import { isoWeekday, localParts } from "../time/local.ts";
 import { type Reader, visibleSource, visibleTable } from "../visibility/index.ts";
 import { TRASH_RETENTION_DAYS } from "./person.ts";
 
@@ -190,24 +192,6 @@ function timelineLinks(task: { id: string; links: LinkedRecord[] }) {
 export const DUE_BUCKETS = ["overdue", "today", "thisWeek", "later", "none"] as const;
 export type DueBucket = (typeof DUE_BUCKETS)[number];
 
-/** The calendar date (`YYYY-MM-DD`) of `instant` in `timeZone`. */
-export function localDate(instant: Date, timeZone: string): string {
-  const parts = new Intl.DateTimeFormat("en-CA", {
-    timeZone,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-  }).formatToParts(instant);
-  const get = (type: string) => parts.find((p) => p.type === type)?.value ?? "";
-  return `${get("year")}-${get("month")}-${get("day")}`;
-}
-
-function addDays(date: string, days: number): string {
-  const d = new Date(`${date}T00:00:00Z`);
-  d.setUTCDate(d.getUTCDate() + days);
-  return d.toISOString().slice(0, 10);
-}
-
 /**
  * Which bucket a due value falls in, relative to `today` in `timeZone`: before today is overdue,
  * the rest of this week runs to Sunday (ISO weeks), and anything after is later. Due times are
@@ -215,11 +199,10 @@ function addDays(date: string, days: number): string {
  */
 export function dueBucket(dueAt: string | null, today: string, timeZone: string): DueBucket {
   if (!dueAt) return "none";
-  const due = DATE_RE.test(dueAt) ? dueAt : localDate(new Date(dueAt), timeZone);
+  const due = DATE_RE.test(dueAt) ? dueAt : localParts(dueAt, timeZone).date;
   if (due < today) return "overdue";
   if (due === today) return "today";
-  const weekday = new Date(`${today}T00:00:00Z`).getUTCDay() || 7; // Monday 1 … Sunday 7
-  return due <= addDays(today, 7 - weekday) ? "thisWeek" : "later";
+  return due <= addDaysToDate(today, 7 - isoWeekday(today)) ? "thisWeek" : "later";
 }
 
 const timeZoneSchema = z
@@ -533,7 +516,7 @@ export const taskListMine = defineOperation({
       .limit(MY_TASKS_LIMIT + 1)
       .execute();
     const tasks = await toTasks(ctx.db, rows.slice(0, MY_TASKS_LIMIT));
-    const today = localDate(new Date(ctx.now), input.timezone);
+    const today = localParts(ctx.now, input.timezone).date;
     const buckets = Object.fromEntries(DUE_BUCKETS.map((b) => [b, [] as Task[]])) as Record<
       DueBucket,
       Task[]
