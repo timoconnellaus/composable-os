@@ -1002,6 +1002,11 @@ function channelIssues(
     contract(`${base}.open`, "open is for a push: declare the push channel");
   }
   const slots = kind.slots;
+  // Private is the field's, not one slot's: a second slot reading a private field without saying
+  // so is private too (the review of PR #339).
+  const privateFields = new Set(
+    Object.values(slots).flatMap((slot) => ("field" in slot && slot.private ? [slot.field] : [])),
+  );
   const check = (
     at: string,
     template: string,
@@ -1037,7 +1042,11 @@ function channelIssues(
         contract(at, `{${used}} is a link: a push opens a screen of the app, never a web address`);
         continue;
       }
-      if (channel === "push" && "field" in slot && slot.private) {
+      if (
+        channel === "push" &&
+        "field" in slot &&
+        (slot.private || privateFields.has(slot.field))
+      ) {
         contract(at, `{${used}} is private: a push shows on a locked screen`);
         continue;
       }
@@ -1055,7 +1064,14 @@ function channelIssues(
     if (channel === "text") {
       const sent = wrapText("a".repeat(TEXT_SENDER_MAX), filled);
       // The words decide the encoding: a value that forces the longer one fails its row (ADR 0670).
-      const literal = textSegments(wrapText("a", literalText(parsed)));
+      // Declared words decide it, a choice's words (and a guardian's) among them: one that forces
+      // the longer encoding forces it for the whole text (the review of PR #339).
+      const choices = [...parsed.slots].flatMap((used) => {
+        const slot = slots[used];
+        if (!slot || !("choice" in slot)) return [];
+        return [...Object.values(slot.choice), ...Object.values(slot.guardian ?? {})];
+      });
+      const literal = textSegments(wrapText("a", [literalText(parsed), ...choices].join(" ")));
       const units = literal.encoding === "gsm" ? textSegments(sent).units : sent.length;
       const limit = literal.encoding === "gsm" ? 153 * TEXT_MAX_SEGMENTS : 67 * TEXT_MAX_SEGMENTS;
       if (units > limit) {

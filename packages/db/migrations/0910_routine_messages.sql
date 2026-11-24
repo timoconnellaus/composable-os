@@ -16,7 +16,8 @@
 -- - `until_at`: the kind's moment for this record (`until`, a class's start): a text or push not
 --   sent by then is dropped, its email having gone.
 --
--- New states: `delivered` (the provider said so), `stopped` (the person's choice or a STOP),
+-- New states: `held` (a text or push held for a person: never sent, nor released by the clock,
+-- until a person decides), `delivered` (the provider said so), `stopped` (the person's choice or a STOP),
 -- `expired` (its moment passed while it waited), `over_limit` (the month's text limit),
 -- `no_channel` (no address, no textable number, no device).
 --
@@ -49,8 +50,8 @@ CREATE TABLE core_routine_mail_new (
   claimed_at TEXT,
   held_reason TEXT,
   status TEXT NOT NULL
-    CHECK (status IN ('off', 'ready', 'sending', 'sent', 'delivered', 'waiting', 'denied',
-      'failed', 'stopped', 'expired', 'over_limit', 'no_channel')),
+    CHECK (status IN ('off', 'ready', 'sending', 'sent', 'delivered', 'waiting', 'held',
+      'denied', 'failed', 'stopped', 'expired', 'over_limit', 'no_channel')),
   connection_id TEXT,
   subject TEXT,
   body TEXT,

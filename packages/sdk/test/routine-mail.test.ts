@@ -464,6 +464,54 @@ describe("text and push words", () => {
     );
   });
 
+  it("a choice's words that force the longer encoding count against 134, not 306 (the review of PR #339)", () => {
+    const long = "x".repeat(200);
+    const withChoice = (a: string) =>
+      issues({
+        confirmation: phone({
+          slots: {
+            why: { choice: { a, b: "ok" } },
+            class: { field: "class.title", max: 40 },
+            time: { field: "class.startsAt", format: "time", zone: "class.zone" },
+            day: { field: "class.startsAt", format: "date", zone: "class.zone" },
+          },
+          messages: {
+            booked: {
+              subject: "Booked",
+              text: "Booked.",
+              textMessage: `${long} {why}`,
+              push: { title: "Booked", body: "{class}" },
+            },
+          },
+        }),
+      }).join("\n");
+    expect(withChoice("recu")).toBe("");
+    expect(withChoice("reçu 😀")).toMatch(/at most 134/);
+  });
+
+  it("a field private in one slot is private in every slot that reads it (the review of PR #339)", () => {
+    const found = issues({
+      confirmation: phone({
+        slots: {
+          class: { field: "class.title", max: 40 },
+          time: { field: "class.startsAt", format: "time", zone: "class.zone" },
+          day: { field: "class.startsAt", format: "date", zone: "class.zone" },
+          health: { field: "class.health", private: true },
+          again: { field: "class.health" },
+        },
+        messages: {
+          booked: {
+            subject: "Booked",
+            text: "Booked.",
+            textMessage: "Booked: {class}.",
+            push: { title: "Booked", body: "{again}" },
+          },
+        },
+      }),
+    }).join("\n");
+    expect(found).toMatch(/\{again\} is private: a push shows on a locked screen/);
+  });
+
   it("a kind with only email words behaves as before", () => {
     expect(issues({ confirmation: kind() })).toEqual([]);
   });

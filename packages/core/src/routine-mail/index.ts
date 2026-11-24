@@ -48,7 +48,7 @@ import {
   unroutineText,
   wrapText,
 } from "@composable-os/sdk";
-import { type Insertable, type Kysely, sql } from "kysely";
+import { type Insertable, type Kysely, sql, type Updateable } from "kysely";
 import { z } from "zod";
 import { ADJUDICATOR_PRINCIPAL } from "../adjudicator/review.ts";
 import { mailboxKey } from "../customers/limits.ts";
@@ -60,7 +60,7 @@ import { loadRecord } from "../operations/record.ts";
 import { staffPrincipal } from "../principals.ts";
 import { viewColumnOf } from "../records/columns.ts";
 import { extensionSettingValues } from "../records/windows.ts";
-import { loadGeneralSettings } from "../settings.ts";
+import { isTimezone } from "../settings.ts";
 import { visibleSource } from "../visibility/index.ts";
 import { HOST_KINDS_EXTENSION, hostRoutineKind, hostRoutineKinds } from "./host-kinds.ts";
 import { addressField, CREATED, PRIMARY_ADDRESS, type Standing, valueHash } from "./marks.ts";
@@ -69,6 +69,8 @@ import { type ChannelReach, NO_REACH, type Reached } from "./reach.ts";
 
 /** What the calendar file read, among the slots: checked for an email that carries one. */
 const CALENDAR = "$calendar";
+/** Why a host kind's email was kept, failed: retried when its occasion is asked for again. */
+const NO_EMAIL_CHANNEL = "No email channel is set in Settings → Notification delivery";
 /** What a kind's `until` read: no message shows it, so none rests on it. */
 const UNTIL = "$until";
 
@@ -111,8 +113,20 @@ export const routineMailSettingsSchema = z.object({
     .default({}),
   /** Decision 2: a member reached by a push is not also texted (on unless an admin chose). */
   textOnlyWithoutApp: z.boolean().default(true),
-  /** When texts and pushes wait, in the business's time zone (ADR 0676). */
+  /** When texts and pushes wait, in `quietZone` (ADR 0676). */
   quietHours: quietHoursSchema.default(DEFAULT_QUIET_HOURS),
+  /**
+   * The time zone quiet hours are read in (an IANA name), a human admin's like the window: never
+   * the organisation's general time zone, which `settings.update` lets others change (the
+   * review of PR #339). No text or push goes until it is set.
+   */
+  quietZone: z.string().max(64).nullable().default(null),
+  /**
+   * The name every text begins with (at most 30 characters), a human admin's: never the
+   * organisation's name, which others may change (the review of PR #339). No text goes until it
+   * is set.
+   */
+  senderName: z.string().max(TEXT_SENDER_MAX).nullable().default(null),
 });
 export type RoutineMailSettings = z.infer<typeof routineMailSettingsSchema>;
 
@@ -125,6 +139,8 @@ const DEFAULT_SETTINGS: RoutineMailSettings = {
   channels: {},
   textOnlyWithoutApp: true,
   quietHours: DEFAULT_QUIET_HOURS,
+  quietZone: null,
+  senderName: null,
 };
 
 export async function loadRoutineMailSettings(db: Db): Promise<RoutineMailSettings> {
@@ -1417,7 +1433,13 @@ async function prepareRows(db: Db, p: Prepare): Promise<PreparedRoutineMail> {
     if (body.length > 30_000) reasons.push("the email is too long");
     if (recipient.held) reasons.push(recipient.held);
     // The daily caps are counted when the row is claimed (claimRoutineMail), not here.
-    const key = `${p.keyPrefix}:${p.kindId}:${p.messageName}:${p.record}:${recipient.address}`;
+    // A host kind's occasion is keyed on who it goes to, not the address: an order's address
+    // changed since sends the same occasion nothing again (the review of PR #339). A pack's key is
+    // ADR 0590's, unchanged.
+    const key =
+      p.automationId === null
+        ? `${p.keyPrefix}:${p.kindId}:${p.messageName}:${p.record}:${recipient.rule}:${recipient.personId ?? (recipient.rule === "order" ? "order" : recipient.address)}`
+        : `${p.keyPrefix}:${p.kindId}:${p.messageName}:${p.record}:${recipient.address}`;
     keys.push(key);
     // A host kind's email with no email channel set cannot go: kept, failed, for staff to see.
     const noConnection = on && !p.connectionId;
@@ -1446,11 +1468,7 @@ async function prepareRows(db: Db, p: Prepare): Promise<PreparedRoutineMail> {
       calendar: on && calendar.length ? JSON.stringify(calendar) : null,
       sources: JSON.stringify(unreadable ? [] : shown),
       error:
-        on && recipient.invalid
-          ? (recipient.held ?? null)
-          : noConnection
-            ? "No email channel is set in Settings → Notification delivery"
-            : null,
+        on && recipient.invalid ? (recipient.held ?? null) : noConnection ? NO_EMAIL_CHANNEL : null,
     });
   }
 
@@ -1458,16 +1476,19 @@ async function prepareRows(db: Db, p: Prepare): Promise<PreparedRoutineMail> {
   // them and "text only without the app" is on (decision 2). An order's own address is not a
   // Person's phone or app: email only.
   if (phoneOn) {
-    const general = await loadGeneralSettings(db);
-    const sender = general.orgName ? general.orgName.slice(0, TEXT_SENDER_MAX).trim() : "";
-    const senderProblem = sender
-      ? unroutineText(sender, TEXT_SENDER_MAX)
-      : "the business has no name (Settings → General)";
+    // The name a text begins with and the zone quiet hours are read in are a human admin's
+    // (routineMail.settings.update), never the general settings others may change.
+    const sender = settings.senderName?.trim() ?? "";
+    const senderProblem = sender ? unroutineText(sender, TEXT_SENDER_MAX) : null;
+    const zone = settings.quietZone && isTimezone(settings.quietZone) ? settings.quietZone : null;
     const at = Date.parse(now);
     for (const recipient of recipients) {
       if (recipient.rule === "order" || !recipient.personId) continue;
       const personId = recipient.personId;
-      const guardian = !recipient.self && message.guardian !== undefined;
+      // A guardian is texted or pushed only in words declared for a guardian: a message with no
+      // guardian's version goes to them by email only (the review of PR #339).
+      if (!recipient.self && message.guardian === undefined) continue;
+      const guardian = !recipient.self;
       const version: Version | undefined = guardian ? message.guardian : message;
       if (!version) continue;
       const values = guardian ? guardianValues : selfValues;
@@ -1489,6 +1510,12 @@ async function prepareRows(db: Db, p: Prepare): Promise<PreparedRoutineMail> {
         let bodyText: string;
         let segments: number | null = null;
         let tooLong: string | null = null;
+        // Not set up: no zone for quiet hours, or (a text) no name to begin with.
+        const unset = !zone
+          ? "set the time zone quiet hours are read in (Settings → Routine email)"
+          : channel === "text" && !sender
+            ? "set the name texts begin with (Settings → Routine email)"
+            : null;
         if (channel === "push") {
           subject = renderTemplate(parseTemplate(words[0] as string), values);
           bodyText = renderTemplate(parseTemplate(words[1] as string), values);
@@ -1512,26 +1539,29 @@ async function prepareRows(db: Db, p: Prepare): Promise<PreparedRoutineMail> {
           channel === "text" && pushReached && settings.textOnlyWithoutApp
             ? { reason: "reached by push (text only without the app)" }
             : await p.reach[channel](db, personId);
-        let status: "ready" | "waiting" | "expired" | "no_channel" | "failed" = "ready";
+        let status: "ready" | "waiting" | "held" | "expired" | "no_channel" | "failed" = "ready";
         let waitUntil: string | null = null;
         let error: string | null = null;
         if ("reason" in reached) {
           status = "no_channel";
           error = reached.reason;
-        } else if (tooLong) {
+        } else if (unset || tooLong) {
           status = "failed";
-          error = tooLong;
+          error = unset ?? tooLong;
         } else if (untilAt !== null && untilAt <= at) {
           status = "expired";
         } else {
-          waitUntil = quietDecision(at, general.timezone, settings.quietHours, {
+          waitUntil = quietDecision(at, zone as string, settings.quietHours, {
             urgent: spec.urgent === true,
             until: untilAt,
           }).waitUntil;
-          if (waitUntil) status = "waiting";
+          // Held for a person (anything an AI wrote, a value not routine): never `ready` or
+          // `waiting`, the states a sender or the end of quiet hours acts on (the review of
+          // PR #339). A person's decision is the text and push steps' review.
+          status = reasons.length ? "held" : waitUntil ? "waiting" : "ready";
         }
         if (channel === "push" && (status === "ready" || status === "waiting")) pushReached = true;
-        const live = status === "ready" || status === "waiting";
+        const live = status === "ready" || status === "waiting" || status === "held";
         const key = `${p.keyPrefix}:${p.kindId}:${p.messageName}:${p.record}:${channel}:${personId}`;
         keys.push(key);
         rows.push({
@@ -1566,6 +1596,20 @@ async function prepareRows(db: Db, p: Prepare): Promise<PreparedRoutineMail> {
       .values(row)
       .onConflict((oc) => oc.column("idempotency_key").doNothing())
       .execute();
+  }
+  // A host kind's email that failed only because no email channel was set goes when its occasion
+  // is asked for again once one is (the review of PR #339): the occasion is not spent on it.
+  if (p.automationId === null && p.connectionId && on) {
+    for (let i = 0; i < keys.length; i += 90) {
+      await db
+        .updateTable("core_routine_mail")
+        .set({ status: "ready", connection_id: p.connectionId, error: null, updated_at: now })
+        .where("idempotency_key", "in", keys.slice(i, i + 90))
+        .where("channel", "=", "email")
+        .where("status", "=", "failed")
+        .where("error", "=", NO_EMAIL_CHANNEL)
+        .execute();
+    }
   }
   // Read back in chunks: D1 binds at most 100 values a statement.
   const stored: { id: string; status: string; routine: number; channel: string }[] = [];
@@ -1921,47 +1965,67 @@ export async function settleRoutineMail(
 /**
  * The end of quiet hours (ADR 0676): texts and pushes that waited for it are `ready` to go again,
  * or `expired` when their moment (`until_at`) passed while they waited (their emails went when
- * they were prepared). A bounded batch a call; the runner's minute cron calls it. Returns the
- * rows made ready, for their gatekeepers' glue to send.
+ * they were prepared). Each is decided again first, as an email is when it is claimed (F2): its
+ * kind turned off, its pack's routine messages or its channel switched off since: `off`; not
+ * routine: `held`, never `ready` (the review of PR #339). Batches of 500 until none is left, at
+ * most `rounds` a call; the runner's minute cron calls it. Returns the rows made ready, for their
+ * gatekeepers' glue to send, which must decide them again when it claims one.
  */
 export async function releaseWaitingRoutineMessages(
   db: Db,
   now = new Date().toISOString(),
-  limit = 200,
+  rounds = 10,
 ): Promise<{ ready: { id: string; channel: "text" | "push" }[]; expired: number }> {
-  const due = await db
-    .selectFrom("core_routine_mail")
-    .select(["id", "channel", "until_at"])
-    .where("status", "=", "waiting")
-    .where("wait_until", "is not", null)
-    .where("wait_until", "<=", now)
-    .where("pending_action_id", "is", null)
-    .orderBy("wait_until")
-    .limit(Math.min(limit, 500))
-    .execute();
-  const late = due.filter((r) => r.until_at !== null && r.until_at <= now).map((r) => r.id);
-  const ready = due
-    .filter((r) => !(r.until_at !== null && r.until_at <= now))
-    .filter((r): r is typeof r & { channel: "text" | "push" } => r.channel !== "email");
-  // Chunks well under D1's 100 bound values a statement.
-  for (let i = 0; i < late.length; i += 90) {
-    await db
-      .updateTable("core_routine_mail")
-      .set({ status: "expired", updated_at: now, subject: null, body: null, recipient: "" })
-      .where("id", "in", late.slice(i, i + 90))
+  const out: { id: string; channel: "text" | "push" }[] = [];
+  let expired = 0;
+  const kinds = new Map((await routineKinds(db)).map((k) => [k.id, k]));
+  const set = async (ids: string[], values: Updateable<CoreDatabase["core_routine_mail"]>) => {
+    // Chunks well under D1's 100 bound values a statement.
+    for (let i = 0; i < ids.length; i += 90) {
+      await db
+        .updateTable("core_routine_mail")
+        .set(values)
+        .where("id", "in", ids.slice(i, i + 90))
+        .where("status", "=", "waiting")
+        .execute();
+    }
+  };
+  for (let round = 0; round < rounds; round += 1) {
+    const due = await db
+      .selectFrom("core_routine_mail")
+      .select(["id", "kind", "channel", "routine", "until_at"])
       .where("status", "=", "waiting")
+      .where("wait_until", "is not", null)
+      .where("wait_until", "<=", now)
+      .where("pending_action_id", "is", null)
+      .orderBy("wait_until")
+      .limit(500)
       .execute();
+    const late: string[] = [];
+    const off: string[] = [];
+    const held: string[] = [];
+    const ready: { id: string; channel: "text" | "push" }[] = [];
+    for (const row of due) {
+      const kind = kinds.get(row.kind);
+      const channel = row.channel === "text" || row.channel === "push" ? row.channel : null;
+      if (!channel || !kind?.on || !kind.packOn || !kind.channels[channel]) off.push(row.id);
+      else if (row.until_at !== null && row.until_at <= now) late.push(row.id);
+      else if (row.routine !== 1) held.push(row.id);
+      else ready.push({ id: row.id, channel });
+    }
+    const cleared = { subject: null, body: null, recipient: "", updated_at: now };
+    await set(late, { status: "expired", ...cleared });
+    await set(off, { status: "off", routine: 0, ...cleared });
+    await set(held, { status: "held", updated_at: now });
+    await set(
+      ready.map((r) => r.id),
+      { status: "ready", updated_at: now },
+    );
+    out.push(...ready);
+    expired += late.length;
+    if (due.length < 500) break;
   }
-  const ids = ready.map((r) => r.id);
-  for (let i = 0; i < ids.length; i += 90) {
-    await db
-      .updateTable("core_routine_mail")
-      .set({ status: "ready", updated_at: now })
-      .where("id", "in", ids.slice(i, i + 90))
-      .where("status", "=", "waiting")
-      .execute();
-  }
-  return { ready: ready.map((r) => ({ id: r.id, channel: r.channel })), expired: late.length };
+  return { ready: out, expired };
 }
 
 /** Deletes log rows older than the retention setting (D5), in chunks; the daily purge calls it. */

@@ -41,7 +41,8 @@ payment that failed, issue #215), which host code asks for rather than an automa
 push words that use an undeclared slot, a list (`each`), or a slot that may be empty outside an
 optional part; push words with a link slot or a private slot; words with a link, an address or a
 second line; and words that could not fit with **every slot at its longest**: a text, with the
-business's name the host puts first (at most 30 characters) and "Reply STOP to stop" it puts last,
+business's name the host puts first (`senderName`, at most 30 characters) and "Reply STOP to
+stop" it puts last,
 in two segments (306 characters in the plain alphabet, 134 when the declared words themselves
 force the longer encoding); a push's title in 60 characters and its body in 140. A text slot counts
 at its `max` (default 120), a moment at its longest written form, a choice at its longest words, a
@@ -67,12 +68,14 @@ An order's own address is not a Person's phone or app: those kinds stay email on
   sent as before. Push is asked first; with "text only without the app" on (the default, decision
   2) a member a push reached is not also texted (`no_channel`, "reached by push");
 - is `failed` when its words, filled, do not fit (a value forcing the longer encoding; a long
-  link), `expired` when the kind's moment has passed, `waiting` with `wait_until` during quiet
-  hours, else `ready`;
+  link) or the routine settings lack what it needs (`quietZone`; for a text, `senderName`),
+  `expired` when the kind's moment has passed, `held` when it is held for a person (never `ready`
+  or `waiting`, the states a sender and the clock act on), `waiting` with `wait_until` during
+  quiet hours, else `ready`;
 - keeps the number or device only while it waits to go, and its words only until it is decided,
   as an email's words; the log keeps kind, channel, status and cost, and a key for the caps.
 
-New states, in the database's check (migration 0910): `delivered`, `stopped`, `expired`,
+New states, in the database's check (migration 0910): `held`, `delivered`, `stopped`, `expired`,
 `over_limit` and `no_channel` beside ADR 0590's. Idempotency keys gain the channel and the Person
 for texts and pushes; an email's key is unchanged.
 
@@ -145,3 +148,32 @@ status and filters by channel.
 | The channel switches a human admin's only, only channels a kind declares | `packages/core/test/routine-messages.test.ts` |
 | A push opens a screen its pack's native blocks declare | `packages/product/test/routine-screens.test.ts` |
 | One message for one recipient on every channel: a bounded number of statements | `apps/runner/test/routine-messages.test.ts` ("the cost") |
+
+## Amended 2026-11-24, after the review of PR #339
+
+Built before merge, each with a test that fails without it:
+
+- **The name a text begins with is a human admin's** (`senderName` in `routine_mail`, at most 30
+  characters, checked by `unroutineText`), never the organisation's general name, which
+  `settings.update` lets the assistant or an MCP client change at once under Balanced. No text is
+  switched on until it is set. The zone quiet hours are read in is likewise `quietZone` (ADR 0676).
+- **A held text or push is `held`**, never `ready`; the end of quiet hours decides each row again
+  (the kind, the pack, the channel, routine) before it is `ready`.
+- **A choice's words count in a text's encoding**: one that forces the longer encoding is held to
+  134 characters at the check, as declared words are.
+- **Private is the field's**: a second slot reading a field another slot marks private is private
+  in push words too.
+- **A guardian is texted or pushed only in a guardian's words**: a message with no guardian's
+  version goes to a guardian by email only. No shipped pack has such a message, so this is not
+  reproduced by a test on the shipped packs.
+- **A host kind's occasion** is keyed on who it goes to (the rule and the Person), not the
+  address: an order whose address changes is not sent the same occasion twice. A host kind's email
+  kept `failed` for want of an email channel goes when its occasion is asked again once one is set.
+- `routineMail.get`'s weekly counts are emails only.
+
+Proof, added: `packages/sdk/test/routine-mail.test.ts` (a choice's encoding, private by field);
+`packages/core/test/routine-messages.test.ts` (the release's re-checks and batches, the skipped
+hour, the zone and the name a human's, the host kind's retry and key);
+`apps/runner/test/routine-messages.test.ts` (an MCP client's rename and time zone reach no text; a
+held text and push are `held`).
+

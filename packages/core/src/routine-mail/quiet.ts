@@ -64,6 +64,25 @@ export function quietUntil(at: number, zone: string, quiet: QuietHours): number 
     const drift = ((landed - end + 86_400 + 43_200) % 86_400) - 43_200;
     until -= drift * 1000;
   }
+  // An `end` the clocks skip that night (01:30 when they go from 01:00 to 02:00) never comes: the
+  // window ends at the first instant after it, the jump itself, never an hour early (the review
+  // of PR #339). Found to the second between a moment still inside and one an hour later.
+  const within = (t: number) => {
+    const local = localSeconds(t, zone);
+    if (local === null) return false;
+    return start < end ? local >= start && local < end : local >= start || local < end;
+  };
+  if (within(until)) {
+    let lo = until;
+    let hi = until + 3_600_000;
+    while (within(hi) && hi - until < 4 * 3_600_000) hi += 3_600_000;
+    while (hi - lo > 1000) {
+      const mid = lo + Math.floor((hi - lo) / 2000) * 1000;
+      if (within(mid)) lo = mid;
+      else hi = mid;
+    }
+    until = hi;
+  }
   return until;
 }
 

@@ -7,7 +7,13 @@
 // Routine messages (ADR 0670): each kind's text and push, switched on by a human admin within what
 // the kind declares; "text only without the app"; quiet hours (ADR 0676). The host's own kinds
 // (`core.*`) are listed with the packs' and turned on the same way.
-import { channelsOf, essentialOf, ROUTINE_CHANNELS } from "@composable-os/sdk";
+import {
+  channelsOf,
+  essentialOf,
+  ROUTINE_CHANNELS,
+  TEXT_SENDER_MAX,
+  unroutineText,
+} from "@composable-os/sdk";
 import { z } from "zod";
 import { ValidationError } from "../errors.ts";
 import { evaluateGate } from "../gate.ts";
@@ -19,7 +25,7 @@ import {
   siteOriginOf,
 } from "../routine-mail/index.ts";
 import { quietHoursSchema } from "../routine-mail/quiet.ts";
-import { loadApprovalPolicy } from "../settings.ts";
+import { isTimezone, loadApprovalPolicy } from "../settings.ts";
 
 const kindSchema = z.object({
   id: z.string().describe("The kind: <extension>.<kind>, e.g. bookings.reminder"),
@@ -59,7 +65,7 @@ const kindSchema = z.object({
       other: z.number().int(),
     })
     .describe(
-      "Emails of this kind in the last 7 days: sent on their own (or once approved), waiting for a person, not sent because the kind was off, and refused or failed",
+      "Emails of this kind in the last 7 days (texts and pushes are not counted here): sent on their own (or once approved), waiting for a person, not sent because the kind was off, and refused or failed",
     ),
 });
 
@@ -90,8 +96,16 @@ const settingsOutput = z.object({
     .boolean()
     .describe("A member reached by a push on the business's app is not also texted"),
   quietHours: quietHoursSchema.describe(
-    "When texts and pushes wait, in the business's time zone; emails always go at once",
+    "When texts and pushes wait, in quietZone; emails always go at once",
   ),
+  quietZone: z
+    .string()
+    .nullable()
+    .describe("The time zone quiet hours are read in; no text or push goes until it is set"),
+  senderName: z
+    .string()
+    .nullable()
+    .describe("The name every text begins with; no text goes until it is set"),
   sendsOnItsOwn: z
     .enum(["auto", "review", "deny"])
     .describe(
@@ -118,6 +132,8 @@ export const routineMailGet = defineOperation({
       .selectFrom("core_routine_mail")
       .select(["kind", "status", (eb) => eb.fn.countAll<number>().as("n")])
       .where("created_at", ">", since)
+      // Emails only: a text or push nothing sends yet must not read as one waiting to go.
+      .where("channel", "=", "email")
       .groupBy(["kind", "status"])
       .execute();
     const settings = await loadRoutineMailSettings(ctx.db);
@@ -174,6 +190,8 @@ export const routineMailGet = defineOperation({
       siteOrigin: settings.siteOrigin,
       textOnlyWithoutApp: settings.textOnlyWithoutApp,
       quietHours: settings.quietHours,
+      quietZone: settings.quietZone,
+      senderName: settings.senderName,
       sendsOnItsOwn: gate.decision,
     };
   },
@@ -186,6 +204,7 @@ const STATUSES = [
   "sent",
   "delivered",
   "waiting",
+  "held",
   "denied",
   "failed",
   "stopped",
@@ -322,8 +341,10 @@ export const routineMailSettingsUpdate = defineOperation({
     "limit (orgDailyCap) or how long the log is kept (retentionMonths). Switch a kind's text or push " +
     "on (channels: { 'bookings.reminder': { push: true } }, only channels the kind declares), " +
     "whether a member reached by push is also texted (textOnlyWithoutApp), or quiet hours, when " +
-    "texts and pushes wait (quietHours: { start: '21:00', end: '07:00' }, the business's time " +
-    "zone; the same start and end: none). Only what you pass changes. " +
+    "texts and pushes wait (quietHours: { start: '21:00', end: '07:00' }; the same start and end: " +
+    "none) and the time zone they are read in (quietZone, e.g. 'Europe/London'), or the name every " +
+    "text begins with (senderName, at most 30 characters). A text or push cannot be switched on " +
+    "until quietZone is set, nor a text until senderName is. Only what you pass changes. " +
     "Admins only, and only a human can call it: AI assistants, MCP clients, automations and " +
     "extensions are refused.",
   input: z.object({
@@ -340,6 +361,8 @@ export const routineMailSettingsUpdate = defineOperation({
       .optional(),
     textOnlyWithoutApp: z.boolean().optional(),
     quietHours: quietHoursSchema.optional(),
+    quietZone: z.string().max(64).nullable().optional(),
+    senderName: z.string().max(TEXT_SENDER_MAX).nullable().optional(),
   }),
   output: z.object({
     packs: z.record(z.string(), z.boolean()),
@@ -353,6 +376,8 @@ export const routineMailSettingsUpdate = defineOperation({
     ),
     textOnlyWithoutApp: z.boolean(),
     quietHours: quietHoursSchema,
+    quietZone: z.string().nullable(),
+    senderName: z.string().nullable(),
   }),
   permission: "settings:manage",
   risk: "write",
@@ -411,7 +436,33 @@ export const routineMailSettingsUpdate = defineOperation({
       ),
       textOnlyWithoutApp: input.textOnlyWithoutApp ?? previous.textOnlyWithoutApp,
       quietHours: input.quietHours ?? previous.quietHours,
+      quietZone: input.quietZone === undefined ? previous.quietZone : input.quietZone,
+      senderName:
+        input.senderName === undefined ? previous.senderName : input.senderName?.trim() || null,
     };
+    if (next.quietZone !== null && !isTimezone(next.quietZone)) {
+      throw new ValidationError(`${next.quietZone} is not a time zone`, { field: "quietZone" });
+    }
+    const senderWhy = next.senderName ? unroutineText(next.senderName, TEXT_SENDER_MAX) : null;
+    if (senderWhy) {
+      throw new ValidationError(`The name texts begin with holds ${senderWhy}`, {
+        field: "senderName",
+      });
+    }
+    // A text or push switched on needs its zone for quiet hours, a text its name (the review of
+    // PR #339: neither is read from the general settings others may change).
+    const anyOn = (channel: "text" | "push") =>
+      Object.values(next.channels).some((c) => c[channel] === true);
+    if ((anyOn("text") || anyOn("push")) && !next.quietZone) {
+      throw new ValidationError("Set quietZone, the time zone quiet hours are read in, first", {
+        field: "quietZone",
+      });
+    }
+    if (anyOn("text") && !next.senderName) {
+      throw new ValidationError("Set senderName, the name every text begins with, first", {
+        field: "senderName",
+      });
+    }
     const value = JSON.stringify(next);
     ctx.write(
       ctx.db

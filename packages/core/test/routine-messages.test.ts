@@ -80,27 +80,96 @@ describe("quiet hours (ADR 0676)", () => {
     // Sydney's clocks go forward at 2am on 4 October 2026 (+10:00 to +11:00): 7am that morning.
     const before = Date.parse("2026-10-03T23:00:00+10:00");
     expect(quietUntil(before, ZONE, QUIET)).toBe(Date.parse("2026-10-04T07:00:00+11:00"));
+    // London falls back at 2am on 25 October 2026: 7am that morning is 07:00Z.
+    expect(quietUntil(Date.parse("2026-10-24T22:00:00Z"), "Europe/London", QUIET)).toBe(
+      Date.parse("2026-10-25T07:00:00Z"),
+    );
+  });
+
+  it("an end the clocks skip ends at the jump, never an hour early (the review of PR #339)", () => {
+    // London goes from 01:00 GMT to 02:00 BST on 29 March 2026: 01:30 never comes that night.
+    // Quiet from 21:00 to 01:30, asked at 23:00 GMT: it ends at the jump, 01:00Z (02:00 BST),
+    // not at 00:30Z (00:30 GMT, an hour before 01:30).
+    const until = quietUntil(Date.parse("2026-03-28T23:00:00Z"), "Europe/London", {
+      start: "21:00",
+      end: "01:30",
+    });
+    expect(new Date(until as number).toISOString()).toBe("2026-03-29T01:00:00.000Z");
   });
 });
 
+/** The host kind the release tests' rows are of: on, with text and push switched on. */
+const RELEASE_KIND = `wait${Date.now().toString(36)}`;
+
 /** A text or push row, waiting for quiet hours to end at `waitUntil`. */
-async function waiting(waitUntil: string, untilAt: string | null, channel = "push") {
+async function waiting(
+  waitUntil: string,
+  untilAt: string | null,
+  channel = "push",
+  extra: { routine?: 0 | 1; kind?: string } = {},
+) {
   const id = newId("routineMail");
   const now = new Date().toISOString();
   await env.DB.prepare(
     `INSERT INTO core_routine_mail (id, kind, message, extension_id, record_object, record_id,
-       channel, recipient, recipient_key, recipient_rule, automation_id, run_id, trigger_type,
+       channel, recipient, recipient_key, recipient_rule, trigger_type,
        idempotency_key, routine, status, subject, body, wait_until, until_at, created_at, updated_at)
-     VALUES (?, 'bookings.reminder', 'reminder', 'bookings', 'bookings.booking', 'rec_1', ?,
-       'device_1', ?, 'person', 'bookings.classReminder', 'arn_1', 'dateRelative', ?, 1, 'waiting',
+     VALUES (?, ?, 'note', 'core', 'order', 'ord_1', ?,
+       'device_1', ?, 'person', 'host', ?, ?, 'waiting',
        'Reminder', 'Strength at 06:30.', ?, ?, ?, ?)`,
   )
-    .bind(id, channel, `${channel}:per_1`, unique("k"), waitUntil, untilAt, now, now)
+    .bind(
+      id,
+      extra.kind ?? `core.${RELEASE_KIND}`,
+      channel,
+      `${channel}:per_1`,
+      unique("k"),
+      extra.routine ?? 1,
+      waitUntil,
+      untilAt,
+      now,
+      now,
+    )
     .run();
   return id;
 }
 
+const statusOf = async (id: string) =>
+  (
+    await env.DB.prepare("SELECT status FROM core_routine_mail WHERE id = ?")
+      .bind(id)
+      .first<{ status: string }>()
+  )?.status;
+
 describe("the end of quiet hours (ADR 0676)", () => {
+  beforeAll(async () => {
+    declareHostRoutineKind(RELEASE_KIND, {
+      label: "Waiting notes",
+      description: "A test kind whose texts and pushes wait for quiet hours.",
+      about: "order",
+      channels: ["email", "text", "push"],
+      open: { screen: "orders" },
+      messages: {
+        note: {
+          subject: "Note",
+          text: "A note.",
+          textMessage: "A note.",
+          push: { title: "Note", body: "A note." },
+        },
+      },
+    });
+    await invokeByName(
+      "routineMail.settings.update",
+      {
+        kinds: { [`core.${RELEASE_KIND}`]: true },
+        quietZone: "Australia/Sydney",
+        senderName: "Example Gym",
+        channels: { [`core.${RELEASE_KIND}`]: { text: true, push: true } },
+      },
+      context(admin),
+    );
+  });
+
   it("what waited goes at 7am; one whose class started before then is expired, its words and device cleared", async () => {
     const seven = "2031-01-02T07:00:00.000Z";
     const goes = await waiting(seven, "2031-01-02T09:00:00.000Z", "text");
@@ -124,6 +193,50 @@ describe("the end of quiet hours (ADR 0676)", () => {
     // Released once: the next tick finds nothing more of these.
     const again = await releaseWaitingRoutineMessages(db.query, seven);
     expect(again.ready.map((r) => r.id)).not.toContain(goes);
+  });
+
+  it("a held one is never made ready by the clock; one whose kind or channel was switched off since is off (the review of PR #339)", async () => {
+    const seven = "2031-02-02T07:00:00.000Z";
+    const held = await waiting(seven, null, "push", { routine: 0 });
+    const unknown = await waiting(seven, null, "push", { kind: "core.noSuchKind" });
+    const switched = await waiting(seven, null, "text");
+    await invokeByName(
+      "routineMail.settings.update",
+      { channels: { [`core.${RELEASE_KIND}`]: { text: false } } },
+      context(admin),
+    );
+    try {
+      const released = await releaseWaitingRoutineMessages(db.query, seven);
+      const ids = released.ready.map((r) => r.id);
+      for (const id of [held, unknown, switched]) expect(ids).not.toContain(id);
+      expect(await statusOf(held)).toBe("held");
+      expect(await statusOf(unknown)).toBe("off");
+      expect(await statusOf(switched)).toBe("off");
+    } finally {
+      await invokeByName(
+        "routineMail.settings.update",
+        { channels: { [`core.${RELEASE_KIND}`]: { text: true } } },
+        context(admin),
+      );
+    }
+  });
+
+  it("releases more than one batch in a minute (the review of PR #339)", async () => {
+    const seven = "2031-03-02T07:00:00.000Z";
+    const now = new Date().toISOString();
+    // 600 waiting rows, more than one batch of 500.
+    await env.DB.prepare(
+      `WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 600)
+       INSERT INTO core_routine_mail (id, kind, message, extension_id, record_object, record_id,
+         channel, recipient, recipient_key, recipient_rule, trigger_type, idempotency_key, routine,
+         status, wait_until, created_at, updated_at)
+       SELECT 'rml_bulk' || i, ?, 'note', 'core', 'order', 'ord_1', 'push', '', 'push:p' || i,
+         'person', 'host', 'bulk:' || i, 1, 'waiting', ?, ?, ? FROM n`,
+    )
+      .bind(`core.${RELEASE_KIND}`, seven, now, now)
+      .run();
+    const released = await releaseWaitingRoutineMessages(db.query, seven);
+    expect(released.ready.filter((r) => r.id.startsWith("rml_bulk"))).toHaveLength(600);
   });
 });
 
@@ -300,6 +413,48 @@ describe("host kinds (ADR 0670)", () => {
     ]);
   });
 
+  it("failed for want of an email channel, the same occasion asked again once one is set goes (the review of PR #339)", async () => {
+    const order = await paidOrder(`${unique("retry")}@buyers.test`);
+    const none = await prepareHostRoutineMail(db.query, {
+      kind: KIND,
+      record: order,
+      occasion: "evt_r",
+      connectionId: null,
+    });
+    expect(none.toSend).toEqual([]);
+    expect((await rowsOf(order))[0]).toMatchObject({ status: "failed" });
+    const later = await prepareHostRoutineMail(db.query, {
+      kind: KIND,
+      record: order,
+      occasion: "evt_r",
+      connectionId: "con_x",
+    });
+    expect(later.toSend).toHaveLength(1);
+    expect(await rowsOf(order)).toEqual([
+      expect.objectContaining({ channel: "email", status: "ready", error: null }),
+    ]);
+  });
+
+  it("an order's address changed since: the same occasion sends nothing again (the review of PR #339)", async () => {
+    const order = await paidOrder(`${unique("first")}@buyers.test`);
+    await prepareHostRoutineMail(db.query, {
+      kind: KIND,
+      record: order,
+      occasion: "evt_a",
+      connectionId: "con_x",
+    });
+    await env.DB.prepare("UPDATE core_order SET email = ? WHERE id = ?")
+      .bind(`${unique("second")}@buyers.test`.toLowerCase(), order)
+      .run();
+    await prepareHostRoutineMail(db.query, {
+      kind: KIND,
+      record: order,
+      occasion: "evt_a",
+      connectionId: "con_x",
+    });
+    expect(await rowsOf(order)).toHaveLength(1);
+  });
+
   it("a kind the host does not declare, or a pack's kind named as the host's, is refused", async () => {
     const order = await paidOrder(`${unique("undeclared")}@buyers.test`);
     await expect(
@@ -323,6 +478,72 @@ describe("host kinds (ADR 0670)", () => {
 });
 
 describe("the channel switches, a human admin's only", () => {
+  it("no text or push is switched on without the zone quiet hours are read in, nor a text without the name it begins with", async () => {
+    const id = `core.${KIND}`;
+    await invokeByName(
+      "routineMail.settings.update",
+      { channels: { [`core.${RELEASE_KIND}`]: { text: false, push: false } } },
+      context(admin),
+    );
+    await invokeByName(
+      "routineMail.settings.update",
+      { quietZone: null, senderName: null },
+      context(admin),
+    );
+    await expect(
+      invokeByName(
+        "routineMail.settings.update",
+        { channels: { [id]: { push: true } } },
+        context(admin),
+      ),
+    ).rejects.toThrow(/Set quietZone/);
+    await expect(
+      invokeByName(
+        "routineMail.settings.update",
+        { channels: { [id]: { text: true } }, quietZone: "Australia/Sydney" },
+        context(admin),
+      ),
+    ).rejects.toThrow(/Set senderName/);
+    await expect(
+      invokeByName("routineMail.settings.update", { quietZone: "Mars/Olympus" }, context(admin)),
+    ).rejects.toThrow(/not a time zone/);
+    await expect(
+      invokeByName(
+        "routineMail.settings.update",
+        { senderName: "Visit gym.example.com" },
+        context(admin),
+      ),
+    ).rejects.toThrow(/link, an address or markup/);
+    await invokeByName(
+      "routineMail.settings.update",
+      { quietZone: "Australia/Sydney", senderName: "Example Gym" },
+      context(admin),
+    );
+  });
+
+  it("the zone and the name are a human admin's: the assistant and MCP cannot set them", async () => {
+    for (const actor of ["assistant", "mcp"] as const) {
+      await expect(
+        invokeByName(
+          "routineMail.settings.update",
+          { quietZone: "Europe/London", senderName: "Book free now" },
+          context(admin, {
+            actor,
+            origin:
+              actor === "mcp"
+                ? { surface: "mcp", sessionId: unique("s") }
+                : { surface: "assistant", sessionId: unique("s") },
+          }),
+        ),
+      ).rejects.toThrow();
+    }
+    const view = (await invokeByName("routineMail.get", {}, context(admin))) as {
+      quietZone: string | null;
+      senderName: string | null;
+    };
+    expect(view).toMatchObject({ quietZone: "Australia/Sydney", senderName: "Example Gym" });
+  });
+
   it("text and push are switched on per kind, only channels it declares; an AI cannot", async () => {
     const id = `core.${KIND}`;
     const out = (await invokeByName(

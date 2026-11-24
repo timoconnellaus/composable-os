@@ -1132,7 +1132,7 @@ make them late: its moment (`until`) comes before quiet hours end (ADR 0676).
 
 **Quiet hours**
 When texts and pushes wait: one business-wide window (9pm to 7am unless an admin chose), in the
-business's time zone; emails always go at once. A waiting one whose moment passed when they end is
+time zone a human admin set for it; emails always go at once. A waiting one whose moment passed when they end is
 dropped, `expired` (ADR 0676).
 _Avoid_: do not disturb
 

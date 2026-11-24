@@ -295,6 +295,10 @@ beforeAll(async () => {
     {
       siteOrigin: SITE,
       packs: { bookings: true },
+      // A human admin's, in the routine settings: never the general name and zone (the review
+      // of PR #339).
+      senderName: "Example Gym",
+      quietZone: ZONE,
       channels: {
         "bookings.confirmation": { text: true, push: true },
         "bookings.reminder": { text: true, push: true },
@@ -308,7 +312,8 @@ beforeAll(async () => {
     { extension: "bookings", values: { bookingsUrl: `${SITE}/bookings` } },
     staff(),
   );
-  await setting("org_name", "Example Gym");
+  // The general settings, which others may change, say something else: texts never read them.
+  await setting("org_name", "Example Fitness Company");
   await setting("org_timezone", ZONE);
   type = await create("programs.classtype", { name: unique("Strength") });
 }, 120_000);
@@ -438,16 +443,68 @@ describe("a row per channel", { timeout: 60_000 }, () => {
       { reach: reachOf(everyone, everyone) },
     );
     const rows = await rowsOf(b.bookingId, runId);
-    expect(rows.map((r) => [r.channel, r.routine])).toEqual([
-      ["email", 0],
-      ["push", 0],
-      ["text", 0],
+    expect(rows.map((r) => [r.channel, r.routine, r.status])).toEqual([
+      ["email", 0, "ready"],
+      // Held for a person: never `ready`, the state a sender acts on (the review of PR #339).
+      ["push", 0, "held"],
+      ["text", 0, "held"],
     ]);
     for (const row of rows.filter((r) => r.channel !== "text")) {
       expect(row.held_reason).toMatch(/no person stands behind bookings\.class \S+'s title \(ai\)/);
     }
     // The text is held too (the push reached them, so it is not sent at all; held all the same).
     expect(rows[2]?.held_reason).toMatch(/title \(ai\)/);
+  });
+});
+
+describe("what an AI may change does not reach a text (the review of PR #339)", {
+  timeout: 60_000,
+}, () => {
+  it("an MCP client renaming the organisation changes nothing a text begins with", async () => {
+    const b = await booking("ai-name");
+    const reach = reachOf(new Set(), new Set([b.who.personId]));
+    await run("settings.update", { orgName: "Gym: book free now" }, mcp());
+    const runId = await runOf("classReminder", b.bookingId, "dateRelative");
+    await prepare("classReminder", runId, { kind: "reminder", record: b.bookingId }, { reach });
+    const text = (await rowsOf(b.bookingId, runId)).find((r) => r.channel === "text");
+    expect(text?.body).toMatch(/^Example Gym: Reminder: /);
+    expect(text?.body).not.toMatch(/book free/);
+    await setting("org_name", "Example Fitness Company");
+  });
+
+  it("an MCP client changing the organisation's time zone does not move quiet hours", async () => {
+    const local = (days: number, clock: string) => {
+      const day = new Date(Date.now() + days * DAY).toISOString().slice(0, 10);
+      const at = Date.parse(`${day}T${clock}:00+11:00`);
+      const shown = new Intl.DateTimeFormat("en-GB", {
+        timeZone: ZONE,
+        hour: "2-digit",
+        minute: "2-digit",
+        hourCycle: "h23",
+      }).format(new Date(at));
+      return shown === clock ? at : at + HOUR;
+    };
+    await run("settings.update", { timezone: "Europe/London" }, mcp());
+    try {
+      const b = await booking("ai-zone", await klass(new Date(local(6, "09:00")).toISOString()));
+      const runId = await runOf("classReminder", b.bookingId, "dateRelative");
+      await prepare(
+        "classReminder",
+        runId,
+        { kind: "reminder", record: b.bookingId },
+        {
+          reach: reachOf(new Set(), new Set([b.who.personId])),
+          now: new Date(local(5, "23:00")).toISOString(),
+        },
+      );
+      const text = (await rowsOf(b.bookingId, runId)).find((r) => r.channel === "text");
+      expect(text).toMatchObject({
+        status: "waiting",
+        wait_until: new Date(local(6, "07:00")).toISOString(),
+      });
+    } finally {
+      await setting("org_timezone", ZONE);
+    }
   });
 });
 

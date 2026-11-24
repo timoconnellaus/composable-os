@@ -54720,7 +54720,7 @@
                     "other"
                   ],
                   "additionalProperties": false,
-                  "description": "Emails of this kind in the last 7 days: sent on their own (or once approved), waiting for a person, not sent because the kind was off, and refused or failed"
+                  "description": "Emails of this kind in the last 7 days (texts and pushes are not counted here): sent on their own (or once approved), waiting for a person, not sent because the kind was off, and refused or failed"
                 }
               },
               "required": [
@@ -54783,7 +54783,21 @@
               "end"
             ],
             "additionalProperties": false,
-            "description": "When texts and pushes wait, in the business's time zone; emails always go at once"
+            "description": "When texts and pushes wait, in quietZone; emails always go at once"
+          },
+          "quietZone": {
+            "description": "The time zone quiet hours are read in; no text or push goes until it is set",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "senderName": {
+            "description": "The name every text begins with; no text goes until it is set",
+            "type": [
+              "string",
+              "null"
+            ]
           },
           "sendsOnItsOwn": {
             "type": "string",
@@ -54803,6 +54817,8 @@
           "siteOrigin",
           "textOnlyWithoutApp",
           "quietHours",
+          "quietZone",
+          "senderName",
           "sendsOnItsOwn"
         ],
         "additionalProperties": false
@@ -54833,6 +54849,7 @@
               "sent",
               "delivered",
               "waiting",
+              "held",
               "denied",
               "failed",
               "stopped",
@@ -54971,6 +54988,7 @@
                     "sent",
                     "delivered",
                     "waiting",
+                    "held",
                     "denied",
                     "failed",
                     "stopped",
@@ -55034,7 +55052,7 @@
     },
     {
       "name": "routineMail.settings.update",
-      "description": "Turn a pack's routine email on (packs: { bookings: true }: its kinds then send without approval; off, each is an ordinary send the policy decides), turn one kind on or off (kinds: { 'bookings.reminder': false }: off sends nothing and queues nothing), or set the business's own site, the only place routine email links to (siteOrigin, an https origin; null removes the links), the organisation's daily limit (orgDailyCap) or how long the log is kept (retentionMonths). Switch a kind's text or push on (channels: { 'bookings.reminder': { push: true } }, only channels the kind declares), whether a member reached by push is also texted (textOnlyWithoutApp), or quiet hours, when texts and pushes wait (quietHours: { start: '21:00', end: '07:00' }, the business's time zone; the same start and end: none). Only what you pass changes. Admins only, and only a human can call it: AI assistants, MCP clients, automations and extensions are refused.",
+      "description": "Turn a pack's routine email on (packs: { bookings: true }: its kinds then send without approval; off, each is an ordinary send the policy decides), turn one kind on or off (kinds: { 'bookings.reminder': false }: off sends nothing and queues nothing), or set the business's own site, the only place routine email links to (siteOrigin, an https origin; null removes the links), the organisation's daily limit (orgDailyCap) or how long the log is kept (retentionMonths). Switch a kind's text or push on (channels: { 'bookings.reminder': { push: true } }, only channels the kind declares), whether a member reached by push is also texted (textOnlyWithoutApp), or quiet hours, when texts and pushes wait (quietHours: { start: '21:00', end: '07:00' }; the same start and end: none) and the time zone they are read in (quietZone, e.g. 'Europe/London'), or the name every text begins with (senderName, at most 30 characters). A text or push cannot be switched on until quietZone is set, nor a text until senderName is. Only what you pass changes. Admins only, and only a human can call it: AI assistants, MCP clients, automations and extensions are refused.",
       "risk": "write",
       "audiences": [
         "staff"
@@ -55123,6 +55141,28 @@
               "end"
             ],
             "additionalProperties": false
+          },
+          "quietZone": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 64
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "senderName": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 30
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         }
       },
@@ -55201,6 +55241,18 @@
               "end"
             ],
             "additionalProperties": false
+          },
+          "quietZone": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "senderName": {
+            "type": [
+              "string",
+              "null"
+            ]
           }
         },
         "required": [
@@ -55211,7 +55263,9 @@
           "retentionMonths",
           "channels",
           "textOnlyWithoutApp",
-          "quietHours"
+          "quietHours",
+          "quietZone",
+          "senderName"
         ],
         "additionalProperties": false
       },

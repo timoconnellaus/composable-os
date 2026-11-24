@@ -1273,6 +1273,7 @@ export interface CoreRoutineMailTable {
     | "sent"
     | "delivered"
     | "waiting"
+    | "held"
     | "denied"
     | "failed"
     | "stopped"
