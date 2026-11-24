@@ -21,8 +21,9 @@
 --
 -- Nothing here is in a rec_* view, search, an export or an embedding. Erasing a Person deletes
 -- their codes, cards and PIN, and the dependant codes they hold (people-codes/people.ts; the
--- foreign keys would too). A merge moves codes and cards to the survivor and keeps the survivor's
--- PIN.
+-- foreign keys would too). A merge moves cards to the survivor, deletes the app codes of the
+-- merged Person and those shown on their app (the next `me.code` makes them again), and keeps the
+-- survivor's PIN.
 CREATE TABLE core_person_code (
   -- pc_… (ids.ts).
   id TEXT PRIMARY KEY NOT NULL,
