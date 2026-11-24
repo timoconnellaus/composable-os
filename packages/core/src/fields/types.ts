@@ -363,6 +363,15 @@ export interface SellableDefinition {
   onePerPerson?: string | undefined;
   /** A paid line moves the record it was started for (ADR 0560): the SDK's MovesSpec. */
   moves?: MovesDefinition | undefined;
+  /**
+   * What kind of sale it is in the finance reports and when its money is earned (ADR 0792), with
+   * the defaults filled (category `other`, `at_sale`). `at` is a path as declared.
+   */
+  finance: {
+    category: { key: string; label: string };
+    earned: "at_sale" | "over_period" | "per_use" | "at_date";
+    at?: string | undefined;
+  };
 }
 
 /** What an order does to the record it was started for (ADR 0560), with registry names. */

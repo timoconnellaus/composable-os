@@ -1305,7 +1305,12 @@ which the order's move hook creates as the host when the order is first paid (`p
 `part_paid` for a deposit), in that batch, with fields set from the line, the item and the order
 and an unguessable code, and moves to its declared void state when the order is refunded in full
 or cancelled after a deposit. `core_order_grant` (migration 0450) records each grant and keeps
-codes unique.
+codes unique. `sellable.finance` ([ADR 0792](adr/0792-sellable-finance-categories-and-how-a-sale-is-earned.md),
+stage 52) only labels the object's sales for the finance reports: a category (a stable key and a
+label) and how its money is earned (`at_sale`, `over_period` for a plan's paid period, `per_use`
+for a grant that holds uses, `at_date` on a date field or a path to one). The field registry
+carries it with its defaults filled (`other`, `at_sale`). Memberships, Ticketing, Courses and
+Bookings declare it.
 
 **The public scope** ([ADR 0438](adr/0438-the-public-scope.md),
 `packages/core/src/visibility/public.ts`). An object may declare what the public may read:

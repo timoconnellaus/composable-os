@@ -1554,7 +1554,9 @@ The behaviour of an object whose records can be put on an order (stage 27, ADR 0
 field, and optionally its currency, sale window, most per order, deposit and what a paid line
 grants, or what a paid line moves (`sellable.moves`, ADR 0560: a record made held with its
 order, moved when it is paid or expires). Only an object that declares it can be bought. The host reads every price and rule from
-the record, so a caller sends none.
+the record, so a caller sends none. It may also say what kind of sale it is in the finance reports
+and when its money is earned (`sellable.finance`, ADR 0792: a category and `at_sale`,
+`over_period`, `per_use` or `at_date`; left out, `other` and `at_sale`).
 _Avoid_: product (a product is what the platform is composed into, ADR 0400), SKU
 
 **Subscription plan**
