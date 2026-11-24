@@ -119,6 +119,13 @@ local or preview database that applied the earlier version must be rebuilt.
 - `staffName` (the name kept on a shift as it was) is not in this step; step 3 or 4 adds it with
   `staffing.forget`.
 
+## Amended 2026-11-24 (stage 49 step 2, review of PR #336)
+A live shift whose start or end is written but cannot be read as a time (`T99:00`, by a path that
+does not check first) claimed nothing and could sit over another of its person's shifts: the
+trigger on the staffed object's table now refuses it (`core_staff_time_unreadable`, answered
+`rule: "staffed_time"`), and the datetime field no longer accepts such a value
+([ADR 0765](0765-occupies-the-claim-on-a-thing.md)).
+
 ## Amended 2026-11-24 (stage 49 step 1, ADR 0760)
 The claim is no longer always the shift's own time: a shift may declare minutes kept free before
 and after it (`claimBefore`, `claimAfter`, read from its kind), which widen its claim and are kept

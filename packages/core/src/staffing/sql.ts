@@ -269,7 +269,14 @@ export function createStaffedTriggers(t: StaffedTables): string[] {
     `WHERE r.id = NEW.id AND r.deleted_at IS NULL ` +
     `AND r.${ident(t.state)} IN (${t.live.map(literal).join(", ")}) ` +
     `AND ${seconds(t.starts)} IS NOT NULL AND ${seconds(t.ends)} IS NOT NULL ` +
-    `AND ${seconds(t.ends)} <= ${seconds(t.starts)};`;
+    `AND ${seconds(t.ends)} <= ${seconds(t.starts)}; ` +
+    // A time written that the database cannot read (`T99:00`, by a path that checks no pattern)
+    // would claim nothing the same way (stage 49 step 2 review): refused too.
+    `SELECT RAISE(ABORT, 'core_staff_time_unreadable') FROM ${ident(t.table)} r ` +
+    `WHERE r.id = NEW.id AND r.deleted_at IS NULL ` +
+    `AND r.${ident(t.state)} IN (${t.live.map(literal).join(", ")}) ` +
+    `AND ((r.${ident(t.starts)} IS NOT NULL AND ${seconds(t.starts)} IS NULL) ` +
+    `OR (r.${ident(t.ends)} IS NOT NULL AND ${seconds(t.ends)} IS NULL));`;
   // A live shift that has not ended, naming a profile that holds no account, when the account is
   // required (ADR 0760): it would escape the claim. A shift with nobody on it is not refused.
   const noAccount =
