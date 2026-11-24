@@ -85,7 +85,7 @@ const defaultSleep = (ms: number) =>
 function globalFetch(): FetchLike {
   const f = (globalThis as { fetch?: FetchLike }).fetch;
   if (!f) throw new Error("No fetch: pass one to the client");
-  return f.bind(globalThis) as FetchLike;
+  return f.bind(globalThis);
 }
 
 /** Reads one response as the surface's envelope: the data, or the error it describes. */
