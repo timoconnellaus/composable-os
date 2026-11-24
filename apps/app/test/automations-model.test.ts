@@ -15,6 +15,8 @@ import {
   runOutcome,
   statusTone,
   testReportLines,
+  unknownObjectsText,
+  waitingText,
 } from "../src/components/automations/model.ts";
 
 const NOW = Date.parse("2026-11-05T12:00:00Z");
@@ -186,6 +188,22 @@ describe("test-mode report", () => {
 });
 
 describe("display helpers", () => {
+  it("says what an automation that runs only with other extensions waits for (ADR 0812)", () => {
+    expect(waitingText([])).toBeNull();
+    expect(waitingText(["bookings"])).toBe(
+      "Runs only with bookings, which is not installed and on",
+    );
+    expect(waitingText(["bookings", "courses"])).toBe(
+      "Runs only with bookings and courses, which are not installed and on",
+    );
+    expect(statusTone("waiting")).toBe("muted");
+    expect(unknownObjectsText([])).toBeNull();
+    expect(unknownObjectsText(["bookings.bookng"])).toBe(
+      "Names bookings.bookng, which does not exist: correct the extension and install it again",
+    );
+    expect(statusTone("broken")).toBe("fail");
+  });
+
   it("formats durations", () => {
     expect(formatDuration(3 * DAY)).toBe("3 days");
     expect(formatDuration(DAY)).toBe("1 day");

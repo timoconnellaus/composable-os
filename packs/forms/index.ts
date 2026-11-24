@@ -14,7 +14,8 @@
 //     through `intake.open`, as the door would take its answers (no public scope, ADR 0726), and a
 //     submission declares no customer or public read. Pack-role accounts (a coach, the door) reach
 //     none of it: the pack gives no role any reach;
-//   - opening and closing a form, and the hourly cap, are a person's (`personApproves`); a
+//   - opening and closing a form, its dates, its daily cap, its address and the hourly cap are a
+//     person's (`personApproves`); a
 //     submission's move into and out of spam is made only by `markSpam` and `notSpam`, which an AI
 //     may ask for and a person approves (ADR 0552).
 // The tools in tools.ts compose the host's operations and add no rules of their own.
@@ -60,7 +61,11 @@ export default defineExtension({
         slug: {
           type: "slug",
           label: "Address",
-          description: "How a link or a QR code names the form. Made from the title.",
+          description:
+            "How a link or a QR code names the form. Made from the title. Changed after " +
+            "publishing, the old address still finds the form.",
+          // Printed QR codes and shared links name it: a person's to change (an AI may ask).
+          personApproves: true,
         },
         kind: {
           type: "select",
@@ -111,17 +116,17 @@ export default defineExtension({
             "made elsewhere. It cannot ask for an email that fills in a person.",
         },
         destination: {
-          type: "select",
+          type: "text",
           label: "Also make",
-          options: [{ value: "leads.lead", label: "A lead (Leads)" }],
           description:
-            "A record of another pack each answer also makes. Only a pack that is installed can " +
-            "be chosen; never on an anonymous form.",
+            "A record of another pack each answer also makes, named as <pack>.<object>. Only an " +
+            "installed pack whose record takes a form's answers can be named (none yet); never " +
+            "on an anonymous form.",
         },
         notify: {
           type: "user",
           label: "Who is told",
-          description: "Told of each answer and of a low rating. Left empty, the admins.",
+          description: "Told of each answer. Left empty, the admins.",
         },
         receipt: {
           type: "boolean",
@@ -138,17 +143,20 @@ export default defineExtension({
           max: 10,
           step: 1,
           description:
-            "A first rating answer at or under this tells the person told (or the admins). " +
+            "A first rating answer at or under this tells the answers' owner (or the admins). " +
             "Left empty, no notice.",
         },
-        opensAt: { type: "datetime", label: "Open from" },
-        closesAt: { type: "datetime", label: "Open until" },
+        // When a form takes answers, and how many a day, take effect at once (the door reads the
+        // working copy): a person's to change, as opening and closing it are (an AI may ask).
+        opensAt: { type: "datetime", label: "Open from", personApproves: true },
+        closesAt: { type: "datetime", label: "Open until", personApproves: true },
         dailyCap: {
           type: "number",
           label: "Answers a day, at most",
           min: 1,
           step: 1,
           description: "Left empty, no limit of its own.",
+          personApproves: true,
         },
         status: {
           type: "select",

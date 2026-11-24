@@ -39,8 +39,8 @@ pack's read (a rule in the client, ADR 0401).
   sections to show, in order: the base sections always, Payment method only when the caller pays a
   subscription that has not ended (`paysSubscription`), and each pack section whose `has` objects
   hold a record the caller reads as theirs: their own, or a live dependant's where the object
-  opens to guardians (ADR 0540). That read is the seam's new `heldSource`: the customer scope's
-  rows without what is shared with every signed-in customer (ADR 0447) or reached through their
+  opens to guardians (ADR 0540). That read is the seam's `ownReadSource` (ADR 0890's, shared
+  with the calendar feed): the customer scope's rows without what is shared with every signed-in customer (ADR 0447) or reached through their
   own records (ADR 0439), so a notice everyone reads is nobody's section and a child's ticket (a
   ticket does not open to guardians) shows no Tickets to the parent. A pack section's key is
   `<pack>.<key>`, so two packs never collide and no pack takes a base key.

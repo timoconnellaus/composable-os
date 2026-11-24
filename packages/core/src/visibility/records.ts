@@ -68,7 +68,7 @@ function fieldValue(field: FieldDefinition, row: AnyRow): unknown {
  * `holders` parts are removed too unless the record is in `held` (ADR 0477): the records the
  * caller holds access to, as `holdsAccess` answered.
  */
-function toRecord(
+export function toRecord(
   object: ObjectDefinition,
   row: AnyRow,
   viewer: Viewer,

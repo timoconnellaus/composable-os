@@ -2,7 +2,7 @@
 // sections always (Payment method only for someone who pays a subscription); a shipped pack's
 // section when the pack is installed and active and the caller, or a child linked to them where
 // the object opens to guardians, holds a record of one of the objects its `portal` declaration
-// names in `has`, read through the seam (`heldSource`: their own records, never what is shared
+// names in `has`, read through the seam (`ownReadSource`: their own records, never what is shared
 // with every signed-in customer). No pack code runs: the declaration is the pack's manifest, and
 // whether a section shows is a count of rows. The client renders the answer.
 //
@@ -15,7 +15,7 @@ import { type RawBuilder, sql } from "kysely";
 import { OperationError } from "../errors.ts";
 import { getObject } from "../fields/index.ts";
 import type { HandlerContext } from "../operation.ts";
-import { heldSource } from "../visibility/index.ts";
+import { ownReadSource } from "../visibility/index.ts";
 
 /**
  * The base sections and where they sit (the client's `BASE_SECTIONS` holds the same keys, labels
@@ -95,8 +95,10 @@ export async function portalOf(
   const checks: { name: string; query: RawBuilder<unknown> }[] = [];
   for (const name of objects) {
     const definition = getObject(name);
-    const source = definition ? heldSource(ctx, definition, "held") : null;
-    if (!source) continue;
+    // Their own records only (and a child's where the object opens to guardians): an object
+    // without a customer declaration holds none of theirs.
+    if (!definition?.customer) continue;
+    const source = ownReadSource(ctx, definition, "held");
     checks.push({ name, query: sql`EXISTS (SELECT 1 FROM ${source})` });
   }
   checks.push({

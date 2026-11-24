@@ -98,3 +98,10 @@ person on the staff is counted per hour, not logged with its input (ADR 0090).
   sections a fixed few statements, each under 100 bound values, and its last section found.
 - `packs/content/test/renderers.test.tsx`: the same anchors as each heading's `id` on the web and
   `nativeID` in the app, two equal headings told apart.
+
+## Amendment, 2026-11-24 (stage 38 step 2, ADR 0701)
+On an object that declares `publishable.staffRead` the index also holds every text content field,
+and a staff caller's `content.search` matches all of them and reads the records through the
+staff-read source (uncached); anyone else's search still matches only the fields the public reads
+(`searchedFields(object, reader)`), so a staff-only field's rows are never a public result. See
+[ADR 0701](0701-staff-read-of-published-versions-and-its-reach-for-pack-roles.md).

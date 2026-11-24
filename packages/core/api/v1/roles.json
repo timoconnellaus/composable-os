@@ -10,6 +10,9 @@
       "operations": [
         "ack.confirm",
         "ack.mine",
+        "content.search",
+        "content.staffGet",
+        "content.staffList",
         "record.get",
         "record.list",
         "screens.mine",
@@ -34,6 +37,9 @@
       "operations": [
         "ack.confirm",
         "ack.mine",
+        "content.search",
+        "content.staffGet",
+        "content.staffList",
         "record.get",
         "record.list",
         "screens.mine",
@@ -60,6 +66,9 @@
       "operations": [
         "ack.confirm",
         "ack.mine",
+        "content.search",
+        "content.staffGet",
+        "content.staffList",
         "screens.mine",
         "x.dailychecks.day",
         "x.dailychecks.done",
@@ -94,6 +103,9 @@
       "operations": [
         "ack.confirm",
         "ack.mine",
+        "content.search",
+        "content.staffGet",
+        "content.staffList",
         "record.get",
         "record.list",
         "screens.mine",

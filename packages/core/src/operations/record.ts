@@ -106,6 +106,7 @@ import {
   warningsOf,
 } from "../staffing/index.ts";
 import { stockCounterInsert } from "../stock/index.ts";
+import { assertStockLineRestorable } from "../stock/moves.ts";
 import { type Reader, visibleSource, visibleTable } from "../visibility/index.ts";
 import { setRecordWriter } from "../visibility/writes.ts";
 
@@ -1750,6 +1751,8 @@ export const recordRestore = defineOperation({
     // checklist comes back by someone who rosters.
     checklistRecordRestored(ctx, object, input.id);
     await assertChecklistHolderMove(ctx, object, input.id, "restore", undefined);
+    // Never a line back under a record that moved stock meanwhile (ADR 0681).
+    await assertStockLineRestorable(ctx, object, input.id);
     // A granted holder comes back only in a final state (ADR 0513).
     const stateColumn = object.states
       ? fieldStorage(object.name, object.states.field)?.column

@@ -89,3 +89,10 @@ nobody types, a refund that does not restock, and room for receipts, counts and 
 - Trash has no stock rule: a record whose units unpaid orders hold may go to Trash, and those
   orders confirm or release their claims as usual. Its counter and claims stay with it; nothing is
   sold that was not on hand.
+
+## Amended 2026-11-24 (stage 37 step 2, ADR 0681)
+
+`stockMoves` writes `received`, `written_off`, `used` and `counted` movements from a record's
+state, and the rule above is now checked: an object with stock is sellable, or the target of a
+`stockMoves` of its extension (step 3 narrows sellable to `sellable.goods`). `stock.notify` names
+who is told of low stock. See [ADR 0681](0681-stock-moves-a-record-s-state-moves-stock.md).

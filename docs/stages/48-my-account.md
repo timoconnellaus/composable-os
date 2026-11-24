@@ -48,7 +48,7 @@ question for the owner is open.
   `portal` manifest key and its checks (`portalIssues` in the SDK; `cos ext check` reads each
   block's `block.json` for its pack, skin, export and that it calls only customer or public
   operations; a runtime extension's refused at check and install, ignored at run time);
-  `me.portal` (`customers/portal.ts`, the seam's new `heldSource`, two statements whatever is
+  `me.portal` (`customers/portal.ts`, the seam's `ownReadSource`, two statements whatever is
   installed; `packages/core/test/me-portal.test.ts`); the declarations in Bookings, Memberships,
   Courses, Ticketing and Programs; the release's `contract/roles.json` `portal` with each pack's
   hooks factory; `cos add` copying the listed packs' section blocks once an app has a shell and

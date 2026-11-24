@@ -61,7 +61,7 @@ export type Operations = {
     output: { object: string; id: string; values: Record<string, unknown>; kind: "preview" };
   };
   /**
-   * Search the published records of a content object (help pages, blog posts) by the words the public reads in them: their published versions only, never a draft or a working copy. Every word of two letters or more must match the start of a word, so partial input works. Best matches first, one result per record, each with its slug, title, the section the best match is in (its heading and anchor, to link to) and a highlighted snippet as plain and matching parts. Pass nextCursor back as cursor. Read-only.
+   * Search the published records of a content object (help pages, blog posts) by the words the public reads in them: their published versions only, never a draft or a working copy. Staff searching an object they read as published (procedures) search all its published words. Every word of two letters or more must match the start of a word, so partial input works. Best matches first, one result per record, each with its slug, title, the section the best match is in (its heading and anchor, to link to) and a highlighted snippet as plain and matching parts. Pass nextCursor back as cursor. Read-only.
    */
   "content.search": {
     kind: "query";
@@ -115,6 +115,30 @@ export type Operations = {
     kind: "query";
     input: Record<string, unknown>;
     output: { days: number; items: ({ key: string; kind: ("agree") | ("card_failing") | ("confirm_payment") | ("balance_due") | ("finish_paying") | ("pass_expiring") | ("pass_used_up") | ("trial_ending"); person: { id: string; name: string; self: boolean }; record: { object: string; id: string; title: string }; at: (string) | (null); amount: (number) | (null); currency: (string) | (null); usesLeft: (number) | (null) })[] };
+  };
+  /**
+   * Turn off your private calendar link, as a signed-in customer: it then answers as if it never existed (a calendar app subscribed to it keeps what it last fetched, and gets no more). Make a new one with me.calendarFeed.rotate.
+   */
+  "me.calendarFeed.revoke": {
+    kind: "mutation";
+    input: Record<string, unknown>;
+    output: { revoked: boolean };
+  };
+  /**
+   * A new private link for your calendar, as a signed-in customer: your bookings and your children's, from two weeks ago to four months ahead, for a calendar app to subscribe to. It replaces any old link, which stops working at once. The link is shown this once and never again: anyone who has it sees your bookings, so do not share it. Your own act.
+   */
+  "me.calendarFeed.rotate": {
+    kind: "mutation";
+    input: Record<string, unknown>;
+    output: { path: string; createdAt: string };
+  };
+  /**
+   * Whether you have a private calendar link (your bookings, and your children's, for a calendar app to subscribe to), and when it was made, as a signed-in customer. Never the link itself: it is shown once, when made. Read-only.
+   */
+  "me.calendarFeed.status": {
+    kind: "query";
+    input: Record<string, unknown>;
+    output: { active: boolean; createdAt: (string) | (null) };
   };
   /**
    * Your check-in code, as a signed-in customer: the code to hold up at the gym's check-in tablet, and one for each child linked to you (by their given name), each changing every 30 seconds. It works only while this sign-in lasts. In the native app it also carries the secret the app makes the code from offline. Made the first time it is asked for on a sign-in.
@@ -384,23 +408,26 @@ export const operations = {
   "content.list": { kind: "query", invalidates: [] },
   "content.preview": { kind: "query", invalidates: [] },
   "content.search": { kind: "query", invalidates: [] },
-  "me.agreements.accept": { kind: "mutation", invalidates: ["me.agreements.due","me.agreements.get","me.agreements.list","me.agreements.pdf","me.attention","me.family","me.get","me.portal","me.sessions.list","my.get","my.list"] },
+  "me.agreements.accept": { kind: "mutation", invalidates: ["me.agreements.due","me.agreements.get","me.agreements.list","me.agreements.pdf","me.attention","me.calendarFeed.status","me.family","me.get","me.portal","me.sessions.list","my.get","my.list"] },
   "me.agreements.due": { kind: "query", invalidates: [] },
   "me.agreements.get": { kind: "query", invalidates: [] },
   "me.agreements.list": { kind: "query", invalidates: [] },
   "me.agreements.pdf": { kind: "query", invalidates: [] },
   "me.attention": { kind: "query", invalidates: [] },
-  "me.code": { kind: "mutation", invalidates: ["me.agreements.due","me.agreements.get","me.agreements.list","me.agreements.pdf","me.attention","me.family","me.get","me.portal","me.sessions.list","my.get","my.list"] },
-  "me.deleteAccount": { kind: "mutation", invalidates: ["me.agreements.due","me.agreements.get","me.agreements.list","me.agreements.pdf","me.attention","me.family","me.get","me.portal","me.sessions.list","my.get","my.list"] },
+  "me.calendarFeed.revoke": { kind: "mutation", invalidates: ["me.agreements.due","me.agreements.get","me.agreements.list","me.agreements.pdf","me.attention","me.calendarFeed.status","me.family","me.get","me.portal","me.sessions.list","my.get","my.list"] },
+  "me.calendarFeed.rotate": { kind: "mutation", invalidates: ["me.agreements.due","me.agreements.get","me.agreements.list","me.agreements.pdf","me.attention","me.calendarFeed.status","me.family","me.get","me.portal","me.sessions.list","my.get","my.list"] },
+  "me.calendarFeed.status": { kind: "query", invalidates: [] },
+  "me.code": { kind: "mutation", invalidates: ["me.agreements.due","me.agreements.get","me.agreements.list","me.agreements.pdf","me.attention","me.calendarFeed.status","me.family","me.get","me.portal","me.sessions.list","my.get","my.list"] },
+  "me.deleteAccount": { kind: "mutation", invalidates: ["me.agreements.due","me.agreements.get","me.agreements.list","me.agreements.pdf","me.attention","me.calendarFeed.status","me.family","me.get","me.portal","me.sessions.list","my.get","my.list"] },
   "me.family": { kind: "query", invalidates: [] },
   "me.get": { kind: "query", invalidates: [] },
-  "me.pin.clear": { kind: "mutation", invalidates: ["me.agreements.due","me.agreements.get","me.agreements.list","me.agreements.pdf","me.attention","me.family","me.get","me.portal","me.sessions.list","my.get","my.list"] },
-  "me.pin.set": { kind: "mutation", invalidates: ["me.agreements.due","me.agreements.get","me.agreements.list","me.agreements.pdf","me.attention","me.family","me.get","me.portal","me.sessions.list","my.get","my.list"] },
+  "me.pin.clear": { kind: "mutation", invalidates: ["me.agreements.due","me.agreements.get","me.agreements.list","me.agreements.pdf","me.attention","me.calendarFeed.status","me.family","me.get","me.portal","me.sessions.list","my.get","my.list"] },
+  "me.pin.set": { kind: "mutation", invalidates: ["me.agreements.due","me.agreements.get","me.agreements.list","me.agreements.pdf","me.attention","me.calendarFeed.status","me.family","me.get","me.portal","me.sessions.list","my.get","my.list"] },
   "me.portal": { kind: "query", invalidates: [] },
   "me.sessions.list": { kind: "query", invalidates: [] },
-  "me.sessions.revoke": { kind: "mutation", invalidates: ["me.agreements.due","me.agreements.get","me.agreements.list","me.agreements.pdf","me.attention","me.family","me.get","me.portal","me.sessions.list","my.get","my.list"] },
-  "me.signOut": { kind: "mutation", invalidates: ["me.agreements.due","me.agreements.get","me.agreements.list","me.agreements.pdf","me.attention","me.family","me.get","me.portal","me.sessions.list","my.get","my.list"] },
-  "me.update": { kind: "mutation", invalidates: ["me.agreements.due","me.agreements.get","me.agreements.list","me.agreements.pdf","me.attention","me.family","me.get","me.portal","me.sessions.list","my.get","my.list"] },
+  "me.sessions.revoke": { kind: "mutation", invalidates: ["me.agreements.due","me.agreements.get","me.agreements.list","me.agreements.pdf","me.attention","me.calendarFeed.status","me.family","me.get","me.portal","me.sessions.list","my.get","my.list"] },
+  "me.signOut": { kind: "mutation", invalidates: ["me.agreements.due","me.agreements.get","me.agreements.list","me.agreements.pdf","me.attention","me.calendarFeed.status","me.family","me.get","me.portal","me.sessions.list","my.get","my.list"] },
+  "me.update": { kind: "mutation", invalidates: ["me.agreements.due","me.agreements.get","me.agreements.list","me.agreements.pdf","me.attention","me.calendarFeed.status","me.family","me.get","me.portal","me.sessions.list","my.get","my.list"] },
   "media.play": { kind: "query", invalidates: [] },
   "media.serve": { kind: "query", invalidates: [] },
   "my.get": { kind: "query", invalidates: [] },

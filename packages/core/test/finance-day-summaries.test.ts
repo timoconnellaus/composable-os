@@ -677,8 +677,7 @@ describe("closing April, the files and the entries", () => {
       admin,
       JUNE,
     );
-    expect(old.csv.split("\r\n").slice(3)).toEqual(v1Sales.csv.split("\r\n").slice(3));
-    expect(old.csv.split("\r\n")[2]).toContain('"Reopened since; this version is kept as it was"');
+    expect(old.csv).toBe(v1Sales.csv);
     // May closed again no longer counts it: it is no one's late source twice.
     await call("finance.close", { month: "2026-05" }, admin, JUNE);
     const may = await call<EntriesOut>("finance.entries", { month: "2026-05" }, admin, JUNE);

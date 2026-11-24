@@ -41,7 +41,8 @@ export type Asker = "public" | "customer" | "staff";
 
 /**
  * The id of the live form of `objectName` whose address is `slug` (a form object with
- * `publishable.slug`), or not found: the same answer as `openForm` gives, so an address tells a
+ * `publishable.slug`), or the form an old address of it points to (a slug changed after
+ * publishing keeps its old one as a redirect), or not found: the same answer as `openForm` gives, so an address tells a
  * caller nothing a closed or unpublished form would not. Whether it takes answers is `openForm`'s.
  */
 export async function formIdBySlug(
@@ -58,8 +59,17 @@ export async function formIdBySlug(
     limit: 1,
   });
   const id = page.items[0]?.id;
-  if (!id) throw notFound();
-  return id;
+  if (id) return id;
+  // An old address of a published form whose slug changed (ADR 0442): a printed QR code or a link
+  // still finds the form. Whether it takes answers is openForm's, as for its address now.
+  const redirect = await ctx.db
+    .selectFrom("core_slug_redirect")
+    .select("record_id")
+    .where("object_type", "=", object.name)
+    .where("slug", "=", slug)
+    .executeTakeFirst();
+  if (!redirect) throw notFound();
+  return redirect.record_id;
 }
 
 /**

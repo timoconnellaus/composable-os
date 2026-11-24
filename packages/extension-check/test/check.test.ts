@@ -96,6 +96,12 @@ describe("cos ext check on the shipped extensions", () => {
     });
   }
 
+  it("installs the extension an automation runs only with first, and checks against it (ADR 0812)", async () => {
+    const result = await checkExtensionDir(fixture("onlywith/owuser"));
+    expect(result.issues.map((i) => i.path)).toEqual(["automations.afterVisit.trigger.object"]);
+    expect(result.issues[0]?.message).toContain('Unknown object "owbase.visits"');
+  });
+
   it("reconciles the extension another one builds on first (Leads relates to deals.deal)", async () => {
     const result = await checkExtensionDir(shipped("leads"));
     expect(result.issues).toEqual([]);

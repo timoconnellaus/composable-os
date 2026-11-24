@@ -517,6 +517,27 @@ describe("a pack role's client in the mobile app (ADR 0451)", () => {
     expect(read(dir, "apps/mobile/src/client/customer.ts")).not.toContain('"approval.list"');
   });
 
+  it("refuses mobile.owner against a release older than the owner's client, saying to upgrade", async () => {
+    await publish("1.0.0", (files) => {
+      const roles = JSON.parse(files["contract/roles.json"] as string);
+      delete roles.owner;
+      files["contract/roles.json"] = JSON.stringify(roles);
+    });
+    const dir = await created();
+    writeFileSync(
+      join(dir, "product.ts"),
+      read(dir, "product.ts").replace(
+        /(\n\s*web: \{[^\n]*\},)/,
+        '$1\n  mobile: { dir: "apps/mobile", owner: true },',
+      ),
+    );
+    const refused = await cos("client", "generate");
+    expect(refused.code).toBe(1);
+    expect(refused.output).toContain("no owner's client (mobile.owner)");
+    expect(refused.output).toContain("Upgrade the platform version first");
+    expect(existsSync(join(dir, "apps/mobile/src/client/roles/owner.ts"))).toBe(false);
+  });
+
   it("refuses a role of a pack the product does not list", async () => {
     await publish("1.0.0");
     const dir = await created();

@@ -57,6 +57,7 @@ import { judgeOperations } from "./judge.ts";
 import { locationOperations } from "./location.ts";
 import { meOperations } from "./me.ts";
 import { meAttentionOperations } from "./me-attention.ts";
+import { meCalendarFeedOperations } from "./me-calendar-feed.ts";
 import { mePortalOperations } from "./me-portal.ts";
 import { mediaOperations } from "./media.ts";
 import { mediaVideoOperations } from "./media-video.ts";
@@ -210,6 +211,7 @@ export const coreOperations = [
   ...staffingOperations,
   ...roomsOperations,
   ...staffingFeedOperations,
+  ...meCalendarFeedOperations,
   ...staffingHoursOperations,
   ...staffingLeaveOperations,
   ...staffingPayOperations,

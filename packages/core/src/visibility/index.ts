@@ -35,6 +35,7 @@ import { customerViaScope, type ViaScope, viaObject } from "./via.ts";
 
 export { type CustomerScope, customerProblems } from "./customer.ts";
 export {
+  dependantFirstNames,
   type Family,
   type FamilyMember,
   familyOf,
@@ -353,23 +354,21 @@ export function ownedSource(
 }
 
 /**
- * The records of `object` a customer reads as theirs (stage 48, ADR 0710): the rows whose
- * customer field is their Person, and a live dependant's where the object opens to guardians
- * (ADR 0540), without what is shared with every signed-in customer (ADR 0447) or reached only
- * through their own records (ADR 0439). Rows carry `owner`, whose Person's record it is. Null for
- * anyone but a customer, and on an object that declares no customer: they hold none of it.
+ * The ids of a customer's own records of `object` as they read them, with `owner` (whose Person's
+ * record it is): their Person's, and a live dependant's where the object opens to guardians
+ * (ADR 0540), never what is only shared with them (ADR 0447). For reads that show a customer their
+ * own records and say whose each is (the calendar feed, ADR 0890): join it to `visibleSource` by
+ * id. Anyone but a customer, or an object without a customer, has none.
  */
-export function heldSource(
+export function ownReadSource(
   ctx: Viewer,
   object: ObjectDefinition,
-  alias?: string,
-): VisibleSource<AnyRow, string> | null {
-  if (ctx.principal.kind !== "customer") return null;
-  const definition = getObject(object.name) ?? object;
-  const scope = customerScope(definition, ctx.principal.personId);
-  if (!scope) return null;
-  return sql<AnyRow>`(SELECT id, ${sql.ref(scope.column)} AS owner FROM ${sql.table(definition.source)} WHERE ${ownersWhere(scope.column, scope.personId, scope.dependants)})`.as(
-    alias ?? definition.source,
+  alias: string,
+): VisibleSource<AnyRow, string> {
+  const scope = scopeOf(ctx.principal, object);
+  if (scope.kind !== "customer") throw unknownObject(object.name);
+  return sql<AnyRow>`(SELECT id, ${sql.ref(scope.column)} AS owner FROM ${sql.table(object.source)} WHERE ${ownersWhere(scope.column, scope.personId, scope.dependants)})`.as(
+    alias,
   );
 }
 
