@@ -3,6 +3,7 @@
 // top of the page and offers its last-known-good version. Extensions that declare typed settings
 // (ADR 0058) show a settings form, editable by admins.
 
+import type { CoreOutput } from "@composable-os/core";
 import { Badge } from "@composable-os/ui/components/badge";
 import { Button } from "@composable-os/ui/components/button";
 import {
@@ -26,21 +27,7 @@ import { errorMessage, useOp, useOpMutation } from "#/lib/query";
 
 export const Route = createFileRoute("/_app/settings/extensions")({ component: ExtensionsPage });
 
-type Summary = {
-  id: string;
-  label: string;
-  description: string | null;
-  source: "shipped" | "runtime";
-  status: "active" | "disabled" | "quarantined";
-  statusReason: string | null;
-  version: string;
-  commit: string;
-  lastGoodCommit: string | null;
-  failureCount: number;
-  permissions: { read: string[]; write: string[]; operations: string[]; modules: string[] };
-  objects: string[];
-  tools: string[];
-};
+type Summary = CoreOutput<"extension.list">["items"][number];
 
 const STATUS_VARIANT = {
   active: "secondary",
@@ -51,7 +38,7 @@ const STATUS_VARIANT = {
 function ExtensionsPage() {
   const { isAdmin } = Route.useRouteContext();
   const list = useOp("extension.list", {});
-  const items = (list.data?.items ?? []) as Summary[];
+  const items = list.data?.items ?? [];
   const quarantined = items.filter((i) => i.status === "quarantined");
   return (
     <PageLayout

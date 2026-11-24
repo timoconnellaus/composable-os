@@ -373,13 +373,10 @@ function WidgetCard({
     }
   }
 
-  const select = widget.clickThrough
+  const clickThrough = widget.clickThrough;
+  const select = clickThrough
     ? (row: Record<string, unknown>) => {
-        const target = resolveClickThrough(
-          widget.clickThrough as never,
-          row,
-          query.data?.params ?? {},
-        );
+        const target = resolveClickThrough(clickThrough, row, query.data?.params ?? {});
         void openFilteredList(navigate, target.object, target.filter);
       }
     : undefined;
