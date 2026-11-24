@@ -1701,6 +1701,19 @@ the end of the day, it is missed. Those who **manage checklists** (`checklists:w
 day went and may tick for someone. Its screens are the Daily checklists pack's.
 _Avoid_: task list, to-do (a task is something else), inspection, daily task
 
+**Finance period**, **Close** and **Book entry** (stage 52, step 1 built: ADRs 0790 and 0791)
+A **finance period** is a calendar month of the business's days (local, in the organisation's
+zone: a day across a clock change is 23 or 25 hours). The business **closes** each month once it has
+ended and the month before is closed: its **book entries** and report rows are kept exactly as they
+were (a **version**), and **reopening** it (a person, with why) keeps that version; closing again
+writes the next. A book entry is one business day's summary, one payout, what is held for customers
+at the month's end, or what arrived **late** for a closed month (counted in the first open month,
+marked as belonging to the closed one): lines with headings in the host's words, debits equal to
+credits, a key the same in every version and a fingerprint of its lines. Money is counted on the
+day the host recorded it. Seen with `finance:read`, closed and reopened with `finance:close`
+(admins, and by grant); closing and reopening are a person's, never an AI's.
+_Avoid_: ledger, journal, accounting period (accounting is stage 61's), lock (the pay period's word)
+
 **Follows** (a state cascade)
 An object whose records move when the record a relation points to moves (`states.follows`): a
 class cancelled moves its bookings to `cancelled_by_us`, as the host, in the same batch (ADR 0507).
@@ -2001,7 +2014,8 @@ _Avoid_: scanner role, coach role
 
 **Permission grant**
 A named permission a human admin grants one staff account on top of its role (ADR 0449):
-`records:publish` (a coach who is a member publishes programs), `orders:refund`, or a pack tool's
+`records:publish` (a coach who is a member publishes programs), `orders:refund`, `finance:read`
+(a bookkeeper), or a pack tool's
 permission the pack declares grantable. Read from the account on every call; it adds up with the
 account's role, and with a pack role too when it is a pack's permission (a core one is refused to a
 fixed role's account, ADR 0600); it never lets an AI actor do what only a person may.
