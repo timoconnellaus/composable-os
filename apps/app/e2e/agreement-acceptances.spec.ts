@@ -296,7 +296,15 @@ test("staff with the health permission read a health yes; a coach sees only the 
     object: "programs.classtype",
     values: { name: unique("Strength ") },
   });
-  const startsAt = Date.now() + 30 * 60_000;
+  // A class already running, and always today in UTC (the class's zone): one starting in 30
+  // minutes was tomorrow's for the coach between 23:30 and midnight.
+  const now = Date.now();
+  const midnight = Date.UTC(
+    new Date(now).getUTCFullYear(),
+    new Date(now).getUTCMonth(),
+    new Date(now).getUTCDate(),
+  );
+  const startsAt = Math.max(now - 5 * 60_000, midnight + 60_000);
   const klass = await op<{ id: string }>(page.request, "record.create", {
     object: "bookings.class",
     values: {

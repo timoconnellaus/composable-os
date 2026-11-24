@@ -34,6 +34,7 @@ import {
   openChange,
   upgradeNeedsAction,
 } from "./changes.ts";
+import { followCoolOff } from "./cooling-off.ts";
 import { followSubscriptionGrant } from "./grants.ts";
 import { type PeriodTerms, recordPaidPeriod } from "./periods.ts";
 import { useTrial } from "./trial.ts";
@@ -457,6 +458,9 @@ export async function applySubscriptionEvent(
       `subscription.ended_failed:${event.provider}:${row.id}`,
     );
   }
+  // A cooling off asked for (stage 44 step 7, ADR 0647): once the provider shows it ended, every
+  // paid order of it is owed back in this batch, a period paid on it later too.
+  await followCoolOff(ctx, row);
   done(outcome);
   return { outcome, orderId, state: orderState, confirmation };
 }
