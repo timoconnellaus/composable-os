@@ -49,14 +49,13 @@ import {
   pendingOf,
   type RateLimitBinding,
   RateLimitedError,
-  ROLES,
-  type Role,
   rateLimit,
   scrubMessage,
   scrubPattern,
   scrubText,
 } from "@composable-os/core";
 import { createCrmDb } from "@composable-os/db";
+import { activeUser } from "../acting-user.ts";
 import { aiContextFor } from "../ai.ts";
 import { approvalExpiryDays } from "../approval-expiry.ts";
 import { blobStoreFor, integrationRuntimeFor } from "../integrations.ts";
@@ -275,19 +274,9 @@ export class AgentJob extends DurableObject<Cloudflare.Env> {
   }
 
   async #user(userId: string): Promise<ActingUser> {
-    const db = createCrmDb(this.#env.DB);
-    const row = await db.query
-      .selectFrom("core_user")
-      .select(["id", "email", "name", "role", "deactivated_at"])
-      .where("id", "=", userId)
-      .executeTakeFirst();
-    if (!row || row.deactivated_at) throw new Error("This person's account is closed");
-    return {
-      id: row.id,
-      email: row.email,
-      name: row.name,
-      role: (ROLES as readonly string[]).includes(row.role) ? (row.role as Role) : "viewer",
-    };
+    const user = await activeUser(createCrmDb(this.#env.DB), userId);
+    if (!user) throw new Error("This person's account is closed");
+    return user;
   }
 
   /** Invocation context for this job: the agent's actor, its session and its guard. */

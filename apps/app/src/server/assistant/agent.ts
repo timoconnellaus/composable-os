@@ -80,8 +80,6 @@ import {
   personsWordsInThread,
   type RateLimitBinding,
   RateLimitedError,
-  ROLES,
-  type Role,
   type RoutineDelivered,
   type RoutineDelivery,
   rateLimit,
@@ -103,6 +101,7 @@ import {
 import { createCrmDb } from "@composable-os/db";
 import { Agent, type Connection, type ConnectionContext, type WSMessage } from "agents";
 import "./routine-agents.ts";
+import { activeUser } from "../acting-user.ts";
 import { aiContextFor } from "../ai.ts";
 import { approvalExpiryDays } from "../approval-expiry.ts";
 import { blobStoreFor, integrationRuntimeFor } from "../integrations.ts";
@@ -978,19 +977,9 @@ export class AssistantAgent extends withAssistantVoice(Agent<Cloudflare.Env>) im
   }
 
   async #actingUser(userId: string): Promise<ActingUser> {
-    const db = createCrmDb(this.#env.DB);
-    const row = await db.query
-      .selectFrom("core_user")
-      .select(["id", "email", "name", "role", "deactivated_at"])
-      .where("id", "=", userId)
-      .executeTakeFirst();
-    if (!row || row.deactivated_at) throw new ThreadError(403, "This account cannot sign in");
-    return {
-      id: row.id,
-      email: row.email,
-      name: row.name,
-      role: (ROLES as readonly string[]).includes(row.role) ? (row.role as Role) : "viewer",
-    };
+    const user = await activeUser(createCrmDb(this.#env.DB), userId);
+    if (!user) throw new ThreadError(403, "This account cannot sign in");
+    return user;
   }
 
   /** The thread's id (ath_…), its D1 row created the first time through `thread.open`. */
