@@ -11,7 +11,14 @@
 // the real pack's id, so the Memberships spec can share the database in either order); local
 // dev's Bookings is a variant whose `paidBy` also names the fixture (dev-setup.mjs). Step 4
 // replaces it with the real pack.
-import { type APIRequestContext, type Browser, expect, type Page, test } from "@playwright/test";
+import {
+  type Response as Answer,
+  type APIRequestContext,
+  type Browser,
+  expect,
+  type Page,
+  test,
+} from "@playwright/test";
 import { daytimeZone, open, openScreen, staffAccount, unique, watchRefusals } from "./helpers.ts";
 import {
   addFakeResource,
@@ -357,6 +364,88 @@ test("a coach signs in to the admin, opens today's list and ticks who came", asy
     await coach.page.goto("/s/bookings/desk");
     await expect(coach.page.getByTestId("not-found")).toBeVisible();
   } finally {
+    await coach.context.close();
+  }
+});
+
+// Stage 47 (second review of PR #303): the pack-role guard on server functions, through TanStack
+// Start's real path. An admin's browser calls two of `system.ts`'s server functions (the health
+// read and the hello workflow); the coach's own browser sends the same requests, from its own page,
+// and both are refused by the function middleware (`refusesFixedRole`, start.ts) before their
+// handlers run: the health read checks no role, so only the guard can refuse it.
+test("a coach's browser is refused a server function its role does not reach", async ({
+  page,
+  browser,
+  baseURL,
+}) => {
+  await setUp(page);
+  await open(page, "/status");
+  type Call = {
+    button: string;
+    url: string;
+    method: string;
+    headers: Record<string, string>;
+    body: string | null;
+  };
+  const calls: Call[] = [];
+  // Each button's own call (Refresh also asks for the session, which a coach may).
+  const theirs: [string, (r: Answer) => Promise<boolean>][] = [
+    [
+      "Refresh",
+      async (r) => r.request().method() === "GET" && /schemaVersion/.test(await r.text()),
+    ],
+    ["Run workflow", async (r) => r.request().method() === "POST"],
+  ];
+  for (const [button, mine] of theirs) {
+    const [response] = await Promise.all([
+      page.waitForResponse(
+        async (r) => new URL(r.url()).pathname.startsWith("/_serverFn/") && (await mine(r)),
+      ),
+      page.getByRole("button", { name: button }).click(),
+    ]);
+    expect(response.status(), button).toBe(200);
+    const request = response.request();
+    // What the page itself sets; the coach's browser adds its own cookie, origin and fetch site.
+    const headers = Object.fromEntries(
+      Object.entries(request.headers()).filter(
+        ([name]) =>
+          !/^(sec-|cookie$|origin$|referer$|user-agent$|host$|content-length$)/.test(name),
+      ),
+    );
+    calls.push({
+      button,
+      url: request.url(),
+      method: request.method(),
+      headers,
+      body: request.postData(),
+    });
+  }
+  const replay = (from: Page, call: Call) =>
+    from.evaluate(async ({ url, method, headers, body }) => {
+      const r = await fetch(url, { method, headers, ...(body === null ? {} : { body }) });
+      return await r.text();
+    }, call);
+  // The same replay from an account with no pack role reads the health: the request is sound.
+  const plain = await staffAccount(browser, page, baseURL ?? "", unique("Plain "));
+  const coach = await staffAccount(browser, page, baseURL ?? "", unique("Coach "), {
+    packRole: "bookings.coach",
+  });
+  try {
+    await open(plain.page, "/");
+    expect(await replay(plain.page, calls[0] as Call)).toContain("schemaVersion");
+    await open(coach.page, "/");
+    await expect(coach.page.locator('[data-shell="fixed-role"]')).toBeVisible();
+    for (const call of calls) {
+      const answer = { text: await replay(coach.page, call) };
+      // TanStack Start sends a thrown error as a serialised `Error` (with a 200): the guard's,
+      // not the handler's own refusal, and none of the handler's output.
+      expect(answer.text, call.button).toContain("$TSR/Error");
+      expect(answer.text, call.button).toContain("This account's role does not reach this");
+      expect(answer.text, call.button).not.toContain("schemaVersion");
+      expect(answer.text, call.button).not.toContain("Only an admin starts the hello workflow");
+    }
+  } finally {
+    await plain.context.close();
     await coach.context.close();
   }
 });
