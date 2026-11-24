@@ -735,6 +735,37 @@ system read through its API, by a gatekeeper Worker; each passes the contract's 
 suite**. The fake booking system (`booking-system-fake`) is for development and tests only.
 _Avoid_: connector, sync adapter, import
 
+### Booking system
+
+An outside system where a business's members book classes and hold memberships, kept beside the
+new system for a while. Its data reaches the host only through the **booking system contract**,
+read only. _Avoid_: provider (that is payments'), source
+
+### List (booking system)
+
+One loaded file of one kind from the booking system: `members` (people with their memberships and
+passes) or `timetable` (classes, their bookings and their coaches), with the date it was exported.
+A load **replaces** the list of its kind. A list is as old as its file: a `members` list past the
+**largest age** (31 days by default) is "too old to count". _Avoid_: import, sync
+
+### Outside person
+
+, **outside membership**, **outside class**, **outside booking**, **outside staff**
+
+The host's copies of what the booking system's current lists say (`core_outside_*`, ADR 0922), read
+only through `outside.*` and in no `rec_*` view. Each carries the list it came from and so its age.
+An outside person is kept only while they are a member, hold a live pass, are booked in the
+timetable, or are staff-linked. _Avoid_: synced member, imported member (an import makes records
+that stay)
+
+### Linked (by address)
+
+An outside person matched to exactly one live Person holding the same (folded) address, or an
+outside coach to one staff account: not a merge, and not proof that the Person is them. Nothing on
+the Person changes. Several candidates, or several outside people on one address, wait in **To
+match** for a person with `bookingSystem:manage` to link by hand (`outside.link`, with why), which
+is kept across loads by ref. _Avoid_: merged, synced
+
 ### Suggested contact
 
 An external address the org has exchanged mail with at least twice that matches no person,
@@ -2636,7 +2667,8 @@ _Avoid_: scanner role, coach role
 
 A named permission a human admin grants one staff account on top of its role (ADR 0449):
 `records:publish` (a coach who is a member publishes programs), `orders:refund`, `finance:read`
-(a bookkeeper), or a pack tool's
+(a bookkeeper), `bookingSystem:manage` (a manager who loads the booking system's lists), or a pack
+tool's
 permission the pack declares grantable. Read from the account on every call; it adds up with the
 account's role, and with a pack role too when it is a pack's permission (a core one is refused to a
 fixed role's account, ADR 0600); it never lets an AI actor do what only a person may.

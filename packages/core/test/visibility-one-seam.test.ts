@@ -103,6 +103,12 @@ const WHY = {
   codes:
     "check-in codes: a Person a code names is live, names compared, given names for their own app",
   /**
+   * The booking system's copy (stage 65, ADR 0922): which live Persons hold an address, by its
+   * folded form, to match an outside person to one by address. Answered to host code only, ids
+   * only, never to a caller.
+   */
+  outside: "booking-system matching: the live Persons holding an address, ids only, to host code",
+  /**
    * A pack role's limit (ADR 0889): which People the staff account looks after, read to narrow
    * what its role reaches, never answered to anyone.
    */
@@ -227,6 +233,7 @@ const REMAINING: Record<string, [reads: number, why: Why]> = {
   "orders/moves.ts": [10, WHY.host],
   // ADR 0560: an owed refund's order, read by the minute cron to settle the row.
   "orders/refund-due.ts": [1, WHY.host],
+  "outside/match.ts": [1, WHY.outside],
   // Programs' coach role (ADR 0889): the People an account looks after (its team's live records)
   // and whether a record is one of theirs; it only narrows what a staff read reaches.
   "pack-role-looks-after.ts": [4, WHY.role],

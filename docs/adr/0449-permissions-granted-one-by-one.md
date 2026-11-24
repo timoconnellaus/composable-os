@@ -117,3 +117,10 @@ approves. See [ADR 0800](0800-journeys-as-a-host-primitive.md).
 (close and reopen a month) join the core permissions an admin may grant one by one (a manager, a
 bookkeeper). Closing and reopening stay a person's whatever is granted (`actors: ["human"]`). See
 [ADR 0794](0794-finance-read-and-finance-close.md).
+
+## Amendment, 2026-11-24 (stage 65, step 3, ADR 0922)
+`bookingSystem:manage` (read the booking system's lists and To match; load and remove a list, and
+link or unlink an outside person or coach) joins the core permissions an admin may grant one by
+one. It is never granted to an account with a pack's fixed role. Loading, removing, linking and
+unlinking stay a person's whatever is granted (`actors: ["human"]`), and the booking-system settings
+stay a human admin's (`settings:manage`). See [ADR 0922](0922-the-outside-copy.md).

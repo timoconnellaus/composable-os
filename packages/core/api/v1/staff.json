@@ -55594,6 +55594,703 @@
       ]
     },
     {
+      "name": "outside.link",
+      "description": "Link an outside person from the members list to a Person, or a coach from the timetable list to a staff account, by hand, with why. A link made by a person is kept across loads by ref, whatever the address. It changes nothing on the Person: no name, address or phone, no customer account, nothing sent. Removes them from To match. A person with bookingSystem:manage only, never an AI.",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "person"
+              },
+              "ref": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 600,
+                "description": "The outside person's or coach's ref, as listed"
+              },
+              "personId": {
+                "type": "string",
+                "minLength": 1,
+                "description": "The Person (per_…) they are"
+              },
+              "why": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 500,
+                "description": "Why: kept with the link and audited"
+              }
+            },
+            "required": [
+              "kind",
+              "ref",
+              "personId",
+              "why"
+            ]
+          },
+          {
+            "type": "object",
+            "properties": {
+              "kind": {
+                "type": "string",
+                "const": "staff"
+              },
+              "ref": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 600,
+                "description": "The outside person's or coach's ref, as listed"
+              },
+              "userId": {
+                "type": "string",
+                "minLength": 1,
+                "description": "The staff account (usr_…) the coach is"
+              },
+              "why": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 500,
+                "description": "Why: kept with the link and audited"
+              }
+            },
+            "required": [
+              "kind",
+              "ref",
+              "userId",
+              "why"
+            ]
+          }
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "person",
+              "staff"
+            ]
+          },
+          "linkedTo": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "linkedTo"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "outside.matches",
+        "outside.settings.get",
+        "outside.status"
+      ]
+    },
+    {
+      "name": "outside.matches",
+      "description": "To match: the outside people and coaches the host could not link by address, each with why (several_people: more than one Person or staff account has the address; shared_address: several outside people share it, as a family on one mailbox; no_address: the list gives none) and the candidates (Persons, or staff accounts) to choose from. Nobody is linked until a person links them with outside.link. Paged by ref. Needs bookingSystem:manage.",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "description": "Only people, or only coaches",
+            "type": "string",
+            "enum": [
+              "person",
+              "staff"
+            ]
+          },
+          "after": {
+            "description": "The `next` of the page before",
+            "type": "string",
+            "maxLength": 700
+          },
+          "limit": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 50
+          }
+        }
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "matches": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "person",
+                    "staff"
+                  ]
+                },
+                "ref": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "address": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "why": {
+                  "type": "string",
+                  "enum": [
+                    "several_people",
+                    "shared_address",
+                    "no_address"
+                  ]
+                },
+                "candidates": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string"
+                      },
+                      "name": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "name"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "since": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "kind",
+                "ref",
+                "name",
+                "address",
+                "why",
+                "candidates",
+                "since"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "next": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "matches",
+          "next"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
+      "name": "outside.settings.get",
+      "description": "Read the booking-system settings: whether the copy is on, which outside membership and pass types make a Person a member (by default every membership, no pass), the business's links (where a member manages their membership, where to book a class) and the largest age a members list counts for; and the membership types the current members list holds, each marked whether it counts. Needs bookingSystem:manage.",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "source": {
+            "type": "string",
+            "const": "file"
+          },
+          "enabled": {
+            "type": "boolean",
+            "description": "Off: the copy is kept and nothing reads it"
+          },
+          "memberTypes": {
+            "anyOf": [
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The outside membership and pass types that make a Person a member; null: every type of kind membership, no pass"
+          },
+          "manageUrl": {
+            "description": "Where a member manages their membership",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "bookUrl": {
+            "description": "Where to book a class",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "largestAgeDays": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991,
+            "description": "A members list counts for this many days"
+          },
+          "updatedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "types": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "ref": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "membership",
+                    "pass"
+                  ]
+                },
+                "active": {
+                  "type": "boolean"
+                },
+                "counts": {
+                  "type": "boolean",
+                  "description": "It makes a Person a member"
+                }
+              },
+              "required": [
+                "ref",
+                "name",
+                "kind",
+                "active",
+                "counts"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "source",
+          "enabled",
+          "memberTypes",
+          "manageUrl",
+          "bookUrl",
+          "largestAgeDays",
+          "updatedAt",
+          "types"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
+      "name": "outside.settings.update",
+      "description": "Change the booking-system settings: on or off, the outside types that make a Person a member (null for the default: every membership type, no pass), the two links (each an https address, or null), and the largest age a members list counts for (1 to 90 days). Leave a setting out to keep it. A human admin in the app only.",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "memberTypes": {
+            "anyOf": [
+              {
+                "maxItems": 200,
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 600
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "manageUrl": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 500
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "bookUrl": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 500
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "largestAgeDays": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 90
+          }
+        }
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "source": {
+            "type": "string",
+            "const": "file"
+          },
+          "enabled": {
+            "type": "boolean",
+            "description": "Off: the copy is kept and nothing reads it"
+          },
+          "memberTypes": {
+            "anyOf": [
+              {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                }
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The outside membership and pass types that make a Person a member; null: every type of kind membership, no pass"
+          },
+          "manageUrl": {
+            "description": "Where a member manages their membership",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "bookUrl": {
+            "description": "Where to book a class",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "largestAgeDays": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991,
+            "description": "A members list counts for this many days"
+          },
+          "updatedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "source",
+          "enabled",
+          "memberTypes",
+          "manageUrl",
+          "bookUrl",
+          "largestAgeDays",
+          "updatedAt"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "outside.matches",
+        "outside.settings.get",
+        "outside.status"
+      ]
+    },
+    {
+      "name": "outside.status",
+      "description": "The state of the booking system's copy: the current members and timetable lists (each with the date its file was exported, its age, when and by whom it was loaded, rows read, refused and kept, and for a members list whether it is too old to count), how many outside people are kept and linked, and how many people and coaches wait in To match. With no list loaded every count is 0. Counts and dates only, no names. Needs bookingSystem:manage.",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "enabled": {
+            "type": "boolean"
+          },
+          "largestAgeDays": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "today": {
+            "type": "string"
+          },
+          "lists": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "members",
+                    "timetable"
+                  ]
+                },
+                "exportedOn": {
+                  "type": "string",
+                  "description": "The date the list's file was exported, YYYY-MM-DD"
+                },
+                "loadedAt": {
+                  "type": "string"
+                },
+                "loadedBy": {
+                  "type": "string"
+                },
+                "loadedByName": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "rows": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                "refused": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                "kept": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                "ageDays": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991,
+                  "description": "Days since it was exported"
+                },
+                "countsUntil": {
+                  "type": "string",
+                  "description": "A members list's last day counting"
+                },
+                "tooOld": {
+                  "type": "boolean",
+                  "description": "A members list past the largest age: shown, and counts no more"
+                }
+              },
+              "required": [
+                "kind",
+                "exportedOn",
+                "loadedAt",
+                "loadedBy",
+                "loadedByName",
+                "rows",
+                "refused",
+                "kept",
+                "ageDays",
+                "countsUntil",
+                "tooOld"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "counts": {
+            "type": "object",
+            "properties": {
+              "people": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "linked": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "memberships": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "classes": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "bookings": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "staff": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "staffLinked": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "waitingPeople": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "waitingStaff": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              }
+            },
+            "required": [
+              "people",
+              "linked",
+              "memberships",
+              "classes",
+              "bookings",
+              "staff",
+              "staffLinked",
+              "waitingPeople",
+              "waitingStaff"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "enabled",
+          "largestAgeDays",
+          "today",
+          "lists",
+          "counts"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
+      "name": "outside.unlink",
+      "description": "Unlink an outside person or coach, with why: they stay in the copy linked to nobody while they count (a member, a live pass, booked), and the host never links them by address again (the decision is kept by ref across loads) until a person links them with outside.link. Removes them from To match. A person with bookingSystem:manage only, never an AI.",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "person",
+              "staff"
+            ]
+          },
+          "ref": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 600,
+            "description": "The outside person's or coach's ref, as listed"
+          },
+          "why": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500,
+            "description": "Why: kept with the link and audited"
+          }
+        },
+        "required": [
+          "kind",
+          "ref",
+          "why"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "person",
+              "staff"
+            ]
+          },
+          "unlinked": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "kind",
+          "unlinked"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "outside.matches",
+        "outside.settings.get",
+        "outside.status"
+      ]
+    },
+    {
       "name": "person.changeJob",
       "description": "Record that a person changed jobs: their current primary affiliation ends (it stays in their job history), a new current affiliation at organisationId starts and becomes primary, so their job title and organisation follow it. Posts a 'Job change' system activity on the person's, the old organisation's and the new organisation's timelines. Works for a promotion within the same organisation too. Returns the person, the ended and the started affiliation.",
       "risk": "write",
