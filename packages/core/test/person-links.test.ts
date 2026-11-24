@@ -31,7 +31,7 @@ import {
   TICKET,
   VISIT,
 } from "./customer-fixtures.ts";
-import { context, createUser, db, setPreset, unique } from "./helpers.ts";
+import { context, createUser, db, refusal, setPreset, unique } from "./helpers.ts";
 
 let admin: ActingUser;
 let member: ActingUser;
@@ -41,15 +41,6 @@ beforeAll(async () => {
   member = await createUser("member");
   await installShop();
 }, 60_000);
-
-async function refusal(promise: Promise<unknown>) {
-  try {
-    await promise;
-  } catch (error) {
-    return error as { code: string; message: string; details?: Record<string, unknown> };
-  }
-  throw new Error("expected a refusal");
-}
 
 const person = async (label: string, email = false) =>
   (

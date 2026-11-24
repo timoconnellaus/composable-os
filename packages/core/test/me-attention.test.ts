@@ -17,6 +17,7 @@ import { createCrmDb } from "@composable-os/db";
 import type { ExtensionManifest } from "@composable-os/sdk";
 import { beforeAll, describe, expect, it } from "vitest";
 import type { ActingUser, AttentionItem, CustomerPrincipal } from "../src/index.ts";
+import { publishAgreement } from "./agreement-fixtures.ts";
 import { extId, manifest, reconcile } from "./extension-helpers.ts";
 import { context, createUser, unique } from "./helpers.ts";
 import { type Buyer, CURRENCY, createBuyer, outside, run } from "./order-fixtures.ts";
@@ -274,26 +275,9 @@ async function moveSubscription(
 }
 
 async function liveDocument(title: string): Promise<string> {
-  const body = {
-    blocks: [{ type: "paragraph", content: [{ type: "text", text: "Fixture text." }] }],
-  };
-  const { id } = await run<{ id: string }>(
-    "agreement.create",
-    { title, kind: "waiver" },
-    context(admin),
-  );
-  const saved = await run<{ hash: string; rev: number }>(
-    "agreement.draft.save",
-    { id, body, tickLabel: "I have read this fixture" },
-    context(admin),
-  );
-  await run(
-    "agreement.publish",
-    { documentId: id, draftHash: saved.hash, draftRev: saved.rev, number: 1, change: "small" },
-    context(admin),
-  );
-  await run("agreement.attach", { documentId: id, points: [POINT] }, context(admin));
-  return id;
+  const call = (name: string, input: unknown) => run(name, input, context(admin));
+  return (await publishAgreement(call, "waiver", { title, text: "Fixture text.", points: [POINT] }))
+    .id;
 }
 
 /** Everything one person of the member's family has, the orders and passes made for real. */

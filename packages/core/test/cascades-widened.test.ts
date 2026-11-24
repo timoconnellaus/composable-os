@@ -28,7 +28,7 @@ import {
 import { FOLLOWER_QUERIES_MAX, FOLLOWERS_MAX } from "../src/records/follows.ts";
 import { meterQueries } from "../src/records/query-meter.ts";
 import { extId, manifest, reconcile } from "./extension-helpers.ts";
-import { context, createUser, db, unique } from "./helpers.ts";
+import { context, createUser, db, refusal as refused, unique } from "./helpers.ts";
 
 const option = (values: string[]) => values.map((value) => ({ value, label: value }));
 
@@ -321,15 +321,6 @@ const restoreAndCancel = defineOperation({
 const fixtures = createInvoker(
   createRegistry([...coreRegistry.list(), hostMove, createThenCancel, restoreAndCancel]),
 );
-
-async function refused(promise: Promise<unknown>) {
-  const error = await promise.then(
-    () => null,
-    (e: unknown) => e,
-  );
-  expect(error).not.toBeNull();
-  return error as { code: string; details: Record<string, unknown>; message: string };
-}
 
 const create = async (object: string, values: Record<string, unknown>, now = NOW) =>
   ((await invoke("record.create", { object, values }, as(now))) as { id: string }).id;

@@ -9,7 +9,7 @@ import { beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { extensionHost } from "../src/index.ts";
 import { fakeProviderStub } from "../src/integrations/fake.ts";
 import { blobStore, hostFor, integrationRuntime } from "../src/integrations/runtime.ts";
-import { createAdmin, db, unique } from "./helpers.ts";
+import { createAdmin, createMember, db, unique } from "./helpers.ts";
 
 const integrations = integrationRuntime(env);
 const runner = exports.default as unknown as {
@@ -38,12 +38,6 @@ function op<T>(
   extra: Record<string, unknown> = {},
 ) {
   return invokeByName(name, input, as(user, extra)) as Promise<T>;
-}
-
-async function createMember(): Promise<ActingUser> {
-  const user = await createAdmin();
-  await env.DB.prepare("UPDATE core_user SET role = 'member' WHERE id = ?").bind(user.id).run();
-  return { ...user, role: "member" };
 }
 
 /** Plays the popup: the fake provider's consent page, then its handoff page's ticket. */
