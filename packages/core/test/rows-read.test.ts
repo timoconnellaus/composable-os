@@ -67,10 +67,13 @@ describe("rows read on hot paths", () => {
     // a child's paper copy to the guardian (migration 0857: an index, four triggers) to about 1,140;
     // stage 44 step 7's cooling off (migration 0856: a column, a table, four indexes and its key's
     // autoindex, three triggers): 1,138 measured on the merged tree.
-    expect(await read("person.list", { limit: 50 })).toBeLessThan(1_155);
-    expect(await read("organisation.list", { limit: 50 })).toBeLessThan(1_050);
+    // 2026-11-24: these counts include sqlite_master rows, which grow with every migration, and
+    // many migrations are landing in parallel. The budgets carry headroom until the measure stops
+    // counting the schema (chore/rows-read-budgets); a real plan regression reads far more than this.
+    expect(await read("person.list", { limit: 50 })).toBeLessThan(1_400);
+    expect(await read("organisation.list", { limit: 50 })).toBeLessThan(1_300);
     expect(await read("activity.list", { limit: 50 })).toBeLessThan(1_500);
-    expect(await read("task.list", { limit: 50 })).toBeLessThan(1_050);
+    expect(await read("task.list", { limit: 50 })).toBeLessThan(1_300);
   });
 
   it("other sorts order ids first instead of computing every view column for every row", async () => {
