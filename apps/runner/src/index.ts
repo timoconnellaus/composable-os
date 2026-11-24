@@ -28,6 +28,7 @@ import {
   runDuplicateCron,
   runPublishDue,
   runRecurringDue,
+  runReindexDue,
   runStaffingDue,
   runTimedMovesDue,
   runWaitlistDue,
@@ -311,6 +312,7 @@ export async function minuteTick(env: Env, at: Date) {
       duplicates: null,
       orders: null,
       publishing: null,
+      reindex: null,
       recurring: null,
       waitlist: null,
       timedMoves: null,
@@ -352,6 +354,13 @@ export async function minuteTick(env: Env, at: Date) {
       clock: () => at,
       floor: parseFloor(env.APPROVAL_FLOOR),
       ...(env.AUTOMATION_EVENTS ? { events: queueEventSink(env.AUTOMATION_EVENTS) } : {}),
+    }),
+  );
+  // The published-text index (stage 38, ADR 0700): caught up with what the objects declare.
+  const reindex = await minuteStep("published text", () =>
+    runReindexDue(createCrmDb(env.DB), {
+      clock: () => at,
+      floor: parseFloor(env.APPROVAL_FLOOR),
     }),
   );
   // Recurring schedules (stage 31, ADR 0500): series written since the last tick, and each once a
@@ -434,6 +443,7 @@ export async function minuteTick(env: Env, at: Date) {
     duplicates,
     orders,
     publishing,
+    reindex,
     recurring,
     waitlist,
     timedMoves,

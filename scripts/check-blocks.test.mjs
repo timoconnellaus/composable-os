@@ -88,6 +88,12 @@ test("a billing operation named as a string, in a subfolder, and unlisted is cau
   );
   assert.equal(lintBillingNames('api.mutation("subscription.portal")')[0]?.rule, "native-billing");
   assert.deepEqual(lintBillingNames('api.query("subscription.list", {})'), []);
+  // Cooling off (stage 44 step 7) ends a subscription: web only. Asking whether it is offered is
+  // a read the app may make.
+  assert.equal(lintBillingNames('api.mutation("subscription.coolOff")')[0]?.rule, "native-billing");
+  assert.deepEqual(lintBillingNames('api.query("subscription.coolingOff", {})'), []);
+  assert.equal(lintNoPurchase("const end = memberships.useCoolOff();")[0]?.rule, "no-purchase");
+  assert.deepEqual(lintNoPurchase("const asked = memberships.useCoolingOff(ids);"), []);
   assert.equal(
     lintUnlisted('call("x.courses.buy")', ["x.courses.course"])[0]?.rule,
     "unlisted-operation",

@@ -158,6 +158,12 @@ export function hostMediaUrl(hostUrl: string): (id: string, width: number) => st
     `${host}/api/v1/media/${encodeURIComponent(id)}${width ? `?w=${Math.round(width)}` : ""}`;
 }
 
+/**
+ * Each heading's anchor, in document order (ADR 0700): the host's own rule, so a renderer's
+ * heading ids are the anchors `content.search` returns.
+ */
+export { headingAnchors } from "@composable-os/sdk/rich-text";
+
 /** The text of inline runs, without marks: for excerpts, alt text and screen readers. */
 export function inlineText(content: readonly Inline[] | undefined): string {
   return (content ?? []).map((run) => (run.type === "text" ? run.text : "\n")).join("");

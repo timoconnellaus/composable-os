@@ -108,6 +108,12 @@ export interface AllowanceHolderSpec {
  *   its order). Only the host and this extension's own code set it, never a customer, and it
  *   cannot change while the record is in a spend state.
  *
+ * - `released` (stage 44 step 7, ADR 0647): a state of `returnIn` the host moves a record into
+ *   when the holder it spent from is ended early by its payer's cooling off and the record's time
+ *   is still ahead (a class not yet started): its use is returned and its place freed, as any move
+ *   into a return state does. Each state a record holds a use in (`spendIn`) needs a move into it
+ *   by the host. Left out, such records are kept.
+ *
  * Every field a holder's condition reads must be one the host fills (`copy` or `local`), so no
  * caller (a customer, staff, an AI) sets what pays for it.
  */
@@ -122,6 +128,7 @@ export interface AllowanceSpenderSpec {
   movedFrom?: { field: string; state: string };
   paidBy?: readonly string[];
   waived?: string;
+  released?: string;
 }
 
 /** The allowance behaviour: an object holds uses or spends them, never both. */
@@ -183,6 +190,7 @@ export const allowanceManifestSchema = z.union([
           movedFrom: z.object({ field: fieldName, state: stateValue }).strict().optional(),
           paidBy: z.array(path).min(1).max(20).optional(),
           waived: fieldName.optional(),
+          released: stateValue.optional(),
         })
         .strict(),
     })
@@ -494,6 +502,27 @@ export function checkObjectAllowance(
       contract(`${sp}.waived`, `"${s.waived}" must be a read-only boolean field of ${name}`);
     }
     notCustomerWritten(s.waived, `${sp}.waived`, "whether it spends a use");
+  }
+  if (s.released !== undefined) {
+    if (!s.returnIn.includes(s.released)) {
+      contract(
+        `${sp}.released`,
+        `"${s.released}" must be one of returnIn: a released record gives its use back`,
+      );
+    } else if (object.states) {
+      for (const from of s.spendIn) {
+        const ok = object.states.moves.some((move) => {
+          const froms: readonly string[] = Array.isArray(move.from) ? move.from : [move.from];
+          return move.to === s.released && froms.includes(from) && move.by.includes("host");
+        });
+        if (!ok) {
+          contract(
+            `${sp}.released`,
+            `A move from "${from}" into "${s.released}" by the host must be declared: the host releases it`,
+          );
+        }
+      }
+    }
   }
   if (s.movedFrom) {
     const rel = fieldOf(object, s.movedFrom.field);
