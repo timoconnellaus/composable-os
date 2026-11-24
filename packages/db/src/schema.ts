@@ -1389,6 +1389,21 @@ export interface CoreStaffTimeTable {
   ends: number;
 }
 
+/**
+ * Migration 1095 (stage 49, ADR 0765): a live occupant's claim on a thing (a room), kept by
+ * triggers on the declaring object's table. The database refuses two overlapping claims of one
+ * thing, whatever objects hold them.
+ */
+export interface CoreThingTimeTable {
+  object_type: string;
+  record_id: string;
+  thing_object: string;
+  thing_record: string;
+  /** Unix seconds with the margins, half-open. */
+  starts: number;
+  ends: number;
+}
+
 /** Migration 0811 (stage 45, ADR 0622): who may do which kind of work. */
 export interface CoreStaffQualificationTable {
   account_id: string;
@@ -3149,6 +3164,7 @@ export interface CoreDatabase {
   core_recurrence_exception: CoreRecurrenceExceptionTable;
   core_recurrence_guard: CoreRecurrenceGuardTable;
   core_staff_time: CoreStaffTimeTable;
+  core_thing_time: CoreThingTimeTable;
   core_staff_qualification: CoreStaffQualificationTable;
   core_staff_away: CoreStaffAwayTable;
   core_staff_hours: CoreStaffHoursTable;
