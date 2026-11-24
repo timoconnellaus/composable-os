@@ -115,8 +115,7 @@ CREATE TABLE core_accounting_post (
   CHECK ((state = 'sent') = (books_ref IS NOT NULL AND sent_at IS NOT NULL)),
   CHECK ((state = 'skipped') = (skipped_by IS NOT NULL AND skipped_at IS NOT NULL
     AND skip_reason IS NOT NULL)),
-  CHECK ((approved_by IS NULL) = (approved_at IS NULL)),
-  UNIQUE (source_kind, source_id, kind, n)
+  CHECK ((approved_by IS NULL) = (approved_at IS NULL))
 );
 
 -- What the runner picks up (by state and when), a day's batch and log, and what waits for a post.
