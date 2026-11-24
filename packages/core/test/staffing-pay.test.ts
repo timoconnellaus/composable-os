@@ -189,6 +189,8 @@ const STAFFING = [
   "staffing.payPeriod.lock",
   "staffing.payPeriod.reopen",
   "staffing.payPeriod.export",
+  "staffing.myPay",
+  "staffing.myPay.periods",
 ];
 
 let admin: ActingUser;
@@ -841,6 +843,273 @@ describe("only a person who handles pay (criterion 8)", () => {
   });
 });
 
+// --- A person's own totals (the owner's decision of 2026-11-24, ADR 0627's amendment) ------------
+
+type MyPay = {
+  period: { start: string; end: string; locked: boolean; preview: boolean; version: number | null };
+  counted: boolean;
+  basis: string;
+  totals: Record<string, unknown>[];
+  lines: (Record<string, unknown> & { title: string; clockChange: string | null })[];
+  minutes: number | null;
+  hours: string | null;
+};
+type HolderLine = Line & {
+  account: string;
+  object: string;
+  id: string;
+  kindName: string;
+  place: string | null;
+  beforeMinutes: number;
+  afterMinutes: number;
+};
+type HolderTotal = Total & { account: string; kind: unknown };
+
+/** A person's own totals, as Rostering's `myPay` asks for them: their own act, at the screen. */
+const myPay = (user: ActingUser, input: Record<string, unknown> = { start: START }, now = AFTER) =>
+  invokeByName("staffing.myPay", input, tool(user, { humanOnly: true }, now)) as Promise<MyPay>;
+
+/** The pay holder's figures for one person, in the shape a person's own read gives them. */
+async function holderFor(user: ActingUser, start = START) {
+  const all = await pay<
+    Omit<Totals, "lines" | "totals"> & {
+      lines: HolderLine[];
+      totals: HolderTotal[];
+    }
+  >("staffing.payPeriod.totals", { start });
+  const lines = all.lines.filter((l) => l.account === user.id);
+  return {
+    period: all.period,
+    totals: all.totals
+      .filter((t) => t.account === user.id)
+      .map(({ basis, kind, kindName, shifts, minutes, hours, notWorked, flagged }) => ({
+        basis,
+        kind,
+        kindName,
+        shifts,
+        minutes,
+        hours,
+        notWorked,
+        flagged,
+      })),
+    lines: lines.map((l) => ({
+      object: l.object,
+      id: l.id,
+      title: l.title,
+      kindName: l.kindName,
+      basis: l.basis,
+      place: l.place,
+      localDate: l.localDate,
+      localStart: l.localStart,
+      localEnd: l.localEnd,
+      shiftMinutes: l.shiftMinutes,
+      beforeMinutes: l.beforeMinutes,
+      afterMinutes: l.afterMinutes,
+      countedMinutes: l.countedMinutes,
+      notWorked: !l.counted,
+      listTaken: l.listTaken,
+      flagged: l.flagged,
+    })),
+    minutes: lines.reduce((sum, l) => sum + l.countedMinutes, 0),
+  };
+}
+
+/** A person's figures equal the pay holder's for them, line by line and in total. */
+async function expectSameAsHolder(user: ActingUser) {
+  const own = await myPay(user);
+  const holder = await holderFor(user);
+  expect(own.counted).toBe(true);
+  expect(own.period).toMatchObject({
+    start: holder.period.start,
+    end: holder.period.end,
+    locked: holder.period.locked,
+    preview: holder.period.preview,
+    version: holder.period.version?.version ?? null,
+  });
+  expect(own.totals).toEqual(holder.totals);
+  expect(own.lines.map(({ clockChange: _c, ...rest }) => rest)).toEqual(holder.lines);
+  expect(own.minutes).toBe(holder.minutes);
+  expect(own.hours).toBe(hoursOf(holder.minutes));
+  return own;
+}
+
+const myPayRefused = (name: string, ctx: Parameters<typeof invokeByName>[2]) =>
+  refusal(invokeByName(name, name === "staffing.myPay" ? { start: START } : {}, ctx));
+
+describe("a person's own totals, an open period (the owner's decision of 2026-11-24)", () => {
+  it("equal the pay holder's figures for them, across the clock change, for each person", async () => {
+    const ari = await expectSameAsHolder(people.Ari as ActingUser);
+    expect(ari.period).toMatchObject({ locked: false, preview: true, version: null });
+    expect(ari.basis).toBe("by_time");
+    expect(ari.lines.map((l) => l.title).sort()).toEqual(["K1", "K3", "K7"]);
+    const bo = await expectSameAsHolder(people.Bo as ActingUser);
+    expect(bo.basis).toBe("by_class");
+    const k5 = bo.lines.find((l) => l.title === "K5");
+    // 01:30 to 03:30 on the night the clocks go back is three hours worked.
+    expect(k5).toMatchObject({ shiftMinutes: 180, countedMinutes: 195, flagged: true });
+    expect(k5?.clockChange).toMatch(/clock change/);
+    // Di is counted from 6 April: the shift before it is no line, the one after is.
+    const di = await expectSameAsHolder(people.Di as ActingUser);
+    expect(di.lines.map((l) => l.localDate)).toEqual(["2026-04-10"]);
+  });
+
+  it("show that a shift was not worked, never why; and not who took a class's list", async () => {
+    const ari = await myPay(people.Ari as ActingUser);
+    const k3 = ari.lines.find((l) => l.title === "K3");
+    expect(k3).toMatchObject({ notWorked: true, countedMinutes: 0 });
+    const text = JSON.stringify(ari);
+    expect(text).not.toContain("Nobody ran it");
+    expect(text).not.toMatch(/notWorkedReason|markedBy|reason/);
+    // Bo's K5 list was taken by Ari: Bo sees it flagged, not by whom.
+    const bo = JSON.stringify(await myPay(people.Bo as ActingUser));
+    expect(bo).not.toContain("Hourly Ari");
+    expect(bo).not.toContain(people.Ari?.id as string);
+  });
+
+  it("are the caller's only: no input names anyone else, and nothing of anyone else is given", async () => {
+    // An account in the input is not an input: the answer is still the caller's own.
+    const asked = await myPay(people.Ari as ActingUser, { start: START, account: people.Bo?.id });
+    expect(asked.lines.map((l) => l.title).sort()).toEqual(["K1", "K3", "K7"]);
+    const text = JSON.stringify(asked);
+    for (const other of [people.Bo, people.Cy, people.Di]) {
+      expect(text).not.toContain(other?.id as string);
+      expect(text).not.toContain(other?.name as string);
+    }
+    expect(text).not.toMatch(/"account"|"email"|"name"/);
+  });
+
+  it("someone not counted is told so, with no figures", async () => {
+    const cy = await myPay(people.Cy as ActingUser);
+    expect(cy).toMatchObject({ counted: false, basis: "not_counted", totals: [], lines: [] });
+    expect(cy.minutes).toBeNull();
+    expect(cy.hours).toBeNull();
+    // Someone with no basis at all: the same.
+    const nobody = await createUser("member");
+    expect(await myPay(nobody)).toMatchObject({ counted: false, lines: [], minutes: null });
+  });
+
+  it("the current period when no start is given; a date that is not a period's start is refused", async () => {
+    const now = await myPay(people.Ari as ActingUser, {}, "2026-04-05T00:00:00.000Z");
+    expect(now.period.start).toBe(START);
+    const wrong = await refusal(myPay(people.Ari as ActingUser, { start: "2026-04-01" }));
+    expect(wrong.code).toBe("invalid_input");
+  });
+
+  it("the periods list is dates and state only, the current one and at most twelve before", async () => {
+    const list = (await invokeByName(
+      "staffing.myPay.periods",
+      {},
+      tool(people.Cy as ActingUser),
+    )) as { set: boolean; periods: Record<string, unknown>[] };
+    expect(list.set).toBe(true);
+    expect(list.periods).toHaveLength(13);
+    expect(list.periods[0]).toMatchObject({ start: "2026-04-13", state: "open", version: null });
+    for (const p of list.periods) {
+      expect(Object.keys(p).sort()).toEqual(["end", "ended", "start", "state", "version", "zone"]);
+    }
+    const e = await refusal(
+      invokeByName("staffing.myPay.periods", { count: 13 }, tool(people.Cy as ActingUser)),
+    );
+    expect(e.code).toBe("invalid_input");
+  });
+
+  it("an assistant, MCP, an automation and a person calling the host directly are refused", async () => {
+    for (const name of ["staffing.myPay", "staffing.myPay.periods"]) {
+      for (const actor of ["assistant", "mcp"]) {
+        const e = await myPayRefused(
+          name,
+          tool(people.Ari as ActingUser, { humanOnly: true, actor }),
+        );
+        expect(e.details?.rule, `${name} ${actor}`).toBe("human_only");
+      }
+      // A tool an AI may call is refused even when a person calls it.
+      const ai = await myPayRefused(name, tool(people.Ari as ActingUser, { personApproves: true }));
+      expect(ai.details?.rule, name).toBe("human_only");
+      // An automation's run calls no tool for anyone.
+      const automation = await myPayRefused(
+        name,
+        context(extUser, {
+          actor: "extension",
+          clock: () => new Date(AFTER),
+          extension: {
+            id: ext,
+            permissions: { operations: STAFFING, objects: {} } as never,
+            tool: { name: "pay", humanOnly: true, permission: `${ext}:team` },
+          },
+        }),
+      );
+      expect(automation.details?.rule, name).toBe("staff_caller");
+      for (const actor of ["human", "assistant", "mcp"] as const) {
+        const direct = await myPayRefused(name, context(admin, { actor }));
+        expect(direct.code).toBe("unknown_operation");
+      }
+    }
+  });
+
+  it("another shipped pack's own tool, and a runtime extension's, are refused (the operation's own guard)", async () => {
+    const relay = extId("stpayrelay");
+    const runtime = extId("stpayrt");
+    for (const [id, source] of [
+      [relay, "shipped"],
+      [runtime, "runtime"],
+    ] as const) {
+      await env.DB.prepare(
+        "INSERT INTO core_extensions (id, source, status, version, commit_oid, manifest, user_id, installed_at, updated_at) VALUES (?, ?, 'active', '1.0.0', 'c1', '{}', ?, ?, ?)",
+      )
+        .bind(id, source, admin.id, BEFORE, BEFORE)
+        .run();
+    }
+    const from = (id: string) =>
+      context(extUser, {
+        actor: "extension",
+        clock: () => new Date(AFTER),
+        extension: {
+          id,
+          permissions: { operations: STAFFING, objects: {} } as never,
+          tool: {
+            name: "relay",
+            humanOnly: true,
+            permission: `${id}:team`,
+            calledBy: { account: people.Ari?.id as string, actor: "human" },
+          },
+        },
+      });
+    for (const name of ["staffing.myPay", "staffing.myPay.periods"]) {
+      // A person calling another pack's own `humanOnly` tool: still not that pack's to read.
+      const other = await myPayRefused(name, from(relay));
+      expect(other.code, name).toBe("forbidden");
+      expect(other.details?.rule, name).toBe("pay_pack");
+      const rt = await myPayRefused(name, from(runtime));
+      expect(rt.code, name).toBe("unknown_operation");
+    }
+  });
+
+  it("the read is audited as which period, never its figures, and no AI lists it", async () => {
+    await myPay(people.Bo as ActingUser);
+    const { results } = await env.DB.prepare(
+      "SELECT input, result, outcome FROM core_audit WHERE operation = 'staffing.myPay'",
+    ).all<{ input: string | null; result: string | null; outcome: string }>();
+    expect(results.filter((r) => r.outcome === "ok").length).toBeGreaterThan(0);
+    for (const r of results) {
+      const text = `${r.input ?? ""} ${r.result ?? ""}`;
+      if (r.outcome === "ok") expect(text).toContain("own pay");
+      expect(text).not.toMatch(/minutes|hours|by_time|by_class|not_counted|counted|K5|Strength/);
+    }
+    const ai = (await invokeByName(
+      "audit.list",
+      { operation: "staffing.myPay" },
+      context(admin, { actor: "assistant" }),
+    )) as { items: unknown[] };
+    expect(ai.items).toEqual([]);
+    const person = (await invokeByName(
+      "audit.list",
+      { operation: "staffing.myPay" },
+      context(admin),
+    )) as { items: unknown[] };
+    expect(person.items.length).toBeGreaterThan(0);
+  });
+});
+
 describe("the lock (criterion 10)", () => {
   let periodId: string;
 
@@ -1026,6 +1295,29 @@ describe("the lock (criterion 10)", () => {
     await expect(db.batch(guards)).rejects.toThrow(/core_staff_changed/);
     const fresh = await readFingerprint(ctx, queries);
     await db.batch(fingerprintGuards(queries, fresh));
+  });
+});
+
+describe("a person's own totals, a locked period (the owner's decision of 2026-11-24)", () => {
+  it("read the locked lines, which equal the pay holder's, version and all", async () => {
+    for (const key of ["Ari", "Bo", "Di"]) {
+      const own = await expectSameAsHolder(people[key] as ActingUser);
+      expect(own.period).toMatchObject({ locked: true, preview: false, version: 2 });
+    }
+    // Bo's K4 was corrected before version 2 (15 minutes longer); K5 is still three real hours.
+    const bo = await myPay(people.Bo as ActingUser);
+    expect(bo.lines.find((l) => l.title === "K4")?.countedMinutes).toBe(105);
+    expect(bo.lines.find((l) => l.title === "K5")?.shiftMinutes).toBe(180);
+    const list = (await invokeByName(
+      "staffing.myPay.periods",
+      { count: 1 },
+      tool(people.Bo as ActingUser),
+    )) as { periods: { start: string; state: string; version: number | null }[] };
+    expect(list.periods.find((p) => p.start === START)).toMatchObject({
+      state: "locked",
+      version: 2,
+    });
+    expect((await myPay(people.Cy as ActingUser)).counted).toBe(false);
   });
 });
 

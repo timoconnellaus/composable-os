@@ -1,6 +1,9 @@
 // Pay periods (stage 45 step 6, ADR 0627): who is counted, the period a shift belongs to, a
 // period's lines and totals worked out from the roster, and the export. No rates and no money:
-// whole minutes and counts only (decision 14); payroll applies the rates.
+// whole minutes and counts only (decision 14); payroll applies the rates and its own rules
+// (the owner's decision of 2026-11-24: nothing more is computed here, no overtime, penalty hours,
+// minimum engagement, breaks or rounding rules). The export keeps each person's staff email
+// (the owner's decision of 2026-11-24).
 //
 // - **The period** is the pack's setting (`staffing.settings.payPeriod`, decision 20): weekly or
 //   fortnightly from the date one period starts (until that is set nothing is totalled), or
@@ -14,7 +17,10 @@
 // - **Evidence** beside each line: whether its list was taken and by whom (a kind of shift that
 //   declares `staffed.evidence`), flagged when someone other than its person took it.
 // - **Hours** are shown from whole minutes: minutes ÷ 60, rounded half up to two places, from
-//   the summed minutes (never a sum of rounded hours). The minutes are what count.
+//   the summed minutes (never a sum of rounded hours). The minutes are what count (exact minutes
+//   summed, hours to two decimals: the owner's decision of 2026-11-24).
+// - **A person's own totals** (`only`, the owner's decision of 2026-11-24) are these same lines
+//   read for one account.
 import { CompiledQuery, sql } from "kysely";
 import { ValidationError } from "../errors.ts";
 import { columnName, ident, sideTable } from "../extensions/naming.ts";
@@ -144,11 +150,11 @@ const shiftDate = (date: string, days: number) => {
 /**
  * The period containing the local date `date`, given the setting and the periods already locked
  * (or locked and reopened), which keep their dates and instants whatever the setting says since
- * (the review of PR #287, ADR 0627). A date inside a stored period is in it. Any other date is in
- * the setting's period for it, cut short where it would reach into a stored period: so after the
- * last stored period the setting's rule starts the day after it ends (a change of length, start
- * date, monthly day or zone takes effect from there), and a gap left between stored periods is
- * its own period. Next to a stored period a period starts or ends at its very instant, so a zone
+ * (the review of PR #287, ADR 0627; the owner's decision of 2026-11-24). A date inside a stored
+ * period is in it. Any other date is in the setting's period for it, cut short where it would
+ * reach into a stored period: so after the last stored period the setting's rule starts the day
+ * after it ends (a change of length, start date, monthly day or zone takes effect from there),
+ * and a gap left between stored periods is its own period. Next to a stored period a period starts or ends at its very instant, so a zone
  * changed since leaves no hour in two periods or in none. Periods never overlap and never leave a
  * gap; every shift is in exactly one. Null until a weekly or fortnightly start date is set.
  */
@@ -326,8 +332,16 @@ export function basisOn(
  * A period's lines from the roster as it stands: every live shift of a counted person whose local
  * start date is in the period, across every staffed object, read set-based in pages. Refuses
  * (never cuts short) a period of more than MAX_PERIOD_SHIFTS shifts.
+ *
+ * `only` narrows the read to one staff account's shifts (a person's own totals, the owner's
+ * decision of 2026-11-24): the same computation, with the account's own shifts read through the
+ * same start index, so their lines are exactly the ones the pay holder's totals give them.
  */
-export async function periodLines(ctx: HandlerContext, range: PeriodRange): Promise<PayLine[]> {
+export async function periodLines(
+  ctx: HandlerContext,
+  range: PeriodRange,
+  only?: { account: string },
+): Promise<PayLine[]> {
   type Raw = {
     shape: StaffedShape;
     id: string;
@@ -342,6 +356,19 @@ export async function periodLines(ctx: HandlerContext, range: PeriodRange): Prom
   for (const shape of staffedShapes()) {
     const def = shape.object.staffed;
     if (!def) continue;
+    // One account's shifts: its own user field, or the holders (a coach profile) naming it.
+    let whose = sql``;
+    if (only) {
+      const holder = def.who.account && def.who.object ? getObject(def.who.object) : undefined;
+      const holderTable = holder ? objectTableOf(holder.name) : undefined;
+      const holderCol = holder ? column(holder, def.who.account) : null;
+      if (def.who.account) {
+        if (!holderTable || !holderCol) continue;
+        whose = sql`AND ${sql.ref(shape.who)} IN (SELECT id FROM ${sql.table(holderTable)} WHERE ${sql.ref(holderCol)} = ${only.account})`;
+      } else {
+        whose = sql`AND ${sql.ref(shape.who)} = ${only.account}`;
+      }
+    }
     let after: { starts: string; id: string } | null = null;
     for (;;) {
       const page: {
@@ -369,6 +396,7 @@ export async function periodLines(ctx: HandlerContext, range: PeriodRange): Prom
         WHERE deleted_at IS NULL AND ${sql.ref(shape.state)} IN (${sql.join(def.live.map((s) => sql`${s}`))})
           AND ${sql.raw(rangeWhere(shape.starts, range))}
           AND ${sql.ref(shape.who)} IS NOT NULL AND ${sql.ref(shape.who)} != ''
+          ${whose}
           ${after ? sql`AND (${sql.ref(shape.starts)}, id) > (${after.starts}, ${after.id})` : sql``}
         ORDER BY ${sql.ref(shape.starts)}, id LIMIT ${PAGE}`.execute(ctx.db)
       ).rows;
@@ -423,7 +451,10 @@ export async function periodLines(ctx: HandlerContext, range: PeriodRange): Prom
   // Who is counted, on each shift's own date.
   const withAccount = raws
     .map((r) => ({ r, account: accountFor(r) }))
-    .filter((x): x is { r: Raw; account: string } => x.account !== null);
+    .filter(
+      (x): x is { r: Raw; account: string } =>
+        x.account !== null && (!only || x.account === only.account),
+    );
   const bases = await basesOf(ctx, [...new Set(withAccount.map((x) => x.account))], range.end);
   const counted = withAccount
     .map((x) => ({ ...x, date: localDateOf(x.r.starts, range.zone) }))

@@ -8,7 +8,8 @@
 // The host decides and this shows: an offered shift stays mine until taken; an offer nobody could
 // take, one past the cut-off, or one already made is refused with its own words. Room is left for
 // a duty shift's checklist (`shiftExtra`: rostering-native-checklist's ShiftChecklistNative) and my
-// calendar's address (`calendar`, step 5).
+// calendar's address (`calendar`, step 5). Under the list, My hours (my-hours-screen.tsx, the
+// owner's decision of 2026-11-24): my own hours for a pay period, fetched only when I pick one.
 import {
   addDays,
   dateIn,
@@ -27,8 +28,10 @@ import { Button } from "../native-base/button.tsx";
 import { List } from "../native-base/list.tsx";
 import { Row } from "../native-base/row.tsx";
 import { Screen } from "../native-base/screen.tsx";
+import { type MyHoursHooks, MyHoursNative } from "./my-hours-screen.tsx";
 
-type Hooks = Pick<RosteringHooks, "useMe" | "useMine" | "useOffers" | "useOffer" | "useWithdraw">;
+type Hooks = Pick<RosteringHooks, "useMe" | "useMine" | "useOffers" | "useOffer" | "useWithdraw"> &
+  MyHoursHooks;
 
 export function MyShiftsScreen({
   rostering,
@@ -156,6 +159,7 @@ export function MyShiftsScreen({
           </List>
         </View>
       ) : null}
+      <MyHoursNative rostering={rostering} locale={locale} />
     </Screen>
   );
 }

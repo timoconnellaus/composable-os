@@ -30,6 +30,9 @@
 //     counted for pay, the pay periods' totals, lock, reopen and export. Every pay tool is a
 //     person's only (`humanOnly`): an assistant never reads or changes pay, whatever is granted.
 //     The host holds no rates and no money: hours and counts, which payroll applies rates to.
+//   - every rostered person's own totals for a pay period (`myPayPeriods`, `myPay`, the team's;
+//     the owner's decision of 2026-11-24): their own hours and shifts only, a person's own read
+//     (`humanOnly`), worked out exactly as the pay totals are; nothing about anyone else.
 //   - every rostered person's own private calendar feed (step 5, ADR 0628): `feed`, `feedRotate`
 //     and `feedRevoke`, the team's, a person's own acts; the host serves the feed and keeps only
 //     its token's hash.
@@ -65,6 +68,8 @@ import {
   me,
   mine,
   myAway,
+  myPay,
+  myPayPeriods,
   offer,
   offers,
   patterns,
@@ -130,6 +135,8 @@ export default defineExtension({
       "staffing.payPeriod.lock",
       "staffing.payPeriod.reopen",
       "staffing.payPeriod.export",
+      "staffing.myPay.periods",
+      "staffing.myPay",
       "staffing.me",
       "staffing.candidates",
       "staffing.people",
@@ -440,8 +447,9 @@ export default defineExtension({
     team: {
       label: "Rostered team",
       description:
-        "Sees the roster and their own shifts, offers and takes shifts, says when they are away " +
-        "and has their own calendar feed. Nothing else: no records, no people, no settings.",
+        "Sees the roster and their own shifts, offers and takes shifts, says when they are away, " +
+        "has their own calendar feed and sees their own hours for each pay period. Nothing else: " +
+        "no records, no people, no settings.",
       permissions: ["rostering:team"],
       read: [],
     },
@@ -452,8 +460,8 @@ export default defineExtension({
   grantableLabels: {
     "rostering:roster":
       "Rostering: see the roster and their own shifts, offer and take shifts, say when they are " +
-      "away and have their own calendar feed. For a coach or anyone with another role who is " +
-      "rostered.",
+      "away, have their own calendar feed and see their own hours for each pay period. For a " +
+      "coach or anyone with another role who is rostered.",
     "rostering:manage":
       "Rostering, rosters others: put people on shifts, say who may do which work, record " +
       "others' time off and see everyone's, see shifts with nobody on them, mark a shift not " +
@@ -479,6 +487,8 @@ export default defineExtension({
     feed,
     feedRotate,
     feedRevoke,
+    myPayPeriods,
+    myPay,
     assign,
     check,
     qualify,

@@ -1446,7 +1446,9 @@ date is in it, with a kind's set-up and pack-down minutes, and a shift **marked 
 counting nothing; each line shows its **evidence** (the class list taken, and by whom). A **locked**
 period's lines never change, and neither do the shifts inside it, until it is **reopened** (with
 why); locking again makes a new version. It is exported as CSV for payroll. No rates or amounts.
-Read only with `rostering:pay` (admins and by grant), by a person, never an assistant.
+Read only with `rostering:pay` (admins and by grant), by a person, never an assistant. Each staff
+member also sees **their own** totals and lines for a period (Rostering's `myPay`, the owner's
+decision of 2026-11-24): the same figures, nothing about anyone else, never through an assistant.
 _Avoid_: timesheet, payroll, wages
 
 **Checklist** (stage 45, built in step 4b: ADR 0650)

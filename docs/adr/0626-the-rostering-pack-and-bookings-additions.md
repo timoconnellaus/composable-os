@@ -61,8 +61,8 @@ declare it (`outside_audience`). Who rosters is now `rostering:manage` everywher
 operation, the `user.deactivate` notice. Nothing hard-codes admin but `isRosterer` itself (admins
 always may, decision 16).
 
-**Who says who works a shift: a rosterer, by every path** (added in the review of PR #284, a
-coordinator's decision the owner may override). Restricting the rosterers' tools alone was
+**Who says who works a shift: a rosterer, by every path** (added in the review of PR #284; the
+owner's decision of 2026-11-24, a class's coach included). Restricting the rosterers' tools alone was
 cosmetic: a member could write a duty shift's person, a class's coach or a duty series' regular
 person with `record.update`, putting themselves on any shift past the take's qualification check
 and cut-off. So, wherever an installed shipped pack declares who rosters (`staffing.rosters`), the

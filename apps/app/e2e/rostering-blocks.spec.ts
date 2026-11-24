@@ -1,8 +1,8 @@
 // Rostering, step 7 (stage 45): the blocks, one test per journey. A rosterer builds a week and puts
 // someone on a shift; a team member offers a shift and a qualified colleague takes it; a person
 // marks time away and the rosterer sees the warning while a colleague does not; someone who
-// handles pay totals, locks and exports a period; someone who does not roster cannot change who
-// is on a shift. The blocks are mounted where they sit (`/blocks`, development only), calling the
+// handles pay totals, locks and exports a period, and the person counted sees their own hours
+// for it; someone who does not roster cannot change who is on a shift. The blocks are mounted where they sit (`/blocks`, development only), calling the
 // host's HTTP surface from the browser as a client app would, each person in their own browser.
 // Every name here is invented.
 //
@@ -382,7 +382,16 @@ test("someone who handles pay totals, locks and exports a period", async ({
     const csv = Buffer.concat(text).toString("utf8");
     expect(csv).toContain(ann.name);
     expect(csv).toContain("1.00");
-    // Someone who does not handle pay is shown nothing of it.
+    // Ann sees her own hours under My shifts (the owner's decision of 2026-11-24): the period's
+    // locked figures, the same 1.00, fetched only once she picks the period.
+    await mount(ann.page, block("rostering-my-shifts", "MyShifts"));
+    const hours = ann.page.getByRole("region", { name: "My hours" });
+    await expect(hours.getByText("All my hours")).toHaveCount(0);
+    await hours.locator(`[data-start="${start}"]`).click();
+    await expect(hours.locator('[data-state="locked"]')).toBeVisible();
+    await expect(hours.getByRole("table", { name: "My hours and shifts" })).toContainText("1.00");
+    await expect(hours.getByText("All my hours: 1.00")).toBeVisible();
+    // Someone who does not handle pay is shown nothing of the business's pay.
     await mount(ann.page, block("rostering-pay", "Pay"));
     await expect(ann.page.locator('[data-refusal="forbidden"]')).toBeVisible();
     await expect(ann.page.getByText("1.00")).toHaveCount(0);
