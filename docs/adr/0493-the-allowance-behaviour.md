@@ -174,3 +174,10 @@ A spender's `movedFrom.state` is entered only by the host inside the create of t
 to; a write of its own into it is refused (`move_needs_target`). A source paid another way
 (`waived`) passes its mark to the new record, which spends nothing; a paid source cannot move into
 a waived record.
+
+## Amended 2026-11-24 (stage 44 step 7, ADR 0647)
+A spender may declare `released`: a state of `returnIn`, with a host move into it from each spend
+state (checked by the contract). When a membership ends by its payer's cooling off, the host moves
+each record that spent a use of it, not given back, whose time is ahead and that is still in a
+spend state, into it in the end's batch (its use returned, its place freed). Bookings declares
+`cancelled_by_us`. Any other end of a holder releases nothing.
