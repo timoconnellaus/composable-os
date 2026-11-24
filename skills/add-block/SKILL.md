@@ -70,8 +70,13 @@ buttons, fields, lists, sheets, or a pack's screens. Blocks ship inside the plat
    `createAccountHooks({ useQuery, useMutation }, api)` from `@composable-os/client`, beside the
    same `agreements`. Pass the web shell `returnUrl` (the account page) and `onSignOut` (post to
    `/auth/sign-out`), and the native one `websiteUrl` (the website's account page: money is
-   managed there, ADR 0714) and `onSignOut` (`session.signOut`). A pack's section goes in
-   `sections` with its key, label, order and `render`.
+   managed there, ADR 0714) and `onSignOut` (`session.signOut`). Once the shell is copied, `cos
+   add` also copies the sections of the packs `product.ts` lists and writes
+   `src/blocks/account-sections.gen.ts` (do not edit it: `cos add` and `cos upgrade` write it
+   again). Pass the shell `sections={usePackSections(ACCOUNT_SECTIONS, react, api, returnUrl)}`
+   (the native one without `returnUrl`), with `react` a module-level `{ useQuery, useMutation,
+   useState, useEffect }` so the packs' hooks are made once, and the page names no pack; the shell shows what the host's `me.portal` lists. After adding a pack to
+   `product.ts`, run `cos add web-account` again to copy its section.
    Rostering's blocks (`rostering-*`) take `rostering`: `createRosteringHooks({ useQuery,
    useMutation }, api)` from `@composable-os/pack-rostering/client`. They are staff screens: in
    the app, `api` is a role client, `rostering.team`'s for someone rostered with no other access,

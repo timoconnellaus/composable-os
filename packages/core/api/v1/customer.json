@@ -996,6 +996,7 @@
         "me.attention",
         "me.family",
         "me.get",
+        "me.portal",
         "me.sessions.list",
         "my.get",
         "my.list"
@@ -1812,6 +1813,7 @@
         "me.attention",
         "me.family",
         "me.get",
+        "me.portal",
         "me.sessions.list",
         "my.get",
         "my.list"
@@ -2055,6 +2057,7 @@
         "me.attention",
         "me.family",
         "me.get",
+        "me.portal",
         "me.sessions.list",
         "my.get",
         "my.list"
@@ -2207,6 +2210,7 @@
         "me.attention",
         "me.family",
         "me.get",
+        "me.portal",
         "me.sessions.list",
         "my.get",
         "my.list"
@@ -2249,10 +2253,101 @@
         "me.attention",
         "me.family",
         "me.get",
+        "me.portal",
         "me.sessions.list",
         "my.get",
         "my.list"
       ]
+    },
+    {
+      "name": "me.portal",
+      "description": "The sections of your account, as a signed-in customer, in the order they show: your orders, agreements, family, payment method (only when you pay a subscription), details and where you are signed in, and each installed pack's section (bookings, memberships and passes, courses, tickets, training) when you, or a child linked to you, have something there. `paysSubscription` says whether you pay a subscription. Read-only.",
+      "risk": "read",
+      "audiences": ["customer"],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "sections": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "key": {
+                  "type": "string",
+                  "description": "A base section's key (orders, agreements, family, payment, details, devices), or a pack's as <pack>.<key>"
+                },
+                "pack": {
+                  "description": "The pack the section is from; null for a base section",
+                  "type": ["string", "null"]
+                },
+                "label": {
+                  "type": "string"
+                },
+                "order": {
+                  "type": "number",
+                  "description": "Lower first: a pack's sections come before the base ones"
+                },
+                "web": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "block": {
+                          "type": "string"
+                        },
+                        "export": {
+                          "type": "string"
+                        }
+                      },
+                      "required": ["block", "export"],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "The block of the client app that draws a pack's section, and its component"
+                },
+                "native": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "block": {
+                          "type": "string"
+                        },
+                        "export": {
+                          "type": "string"
+                        }
+                      },
+                      "required": ["block", "export"],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "The block of the client app that draws a pack's section, and its component"
+                }
+              },
+              "required": ["key", "pack", "label", "order", "web", "native"],
+              "additionalProperties": false
+            }
+          },
+          "paysSubscription": {
+            "type": "boolean",
+            "description": "Whether you pay a subscription that has not ended"
+          }
+        },
+        "required": ["sections", "paysSubscription"],
+        "additionalProperties": false
+      },
+      "invalidates": []
     },
     {
       "name": "me.sessions.list",
@@ -2353,6 +2448,7 @@
         "me.attention",
         "me.family",
         "me.get",
+        "me.portal",
         "me.sessions.list",
         "my.get",
         "my.list"
@@ -2386,6 +2482,7 @@
         "me.attention",
         "me.family",
         "me.get",
+        "me.portal",
         "me.sessions.list",
         "my.get",
         "my.list"
@@ -2481,6 +2578,7 @@
         "me.attention",
         "me.family",
         "me.get",
+        "me.portal",
         "me.sessions.list",
         "my.get",
         "my.list"
@@ -5559,6 +5657,7 @@
         "me.attention",
         "me.family",
         "me.get",
+        "me.portal",
         "me.sessions.list",
         "my.get",
         "my.list",
@@ -5735,6 +5834,7 @@
         "me.attention",
         "me.family",
         "me.get",
+        "me.portal",
         "me.sessions.list",
         "my.get",
         "my.list",
@@ -5879,6 +5979,7 @@
         "me.attention",
         "me.family",
         "me.get",
+        "me.portal",
         "me.sessions.list",
         "my.get",
         "my.list",
@@ -6187,6 +6288,7 @@
         "me.attention",
         "me.family",
         "me.get",
+        "me.portal",
         "me.sessions.list",
         "my.get",
         "my.list",
@@ -6612,6 +6714,7 @@
         "me.attention",
         "me.family",
         "me.get",
+        "me.portal",
         "me.sessions.list",
         "my.get",
         "my.list",
@@ -7391,6 +7494,7 @@
         "me.attention",
         "me.family",
         "me.get",
+        "me.portal",
         "me.sessions.list",
         "my.get",
         "my.list",
@@ -7515,6 +7619,7 @@
         "me.attention",
         "me.family",
         "me.get",
+        "me.portal",
         "me.sessions.list",
         "my.get",
         "my.list",
@@ -8365,6 +8470,7 @@
         "me.attention",
         "me.family",
         "me.get",
+        "me.portal",
         "me.sessions.list",
         "my.get",
         "my.list",
@@ -8524,6 +8630,7 @@
         "me.attention",
         "me.family",
         "me.get",
+        "me.portal",
         "me.sessions.list",
         "my.get",
         "my.list",
@@ -8761,6 +8868,7 @@
         "me.attention",
         "me.family",
         "me.get",
+        "me.portal",
         "me.sessions.list",
         "my.get",
         "my.list",
@@ -9621,6 +9729,7 @@
         "me.attention",
         "me.family",
         "me.get",
+        "me.portal",
         "me.sessions.list",
         "my.get",
         "my.list",

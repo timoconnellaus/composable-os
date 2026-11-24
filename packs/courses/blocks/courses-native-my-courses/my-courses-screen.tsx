@@ -11,7 +11,11 @@ export function MyCoursesScreen({
   onContinue,
 }: {
   courses: Pick<CoursesHooks, "useMyCourses">;
-  onContinue: (courseId: string, lessonKey: string | null) => void;
+  /**
+   * Opens a course where to carry on. Left out (as a section of My account, ADR 0710), a row is
+   * not pressable.
+   */
+  onContinue?: (courseId: string, lessonKey: string | null) => void;
 }) {
   const { data, isPending, error } = courses.useMyCourses();
   return (
@@ -31,7 +35,7 @@ export function MyCoursesScreen({
               detail={
                 course.complete ? "Complete" : `${course.done} of ${course.counted} lessons done`
               }
-              onPress={() => onContinue(course.id, course.continueWith)}
+              onPress={onContinue ? () => onContinue(course.id, course.continueWith) : undefined}
             />
           ))}
         </List>

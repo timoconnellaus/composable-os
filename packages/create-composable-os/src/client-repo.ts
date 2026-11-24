@@ -1417,6 +1417,8 @@ export async function upgradeRepo(flags: Flags, deps: Deps): Promise<number> {
     // Compared by content: a kit rebuilt at the same version can still change the host modules.
     io.out(`Already on ${version}. Checking the host modules against its template.`);
     upgradeHostModules(root, product, kit, version, io);
+    const { rewriteAccountSections } = await import("./blocks.ts");
+    rewriteAccountSections(root, product, kit, io);
     // And the packages: run again after installing, this is where the type check happens.
     return packagesAndTypes(root, product, version, io);
   }
@@ -1441,6 +1443,10 @@ export async function upgradeRepo(flags: Flags, deps: Deps): Promise<number> {
   const moved = await loadClientProduct(root);
   await generateClients(root, moved, kit, io);
   io.out(`Skills: ${writeSkills(root, kit)} replaced.`);
+  // My account's section wiring, from the new release's packs (ADR 0710). Loaded late: blocks.ts
+  // imports this file.
+  const { rewriteAccountSections } = await import("./blocks.ts");
+  rewriteAccountSections(root, moved, kit, io);
   // The host modules: unedited ones replaced, edited ones shown as a diff (ADR 0451).
   upgradeHostModules(root, moved, kit, version, io);
   return packagesAndTypes(root, moved, version, io);

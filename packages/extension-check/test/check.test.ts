@@ -62,6 +62,27 @@ describe("what cos ext check reads of a pack", () => {
   });
 });
 
+describe("cos ext check on a pack's sections of My account (stage 48, ADR 0710)", () => {
+  it("reads each section's block.json: its pack, its skin, what it calls and its export", async () => {
+    const result = await checkExtensionDir(fixture("portalblocks"));
+    expect(result.issues.map((i) => `${i.path}: ${i.message}`)).toEqual([
+      'portal.good.native.block: "portalblocks-native-skin" is a web block, named for the native section',
+      'portal.staff.web.block: "portalblocks-desk" calls x.portalblocks.day, which no customer may call: a section of My account calls only customer or public operations',
+      'portal.foreign.web.block: "portalblocks-other" is not this pack\'s block: its block.json names pack "deals"',
+      'portal.gone.web.block: "portalblocks-gone" is not a block of this pack: no blocks/portalblocks-gone/block.json',
+      'portal.noExport.web.export: "portalblocks-mine" exports no component Nowhere',
+    ]);
+  });
+
+  for (const name of ["bookings", "memberships", "courses", "ticketing", "programs"]) {
+    it(`${name}'s section names its own blocks, which call only what a customer may`, async () => {
+      const result = await checkExtensionDir(shipped(name));
+      expect(result.issues.filter((i) => i.path.startsWith("portal"))).toEqual([]);
+      expect(Object.keys(result.manifest?.portal ?? {})).toHaveLength(1);
+    });
+  }
+});
+
 describe("cos ext check on the shipped extensions", () => {
   for (const name of ["deals", "leads", "lifecycle"]) {
     it(`${name} passes unchanged`, async () => {

@@ -734,4 +734,15 @@ export default defineExtension({
       record: { object: "person", as: "personId" },
     },
   },
+  // Its section of My account (stage 48, ADR 0710): a member's memberships and passes, and a linked
+  // child's (both open to guardians), shown once they or the child hold one.
+  portal: {
+    memberships: {
+      label: "Memberships and passes",
+      web: { block: "memberships-mine", export: "MyMemberships" },
+      native: { block: "memberships-native-mine", export: "MyMembershipsScreen" },
+      order: 20,
+      has: ["memberships.membership", "memberships.pass"],
+    },
+  },
 });

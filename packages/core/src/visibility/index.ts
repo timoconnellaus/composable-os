@@ -353,6 +353,27 @@ export function ownedSource(
 }
 
 /**
+ * The records of `object` a customer reads as theirs (stage 48, ADR 0710): the rows whose
+ * customer field is their Person, and a live dependant's where the object opens to guardians
+ * (ADR 0540), without what is shared with every signed-in customer (ADR 0447) or reached only
+ * through their own records (ADR 0439). Rows carry `owner`, whose Person's record it is. Null for
+ * anyone but a customer, and on an object that declares no customer: they hold none of it.
+ */
+export function heldSource(
+  ctx: Viewer,
+  object: ObjectDefinition,
+  alias?: string,
+): VisibleSource<AnyRow, string> | null {
+  if (ctx.principal.kind !== "customer") return null;
+  const definition = getObject(object.name) ?? object;
+  const scope = customerScope(definition, ctx.principal.personId);
+  if (!scope) return null;
+  return sql<AnyRow>`(SELECT id, ${sql.ref(scope.column)} AS owner FROM ${sql.table(definition.source)} WHERE ${ownersWhere(scope.column, scope.personId, scope.dependants)})`.as(
+    alias ?? definition.source,
+  );
+}
+
+/**
  * The table behind an object, with its soft-deleted rows: for the loads that need them (a get
  * that may include the Trash, the snapshot before a write). Staff only: a customer and the
  * public are refused. Prefer `visibleSource` for anything that only reads live records.

@@ -496,4 +496,15 @@ export default defineExtension({
       record: { object: "courses.course", as: "courseId" },
     },
   },
+  // Its section of My account (stage 48, ADR 0710): the courses a student holds, shown once they
+  // hold one. A child's courses stay the child's.
+  portal: {
+    courses: {
+      label: "My courses",
+      web: { block: "courses-my-courses", export: "MyCourses" },
+      native: { block: "courses-native-my-courses", export: "MyCoursesScreen" },
+      order: 30,
+      has: ["courses.enrolment"],
+    },
+  },
 });

@@ -59,6 +59,8 @@ const OPENED = [
   "me.get",
   "me.pin.clear",
   "me.pin.set",
+  // Stage 48 step 5 (ADR 0710): which sections of My account the caller has.
+  "me.portal",
   "me.sessions.list",
   "me.sessions.revoke",
   "me.signOut",
@@ -94,6 +96,7 @@ describe("what this step opens", () => {
           "me.deleteAccount",
           "me.pin.clear",
           "me.pin.set",
+          "me.portal",
           "me.sessions.list",
           "me.sessions.revoke",
           "me.signOut",

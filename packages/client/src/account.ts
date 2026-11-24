@@ -8,8 +8,9 @@
 // subscription.*): this reads them and puts them in words. Amounts are shown as the host gave
 // them, in the currency's minor unit; nothing here adds, subtracts or works out a price.
 //
-// Later steps add to it: what needs the customer's attention (`me.attention`), which pack sections
-// a customer has (`me.portal`), changing the sign-in address and deleting the account.
+// Which sections a customer has is the host's (`me.portal`, `portalSections`). Later steps add to
+// it: what needs the customer's attention (`me.attention`), changing the sign-in address and
+// deleting the account.
 import type { QueryName } from "./client.ts";
 import type { ClientHolding, PackClient } from "./hooks.ts";
 import { packHooks } from "./hooks.ts";
@@ -135,8 +136,29 @@ export interface AccountSubscription {
   holderPersonId: string | null;
 }
 
+/** A section of My account as the host lists it (`me.portal`, ADR 0710). */
+export interface AccountPortalSection {
+  /** A base section's key (`orders`), or a pack's as `<pack>.<key>` (`memberships.memberships`). */
+  key: string;
+  /** The pack it is from; null for a base section. */
+  pack: string | null;
+  label: string;
+  order: number;
+  /** The blocks that draw a pack's section; null for a base one. */
+  web: { block: string; export: string } | null;
+  native: { block: string; export: string } | null;
+}
+
+/** Which sections of My account the customer has, in order (`me.portal`). */
+export interface AccountPortal {
+  sections: AccountPortalSection[];
+  /** Whether they pay a subscription that has not ended: Payment method shows then. */
+  paysSubscription: boolean;
+}
+
 /** The operations this entry calls, as the generated client types them. */
 export type AccountOperations = {
+  "me.portal": { kind: "query"; input: Record<string, never>; output: AccountPortal };
   "me.get": { kind: "query"; input: Record<string, never>; output: AccountMe };
   "me.update": {
     kind: "mutation";
@@ -193,13 +215,33 @@ export type AccountClient = PackClient<AccountOperations>;
 // --- Sections --------------------------------------------------------------------------------------
 
 /**
- * A section of My account: a base one, or a pack's (its `portal` declaration, stage 48 step 5).
- * Lower `order` first.
+ * A section of My account: a base one, or a pack's (its `portal` declaration, ADR 0710, keyed
+ * `<pack>.<key>`). Lower `order` first.
  */
 export interface AccountSection {
   key: string;
   label: string;
   order: number;
+}
+
+/**
+ * A pack's section as the client app's generated `account-sections.gen.ts` lists it (`cos add
+ * web-account`, ADR 0710): the copied block's component and the pack's hooks factory. The shell
+ * renders `component` with the hooks under the pack's id (`{ memberships: hooks }`) and the page's
+ * `returnUrl`; `Component` is the app's component type.
+ */
+export interface AccountSectionEntry<Component = unknown> {
+  /** `<pack>.<key>`, as `me.portal` names it. */
+  key: string;
+  pack: string;
+  label: string;
+  order: number;
+  component: Component;
+  /**
+   * The pack's hooks factory (`createMembershipsHooks`), called once with the app's React
+   * functions and its generated client. Typed loosely: each pack's factory takes its own types.
+   */
+  hooks: (react: never, client: never) => unknown;
 }
 
 /**
@@ -231,6 +273,23 @@ export function accountSections(
   return [...BASE_SECTIONS, ...packs.filter((s) => !base.has(s.key))]
     .filter((s) => !hide.includes(s.key))
     .sort((a, b) => a.order - b.order || a.key.localeCompare(b.key));
+}
+
+/**
+ * The sections to show, as the host listed them (`me.portal`): every base section it lists, and a
+ * pack's only when the app has its block (`packs`, from `account-sections.gen.ts`), so a pack
+ * installed at the host before the app copied its block shows nothing rather than an empty
+ * section. Until the host answers, the base sections without Payment method.
+ */
+export function portalSections(
+  portal: AccountPortal | undefined,
+  packs: readonly AccountSection[] = [],
+): AccountSection[] {
+  if (!portal) return accountSections([], ["payment"]);
+  const copied = new Set(packs.map((s) => s.key));
+  return portal.sections
+    .filter((s) => s.pack === null || copied.has(s.key))
+    .map((s) => ({ key: s.key, label: s.label, order: s.order }));
 }
 
 /** The base sections a shell hides for this customer, from what the host answered. */
@@ -372,8 +431,8 @@ export function isLive(sub: AccountSubscription): boolean {
 
 /**
  * Whether the Payment method section shows: the customer pays a subscription that has not ended
- * (`subscription.list` lists a customer only the ones they pay). Stage 48 step 5 answers it from
- * the host (`me.portal`'s `paysSubscription`).
+ * (`subscription.list` lists a customer only the ones they pay). The shells take the host's own
+ * answer (`me.portal`'s `paysSubscription`, `portalSections`); a plain page may use this.
  */
 export function showsPayment(subscriptions: readonly AccountSubscription[] | undefined): boolean {
   return !!subscriptions?.some(isLive);
@@ -629,6 +688,7 @@ export type AccountUseMutation = <I, O>(options: {
 
 /** The operations each hook calls (ADR 0453). */
 export const ACCOUNT_HOOKS_CALL = {
+  usePortal: ["me.portal"],
   useMe: ["me.get"],
   useUpdateMe: ["me.update"],
   useSessions: ["me.sessions.list"],
@@ -659,6 +719,10 @@ function allAccountHooks(
 ) {
   const { useQuery, useMutation } = react;
   return {
+    /** Which sections of My account they have, in order, and whether they pay a subscription. */
+    usePortal() {
+      return useQuery(api.query("me.portal", {}));
+    },
     /** The signed-in customer's own Person and sign-in address. */
     useMe() {
       return useQuery(api.query("me.get", {}));

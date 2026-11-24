@@ -87,6 +87,7 @@ export {
 } from "./content/cache.ts";
 export { type PublishDueOptions, runPublishDue, runReindexDue } from "./content/schedule.ts";
 export * from "./customers/index.ts";
+export { BASE_PORTAL_SECTIONS, type PortalSection } from "./customers/portal.ts";
 export * from "./dashboards/cache.ts";
 export * from "./dashboards/click-through.ts";
 export * from "./dashboards/describe.ts";
@@ -202,6 +203,7 @@ export * from "./operations/integration.ts";
 export * from "./operations/judge.ts";
 export * from "./operations/me.ts";
 export * from "./operations/me-attention.ts";
+export * from "./operations/me-portal.ts";
 export * from "./operations/media.ts";
 export * from "./operations/media-video.ts";
 export * from "./operations/memory.ts";

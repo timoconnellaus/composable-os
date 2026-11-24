@@ -44,6 +44,19 @@ question for the owner is open.
   and end, and a version that is not intact left out as `me.agreements.due` does). No migration. The attention
   block is step 7's.
 
+- Step 5, the portal declaration, built on `feat/stage-48-portal`, ADR 0710 (no migration): the
+  `portal` manifest key and its checks (`portalIssues` in the SDK; `cos ext check` reads each
+  block's `block.json` for its pack, skin, export and that it calls only customer or public
+  operations; a runtime extension's refused at check and install, ignored at run time);
+  `me.portal` (`customers/portal.ts`, the seam's new `heldSource`, two statements whatever is
+  installed; `packages/core/test/me-portal.test.ts`); the declarations in Bookings, Memberships,
+  Courses, Ticketing and Programs; the release's `contract/roles.json` `portal` with each pack's
+  hooks factory; `cos add` copying the listed packs' section blocks once an app has a shell and
+  writing `src/blocks/account-sections.gen.ts`, `cos upgrade` writing it again; the shells'
+  `usePackSections` and the client's `portalSections`, so a shell shows what `me.portal` lists.
+  Courses' my-courses blocks and Ticketing's native my-tickets block take their callback as
+  optional, so a section renders with the pack's hooks alone.
+
 - Step 6, the delete preview and its consequences, built on `feat/stage-48-delete-account`, ADR
   0713 (amends 0402; no migration): `me.deleteAccount` without `confirm` says what will happen,
   with `confirm` and `expect` it ends the subscriptions the member pays at period end, cancels

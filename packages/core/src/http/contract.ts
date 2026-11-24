@@ -80,6 +80,28 @@ export interface PackRolesFile {
    * requires any: `cos deploy` installs them with it and `cos add` copies their blocks for it.
    */
   requires?: Record<string, string[]>;
+  /**
+   * Each carried pack's sections of My account (its manifest's `portal`, stage 48, ADR 0710),
+   * with the function its client entry (`@composable-os/pack-<id>/client`) exports to make the
+   * hooks its blocks take: `cos add web-account` copies the sections' blocks and writes the
+   * client app's `account-sections.gen.ts` from this.
+   */
+  portal?: Record<string, PortalPackFile>;
+}
+
+/** One carried pack's sections of My account, as the release's roles file holds them. */
+export interface PortalPackFile {
+  /** The hooks factory its client entry exports: `createMembershipsHooks`. */
+  hooks: string;
+  sections: Record<
+    string,
+    {
+      label: string;
+      order: number;
+      web?: { block: string; export: string };
+      native?: { block: string; export: string };
+    }
+  >;
 }
 
 function jsonSchema(schema: z.ZodType, io: "input" | "output"): JsonSchema {

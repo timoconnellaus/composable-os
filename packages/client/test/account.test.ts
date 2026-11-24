@@ -19,6 +19,7 @@ import {
   orderedSessions,
   orderMoney,
   orderStateWords,
+  portalSections,
   showsPayment,
   showsReceiptNote,
   subscriptionStatus,
@@ -99,6 +100,58 @@ describe("sections", () => {
     ]);
     expect(showsPayment([sub({ state: "past_due" })])).toBe(true);
     expect(hiddenSections([sub()])).toEqual([]);
+  });
+});
+
+describe("the host's sections (me.portal, ADR 0710)", () => {
+  const base = (key: string, label: string, order: number) => ({
+    key,
+    pack: null,
+    label,
+    order,
+    web: null,
+    native: null,
+  });
+  const portal = {
+    sections: [
+      {
+        key: "bookings.bookings",
+        pack: "bookings",
+        label: "Bookings",
+        order: 10,
+        web: { block: "bookings-timetable", export: "Timetable" },
+        native: null,
+      },
+      {
+        key: "ticketing.tickets",
+        pack: "ticketing",
+        label: "My tickets",
+        order: 40,
+        web: { block: "ticketing-my-tickets", export: "MyTickets" },
+        native: null,
+      },
+      base("orders", "Orders", 60),
+      base("payment", "Payment method", 85),
+      base("details", "Your details", 90),
+    ],
+    paysSubscription: true,
+  };
+
+  it("shows what the host lists, a pack's section only when the app has its block", () => {
+    const copied = [{ key: "bookings.bookings", label: "Bookings", order: 10 }];
+    expect(portalSections(portal, copied).map((s) => s.key)).toEqual([
+      "bookings.bookings",
+      "orders",
+      "payment",
+      "details",
+    ]);
+    expect(portalSections(portal).map((s) => s.key)).toEqual(["orders", "payment", "details"]);
+  });
+
+  it("shows the base sections without Payment method until the host answers", () => {
+    const keys = portalSections(undefined).map((s) => s.key);
+    expect(keys).toContain("orders");
+    expect(keys).not.toContain("payment");
   });
 });
 

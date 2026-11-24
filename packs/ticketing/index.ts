@@ -417,4 +417,15 @@ export default defineExtension({
     },
   },
   tools: { eventsOnSale, orderStart, myTickets, salesSummary, checkIn, undoCheckIn },
+  // Its section of My account (stage 48, ADR 0710): the tickets a buyer holds, shown once they hold
+  // one. A child's ticket stays the child's: a ticket does not open to guardians.
+  portal: {
+    tickets: {
+      label: "My tickets",
+      web: { block: "ticketing-my-tickets", export: "MyTickets" },
+      native: { block: "ticketing-native-my-tickets", export: "MyTicketsScreen" },
+      order: 40,
+      has: ["ticketing.ticket"],
+    },
+  },
 });
