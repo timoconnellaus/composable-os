@@ -1081,8 +1081,8 @@ As built (stage 22; ADRs [0410](adr/0410-the-seams-first-door-as-built.md),
   `my.update`, and `my.delete` (the Trash, only for an object whose `customer.delete` says so: a
   logged set).
 - **A recent sign-in** (stage 48, [ADR 0712](adr/0712-changing-the-sign-in-address-and-a-recent-sign-in.md)):
-  asking for or confirming an address change and deleting the account (the confirm, not its
-  preview) need a sign-in within 15 minutes, read
+  asking for or confirming an address change and deleting the account (its preview
+  too) need a sign-in within 15 minutes, read
   from the calling session's own row (`customers/recent-sign-in.ts`); otherwise `sign_in_again`.
   A device session exchanged from a browser session starts at that sign-in.
 - **Changing the sign-in address** (ADR 0712, `customers/email-change.ts`,

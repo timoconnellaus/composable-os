@@ -92,23 +92,22 @@ const asCustomer = (acc: Account, clock?: () => Date) => ({
 
 /**
  * Deletes the account as its customer does: the preview, then the confirm (ADR 0713), from its
- * first session, signed in just now (the confirm needs a recent sign-in, ADR 0712).
+ * first session, signed in just now (both need a recent sign-in, ADR 0712).
  */
 async function deleteAccount(acc: Account, clock?: () => Date) {
   const session = acc.sessions[0] as string;
   await env.DB.prepare("UPDATE core_customer_session SET created_at = ? WHERE id = ?")
     .bind((clock?.() ?? new Date()).toISOString(), session)
     .run();
-  const preview = (await invokeByName("me.deleteAccount", {}, asCustomer(acc, clock))) as {
-    expect: string;
+  const signedIn = {
+    ...asCustomer(acc, clock),
+    origin: { surface: "client" as const, sessionId: session },
   };
+  const preview = (await invokeByName("me.deleteAccount", {}, signedIn)) as { expect: string };
   return invokeByName(
     "me.deleteAccount",
     { confirm: true, expect: preview.expect },
-    {
-      ...asCustomer(acc, clock),
-      origin: { surface: "client" as const, sessionId: session },
-    },
+    signedIn,
   ) as Promise<{
     disabled: true;
     sessionsEnded: number;

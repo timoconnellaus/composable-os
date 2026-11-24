@@ -25,6 +25,7 @@ import {
   outside,
   refusal,
   run,
+  signedInJustNow,
   TICKET_TYPE,
 } from "./order-fixtures.ts";
 import { paymentsDouble } from "./payments-double.ts";
@@ -62,9 +63,18 @@ interface Preview {
   expect: string;
 }
 
-const preview = (buyer: Buyer) => run<Preview>("me.deleteAccount", {}, as(buyer));
-const confirm = (buyer: Buyer, expect: string, extra: Parameters<typeof outside>[1] = {}) =>
-  run<Record<string, unknown>>("me.deleteAccount", { confirm: true, expect }, as(buyer, extra));
+/** As `buyer`, from a session signed in just now: deleting the account needs one (ADR 0712). */
+const asSignedIn = async (buyer: Buyer, extra: Parameters<typeof outside>[1] = {}) =>
+  as(buyer, { ...(await signedInJustNow(buyer)), ...extra });
+
+const preview = async (buyer: Buyer) =>
+  run<Preview>("me.deleteAccount", {}, await asSignedIn(buyer));
+const confirm = async (buyer: Buyer, expect: string, extra: Parameters<typeof outside>[1] = {}) =>
+  run<Record<string, unknown>>(
+    "me.deleteAccount",
+    { confirm: true, expect },
+    await asSignedIn(buyer, extra),
+  );
 
 async function create(object: string, values: Record<string, unknown>): Promise<string> {
   return ((await run("record.create", { object, values }, context(admin))) as { id: string }).id;
@@ -407,9 +417,9 @@ describe("confirming (criterion 10)", () => {
   it("is refused when the preview changed meanwhile, and without the preview's expect", async () => {
     const { buyer, unpaid } = await busyMember();
     const seen = await preview(buyer);
-    expect((await refusal(run("me.deleteAccount", { confirm: true }, as(buyer)))).code).toBe(
-      "invalid_input",
-    );
+    expect(
+      (await refusal(run("me.deleteAccount", { confirm: true }, await asSignedIn(buyer)))).code,
+    ).toBe("invalid_input");
     await startOrder(buyer, [{ id: ticket }]);
     const calls = gw.changes.length;
     expect(await refusal(confirm(buyer, seen.expect))).toMatchObject({
@@ -565,7 +575,7 @@ describe("statements (D1's limits)", () => {
     const few = await createBuyer(admin, "few");
     await startOrder(few, [{ id: ticket }]);
     ran = [];
-    await run("me.deleteAccount", {}, as(few, { db: countedDb }));
+    await run("me.deleteAccount", {}, await asSignedIn(few, { db: countedDb }));
     const fewReads = ran.length;
 
     const many = await createBuyer(admin, "many");
@@ -575,7 +585,11 @@ describe("statements (D1's limits)", () => {
       await create(VISIT, { name: unique("Visit"), person: many.principal.personId });
     }
     ran = [];
-    const seen = await run<Preview>("me.deleteAccount", {}, as(many, { db: countedDb }));
+    const seen = await run<Preview>(
+      "me.deleteAccount",
+      {},
+      await asSignedIn(many, { db: countedDb }),
+    );
     // As many statements for twenty-two orders, twenty-two subscriptions and five visits as for
     // one order: one more, the read of their cooling offs, when there are subscriptions at all.
     expect(ran.length).toBe(fewReads + 1);

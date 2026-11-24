@@ -415,15 +415,12 @@ describe("person.erase reaches every store", () => {
     ]);
     await invoke("customer.invite", { email: oldEmail }, context(admin));
     const principal = { kind: "customer" as const, customerId, personId: person.id };
-    const preview = (await invokeByName("me.deleteAccount", {}, { principal, db })) as {
+    // Deleting the account needs a sign-in within 15 minutes (ADR 0712): this one, just now.
+    const signedIn = { principal, db, origin: { surface: "client" as const, sessionId } };
+    const preview = (await invokeByName("me.deleteAccount", {}, signedIn)) as {
       expect: string;
     };
-    await invokeByName(
-      "me.deleteAccount",
-      { confirm: true, expect: preview.expect },
-      // Deleting the account needs a sign-in within 15 minutes (ADR 0712): this one, just now.
-      { principal, db, origin: { surface: "client", sessionId } },
-    );
+    await invokeByName("me.deleteAccount", { confirm: true, expect: preview.expect }, signedIn);
 
     const result = await invoke("person.erase", { id: person.id }, context(admin, { blobs }));
     expect(result).toMatchObject({

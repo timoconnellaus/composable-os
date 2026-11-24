@@ -18,7 +18,7 @@
 // subscriptions the caller pays at their period's end and cancels their unpaid orders, with the
 // code their own subscription.cancel and order.cancel run (customers/account-delete.ts, ADR 0713).
 //
-// Changing the sign-in address and deleting the account (its confirm, not the preview) need a
+// Changing the sign-in address and deleting the account (its preview too) need a
 // sign-in within the last 15 minutes (`sign_in_again` otherwise, stage 48, ADR 0712).
 import { z } from "zod";
 import {
@@ -498,14 +498,15 @@ const deletePreviewSchema = z.object({
 export const meDeleteAccount = defineOperation({
   name: "me.deleteAccount",
   description:
-    "Delete your customer account and ask for your personal data to be erased. Without " +
+    "Delete your customer account and ask for your personal data to be erased, signed in within " +
+    "the last 15 minutes (else sign_in_again, for the preview too). Without " +
     "`confirm` it changes nothing and says what will happen: each subscription you pay ends when " +
     "the period already paid for ends (nothing refunded, nothing more charged), or with a " +
     "cooling off you asked for; one that cannot be ended that way (an end date set later, or " +
     "waiting for payment, unpaid or paused) is left for staff and may charge until they end it. " +
     "Your unpaid orders are cancelled, and your bookings, tickets and other records stay for " +
-    "staff to decide when they erase your data. With `confirm: true` and the preview's `expect`, " +
-    "signed in within the last 15 minutes (else sign_in_again), it does that: you are signed out everywhere at once and can no longer sign in, and staff " +
+    "staff to decide when they erase your data. With `confirm: true` and the preview's `expect` " +
+    "it does that: you are signed out everywhere at once and can no longer sign in, and staff " +
     "erase your data, or tell you by email why some of it must be kept, by the due date " +
     "returned. A preview that changed meanwhile is a conflict: ask for it again.",
   input: z
@@ -546,12 +547,12 @@ export const meDeleteAccount = defineOperation({
       .where("person_id", "=", personId)
       .executeTakeFirst();
     if (!account) throw new NotFoundError("customer account", customerId);
+    // The preview too: what deleting would do is asked for on the way to doing it (ADR 0712).
+    await requireRecentSignIn(ctx);
     const preview = await deletePreview(ctx, personId);
     const open = await openEraseRequest(ctx.db, personId);
     const dueAt = open?.dueAt ?? eraseRequestDueAt(ctx.now, await loadEraseDueDays(ctx.db));
     if (!input.confirm) return { deleted: false as const, ...preview, eraseDueAt: dueAt };
-    // The preview changes nothing; deleting needs a recent sign-in (ADR 0712).
-    await requireRecentSignIn(ctx);
     if (input.expect === undefined) {
       throw new ValidationError("Confirm with the preview's expect", { field: "expect" });
     }
