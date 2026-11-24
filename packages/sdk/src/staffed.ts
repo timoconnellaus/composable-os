@@ -41,6 +41,14 @@ import type { ExtensionManifest, FieldManifest, ObjectManifest } from "./manifes
  *   object of this extension whose records name the shift (`link`, a relation to this object) and
  *   the staff account that marked each (`by`, a user field): a class's bookings, ticked by whoever
  *   took the list. The host reads only that the list was taken, and by whom.
+ * - `timesFrom` (optional, ADR 0751): a relation (one record, required) to another of this
+ *   extension's objects whose time this shift is: a crew member's place on a visit. The host
+ *   copies the record's `starts`, `ends`, `zone` (when declared) and `kind` fields, which that
+ *   object has under the same names, onto the shift at create, when it is pointed elsewhere, and
+ *   whenever the record changes them, in the same statement (triggers the reconciler builds), so
+ *   every place moves with its visit and the time claim is checked for each: a move that would put
+ *   one person on two overlapping shifts fails whole, naming them. The shift's own time fields are
+ *   then read-only, written by the host alone. Not with a series making the shift (`pattern`).
  *
  * Only shipped packs and the org's own extensions declare it: who works when feeds pay.
  */
@@ -60,6 +68,7 @@ export interface StaffedSpec {
   account?: "required";
   private?: boolean;
   evidence?: { object: string; link: string; by: string };
+  timesFrom?: string;
 }
 
 const fieldName = z.string().max(40);
@@ -82,6 +91,7 @@ export const staffedManifestSchema = z
     account: z.literal("required").optional(),
     private: z.boolean().optional(),
     evidence: z.object({ object: fieldName, link: fieldName, by: fieldName }).strict().optional(),
+    timesFrom: fieldName.optional(),
   })
   .strict();
 export type StaffedManifest = z.infer<typeof staffedManifestSchema>;
@@ -260,5 +270,88 @@ export function checkObjectStaffed(
     } else if (!single(own(evidence, by), ["user"])) {
       contract(`${at}.evidence.by`, `"${by}" must be a user field of ${other}`);
     }
+  }
+
+  // Times that follow another record (ADR 0751): copied by the host from what a relation names.
+  if (staffed.timesFrom !== undefined) checkTimesFrom(m, name, object, staffed, contract);
+}
+
+/**
+ * `staffed.timesFrom` (ADR 0751): a required relation (one record) to another of this extension's
+ * objects that has the shift's time fields under the same names and types (its kind a relation to
+ * the same object); the shift's own copies are read-only, and no series makes the shift.
+ */
+function checkTimesFrom(
+  m: ExtensionManifest,
+  name: string,
+  object: ObjectManifest,
+  staffed: StaffedManifest,
+  contract: (path: string, message: string) => void,
+): void {
+  const at = `objects.${name}.staffed.timesFrom`;
+  const local = staffed.timesFrom as string;
+  const own = (o: ObjectManifest, f: string): FieldManifest | undefined =>
+    Object.hasOwn(o.fields, f) ? o.fields[f] : undefined;
+  const link = own(object, local);
+  const target = link?.type === "relation" && !link.many ? link.to : undefined;
+  const parentName = target?.startsWith(`${m.id}.`) ? target.slice(m.id.length + 1) : undefined;
+  const parent =
+    parentName && parentName !== name && Object.hasOwn(m.objects, parentName)
+      ? m.objects[parentName]
+      : undefined;
+  if (!parent) {
+    contract(
+      at,
+      `"${local}" must be a relation field (one record) of ${name} to another of this extension's objects`,
+    );
+    return;
+  }
+  if (!link?.required) {
+    contract(at, `"${local}" must be required: a shift whose times follow a record names one`);
+  }
+  if (local === staffed.who.field || local === staffed.kind) {
+    contract(at, `"${local}" is the shift's person or kind, not the record its times follow`);
+  }
+  const followed: [string, string][] = [
+    [staffed.starts, "datetime"],
+    [staffed.ends, "datetime"],
+    ...(staffed.zone !== undefined ? ([[staffed.zone, "timezone"]] as [string, string][]) : []),
+    [staffed.kind, "relation"],
+  ];
+  for (const [field, type] of followed) {
+    const mine = own(object, field);
+    const theirs = own(parent, field);
+    if (
+      !theirs ||
+      theirs.type !== type ||
+      theirs.many ||
+      (type === "relation" && theirs.to !== mine?.to)
+    ) {
+      contract(
+        at,
+        `${target as string} must have "${field}" as ${name} has it (${type === "relation" ? `a relation to ${mine?.to ?? "the same object"}` : `a ${type} field`}): the host copies it from there`,
+      );
+    }
+    if (mine && !mine.readOnly) {
+      contract(
+        `objects.${name}.fields.${field}.readOnly`,
+        `"${field}" must be readOnly: the host copies it from ${local}, nobody edits it`,
+      );
+    }
+  }
+  // One step only (the review of PR #419): the host reads the shifts that follow a record before it
+  // moves, not theirs in turn, so a record whose own times follow another is not followed.
+  if (parent.staffed?.timesFrom !== undefined) {
+    contract(
+      at,
+      `${target as string}'s own times follow another record: a shift's times follow a record whose times are its own`,
+    );
+  }
+  const series = Object.values(m.objects).some((o) => o.recurring?.generates === name);
+  if (staffed.pattern || series) {
+    contract(
+      at,
+      `${name} is made by a series, which sets its times: its times cannot follow ${local}`,
+    );
   }
 }

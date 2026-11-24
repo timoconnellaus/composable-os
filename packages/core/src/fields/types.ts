@@ -679,6 +679,12 @@ export interface StaffedDefinition {
   private?: boolean | undefined;
   /** What shows a shift was worked (ADR 0627): `object` is the evidence object's registry name. */
   evidence?: { object: string; link: string; by: string } | undefined;
+  /**
+   * The relation whose record's time this shift is (ADR 0751: a crew place's visit), and that
+   * record's object (registry name): the host copies its starts, ends, zone and kind.
+   */
+  timesFrom?: string | undefined;
+  timesFromObject?: string | undefined;
 }
 
 /**
