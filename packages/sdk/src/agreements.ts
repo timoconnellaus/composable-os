@@ -25,6 +25,13 @@ export const AGREEMENT_POINT_RE = /^[a-z][a-z0-9_]{1,39}$/;
  * - `enter` and `person`: for a record a caller makes (a booking), the states whose entry is checked
  *   and the relation to the Person it is for. Left out, the point is checked where the object is
  *   bought (a `sellable` object).
+ * - `keeps`: with `enter`, for an object without `claims`, the states a record keeps its entry in
+ *   (a ticket valid or used at the door), as `claims` says which states hold a place: a record
+ *   created in one is asked, and a move between two of them is the same entry and is not (staff
+ *   undoing a check-in). Left out, only `enter`'s states count.
+ * - `importMovesOver`: with `enter`, a record the record import makes or changes (a person's
+ *   door: `cos courses import`) is someone moving over from another system, and is not asked
+ *   (stage 44, issue #281). Left out, an import is asked as any caller's write.
  * - `inlineStep`: the pack's own screens (its blocks that buy or book this object) show what is
  *   due and let a person agree on the way (stage 44 step 5). Left out, nothing on the pack's
  *   screens can agree, so a document attached there refuses every purchase or booking until the
@@ -39,6 +46,8 @@ export interface AgreementsSpec {
   suggests?: readonly AgreementKind[];
   enter?: readonly string[];
   person?: string;
+  keeps?: readonly string[];
+  importMovesOver?: boolean;
   inlineStep?: boolean;
 }
 
@@ -48,6 +57,8 @@ export const agreementsManifestSchema = z.object({
   suggests: z.array(z.enum(AGREEMENT_KINDS)).max(AGREEMENT_KINDS.length).optional(),
   enter: z.array(z.string().max(40)).min(1).max(20).optional(),
   person: z.string().max(40).optional(),
+  keeps: z.array(z.string().max(40)).min(1).max(20).optional(),
+  importMovesOver: z.boolean().optional(),
   inlineStep: z.boolean().optional(),
 });
 export type AgreementsManifest = z.infer<typeof agreementsManifestSchema>;
@@ -82,6 +93,15 @@ export function checkObjectAgreements(
     if (declared.person !== undefined) {
       contract(`${path}.person`, "person is for a point checked when a record enters a state");
     }
+    if (declared.keeps !== undefined) {
+      contract(`${path}.keeps`, "keeps is for a point checked when a record enters a state");
+    }
+    if (declared.importMovesOver !== undefined) {
+      contract(
+        `${path}.importMovesOver`,
+        "importMovesOver is for a point checked when a record enters a state",
+      );
+    }
     if (!object.sellable) {
       contract(
         path,
@@ -98,6 +118,13 @@ export function checkObjectAgreements(
       if (!states.has(state))
         contract(`${path}.enter.${i}`, `"${state}" is not a state of ${name}`);
     }
+    for (const [i, state] of (declared.keeps ?? []).entries()) {
+      if (!states.has(state))
+        contract(`${path}.keeps.${i}`, `"${state}" is not a state of ${name}`);
+    }
+  }
+  if (declared.keeps && object.claims) {
+    contract(`${path}.keeps`, `${name} holds places (claims): its claims say which states keep it`);
   }
   const person = declared.person;
   const field =

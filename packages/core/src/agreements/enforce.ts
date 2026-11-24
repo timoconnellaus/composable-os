@@ -227,7 +227,10 @@ export async function enforcePurchase(
  *     the place (a coach unticking a name: attended to booked), which is the same booking;
  *   - is in a state that counts while its Person changes (staff giving a booking to someone else).
  * The host's own moves (`by: "host"`: promotion, a paid drop-in booked, timed moves, a series'
- * records) are never asked: "agree again" is not retroactive.
+ * records, what a paid line grants) are never asked: "agree again" is not retroactive. An object
+ * without `claims` says with `keeps` which states keep the entry (a ticket valid or used), and one
+ * with `importMovesOver` is not asked for the record import's writes (imported students moving
+ * over, issue #281).
  */
 export async function enforceEntry(
   ctx: HandlerContext,
@@ -235,10 +238,12 @@ export async function enforceEntry(
   before: Record<string, unknown> | null,
   after: Record<string, unknown>,
   by: Mover,
+  imported = false,
 ): Promise<void> {
   const spec = object.agreements;
   const states = object.states;
   if (!spec?.enter?.length || !spec.person || !states || by === "host") return;
+  if (imported && spec.importMovesOver === true) return;
   const field = states.field;
   const value = after[field];
   const to = typeof value === "string" && value !== "" ? value : null;
@@ -246,7 +251,10 @@ export async function enforceEntry(
   const from = typeof stored === "string" && stored !== "" ? stored : null;
   const claims = object.claims;
   const holds = (state: string | null) =>
-    state !== null && !!claims && (claims.held.includes(state) || claims.confirmed.includes(state));
+    state !== null &&
+    (claims
+      ? claims.held.includes(state) || claims.confirmed.includes(state)
+      : spec.keeps?.includes(state) === true);
   const listed = (state: string | null) => state !== null && spec.enter?.includes(state) === true;
   const counts = (state: string | null) => listed(state) || holds(state);
   if (!counts(to)) return;

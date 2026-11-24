@@ -1319,7 +1319,9 @@ documents to points; nothing is needed anywhere by default (ADR 0641). The host 
 subscription starts and when a record enters a declared state, and the write's batch carries a guard
 that fails if any document changed since. The host's own moves (a promotion, a paid drop-in booked)
 are never checked. Shipped points: `membership` (a plan, a pass type, a pass given by hand),
-`booking`, `event` (a ticket type) and `course` (a course, a bundle, a course plan).
+`booking`, `event` (a ticket type, a ticket made by hand) and `course` (a course, a bundle, a
+course plan, an enrolment staff give; the courses import's students are moving over and are not
+asked).
 _Avoid_: requirement (alone), gate (the approval gate)
 
 **Acceptance** (stage 44: by a customer, a guardian and from paper built in step 2; a guest's

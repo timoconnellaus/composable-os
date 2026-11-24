@@ -291,6 +291,18 @@ export default defineExtension({
           { from: ["valid", "used"], to: "void", by: ["staff", "host"], final: true },
         ],
       },
+      // A ticket made by hand starts a ticket as buying one does: the same point, asked by the
+      // engine for its holder when a caller makes one or gives it to another holder (stage 44,
+      // issue #281). Valid and used are the same ticket, so undoing a check-in asks nobody. One a
+      // paid order grants is the host's, asked when the order started.
+      agreements: {
+        point: "event",
+        label: "Buying a ticket",
+        suggests: ["waiver"],
+        enter: ["valid"],
+        keeps: ["valid", "used"],
+        person: "holder",
+      },
       // The holder reads their ticket's event, type, code and state, and changes nothing.
       customer: { field: "holder", read: ["event", "tickettype", "code", "state"], write: [] },
       timelineLinks: ["holder"],

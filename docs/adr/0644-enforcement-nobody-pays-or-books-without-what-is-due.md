@@ -178,3 +178,24 @@ and the cron promoting a waiter, and the waiter's next booking asked.
 - **What a visitor gives is held in the screen's memory only** until the buying call, which the
   packs' clients make with no cache kept after it (`gcTime: 0`), as `me.agreements.accept` and
   `me.agreements.get` are.
+
+## Amended 2026-11-24: staff-given enrolments and hand-made tickets are asked (issue #281)
+
+- **"Enrolments staff give" and "a ticket staff make by hand" move out of "What is not asked".**
+  Giving access by hand starts it as buying it does, as a pass given by hand already did: anyone
+  granted `courses:enrol` (the assistant included) or able to write a ticket could otherwise start
+  one with everything due. `courses.enrolment` declares `course` (`enter: ["active"]`, for its
+  `holder`) and `ticketing.ticket` declares `event` (`enter: ["valid"]`, for its `holder`), so the
+  engine asks `x.courses.enrol`, a record made by hand, an ended enrolment made active again and a
+  record given to another holder. What a paid line grants stays the host's (`by: "host"`), asked
+  when its order started.
+- **`keeps`** (new, optional, only with `enter`, not with `claims`): the states a record keeps its
+  entry in, as `claims`' held and confirmed states do for a booking. A ticket is `valid` or `used`:
+  made straight into "used" it is asked; undoing a check-in is the same ticket and is not.
+- **`importMovesOver`** (new, optional, only with `enter`): writes by `record.import` are someone
+  moving over and are not asked. It is the courses import's door (`actors: ["human"]`, not on
+  MCP), so imported students stay as decided above. The engine is told by the operation
+  (`TransitionOptions.imported`), never by a field value, so `source: "import"` written through
+  any other path is asked. The CSV record import stays asked: it is open to the assistant.
+- A ticket with no holder names no Person and is not asked, as before.
+

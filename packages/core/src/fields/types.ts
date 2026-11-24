@@ -129,6 +129,10 @@ export interface ObjectDefinition {
     suggests?: readonly string[];
     enter?: readonly string[];
     person?: string;
+    /** States a record keeps its entry in (a ticket valid or used): a move between them is not asked. */
+    keeps?: readonly string[];
+    /** A record the record import writes is someone moving over, not asked (issue #281). */
+    importMovesOver?: boolean;
     /** The pack's screens show what is due and let a person agree on the way (stage 44 step 5). */
     inlineStep?: boolean;
   };

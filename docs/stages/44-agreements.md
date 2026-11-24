@@ -33,8 +33,9 @@ decisions 15 to 22; step 1 built on `feat/stage-44-documents`, ADRs 0640 and 064
 `feat/stage-44-acceptances`, ADRs 0642 and 0643; step 3, enforcement, built on
 `feat/stage-44-enforcement`, ADR 0644; step 4, the copy and the signed PDF, built on
 `feat/stage-44-copy`, ADR 0645; step 5, the blocks, built on `feat/stage-44-blocks`, ADR 0644
-amended; step 8, erase, merge and retention, built on `feat/stage-44-erase`, ADR 0646; build
-notes at the end).
+amended; step 8, erase, merge and retention, built on `feat/stage-44-erase`, ADR 0646; staff-given
+enrolments and hand-made tickets asked (issue #281), built on `fix/issue-281-agreements-staff-given`,
+ADR 0644 amended; build notes at the end).
 Builds on stages 25, 31a and 32. The first client is a gym moving from another system. It must be in
 place before members pay or train on the new system (decision 13).
 
@@ -1422,8 +1423,9 @@ Every path that makes an order, a subscription, a booking or a ticket, and wheth
 | What a paid line or a subscription grants (a pass, a ticket, an enrolment, a membership), renewals and period orders | No | The host's, after a purchase that was asked |
 | `order.checkout` of an order already started, a part-paid balance, cancelling, leaving a waitlist | No | Nothing new is bought or booked |
 | A plan change or a pause of a running subscription | No | An existing membership (open to review) |
-| `x.courses.enrol` (staff give access), the courses import | No | Courses' points are on what is sold; giving access is not buying; imported students are moving over |
-| A ticket made by hand | No | Tickets are what a paid line grants |
+| `x.courses.enrol` (staff give access), an enrolment made by hand | Yes, the engine, since issue #281 (`courses.enrolment` declares `course` with `enter: ["active"]`) | Giving access starts it as buying it does; first built as No |
+| The courses import (`record.import`) | No (`importMovesOver`) | Imported students are moving over |
+| A ticket made by hand | Yes, the engine, since issue #281 (`ticketing.ticket` declares `event` with `enter: ["valid"]`, `keeps: ["valid", "used"]`) | First built as No: tickets are what a paid line grants, but staff can make one |
 
 Deviations from the text above, and why:
 
@@ -1461,6 +1463,29 @@ guest's purchase with a minor's address stands, the child stays due for a guardi
 with `agreements:manage` are told. `order.setPerson` takes only a Person with the order's
 address, and a minor only once nothing is due. Left as a follow-up (an issue): staff-given
 enrolments and hand-made tickets are not asked while `givePass` is.
+
+### Issue #281: staff-given enrolments and hand-made tickets are asked (`fix/issue-281-agreements-staff-given`, 2026-11-24)
+
+Built: `courses.enrolment` declares the `course` point (`enter: ["active"]`, `person: "holder"`,
+`importMovesOver: true`) and `ticketing.ticket` the `event` point (`enter: ["valid"]`,
+`keeps: ["valid", "used"]`, `person: "holder"`), so `x.courses.enrol`, an enrolment or a ticket
+made with `record.create`, an ended enrolment made active again and a ticket given to another
+holder ask as `givePass` does, for every actor. What a paid line grants stays the host's and is not
+asked. Two optional fields on the declaration (SDK and contract, only with `enter`):
+
+- **`keeps`**: for an object without `claims`, the states a record keeps its entry in. A record
+  created in one is asked (a ticket made straight into "used"), and a move between two of them is
+  the same entry (staff undoing a check-in after "agree again" asks nobody). It is `claims`'
+  "held or confirmed" for an object that holds no place; an object with `claims` may not declare it.
+- **`importMovesOver`**: a record `record.import` writes (the courses import's door, a person
+  only, not on MCP) is someone moving over and is not asked. The CSV record import
+  (`import.records.commit`) is still asked: it is open to the assistant, so leaving it out would be
+  a way round for an AI actor. A `source: "import"` value written by any other path is asked.
+
+Not built: a ticket made by hand with no holder names no Person and is not asked (as a booking
+with no Person is not); nothing is asked of the payer on a hand-made record (`payer: null`, as
+`givePass`). Proof: `apps/runner/test/agreements-enforcement.test.ts` ("staff-given enrolments and
+hand-made tickets") and the contract checks in `packages/core/test/agreements.test.ts`.
 
 ## Step 4: build notes (`feat/stage-44-copy`, 2026-11-23)
 

@@ -1796,7 +1796,9 @@ dependant) and `agreement.recordPaper` (staff, a person). Step 3 enforces it
 (`agreements/enforce.ts`): `createOrder` (every order, `order.startHeld` included) and
 `startSubscription` (a continuation offer included) ask at the points the bought objects declare,
 and `applyTransition` asks when a caller's record enters a state its point lists (`enter`, for its
-`person`), never for the host's own moves; something due is `agreements_due`, and the batch carries
+`person`; `keeps` names the states an object without `claims` keeps the entry in, and
+`importMovesOver` leaves the record import's writes unasked: a pass given by hand, an enrolment
+staff give and a ticket made by hand are asked, issue #281), never for the host's own moves; something due is `agreements_due`, and the batch carries
 the guard (`agreements_changed` when the counter moved). A guest carries their acceptances in the
 buying call (`agreements`), recorded with the order or the subscription checkout and no Person;
 migration 0853's triggers give them the Person when the order is paid (or the checkout confirmed)
