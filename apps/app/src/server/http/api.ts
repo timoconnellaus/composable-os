@@ -70,6 +70,7 @@ import {
   type OperationsEnv,
   staffContext,
 } from "../operations.ts";
+import { staffCookieAllowed, staffCrossOrigin } from "../staff-origin.ts";
 import { type SupportEnv, supportPrincipal } from "../support.ts";
 
 export interface ApiEnv extends OperationsEnv, IdentityEnv, CustomerIdentityEnv {
@@ -94,11 +95,17 @@ export function customers(env: ApiEnv): CustomerIdentity | null {
   );
 }
 
-/** The staff session a request carries, if any. */
+/**
+ * The staff session a request carries, if any. Refused (`staff_cross_origin`) when the request
+ * does not come from the host's own pages (`staffCookieAllowed`): every staff call here, the
+ * token exchange included, reads its session through this.
+ */
 async function staffSession(request: Request, env: ApiEnv): Promise<Principal | null> {
-  const support = await supportPrincipal(request, env as SupportEnv);
-  if (support) return support;
-  return createIdentityProvider(env).resolve(request);
+  const staff =
+    (await supportPrincipal(request, env as SupportEnv)) ??
+    (await createIdentityProvider(env).resolve(request));
+  if (staff && !staffCookieAllowed(request)) throw staffCrossOrigin();
+  return staff;
 }
 
 function hasCustomerCookie(request: Request): boolean {
@@ -188,19 +195,9 @@ export async function apiContext(request: Request, env: ApiEnv): Promise<AnyInvo
         "This request carries a staff session and a customer session. Sign out of one.",
       );
     }
-    // A staff session rides on a cookie the browser sends by itself (Better Auth's, Cloudflare
-    // Access's, hosted support's). Only the host's own pages may use it: a call from another
-    // origin, even one API_ALLOWED_ORIGINS lets in (the company's website, for its customers),
-    // is refused, so no script on that site can act as the staff browser it runs in (stage 47,
+    // `staffSession` refused a staff cookie from anywhere but the host's own pages (stage 47,
     // ADR 0660). A native app's bearer token above, and customer cookies, are unchanged.
-    const origin = request.headers.get("origin");
-    const own = new URL(request.url).origin;
-    if (origin !== null && origin !== own) {
-      throw new ForbiddenError("A staff session is used only from the host's own pages", {
-        rule: "staff_cross_origin",
-      });
-    }
-    return staffContext(env, staff, { surface: "client" }, own);
+    return staffContext(env, staff, { surface: "client" }, new URL(request.url).origin);
   }
   const identity = customers(env);
   const { principal, sessionId } = identity
@@ -413,6 +410,12 @@ async function authRoutes(route: string, request: Request, env: ApiEnv): Promise
     }
     if (request.headers.get("authorization")) {
       throw new ValidationError("Exchange a sign-in, not a token: send the session cookie");
+    }
+    // A body a cross-site form or a simple fetch cannot send: a browser asks first (stage 47).
+    if (!/^application\/json\b/i.test(request.headers.get("content-type") ?? "")) {
+      throw new ValidationError("Send the body as JSON (content-type: application/json)", {
+        httpStatus: 415,
+      });
     }
     const deviceName = deviceNameSchema(input.deviceName);
     const staff = await staffSession(request, env);

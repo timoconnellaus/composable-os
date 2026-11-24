@@ -2,6 +2,7 @@
 // calls `authorize()` for every route and server function; this module stays framework-free so it
 // can be tested directly in workerd.
 import { createIdentityProvider, type IdentityEnv, type Principal } from "@composable-os/auth";
+import { staffCookieAllowed } from "./staff-origin.ts";
 import { type SupportEnv, supportPrincipal } from "./support.ts";
 
 /** Paths anyone may load. Everything else needs a Principal. */
@@ -49,20 +50,30 @@ export async function authorize(
   // approved and unexpired makes the request the grant's support user. Anything else about the
   // cookie is ignored.
   const support = await supportPrincipal(request, env);
-  if (support) return { ok: true, principal: support };
-
   const provider = createIdentityProvider(env);
-  const principal = await provider.resolve(request);
+  const url = new URL(request.url);
+  let principal = support ?? (await provider.resolve(request));
+  // A staff cookie is used only from the host's own pages (staff-origin.ts, stage 47): a page is
+  // opened from anywhere, but a server function, an /api/* route or the socket only from here. A
+  // public page (a gatekeeper's callback, /buy) asked from elsewhere is served as to anyone.
+  if (principal && !staffCookieAllowed(request)) {
+    const publicPage =
+      kind.handlerType === "router" &&
+      isPublicPath(url.pathname) &&
+      !url.pathname.startsWith("/api/");
+    if (!publicPage) return { ok: false, response: forbidden() };
+    principal = null;
+  }
   if (principal) {
+    if (support) return { ok: true, principal };
     // Server functions are judged by `refusesFixedRole` in their own middleware (start.ts): only
     // there is the function's file known.
-    if (kind.handlerType === "router" && !packRoleMayReach(new URL(request.url).pathname)) {
+    if (kind.handlerType === "router" && !packRoleMayReach(url.pathname)) {
       if (await holdsPackRole(env.DB, principal)) return { ok: false, response: forbidden() };
     }
     return { ok: true, principal };
   }
 
-  const url = new URL(request.url);
   if (kind.handlerType === "serverFn") {
     if (kind.serverFnFile && PUBLIC_SERVER_FN_FILE.test(kind.serverFnFile)) {
       return { ok: true, principal: null };

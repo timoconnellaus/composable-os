@@ -11,6 +11,7 @@ import { createCrmDb } from "@composable-os/db";
 import { productName } from "@composable-os/product";
 import { product } from "@composable-os/products/active";
 import { type OperationsEnv, runOperation } from "../operations.ts";
+import { staffCookieAllowed } from "../staff-origin.ts";
 
 export const CONSENT_PATH = "/oauth/consent";
 
@@ -126,7 +127,14 @@ async function signedIn(
 ): Promise<{ principal: Principal } | { response: Response }> {
   const provider = createIdentityProvider(env);
   const principal = await provider.resolve(request);
-  if (principal) return { principal };
+  if (principal) {
+    // A staff cookie is used only from the host's own pages (staff-origin.ts, stage 47): the
+    // consent page is opened from the app connecting; its form is sent only from here.
+    if (!staffCookieAllowed(request)) {
+      return { response: await errorPage(`Connect from ${productName(product)} itself.`, 403) };
+    }
+    return { principal };
+  }
   const url = new URL(request.url);
   if (provider.signInPath) {
     const target = new URL(provider.signInPath, url);
