@@ -86,6 +86,11 @@ export type Role = (typeof ROLES)[number];
  * - `agreements:health` read a health form's answers (stage 44, ADR 0643): health information.
  *   Admins by default, grantable; a person only whatever is granted, and every read is audited.
  *   No AI actor reads them, with any grant.
+ * - `agreements:desk` start and end a desk signing session for a named Person on a tablet an
+ *   admin enrolled (stage 44 step 6, ADR 0649): it shows the titles of what that Person has due
+ *   and nothing else of their record, and records no acceptance itself (the member signs).
+ *   Admins by default, grantable, and the one core permission grantable to a fixed-role account
+ *   (a coach at the desk, `FIXED_ROLE_GRANTABLE`, ADR 0600 amended). A person only.
  * - `checklists:write` write the business's checklist templates (stage 45 step 4b, ADR 0650).
  *   Admins by default, grantable as `orders:refund` is. An AI acting for an account that holds it
  *   may draft one; its write always waits for a person who holds it too, so a checklist staff are
@@ -108,6 +113,7 @@ export const PERMISSIONS = [
   "agreements:manage",
   "agreements:paper",
   "agreements:health",
+  "agreements:desk",
   "checklists:write",
 ] as const;
 export type Permission = (typeof PERMISSIONS)[number];
@@ -145,8 +151,19 @@ export const GRANTABLE_PERMISSIONS = [
   "agreements:manage",
   "agreements:paper",
   "agreements:health",
+  "agreements:desk",
   "checklists:write",
 ] as const;
+
+/**
+ * The core permissions a human admin may also grant to an account holding a pack role (stage 44
+ * step 6, ADR 0600 amended): a fixed-role account otherwise holds only its pack's tools and the
+ * pack permissions granted to it. Each one is justified in its ADR and is small: `agreements:desk`
+ * starts a desk signing session for a named Person on an enrolled tablet, showing the titles of
+ * what is due and nothing else of their record (ADR 0649). Enrolment and revocation stay
+ * admin-only.
+ */
+export const FIXED_ROLE_GRANTABLE: readonly Permission[] = Object.freeze(["agreements:desk"]);
 
 /**
  * The account's role, or a permission granted to it (ADR 0449), allows `permission`. A pack role

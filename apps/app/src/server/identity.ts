@@ -10,7 +10,10 @@ import { type SupportEnv, supportPrincipal } from "./support.ts";
 // /blocks: a pack's web block mounted on its own (stage 41), in development only (a production
 // build mounts nothing there); the block's calls go to /api/v1/op as whoever the cookie says.
 const DEV = (import.meta as { env?: { DEV?: boolean } }).env?.DEV === true;
-const PUBLIC_PATHS = new Set(["/sign-in", "/api/health", "/buy"]);
+// /desk, /enrol: the enrolled tablet's pages (stage 44 step 6, ADR 0649), which the Worker routes
+// here only from the desk origin (server.ts answers them as not found on the staff origin); they
+// take no sign-in, and their calls go to the desk origin's own handler.
+const PUBLIC_PATHS = new Set(["/sign-in", "/api/health", "/buy", "/desk", "/enrol"]);
 const DEV_PUBLIC_PATHS = new Set(["/blocks"]);
 // /gatekeeper/: OAuth redirects, connect pages and provider pushes (stage 6a); each gatekeeper
 // authenticates its own routes with nonces and signatures. /order/: a guest's order page, opened

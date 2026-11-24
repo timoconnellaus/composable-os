@@ -50,6 +50,7 @@ import { contentGenerationWrites } from "./content/cache.ts";
 import { loadCustomerSignIn } from "./customers/accounts.ts";
 import { checkOutsideRateLimit } from "./customers/limits.ts";
 import type { WidgetCache } from "./dashboards/cache.ts";
+import type { DeskHost } from "./devices/devices.ts";
 import { diffRecords, type FieldDiff } from "./diff.ts";
 import {
   type AllowanceRefusalDetails,
@@ -235,6 +236,11 @@ export interface InvocationContext {
   agentJobs?: AgentJobHost;
   /** The host's own mail for staff (ADR 0455). Not inherited when nested. */
   hostMail?: HostMail;
+  /**
+   * Desk signing and enrolled devices (ADRs 0649 and 0780): the env secret and the desk origin.
+   * A staff call never carries a desk request. Not inherited when nested.
+   */
+  desk?: DeskHost;
   /**
    * Set on an agent's calls (ADR 0344): what its grant allows, checked on every call. Passed by the
    * AgentJob object, never by a model. Not inherited when nested, which is why operations that run
@@ -961,6 +967,8 @@ async function invokeOnce<O extends AnyOperation>(
     ...(ctx.voice ? { voice: ctx.voice } : {}),
     ...(ctx.agentJobs ? { agentJobs: ctx.agentJobs } : {}),
     ...(ctx.hostMail ? { hostMail: ctx.hostMail } : {}),
+    // A staff call is never the desk origin's own: only the secret and the origin go through.
+    ...(ctx.desk ? { desk: { secret: ctx.desk.secret, origin: ctx.desk.origin } } : {}),
     pipeline: {
       crm: ctx.db,
       resolve: (name) => ctx.resolveOperation?.(name),
@@ -1798,6 +1806,12 @@ export interface OutsideInvocationContext {
   integrations?: IntegrationRuntime;
   /** As for staff calls: the adapter's statements in the call's own batch (ADR 0416). */
   inBatch?: InBatch | undefined;
+  /**
+   * Desk signing and enrolled devices (ADRs 0649 and 0780), given only to a `hostInternal` core
+   * operation's handler. With `request`, set only by the desk origin's own handler, the call may
+   * reach the `deskOnly` operations and nothing else.
+   */
+  desk?: DeskHost;
   /** Never set: these make a context a staff one. */
   user?: undefined;
   actor?: undefined;
@@ -2014,6 +2028,11 @@ async function invokeOutside<O extends AnyOperation>(
   if (!allowsAudience(op, principal)) throw new UnknownOperationError(op.name);
   // Some operations exist for a customer only inside a tool they called (ADR 0414).
   if (op.toolOnly && !ctx.tool) throw new UnknownOperationError(op.name);
+  // The desk origin's calls exist only for its own handler, and that handler reaches nothing
+  // else (ADR 0649): a desk request on any other operation is told it does not exist.
+  if (Boolean(op.deskOnly) !== Boolean(ctx.desk?.request) || (op.deskOnly && ctx.tool)) {
+    throw new UnknownOperationError(op.name);
+  }
   // A call made by a pack's tool: what the tool may do comes from its installed manifest. A tool
   // that is not installed, not shipped or not open to this caller can make no call at all, and a
   // tool does not start another tool.
@@ -2185,6 +2204,9 @@ async function invokeOutside<O extends AnyOperation>(
         ...(hostTool && ctx.extensionHost ? { extensionHost: ctx.extensionHost } : {}),
         ...(op.hostInternal === true && !op.name.startsWith("x.") && ctx.integrations
           ? { integrations: ctx.integrations }
+          : {}),
+        ...(op.hostInternal === true && !op.name.startsWith("x.") && ctx.desk
+          ? { desk: ctx.desk }
           : {}),
         get actor() {
           return staffOnly("actor");

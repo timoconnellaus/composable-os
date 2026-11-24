@@ -50,6 +50,55 @@
       "hostInternal": true
     },
     {
+      "name": "desk.accept",
+      "audiences": ["public"],
+      "risk": "write",
+      "hostInternal": true,
+      "deskOnly": true
+    },
+    {
+      "name": "desk.claim",
+      "audiences": ["public"],
+      "risk": "write",
+      "hostInternal": true,
+      "deskOnly": true
+    },
+    {
+      "name": "desk.documents",
+      "audiences": ["public"],
+      "risk": "write",
+      "hostInternal": true,
+      "deskOnly": true
+    },
+    {
+      "name": "desk.finish",
+      "audiences": ["public"],
+      "risk": "write",
+      "hostInternal": true,
+      "deskOnly": true
+    },
+    {
+      "name": "desk.heartbeat",
+      "audiences": ["public"],
+      "risk": "write",
+      "hostInternal": true,
+      "deskOnly": true
+    },
+    {
+      "name": "desk.status",
+      "audiences": ["public"],
+      "risk": "read",
+      "hostInternal": true,
+      "deskOnly": true
+    },
+    {
+      "name": "device.claim",
+      "audiences": ["public"],
+      "risk": "write",
+      "hostInternal": true,
+      "deskOnly": true
+    },
+    {
       "name": "me.agreements.accept",
       "audiences": ["customer"],
       "risk": "write",

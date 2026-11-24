@@ -6055,6 +6055,37 @@
               "paper"
             ]
           },
+          "channel": {
+            "description": "Only those made this way: desk is at the desk",
+            "type": "string",
+            "enum": [
+              "web",
+              "app",
+              "paper",
+              "desk"
+            ]
+          },
+          "deviceId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "At the desk: only those made on this enrolled device (dev_…)"
+          },
+          "startedBy": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "At the desk: only those in sessions this staff user started (usr_…)"
+          },
+          "mark": {
+            "description": "At the desk: only those with this mark (of the page read)",
+            "type": "string",
+            "enum": [
+              "changed_recently",
+              "created_that_day",
+              "staff_address"
+            ]
+          },
           "from": {
             "type": "string",
             "format": "date-time",
@@ -6168,6 +6199,101 @@
                     "string",
                     "null"
                   ]
+                },
+                "desk": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "sessionId": {
+                          "type": "string"
+                        },
+                        "device": {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": [
+                                "string",
+                                "null"
+                              ]
+                            },
+                            "name": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "name"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "startedBy": {
+                          "type": "object",
+                          "properties": {
+                            "id": {
+                              "type": "string"
+                            },
+                            "name": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "id",
+                            "name"
+                          ],
+                          "additionalProperties": false
+                        },
+                        "startedAt": {
+                          "type": "string"
+                        },
+                        "words": {
+                          "type": "string",
+                          "description": "How it was made, as every screen and the PDF say it"
+                        },
+                        "marks": {
+                          "type": "array",
+                          "items": {
+                            "type": "object",
+                            "properties": {
+                              "kind": {
+                                "type": "string",
+                                "enum": [
+                                  "changed_recently",
+                                  "created_that_day",
+                                  "staff_address"
+                                ]
+                              },
+                              "at": {
+                                "type": "string"
+                              },
+                              "by": {
+                                "type": "string"
+                              },
+                              "how": {
+                                "type": "string"
+                              }
+                            },
+                            "required": [
+                              "kind"
+                            ],
+                            "additionalProperties": false
+                          }
+                        }
+                      },
+                      "required": [
+                        "sessionId",
+                        "device",
+                        "startedBy",
+                        "startedAt",
+                        "words",
+                        "marks"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
                 }
               },
               "required": [
@@ -6186,7 +6312,8 @@
                 "recordedBy",
                 "signedOn",
                 "counts",
-                "personName"
+                "personName",
+                "desk"
               ],
               "additionalProperties": false
             }
@@ -6447,6 +6574,10 @@
         "agreement.acceptances",
         "agreement.answers.get",
         "agreement.copy.preview",
+        "agreement.desk.devices",
+        "agreement.desk.find",
+        "agreement.desk.get",
+        "agreement.desk.prepare",
         "agreement.due.list",
         "agreement.erasePreview",
         "agreement.get",
@@ -6641,6 +6772,10 @@
         "agreement.acceptances",
         "agreement.answers.get",
         "agreement.copy.preview",
+        "agreement.desk.devices",
+        "agreement.desk.find",
+        "agreement.desk.get",
+        "agreement.desk.prepare",
         "agreement.due.list",
         "agreement.erasePreview",
         "agreement.get",
@@ -6708,6 +6843,712 @@
         "agreement.acceptances",
         "agreement.answers.get",
         "agreement.copy.preview",
+        "agreement.desk.devices",
+        "agreement.desk.find",
+        "agreement.desk.get",
+        "agreement.desk.prepare",
+        "agreement.due.list",
+        "agreement.erasePreview",
+        "agreement.get",
+        "agreement.healthNotes",
+        "agreement.healthReviews",
+        "agreement.kept.find",
+        "agreement.list",
+        "agreement.listHealthNotes",
+        "agreement.mergePlan",
+        "agreement.person",
+        "agreement.points",
+        "agreement.publishPreview",
+        "agreement.retention",
+        "agreement.version.get",
+        "agreement.version.pdf"
+      ]
+    },
+    {
+      "name": "agreement.desk.devices",
+      "description": "The devices an admin enrolled for desk signing, to choose the tablet a session is signed on: name and when last seen. agreements:desk. Read-only.",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "configured": {
+            "type": "boolean"
+          },
+          "devices": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "lastSeenAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "name",
+                "lastSeenAt"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "configured",
+          "devices"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
+      "name": "agreement.desk.end",
+      "description": "End a desk signing session now: the tablet's next call is refused. What was signed in it stays. agreements:desk, a person.",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "sessionId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "The session (ads_…)"
+          }
+        },
+        "required": [
+          "sessionId"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "session": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "state": {
+                "type": "string",
+                "enum": [
+                  "waiting",
+                  "claimed",
+                  "ended"
+                ]
+              },
+              "personId": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "device": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "id",
+                  "name"
+                ],
+                "additionalProperties": false
+              },
+              "claimedOn": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string"
+                      },
+                      "name": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "name"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The device a claim came from: the one chosen, or another that ended it"
+              },
+              "startedAt": {
+                "type": "string"
+              },
+              "codeExpiresAt": {
+                "type": "string"
+              },
+              "claimedAt": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "endedAt": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "endReason": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "signed": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991,
+                "description": "Acceptances made in it"
+              }
+            },
+            "required": [
+              "id",
+              "state",
+              "personId",
+              "device",
+              "claimedOn",
+              "startedAt",
+              "codeExpiresAt",
+              "claimedAt",
+              "endedAt",
+              "endReason",
+              "signed"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "session"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "agreement.acceptance.get",
+        "agreement.acceptance.pdf",
+        "agreement.acceptances",
+        "agreement.answers.get",
+        "agreement.copy.preview",
+        "agreement.desk.devices",
+        "agreement.desk.find",
+        "agreement.desk.get",
+        "agreement.desk.prepare",
+        "agreement.due.list",
+        "agreement.erasePreview",
+        "agreement.get",
+        "agreement.healthNotes",
+        "agreement.healthReviews",
+        "agreement.kept.find",
+        "agreement.list",
+        "agreement.listHealthNotes",
+        "agreement.mergePlan",
+        "agreement.person",
+        "agreement.points",
+        "agreement.publishPreview",
+        "agreement.retention",
+        "agreement.version.get",
+        "agreement.version.pdf"
+      ]
+    },
+    {
+      "name": "agreement.desk.find",
+      "description": "Find people by name to start a desk signing session for: up to 10, by name only (no record, address or history). For staff at the desk with agreements:desk. Read-only.",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "query": {
+            "type": "string",
+            "minLength": 2,
+            "maxLength": 80
+          }
+        },
+        "required": [
+          "query"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "people": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "personId": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "personId",
+                "name"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "people"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
+      "name": "agreement.desk.get",
+      "description": "A desk signing session's state, for the staff screen that started it: waiting for its code, claimed on which device and when, or ended and why (finished, ended by staff, run out, claimed on another device, a wrong code, the device revoked), and how many acceptances it made. agreements:desk. Read-only.",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "sessionId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "The session (ads_…)"
+          }
+        },
+        "required": [
+          "sessionId"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "session": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "state": {
+                "type": "string",
+                "enum": [
+                  "waiting",
+                  "claimed",
+                  "ended"
+                ]
+              },
+              "personId": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "device": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "id",
+                  "name"
+                ],
+                "additionalProperties": false
+              },
+              "claimedOn": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string"
+                      },
+                      "name": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "name"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The device a claim came from: the one chosen, or another that ended it"
+              },
+              "startedAt": {
+                "type": "string"
+              },
+              "codeExpiresAt": {
+                "type": "string"
+              },
+              "claimedAt": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "endedAt": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "endReason": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "signed": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991,
+                "description": "Acceptances made in it"
+              }
+            },
+            "required": [
+              "id",
+              "state",
+              "personId",
+              "device",
+              "claimedOn",
+              "startedAt",
+              "codeExpiresAt",
+              "claimedAt",
+              "endedAt",
+              "endReason",
+              "signed"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "session"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
+      "name": "agreement.desk.prepare",
+      "description": "Before starting a desk signing session for a Person: the titles of what they have due, their live children and what each has due, where the copy goes (masked), and whether a session can start (and why not). Nothing else of their record. agreements:desk. Read-only.",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "personId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "The Person who will sign (per_…)"
+          }
+        },
+        "required": [
+          "personId"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "personId": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "due": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "dependants": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "personId": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "due": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                }
+              },
+              "required": [
+                "personId",
+                "name",
+                "due"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "copyTo": {
+            "description": "Where the copy goes, masked (s•••@e•••.com)",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "refused": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "minor",
+                  "no_address"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "minor: a parent or guardian signs for them; no_address: the copy has nowhere to go"
+          }
+        },
+        "required": [
+          "personId",
+          "name",
+          "due",
+          "dependants",
+          "copyTo",
+          "refused"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
+      "name": "agreement.desk.start",
+      "description": "Start a desk signing session: the named Person signs what they have due on the enrolled tablet chosen, and for a parent, for the live children listed. Answers an 8-character code, single use, good for 2 minutes, to type on that tablet. Refused for a Person in the Trash, a minor for themselves (start it for their parent or guardian), a signer with no email address (the copy goes there every time), a child not linked to them now, and a revoked device. Records no acceptance: the member signs. A person on the staff with agreements:desk.",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "personId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "Who signs (per_…)"
+          },
+          "deviceId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "The enrolled tablet (dev_…)"
+          },
+          "dependantIds": {
+            "maxItems": 10,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64,
+              "description": "A live child of theirs (per_…)"
+            }
+          }
+        },
+        "required": [
+          "personId",
+          "deviceId"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "session": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "state": {
+                "type": "string",
+                "enum": [
+                  "waiting",
+                  "claimed",
+                  "ended"
+                ]
+              },
+              "personId": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "device": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "id",
+                  "name"
+                ],
+                "additionalProperties": false
+              },
+              "claimedOn": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string"
+                      },
+                      "name": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "name"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "The device a claim came from: the one chosen, or another that ended it"
+              },
+              "startedAt": {
+                "type": "string"
+              },
+              "codeExpiresAt": {
+                "type": "string"
+              },
+              "claimedAt": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "endedAt": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "endReason": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "signed": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991,
+                "description": "Acceptances made in it"
+              }
+            },
+            "required": [
+              "id",
+              "state",
+              "personId",
+              "device",
+              "claimedOn",
+              "startedAt",
+              "codeExpiresAt",
+              "claimedAt",
+              "endedAt",
+              "endReason",
+              "signed"
+            ],
+            "additionalProperties": false
+          },
+          "code": {
+            "type": "string",
+            "description": "Shown once on the staff screen; stored only as its HMAC"
+          },
+          "deskUrl": {
+            "type": "string",
+            "description": "Where the tablet is (the desk origin)"
+          }
+        },
+        "required": [
+          "session",
+          "code",
+          "deskUrl"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "agreement.acceptance.get",
+        "agreement.acceptance.pdf",
+        "agreement.acceptances",
+        "agreement.answers.get",
+        "agreement.copy.preview",
+        "agreement.desk.devices",
+        "agreement.desk.find",
+        "agreement.desk.get",
+        "agreement.desk.prepare",
         "agreement.due.list",
         "agreement.erasePreview",
         "agreement.get",
@@ -6883,6 +7724,10 @@
         "agreement.acceptances",
         "agreement.answers.get",
         "agreement.copy.preview",
+        "agreement.desk.devices",
+        "agreement.desk.find",
+        "agreement.desk.get",
+        "agreement.desk.prepare",
         "agreement.due.list",
         "agreement.erasePreview",
         "agreement.get",
@@ -7141,6 +7986,10 @@
         "agreement.acceptances",
         "agreement.answers.get",
         "agreement.copy.preview",
+        "agreement.desk.devices",
+        "agreement.desk.find",
+        "agreement.desk.get",
+        "agreement.desk.prepare",
         "agreement.due.list",
         "agreement.erasePreview",
         "agreement.get",
@@ -7954,6 +8803,10 @@
         "agreement.acceptances",
         "agreement.answers.get",
         "agreement.copy.preview",
+        "agreement.desk.devices",
+        "agreement.desk.find",
+        "agreement.desk.get",
+        "agreement.desk.prepare",
         "agreement.due.list",
         "agreement.erasePreview",
         "agreement.get",
@@ -8917,6 +9770,10 @@
         "agreement.acceptances",
         "agreement.answers.get",
         "agreement.copy.preview",
+        "agreement.desk.devices",
+        "agreement.desk.find",
+        "agreement.desk.get",
+        "agreement.desk.prepare",
         "agreement.due.list",
         "agreement.erasePreview",
         "agreement.get",
@@ -9333,6 +10190,10 @@
         "agreement.acceptances",
         "agreement.answers.get",
         "agreement.copy.preview",
+        "agreement.desk.devices",
+        "agreement.desk.find",
+        "agreement.desk.get",
+        "agreement.desk.prepare",
         "agreement.due.list",
         "agreement.erasePreview",
         "agreement.get",
@@ -9457,6 +10318,10 @@
         "agreement.acceptances",
         "agreement.answers.get",
         "agreement.copy.preview",
+        "agreement.desk.devices",
+        "agreement.desk.find",
+        "agreement.desk.get",
+        "agreement.desk.prepare",
         "agreement.due.list",
         "agreement.erasePreview",
         "agreement.get",
@@ -9687,6 +10552,10 @@
         "agreement.acceptances",
         "agreement.answers.get",
         "agreement.copy.preview",
+        "agreement.desk.devices",
+        "agreement.desk.find",
+        "agreement.desk.get",
+        "agreement.desk.prepare",
         "agreement.due.list",
         "agreement.erasePreview",
         "agreement.get",
@@ -9752,6 +10621,10 @@
         "agreement.acceptances",
         "agreement.answers.get",
         "agreement.copy.preview",
+        "agreement.desk.devices",
+        "agreement.desk.find",
+        "agreement.desk.get",
+        "agreement.desk.prepare",
         "agreement.due.list",
         "agreement.erasePreview",
         "agreement.get",
@@ -9827,6 +10700,10 @@
         "agreement.acceptances",
         "agreement.answers.get",
         "agreement.copy.preview",
+        "agreement.desk.devices",
+        "agreement.desk.find",
+        "agreement.desk.get",
+        "agreement.desk.prepare",
         "agreement.due.list",
         "agreement.erasePreview",
         "agreement.get",
@@ -9877,6 +10754,10 @@
         "agreement.acceptances",
         "agreement.answers.get",
         "agreement.copy.preview",
+        "agreement.desk.devices",
+        "agreement.desk.find",
+        "agreement.desk.get",
+        "agreement.desk.prepare",
         "agreement.due.list",
         "agreement.erasePreview",
         "agreement.get",
@@ -27609,6 +28490,851 @@
         "dashboard.get",
         "dashboard.home",
         "dashboard.list"
+      ]
+    },
+    {
+      "name": "device.enrol",
+      "description": "Enrol a tablet or other browser as the business's own device, for one use: desk signing (stage 44), a device role a pack declares, or a till. Answers a single-use enrolment code, good for 10 minutes, to type at the desk origin's /enrol on the device. Every admin is told. An admin who is a person only; no grant gives it.",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80,
+            "description": "What the device is called (\"Front desk iPad\")"
+          },
+          "use": {
+            "type": "string",
+            "enum": [
+              "signing",
+              "role",
+              "till"
+            ],
+            "description": "signing: desk signing (stage 44). role: a device role a pack declares (role names it). till: a till (not yet)."
+          },
+          "role": {
+            "description": "For use role: the device role, <pack>.<role>, an installed pack declares",
+            "type": "string",
+            "maxLength": 80
+          }
+        },
+        "required": [
+          "name",
+          "use"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "device": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "use": {
+                "type": "string",
+                "enum": [
+                  "signing",
+                  "role",
+                  "till"
+                ]
+              },
+              "role": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "state": {
+                "type": "string",
+                "enum": [
+                  "waiting",
+                  "unclaimed",
+                  "active",
+                  "revoked"
+                ],
+                "description": "waiting: its enrolment code is not used yet; unclaimed: the code ran out; active; revoked"
+              },
+              "enrolledBy": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "id",
+                  "name"
+                ],
+                "additionalProperties": false
+              },
+              "enrolledAt": {
+                "type": "string"
+              },
+              "claimedAt": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "lastSeenAt": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "browser": {
+                "description": "The browser it last said it was (at the claim or a rotation)",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "network": {
+                "description": "The network address it last came from",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "flags": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "type": "string",
+                      "enum": [
+                        "browser",
+                        "network"
+                      ]
+                    },
+                    "at": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "at"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "lockedUntil": {
+                "description": "Wrong desk codes locked it until then",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "revokedAt": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "revokedBy": {
+                "description": "Who revoked it; null for a clone or a lapse",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "revokeReason": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "enum": [
+                      "admin",
+                      "clone",
+                      "lapsed"
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "id",
+              "name",
+              "use",
+              "role",
+              "state",
+              "enrolledBy",
+              "enrolledAt",
+              "claimedAt",
+              "lastSeenAt",
+              "browser",
+              "network",
+              "flags",
+              "lockedUntil",
+              "revokedAt",
+              "revokedBy",
+              "revokeReason"
+            ],
+            "additionalProperties": false
+          },
+          "code": {
+            "type": "string",
+            "description": "The enrolment code: shown once, never stored in the clear"
+          },
+          "expiresAt": {
+            "type": "string"
+          },
+          "enrolUrl": {
+            "type": "string",
+            "description": "Where to type it, on the device"
+          }
+        },
+        "required": [
+          "device",
+          "code",
+          "expiresAt",
+          "enrolUrl"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "device.list"
+      ]
+    },
+    {
+      "name": "device.list",
+      "description": "Every enrolled device, of every use: its name, use, who enrolled it and when, when it was last seen, the browser and network it last came from and the changes flagged, a lock-out from wrong codes, and whether it was revoked (by an admin, as a copied credential, or unused for 30 days). Also where the desk is. Admins. Read-only.",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "deskUrl": {
+            "description": "The desk origin, or null when this deployment has none",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "configured": {
+            "type": "boolean",
+            "description": "Whether devices can be enrolled here (the secret and the hostname)"
+          },
+          "devices": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "use": {
+                  "type": "string",
+                  "enum": [
+                    "signing",
+                    "role",
+                    "till"
+                  ]
+                },
+                "role": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "state": {
+                  "type": "string",
+                  "enum": [
+                    "waiting",
+                    "unclaimed",
+                    "active",
+                    "revoked"
+                  ],
+                  "description": "waiting: its enrolment code is not used yet; unclaimed: the code ran out; active; revoked"
+                },
+                "enrolledBy": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "name"
+                  ],
+                  "additionalProperties": false
+                },
+                "enrolledAt": {
+                  "type": "string"
+                },
+                "claimedAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "lastSeenAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "browser": {
+                  "description": "The browser it last said it was (at the claim or a rotation)",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "network": {
+                  "description": "The network address it last came from",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "flags": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "enum": [
+                          "browser",
+                          "network"
+                        ]
+                      },
+                      "at": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "at"
+                    ],
+                    "additionalProperties": false
+                  }
+                },
+                "lockedUntil": {
+                  "description": "Wrong desk codes locked it until then",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "revokedAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "revokedBy": {
+                  "description": "Who revoked it; null for a clone or a lapse",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "revokeReason": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "enum": [
+                        "admin",
+                        "clone",
+                        "lapsed"
+                      ]
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "name",
+                "use",
+                "role",
+                "state",
+                "enrolledBy",
+                "enrolledAt",
+                "claimedAt",
+                "lastSeenAt",
+                "browser",
+                "network",
+                "flags",
+                "lockedUntil",
+                "revokedAt",
+                "revokedBy",
+                "revokeReason"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "deskUrl",
+          "configured",
+          "devices"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
+      "name": "device.revoke",
+      "description": "Revoke an enrolled device at once: its credential opens nothing again, and a signing session open on it ends in the same change. For a lost or stolen tablet, or one no longer used. Every admin is told. An admin who is a person only.",
+      "risk": "destructive",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "deviceId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "The device (dev_…)"
+          }
+        },
+        "required": [
+          "deviceId"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "device": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "use": {
+                "type": "string",
+                "enum": [
+                  "signing",
+                  "role",
+                  "till"
+                ]
+              },
+              "role": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "state": {
+                "type": "string",
+                "enum": [
+                  "waiting",
+                  "unclaimed",
+                  "active",
+                  "revoked"
+                ],
+                "description": "waiting: its enrolment code is not used yet; unclaimed: the code ran out; active; revoked"
+              },
+              "enrolledBy": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "id",
+                  "name"
+                ],
+                "additionalProperties": false
+              },
+              "enrolledAt": {
+                "type": "string"
+              },
+              "claimedAt": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "lastSeenAt": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "browser": {
+                "description": "The browser it last said it was (at the claim or a rotation)",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "network": {
+                "description": "The network address it last came from",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "flags": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "type": "string",
+                      "enum": [
+                        "browser",
+                        "network"
+                      ]
+                    },
+                    "at": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "at"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "lockedUntil": {
+                "description": "Wrong desk codes locked it until then",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "revokedAt": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "revokedBy": {
+                "description": "Who revoked it; null for a clone or a lapse",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "revokeReason": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "enum": [
+                      "admin",
+                      "clone",
+                      "lapsed"
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "id",
+              "name",
+              "use",
+              "role",
+              "state",
+              "enrolledBy",
+              "enrolledAt",
+              "claimedAt",
+              "lastSeenAt",
+              "browser",
+              "network",
+              "flags",
+              "lockedUntil",
+              "revokedAt",
+              "revokedBy",
+              "revokeReason"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "device"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "device.list"
+      ]
+    },
+    {
+      "name": "device.setUse",
+      "description": "Change what an enrolled device is for: desk signing, a device role, or a till. A signing session open on it ends in the same change. Every admin is told. An admin who is a person only.",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "deviceId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "The device (dev_…)"
+          },
+          "use": {
+            "type": "string",
+            "enum": [
+              "signing",
+              "role",
+              "till"
+            ],
+            "description": "signing: desk signing (stage 44). role: a device role a pack declares (role names it). till: a till (not yet)."
+          },
+          "role": {
+            "description": "For use role: the device role, <pack>.<role>, an installed pack declares",
+            "type": "string",
+            "maxLength": 80
+          }
+        },
+        "required": [
+          "deviceId",
+          "use"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "device": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "use": {
+                "type": "string",
+                "enum": [
+                  "signing",
+                  "role",
+                  "till"
+                ]
+              },
+              "role": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "state": {
+                "type": "string",
+                "enum": [
+                  "waiting",
+                  "unclaimed",
+                  "active",
+                  "revoked"
+                ],
+                "description": "waiting: its enrolment code is not used yet; unclaimed: the code ran out; active; revoked"
+              },
+              "enrolledBy": {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "id",
+                  "name"
+                ],
+                "additionalProperties": false
+              },
+              "enrolledAt": {
+                "type": "string"
+              },
+              "claimedAt": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "lastSeenAt": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "browser": {
+                "description": "The browser it last said it was (at the claim or a rotation)",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "network": {
+                "description": "The network address it last came from",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "flags": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "kind": {
+                      "type": "string",
+                      "enum": [
+                        "browser",
+                        "network"
+                      ]
+                    },
+                    "at": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "kind",
+                    "at"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "lockedUntil": {
+                "description": "Wrong desk codes locked it until then",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "revokedAt": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "revokedBy": {
+                "description": "Who revoked it; null for a clone or a lapse",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "revokeReason": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "enum": [
+                      "admin",
+                      "clone",
+                      "lapsed"
+                    ]
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "id",
+              "name",
+              "use",
+              "role",
+              "state",
+              "enrolledBy",
+              "enrolledAt",
+              "claimedAt",
+              "lastSeenAt",
+              "browser",
+              "network",
+              "flags",
+              "lockedUntil",
+              "revokedAt",
+              "revokedBy",
+              "revokeReason"
+            ],
+            "additionalProperties": false
+          },
+          "previous": {
+            "type": "object",
+            "properties": {
+              "use": {
+                "type": "string",
+                "enum": [
+                  "signing",
+                  "role",
+                  "till"
+                ]
+              },
+              "role": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "use",
+              "role"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "device",
+          "previous"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "device.list"
       ]
     },
     {
@@ -65588,7 +67314,7 @@
     },
     {
       "name": "user.setPermissions",
-      "description": "Set the permissions a staff account is granted one by one, on top of its role (user.grantablePermissions lists them; an empty list takes them all away). A member granted records:publish publishes programs; one granted orders:refund approves refunds. A grant never lets an AI assistant or MCP client do what only a person may. An account with a pack's fixed role may be granted the packs' permissions only (a coach given the Bookings desk), which add up with the role. Admins only, and only a human can call it. Returns the user.",
+      "description": "Set the permissions a staff account is granted one by one, on top of its role (user.grantablePermissions lists them; an empty list takes them all away). A member granted records:publish publishes programs; one granted orders:refund approves refunds. A grant never lets an AI assistant or MCP client do what only a person may. An account with a pack's fixed role may be granted the packs' permissions (a coach given the Bookings desk) and agreements:desk only, which add up with the role. Admins only, and only a human can call it. Returns the user.",
       "risk": "write",
       "audiences": [
         "staff"

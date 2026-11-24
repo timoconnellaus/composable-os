@@ -16,7 +16,9 @@
 // An unknown role, or one whose pack is not installed, active and shipped, holds nothing.
 //
 // Roles and grants add up (ADR 0600): an account holding a pack role may also be granted pack
-// permissions a pack declares grantable (Bookings' `bookings:desk`), never a core permission.
+// permissions a pack declares grantable (Bookings' `bookings:desk`), and the few core permissions
+// core declares grantable to such an account (`FIXED_ROLE_GRANTABLE`: `agreements:desk`, stage 44
+// step 6), never another core permission.
 // Each call is allowed by one authority, decided here (`staffAuthority`): a grant that opens the
 // tool, else the pack role. The role's limits (today's records only, ADR 0553) bind what the role
 // gives and nothing else, and the pipeline carries them only on a call the role allowed.
@@ -24,7 +26,7 @@ import type { CoreDatabase, CrmDb } from "@composable-os/db";
 import type { ExtensionManifest, RoleManifest } from "@composable-os/sdk";
 import { type Kysely, sql } from "kysely";
 import type { AnyOperation } from "./operation.ts";
-import { holdsPermission, type Role } from "./principals.ts";
+import { FIXED_ROLE_GRANTABLE, holdsPermission, type Role } from "./principals.ts";
 
 /** A pack role as an account holds it. */
 export interface HeldPackRole {
@@ -173,7 +175,14 @@ export function packRoleReaches(role: HeldPackRole, op: AnyOperation): boolean {
  * permission, and no record read, list, search or setting (ADR 0600).
  */
 export function grantOpens(grants: readonly string[], op: AnyOperation): boolean {
-  return (op.packGrantable ?? []).some((p) => grants.includes(p));
+  if ((op.packGrantable ?? []).some((p) => grants.includes(p))) return true;
+  // The few core permissions grantable to a fixed-role account (ADR 0600 amended, stage 44 step
+  // 6): a core operation, never a pack's tool, whose own permission is one of them and granted.
+  return (
+    !op.name.startsWith("x.") &&
+    FIXED_ROLE_GRANTABLE.includes(op.permission) &&
+    grants.includes(op.permission)
+  );
 }
 
 /**

@@ -112,6 +112,8 @@ const CONTEXT_KEYS = {
   voice: "runtime",
   agentJobs: "runtime",
   hostMail: "runtime",
+  // The desk's secret and origin (ADR 0649): configuration the handler is given, not a store.
+  desk: "data",
 } as const satisfies Record<keyof HandlerContext, "database" | "runtime" | "data">;
 
 type RuntimeKey = {

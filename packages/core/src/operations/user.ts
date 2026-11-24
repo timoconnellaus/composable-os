@@ -9,7 +9,13 @@ import { defineObject } from "../fields/types.ts";
 import { listInputSchema, pageQuery, pageSchema, selectFields } from "../list.ts";
 import { defineOperation } from "../operation.ts";
 import { availablePackRoles, PACK_ROLE_NAME_RE, parseGrants } from "../pack-roles.ts";
-import { GRANTABLE_PERMISSIONS, holdsPermission, PERMISSIONS, ROLES } from "../principals.ts";
+import {
+  FIXED_ROLE_GRANTABLE,
+  GRANTABLE_PERMISSIONS,
+  holdsPermission,
+  PERMISSIONS,
+  ROLES,
+} from "../principals.ts";
 import { feedRevocations } from "../staffing/feed.ts";
 
 /** Users are not a record object (no tags, links or timeline); this only drives user.list. */
@@ -261,7 +267,7 @@ export async function checkGrants(
 ): Promise<string[]> {
   const choices = await grantable(ctx);
   const available = new Set(
-    choices.filter((g) => packRole === null || g.from !== "core").map((g) => g.permission),
+    choices.filter((g) => packRole === null || g.forFixedRole).map((g) => g.permission),
   );
   const unknown = permissions.filter((p) => !available.has(p));
   if (unknown.length) {
@@ -308,8 +314,10 @@ export const userSetPackRole = defineOperation({
       await checkPackRole(ctx, input.role, before.role, "role");
       // Its grants must be ones a fixed role's account may hold (ADR 0600): a core grant would
       // count for nothing beside the role, so it is taken away by a person first, not silently.
-      const core = parseGrants(before.granted_permissions).filter((p) =>
-        (GRANTABLE_PERMISSIONS as readonly string[]).includes(p),
+      const core = parseGrants(before.granted_permissions).filter(
+        (p) =>
+          (GRANTABLE_PERMISSIONS as readonly string[]).includes(p) &&
+          !(FIXED_ROLE_GRANTABLE as readonly string[]).includes(p),
       );
       if (core.length) {
         throw new ConflictError(
@@ -389,6 +397,7 @@ export async function grantable(
     "agreements:manage": "Write agreement documents, and publish, attach and retire them",
     "agreements:paper": "Record that someone signed an agreement on paper",
     "agreements:health": "Read members' health form answers (every read is logged)",
+    "agreements:desk": "Start a desk signing session for a member on an enrolled tablet",
     "checklists:write": "Write the checklists staff tick off (their steps, and which are in use)",
   };
   return [
@@ -396,7 +405,8 @@ export async function grantable(
       permission,
       label: labels[permission],
       from: "core",
-      forFixedRole: false,
+      // The few core permissions a fixed-role account may hold too (ADR 0600 amended).
+      forFixedRole: (FIXED_ROLE_GRANTABLE as readonly string[]).includes(permission),
       restricted: false,
     })),
     ...packs,
@@ -443,7 +453,8 @@ export const userSetPermissions = defineOperation({
     "(user.grantablePermissions lists them; an empty list takes them all away). A member granted " +
     "records:publish publishes programs; one granted orders:refund approves refunds. A grant never " +
     "lets an AI assistant or MCP client do what only a person may. An account with a pack's " +
-    "fixed role may be granted the packs' permissions only (a coach given the Bookings desk), " +
+    "fixed role may be granted the packs' permissions (a coach given the Bookings desk) and " +
+    "agreements:desk only, " +
     "which add up with the role. Admins only, and only a human can call it. Returns the user.",
   input: z.object({
     id: z.string().min(1).max(64).describe("User id (usr_…)"),

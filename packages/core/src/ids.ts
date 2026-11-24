@@ -93,6 +93,10 @@ export const ID_PREFIXES = {
   agreementVersion: "agv",
   /** One record that a person agreed to one version, never changed (stage 44, ADR 0642). */
   agreementAcceptance: "aga",
+  /** A desk signing session on the business's enrolled tablet (stage 44 step 6, ADR 0649). */
+  agreementDeskSession: "ads",
+  /** A device a human admin enrolled as the business's own (stage 51, ADR 0780). */
+  device: "dev",
   /** A shift offered for someone else to take (stage 45, ADR 0623). */
   staffOffer: "sfo",
   /** A time a staff member said they cannot work (stage 45, ADR 0622). */

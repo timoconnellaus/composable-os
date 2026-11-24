@@ -11,6 +11,7 @@ export {
   scrubErasedCopies,
   sendAgreementCopies,
 } from "./agreements/copy.ts";
+export { CODE_MS, IDLE_MS, TOTAL_MS } from "./agreements/desk.ts";
 export {
   AGREEMENT_FOR,
   AGREEMENT_HOW,
@@ -93,6 +94,15 @@ export * from "./dashboards/overview.ts";
 export * from "./dashboards/params.ts";
 export * from "./dashboards/run.ts";
 export * from "./dashboards/spec.ts";
+export {
+  DEVICE_USES,
+  type DeskHost,
+  type DeskRequest,
+  type DeviceUse,
+  GRACE_MS,
+  LAPSE_MS,
+  ROTATE_MS,
+} from "./devices/devices.ts";
 export * from "./diff.ts";
 export { runDuplicateCron } from "./duplicates/cron.ts";
 export * from "./duplicates/normalise.ts";

@@ -116,11 +116,20 @@ beforeAll(async () => {
 describe("screens.mine (ADR 0660)", () => {
   it("an admin sees every screen of the installed packs, with its route, nav and record", async () => {
     const admin = await createUser("admin");
+    // Core's own Sign at the desk too (stage 44 step 6, ADR 0649): an admin holds agreements:desk.
     expect(await mine(admin)).toEqual(
-      [...BOOKINGS, ...MEMBER_ELSE, ...TEAM, ...ROSTERERS, "rostering/pay"].sort(),
+      [...BOOKINGS, ...MEMBER_ELSE, ...TEAM, ...ROSTERERS, "rostering/pay", "core/desk"].sort(),
     );
     const { screens } = await invoke("screens.mine", {}, context(admin));
-    expect(screens.find((s) => s.key === "desk")).toEqual({
+    expect(screens.find((s) => s.pack === "core")).toEqual({
+      pack: "core",
+      key: "desk",
+      label: "Sign at the desk",
+      nav: { group: "Agreements", order: 10 },
+      route: "/s/core/desk",
+      record: null,
+    });
+    expect(screens.find((s) => s.pack === "bookings" && s.key === "desk")).toEqual({
       pack: "bookings",
       key: "desk",
       label: "Front desk",
@@ -168,6 +177,10 @@ describe("screens.mine (ADR 0660)", () => {
     // A coach granted the team's tools is rostered too.
     const rostered = await account("viewer", "bookings.coach", ["rostering:roster"]);
     expect(await mine(rostered)).toEqual(["bookings/classList", ...TEAM].sort());
+    // A coach granted agreements:desk (core's one permission for a fixed-role account, ADR 0600
+    // amended) gets core's Sign at the desk (stage 44 step 6).
+    const signing = await account("viewer", "bookings.coach", ["agreements:desk"]);
+    expect(await mine(signing)).toEqual(["bookings/classList", "core/desk"]);
   });
 
   it("a team account sees the team's screens; granted, the rosterers'; never pay ungranted", async () => {

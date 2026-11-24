@@ -15,6 +15,7 @@ import { type Audience, audienceProblems, audiencesOf, isOpenOutside } from "./a
 import type { AutomationHost, EventSink } from "./automations/types.ts";
 import type { CustomerSignIn } from "./customers/accounts.ts";
 import type { WidgetCache } from "./dashboards/cache.ts";
+import type { DeskHost } from "./devices/devices.ts";
 import type { FieldDiff } from "./diff.ts";
 import type { ExtensionHost } from "./extensions/host.ts";
 import type { GateFloor } from "./gate.ts";
@@ -279,6 +280,13 @@ export interface HandlerContext {
   readonly agentJobs?: AgentJobHost;
   /** The host's own mail for staff (ADR 0455): the invite notice. Absent: not sent. */
   readonly hostMail?: HostMail;
+  /**
+   * Desk signing and enrolled devices (stage 44 step 6, stage 51; ADRs 0649 and 0780): the env
+   * secret codes and credentials are HMACed under and the desk origin, when the deployment has
+   * them; and, on a call the desk origin's own handler makes, that request's cookies. Given to
+   * staff operations and to `hostInternal` ones, never to extension code.
+   */
+  readonly desk?: DeskHost;
 }
 
 /**
@@ -473,6 +481,14 @@ export interface OperationDefinition<
    */
   toolOnly?: boolean;
   /**
+   * Called only by the desk origin's own handler (stage 44 step 6, ADR 0649): a public,
+   * `hostInternal` core operation that reads the enrolled device's credential and the desk
+   * session's token from the request (`ctx.desk.request`), never from its input. Any other caller
+   * (the HTTP surface, the client-app binding) is told no such operation exists, and it is left
+   * out of the HTTP contract. Shown in open-operations.json.
+   */
+  deskOnly?: boolean;
+  /**
    * Input keys only staff may pass (stage 32b review): left out of the customer's and the public's
    * contract, and refused from a customer or the public by the pipeline before the handler runs.
    * For an operation open to all three whose input has one staff-only option (a cancel's `now`, a
@@ -648,6 +664,16 @@ export function operationProblems(op: AnyOperation): string[] {
     if (!isOpenOutside(op)) {
       problems.push("hostInternal is only for an operation open to customer or public callers");
     }
+  }
+  if (op.deskOnly !== undefined) {
+    if (op.deskOnly !== true) problems.push("deskOnly is true or left out");
+    if (op.name?.startsWith("x.")) problems.push("an extension tool cannot be deskOnly");
+    const audiences = audiencesOf(op);
+    if (audiences.length !== 1 || audiences[0] !== "public") {
+      problems.push("deskOnly is for an operation open to the public only");
+    }
+    if (op.hostInternal !== true) problems.push("deskOnly needs hostInternal");
+    if (op.toolOnly) problems.push("deskOnly and toolOnly do not go together");
   }
   if (op.toolOnly !== undefined) {
     if (op.toolOnly !== true) problems.push("toolOnly is true or left out");
