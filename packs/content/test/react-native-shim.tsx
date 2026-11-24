@@ -6,6 +6,7 @@ import { createElement, type ReactNode } from "react";
 
 type Props = {
   testID?: string;
+  nativeID?: string;
   accessibilityRole?: string;
   accessibilityLabel?: string;
   source?: { uri?: string };
@@ -14,11 +15,12 @@ type Props = {
 };
 
 function Host({ name, props }: { name: string; props: Props }) {
-  const { testID, accessibilityRole, accessibilityLabel, source, children } = props;
+  const { testID, nativeID, accessibilityRole, accessibilityLabel, source, children } = props;
   return createElement(
     `rn-${name}`,
     {
       ...(testID ? { "data-testid": testID } : {}),
+      ...(nativeID ? { "data-native-id": nativeID } : {}),
       ...(accessibilityRole ? { "data-role": accessibilityRole } : {}),
       ...(accessibilityLabel ? { "data-label": accessibilityLabel } : {}),
       ...(source?.uri ? { "data-src": source.uri } : {}),
