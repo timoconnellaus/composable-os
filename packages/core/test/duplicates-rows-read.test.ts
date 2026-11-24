@@ -4,7 +4,7 @@ import { env } from "cloudflare:workers";
 import { createCrmDb } from "@composable-os/db";
 import { seedDatabase } from "@composable-os/db/seed";
 import { beforeAll, describe, expect, it } from "vitest";
-import { type ActingUser, invokeByName } from "../src/index.ts";
+import { type ActingUser, invokeByName, refreshSchemaRegistry } from "../src/index.ts";
 import { createUser, unique } from "./helpers.ts";
 
 const PEOPLE = 3000;
@@ -64,6 +64,9 @@ beforeAll(async () => {
     activities: 300,
     tasks: 100,
   });
+  // Load the schema cache unmetered: its scan of sqlite_master grows with every migration and is
+  // not the scan's (rows-read-meter.ts).
+  await refreshSchemaRegistry(createCrmDb(env.DB).query);
 }, 120_000);
 
 async function run(name: string, input: unknown, user = member) {
