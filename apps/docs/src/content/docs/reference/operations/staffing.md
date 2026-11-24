@@ -36,7 +36,7 @@ Tool-only (a shipped pack's tool): put a staff account on a shift, or nobody (nu
 | `shift.startsAt` | string or null | yes |   |   |
 | `shift.endsAt` | string or null | yes |   |   |
 | `warnings` | array of object | yes |   |   |
-| `warnings[].code` | `"unavailable"`, `"not_qualified"`, `"uncovered"` | yes |   |   |
+| `warnings[].code` | `"unavailable"`, `"not_qualified"`, `"uncovered"`, `"outside_hours"`, `"client_busy"` | yes |   |   |
 | `warnings[].object` | string | yes |   |   |
 | `warnings[].id` | string | yes |   |   |
 | `warnings[].account` | string or null | yes |   |   |
@@ -179,7 +179,7 @@ Tool-only (a shipped pack's tool): who could be put on a shift, for someone who 
 | `people[].eligible` | boolean | yes |   |   |
 | `people[].noProfile` | boolean | yes |   |   |
 | `people[].warnings` | array of object | yes |   |   |
-| `people[].warnings[].code` | `"unavailable"`, `"not_qualified"`, `"uncovered"` | yes |   |   |
+| `people[].warnings[].code` | `"unavailable"`, `"not_qualified"`, `"uncovered"`, `"outside_hours"`, `"client_busy"` | yes |   |   |
 | `people[].warnings[].object` | string | yes |   |   |
 | `people[].warnings[].id` | string | yes |   |   |
 | `people[].warnings[].account` | string or null | yes |   |   |
@@ -216,7 +216,7 @@ Tool-only (a shipped pack's tool): the dry run of putting someone on a shift. Fo
 | Field | Type | Required | Limits | Description |
 | --- | --- | --- | --- | --- |
 | `warnings` | array of object | yes |   |   |
-| `warnings[].code` | `"unavailable"`, `"not_qualified"`, `"uncovered"` | yes |   |   |
+| `warnings[].code` | `"unavailable"`, `"not_qualified"`, `"uncovered"`, `"outside_hours"`, `"client_busy"` | yes |   |   |
 | `warnings[].object` | string | yes |   |   |
 | `warnings[].id` | string | yes |   |   |
 | `warnings[].account` | string or null | yes |   |   |
@@ -346,11 +346,43 @@ Tool-only (a shipped pack's tool): put a shift of a weekly pattern back to its p
 | `object` | string | yes |   |   |
 | `id` | string | yes |   |   |
 | `warnings` | array of object | yes |   |   |
-| `warnings[].code` | `"unavailable"`, `"not_qualified"`, `"uncovered"` | yes |   |   |
+| `warnings[].code` | `"unavailable"`, `"not_qualified"`, `"uncovered"`, `"outside_hours"`, `"client_busy"` | yes |   |   |
 | `warnings[].object` | string | yes |   |   |
 | `warnings[].id` | string | yes |   |   |
 | `warnings[].account` | string or null | yes |   |   |
 | `warnings[].message` | string | yes |   |   |
+
+## staffing.free
+
+Tool-only (a shipped pack's tool): the free start times of one kind of booked work (a service's appointments, an object declaring staffed.open) between from and to (ISO instants; default the next 7 days, at most 31), soonest first, each with who is free then (the shift's person values, a coach profile) and the first free room. Free means within open hours, not away, no other shift (buffers included), a room free, no closure, not over the client's own; for a customer or a visitor also inside the booking window. providers limits it to some (at most 20); client is whose own bookings to leave out (a customer: themselves, the default, or a child of theirs). Never says why a time is not free. Read-only.
+
+|  |  |
+| --- | --- |
+| Permission | `records:read` |
+| Risk | `read` |
+| Audiences | `staff`, `customer`, `public` |
+| Also | called only from a tool's run (`toolOnly`); host-internal (`hostInternal`); not offered to MCP clients (`mcp.expose: false`) |
+
+### Input
+
+| Field | Type | Required | Limits | Description |
+| --- | --- | --- | --- | --- |
+| `object` | string | yes | min length 1, max length 81 |   |
+| `kind` | string | yes | min length 1, max length 64 | The kind record (a service) |
+| `from` | string (date-time) |   | pattern `^(?:(?:\d\d[2468][048]\|\d\d[13579][26]\|\d\d0[48]\|[02468][048]00\|[13579][26]00)-02-29\|\d{4}-(?:(?:0[13578]\|1[02])-(?:0[1-9]\|[12]\d\|3[01])\|(?:0[469]\|11)-(?:0[1-9]\|[12]\d\|30)\|(?:02)-(?:0[1-9]\|1\d\|2[0-8])))T(?:(?:[01]\d\|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z))$` |   |
+| `to` | string (date-time) |   | pattern `^(?:(?:\d\d[2468][048]\|\d\d[13579][26]\|\d\d0[48]\|[02468][048]00\|[13579][26]00)-02-29\|\d{4}-(?:(?:0[13578]\|1[02])-(?:0[1-9]\|[12]\d\|3[01])\|(?:0[469]\|11)-(?:0[1-9]\|[12]\d\|30)\|(?:02)-(?:0[1-9]\|1\d\|2[0-8])))T(?:(?:[01]\d\|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z))$` |   |
+| `providers` | array of string |   | at least 1, at most 20 |   |
+| `client` | string |   | min length 1, max length 64 | A Person id |
+
+### Output
+
+| Field | Type | Required | Limits | Description |
+| --- | --- | --- | --- | --- |
+| `times` | array of object | yes |   |   |
+| `times[].startsAt` | string | yes |   |   |
+| `times[].endsAt` | string | yes |   |   |
+| `times[].providers` | array of string | yes |   |   |
+| `times[].room` | string or null | yes |   |   |
 
 ## staffing.hours.clear
 
@@ -1869,7 +1901,7 @@ Tool-only (a shipped pack's tool): take an offered shift. Nobody approves it, be
 | `shift.startsAt` | string or null | yes |   |   |
 | `shift.endsAt` | string or null | yes |   |   |
 | `warnings` | array of object | yes |   |   |
-| `warnings[].code` | `"unavailable"`, `"not_qualified"`, `"uncovered"` | yes |   |   |
+| `warnings[].code` | `"unavailable"`, `"not_qualified"`, `"uncovered"`, `"outside_hours"`, `"client_busy"` | yes |   |   |
 | `warnings[].object` | string | yes |   |   |
 | `warnings[].id` | string | yes |   |   |
 | `warnings[].account` | string or null | yes |   |   |
@@ -2230,7 +2262,7 @@ Tool-only (a shipped pack's tool): the roster, every live shift of every kind (c
 | `shifts[].offer.to` | string or null | yes |   |   |
 | `shifts[].offer.from` | string or null | yes |   |   |
 | `shifts[].warnings` | array of object or null | yes |   | Someone who rosters only (null otherwise): unavailable, not_qualified, uncovered |
-| `shifts[].warnings.code` | `"unavailable"`, `"not_qualified"`, `"uncovered"` | yes |   |   |
+| `shifts[].warnings.code` | `"unavailable"`, `"not_qualified"`, `"uncovered"`, `"outside_hours"`, `"client_busy"` | yes |   |   |
 | `shifts[].warnings.object` | string | yes |   |   |
 | `shifts[].warnings.id` | string | yes |   |   |
 | `shifts[].warnings.account` | string or null | yes |   |   |
