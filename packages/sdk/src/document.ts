@@ -29,6 +29,8 @@
 // question, visibility/access.ts) or its `unless` key is true (a lesson marked as a free
 // preview). A `ref` to `media` may name the kind of item it takes (`media: "video"`).
 
+import { MEDIA_KINDS, type MediaKind } from "./media.ts";
+
 /** The most a document may be, in bytes of its JSON, whatever a field declares. */
 export const DOCUMENT_MAX_BYTES = 524_288;
 /** A field that declares no `maxBytes`. */
@@ -111,7 +113,7 @@ export type DocumentHolders =
   | { keys: readonly string[]; unless?: string };
 
 /** The kinds of media item (stage 42, ADR 0475). */
-export type DocumentMediaKind = "image" | "video" | "file";
+export type DocumentMediaKind = MediaKind;
 export interface DocumentArrayNode extends NodeBase {
   type: "array";
   of: DocumentNode;
@@ -404,7 +406,7 @@ export function checkDocumentSchema(
         }
         if (value.media !== undefined) {
           if (value.to !== "media") add(`${path}.media`, "media is for a ref to media");
-          else if (!["image", "video", "file"].includes(String(value.media))) {
+          else if (!(MEDIA_KINDS as readonly string[]).includes(String(value.media))) {
             add(`${path}.media`, "media is image, video or file");
           }
         }

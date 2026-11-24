@@ -31,6 +31,24 @@ interface ImportCall {
   }[];
 }
 
+export const isObject = (v: unknown): v is Record<string, unknown> =>
+  typeof v === "object" && v !== null && !Array.isArray(v);
+
+/** Every `{ [marker]: ref }` in a value replaced by `id(ref)` (a picture or a media item's place). */
+export function replaceMarked(
+  value: unknown,
+  marker: string,
+  id: (ref: string) => string,
+): unknown {
+  if (Array.isArray(value)) return value.map((v) => replaceMarked(v, marker, id));
+  if (!isObject(value)) return value;
+  if (typeof value[marker] === "string" && Object.keys(value).length === 1)
+    return id(value[marker]);
+  return Object.fromEntries(
+    Object.entries(value).map(([k, v]) => [k, replaceMarked(v, marker, id)]),
+  );
+}
+
 /** Records a call takes at once (`record.import` takes up to 50). */
 export const IMPORT_BATCH = 25;
 
