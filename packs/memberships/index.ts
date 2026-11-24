@@ -151,16 +151,10 @@ export default defineExtension({
   requires: ["programs"],
   permissions: {
     read: ["person", "programs.classtype"],
+    // record.* and my.* are not listed: they are granted by object (Memberships' own, and the
+    // read list above), and a listed one would reach every object.
     operations: [
       "public.list",
-      "public.get",
-      "my.list",
-      "my.get",
-      "record.create",
-      "record.update",
-      "record.get",
-      "record.list",
-      "allowance.get",
       "allowance.list",
       "order.start",
       // The member's own id and the children staff linked to them (ADR 0540).
