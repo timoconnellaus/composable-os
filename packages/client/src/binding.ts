@@ -19,8 +19,13 @@ export const CUSTOMER_COOKIE_PREFIX = "cos-customer";
 /** Customer sign-in, served by the host and reached over the binding: forward these paths. */
 export const CUSTOMER_AUTH_PATH = "/api/customer-auth";
 
+/** A cookie's name (or name=value pair) without the browser's `__Secure-`/`__Host-` prefix. */
+function unprefixed(cookie: string): string {
+  return cookie.replace(/^__(Secure|Host)-/, "");
+}
+
 function isCustomerCookie(pair: string): boolean {
-  return pair.replace(/^__(Secure|Host)-/, "").startsWith(`${CUSTOMER_COOKIE_PREFIX}.`);
+  return unprefixed(pair).startsWith(`${CUSTOMER_COOKIE_PREFIX}.`);
 }
 
 /** The customer cookies in a `Cookie` header, as one header value ("" when there are none). */
@@ -71,7 +76,7 @@ export interface KeepSignedInOptions {
 export async function keepCustomerSignedIn(options: KeepSignedInOptions): Promise<string[]> {
   const pairs = cookiePairs(options.cookieHeader);
   const session = pairs.find(
-    ([name]) => name.replace(/^__(Secure|Host)-/, "") === `${CUSTOMER_COOKIE_PREFIX}.session_token`,
+    ([name]) => unprefixed(name) === `${CUSTOMER_COOKIE_PREFIX}.session_token`,
   );
   if (!session) return [];
   const now = (options.now ?? new Date()).getTime();
