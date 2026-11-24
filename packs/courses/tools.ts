@@ -30,7 +30,7 @@ export const PLAN = "courses.plan";
 const PROGRAM = "programs.program";
 const SESSION = "programs.session";
 
-interface RecordShape {
+export interface RecordShape {
   id: string;
   title?: string | null;
   values: Record<string, unknown>;
