@@ -9,9 +9,9 @@ import { createFileRoute, useNavigate } from "@tanstack/react-router";
 import { CheckCheckIcon, HistoryIcon } from "lucide-react";
 import { useEffect, useState } from "react";
 import { ChangeSetCard } from "#/components/approvals/change-set-card";
-import { EmptyState } from "#/components/empty-state";
+import { EmptyState, ErrorState } from "#/components/empty-state";
 import { PageLayout } from "#/components/layout/page-layout";
-import { errorMessage, useOp } from "#/lib/query";
+import { useOp } from "#/lib/query";
 
 interface ApprovalsSearch {
   tab?: "history";
@@ -80,7 +80,13 @@ function AwaitingTab({ highlight, isAdmin }: { highlight?: string; isAdmin: bool
 
   if (list.isPending) return <Skeleton className="h-40 rounded-xl" />;
   if (list.isError) {
-    return <EmptyState title="Could not load approvals" description={errorMessage(list.error)} />;
+    return (
+      <ErrorState
+        title="Could not load approvals"
+        error={list.error}
+        onRetry={() => void list.refetch()}
+      />
+    );
   }
   if (!seen.length) {
     return (
@@ -113,7 +119,13 @@ function HistoryTab({ highlight, isAdmin }: { highlight?: string; isAdmin: boole
   const list = useOp("approval.list", { status: "all", limit: 100 }, { staleTime: 0 });
   if (list.isPending) return <Skeleton className="h-40 rounded-xl" />;
   if (list.isError) {
-    return <EmptyState title="Could not load approvals" description={errorMessage(list.error)} />;
+    return (
+      <ErrorState
+        title="Could not load approvals"
+        error={list.error}
+        onRetry={() => void list.refetch()}
+      />
+    );
   }
   const sets = list.data.items.filter((s) => s.status !== "empty");
   if (!sets.length) {

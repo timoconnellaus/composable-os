@@ -36,6 +36,7 @@ import { useMemo, useState } from "react";
 import { toast } from "sonner";
 import { PageLayout, SaveBar } from "#/components/layout/page-layout";
 import { errorMessage, useOp, useOpMutation } from "#/lib/query";
+import { supportedTimeZones } from "#/lib/time-zones";
 
 export const Route = createFileRoute("/_app/settings/automations")({
   component: AutomationSettingsPage,
@@ -51,13 +52,7 @@ const FALLBACK_ZONES = [
 
 /** Every IANA timezone the browser knows, the current one first if missing. */
 function timezones(current: string | undefined): string[] {
-  let zones: string[];
-  try {
-    zones = Intl.supportedValuesOf("timeZone");
-  } catch {
-    zones = FALLBACK_ZONES;
-  }
-  const all = new Set(["UTC", ...zones]);
+  const all = new Set(["UTC", ...supportedTimeZones(FALLBACK_ZONES)]);
   if (current) all.add(current);
   return [...all];
 }

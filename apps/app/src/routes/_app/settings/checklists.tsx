@@ -18,6 +18,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { ArrowDownIcon, ArrowUpIcon, PlusIcon, Trash2Icon } from "lucide-react";
 import { type FormEvent, useEffect, useState } from "react";
 import { toast } from "sonner";
+import { ErrorState } from "#/components/empty-state";
 import { PageLayout } from "#/components/layout/page-layout";
 import { errorMessage, useOp, useOpMutation } from "#/lib/query";
 
@@ -104,6 +105,12 @@ function ChecklistsPage() {
         <CardContent className="space-y-2">
           {list.isLoading ? (
             <Skeleton className="h-16 w-full" />
+          ) : list.isError ? (
+            <ErrorState
+              title="Checklists could not be loaded"
+              error={list.error}
+              onRetry={() => void list.refetch()}
+            />
           ) : list.data?.items.length ? (
             <ul className="divide-y" data-testid="checklist-list">
               {list.data.items.map((c) => (

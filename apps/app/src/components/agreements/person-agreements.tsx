@@ -26,7 +26,7 @@ import { Textarea } from "@composable-os/ui/components/textarea";
 import { type FormEvent, useId, useState } from "react";
 import { toast } from "sonner";
 import { SignAtDesk } from "#/components/agreements/sign-at-desk";
-import { formatDate, formatDateTime } from "#/lib/format";
+import { formatDate, formatDateTime, localDay } from "#/lib/format";
 import { errorMessage, useOp, useOpMutation } from "#/lib/query";
 
 const REASONS: Record<string, string> = {
@@ -537,7 +537,7 @@ function PaperDialog({
 }) {
   const record = useOpMutation("agreement.recordPaper", { invalidates: ["agreement.person"] });
   const [name, setName] = useState(personName);
-  const [signedOn, setSignedOn] = useState(new Date().toISOString().slice(0, 10));
+  const [signedOn, setSignedOn] = useState(() => localDay());
   const [signedBy, setSignedBy] = useState("");
   const [note, setNote] = useState("");
   async function submit(event: FormEvent) {
