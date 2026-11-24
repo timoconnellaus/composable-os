@@ -6,6 +6,7 @@ import { syncOperations } from "../sync/ingest.ts";
 import { a2uiOperations } from "./a2ui.ts";
 import { accessOperations } from "./access.ts";
 import { accountingOperations } from "./accounting.ts";
+import { ackOperations } from "./ack.ts";
 import { activityOperations } from "./activity.ts";
 import { adjudicatorOperations } from "./adjudicator.ts";
 import { affiliationOperations } from "./affiliation.ts";
@@ -119,6 +120,7 @@ export const coreOperations = [
   ...recordOperations,
   ...recordVersionOperations,
   ...contentOperations,
+  ...ackOperations,
   ...mediaOperations,
   ...mediaVideoOperations,
   ...recordImportOperations,

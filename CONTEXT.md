@@ -1409,11 +1409,21 @@ origin, shows only that Person's due documents, and locks on limits the host kee
 "on the device enrolled as [name] by [admin]", never "in person".
 _Avoid_: kiosk (a standing sign-in on a shared device, which this is not)
 
-**Cooling off** (stage 44, proposed)
-The days (a Memberships setting; 0, the default, turns it off) in which a new member may cancel a
-membership at once for a full refund of what they paid, each refund still waiting for a person with
-`orders:refund`.
-_Avoid_: trial (a plan's free first days), grace period
+**Cooling off** (stage 44, built in step 7: ADR 0647)
+The days (a Memberships setting, `coolingOffDays`; 0, the default, turns it off; a person's to
+change) in which a **new member** (a membership started here, not one moving over with a
+continuation offer, not a pass) may end their membership at once for a full refund of every period
+they paid for the period, whatever they used. The window runs from the provider-confirmed start to
+the end of the last day in the business's time zone; the days are those in force when they joined,
+for good; once per member. An ask made inside the window opens it until a **deadline** seven days
+later; while it is open any end of the membership is the cooling off's, and what is **owed** is
+every order paid up to the window's end or after the ask and up to the end, each waiting for a
+person with `orders:refund`. At the deadline an open one that has not ended **lapses** (owing
+nothing as cooled off; the ordinary cancel works again; staff may **finish** it, for the window's
+payments only, once the payment provider confirms the membership ended). The bookings ahead it paid for are cancelled as the business's. Nothing is offered in a free trial (nothing
+paid: the ordinary cancel ends it). What the law asks is the business's to confirm.
+_Avoid_: trial (a plan's free first days), grace period, cancellation (which ends it at the
+period's end, with no refund)
 
 **Shift** (the `staffed` behaviour; stage 45, built in step 2: ADR 0621)
 A time someone works: a class (its coach works it) or a **duty shift** (cleaning, opening up), with
@@ -1835,6 +1845,39 @@ list, quote, image, divider, embed, callout, button) and inline runs with marks 
 code, a link). Never HTML: markup and unsafe links are refused on every write (ADR 0440). Each
 client renders it block by block with its own components.
 _Avoid_: HTML, markdown, body (a field's name, not a type)
+
+**Section** and **anchor** (of rich text; stage 38, ADR 0700)
+A heading starts a section, which runs to the next heading; the blocks before the first heading
+are a section without one. A heading's **anchor** is made from its words and its place among the
+document's headings (`summer-at-the-hall`, then `summer-at-the-hall-2`; `section` for one with no
+letters), by one function (`headingAnchors`, `@composable-os/sdk/rich-text`) that the host's
+index and both renderers call; it is never stored. A link to `#<anchor>` lands on the heading.
+_Avoid_: slug (a record's address), id (records have ids)
+
+**Published-text index** (stage 38, ADR 0700)
+The words of each record's current published version, one row per section, for
+`content.search`: only content fields the public reads, of objects the public reads, written in
+the batch of every publish and unpublish and caught up by the minute cron when a declaration
+changes. Never the working copy. Not a `rec_*` view.
+_Avoid_: search index (that is `core_search`, over working copies, for staff), FTS table
+
+**Confirmation** (read and understood; stage 38, ADR 0702)
+A staff account saying, with one tap, that it has read and understood one published version of a
+record of an **acknowledged** object (one whose `publishable` declares `acknowledge`, such as a
+procedure). Only the person makes it, for the current version, once; a row nobody changes
+(`core_publish_ack`). Who is asked is the record's **must read**: everyone, or staff roles, pack
+roles and granted pack permissions, checked on the day. A record is **to read** for a person it
+asks who has no confirmation that counts.
+_Avoid_: acceptance (an agreement's, a customer's), acknowledgement in prose (the declaration's
+name), sign-off
+
+**Read again** and **small fix** (stage 38, ADR 0702)
+The choice a person makes when publishing a later version of an acknowledged record: **read
+again** asks everyone it names to confirm this version; a **small fix** keeps their earlier
+confirmations counting. The first version always asks. A confirmation counts when it is of a
+version at or after the latest that asked again. An AI's publish request carries a suggestion;
+the person who approves chooses.
+_Avoid_: major and minor (no version numbering scheme), re-acknowledge
 
 **Question schema** (stage 29)
 The platform's one schema of a form's questions (`QUESTIONS_SCHEMA`, a document field): up to 60

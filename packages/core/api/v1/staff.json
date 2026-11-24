@@ -874,6 +874,422 @@
       ]
     },
     {
+      "name": "ack.confirm",
+      "description": "Confirm that I have read and understood the current version of a record staff must read (a procedure): one tap, by the person themselves. Refused for a version that is not the current one, a record I am not asked to read, and a second time for the same version. A confirmation is never changed or deleted. Not for an AI actor.",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "object": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80,
+            "description": "An object staff confirm they have read (see schema.objects, acknowledge)"
+          },
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "Record id"
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991,
+            "description": "The version I read: the current one"
+          }
+        },
+        "required": [
+          "object",
+          "id",
+          "version"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "version": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "confirmedAt": {
+            "type": "string"
+          },
+          "object": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "version",
+          "confirmedAt",
+          "object",
+          "id"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "ack.mine",
+        "ack.overview",
+        "ack.status"
+      ]
+    },
+    {
+      "name": "ack.mine",
+      "description": "What I must read and have not confirmed (each published record that asks me, with its current version), and what I have confirmed and when. For the person themselves; not for an AI actor. Read-only.",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "toRead": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "object": {
+                  "type": "string"
+                },
+                "id": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "version": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991,
+                  "description": "The current version: confirm this one"
+                },
+                "publishedAt": {
+                  "type": "string"
+                },
+                "since": {
+                  "type": "string",
+                  "description": "When it became mine to read: the version that asked everyone"
+                }
+              },
+              "required": [
+                "object",
+                "id",
+                "title",
+                "version",
+                "publishedAt",
+                "since"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "confirmed": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "object": {
+                  "type": "string"
+                },
+                "id": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "version": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991,
+                  "description": "The current version: confirm this one"
+                },
+                "publishedAt": {
+                  "type": "string"
+                },
+                "confirmedAt": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "object",
+                "id",
+                "title",
+                "version",
+                "publishedAt",
+                "confirmedAt"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "toRead",
+          "confirmed"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
+      "name": "ack.overview",
+      "description": "Every published record staff must read, of the objects the caller manages: its current version, how many must read it and how many have confirmed what counts. For admins and people granted an object's manage permission; never for an AI actor. Read-only.",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "object": {
+                  "type": "string"
+                },
+                "id": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "version": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                "publishedAt": {
+                  "type": "string"
+                },
+                "mustRead": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                "confirmed": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                }
+              },
+              "required": [
+                "object",
+                "id",
+                "title",
+                "version",
+                "publishedAt",
+                "mustRead",
+                "confirmed"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
+      "name": "ack.status",
+      "description": "For one published record staff must read (a procedure), its current version: everyone who must read it, who has confirmed it (and when), and who has not (and since when). For admins and people granted the object's manage permission; never for an AI actor. Read-only.",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "object": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80,
+            "description": "An object staff confirm they have read (see schema.objects, acknowledge)"
+          },
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "Record id"
+          }
+        },
+        "required": [
+          "object",
+          "id"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "object": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "title": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "version": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "publishedAt": {
+            "type": "string"
+          },
+          "askedVersion": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991,
+            "description": "The version from which confirmations count"
+          },
+          "everyone": {
+            "type": "boolean",
+            "description": "Every staff account must read it"
+          },
+          "roles": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Otherwise: the roles, pack roles and grants that must"
+          },
+          "people": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "account": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "email": {
+                  "type": "string"
+                },
+                "confirmed": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "version": {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        },
+                        "confirmedAt": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "version",
+                        "confirmedAt"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "The confirmation that counts for the current version, if any"
+                },
+                "lastConfirmed": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "version": {
+                          "type": "integer",
+                          "minimum": -9007199254740991,
+                          "maximum": 9007199254740991
+                        },
+                        "confirmedAt": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "version",
+                        "confirmedAt"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "Their latest confirmation, of any version (an older one no longer counts)"
+                },
+                "since": {
+                  "description": "Not confirmed: since when it has been theirs to read",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "account",
+                "name",
+                "email",
+                "confirmed",
+                "lastConfirmed",
+                "since"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "object",
+          "id",
+          "title",
+          "version",
+          "publishedAt",
+          "askedVersion",
+          "everyone",
+          "roles",
+          "people"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
       "name": "activity.delete",
       "description": "Move an activity to Trash (soft delete). It disappears from every linked record's timeline and from search, and can be restored with activity.restore for 30 days.",
       "risk": "destructive",
@@ -13946,6 +14362,20 @@
             "description": "High-risk items only: the second button's words, exactly as the action's secondStep gives them",
             "type": "string",
             "maxLength": 300
+          },
+          "readAgain": {
+            "description": "A publish of something staff confirm they have read (ADR 0702): by action id, whether it asks everyone again (true) or is a small fix (false). Left out, the request's own suggestion stands",
+            "type": "object",
+            "propertyNames": {
+              "type": "string",
+              "maxLength": 64,
+              "format": "starts_with",
+              "pattern": "^pac_.*",
+              "description": "Pending action id (pac_…)"
+            },
+            "additionalProperties": {
+              "type": "boolean"
+            }
           }
         }
       },
@@ -14129,6 +14559,20 @@
             "description": "Set by the app: the second button",
             "type": "string",
             "maxLength": 300
+          },
+          "readAgain": {
+            "description": "Set by the app: a person's read-again choice for a publish request, by action id (ADR 0702)",
+            "type": "object",
+            "propertyNames": {
+              "type": "string",
+              "maxLength": 64,
+              "format": "starts_with",
+              "pattern": "^pac_.*",
+              "description": "Pending action id (pac_…)"
+            },
+            "additionalProperties": {
+              "type": "boolean"
+            }
           }
         },
         "required": [
@@ -23610,7 +24054,8 @@
         "content.get",
         "content.list",
         "content.preview",
-        "content.previewLinks"
+        "content.previewLinks",
+        "content.search"
       ]
     },
     {
@@ -23682,6 +24127,44 @@
       "invalidates": []
     },
     {
+      "name": "content.reindex",
+      "description": "Platform use only: catch the published-text index up with the objects' declarations (the minute cron): an object whose searchable fields changed has its records' rows made again from their current versions, a batch a call; an object no longer searched loses its rows. Returns how many records were written and whether more is due.",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "records": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "more": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "records",
+          "more"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "content.get",
+        "content.list",
+        "content.preview",
+        "content.previewLinks",
+        "content.search"
+      ]
+    },
+    {
       "name": "content.revokePreview",
       "description": "Stop preview links of one record of a content object working now: one by its id (from content.previewLinks), or every one with `all`. Returns how many stopped.",
       "risk": "write",
@@ -23737,8 +24220,202 @@
         "content.get",
         "content.list",
         "content.preview",
-        "content.previewLinks"
+        "content.previewLinks",
+        "content.search"
       ]
+    },
+    {
+      "name": "content.search",
+      "description": "Search the published records of a content object (help pages, blog posts) by the words the public reads in them: their published versions only, never a draft or a working copy. Every word of two letters or more must match the start of a word, so partial input works. Best matches first, one result per record, each with its slug, title, the section the best match is in (its heading and anchor, to link to) and a highlighted snippet as plain and matching parts. Pass nextCursor back as cursor. Read-only.",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "object": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80,
+            "description": "A publishable object the public reads, e.g. `content.post`"
+          },
+          "q": {
+            "type": "string",
+            "maxLength": 200,
+            "description": "What the reader typed"
+          },
+          "cursor": {
+            "type": "string",
+            "pattern": "^\\d{1,3}$",
+            "description": "nextCursor from the previous page"
+          },
+          "limit": {
+            "default": 10,
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 50
+          }
+        },
+        "required": [
+          "object",
+          "q"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "object": {
+                  "type": "string"
+                },
+                "id": {
+                  "type": "string"
+                },
+                "slug": {
+                  "type": "string",
+                  "description": "Read the record with content.get by this slug"
+                },
+                "title": {
+                  "description": "The record's title, when the public reads it",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "titleHighlight": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "text": {
+                        "type": "string"
+                      },
+                      "match": {
+                        "type": "boolean"
+                      }
+                    },
+                    "required": [
+                      "text",
+                      "match"
+                    ],
+                    "additionalProperties": false
+                  },
+                  "description": "The title in parts, matching words marked"
+                },
+                "version": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991,
+                  "description": "The published version the words are from"
+                },
+                "section": {
+                  "type": "object",
+                  "properties": {
+                    "field": {
+                      "type": "string",
+                      "description": "The content field the match is in"
+                    },
+                    "anchor": {
+                      "description": "The heading's anchor: link to `#<anchor>`. Null: the top of the record",
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "heading": {
+                      "type": "string",
+                      "description": "The heading's words; empty before the first heading"
+                    },
+                    "headingHighlight": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "text": {
+                            "type": "string"
+                          },
+                          "match": {
+                            "type": "boolean"
+                          }
+                        },
+                        "required": [
+                          "text",
+                          "match"
+                        ],
+                        "additionalProperties": false
+                      }
+                    }
+                  },
+                  "required": [
+                    "field",
+                    "anchor",
+                    "heading",
+                    "headingHighlight"
+                  ],
+                  "additionalProperties": false,
+                  "description": "Where in the record the best match is"
+                },
+                "snippet": {
+                  "anyOf": [
+                    {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "text": {
+                            "type": "string"
+                          },
+                          "match": {
+                            "type": "boolean"
+                          }
+                        },
+                        "required": [
+                          "text",
+                          "match"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "A short excerpt of the matching words, as plain and matching parts (no HTML)"
+                }
+              },
+              "required": [
+                "object",
+                "id",
+                "slug",
+                "title",
+                "titleHighlight",
+                "version",
+                "section",
+                "snippet"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "nextCursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "items",
+          "nextCursor"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": []
     },
     {
       "name": "customer.disable",
@@ -49873,6 +50550,10 @@
             "type": "string",
             "minLength": 1,
             "maxLength": 500
+          },
+          "readAgain": {
+            "description": "Only on an object staff confirm they have read (see schema.objects, acknowledge): true asks everyone who must read it to confirm this version again; false is a small fix that keeps their confirmations. Required after the first version, which always asks. An AI's request carries it as a suggestion; the person who approves chooses.",
+            "type": "boolean"
           }
         },
         "required": [
@@ -49926,6 +50607,13 @@
             "type": "integer",
             "minimum": -9007199254740991,
             "maximum": 9007199254740991
+          },
+          "readAgain": {
+            "description": "On an object staff confirm (acknowledge): whether this version asked everyone who must read it again. Null elsewhere",
+            "type": [
+              "boolean",
+              "null"
+            ]
           }
         },
         "required": [
@@ -49936,7 +50624,8 @@
           "requestedBy",
           "requestedVia",
           "note",
-          "bytes"
+          "bytes",
+          "readAgain"
         ],
         "additionalProperties": false
       },
@@ -50252,6 +50941,10 @@
             "type": "string",
             "minLength": 1,
             "maxLength": 500
+          },
+          "readAgain": {
+            "description": "Only on an object staff confirm they have read (see schema.objects, acknowledge): true asks everyone who must read it to confirm this version again; false is a small fix that keeps their confirmations. Required after the first version, which always asks. An AI's request carries it as a suggestion; the person who approves chooses.",
+            "type": "boolean"
           }
         },
         "required": [
@@ -50295,6 +50988,13 @@
             "type": "integer",
             "minimum": -9007199254740991,
             "maximum": 9007199254740991
+          },
+          "readAgain": {
+            "description": "The read-again choice it goes live with",
+            "type": [
+              "boolean",
+              "null"
+            ]
           }
         },
         "required": [
@@ -50303,7 +51003,8 @@
           "requestedBy",
           "requestedVia",
           "note",
-          "bytes"
+          "bytes",
+          "readAgain"
         ],
         "additionalProperties": false
       },
@@ -50768,6 +51469,13 @@
             "minimum": -9007199254740991,
             "maximum": 9007199254740991
           },
+          "readAgain": {
+            "description": "On an object staff confirm (acknowledge): whether this version asked everyone who must read it again. Null elsewhere",
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
           "values": {
             "type": "object",
             "propertyNames": {
@@ -50785,6 +51493,7 @@
           "requestedVia",
           "note",
           "bytes",
+          "readAgain",
           "values"
         ],
         "additionalProperties": false
@@ -50878,6 +51587,13 @@
                   "type": "integer",
                   "minimum": -9007199254740991,
                   "maximum": 9007199254740991
+                },
+                "readAgain": {
+                  "description": "On an object staff confirm (acknowledge): whether this version asked everyone who must read it again. Null elsewhere",
+                  "type": [
+                    "boolean",
+                    "null"
+                  ]
                 }
               },
               "required": [
@@ -50888,7 +51604,8 @@
                 "requestedBy",
                 "requestedVia",
                 "note",
-                "bytes"
+                "bytes",
+                "readAgain"
               ],
               "additionalProperties": false
             }
@@ -55968,13 +56685,17 @@
                         },
                         "public": {
                           "type": "boolean"
+                        },
+                        "acknowledged": {
+                          "type": "boolean"
                         }
                       },
                       "required": [
                         "content",
                         "slug",
                         "date",
-                        "public"
+                        "public",
+                        "acknowledged"
                       ],
                       "additionalProperties": false
                     },
@@ -57217,6 +57938,7 @@
         "additionalProperties": false
       },
       "invalidates": [
+        "subscription.coolingOff",
         "subscription.get",
         "subscription.list",
         "subscription.offer.export",
@@ -57317,6 +58039,7 @@
         "additionalProperties": false
       },
       "invalidates": [
+        "subscription.coolingOff",
         "subscription.get",
         "subscription.list",
         "subscription.offer.export",
@@ -57379,11 +58102,455 @@
         "additionalProperties": false
       },
       "invalidates": [
+        "subscription.coolingOff",
         "subscription.get",
         "subscription.list",
         "subscription.offer.export",
         "subscription.offer.list"
       ]
+    },
+    {
+      "name": "subscription.coolOff",
+      "description": "End a subscription in its cooling-off period, for a full refund of what was paid in it (subscription.coolingOff says whether it may be, and what it owes). Ended at the payment provider now: nothing more is charged, and what it gives stops once the provider confirms. Then each order paid up to the end of the period, and between the ask and the end, is owed back in full, whatever was used; each waits for a person with orders:refund to approve it. The bookings ahead the membership paid for are cancelled as the business's. Refused for a plan with no cooling off, a membership moved over with a continuation offer, a member who has cooled off before, while nothing has been paid (a free trial: cancel instead), and after the period unless one was asked in it. An ask inside the period opens it for 7 days; any end in that time is the cooling off's, and at its deadline it lapses (the ordinary cancel works again). A signed-in customer ends their own (the one they pay for, a child's included) and asks again only inside the period; staff any, with subscriptions:manage, ask again until the deadline, and finish a lapsed one (only what was paid in the period is owed, once the provider confirms the membership ended). Each ask reads the provider first and is a new request to it; nothing is done twice. Refused while a cancel of it waits for a person at the payments gatekeeper. A person decides, never an AI assistant.",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "Subscription id (sbs_…)"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "asked",
+              "ended",
+              "lapsed"
+            ],
+            "description": "asked: open; ended: it ended (or was finished) and its refunds are owed; lapsed: staff asked to finish it and the provider has not confirmed the end yet"
+          },
+          "asked": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "sent",
+                  "pending",
+                  "unknown"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "sent: the provider was asked to end it; pending: it waits for a person at the payments gatekeeper; unknown: it may or may not have reached it (its next event decides; staff are told)"
+          },
+          "refund": {
+            "type": "number",
+            "description": "Paid and not refunded so far, in minor units: owed back"
+          },
+          "currency": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "state",
+          "asked",
+          "refund",
+          "currency"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "subscription.coolingOff",
+        "subscription.get",
+        "subscription.list",
+        "subscription.offer.export",
+        "subscription.offer.list"
+      ]
+    },
+    {
+      "name": "subscription.coolOffRelease",
+      "description": "The host's follow-up for a membership ended in its cooling-off period: cancels the next bookings ahead it paid for, as the business's, until none is left. The host's own cron only.",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "Subscription id (sbs_…)"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "released": {
+            "type": "number"
+          },
+          "left": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "released",
+          "left"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "subscription.coolingOff",
+        "subscription.get",
+        "subscription.list",
+        "subscription.offer.export",
+        "subscription.offer.list"
+      ]
+    },
+    {
+      "name": "subscription.coolOffSweep",
+      "description": "The host's minute step for cooling offs: one whose call to the payment provider was lost or never made is resolved from the provider's read or asked again (the same ask) until its deadline; at the deadline, or once its latest waiting cancel is rejected or expires with none still waiting, or once its holder has used theirs on another, an open one lapses (every waiting cancel rejected, admins told once); staff's finish of a lapsed one is asked again, waited for, or marked stuck with admins told; then the summary emails. Bounded; nothing when nothing is due. The host's own cron only.",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "resolved": {
+            "type": "number"
+          },
+          "asked": {
+            "type": "number"
+          },
+          "told": {
+            "type": "number"
+          },
+          "unread": {
+            "type": "number"
+          },
+          "lapsed": {
+            "type": "number"
+          },
+          "mailed": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "resolved",
+          "asked",
+          "told",
+          "unread",
+          "lapsed",
+          "mailed"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "subscription.coolingOff",
+        "subscription.get",
+        "subscription.list",
+        "subscription.offer.export",
+        "subscription.offer.list"
+      ]
+    },
+    {
+      "name": "subscription.coolingOff",
+      "description": "Whether each subscription may be ended in its cooling-off period for a full refund: the business's setting (whole days, 0 off), counted from when the payment provider confirmed it to the end of the last day in the business's time zone, for a new member's membership only (not a pass, not one moved over with a continuation offer), once per member. Also says how far a cooling off asked for has got and where its refunds are. The host decides; an app shows the button only when `offered`. A signed-in customer asks about the subscriptions they pay for only; another's is not found. Read-only.",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "ids": {
+            "minItems": 1,
+            "maxItems": 20,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64,
+              "description": "Subscription id (sbs_…)"
+            },
+            "description": "Up to 20 subscriptions"
+          }
+        },
+        "required": [
+          "ids"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "subscriptionId": {
+                  "type": "string"
+                },
+                "offered": {
+                  "type": "boolean",
+                  "description": "The payer may end it now for a full refund (cooling off)"
+                },
+                "why": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "enum": [
+                        "not_covered",
+                        "off",
+                        "continuation",
+                        "ended",
+                        "window_passed",
+                        "used",
+                        "nothing_paid"
+                      ]
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "Why not: not_covered (the plan has no cooling off), off (the business set none), continuation (not started here as a new member), ended, window_passed, used (once per member), nothing_paid (a free trial: an ordinary cancel ends it at no charge)"
+                },
+                "days": {
+                  "type": "number",
+                  "description": "The cooling-off days that apply; 0 when none"
+                },
+                "until": {
+                  "description": "The last day of the window (YYYY-MM-DD, the business's time zone)",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "endsAt": {
+                  "description": "The moment the window closes",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "refund": {
+                  "type": "number",
+                  "description": "What a cooling off asked now owes back, not yet refunded, in minor units"
+                },
+                "currency": {
+                  "type": "string"
+                },
+                "coolOff": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "state": {
+                          "type": "string",
+                          "enum": [
+                            "asked",
+                            "ended",
+                            "lapsed"
+                          ],
+                          "description": "asked: open until its deadline (any end of the subscription by then is its end); ended: it ended (or staff finished it) and its refunds are owed; lapsed: its deadline passed (or its waiting cancel was turned down, or the end was not its): nothing owed as cooled off, and the ordinary cancel works again"
+                        },
+                        "asked": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": [
+                                "sent",
+                                "pending",
+                                "unknown",
+                                "refused"
+                              ]
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "description": "What came of the latest ask of the provider"
+                        },
+                        "askedBy": {
+                          "type": "string",
+                          "enum": [
+                            "payer",
+                            "staff"
+                          ]
+                        },
+                        "askedAt": {
+                          "type": "string"
+                        },
+                        "deadline": {
+                          "type": "string",
+                          "description": "Open until then: the ask plus the approval expiry (7 days)"
+                        },
+                        "endedAt": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "finished": {
+                          "type": "boolean",
+                          "description": "Staff finished a lapsed one"
+                        },
+                        "finishing": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": [
+                                "asked",
+                                "sent",
+                                "pending",
+                                "unknown",
+                                "stuck"
+                              ]
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "description": "Staff asked to finish a lapsed one, not yet confirmed: asked or unknown (the host asks the provider again), sent (waiting for the provider's end), pending (waiting for a person at the payments gatekeeper), stuck (it could not be done; admins were told)"
+                        },
+                        "waiting": {
+                          "type": "boolean",
+                          "description": "A cancel of it waits for a person at the payments gatekeeper: nobody may ask again until it is approved or turned down"
+                        },
+                        "lapsedBecause": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": [
+                                "deadline",
+                                "action",
+                                "end_time",
+                                "used"
+                              ]
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "askAgain": {
+                          "type": "boolean",
+                          "description": "The caller may ask the provider again now (the member inside the period, staff before the deadline), or (staff) finish a lapsed one"
+                        },
+                        "open": {
+                          "type": "boolean",
+                          "description": "Open, before its deadline: the ordinary cancel waits"
+                        },
+                        "staffTold": {
+                          "type": "boolean",
+                          "description": "Admins were told it is stuck or lapsed"
+                        },
+                        "paid": {
+                          "type": "number",
+                          "description": "What it owes (or would, if it ended now): paid on or before the end of the period, plus paid after the ask and by the end, in minor units"
+                        },
+                        "refunded": {
+                          "type": "number",
+                          "description": "What has been refunded of that so far, in minor units"
+                        },
+                        "refunds": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": [
+                                "waiting",
+                                "refunded",
+                                "held"
+                              ]
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "description": "Once ended: waiting (each refund waits for a person who may refund), refunded, or held (a refund was not approved or could not be asked: staff refund it from the order)"
+                        }
+                      },
+                      "required": [
+                        "state",
+                        "asked",
+                        "askedBy",
+                        "askedAt",
+                        "deadline",
+                        "endedAt",
+                        "finished",
+                        "finishing",
+                        "waiting",
+                        "lapsedBecause",
+                        "askAgain",
+                        "open",
+                        "staffTold",
+                        "paid",
+                        "refunded",
+                        "refunds"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "A cooling off asked for, and how far it has got"
+                }
+              },
+              "required": [
+                "subscriptionId",
+                "offered",
+                "why",
+                "days",
+                "until",
+                "endsAt",
+                "refund",
+                "currency",
+                "coolOff"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": []
     },
     {
       "name": "subscription.get",
@@ -58333,6 +59500,7 @@
         "additionalProperties": false
       },
       "invalidates": [
+        "subscription.coolingOff",
         "subscription.get",
         "subscription.list",
         "subscription.offer.export",
@@ -58636,6 +59804,7 @@
         "additionalProperties": false
       },
       "invalidates": [
+        "subscription.coolingOff",
         "subscription.get",
         "subscription.list",
         "subscription.offer.export",
@@ -58725,6 +59894,7 @@
         "additionalProperties": false
       },
       "invalidates": [
+        "subscription.coolingOff",
         "subscription.get",
         "subscription.list",
         "subscription.offer.export",
@@ -58772,6 +59942,7 @@
         "additionalProperties": false
       },
       "invalidates": [
+        "subscription.coolingOff",
         "subscription.get",
         "subscription.list",
         "subscription.offer.export",
@@ -59020,6 +60191,7 @@
         "additionalProperties": false
       },
       "invalidates": [
+        "subscription.coolingOff",
         "subscription.get",
         "subscription.list",
         "subscription.offer.export",
@@ -59083,6 +60255,7 @@
         "additionalProperties": false
       },
       "invalidates": [
+        "subscription.coolingOff",
         "subscription.get",
         "subscription.list",
         "subscription.offer.export",
