@@ -152,3 +152,15 @@ test("clients come from the products' labels, leaving out the platform's own", (
 test("the repository's own products name no client", () => {
   assert.deepEqual(productClients(join(import.meta.dirname, "..")), []);
 });
+
+test("the booking system's name is allowed in stage 65's spec and nowhere else", () => {
+  const files = [
+    ["docs/stages/65-booking-system-connection.md", "The first connector is for Mindbody."],
+    ["docs/stages/33-leaving.md", "Leaving Mindbody."],
+    ["docs/adr/0920-the-booking-system-contract.md", "Mindbody"],
+  ];
+  const problems = checkStrayNames(files);
+  assert.equal(problems.length, 2);
+  assert.ok(problems[0].startsWith("docs/stages/33-leaving.md:1:"));
+  assert.ok(problems[1].startsWith("docs/adr/0920-the-booking-system-contract.md:1:"));
+});
