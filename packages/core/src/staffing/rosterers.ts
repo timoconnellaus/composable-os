@@ -157,7 +157,8 @@ export async function rosteringDeclared(db: Kysely<CoreDatabase>): Promise<boole
 
 /**
  * Refuses the caller's write of who works a shift (or a pattern's person, or a coach profile's
- * account) unless they roster, where a pack declares who rosters (ADR 0626, the review of PR #284).
+ * account) unless they roster, where a pack declares who rosters (ADR 0626, the review of PR #284;
+ * the owner's decision of 2026-11-24).
  * Putting someone on a shift, taking them off, or yourself, is a rosterer's; a person gives their
  * own shift away by offering it.
  */
@@ -185,6 +186,17 @@ export async function isPayer(db: Kysely<CoreDatabase>, account: string): Promis
   const grants = parseGrants(row.granted_permissions);
   if (!grants.length) return false;
   return (await declarations(db)).some((d) => d.pays !== null && grants.includes(d.pays));
+}
+
+/**
+ * Whether the extension `id` is the shipped pack whose pay periods the host totals (it declares
+ * them in `staffing.settings`): a person's own totals are read only through its tools.
+ */
+export async function declaresPayPeriods(db: Kysely<CoreDatabase>, id: string): Promise<boolean> {
+  const declared = (await declarations(db)).find(
+    (d) => d.settings.payPeriod && d.settings.payPeriodStart && d.settings.payPeriodDay,
+  );
+  return declared?.extension === id;
 }
 
 /** The pay period's settings as the pack declaring the roster's rules sets them, or null. */

@@ -71,7 +71,10 @@ export default defineExtension({
   contractVersion: 1,
   label: "Roster relay (fixture)",
   requires: ["rostering"],
-  permissions: { operations: ["x.rostering.uncovered", "x.rostering.week"], modules: ["ops"] },
+  permissions: {
+    operations: ["x.rostering.uncovered", "x.rostering.week", "x.rostering.myPay", "staffing.myPay"],
+    modules: ["ops"],
+  },
   objects: {},
   tools: {
     relay: defineTool({
@@ -87,6 +90,22 @@ export default defineExtension({
       output: z.object({}).passthrough(),
       risk: "read",
       handler: async (_input, ctx) => ({ week: await ctx.ops.call("x.rostering.week", {}) }),
+    }),
+    payRelay: defineTool({
+      description: "Test fixture: asks Rostering's own-hours tool, from another pack's code.",
+      input: z.object({}),
+      output: z.object({}).passthrough(),
+      risk: "read",
+      humanOnly: true,
+      handler: async (_input, ctx) => ({ mine: await ctx.ops.call("x.rostering.myPay", {}) }),
+    }),
+    ownPayRelay: defineTool({
+      description: "Test fixture: a person's own tool of another pack asking the host for their hours.",
+      input: z.object({}),
+      output: z.object({}).passthrough(),
+      risk: "read",
+      humanOnly: true,
+      handler: async (_input, ctx) => ({ mine: await ctx.ops.call("staffing.myPay", {}) }),
     }),
   },
 });
@@ -141,6 +160,8 @@ const TEAM_TOOLS = [
   "feed",
   "feedRotate",
   "feedRevoke",
+  "myPayPeriods",
+  "myPay",
   "checklist",
   "tick",
   "checklistDone",
@@ -1285,6 +1306,183 @@ describe("pay (step 6: criteria 8 and 10 on the shipped packs)", () => {
       expect(`${r.input} ${r.result}`).not.toMatch(/"minutes"|"hours"|by_class|"csv"/);
     }
     await run("x.rostering.reopen", { start: start(), reason: "Checked again" }, staff());
+  });
+});
+
+// --- A person's own hours (the owner's decision of 2026-11-24, ADR 0627's amendment) ----------------
+
+describe("a staff member's own pay-period totals on the shipped pack", () => {
+  const start = () => localDate(-28 * DAY);
+  type Own = {
+    period: { start: string; locked: boolean; preview: boolean; version: number | null };
+    counted: boolean;
+    basis: string;
+    totals: { kindName: string; shifts: number; minutes: number; hours: string }[];
+    lines: { id: string; countedMinutes: number; notWorked: boolean }[];
+    minutes: number | null;
+    hours: string | null;
+  };
+  type Holder = {
+    period: { locked: boolean; version: { version: number } | null };
+    totals: { account: string; kindName: string; shifts: number; minutes: number; hours: string }[];
+    lines: { account: string; id: string; countedMinutes: number; counted: boolean }[];
+  };
+
+  /** A coach's own figures equal the pay holder's for them. */
+  async function same(user: ActingUser) {
+    const own = await run<Own>("x.rostering.myPay", { start: start() }, asUser(user));
+    const holder = await run<Holder>("x.rostering.periodTotals", { start: start() }, staff());
+    expect(own.counted).toBe(true);
+    expect(own.period.locked).toBe(holder.period.locked);
+    expect(own.period.version).toBe(holder.period.version?.version ?? null);
+    expect(
+      own.totals.map(({ kindName, shifts, minutes, hours }) => ({
+        kindName,
+        shifts,
+        minutes,
+        hours,
+      })),
+    ).toEqual(
+      holder.totals
+        .filter((t) => t.account === user.id)
+        .map(({ kindName, shifts, minutes, hours }) => ({ kindName, shifts, minutes, hours })),
+    );
+    expect(own.lines.map((l) => [l.id, l.countedMinutes, l.notWorked])).toEqual(
+      holder.lines
+        .filter((l) => l.account === user.id)
+        .map((l) => [l.id, l.countedMinutes, !l.counted]),
+    );
+    return own;
+  }
+
+  it("a coach sees exactly what the pay holder sees for them, open and locked; nothing of anyone else", async () => {
+    await run(
+      "extensionSettings.update",
+      { extension: "rostering", values: { payPeriodStart: start() } },
+      staff(),
+    );
+    // Coaches granted Rostering's team tools (`rostering:roster`), as a coach on the roster is.
+    const mine = await coach("Own Hours Ola");
+    const other = await coach("Own Hours Oli");
+    await grant(mine.user, [ROSTER]);
+    await grant(other.user, [ROSTER]);
+    const spin = await create("programs.classtype", {
+      name: unique("Own spin"),
+      "bookings.rosterBeforeMinutes": 10,
+    });
+    const at = (ms: number) => new Date(Date.now() + ms).toISOString();
+    for (const [who, days] of [
+      [mine, 21],
+      [mine, 19],
+      [other, 18],
+    ] as const) {
+      const startsAt = at(-days * DAY);
+      await create(CLASS, {
+        classType: spin,
+        startsAt,
+        endsAt: new Date(Date.parse(startsAt) + HOUR).toISOString(),
+        timezone: ZONE,
+        places: 10,
+        coach: who.profile,
+      });
+    }
+    for (const who of [mine, other]) {
+      await run(
+        "x.rostering.payBasis",
+        { account: who.user.id, basis: "by_time", from: localDate(-60 * DAY) },
+        staff(),
+      );
+    }
+    // The period an earlier test locked and reopened: open now, a preview.
+    const open = await same(mine.user);
+    expect(open.period).toMatchObject({ locked: false, preview: true });
+    expect(open.lines).toHaveLength(2);
+    expect(open.totals.find((t) => t.kindName.startsWith("Own spin"))).toMatchObject({
+      shifts: 2,
+      minutes: 140,
+      hours: "2.33",
+    });
+    const text = JSON.stringify(open);
+    expect(text).not.toContain(other.user.id);
+    expect(text).not.toContain("Own Hours Oli");
+    // An account in the input names nobody: still their own.
+    const asked = await run<Own>(
+      "x.rostering.myPay",
+      { start: start(), account: other.user.id },
+      asUser(mine.user),
+    );
+    expect(asked.lines.map((l) => l.id)).toEqual(open.lines.map((l) => l.id));
+    // Locked: the locked lines, the same as the pay holder's.
+    await run("x.rostering.lock", { start: start() }, staff());
+    const locked = await same(mine.user);
+    expect(locked.period).toMatchObject({ locked: true, preview: false });
+    await run("x.rostering.reopen", { start: start(), reason: "Checked again" }, staff());
+    // The periods: dates and state only.
+    const periods = await run<{ periods: Record<string, unknown>[] }>(
+      "x.rostering.myPayPeriods",
+      {},
+      asUser(mine.user),
+    );
+    expect(periods.periods.length).toBeLessThanOrEqual(13);
+    for (const p of periods.periods) {
+      expect(Object.keys(p).sort()).toEqual(["end", "ended", "start", "state", "version", "zone"]);
+    }
+  });
+
+  it("a cleaner granted nothing extra reads only their own, and is told when not counted", async () => {
+    const cleaner = await fixedRole("Cleaner Own", "rostering.team");
+    const own = await run<Own>("x.rostering.myPay", { start: start() }, asUser(cleaner));
+    expect(own).toMatchObject({ counted: false, basis: "not_counted", lines: [], totals: [] });
+    expect(own.minutes).toBeNull();
+    // The pay holder's tools stay out of reach.
+    for (const name of ["x.rostering.periods", "x.rostering.periodTotals", "x.rostering.export"]) {
+      expect((await refusal(run(name, { start: start() }, asUser(cleaner)))).code, name).toBe(
+        "forbidden",
+      );
+    }
+  });
+
+  it("an assistant, MCP, an automation and another pack's code are refused", async () => {
+    const { user } = await coach("Own Hours Ai");
+    await grant(user, [ROSTER]);
+    for (const name of ["x.rostering.myPay", "x.rostering.myPayPeriods"]) {
+      for (const actor of ["assistant", "mcp"] as const) {
+        const ctx = asUser(user, {
+          actor,
+          origin: { surface: actor === "mcp" ? "mcp" : "assistant" },
+        });
+        expect((await refusal(run(name, {}, ctx))).code, `${name} ${actor}`).toBe("forbidden");
+      }
+      const viaAutomation = await refusal(
+        run(
+          name,
+          {},
+          staff({
+            actor: "automation",
+            origin: { surface: "automation", automationId: "fixture.probe" },
+          }),
+        ),
+      );
+      // A person's own read: an automation is not a person.
+      expect(viaAutomation.code, name).toBe("forbidden");
+    }
+    // Rostering's tool from another pack's code: an extension is not a person.
+    const viaPack = await refusal(run("x.rosterrelay.payRelay", {}, staff()));
+    expect(JSON.stringify(viaPack)).toContain("cannot be called by extension actors");
+    // A person's own tool of another pack asking the host directly: the operation's own guard.
+    expect(JSON.stringify(await refusal(run("x.rosterrelay.ownPayRelay", {}, staff())))).toContain(
+      "pay_pack",
+    );
+  });
+
+  it("the read is audited as which period, never its figures", async () => {
+    const { results } = await env.DB.prepare(
+      "SELECT input, result FROM core_audit WHERE operation IN ('staffing.myPay', 'x.rostering.myPay')",
+    ).all<{ input: string | null; result: string | null }>();
+    expect(results.length).toBeGreaterThan(0);
+    for (const r of results) {
+      expect(`${r.input} ${r.result}`).not.toMatch(/"minutes"|"hours"|by_time|by_class|counted/);
+    }
   });
 });
 

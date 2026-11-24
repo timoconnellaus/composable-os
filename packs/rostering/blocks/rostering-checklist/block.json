@@ -10,7 +10,9 @@
     "x.rostering.mine",
     "x.rostering.offers",
     "x.rostering.offer",
-    "x.rostering.withdraw"
+    "x.rostering.withdraw",
+    "x.rostering.myPayPeriods",
+    "x.rostering.myPay"
   ],
   "files": ["checklist.tsx", "my-shifts-with-checklist.tsx", "LICENSE"],
   "dependsOn": ["rostering-my-shifts", "ui-button"],

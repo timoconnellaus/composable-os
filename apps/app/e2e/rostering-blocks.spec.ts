@@ -1,11 +1,12 @@
 // Rostering, step 7 (stage 45): the blocks, one test per journey. A rosterer builds a week and puts
 // someone on a shift; a team member offers a shift and a qualified colleague takes it; a person
 // marks time away and the rosterer sees the warning while a colleague does not; someone who
-// handles pay totals, locks and exports a period; someone who does not roster cannot change who
-// is on a shift. The roster, my shifts, offers, my calendar and pay are opened from the admin's
-// own navigation (stage 47), each person in their own browser and the team in their role's small
-// shell; the time-away and not-a-rosterer journeys mount the blocks where they sit (`/blocks`,
-// development only) to show the blocks' own refusal states, which the admin never reaches.
+// handles pay totals, locks and exports a period, and the person counted sees their own hours
+// for it; someone who does not roster cannot change who is on a shift. The roster, my shifts,
+// offers, my calendar and pay are opened from the admin's own navigation (stage 47), each person
+// in their own browser and the team in their role's small shell; the time-away and
+// not-a-rosterer journeys mount the blocks where they sit (`/blocks`, development only) to show
+// the blocks' own refusal states, which the admin never reaches.
 // Every name here is invented.
 //
 // Clocks: the host decides "today" (its own clock and the business's zone), which a test cannot
@@ -404,8 +405,17 @@ test("someone who handles pay totals, locks and exports a period", async ({
     const csv = Buffer.concat(text).toString("utf8");
     expect(csv).toContain(ann.name);
     expect(csv).toContain("1.00");
-    // Someone who does not handle pay is shown nothing of it: no Pay in their navigation, and
-    // its address is "not found".
+    // Ann sees her own hours under My shifts (the owner's decision of 2026-11-24), opened from her
+    // role's shell: the period's locked figures, the same 1.00, fetched only once she picks it.
+    await openScreen(ann.page, "Rostering", "My shifts");
+    const hours = ann.page.getByRole("region", { name: "My hours" });
+    await expect(hours.getByText("All my hours")).toHaveCount(0);
+    await hours.locator(`[data-start="${start}"]`).click();
+    await expect(hours.locator('[data-state="locked"]')).toBeVisible();
+    await expect(hours.getByRole("table", { name: "My hours and shifts" })).toContainText("1.00");
+    await expect(hours.getByText("All my hours: 1.00")).toBeVisible();
+    // Someone who does not handle pay is shown nothing of the business's pay: no Pay in their
+    // navigation, and its address is "not found".
     await open(ann.page, "/");
     const theirs = ann.page.getByTestId("screens-nav-Rostering").getByRole("link");
     await expect(theirs.first()).toBeVisible();

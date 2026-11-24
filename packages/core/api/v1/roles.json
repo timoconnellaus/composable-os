@@ -23,7 +23,7 @@
       "name": "rostering.team",
       "pack": "rostering",
       "label": "Rostered team",
-      "description": "Sees the roster and their own shifts, offers and takes shifts, says when they are away and has their own calendar feed. Nothing else: no records, no people, no settings.",
+      "description": "Sees the roster and their own shifts, offers and takes shifts, says when they are away, has their own calendar feed and sees their own hours for each pay period. Nothing else: no records, no people, no settings.",
       "read": [],
       "operations": [
         "screens.mine",
@@ -37,6 +37,8 @@
         "x.rostering.me",
         "x.rostering.mine",
         "x.rostering.myAway",
+        "x.rostering.myPay",
+        "x.rostering.myPayPeriods",
         "x.rostering.offer",
         "x.rostering.offers",
         "x.rostering.take",
@@ -132,7 +134,7 @@
     {
       "permission": "rostering:roster",
       "pack": "rostering",
-      "label": "Rostering: see the roster and their own shifts, offer and take shifts, say when they are away and have their own calendar feed. For a coach or anyone with another role who is rostered.",
+      "label": "Rostering: see the roster and their own shifts, offer and take shifts, say when they are away, have their own calendar feed and see their own hours for each pay period. For a coach or anyone with another role who is rostered.",
       "restricted": false,
       "operations": [
         "x.rostering.away",
@@ -145,6 +147,8 @@
         "x.rostering.me",
         "x.rostering.mine",
         "x.rostering.myAway",
+        "x.rostering.myPay",
+        "x.rostering.myPayPeriods",
         "x.rostering.offer",
         "x.rostering.offers",
         "x.rostering.take",

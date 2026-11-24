@@ -90,7 +90,7 @@ permission (Rostering's `rostering:pay`, restricted and grantable, ADR 0625). Ro
 and `humanOnly`: never an assistant or MCP client, whatever is granted; never an automation or
 another pack's code. `markNotWorked` is a rosterer's (`rostering:manage`, `personApproves`). A
 person does not read their own totals through these tools (their shifts are the same data
-unsummed).
+unsummed). *Amended 2026-11-24: each person reads their own totals through `myPay`, below.*
 
 **What is kept from the record of it**: who is counted how, a reopening's and a mark's reason are
 redacted from the audit log; reading totals or the export is audited (`auditReads`) as which
@@ -140,7 +140,7 @@ earlier version must be rebuilt.
   who works a shift or of what pay is totalled from, a rosterer; otherwise someone who may approve
   at all. Anyone else reads `[redacted]` in the input, the preview and the simulated output
   (`packages/core/src/approvals/redact.ts`). The queue's list and its notices carry no input.
-- **A change of the pay period after a lock** (a coordinator's decision, the owner being asked):
+- **A change of the pay period after a lock** (the owner's decision of 2026-11-24):
   locked and reopened periods keep their dates and instants; any other date is in the setting's
   period for it, cut short where it would reach into a stored period (`periodFor`). So a change of
   length, start date, monthly day or zone takes effect from the day after the last stored period,
@@ -157,8 +157,8 @@ earlier version must be rebuilt.
   formula character (full-width forms too), that starts with a tab, carriage return or line break,
   or that has a formula character after a separator (`a;=1+1`). A line across a clock change
   carries a note saying its local times and its minutes worked differ.
-- **What pay is totalled from is a rosterer's** where a pack declares who rosters (a coordinator's
-  decision, the owner being asked), in ADR 0626's host check (`assertRosterWrite`,
+- **What pay is totalled from is a rosterer's** where a pack declares who rosters (the owner's
+  decision of 2026-11-24), in ADR 0626's host check (`assertRosterWrite`,
   `touchesRoster`): a kind's set-up and pack-down minutes (an AI's change approved only by a
   rosterer), and the times of a shift that has started, or a move of one to before now. A future
   shift's times stay whoever may write it. With Bookings alone, unchanged. (Cancelling a started
@@ -170,3 +170,49 @@ earlier version must be rebuilt.
 - **A purged coach profile's classes drop from a re-lock**: a profile in the Trash may be purged
   after a lock (the purge must not fail); its locked lines keep it, but locking that period again
   after a reopen no longer counts those classes.
+
+## Amended 2026-11-24 (the owner's decisions)
+**A staff member sees their own totals for a pay period** (the owner's decision of 2026-11-24;
+until then only a holder of `rostering:pay` read any totals). Two tool-only operations,
+`staffing.myPay` and `staffing.myPay.periods`, behind Rostering's team tools `myPay` and
+`myPayPeriods` (`rostering:team` or `rostering:roster`, `humanOnly`):
+- **For the caller only**: the account is the pipeline's verified caller (`calledBy`), never the
+  input. The answer names nobody else: no one else's lines, no business totals, no list of who is
+  counted.
+- **The same figures**: an open period's lines are `periodLines` narrowed to the caller's shifts
+  (their own user field, or the holder naming them, read through the same start index); a locked
+  period's are its locked lines for that account. Totals are `totalsOf` over them, so the person's
+  figures always equal the pay holder's for them. An open period is a preview and says so; a locked
+  one says its version.
+- **What a line shows**: its title, kind, place, local start and end, its own, set-up and pack-down
+  and counted minutes, whether it was marked not worked, whether its list was taken and a flag when
+  someone else took it, and the clock-change note. Not why it was not worked (the spec gives the
+  reason to rosterers and pay holders only, so a person reads that it was, not why) and not who took
+  the list (another person's name).
+- **Not counted**: someone not counted for pay on any day of the period is told so
+  (`counted: false`) with no figures. Their basis in force is answered (on the period's last day,
+  or today while it runs).
+- **The periods** (`myPay.periods`): the current one and at most twelve before it, dates and state
+  only (open or locked, the locked version), nothing about who is counted.
+- **Whose act**: the person's own, at the screen (the tool `humanOnly` and the verified caller a
+  person): never an assistant or MCP client (their own person's included), never an automation.
+  Called only from the tools of the shipped pack that declares the pay periods
+  (`declaresPayPeriods`): another pack's own tool, even one a person calls, is refused
+  (`pay_pack`); a runtime extension is answered "no such operation".
+- **The record of it**: `myPay` is audited as a read (`auditReads`) naming the period, version and
+  whether it was locked, never a figure or how the person is counted; its rows and its tool's rows
+  are never listed to an AI (as every `auditReads` operation and `humanOnly` tool).
+- **Cost**: at a period of 10,000 shifts and a person with 1,000 days of history, 23 D1 statements
+  (`packages/core/test/staffing-pay-cost.test.ts`); the periods list 12.
+- **Screens**: "My hours" is part of My shifts (`rostering-my-shifts/my-hours.tsx`,
+  `rostering-native-my-shifts/my-hours-screen.tsx`): figures fetched only when a period is picked,
+  `gcTime: 0`, hidden on `pagehide` and on the app going to the background.
+- Nothing of `rostering:pay` changed: what a pay holder reads and does is as above.
+
+**Confirmed as the owner's decisions of 2026-11-24** (built earlier as a coordinator's decision for
+the owner to confirm): payroll applies its own rules and nothing more is computed here (no overtime,
+penalty hours, minimum engagement, breaks or rounding rules); exact minutes are summed and hours
+shown to two decimals; the payroll file keeps each person's staff email; a changed pay period starts
+the day after the last locked period ends; before a lock only rosterers change a started shift's
+times or a kind's set-up and pack-down minutes; and, with a pack declaring who rosters, only
+rosterers change who is on a shift, a class's coach included (ADR 0626).
