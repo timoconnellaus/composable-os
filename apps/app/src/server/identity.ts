@@ -131,6 +131,12 @@ export async function refusesFixedRole(
 
 /** Whether the signed-in account holds a pack role. */
 async function holdsPackRole(db: D1Database, principal: Principal): Promise<boolean> {
+  // By id first, one row of the primary key; the OR with lower(email) reads the whole table.
+  const byId = await db
+    .prepare("SELECT pack_role FROM core_user WHERE id = ? AND kind = 'human'")
+    .bind(principal.userId)
+    .first<{ pack_role: string | null }>();
+  if (byId) return Boolean(byId.pack_role);
   const row = await db
     .prepare(
       `SELECT pack_role FROM core_user WHERE kind = 'human' AND (id = ?1 OR lower(email) = ?2)

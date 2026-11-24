@@ -17,17 +17,30 @@ import { changeOrder, formatMoney, type OrderRow, overdueOrders } from "./orders
 /** How many pending orders one sweep expires. */
 export const EXPIRE_BATCH = 50;
 
+/**
+ * Whether any pending order's time to pay has run out: one row of an index at most, read outside
+ * any operation, so the minute cron calls `order.expireDue` (and audits it) only when it has work.
+ */
+export async function orderExpiryDue(db: CrmDb["query"], now: string): Promise<boolean> {
+  return (await dueOrders(db, now).select("id").limit(1).executeTakeFirst()) !== undefined;
+}
+
+/** Pending orders past their time to pay, oldest first. */
+function dueOrders(db: CrmDb["query"], now: string) {
+  return db
+    .selectFrom("core_order")
+    .where("state", "=", "pending")
+    .where("expires_at", "<=", now)
+    .orderBy("expires_at");
+}
+
 /** Expires pending orders whose time is up, in the calling operation's batch. */
 export async function expireDueOrders(
   ctx: HandlerContext,
   limit = EXPIRE_BATCH,
 ): Promise<string[]> {
-  const rows = await ctx.db
-    .selectFrom("core_order")
+  const rows = await dueOrders(ctx.db, ctx.now)
     .selectAll()
-    .where("state", "=", "pending")
-    .where("expires_at", "<=", ctx.now)
-    .orderBy("expires_at")
     .limit(Math.min(Math.max(limit, 1), EXPIRE_BATCH))
     .execute();
   for (const row of rows) {
