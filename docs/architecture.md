@@ -331,7 +331,9 @@ Stage 6a ([ADR 0110](adr/0110-integration-host-per-connection.md) to
   mirrored into the approval queue; approval calls `applyAction` on the facet, in order per facet.
 - **Sync**: hook-driven, alarm-chunked mail and calendar sync per connection (90 days by default),
   written by `sync.ingest` with an indexed external key, bodies in R2 (`cos-blobs`), sharing level per
-  connection, private activities, suggested contacts and job-change suggestions.
+  connection, private activities, suggested contacts and job-change suggestions. A 15-minute
+  catch-up alarm backs up the hooks; it stops while the connection's credentials are expired and
+  starts again on a reconnect (what each Durable Object costs: [`docs/cloudflare-costs.md`](cloudflare-costs.md)).
 - **Code**: `integration.call` (MCP), and `codemode:<gatekeeper>` host modules for extension tools and
   Code Mode.
 - **Routine mail** ([ADR 0590](adr/0590-routine-mail.md)): a shipped pack declares fixed member

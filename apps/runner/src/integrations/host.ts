@@ -448,6 +448,8 @@ export class IntegrationHost extends DurableObject<Env> {
         { connectionId: meta.connectionId },
         { reason: `${meta.title}'s credentials expired`, by: null },
       );
+    } else {
+      await this.#resumeSync();
     }
   }
 
@@ -472,6 +474,9 @@ export class IntegrationHost extends DurableObject<Env> {
     let label: string | null = null;
     if (staged.mode === "reconnect") {
       await (await this.#account(staged.vendor)).commitReconnect(staged.stageId ?? "");
+      // An expired connection's sync stopped (#syncPass): it carries on from its cursors once
+      // `connection.completeConnect` has marked the connection active again.
+      await this.#resumeSync();
     } else {
       const account = await this.ctx.storage.get<Stub>("staged-account");
       await this.ctx.storage.delete("staged-account");
@@ -1095,6 +1100,11 @@ export class IntegrationHost extends DurableObject<Env> {
     await this.#scheduleAlarm(Date.now() + SYNC_SOON_MS, true);
   }
 
+  /** Restarts the sync loop an expired connection stopped, if this connection syncs. */
+  async #resumeSync(): Promise<void> {
+    if (await this.ctx.storage.get<SyncState>("sync")) await this.syncSoon();
+  }
+
   async syncNow(): Promise<void> {
     await this.#syncPass();
   }
@@ -1128,7 +1138,10 @@ export class IntegrationHost extends DurableObject<Env> {
     )
       .bind(meta.connectionId)
       .first<{ sharing_level: string; status: string }>();
-    if (!row || row.status === "disconnected") return;
+    // Expired credentials fail every pull until someone reconnects, so the loop stops here, with
+    // no alarm, rather than waking every 15 minutes to fail (docs/cloudflare-costs.md). A
+    // reconnect or the provider's "restored" starts it again (#resumeSync).
+    if (!row || row.status === "disconnected" || row.status === "expired") return;
     let more = false;
     for (const kind of ["mail", "calendar"] as const) {
       const kindState = state[kind];

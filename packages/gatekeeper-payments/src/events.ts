@@ -112,22 +112,32 @@ export class PaymentsEvents extends DurableObject<Cloudflare.Env> {
       this.ctx.storage.kv.put(STATS, stats);
       return { duplicate: true };
     }
-    sql.exec("INSERT INTO seen (id, at) VALUES (?, ?)", eventId, now);
-    sql.exec(
-      "DELETE FROM seen WHERE at < ? OR id IN (SELECT id FROM seen ORDER BY at DESC LIMIT -1 OFFSET ?)",
-      now - SEEN_RETENTION_MS,
-      MAX_SEEN_IDS,
-    );
+    // The caps are kept by key ranges, so a delivery reads only the rows it removes, not the
+    // whole table (docs/cloudflare-costs.md). Rowids and seqs grow with each insert, and the
+    // newest row is never deleted, so "the newest N" is "above the newest key less N".
+    const seen = sql
+      .exec<{ rowid: number }>(
+        "INSERT INTO seen (id, at) VALUES (?, ?) RETURNING rowid",
+        eventId,
+        now,
+      )
+      .one();
+    sql.exec("DELETE FROM seen WHERE at < ?", now - SEEN_RETENTION_MS);
+    sql.exec("DELETE FROM seen WHERE rowid <= ?", seen.rowid - MAX_SEEN_IDS);
     const hook = this.ctx.storage.kv.get<HookRecord>(HOOK);
+    let lastSeq = 0;
     events.forEach((event, index) => {
-      sql.exec("INSERT INTO events (id, event) VALUES (?, ?)", eventId, JSON.stringify(event));
+      lastSeq = sql
+        .exec<{ seq: number }>(
+          "INSERT INTO events (id, event) VALUES (?, ?) RETURNING seq",
+          eventId,
+          JSON.stringify(event),
+        )
+        .one().seq;
       const deliveryId = events.length === 1 ? eventId : `${eventId}#${index}`;
       if (hook) this.#queue.enqueue(hook.key, deliveryId, { deliveryId, event }, now);
     });
-    sql.exec(
-      "DELETE FROM events WHERE seq NOT IN (SELECT seq FROM events ORDER BY seq DESC LIMIT ?)",
-      MAX_RECENT_EVENTS,
-    );
+    if (lastSeq) sql.exec("DELETE FROM events WHERE seq <= ?", lastSeq - MAX_RECENT_EVENTS);
     stats.accepted++;
     this.ctx.storage.kv.put(STATS, stats);
     if (hook && events.length > 0) await this.ctx.storage.setAlarm(now);

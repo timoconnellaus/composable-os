@@ -329,9 +329,13 @@ export class AssistantAgent extends withAssistantVoice(Agent<Cloudflare.Env>) im
   // Reading the thread
 
   #errorItems(firstSeq: number | null): TranscriptItem[] {
+    // Only the window's turns, by primary key: every state read and sync comes here, and the
+    // table keeps a row per turn for the thread's life (docs/cloudflare-costs.md).
+    const firstTurn = firstSeq === null ? 0 : (this.#messages.get(firstSeq)?.turn ?? 0);
     const turns = this.ctx.storage.sql
       .exec<{ turn: number; status: string; error: string | null; finished_at: string | null }>(
-        "SELECT turn, status, error, finished_at FROM thread_turns WHERE status IN ('running', 'error') ORDER BY turn",
+        "SELECT turn, status, error, finished_at FROM thread_turns WHERE turn >= ? AND status IN ('running', 'error') ORDER BY turn",
+        firstTurn,
       )
       .toArray();
     const items: TranscriptItem[] = [];
@@ -348,9 +352,7 @@ export class AssistantAgent extends withAssistantVoice(Agent<Cloudflare.Env>) im
         ...(t.finished_at ? { at: t.finished_at } : {}),
       });
     }
-    if (firstSeq === null) return items;
-    const firstTurn = this.#messages.get(firstSeq)?.turn ?? 0;
-    return items.filter((i) => i.turn >= firstTurn);
+    return items;
   }
 
   /** A window of the thread for the UI, plus the running turn to resume. */
