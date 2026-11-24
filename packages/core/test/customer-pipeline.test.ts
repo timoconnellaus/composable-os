@@ -73,6 +73,8 @@ describe("default closed (criterion 1)", () => {
       "content.get",
       "content.list",
       "content.preview",
+      // Stage 38 (ADR 0700): published words, searched as the public reads them.
+      "content.search",
       // Stage 44 step 2 (ADR 0642): a customer's own agreements and their live dependants'.
       "me.agreements.accept",
       "me.agreements.due",
@@ -123,6 +125,8 @@ describe("default closed (criterion 1)", () => {
       "content.get",
       "content.list",
       "content.preview",
+      // Stage 38 (ADR 0700): published words, searched as the public reads them.
+      "content.search",
       "media.play",
       "media.serve",
       "order.checkout",
@@ -411,6 +415,8 @@ describe("the closed handler context (ADR 0413)", () => {
       "content.get",
       "content.list",
       "content.preview",
+      // Stage 38 (ADR 0700): published words, searched as the public reads them.
+      "content.search",
       "fixture.bookkeeping",
       // Stage 44 step 2 (ADR 0642): acceptances are core tables, not records: the host reads and
       // writes them for the caller's own Person and live dependants only.

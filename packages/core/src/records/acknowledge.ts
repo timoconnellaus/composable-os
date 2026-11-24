@@ -26,6 +26,7 @@ import type { ObjectDefinition } from "../fields/types.ts";
 import type { HandlerContext } from "../operation.ts";
 import { parseGrants } from "../pack-roles.ts";
 import { ROLES } from "../principals.ts";
+import { visibleSource } from "../visibility/index.ts";
 
 export type AcknowledgedObject = ObjectDefinition & {
   titleField: string;
@@ -172,7 +173,7 @@ export interface DueRecord {
  * the version from which confirmations count, and who must read them.
  */
 export async function dueRecords(
-  ctx: Pick<HandlerContext, "db">,
+  ctx: Pick<HandlerContext, "db" | "principal">,
   object: AcknowledgedObject,
   id?: string,
 ): Promise<DueRecord[]> {
@@ -191,7 +192,7 @@ export async function dueRecords(
   }>`
     SELECT r.id, ${title ? sql.ref(`r.${title}`) : sql`NULL`} AS title, ${sql.ref(`r.${who}`)} AS who,
       v.version, v.published_at, a.version AS asked_version, a.published_at AS asked_at
-    FROM ${sql.table(object.source)} r
+    FROM ${visibleSource(ctx, object, "r")}
     JOIN core_publish_version v
       ON v.object_type = ${object.name} AND v.record_id = r.id AND v.current = 1
     LEFT JOIN core_publish_version a

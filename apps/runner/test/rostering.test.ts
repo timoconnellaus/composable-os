@@ -494,7 +494,8 @@ describe("the team role (criterion 7)", () => {
   it("is refused every operation in the registry but Rostering's team tools", async () => {
     const cleaner = await fixedRole("Cleaner Walk", "rostering.team");
     const open = await reach(asUser(cleaner));
-    expect([...open].sort()).toEqual([...TEAM_TOOLS].sort());
+    // And every pack role's own read-and-understood list and confirmations (ADR 0702).
+    expect([...open].sort()).toEqual([...TEAM_TOOLS, "ack.confirm", "ack.mine"].sort());
     // No record read, not even of Rostering's own objects.
     for (const object of [SHIFT, DUTY, SERIES, CLASS, "person"]) {
       expect((await refusal(run("record.list", { object }, asUser(cleaner)))).code, object).toBe(

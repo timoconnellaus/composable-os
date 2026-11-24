@@ -122,6 +122,9 @@ describe("the committed roles file", () => {
   it("gives the door role its tools and its reads, and nothing else", () => {
     const door = computedRoles.roles.find((r) => r.name === "ticketing.door");
     expect(door?.operations).toEqual([
+      // Every pack role's own read-and-understood list and confirmations (ADR 0702).
+      "ack.confirm",
+      "ack.mine",
       "record.get",
       "record.list",
       "x.ticketing.checkIn",
