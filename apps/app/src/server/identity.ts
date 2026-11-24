@@ -54,7 +54,9 @@ export async function authorize(
   const provider = createIdentityProvider(env);
   const principal = await provider.resolve(request);
   if (principal) {
-    if (!packRoleMayReach(kind, new URL(request.url).pathname)) {
+    // Server functions are judged by `refusesFixedRole` in their own middleware (start.ts): only
+    // there is the function's file known.
+    if (kind.handlerType === "router" && !packRoleMayReach(new URL(request.url).pathname)) {
       if (await holdsPackRole(env.DB, principal)) return { ok: false, response: forbidden() };
     }
     return { ok: true, principal };
@@ -82,22 +84,41 @@ export async function authorize(
 
 /**
  * What an account holding a pack role (a coach, the door, a rostered cleaner; ADR 0436) may reach
- * here besides the admin's pages, whose layout shows it only its screens (stage 47, ADR 0660): its
+ * besides the admin's pages, whose layout shows it only its screens (stage 47, ADR 0660): its
  * session (`session.public.ts`), operations (`call-operation.ts`, which the pipeline holds to the
  * role: its tools, its reads and `screens.mine`), sign-in and sign-out (`/api/auth/*`) and the
  * health check. Every other server function and `/api/*` route (the assistant's, system status, the
- * hello workflow) is refused, in this one place, before its handler runs.
+ * hello workflow) is refused before its handler runs: routes here, server functions by
+ * `refusesFixedRole` in the middleware every server function runs (start.ts).
  */
-const PACK_ROLE_SERVER_FN = /(?:^|\/)src\/server\/(?:session\.public|call-operation)\.ts(?:\?|$)/;
+const PACK_ROLE_SERVER_FN = /(?:^|\/)src\/server\/(?:session\.public|call-operation)\.ts$/;
 const PACK_ROLE_API = ["/api/auth/", "/api/health"];
 
-export function packRoleMayReach(kind: RequestKind, pathname: string): boolean {
-  if (kind.handlerType === "serverFn") return PACK_ROLE_SERVER_FN.test(kind.serverFnFile ?? "");
+/** Whether a pack-role account may reach this path (pages yes; of `/api/*`, the short list). */
+export function packRoleMayReach(pathname: string): boolean {
   if (pathname.startsWith("/api/")) return PACK_ROLE_API.some((p) => pathname.startsWith(p));
   return true;
 }
 
-/** Whether the signed-in account holds a pack role: one read, only for what a role may not reach. */
+/** Whether a pack-role account may call the server functions of this file (src-relative path). */
+export function packRoleMayCallServerFn(filename: string | undefined): boolean {
+  return PACK_ROLE_SERVER_FN.test(filename ?? "");
+}
+
+/**
+ * Whether to refuse this server function to the signed-in account: it holds a pack role and the
+ * function is not one it may call. One read, only for a function outside the short list.
+ */
+export async function refusesFixedRole(
+  db: D1Database,
+  principal: Principal | null,
+  filename: string | undefined,
+): Promise<boolean> {
+  if (!principal || packRoleMayCallServerFn(filename)) return false;
+  return holdsPackRole(db, principal);
+}
+
+/** Whether the signed-in account holds a pack role. */
 async function holdsPackRole(db: D1Database, principal: Principal): Promise<boolean> {
   const row = await db
     .prepare(

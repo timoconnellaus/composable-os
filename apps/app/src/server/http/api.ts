@@ -16,6 +16,8 @@
 //
 // Every call goes through `coreInvoker`, which is `invoke()`. A customer's or the public's call
 // gets an outside context: a principal and the database for the pipeline, never a staff user.
+// The screens this build holds, for screens.mine (stage 47).
+import "../built-screens.ts";
 import {
   addressKey,
   CUSTOMER_AUTH_BASE_PATH,

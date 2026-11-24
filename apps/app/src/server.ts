@@ -6,7 +6,6 @@
 // adjudicator.
 
 import { env as workerEnv } from "cloudflare:workers";
-import { BUILT_SCREENS } from "virtual:cos-screens-built";
 import { provideStaffCodes } from "@composable-os/auth";
 import {
   coreInvoker,
@@ -14,7 +13,6 @@ import {
   isApiPath,
   isMediaPath,
   type RoutineDeliveryMessage,
-  setBuiltScreens,
   setVideoHost,
 } from "@composable-os/core";
 import { PRODUCT_LABEL_VAR, setProductLabel } from "@composable-os/product";
@@ -29,10 +27,6 @@ setProductLabel((workerEnv as unknown as Record<string, string | undefined>)[PRO
 // Videos in Cloudflare Stream (stage 42, ADR 0475): the account, its token and signing key are
 // this Worker's own vars and secrets, read once per isolate.
 setVideoHost(videoHostFor(workerEnv as unknown as VideoEnv));
-
-// The shipped packs' screens this build holds (stage 47, ADR 0660): screens.mine lists a pack's
-// screens only when its installed manifest is the one the build was made from.
-setBuiltScreens(BUILT_SCREENS);
 
 // Staff sign-in codes go out as the host's own mail (ADR 0455). Given for the module env that
 // TanStack Start's routes read (/api/auth/*) as well as the fetch handler's own.

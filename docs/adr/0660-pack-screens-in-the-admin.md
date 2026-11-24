@@ -92,7 +92,9 @@ sign in to the admin and was refused every call its shell made.
   host anyway: the shell is a convenience, the host is the boundary. Beyond operations (which the
   pipeline holds to the role), such an account reaches only its session, sign-in and sign-out and
   the health check: every other server function and `/api/*` route (the assistant's, system
-  status) is refused in `authorize`, before its handler runs. The hello workflow needs an admin.
+  status) is refused before its handler runs: a route by `authorize`, a server function by the
+  function middleware every server function runs (`start.ts`, `refusesFixedRole`), where its file
+  is known. The hello workflow needs an admin.
 - **A staff session is used only from the host's own pages.** The screens call the HTTP surface
   from the browser with the staff cookie (Better Auth's, Access's, hosted support's), so the
   surface refuses a staff cookie session on any request whose `Origin` is not the host's own, even

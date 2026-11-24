@@ -309,7 +309,8 @@ One build session may take all four; step 4 must not land without 1 to 3.
   the installed manifest matches, so a row with a pack's id and another manifest lists nothing. An
   org extension may not take the id of any pack the release carries (`shipped-list.ts`), except in
   local development (`COS_DEV_ORG_PACKS`).
-- **Pack roles and the other server routes**: one guard in `authorize` refuses a pack-role account
+- **Pack roles and the other server routes**: one decision (`identity.ts`), applied to routes in `authorize` and to server functions in the
+  function middleware every server function runs (`start.ts`), refuses a pack-role account
   every server function and `/api/*` route but its session, operations, sign-in and sign-out and
   the health check (`apps/app/test/pack-role-surfaces.test.ts` walks them all); the hello workflow
   needs an admin.
