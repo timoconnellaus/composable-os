@@ -242,6 +242,7 @@
 - [payments](https://docs.composableos.dev/reference/gatekeepers/payments/): Gatekeeper Worker for payments: opens the provider's hosted checkout, submits refunds as approval-queue actions and delivers verified payment events to a bound hook.
 - [slack-post](https://docs.composableos.dev/reference/gatekeepers/slack-post/): Gatekeeper Worker that posts Slack messages and DMs with a bot token, each post an approval-queue action. Shares the Slack app with the vendored read-only Slack gatekeeper.
 - [slack](https://docs.composableos.dev/reference/gatekeepers/slack/): Gatekeeper Worker for Slack (workspaces, conversations and threads). Vendored from cloudflare-os.
+- [text](https://docs.composableos.dev/reference/gatekeepers/text/): Gatekeeper Worker for text messages: sends the host's routine texts and checking codes through the business's own text provider account, and delivers verified receipts and STOP, START and HELP replies to the host.
 - [webhook](https://docs.composableos.dev/reference/gatekeepers/webhook/): Gatekeeper Worker for inbound webhooks: verifies provider signatures and delivers typed events to a bound hook.
 - [websearch](https://docs.composableos.dev/reference/gatekeepers/websearch/): Gatekeeper Worker for web search through Workers AI's websearch() and AI Gateway. Vendored from cloudflare-os.
 - [zoominfo](https://docs.composableos.dev/reference/gatekeepers/zoominfo/): Gatekeeper Worker for ZoomInfo (GTM API: lookup, search, enrich, Copilot, usage). Vendored from cloudflare-os.
@@ -295,6 +296,7 @@
 - [me.* operations](https://docs.composableos.dev/reference/operations/me/): The core operations named me.*
 - [media.* operations](https://docs.composableos.dev/reference/operations/media/): The core operations named media.*
 - [memory.* operations](https://docs.composableos.dev/reference/operations/memory/): The core operations named memory.*
+- [messages.* operations](https://docs.composableos.dev/reference/operations/messages/): The core operations named messages.*
 - [my.* operations](https://docs.composableos.dev/reference/operations/my/): The core operations named my.*
 - [note.* operations](https://docs.composableos.dev/reference/operations/note/): The core operations named note.*
 - [notification.* operations](https://docs.composableos.dev/reference/operations/notification/): The core operations named notification.*
