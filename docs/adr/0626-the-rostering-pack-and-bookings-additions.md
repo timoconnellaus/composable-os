@@ -161,3 +161,8 @@ classes are steps 6 and 7's.
   their accounts' current names.
 - The notices' words are still the host's own; the spec's "notification words are the pack's" is
   left for later (they say nothing pack-specific today).
+
+## Amended 2026-11-24 (stage 49 step 1, ADR 0761)
+The roster shows a shift whose title may name a client (`staffed.private`, an appointment) as its
+kind's name to anyone but its own person and those who roster. See
+[ADR 0761](0761-a-shift-that-names-a-client-kept-off-the-roster-and-the-feed.md).

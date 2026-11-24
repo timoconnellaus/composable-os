@@ -1411,9 +1411,17 @@ A time someone works: a class (its coach works it) or a **duty shift** (cleaning
 at most one staff account on it. **Covered** when it has a person, **uncovered** when it has none.
 A record declares `staffed` to be one. One person's shifts never overlap: a **double-booking** is
 refused by the database, for every actor. Each live, covered shift whose person has an account
-holds a **time claim** (its own time, never preparation or pack-down). A write of a shift answers
-its **warnings** (away, not qualified, uncovered), which never refuse it (ADR 0622).
+holds a **time claim** (its own time, never preparation or pack-down, widened by its **buffer**
+when its kind keeps one). A write of a shift answers its **warnings** (away, not qualified,
+uncovered), which never refuse it (ADR 0622).
 _Avoid_: session, slot, booking
+
+**Buffer** (stage 49, built in step 1: ADR 0760)
+The gap a kind of session keeps before or after itself (15 minutes after a personal training
+session). It is part of the provider's time claim, so nothing else of theirs is booked in it, but
+never part of the session's own times or of pay. Classes keep none: two classes back to back are
+fine. A session's provider must have an account; a profile with none is never booked for one.
+_Avoid_: margin (the code's word), padding, slot
 
 **Roster** (stage 45, built in step 4: ADR 0626)
 Every shift in a range, with who works each (`staffing.week`, through Rostering's `week` and

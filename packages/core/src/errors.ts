@@ -401,6 +401,14 @@ export function toOperationError(error: unknown): OperationError {
       rule: "staffed_time",
     });
   }
+  // A live shift that requires an account naming a profile that holds none, or a profile left
+  // without one under such a shift (ADR 0760), by a path that does not check first.
+  if (message.includes("core_staff_time_no_account")) {
+    return new ValidationError(
+      "This shift needs someone with an account: the profile on it holds none, so nothing was changed.",
+      { rule: "staffed_account" },
+    );
+  }
   // A claimant took a place after it was read as holding none (ADR 0501).
   if (message.includes("core_claim_live")) {
     return new ConflictError(

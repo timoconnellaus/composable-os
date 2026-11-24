@@ -32,6 +32,14 @@ stages [31](31-bookings.md) (its 31b section, which this stage replaces), [32](3
 Status: **spec agreed** (owner interviewed 2026-11-24; the other points decided the same day by the
 coordinator as best practice, below). Build may start with step 1.
 
+- **Step 1 built** (`feat/stage-49-claim-margins`; migration 1091, ADRs 0760 and 0761): claim
+  margins on `staffed` (`claimBefore`, `claimAfter`, kept on the claim as `margin_before` and
+  `margin_after`, followed on the kind's table for shifts not yet ended), `account: "required"`
+  (refused at write and by triggers on the shift's and the profile's tables), and `private`
+  (the roster shows the kind to anyone but the provider and rosterers, clash answers name the kind,
+  never offered; the feed already showed no title). Platform only: no Bookings object declares them
+  yet (step 5). The spec's ADR "0764" part about the roster and the feed is ADR 0761.
+
 This stage was drafted as "31b". It **replaces stage 31's 31b section** and widens it: stage 31's
 decision 1 agreed appointments "booked by staff" and left members booking their own to #239; a gym
 needs members booking one-to-one sessions themselves on day one, so this stage takes #239 in. Stage

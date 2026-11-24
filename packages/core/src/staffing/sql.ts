@@ -14,6 +14,13 @@
 // account or another id re-derives its shifts. A row a REPLACE deletes with recursive triggers off
 // fires nothing: its claim is left behind, and can only refuse more (core_staff_time's own
 // triggers refuse an overlap for every statement shape).
+//
+// Claim margins (stage 49 step 1, ADR 0760): a shift may keep minutes free before and after it,
+// read from its kind (a service's buffer). The claim is the shift's own time widened by them, and
+// keeps how much (margin_before, margin_after, migration 1091). Triggers on the kind's table follow
+// a change of its minutes for the shifts that have not ended (by the database's clock: history is
+// never refused). A shift that requires an account (`staffed.account: "required"`) and names a
+// profile holding none is refused while it has not ended, on its table and on the profile's.
 import { CompiledQuery } from "kysely";
 import { ident } from "../extensions/naming.ts";
 
@@ -34,9 +41,36 @@ export interface StaffedTables {
   live: readonly string[];
   /** The kind's column (a class type): a locked pay period keeps it too (ADR 0627). */
   kind?: string | undefined;
+  /**
+   * The minutes kept free before and after (ADR 0760): the kind's table and its number columns,
+   * read through the shift's kind column. Absent: the claim is the shift's own time.
+   */
+  margins?:
+    | { kind: string; table: string; before?: string | undefined; after?: string | undefined }
+    | undefined;
+  /** A live shift with a person must have an account (ADR 0760): only with `account`. */
+  required?: boolean | undefined;
 }
 
 const seconds = (column: string) => `CAST(strftime('%s', r.${ident(column)}) AS INTEGER)`;
+
+/** The database's clock, unix seconds: what has ended is never refused (ADR 0760). */
+const NOW = "CAST(strftime('%s', 'now') AS INTEGER)";
+
+/** Whether the shift `r` has not ended (or has no end the database can read). */
+const notEnded = (t: Pick<StaffedTables, "ends">) =>
+  `(${seconds(t.ends)} IS NULL OR ${seconds(t.ends)} > ${NOW})`;
+
+/**
+ * A kind's minutes (over its row `m`) as seconds: a whole number from 0 to 1,440, as pay reads
+ * its own minutes (anything else counts as none).
+ */
+export const marginSeconds = (column: string | undefined) =>
+  column ? `(MAX(0, MIN(1440, CAST(COALESCE(m.${ident(column)}, 0) AS INTEGER))) * 60)` : "0";
+
+/** The columns a claim is written with, in this order. */
+const CLAIM_COLUMNS =
+  "object_type, record_id, account_id, starts, ends, margin_before, margin_after";
 
 /** A string as an SQL literal (an object name, a state, an account id). */
 export const literal = (value: string) => `'${value.replaceAll("'", "''")}'`;
@@ -55,10 +89,16 @@ export function selectClaims(t: StaffedTables, where: string, account = accountE
     t.account && account === accountExpr(t)
       ? ` LEFT JOIN ${ident(t.account.table)} p ON p.id = r.${ident(t.who)}`
       : "";
+  const margins = t.margins
+    ? ` LEFT JOIN ${ident(t.margins.table)} m ON m.id = r.${ident(t.margins.kind)}`
+    : "";
+  const before = marginSeconds(t.margins?.before);
+  const after = marginSeconds(t.margins?.after);
   return (
     `SELECT ${literal(t.object)} AS object_type, r.id AS record_id, ${account} AS account_id, ` +
-    `${seconds(t.starts)} AS starts, ${seconds(t.ends)} AS ends ` +
-    `FROM ${ident(t.table)} r${join} ` +
+    `${seconds(t.starts)} - ${before} AS starts, ${seconds(t.ends)} + ${after} AS ends, ` +
+    `${before} AS margin_before, ${after} AS margin_after ` +
+    `FROM ${ident(t.table)} r${join}${margins} ` +
     `WHERE (${where}) AND r.deleted_at IS NULL ` +
     `AND r.${ident(t.state)} IN (${t.live.map(literal).join(", ")}) ` +
     `AND ${account} IS NOT NULL AND ${account} != '' ` +
@@ -73,11 +113,13 @@ export function selectClaims(t: StaffedTables, where: string, account = accountE
  * past classes given to another account read a few rows each, not every one already written.
  */
 export function deriveClaims(t: StaffedTables, where: string): string {
-  return `INSERT INTO core_staff_time (object_type, record_id, account_id, starts, ends) ${selectClaims(t, where)} ORDER BY starts`;
+  return `INSERT INTO core_staff_time (${CLAIM_COLUMNS}) ${selectClaims(t, where)} ORDER BY starts`;
 }
 
-/** The trigger names one staffed object owns: on its table, and on its account's table. */
-export function staffedTriggerNames(t: Pick<StaffedTables, "table" | "account">): string[] {
+/** The trigger names one staffed object owns: on its table, its account's and its kind's. */
+export function staffedTriggerNames(
+  t: Pick<StaffedTables, "table" | "account" | "margins" | "required">,
+): string[] {
   return [
     `${t.table}__staffed_ins`,
     `${t.table}__staffed_upd`,
@@ -90,7 +132,23 @@ export function staffedTriggerNames(t: Pick<StaffedTables, "table" | "account">)
         ]
       : []),
     ...payLockTriggerNames(t),
+    ...marginTriggerNames(t),
+    ...requiredTriggerNames(t),
   ];
+}
+
+/** The triggers following a kind's minutes (ADR 0760), on the kind's table. */
+function marginTriggerNames(t: Pick<StaffedTables, "table" | "margins">): string[] {
+  if (!t.margins) return [];
+  const on = `${t.margins.table}__margins_${t.table}`;
+  return [`${on}_ins`, `${on}_upd`, `${on}_del`];
+}
+
+/** The triggers keeping a required account (ADR 0760), on the account holder's table. */
+function requiredTriggerNames(t: Pick<StaffedTables, "table" | "account" | "required">): string[] {
+  if (!t.required || !t.account) return [];
+  const on = `${t.account.table}__requires_${t.table}`;
+  return [`${on}_ins`, `${on}_upd`, `${on}_del`];
 }
 
 /** The pay lock's trigger names (ADR 0627): on the object's table, and on its account's table. */
@@ -174,20 +232,36 @@ function createPayLockTriggers(t: StaffedTables): string[] {
 }
 
 /** DROP TRIGGER statements for an object's triggers (safe when they do not exist). */
-export function dropStaffedTriggers(t: Pick<StaffedTables, "table" | "account">): string[] {
+export function dropStaffedTriggers(
+  t: Pick<StaffedTables, "table" | "account" | "margins" | "required">,
+): string[] {
   return staffedTriggerNames(t).map((name) => `DROP TRIGGER IF EXISTS ${ident(name)}`);
 }
 
 /** CREATE TRIGGER statements keeping an object's claims (run after its columns exist). */
 export function createStaffedTriggers(t: StaffedTables): string[] {
   const object = literal(t.object);
-  const [ins, upd, del, holderIns, holderUpd, holderDel] = staffedTriggerNames(t)
+  const [ins, upd, del, holderIns, holderUpd, holderDel] = staffedTriggerNames({
+    table: t.table,
+    account: t.account,
+  })
     .filter((n) => !n.includes("__paylock_"))
     .map(ident);
   const clear = (keys: string) =>
     `DELETE FROM core_staff_time WHERE object_type = ${object} AND record_id IN (${keys});`;
-  // Every column the claim reads, and the id (an id update moves the claim).
-  const columns = [...new Set(["id", "deleted_at", t.who, t.starts, t.ends, t.state])].map(ident);
+  // Every column the claim reads, and the id (an id update moves the claim); the kind too when
+  // the margins are read through it.
+  const columns = [
+    ...new Set([
+      "id",
+      "deleted_at",
+      t.who,
+      t.starts,
+      t.ends,
+      t.state,
+      ...(t.margins ? [t.margins.kind] : []),
+    ]),
+  ].map(ident);
   // A live shift whose end is at or before its start is refused, whoever writes it (it would
   // claim nothing, and so could sit inside another of its person's shifts).
   const backwards =
@@ -196,9 +270,21 @@ export function createStaffedTriggers(t: StaffedTables): string[] {
     `AND r.${ident(t.state)} IN (${t.live.map(literal).join(", ")}) ` +
     `AND ${seconds(t.starts)} IS NOT NULL AND ${seconds(t.ends)} IS NOT NULL ` +
     `AND ${seconds(t.ends)} <= ${seconds(t.starts)};`;
+  // A live shift that has not ended, naming a profile that holds no account, when the account is
+  // required (ADR 0760): it would escape the claim. A shift with nobody on it is not refused.
+  const noAccount =
+    t.required && t.account
+      ? `SELECT RAISE(ABORT, 'core_staff_time_no_account') FROM ${ident(t.table)} r ` +
+        `LEFT JOIN ${ident(t.account.table)} p ON p.id = r.${ident(t.who)} ` +
+        `WHERE r.id = NEW.id AND r.deleted_at IS NULL ` +
+        `AND r.${ident(t.state)} IN (${t.live.map(literal).join(", ")}) ` +
+        `AND r.${ident(t.who)} IS NOT NULL AND r.${ident(t.who)} != '' ` +
+        `AND (p.${ident(t.account.column)} IS NULL OR p.${ident(t.account.column)} = '') ` +
+        `AND ${notEnded(t)};`
+      : "";
   const out = [
-    `CREATE TRIGGER ${ins} AFTER INSERT ON ${ident(t.table)} BEGIN ${backwards} ${clear("NEW.id")} ${deriveClaims(t, "r.id = NEW.id")}; END`,
-    `CREATE TRIGGER ${upd} AFTER UPDATE OF ${columns.join(", ")} ON ${ident(t.table)} BEGIN ${backwards} ${clear("OLD.id, NEW.id")} ${deriveClaims(t, "r.id = NEW.id")}; END`,
+    `CREATE TRIGGER ${ins} AFTER INSERT ON ${ident(t.table)} BEGIN ${backwards} ${noAccount} ${clear("NEW.id")} ${deriveClaims(t, "r.id = NEW.id")}; END`,
+    `CREATE TRIGGER ${upd} AFTER UPDATE OF ${columns.join(", ")} ON ${ident(t.table)} BEGIN ${backwards} ${noAccount} ${clear("OLD.id, NEW.id")} ${deriveClaims(t, "r.id = NEW.id")}; END`,
     `CREATE TRIGGER ${del} AFTER DELETE ON ${ident(t.table)} BEGIN ${clear("OLD.id")} END`,
   ];
   if (t.account && holderIns && holderUpd && holderDel) {
@@ -214,7 +300,60 @@ export function createStaffedTriggers(t: StaffedTables): string[] {
       `CREATE TRIGGER ${holderDel} AFTER DELETE ON ${holder} BEGIN ${rederive("OLD.id")} END`,
     );
   }
-  return [...out, ...createPayLockTriggers(t)];
+  return [
+    ...out,
+    ...createPayLockTriggers(t),
+    ...createMarginTriggers(t),
+    ...createRequiredTriggers(t),
+  ];
+}
+
+/**
+ * On the kind's table (ADR 0760): a kind inserted (a REPLACE too), deleted, or given other minutes
+ * or another id derives again the claims of its shifts that have not ended, so a service's new
+ * buffer holds from now on; one that would reach another shift is refused by core_staff_time's
+ * triggers. Shifts that have ended keep the claim they had: history is never refused.
+ */
+function createMarginTriggers(t: StaffedTables): string[] {
+  if (!t.margins) return [];
+  const [ins, upd, del] = marginTriggerNames(t).map(ident);
+  const kind = ident(t.margins.table);
+  const object = literal(t.object);
+  const of = (ids: string) =>
+    `r.${ident(t.margins?.kind as string)} IN (${ids}) AND ${notEnded(t)}`;
+  const rederive = (ids: string) =>
+    `DELETE FROM core_staff_time WHERE object_type = ${object} AND record_id IN (SELECT r.id FROM ${ident(t.table)} r WHERE ${of(ids)} AND r.deleted_at IS NULL); ${deriveClaims(t, of(ids))};`;
+  const watched = [
+    ...new Set(["id", t.margins.before, t.margins.after].filter((c): c is string => !!c)),
+  ].map(ident);
+  return [
+    `CREATE TRIGGER ${ins} AFTER INSERT ON ${kind} BEGIN ${rederive("NEW.id")} END`,
+    `CREATE TRIGGER ${upd} AFTER UPDATE OF ${watched.join(", ")} ON ${kind} BEGIN ${rederive("OLD.id, NEW.id")} END`,
+    `CREATE TRIGGER ${del} AFTER DELETE ON ${kind} BEGIN ${rederive("OLD.id")} END`,
+  ];
+}
+
+/**
+ * On the account holder's table, when the account is required (ADR 0760): a profile that a live
+ * shift not yet ended names never ends up holding no account (inserted or replaced without one,
+ * its account cleared), and is never given another id or deleted for good from under it.
+ */
+function createRequiredTriggers(t: StaffedTables): string[] {
+  if (!t.required || !t.account) return [];
+  const [ins, upd, del] = requiredTriggerNames(t).map(ident);
+  const holder = ident(t.account.table);
+  const account = ident(t.account.column);
+  const named = (id: string) =>
+    `EXISTS (SELECT 1 FROM ${ident(t.table)} r WHERE r.${ident(t.who)} = ${id} ` +
+    `AND r.deleted_at IS NULL AND r.${ident(t.state)} IN (${t.live.map(literal).join(", ")}) ` +
+    `AND ${notEnded(t)})`;
+  const none = `(NEW.${account} IS NULL OR NEW.${account} = '')`;
+  const raise = "SELECT RAISE(ABORT, 'core_staff_time_no_account')";
+  return [
+    `CREATE TRIGGER ${ins} AFTER INSERT ON ${holder} BEGIN ${raise} WHERE ${none} AND ${named("NEW.id")}; END`,
+    `CREATE TRIGGER ${upd} AFTER UPDATE OF id, ${account} ON ${holder} BEGIN ${raise} WHERE (${none} AND ${named("NEW.id")}) OR (OLD.id IS NOT NEW.id AND ${named("OLD.id")}); END`,
+    `CREATE TRIGGER ${del} AFTER DELETE ON ${holder} BEGIN ${raise} WHERE ${named("OLD.id")}; END`,
+  ];
 }
 
 /** A claim's latest end among its account's earlier claims (a window over a CTE of claims). */
@@ -236,8 +375,8 @@ export function resyncClaims(t: StaffedTables): CompiledQuery[] {
     CompiledQuery.raw(
       `WITH d AS MATERIALIZED (${selectClaims(t, "1 = 1")}), ` +
         `w AS (SELECT d.*, ${PREVIOUS_END} AS prev_end FROM d) ` +
-        "INSERT INTO core_staff_time (object_type, record_id, account_id, starts, ends) " +
-        "SELECT object_type, record_id, account_id, starts, ends FROM w " +
+        `INSERT INTO core_staff_time (${CLAIM_COLUMNS}) ` +
+        `SELECT ${CLAIM_COLUMNS} FROM w ` +
         "WHERE (prev_end IS NULL OR prev_end <= starts) AND NOT EXISTS (" +
         "SELECT 1 FROM core_staff_time c WHERE c.account_id = w.account_id " +
         `AND c.object_type != ${literal(t.object)} AND c.ends > w.starts AND c.starts < w.ends) ` +

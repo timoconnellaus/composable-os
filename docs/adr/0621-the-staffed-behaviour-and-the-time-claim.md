@@ -118,3 +118,10 @@ a refused upgrade were added in review (above). Migration 0811 was edited in pla
 local or preview database that applied the earlier version must be rebuilt.
 - `staffName` (the name kept on a shift as it was) is not in this step; step 3 or 4 adds it with
   `staffing.forget`.
+
+## Amended 2026-11-24 (stage 49 step 1, ADR 0760)
+The claim is no longer always the shift's own time: a shift may declare minutes kept free before
+and after it (`claimBefore`, `claimAfter`, read from its kind), which widen its claim and are kept
+on it (migration 1091); classes declare none, so back to back stays allowed. A shift may also
+require an account (`account: "required"`): one naming a profile with no account is refused while
+it has not ended. See [ADR 0760](0760-claim-margins-and-a-required-account-on-staffed.md).

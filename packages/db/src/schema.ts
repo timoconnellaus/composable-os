@@ -1353,9 +1353,12 @@ export interface CoreStaffTimeTable {
   object_type: string;
   record_id: string;
   account_id: string;
-  /** Unix seconds, half-open. */
+  /** Unix seconds, half-open, widened by the margins. */
   starts: number;
   ends: number;
+  /** Migration 1091 (ADR 0760): seconds the claim was widened by before and after the shift. */
+  margin_before: Generated<number>;
+  margin_after: Generated<number>;
 }
 
 /** Migration 0811 (stage 45, ADR 0622): who may do which kind of work. */

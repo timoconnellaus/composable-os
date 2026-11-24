@@ -785,6 +785,16 @@ export function planFromState(
         name,
         `CREATE INDEX IF NOT EXISTS ${name} ON ${ident(object.tableName)} (${ident(staffed.who)}) WHERE deleted_at IS NULL`,
       );
+      // Its kind, when the claim reads minutes from it (ADR 0760): the kind's triggers find its
+      // shifts by it.
+      const kind = staffed.margins?.kind;
+      const byKind = kind ? ident(`${object.tableName}__${kind}`) : null;
+      if (kind && byKind && byKind !== name) {
+        wanted.set(
+          byKind,
+          `CREATE INDEX IF NOT EXISTS ${byKind} ON ${ident(object.tableName)} (${ident(kind)}) WHERE deleted_at IS NULL`,
+        );
+      }
     }
     const existing = (current.indexes ?? []).filter(
       (index) => index.table === object.tableName && index.name.startsWith(`${object.tableName}__`),
@@ -1205,7 +1215,25 @@ function staffedTables(state: SchemaState, object: ObjectState): StaffedTables |
     if (!holder || !column) return null;
     account = { table: holder.tableName, column };
   }
-  const kind = field(object, declared.kind)?.columnName;
+  const kindField = field(object, declared.kind);
+  const kind = kindField?.columnName;
+  // The minutes kept free around a shift (ADR 0760): number fields of its kind, this extension's.
+  let margins: StaffedTables["margins"];
+  if (declared.claimBefore || declared.claimAfter) {
+    const target = state.objects.find(
+      (o) => o.name === kindField?.definition.to && o.status === "active",
+    );
+    const minutes = (path: { field: string } | undefined) => {
+      const local = path?.field.split(".")[1];
+      return (target && local ? field(target, local)?.columnName : undefined) ?? undefined;
+    };
+    const before = minutes(declared.claimBefore);
+    const after = minutes(declared.claimAfter);
+    if (!kind || !target || (declared.claimBefore && !before) || (declared.claimAfter && !after)) {
+      return null;
+    }
+    margins = { kind, table: target.tableName, before, after };
+  }
   return {
     object: object.name,
     table: object.tableName,
@@ -1216,6 +1244,8 @@ function staffedTables(state: SchemaState, object: ObjectState): StaffedTables |
     state: stateColumn,
     live: [...declared.live],
     ...(kind ? { kind } : {}),
+    ...(margins ? { margins } : {}),
+    ...(declared.account === "required" && account ? { required: true } : {}),
   };
 }
 
@@ -1225,7 +1255,10 @@ function staffedColumnsExist(current: SchemaState, t: StaffedTables): boolean {
     current.fields.some((f) => f.tableName === table && f.columnName === column);
   return (
     [t.who, t.starts, t.ends, t.state].every((c) => has(t.table, c)) &&
-    (!t.account || has(t.account.table, t.account.column))
+    (!t.account || has(t.account.table, t.account.column)) &&
+    (!t.margins ||
+      (has(t.table, t.margins.kind) &&
+        [t.margins.before, t.margins.after].every((c) => !c || has(t.margins?.table ?? "", c))))
   );
 }
 
