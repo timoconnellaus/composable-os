@@ -3,17 +3,25 @@
 import { validateDocument } from "@composable-os/sdk";
 import { describe, expect, it } from "vitest";
 import {
+  correctionOf,
+  describeDone,
   describeSets,
   layoutEdits as e,
   emptyLayout,
   exercisesIn,
   faultsOf,
   faultsUnder,
+  LOG,
+  type LoggedSet,
   layoutSummary,
   move,
+  pastSessionsOf,
   pathOf,
+  plannedSets,
+  SESSION,
+  sessionSets,
 } from "../client/index.ts";
-import { LAYOUT_SCHEMA, type Layout } from "../layout.ts";
+import { LAYOUT_SCHEMA, type Layout, type Session } from "../layout.ts";
 
 const pike = "rec_pike";
 const row = "rec_row";
@@ -136,5 +144,161 @@ describe("faults from the host", () => {
       },
     });
     expect([...ref.values()]).toEqual(["no live programs.exercise with id x"]);
+  });
+});
+
+describe("past sessions", () => {
+  const plan: Session = {
+    name: "Press",
+    day: 1,
+    blocks: [
+      {
+        label: "A",
+        items: [
+          {
+            kind: "all",
+            label: "A1",
+            exercises: [
+              {
+                exercise: row,
+                sets: [
+                  { kind: "reps", reps: 8, load: 20 },
+                  { kind: "reps", reps: 8 },
+                ],
+              },
+            ],
+          },
+          {
+            kind: "levels",
+            label: "A2",
+            levels: [
+              {
+                mode: "one",
+                level: 1,
+                exercise: { exercise: pike, sets: [{ kind: "reps", reps: 5 }] },
+              },
+              {
+                mode: "alternatives",
+                level: 5,
+                exercises: [
+                  {
+                    exercise: pike,
+                    sets: [
+                      { kind: "reps", reps: 3 },
+                      { kind: "reps", reps: 3 },
+                    ],
+                  },
+                  {
+                    exercise: hollow,
+                    sets: [
+                      { kind: "hold", seconds: 20 },
+                      { kind: "hold", seconds: 20 },
+                      { kind: "hold", seconds: 20 },
+                    ],
+                  },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    ],
+  };
+  const set = (values: Partial<LoggedSet>): LoggedSet => ({
+    id: "log_1",
+    item: "A1",
+    exercise: row,
+    setNumber: 1,
+    level: null,
+    target: { reps: 8, seconds: null, load: 20 },
+    actual: { reps: 8, seconds: null, load: 20 },
+    rpe: 7,
+    note: null,
+    recordedAs: "self",
+    recordedByName: null,
+    exerciseName: "Ring row",
+    ...values,
+  });
+
+  it("lists every set of the plan with what was logged, the level and alternative taken", () => {
+    // Nothing logged: the first level of A2, two sets of A1.
+    expect(sessionSets(plan, []).map((s) => [s.item, s.exercise, s.setNumber, s.level])).toEqual([
+      ["A1", row, 1, null],
+      ["A1", row, 2, null],
+      ["A2", pike, 1, 1],
+    ]);
+    expect(plannedSets(plan, [])).toBe(3);
+    // Level 5 taken, the hollow hold chosen of the alternatives, and a fourth set beyond the plan.
+    const logged = [
+      set({}),
+      set({ id: "log_2", item: "A2", exercise: hollow, level: 5, setNumber: 1 }),
+      set({ id: "log_3", item: "A2", exercise: hollow, level: 5, setNumber: 4 }),
+    ];
+    const sets = sessionSets(plan, logged);
+    expect(sets.map((s) => [s.item, s.exercise, s.setNumber, s.logged?.id ?? null])).toEqual([
+      ["A1", row, 1, "log_1"],
+      ["A1", row, 2, null],
+      ["A2", hollow, 1, "log_2"],
+      ["A2", hollow, 2, null],
+      ["A2", hollow, 3, null],
+      ["A2", hollow, 4, "log_3"],
+    ]);
+    expect(sets.at(-1)?.target).toBeNull();
+    expect(plannedSets(plan, logged)).toBe(5);
+  });
+
+  it("summarises sessions with their sets done of planned", () => {
+    const sessions = [
+      {
+        object: SESSION,
+        id: "ses_2",
+        values: { name: "Press", date: "2027-01-08", plan, state: "done" },
+      },
+      {
+        object: SESSION,
+        id: "ses_1",
+        values: { name: "Pull", date: "2027-01-04", plan: null, state: "skipped" },
+      },
+    ];
+    const logs = [
+      {
+        object: LOG,
+        id: "log_1",
+        values: { session: "ses_2", item: "A1", exercise: row, setNumber: 1 },
+      },
+      {
+        object: LOG,
+        id: "log_2",
+        values: { session: "ses_2", item: "A1", exercise: row, setNumber: 2 },
+      },
+    ];
+    expect(pastSessionsOf(sessions, logs)).toMatchObject([
+      { id: "ses_2", date: "2027-01-08", setsDone: 2, setsPlanned: 3, state: "done" },
+      { id: "ses_1", setsDone: 0, setsPlanned: 0, state: "skipped" },
+    ]);
+  });
+
+  it("a correction carries only what changed, and nothing when nothing did", () => {
+    const done = set({ note: "Easy" });
+    expect(
+      correctionOf(done, { count: "8", load: "20", rpe: "7", note: "Easy" }, false),
+    ).toBeNull();
+    expect(correctionOf(done, { count: "6", load: "22,5", rpe: "8.5", note: "" }, false)).toEqual({
+      logId: "log_1",
+      actual: { reps: 6, load: 22.5 },
+      rpe: 8.5,
+      note: null,
+    });
+    expect(
+      correctionOf(
+        set({ actual: { reps: null, seconds: 20, load: null } }),
+        { count: "25", load: "", rpe: "7", note: "" },
+        true,
+      ),
+    ).toEqual({
+      logId: "log_1",
+      actual: { seconds: 25 },
+    });
+    expect(describeDone(done)).toBe("8 reps @ 20 kg · RPE 7");
   });
 });
