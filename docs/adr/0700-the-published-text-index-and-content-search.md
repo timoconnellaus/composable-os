@@ -44,8 +44,10 @@ and the minute cron's scheduled one) replaces the record's rows with the new ver
 JSON parameter of an `INSERT ... SELECT FROM json_each(?)`, so a document of a thousand blocks costs
 what a short one does (D1 runs at most 1,000 statements per invocation and binds at most 100
 variables per statement; the parameter is at most the version's size, under D1's 2 MB value).
-Erase remakes a scrubbed current version's rows (`erase-stores.ts`), a hard-deleted record's rows
-go with its search entry, and a renamed object's rows follow it (the reconciler).
+Erase remakes a scrubbed current version's rows (`erase-stores.ts`) and bumps the object's content
+generation, so a cached search is never served with the erased words; a record the same erase
+deletes gets no rows back; a hard-deleted record's rows go with its search entry, and a renamed
+object's rows follow it (the reconciler).
 
 **Caught up by the minute cron.** `content.reindex` (automation only, `runReindexDue` in
 cos-runner's tick) keeps, in `core_settings` (`published_text_index`), the fields each object's rows
@@ -59,8 +61,12 @@ migration fills the index for everything published before it. With nothing to do
 customer and public, `risk: read`, `hostInternal` (it reads the index beside the records). It
 reads as the public whoever calls, as `content.get` does: an object that is not public content
 (not publishable, not public, nothing searchable, not an object) is the one not-found answer of ADR
-0442. Every word of `q` is a quoted prefix term (`searchTerms` and `ftsQuery`, shared with
-`search.global`), so no FTS syntax gets through. It reads at most 200 matching sections, keeps the
+0442. Every word of `q` of two characters or more is a quoted prefix term (`searchTerms` and
+`ftsQuery`, shared with `search.global`), so no FTS syntax gets through and a one-letter prefix
+(which would match nearly every section) is left out; the words are sorted for the cache key.
+**The declaration, not the index, decides what is searched:** the query matches only rows of the
+fields `indexedFields` gives now, so a field closed to the public is unsearchable from that
+moment, before the cron has remade a row. It reads at most 200 matching sections, keeps the
 best one of each record, and keeps only records the public's seam returns now (the live view: a
 draft, an unpublished, deleted or `when`-failing record is not found, whatever the index holds).
 Each hit is the record's id, slug, title (when the public reads it) and its highlighted parts, the

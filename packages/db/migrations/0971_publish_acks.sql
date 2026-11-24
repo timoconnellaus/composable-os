@@ -26,12 +26,18 @@ CREATE TABLE core_publish_ack (
 ) WITHOUT ROWID;
 CREATE INDEX core_publish_ack_account_idx ON core_publish_ack (account_id);
 
--- Only the record's current version is confirmed, and only by a live person's account. A second
--- confirmation of one version fails on the key.
+-- Only the record's current version is confirmed, and only by a live person's account, once. A
+-- second confirmation of one version is refused here, before any conflict clause is applied, so
+-- `INSERT OR REPLACE` (which would delete the old row without its delete trigger) cannot rewrite
+-- one either.
 CREATE TRIGGER core_publish_ack_new
 BEFORE INSERT ON core_publish_ack
 BEGIN
   SELECT CASE
+    WHEN EXISTS (SELECT 1 FROM core_publish_ack a
+        WHERE a.object_type = NEW.object_type AND a.record_id = NEW.record_id
+          AND a.version = NEW.version AND a.account_id = NEW.account_id)
+      THEN RAISE(ABORT, 'core_publish_ack_immutable')
     WHEN NOT EXISTS (SELECT 1 FROM core_publish_version v
         WHERE v.object_type = NEW.object_type AND v.record_id = NEW.record_id
           AND v.version = NEW.version AND v.current = 1)

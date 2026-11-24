@@ -20,7 +20,7 @@ import { SNIPPET_CLOSE, SNIPPET_OPEN } from "../src/operations/search.ts";
 import { publishWrites } from "../src/records/publish.ts";
 import { call, outside, PUBLIC } from "./customer-fixtures.ts";
 import { extId, manifest, reconcile } from "./extension-helpers.ts";
-import { context, createUser, db } from "./helpers.ts";
+import { context, createUser, db, unique } from "./helpers.ts";
 
 const EXT = extId("help");
 const PAGE = `${EXT}.page`;
@@ -202,6 +202,30 @@ describe("content.search", () => {
     }
   });
 
+  it("leaves out one-letter words, and caches the same words in any order as one", async () => {
+    const id = await create({ title: "Towels", body: doc(paragraph("Fresh towels at the desk.")) });
+    await publish(id);
+    // A one-letter prefix would match nearly every page (review of PR #340, finding 8).
+    expect(await ids("t")).toEqual([]);
+    expect(await ids("t d")).toEqual([]);
+    expect(await ids("to d")).toContain(id);
+    let puts = 0;
+    const kept = new Map<string, Response>();
+    setContentCacheStore({
+      async match(request) {
+        return kept.get(request.url)?.clone();
+      },
+      async put(request, response) {
+        puts += 1;
+        kept.set(request.url, response);
+      },
+    });
+    await search("fresh towels");
+    await search("towels fresh");
+    expect(puts).toBe(1);
+    setContentCacheStore(null);
+  });
+
   it("pages through results with a cursor", async () => {
     const made: string[] = [];
     for (let i = 0; i < 3; i += 1) {
@@ -229,7 +253,7 @@ describe("the minute cron's catching up", () => {
     const id = await create({
       title: "Showers",
       summary: "The platypus showers are downstairs.",
-      body: doc(paragraph("Bring a towel.")),
+      body: doc(paragraph("Bring a flamingo towel.")),
     });
     await publish(id);
     expect(await ids("platypus")).toEqual([id]);
@@ -243,11 +267,14 @@ describe("the minute cron's catching up", () => {
     expect(await ids("platypus")).toEqual([id]);
     // Nothing to do: one read, nothing written.
     expect((await runReindexDue(db)).records).toBe(0);
-    // The summary is no longer the public's: its words leave the index.
+    // The summary is no longer the public's: from that moment search leaves its words out, before
+    // the cron has remade a single row (review of PR #340, finding 1).
     await declare(["title", "slug", "body"]);
+    expect(await ids("platypus")).toEqual([]);
+    expect(await indexRows(id)).toBeGreaterThan(1);
     await runReindexDue(db);
     expect(await ids("platypus")).toEqual([]);
-    expect(await ids("towel")).toEqual([id]);
+    expect(await ids("flamingo")).toEqual([id]);
     await declare(["title", "slug", "summary", "body"]);
     await runReindexDue(db);
     expect(await ids("platypus")).toEqual([id]);
@@ -297,5 +324,68 @@ describe("what one publish costs", () => {
     const answer = await search("capybara");
     expect(answer.ok && answer.value.items[0]?.section.anchor).toBe(headingAnchors(long).at(-1));
     expect(answer.ok && answer.value.items[0]?.section.anchor).toBe("step-499");
+  });
+});
+
+describe("erasing a person a published page mentions (review of PR #340, findings 4 and 5)", () => {
+  const STORY = `${EXT}x.story`;
+
+  beforeAll(async () => {
+    await reconcile(
+      manifest(`${EXT}x`, {
+        objects: {
+          story: {
+            label: "Story",
+            plural: "Stories",
+            titleField: "title",
+            fields: {
+              title: { type: "text", label: "Title", required: true },
+              slug: { type: "slug", label: "Slug" },
+              body: { type: "richText", label: "Body" },
+              about: { type: "relation", label: "About", to: "person", required: true },
+            },
+            publishable: { content: ["title", "body"], slug: "slug" },
+            public: { read: ["title", "slug", "body"] },
+          },
+        },
+      }),
+    );
+  });
+
+  const generation = async (object: string) =>
+    (
+      await env.DB.prepare("SELECT generation FROM core_content_generation WHERE object_type = ?")
+        .bind(object)
+        .first<{ generation: number }>()
+    )?.generation ?? 0;
+
+  it("remakes the page's rows without them, moves the cache's key, and leaves none for a page erased with them", async () => {
+    const email = `${unique("quixotic")}@erase.example`;
+    const person = (await invoke(
+      "person.create",
+      { displayName: "Quill Example", emails: [{ email }] },
+      context(admin),
+    )) as { id: string };
+    const page = await create({
+      title: "Who to ask",
+      body: doc(paragraph(`Write to ${email} for lost property.`)),
+    });
+    await publish(page);
+    const story = await create(
+      { title: "A member story", body: doc(paragraph(`Told by ${email}.`)), about: person.id },
+      STORY,
+    );
+    await publish(story, STORY);
+    const word = email.split("@")[0] as string;
+    expect(await ids(word)).toEqual([page]);
+    const before = await generation(PAGE);
+
+    await invoke("person.erase", { id: person.id }, context(admin));
+
+    expect(await ids(word)).toEqual([]);
+    expect(await ids("lost property")).toEqual([page]);
+    expect(await generation(PAGE)).toBeGreaterThan(before);
+    // The story was about them and is deleted with them: no rows of it come back.
+    expect(await indexRows(story)).toBe(0);
   });
 });

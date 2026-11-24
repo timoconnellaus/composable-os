@@ -9,8 +9,10 @@
 // The rules (who must read, which confirmation counts, who manages) are records/acknowledge.ts.
 // A confirmation is a row nobody changes (migration 0971's triggers): only for the record's
 // current version, by a live person's account, once. No AI actor confirms, lists, or reads who
-// has confirmed: the operations are a person's (`actors`), and an extension's call counts only
-// for a person-only tool called by the person (its verified caller, never its input). Pack-role
+// has confirmed: the operations are a person's (`actors`). An extension's call of ack.confirm or
+// ack.mine counts only from a person-only tool of the shipped pack that owns the object, called
+// by the person (its verified caller, never its input); ack.status and ack.overview are a
+// person's own calls only. Pack-role
 // accounts (a coach, a cleaner) reach ack.confirm and ack.mine (pack-roles.ts), nothing else.
 // The rows are in no `rec_*` view, so no dashboard, query or export reads them.
 import { CompiledQuery } from "kysely";
@@ -40,12 +42,13 @@ const objectName = z
   .describe("An object staff confirm they have read (see schema.objects, acknowledge)");
 const recordId = z.string().min(1).max(64).describe("Record id");
 
-function requirePerson(ctx: HandlerContext): string {
-  const person = personCalling(ctx);
+async function requirePerson(ctx: HandlerContext, owner?: string): Promise<string> {
+  const person = await personCalling(ctx, owner);
   if (!person) {
-    throw new ForbiddenError("Only the person themselves does this, never an AI actor", {
-      actor: ctx.actor,
-    });
+    throw new ForbiddenError(
+      "Only the person themselves does this, or a person-only tool of the pack that owns it",
+      { actor: ctx.actor },
+    );
   }
   return person;
 }
@@ -82,19 +85,20 @@ export const ackConfirm = defineOperation({
   actors: ["human", "extension"],
   mcp: { expose: false },
   async handler(input, ctx) {
-    const person = requirePerson(ctx);
     const object = requireAcknowledged(input.object);
+    const person = await requirePerson(ctx, object.extension);
     const [record] = await dueRecords(ctx, object, input.id);
-    if (!record) throw notFound(object.name, input.id);
+    const account = await staffAccount(ctx, person);
+    // A record the caller is not asked to read is one that is not there: nothing about it (not
+    // even its current version) is told to someone it does not ask.
+    if (!record || !account?.live || !mustReadIncludes(record.must, account)) {
+      throw notFound(object.name, input.id);
+    }
     if (record.version !== input.version) {
       throw new ConflictError(
         `Version ${input.version} is not the current one: read version ${record.version} and confirm that`,
         { reason: "not_current", current: record.version },
       );
-    }
-    const account = await staffAccount(ctx, person);
-    if (!account?.live || !mustReadIncludes(record.must, account)) {
-      throw new ForbiddenError("You are not asked to read this", { reason: "not_asked" });
     }
     const [mine] = await latestConfirmations(ctx, object.name, {
       account: person,
@@ -140,12 +144,15 @@ export const ackMine = defineOperation({
   actors: ["human", "extension"],
   mcp: { expose: false },
   async handler(_input, ctx) {
-    const person = requirePerson(ctx);
+    // A pack's person-only tool lists only its own objects' records.
+    const own = ctx.actor === "extension" ? ctx.extension?.id : undefined;
+    const person = await requirePerson(ctx, own);
     const account = await staffAccount(ctx, person);
     const toRead: z.infer<typeof dueOut>[] = [];
     const confirmed: (Omit<z.infer<typeof dueOut>, "since"> & { confirmedAt: string })[] = [];
     if (!account?.live) return { toRead, confirmed };
     for (const object of acknowledgedObjects()) {
+      if (own !== undefined && object.extension !== own) continue;
       const records = (await dueRecords(ctx, object)).filter((r) =>
         mustReadIncludes(r.must, account),
       );
@@ -229,7 +236,7 @@ export const ackStatus = defineOperation({
   }),
   permission: "records:read",
   risk: "read",
-  actors: ["human", "extension"],
+  actors: ["human"],
   mcp: { expose: false },
   async handler(input, ctx) {
     const object = requireAcknowledged(input.object);
@@ -272,7 +279,7 @@ export const ackOverview = defineOperation({
   }),
   permission: "records:read",
   risk: "read",
-  actors: ["human", "extension"],
+  actors: ["human"],
   mcp: { expose: false },
   async handler(_input, ctx) {
     const objects = await managedObjects(ctx);

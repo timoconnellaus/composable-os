@@ -24,8 +24,11 @@ import {
   invoke,
   PendingApprovalError,
 } from "../src/index.ts";
+import { managedObjects, personCalling } from "../src/records/acknowledge.ts";
 import { reconcile } from "./extension-helpers.ts";
-import { context, createUser, setPreset, unique } from "./helpers.ts";
+import { context, createUser, db, setPreset, unique } from "./helpers.ts";
+
+const dbQuery = db.query;
 
 const EXT = `ack${Date.now().toString(36)}`;
 const PROC = `${EXT}.procedure`;
@@ -356,10 +359,14 @@ describe("who must read (criterion 6)", () => {
     expect(await toRead(desk, id)).toBe(true);
     expect(await toRead(member, id)).toBe(false);
     expect(await toRead(admin, id)).toBe(false);
-    // A member is not asked, so cannot confirm.
-    expect((await refusal(confirm(member, id, version))).details).toMatchObject({
-      reason: "not_asked",
-    });
+    // A member is not asked, so cannot confirm: told only that there is no such record, even with
+    // a wrong version, so nothing about it leaks (review of PR #340, finding 6).
+    const notAsked = await refusal(confirm(member, id, version + 3));
+    const missing = await refusal(confirm(member, "rec_01NOSUCHRECORD0000000000000", version + 3));
+    expect(notAsked.code).toBe("not_found");
+    expect(missing.code).toBe("not_found");
+    expect(JSON.stringify(notAsked)).not.toContain(`version ${version}`);
+    expect(notAsked.message.replace(id, "X")).toBe(missing.message.replace(/rec_\w+/, "X"));
     await confirm(desk, id, version);
     expect((await status(id)).people.map((p) => p.account).sort()).toEqual(
       [viewer.id, cleaner.id, desk.id].sort(),
@@ -507,8 +514,78 @@ describe("an AI's publish request (criterion 5, ADR 0480)", () => {
   it("the operations are a person's, reached by every staff role and pack role", () => {
     for (const name of ["ack.confirm", "ack.mine", "ack.status", "ack.overview"]) {
       const op = coreRegistry.get(name);
-      expect(op?.actors, name).toEqual(["human", "extension"]);
+      // Who has confirmed is read by a person's own call only (review of PR #340, finding 2).
+      const actors =
+        name === "ack.status" || name === "ack.overview" ? ["human"] : ["human", "extension"];
+      expect(op?.actors, name).toEqual(actors);
       expect(op?.audiences ?? ["staff"], name).toEqual(["staff"]);
     }
+  });
+});
+
+describe("the review of PR #340", () => {
+  it("a confirmation is never rewritten, not even by INSERT OR REPLACE (finding 3)", async () => {
+    const id = await procedure({ title: "Wet floors" });
+    const { version } = await publish(id);
+    await confirm(admin, id, version);
+    await expect(
+      env.DB.prepare(
+        "INSERT OR REPLACE INTO core_publish_ack (object_type, record_id, version, account_id, confirmed_at) VALUES (?, ?, ?, ?, '1999-01-01')",
+      )
+        .bind(PROC, id, version, admin.id)
+        .run(),
+    ).rejects.toThrow(/core_publish_ack_immutable/);
+    const row = await env.DB.prepare(
+      "SELECT confirmed_at FROM core_publish_ack WHERE record_id = ? AND account_id = ?",
+    )
+      .bind(id, admin.id)
+      .first<{ confirmed_at: string }>();
+    expect(row?.confirmed_at).not.toBe("1999-01-01");
+  });
+
+  it("only a person-only tool of the shipped pack that owns the object acts for the person (finding 2)", async () => {
+    const tool = (extension: string, humanOnly = true) =>
+      ({
+        actor: "extension",
+        user: admin,
+        db: dbQuery,
+        extension: {
+          id: extension,
+          permissions: { read: [], write: [], operations: [], modules: ["ops"] },
+          tool: {
+            name: "confirm",
+            humanOnly,
+            permission: null,
+            calledBy: { account: member.id, actor: "human" },
+          },
+        },
+      }) as never;
+    expect(await personCalling(tool(EXT), EXT)).toBe(member.id);
+    // Another extension's tool, a tool anyone may call, or no object named: nobody.
+    expect(await personCalling(tool("someother"), EXT)).toBeNull();
+    expect(await personCalling(tool(EXT, false), EXT)).toBeNull();
+    expect(await personCalling(tool(EXT))).toBeNull();
+    // The same pack installed as a runtime extension: nobody.
+    await env.DB.prepare("UPDATE core_extensions SET source = 'runtime' WHERE id = ?")
+      .bind(EXT)
+      .run();
+    expect(await personCalling(tool(EXT), EXT)).toBeNull();
+    await env.DB.prepare("UPDATE core_extensions SET source = 'shipped' WHERE id = ?")
+      .bind(EXT)
+      .run();
+    // And no extension reads who has confirmed, through any tool.
+    expect(await managedObjects({ ...(tool(EXT) as object), user: admin } as never)).toEqual([]);
+  });
+
+  it("an account holding a pack role manages nothing, whatever it is granted (finding 7)", async () => {
+    const as = (user: ActingUser) => ({ actor: "human", user, db: dbQuery }) as never;
+    expect((await managedObjects(as(manager))).map((o) => o.name)).toContain(PROC);
+    await env.DB.prepare("UPDATE core_user SET granted_permissions = ? WHERE id = ?")
+      .bind(JSON.stringify([MANAGE]), cleaner.id)
+      .run();
+    expect(await managedObjects(as(cleaner))).toEqual([]);
+    await env.DB.prepare("UPDATE core_user SET granted_permissions = NULL WHERE id = ?")
+      .bind(cleaner.id)
+      .run();
   });
 });

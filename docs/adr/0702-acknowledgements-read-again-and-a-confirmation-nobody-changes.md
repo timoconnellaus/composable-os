@@ -53,19 +53,25 @@ content.
 
 **A confirmation nobody changes.** `core_publish_ack` (object, record, version, account, when,
 `how` = `self` only), keyed by all four. Triggers refuse an insert for a version that is not the
-record's current one or for an account that is not a live person's, every update, and every
+record's current one, for an account that is not a live person's, or for a key that already has a
+row (so `INSERT OR REPLACE`, which deletes without the delete trigger, cannot rewrite one), every
+update, and every
 delete while the account and the version both exist: it goes only with the account's erase or the
 record's purge, neither of which deletes these rows today (no staff-account erase exists yet; it
 must remove them when it does). Kept through deactivation and unpublishing.
 
-**The operations** (`operations/ack.ts`), audience `staff`, `actors: ["human", "extension"]`, and
-for an extension only a `humanOnly` tool called by a person (its verified caller,
-`ctx.extension.tool.calledBy`, never input): a pack's confirm button is the person's act, and no
-AI actor or automation reaches any of them.
+**The operations** (`operations/ack.ts`), audience `staff`. `ack.confirm` and `ack.mine` take
+`actors: ["human", "extension"]`: an extension's call counts only from a `humanOnly` tool of the
+**shipped, active pack that owns the object** (`ctx.extension.id` is the object's extension),
+called by a person (its verified caller, `ctx.extension.tool.calledBy`, never input), so a
+pack's confirm button is the person's act and no other extension's tool confirms or lists for
+them (`ack.mine` from a tool lists only that pack's objects). `ack.status` and `ack.overview` are
+`actors: ["human"]`: no extension reads who has confirmed, so the rows never reach an `x_*` table.
+No AI actor or automation reaches any of them.
 
 | Operation | Who | What |
 | --- | --- | --- |
-| `ack.confirm { object, id, version }` | the person themselves, pack roles included | One row; refused (with its reason) for a version that is not current, a record not published, an account "must read" does not name, and a second time |
+| `ack.confirm { object, id, version }` | the person themselves, pack roles included | One row. A record not published, or one "must read" does not name the caller in, is the same not-found as a record that does not exist (nothing about it, not its version, is told); then refused for a version that is not current, and a second time |
 | `ack.mine {}` | the person themselves, pack roles included | What is to read (current version, since when) and what was confirmed (when) |
 | `ack.status { object, id }` | admin, or a grant of `manage` | For the current version: everyone who must read, the confirmation that counts and when, the latest one, and since when for who has not |
 | `ack.overview {}` | admin, or a grant of `manage` | Every published record of the objects the caller manages: how many must read, how many confirmed |
@@ -74,7 +80,8 @@ AI actor or automation reaches any of them.
 (`PACK_ROLE_OWN` in `pack-roles.ts`; `roles.json` in the API contract lists them for each role):
 a cleaner, a coach and the door confirm their own procedures and nothing else opens. A grant of
 `manage` counts only while an installed, active, shipped pack still declares it grantable, and
-never for a pack-role account (a core operation is not a pack tool a grant opens, ADR 0600).
+never for an account holding a pack role, whatever it is granted (`managedObjects` refuses it,
+ADR 0600).
 The rows are in no `rec_*` view: dashboards, `query.sql`, exports and the assistant's record reads
 never reach them.
 
@@ -94,6 +101,9 @@ Each check was removed, its tests seen to fail, and restored (`packages/core/tes
 | --- | --- |
 | `PACK_ROLE_OWN` (the pack roles' reach) | who must read; pack roles |
 | The guard on writing "must read" (`assertMayChangeMustRead`) | is changed by a person, by one who manages, never by an AI |
+| The owning, shipped pack in `personCalling` (review of PR #340) | only a person-only tool of the shipped pack that owns the object |
+| The pack role in `managedObjects` | an account holding a pack role manages nothing |
+| The trigger's existing-key check | not even by INSERT OR REPLACE |
 
 ## Consequences
 - Any publishable object can ask staff to confirm what it says; Knowledge's procedure is the

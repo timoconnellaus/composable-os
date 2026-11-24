@@ -265,30 +265,41 @@ async function managedGrantable(ctx: Pick<HandlerContext, "db">): Promise<Set<st
 
 /**
  * The person a call is for: the person calling, or the person who called a person-only tool of
- * an extension (its verified caller, never its input). Anyone else (an AI actor, an automation,
- * an extension's own run): null.
+ * the shipped extension that owns the object (its verified caller, never its input). Anyone else
+ * (an AI actor, an automation, an extension's own run, another extension's tool, a runtime
+ * extension): null. `owner` is the extension of the object the call is about; without one, only
+ * a person's own call counts.
  */
-export function personCalling(
-  ctx: Pick<HandlerContext, "actor" | "extension" | "user">,
-): string | null {
+export async function personCalling(
+  ctx: Pick<HandlerContext, "actor" | "extension" | "user" | "db">,
+  owner?: string,
+): Promise<string | null> {
   if (ctx.actor === "human") return ctx.user.id;
-  const tool = ctx.actor === "extension" ? ctx.extension?.tool : undefined;
-  if (tool?.humanOnly && tool.calledBy?.actor === "human") return tool.calledBy.account;
-  return null;
+  if (ctx.actor !== "extension" || !owner || ctx.extension?.id !== owner) return null;
+  const tool = ctx.extension.tool;
+  if (!tool?.humanOnly || tool.calledBy?.actor !== "human") return null;
+  const installed = await ctx.db
+    .selectFrom("core_extensions")
+    .select(["source", "status"])
+    .where("id", "=", owner)
+    .executeTakeFirst();
+  return installed?.source === "shipped" && installed.status === "active"
+    ? tool.calledBy.account
+    : null;
 }
 
 /**
  * The acknowledged objects whose confirmations the caller may read (ADR 0702): all of them for a
  * person who is an admin; for another person, those whose `manage` permission an admin granted
- * them and an installed pack still declares grantable; none for an AI actor or a pack role.
+ * them and an installed pack still declares grantable; none for an AI actor, an extension's call
+ * or an account holding a pack role (a pack role's account manages nothing, ADR 0600).
  */
 export async function managedObjects(ctx: HandlerContext): Promise<AcknowledgedObject[]> {
-  const person = personCalling(ctx);
-  if (!person) return [];
-  const account = await staffAccount(ctx, person);
-  if (!account?.live) return [];
+  if (ctx.actor !== "human") return [];
+  const account = await staffAccount(ctx, ctx.user.id);
+  if (!account?.live || account.packRole !== null) return [];
   const objects = acknowledgedObjects();
-  if (account.role === "admin" && account.packRole === null) return objects;
+  if (account.role === "admin") return objects;
   if (!account.grants.length) return [];
   const grantable = await managedGrantable(ctx);
   return objects.filter((o) => {

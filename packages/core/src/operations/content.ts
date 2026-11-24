@@ -182,6 +182,8 @@ export const contentList = defineOperation({
 
 /** The most sections one search reads from the index before it keeps one per record. */
 export const SEARCH_SCAN = 200;
+/** The shortest word content.search looks for: shorter ones are left out of the query. */
+export const SEARCH_MIN_TERM = 2;
 /** The most results one page of content.search gives. */
 export const SEARCH_MAX_LIMIT = 50;
 /** A snippet's length in words around the match (FTS5 `snippet`), and a plain one's in characters. */
@@ -234,7 +236,8 @@ export const contentSearch = defineOperation({
   description:
     "Search the published records of a content object (help pages, blog posts) by the words " +
     "the public reads in them: their published versions only, never a draft or a working copy. " +
-    "Every word must match the start of a word, so partial input works. Best matches first, " +
+    "Every word of two letters or more must match the start of a word, so partial input works. " +
+    "Best matches first, " +
     "one result per record, each with its slug, title, the section the best match is in (its " +
     "heading and anchor, to link to) and a highlighted snippet as plain and matching parts. " +
     "Pass nextCursor back as cursor. Read-only.",
@@ -252,8 +255,13 @@ export const contentSearch = defineOperation({
   mcp: { idempotent: true },
   async handler(input, ctx) {
     const object = contentObject(input.object);
-    if (!object || !indexedFields(object)) throw contentNotFound(input.object);
-    const terms = searchTerms(input.q);
+    const fields = object ? indexedFields(object) : null;
+    if (!object || !fields) throw contentNotFound(input.object);
+    // Words of at least two characters: a one-letter prefix matches nearly everything. Sorted,
+    // so the same words in another order are one cached answer.
+    const terms = searchTerms(input.q)
+      .filter((t) => t.length >= SEARCH_MIN_TERM)
+      .sort();
     if (!terms.length) return { items: [], nextCursor: null };
     const offset = Number(input.cursor ?? 0);
     return cachedContent(ctx.db, object.name, ["search", terms, offset, input.limit], async () => {
@@ -264,6 +272,7 @@ export const contentSearch = defineOperation({
           FROM core_published_text_fts
           JOIN core_published_text t ON t.id = core_published_text_fts.rowid
           WHERE core_published_text_fts MATCH ${ftsQuery(terms)} AND t.object_type = ${object.name}
+            AND t.field IN ${jsonList(fields)}
           ORDER BY bm25(core_published_text_fts, 5.0, 1.0), t.id
           LIMIT ${SEARCH_SCAN}
         `.execute(ctx.db);
