@@ -37,6 +37,8 @@ export function notificationHref(link: NotificationLink | null): string | null {
       if (link.object === "organisation") return `/organisations/${enc(link.id)}`;
       if (link.object === "task") return "/tasks";
       if (link.object === "activity") return "/activity";
+      // A conversation in the shared inbox (stage 36).
+      if (link.object === "conversation") return `/inbox/${enc(link.id)}`;
       // An order (stage 25): its page, or one of the orders lists (`overdue`, `paid-late`).
       if (link.object === "order") {
         return link.id.startsWith("ord_")

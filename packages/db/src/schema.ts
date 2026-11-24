@@ -84,7 +84,8 @@ export interface CoreVerificationTable {
 // --- Stage 1 (migrations 0002-0007) ------------------------------------------------------------
 
 export type UserRole = "admin" | "member" | "viewer";
-export type ActivityType = "note" | "email" | "call" | "meeting" | "system";
+/** `chat`: a chat message in a conversation (migration 1050, stage 36). */
+export type ActivityType = "note" | "email" | "call" | "meeting" | "system" | "chat";
 export type ActivityAuthorActor = "human" | "assistant" | "mcp" | "automation" | "system";
 export type TaskStatus = "open" | "done";
 /** Who a staff-side call is made by: the actors the approval policy and the queue know. */
@@ -277,6 +278,8 @@ export interface CoreActivityTable extends RecordColumns {
   body_ref: Defaulted<string | null>;
   /** Migration 0111: what a synced activity discloses. */
   disclosure: Defaulted<"full" | "metadata" | null>;
+  /** Migration 1430: the conversation (core_conversation) a message or a staff note belongs to. */
+  conversation_id: Defaulted<string | null>;
   /** Migration 1230 (stage 56, ADR 0830): who may read a note. Only a note is not `staff`. */
   level: Defaulted<NoteLevel>;
   /** Migration 1230: the note's kind (core_note_kind, migration 1232). Every note has one. */
@@ -2225,6 +2228,36 @@ export interface CoreStaffFeedTable {
   token_hash: string;
   tool: string;
   created_at: string;
+}
+
+/** Migration 1050 (stage 36, ADR 0740): a conversation in the shared inbox. */
+export interface CoreConversationTable {
+  id: string;
+  person_id: string | null;
+  sender_address: Defaulted<string | null>;
+  sender_hash: Defaulted<string | null>;
+  channel: "email" | "chat";
+  inbox_address: Defaulted<string | null>;
+  subject: Defaulted<string | null>;
+  status: Defaulted<"open" | "waiting" | "closed">;
+  assignee_id: Defaulted<string | null>;
+  category: Defaulted<string | null>;
+  about_object: Defaulted<string | null>;
+  about_id: Defaulted<string | null>;
+  private_at: Defaulted<Timestamp | null>;
+  private_by: Defaulted<string | null>;
+  sender_unverified: Defaulted<number>;
+  opened_at: Timestamp;
+  last_inbound_at: Defaulted<Timestamp | null>;
+  last_reply_at: Defaulted<Timestamp | null>;
+  first_reply_at: Defaulted<Timestamp | null>;
+  reply_due_at: Defaulted<Timestamp | null>;
+  snoozed_until: Defaulted<Timestamp | null>;
+  closed_at: Defaulted<Timestamp | null>;
+  closed_by: Defaulted<string | null>;
+  created_at: Timestamp;
+  updated_at: Timestamp;
+  version: Defaulted<number>;
 }
 
 /**
@@ -4365,6 +4398,7 @@ export interface CoreDatabase {
   core_person_pin: CorePersonPinTable;
   core_identify_lockout: CoreIdentifyLockoutTable;
   core_checklist: CoreChecklistTable;
+  core_conversation: CoreConversationTable;
   core_checklist_step: CoreChecklistStepTable;
   core_checklist_run: CoreChecklistRunTable;
   core_checklist_tick: CoreChecklistTickTable;

@@ -160,7 +160,36 @@ again whatever came back.
 _Avoid_: purge (that is retention), delete (that is soft)
 
 **Activity**
-One entry on a record's timeline: a note, email, call, meeting or system event.
+One entry on a record's timeline: a note, email, call, meeting or system event, or a chat message
+in a **Conversation** (stage 36).
+
+**Inbox** (stage 36)
+The shared list of **Conversations** a business answers from: everyone on staff who holds
+`inbox:read` (admins, members, viewers) reads it, admins and members work it, pack-role accounts
+see none of it (ADR 0740).
+_Avoid_: the notification list (that is the bell's), the leads list, help desk
+
+**Conversation** (stage 36)
+One exchange with one person on one channel (email or chat; texts later), with its status (open,
+waiting on them, closed), who has it, what it is about and its reply times: `core_conversation`, a
+core record. An email from an address that matches no Person is an **unknown sender**'s
+conversation until staff link it to one. It is the support request; there is no other (ADR 0740).
+_Avoid_: ticket, case, thread (that is the assistant's chat), assistant conversation
+
+**Message**
+One email or chat message in a **Conversation**, in or out: an Activity of type `email` or `chat`
+that points at its conversation and sits on the person's timeline. Only the host writes one.
+_Avoid_: notification (that is a notice to staff)
+
+**Note** (on a conversation)
+A staff-only `note` Activity on a **Conversation**, never sent and never shown to the person; it may
+mention staff, who are told. Not on the person's timeline.
+
+**Private conversation**
+A **Conversation** only admins and whoever has it see, with its messages and notes, in every read
+path; it leaves search, the `rec_*` views, embeddings and summaries for everyone. Anyone working the
+inbox may mark one; an admin or whoever has it unmarks it (ADR 0740).
+_Avoid_: private activity (that is one synced email or meeting only its mailbox's owner sees)
 
 **Note level**
 Who may read a note (stage 56, ADR 0830): `staff` (every staff account, the default and every
@@ -523,7 +552,8 @@ their next step. Only a human admin can engage or release it.
 _Avoid_: emergency stop, pause all
 
 **Notification**
-A typed message to one user in the in-app notification centre (the bell and inbox), with a link
+A typed message to one user in the in-app notification centre (the bell and its list, not the
+shared **Inbox**), with a link
 to a record, approval, automation or run, read or unread. Sent with `notification.send` by
 automations, approvals and the system. Its type routes it to email or Slack per the recipient's
 preferences (cos-runner's minute cron delivers them, ADR 0172).

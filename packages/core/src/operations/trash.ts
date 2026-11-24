@@ -7,6 +7,7 @@ import { queueEraseAgreements } from "../agreements/people.ts";
 import { queueEraseAllowances } from "../allowance/people.ts";
 import { ValidationError } from "../errors.ts";
 import { mediaObject } from "../fields/media.ts";
+import { conversationsOf, eraseConversationStatements } from "../inbox/index.ts";
 import { eraseJourneyStatements } from "../journeys/entries.ts";
 import { queueEraseSignals } from "../journeys/signals.ts";
 import { decodeCursor, encodeCursor } from "../list.ts";
@@ -263,6 +264,17 @@ export const trashPurge = defineOperation({
     queueEraseLinks(
       ctx,
       purged.filter((r) => r.object === "person").map((r) => r.id),
+    );
+    // A purged Person's conversations go with their messages and notes, as an erased Person's do
+    // (ADR 0740): there is nobody left to continue them with.
+    ctx.write(
+      ...eraseConversationStatements(
+        ctx.db,
+        await conversationsOf(
+          ctx.db,
+          purged.filter((r) => r.object === "person").map((r) => r.id),
+        ),
+      ),
     );
     // A purged Person's passes' and memberships' uses go as an erased Person's do (ADR 0494).
     queueEraseAllowances(

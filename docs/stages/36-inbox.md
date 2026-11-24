@@ -28,6 +28,33 @@ and chat, steps 1 to 6, 9 and 10) may start now. **36b** (campaigns and texts, s
 for stage 30, Notifications (not yet specced), for what is listed under "What this stage needs from
 stage 30".
 
+## Status
+
+- **Step 1, conversations and messages** (branch `feat/stage-36-conversations`; migrations 1050
+  and 1430, ADR 0740): `core_conversation` with its version guard; `core_activity` rebuilt with the type
+  `chat` and `conversation_id`, its links, triggers and views kept, and private conversations left
+  out of search and the `rec_*` views; `packages/core/src/inbox/` (the private-conversation rule
+  every read path takes, the host's message writer `messageStatements` for steps 2 and 4, erase);
+  the operations `inbox.list`, `conversation.get`, `.take`, `.assign`, `.setStatus`, `.setAbout`,
+  `.setPrivate`, `.linkPerson` and `message.note`; permissions `inbox:read`, `inbox:work`,
+  `inbox:manage`; notice types `inbox.assigned`, `inbox.reply`, `inbox.mention`, `inbox.due`;
+  embeddings and summaries skip private conversations; erase and the Trash purge delete a Person's
+  conversations, a merge moves them. Left to later steps: `message.send` and `conversation.start`
+  (steps 2 and 4), `.setCategory` with Settings → Inbox (step 3), `.snooze` (step 5), migration
+  1051 (saved replies and drafts, steps 3 and 6), "make a Person" inside `linkPerson` (a
+  `person.create` first, for now).
+  After review (PR #381): a private mark deletes the summaries built from the conversation;
+  notices name the Person and the channel only; runtime extensions may not declare inbox
+  operations; erase also takes unknown-sender conversations from the Person's addresses; the list
+  walks a sort index; a note is version-guarded. The "due soon" view waits for reply targets
+  (step 5).
+  After merging stage 56's note levels (migrations 1230 and 1232, which also change
+  `core_activity`): the rebuild moved out of 1050 into migration 1430, outside block BI, so it
+  sorts after them and carries their columns, triggers and `level = 'staff'` tests forward. A
+  rebuild numbered 1050 lost the private rule on a fresh database and a note's level on a host
+  that already had 1230. Migration 1061, reserved for 36b's `text` rebuild, can no longer be used
+  for it: that rebuild sorts after 1430.
+
 ## Goal
 
 A business answers everyone who writes to it from one place. Email to its own address and chat

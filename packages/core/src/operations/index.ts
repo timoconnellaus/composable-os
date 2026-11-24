@@ -50,6 +50,7 @@ import { fieldOptionsOperations } from "./field-options.ts";
 import { financeOperations } from "./finance.ts";
 import { importOperations } from "./import.ts";
 import { importRecordsOperations } from "./import-records.ts";
+import { inboxOperations } from "./inbox.ts";
 import { intakeOperations } from "./intake.ts";
 import { integrationOperations } from "./integration.ts";
 import { inviteOperations } from "./invite.ts";
@@ -140,6 +141,7 @@ export const coreOperations = [
   ...queryOperations,
   ...importOperations,
   ...importRecordsOperations,
+  ...inboxOperations,
   ...exportOperations,
   ...recordOperations,
   ...recordVersionOperations,

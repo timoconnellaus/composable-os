@@ -145,6 +145,17 @@ One **D1** database per deployment, with real tables ([ADR 0002](adr/0002-d1-rea
   errors reach Workers Logs masked (`errorForLog`). An organisation erase drops a shared email's
   body only when no person is left linked to it; otherwise it scrubs the organisation's terms
   from it (ADR 0320 amendment).
+- **The shared inbox** ([ADR 0740](adr/0740-conversations-messages-as-activities-and-private-conversations.md),
+  stage 36): a **conversation** (`core_conversation`) is a core record with its person (or an
+  unknown sender's address), channel, status, assignee, what it is about and a private mark; its
+  messages are `email` and `chat` activities and its staff notes `note` activities, each carrying
+  `conversation_id` (migration 1430 rebuilt `core_activity` for the `chat` type, after the note
+  levels and kinds it carries forward). Only host code
+  writes messages (`inbox/index.ts`). A private conversation is read only by admins and its
+  assignee, through one rule every read path takes (the inbox's operations, timelines, activity
+  reads); search, the `rec_*` views, embeddings and summaries leave it out for everyone. `inbox:*`
+  permissions are core and never held by a pack role. An erase and the Trash purge delete a
+  Person's conversations whole; a merge moves them.
 - **Storage retention** ([ADR 0090](adr/0090-storage-retention.md)): D1 stops at 10 GB, so the same
   cron keeps growth bounded. Successful reads by AI, extensions and automations are counted per
   hour (`core_audit_read_counts`) rather than audited row by row. Write audits are kept forever by

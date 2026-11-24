@@ -109,6 +109,12 @@ const WHY = {
    */
   invoices: "invoices: host code for a document it is numbering, or the rate keys lines use",
   /**
+   * The shared inbox (stage 36, ADR 0740): a conversation's own messages and notes, its Person's
+   * name, and what an erase or a sender's link moves, each read after the conversation itself
+   * passed the inbox's rule (private: admins and whoever has it). Staff only.
+   */
+  inbox: "inbox: a conversation's own messages and its Person's name, after its own rule",
+  /**
    * Check-in codes (stage 51 step 3, ADR 0783): whether a Person a code, card or PIN names is
    * live, and their names to compare with the name typed, answered to host code only; a member's
    * own and their dependants' given names for their own app; that a Person staff named exists.
@@ -152,9 +158,13 @@ type Why = (typeof WHY)[keyof typeof WHY];
  * test/audiences-isolation.test.ts proves the ones that are open read nothing of anyone else's.
  */
 const REMAINING: Record<string, [reads: number, why: Why]> = {
-  "ai/embedding.ts": [9, WHY.org],
+  // Stage 36 (ADR 0740): a conversation's activities queued in one statement when it is marked
+  // private or not.
+  "ai/embedding.ts": [10, WHY.org],
+  // Stage 36 (ADR 0740): a private mark deletes the summaries built from its conversation's
+  // activities, found by the conversation in one statement.
+  "ai/summaries.ts": [17, WHY.later],
   "finance/book.ts": [8, WHY.finance],
-  "ai/summaries.ts": [16, WHY.later],
   // Stage 32b (ADR 0493): a spend checks its Person is not in the Trash, in the write's own path.
   "agreements/due.ts": [2, WHY.agreements],
   // Stage 44 step 4 (ADR 0645): the signed PDF names whom it is for, and a paper copy goes to
@@ -223,6 +233,8 @@ const REMAINING: Record<string, [reads: number, why: Why]> = {
   "operations/enrichment.ts": [8, WHY.write],
   "operations/erasure.ts": [2, WHY.write],
   "operations/import.ts": [8, WHY.write],
+  "operations/inbox.ts": [2, WHY.inbox],
+  "inbox/index.ts": [2, WHY.inbox],
   // Stage 44 (the review of PR #280): order.setPerson reads the People an order's address is
   // theirs (and merges of them) and the order's lines for their agreement points.
   "operations/order.ts": [4, WHY.host],

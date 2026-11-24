@@ -148,6 +148,8 @@ export const ID_PREFIXES = {
   accountingPost: "acp",
   /** A bill-to waiting for a person to choose its contact in the books (stage 61). */
   accountingMatch: "acm",
+  /** A conversation in the shared inbox (stage 36, ADR 0740). */
+  conversation: "cnv",
   /** A journey: steps the host takes for one Person at a time (stage 53, ADR 0800). */
   journey: "jny",
   /** A published version of a journey, never changed (ADR 0800). */
