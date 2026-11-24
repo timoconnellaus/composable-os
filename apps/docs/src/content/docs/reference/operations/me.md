@@ -538,6 +538,38 @@ Choose your 4-digit PIN, as a signed-in customer, to check in at the gym's table
 | --- | --- | --- | --- | --- |
 | `set` | `true` | yes |   |   |
 
+## me.portal
+
+The sections of your account, as a signed-in customer, in the order they show: your orders, agreements, family, payment method (only when you pay a subscription), details and where you are signed in, and each installed pack's section (bookings, memberships and passes, courses, tickets, training) when you, or a child linked to you, have something there. `paysSubscription` says whether you pay a subscription. Read-only.
+
+|  |  |
+| --- | --- |
+| Permission | `records:read` |
+| Risk | `read` |
+| Audiences | `customer` |
+| Also | host-internal (`hostInternal`); not offered to MCP clients (`mcp.expose: false`) |
+
+### Input
+
+No fields.
+
+### Output
+
+| Field | Type | Required | Limits | Description |
+| --- | --- | --- | --- | --- |
+| `sections` | array of object | yes |   |   |
+| `sections[].key` | string | yes |   | A base section's key (orders, agreements, family, payment, details, devices), or a pack's as &lt;pack&gt;.&lt;key&gt; |
+| `sections[].pack` | string or null | yes |   | The pack the section is from; null for a base section |
+| `sections[].label` | string | yes |   |   |
+| `sections[].order` | number | yes |   | Lower first: a pack's sections come before the base ones |
+| `sections[].web` | object or null | yes |   | The block of the client app that draws a pack's section, and its component |
+| `sections[].web.block` | string | yes |   |   |
+| `sections[].web.export` | string | yes |   |   |
+| `sections[].native` | object or null | yes |   | The block of the client app that draws a pack's section, and its component |
+| `sections[].native.block` | string | yes |   |   |
+| `sections[].native.export` | string | yes |   |   |
+| `paysSubscription` | boolean | yes |   | Whether you pay a subscription that has not ended |
+
 ## me.sessions.list
 
 The places you are signed in, as a signed-in customer: each session's id, whether it is a browser or an app on a device (with the device's name), when it began, when it was last used and when it expires, and which one is this one. Read-only.

@@ -1142,6 +1142,15 @@ shows is the host's answer; in the app, money opens the website (ADR 0714). "Por
 name of the manifest key and the operation (`portal`, `me.portal`).
 _Avoid_: customer portal, dashboard
 
+**Account section**
+One part of My account: a base one (orders, agreements, family, payment method, details, sign-in
+and devices) or a shipped pack's, declared under `portal` in its manifest with its web and native
+blocks and `has`, the objects whose records mean the customer has something there (ADR 0710). The
+host lists the sections a customer has (`me.portal`): a pack's only when they, or a child linked
+to them where the object opens to guardians, hold one of those records. `cos add` writes a client
+app's `account-sections.gen.ts`, naming the copied section blocks, so the page names no pack.
+_Avoid_: portal section, widget, tab
+
 **Needs your attention**
 The top of My account: what a customer, or a child they act for, has to do now, answered by the
 host (`me.attention`, ADR 0711) as items of eight kinds worked out in core from agreements, orders,

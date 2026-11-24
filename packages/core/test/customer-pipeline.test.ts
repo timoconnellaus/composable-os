@@ -114,6 +114,8 @@ describe("default closed (criterion 1)", () => {
       "me.phone.startCheck",
       "me.pin.clear",
       "me.pin.set",
+      // Stage 48 step 5 (ADR 0710): which sections of My account they have.
+      "me.portal",
       "me.sessions.list",
       "me.sessions.revoke",
       "me.signOut",
@@ -489,6 +491,9 @@ describe("the closed handler context (ADR 0413)", () => {
       "me.phone.startCheck",
       "me.pin.clear",
       "me.pin.set",
+      // Stage 48 step 5 (ADR 0710): it reads the installed packs' declarations and the
+      // subscriptions the caller pays; their records only through the seam.
+      "me.portal",
       "me.sessions.list",
       "me.sessions.revoke",
       "me.signOut",

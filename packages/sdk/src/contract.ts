@@ -1160,6 +1160,41 @@ export interface ExtensionSpec {
    * `todayItems` fails `cos ext check` and install, and the key is ignored at run time.
    */
   todayItems?: Record<string, TodayItemSpec>;
+  /**
+   * The pack's sections of My account (stage 48, ADR 0710), by key: the customer's own area on
+   * the business's website and in its app. Each names a web and a native block of this pack, the
+   * objects whose records mean "this customer has some" (`has`), and where it sits. The host lists
+   * a section to a customer only when they, or a child linked to them where the object opens to
+   * guardians, have one of those records (`me.portal`); `cos add web-account` copies the blocks and
+   * writes the wiring. Only a shipped pack may declare sections: a runtime extension declaring
+   * `portal` fails `cos ext check` and install, and the key is ignored at run time.
+   */
+  portal?: Record<string, PortalSectionSpec>;
+}
+
+/**
+ * One section of My account a shipped pack adds (stage 48, ADR 0710). The client app's shell
+ * renders `export` of the block, giving it the pack's hooks under the pack's id (`bookings`,
+ * `memberships`) and the page's `returnUrl`: every other prop of the component is optional.
+ */
+export interface PortalSectionSpec {
+  /** The section's heading: "Memberships and passes". */
+  label: string;
+  /** The website's block: a web block of this pack, and the component it exports. */
+  web?: { block: string; export: string };
+  /** The app's block: a native block of this pack (`<id>-native-<name>`), and its component. */
+  native?: { block: string; export: string };
+  /**
+   * Where it sits among the sections, lower first: 1 to 59, so a pack's come before the base
+   * sections (Orders at 60 onward).
+   */
+  order: number;
+  /**
+   * This pack's objects (`<id>.<object>`) that declare a customer, whose records mean the
+   * customer has something here: the section shows only then. Never empty: a page anyone may
+   * open ("Buy a pass") is a page the client links to, not a section.
+   */
+  has: readonly string[];
 }
 
 /** How a Today item's value is shown. Money is never a pack's: it is the host's (stage 52). */

@@ -1076,8 +1076,8 @@ As built (stage 22; ADRs [0410](adr/0410-the-seams-first-door-as-built.md),
   staff. Who may sign up is a human admin's setting: invite only, also buyers (ADR 0458), or
   anyone; and, on top, anyone starting a subscription while a plan is on sale (ADR 0459).
 - **Open operations:** `me.get`, `me.update`, `me.family`, `me.signOut`, `me.sessions.*`,
-  `me.deleteAccount`, `me.attention` (stage 48, ADR 0711), `my.list`, `my.get`, and for tools
-  only `my.create`, `my.update`, and `my.delete` (the Trash, only for an object whose
+  `me.deleteAccount`, `me.attention` (stage 48, ADR 0711), `me.portal` (stage 48, ADR 0710),
+  `my.list`, `my.get`, and for tools only `my.create`, `my.update`, and `my.delete` (the Trash, only for an object whose
   `customer.delete` says so: a logged set).
 - **A pack's tool called by a customer runs as that customer.** Its operation calls take the same
   outside path with the same principal. It may set an object's writable fields and the fields
@@ -2609,8 +2609,20 @@ sessions). Step 1 is built: the shells `web-account` and `native-account` with t
 over operations that already existed (`me.*`, `my.list` on `order` and `orderLine`,
 `subscription.*`). Orders is the one list of a customer's orders: a page of 20, then their lines in
 one `my.list` naming the page's orders. Payment method shows for a customer who pays a
-subscription that has not ended. The packs' sections are passed to the shell in `sections` for
-now; `me.portal`, the `portal` declaration and the generated wiring are later steps. Step 4 is
+subscription that has not ended. Step 5 is built ([ADR 0710](adr/0710-my-account-the-portal-declaration.md)):
+a shipped pack declares its sections under `portal` in its manifest (a label, its web and native
+block and export, an order before the base sections, and `has`, its customer objects whose records
+mean the customer has something there), checked by the contract (`portalIssues`) and, against the
+blocks' `block.json`, by `cos ext check`; a runtime extension's is refused. `me.portal`
+(`packages/core/src/customers/portal.ts`) lists the sections to show in order: the base ones, Payment
+method only for someone who pays a subscription, and a pack's when the caller or a child linked to
+them (where the object opens to guardians) holds one of its `has` records, read through the seam's
+`ownReadSource` in two statements whatever is installed. The release's `contract/roles.json` carries
+the declarations and each pack's hooks factory; once an app has a shell, `cos add` copies the
+listed packs' section blocks and writes `src/blocks/account-sections.gen.ts`, and `cos upgrade`
+writes it again; the shell renders it through `usePackSections` and shows what `me.portal` lists
+(`portalSections`). Bookings, Memberships, Courses, Ticketing and Programs declare one section
+each. Step 4 is
 built: **Needs your attention** is `me.attention`, one customer read worked out in core
 (`packages/core/src/customers/attention.ts`, [ADR 0711](adr/0711-needs-your-attention.md)) from
 agreements, orders, subscriptions and the `allowance` behaviour, never from a pack's code. Eight

@@ -363,6 +363,16 @@ function outsideDeclarations(manifest: ExtensionManifest): CheckIssue[] {
       message: `A runtime extension cannot declare Today items: only a shipped pack's numbers are on Today. ${why}`,
     });
   }
+  // A section of My account is a shipped pack's blocks in the client's app and a host read over
+  // its customers' records (stage 48, ADR 0710): reviewed in the repository, never app-written.
+  if (manifest.portal && Object.keys(manifest.portal).length) {
+    issues.push({
+      stage: "contract",
+      code: "outside_audience",
+      path: "portal",
+      message: `A runtime extension cannot declare sections of My account: only a shipped pack's blocks are. ${why}`,
+    });
+  }
   // Routine mail goes to members without a person's approval (ADR 0590): only a shipped
   // extension's declaration may say what it says, so code written in the app declares none and
   // gets no module to send it.

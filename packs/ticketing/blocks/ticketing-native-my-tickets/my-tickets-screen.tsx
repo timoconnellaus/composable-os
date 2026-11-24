@@ -12,8 +12,11 @@ export function MyTicketsScreen({
   onOpen,
 }: {
   ticketing: Pick<TicketingHooks, "useMyTickets">;
-  /** Pushes the ticket's screen (TicketScreen) on the app's native stack. */
-  onOpen: (ticket: { id: string; code: string | null; event: string | null }) => void;
+  /**
+   * Pushes the ticket's screen (TicketScreen) on the app's native stack. Left out (as a section of
+   * My account, ADR 0710), a row is not pressable.
+   */
+  onOpen?: (ticket: { id: string; code: string | null; event: string | null }) => void;
 }) {
   const { data, isPending, error } = ticketing.useMyTickets();
   return (
@@ -37,7 +40,7 @@ export function MyTicketsScreen({
               ]
                 .filter(Boolean)
                 .join(" · ")}
-              onPress={ticket.state === "valid" ? () => onOpen(ticket) : undefined}
+              onPress={ticket.state === "valid" && onOpen ? () => onOpen(ticket) : undefined}
             />
           ))}
         </List>

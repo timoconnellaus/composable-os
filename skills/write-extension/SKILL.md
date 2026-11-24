@@ -515,6 +515,22 @@ host's, from Finance reports). `opens` is the gate, as a screen's (this pack's t
 for staff only); `web: { screen }` names one of the pack's screens for the web card. A runtime
 extension declaring `todayItems` is refused.
 
+### Sections of My account (shipped packs only)
+
+A **shipped pack** whose customers have records of their own (bookings, passes, tickets) may add a
+section to My account, the customer's own area on the business's website and in its app, by
+declaring **portal** (`portal`, `PortalSectionSpec` in `contract.ts`, ADR 0710): `portal: {
+memberships: { label: "Memberships and passes", web: { block: "<id>-mine", export:
+"MyMemberships" }, native: { block: "<id>-native-mine", export: "MyMembershipsScreen" }, order:
+20, has: ["<id>.membership", "<id>.pass"] } }`. `web` is a web block of the same pack, `native` a
+native one (`<id>-native-<name>`), at least one of the two; `order` is 1 to 59 (the base sections
+come after); `has` names this pack's objects that declare a `customer`, never empty: the host lists
+the section to a customer only when they, or a child linked to them where the object opens to
+guardians, hold one of those records (`me.portal`). Each block calls only customer or public
+operations (`cos ext check` reads its `block.json`), and its component renders with the pack's
+hooks under the pack's id and `returnUrl` alone: make any other prop optional. A runtime extension
+declaring `portal` is refused. See Bookings, Memberships and Ticketing: `portal`.
+
 ### Journey signals (shipped packs only)
 
 A **shipped pack** may name the moments about a Person that a journey can start or stop on

@@ -4,7 +4,7 @@ description: "My account (stage 48), for the mobile app's Account tab: the signe
 editUrl: false
 ---
 
-My account (stage 48), for the mobile app's Account tab: the signed-in customer's own area, a list of sections, each opening on its own screen. The base sections come with it: Orders, Agreements, Family, Payment method (only for someone who pays a subscription), Your details, and Sign-in and devices. The packs' sections are passed in `sections`, each the pack's own screen, and take their place by `order` (a pack's come first). Money in the app is the website's (ADR 0490, ADR 0714): the app shows orders and subscriptions, and the card, cancelling and changing plan open the business's website account page in the browser (`websiteUrl`). No block here calls a billing operation. A later step adds "Needs your attention" at the top (me.attention) and the host's answer to which pack sections show (me.portal).
+My account (stage 48), for the mobile app's Account tab: the signed-in customer's own area, a list of sections, each opening on its own screen. The base sections come with it: Orders, Agreements, Family, Payment method (only for someone who pays a subscription), Your details, and Sign-in and devices. The packs' sections are passed in `sections`, each the pack's own screen, and take their place by `order` (a pack's come first). Money in the app is the website's (ADR 0490, ADR 0714): the app shows orders and subscriptions, and the card, cancelling and changing plan open the business's website account page in the browser (`websiteUrl`). No block here calls a billing operation. Which sections this customer has, in what order, and whether Payment method shows is the host's answer (me.portal, ADR 0710). `cos add native-account` copies the packs' section blocks and writes `../account-sections.gen.ts`, which names them; the tab passes them through `usePackSections(ACCOUNT_SECTIONS, react, api)`, so it names no pack. A later step adds "Needs your attention" at the top (me.attention).
 
 |  |  |
 | --- | --- |
@@ -19,6 +19,7 @@ My account (stage 48), for the mobile app's Account tab: the signed-in customer'
 
 Through its hooks; the host decides what each caller may do.
 
+- [`me.portal`](/reference/operations/me/#meportal)
 - [`me.get`](/reference/operations/me/#meget)
 - [`me.update`](/reference/operations/me/#meupdate)
 - [`me.sessions.list`](/reference/operations/me/#mesessionslist)

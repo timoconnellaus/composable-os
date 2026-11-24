@@ -4,7 +4,7 @@ description: "My account (stage 48), for the web: the signed-in customer's own a
 editUrl: false
 ---
 
-My account (stage 48), for the web: the signed-in customer's own area, one page of sections. The base sections come with it: Orders, Agreements, Family, Payment method (only for someone who pays a subscription), Your details, and Sign-in and devices. The packs' sections are passed in `sections`, each the pack's own block, and take their place by `order` (a pack's come first). It decides nothing: what each section shows is the host's answer to the section's own call, and whether Payment method shows is what the host lists of the subscriptions the customer pays. A later step adds "Needs your attention" at the top (me.attention) and lets the host say which pack sections this customer has (me.portal), with `cos add` writing `sections` for the client.
+My account (stage 48), for the web: the signed-in customer's own area, one page of sections. The base sections come with it: Orders, Agreements, Family, Payment method (only for someone who pays a subscription), Your details, and Sign-in and devices. The packs' sections are passed in `sections`, each the pack's own block, and take their place by `order` (a pack's come first). It decides nothing: which sections this customer has, in what order, and whether Payment method shows is the host's answer (me.portal, ADR 0710); what each section shows is the host's answer to the section's own call. `cos add web-account` copies the packs' section blocks and writes `../account-sections.gen.ts`, which names them; the page passes them through `usePackSections`: import { ACCOUNT_SECTIONS } from "../blocks/account-sections.gen.ts"; const react = { useQuery, useMutation, useState, useEffect }; // at module level: made once const sections = usePackSections(ACCOUNT_SECTIONS, react, api, returnUrl); &lt;MyAccount account={account} agreements={agreements} sections={sections} … /&gt; so the page names no pack. A later step adds "Needs your attention" at the top (me.attention).
 
 |  |  |
 | --- | --- |
@@ -19,6 +19,7 @@ My account (stage 48), for the web: the signed-in customer's own area, one page 
 
 Through its hooks; the host decides what each caller may do.
 
+- [`me.portal`](/reference/operations/me/#meportal)
 - [`me.get`](/reference/operations/me/#meget)
 - [`me.update`](/reference/operations/me/#meupdate)
 - [`me.sessions.list`](/reference/operations/me/#mesessionslist)

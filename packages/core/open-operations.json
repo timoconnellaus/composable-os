@@ -224,6 +224,12 @@
       "hostInternal": true
     },
     {
+      "name": "me.portal",
+      "audiences": ["customer"],
+      "risk": "read",
+      "hostInternal": true
+    },
+    {
       "name": "me.sessions.list",
       "audiences": ["customer"],
       "risk": "read",

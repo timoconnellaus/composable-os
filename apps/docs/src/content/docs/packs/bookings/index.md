@@ -106,7 +106,9 @@ Stage 31a's steps 3 to 9, as the code has them:
 - drop-ins paid on the web, and their refunds through approval;
 - the messages, the reminder with its calendar file, the dashboard, and the web and native
   blocks; the front desk and class list as staff screens in the admin;
-- the class as its coach's shift (stage 45) and the room it occupies (stage 49).
+- the class as its coach's shift (stage 45) and the room it occupies (stage 49);
+- a section of the member's My account (stage 48): the timetable with their bookings and a linked
+  child's, shown once they or the child have a booking.
 
 Not in the code: `cos bookings import` (31a's step 10) and appointments booked by staff (31b,
 now [stage 49](/planned/)).
