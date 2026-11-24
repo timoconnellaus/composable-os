@@ -28,6 +28,7 @@ import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { CheckCircle2Icon, FileUpIcon, PlugZapIcon, SparklesIcon } from "lucide-react";
 import { type ReactNode, useEffect, useState } from "react";
 import { toast } from "sonner";
+import { ErrorState } from "#/components/empty-state";
 import { PageLayout } from "#/components/layout/page-layout";
 import { AiSetupSummaryView } from "#/components/setup/ai-summary";
 import { errorMessage, useOp, useOpMutation } from "#/lib/query";
@@ -100,6 +101,17 @@ function SetupPage() {
         <p className="text-sm text-muted-foreground">
           An admin sets it up. Ask one to finish setup.
         </p>
+      </PageLayout>
+    );
+  }
+  if (status.isError) {
+    return (
+      <PageLayout title={`Set up ${productName}`} width="md">
+        <ErrorState
+          title="Setup could not be loaded"
+          error={status.error}
+          onRetry={() => void status.refetch()}
+        />
       </PageLayout>
     );
   }
