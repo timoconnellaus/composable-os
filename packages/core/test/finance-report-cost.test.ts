@@ -159,4 +159,45 @@ describe("the cost of a month of 50,000 orders", () => {
     );
     expect(statements).toBeLessThan(1000);
   }, 120_000);
+
+  it("a month's refunds are looked up through their own orders, not every payment (the review of PR #423)", async () => {
+    const june = () => new Date("2026-06-02T12:00:00.000Z");
+    const range = monthRange("2026-05", ZONE);
+    const ctx = { db: metered.query, now: june().toISOString() } as unknown as HandlerContext;
+    /** Rows May's preview and its close's guards read (closed March's late scan included). */
+    const cost = async () => {
+      meter.reset();
+      await invokeByName(
+        "finance.report",
+        { report: "refunds", month: "2026-05" },
+        context(admin, { db: metered, clock: june }),
+      );
+      const preview = meter.rows;
+      const book = await periodBook(ctx, range);
+      meter.reset();
+      await readGuards(ctx.db, book.guards);
+      return { preview, guards: meter.rows };
+    };
+    const before = await cost();
+    // Fifty refunds in May of March's orders: each is checked against its own order's payments.
+    for (let i = 1; i <= 50; i++) {
+      await env.DB.prepare(
+        `INSERT INTO core_order_refund (id, order_id, provider, payment_ref, amount, currency,
+           status, confirmed_at, created_at)
+         VALUES (?, ?, 'fake', ?, 100, 'GBP', 'confirmed', ?, ?)`,
+      )
+        .bind(
+          newId("refund"),
+          `ord_m${i}`,
+          `pi_m${i}`,
+          "2026-05-10T10:00:00.000Z",
+          "2026-05-10T10:00:00.000Z",
+        )
+        .run();
+    }
+    const after = await cost();
+    // Without the order index each refund read every one of the 90,000 payments (4.5 million).
+    expect(after.preview - before.preview).toBeLessThan(5_000);
+    expect(after.guards - before.guards).toBeLessThan(5_000);
+  }, 120_000);
 });

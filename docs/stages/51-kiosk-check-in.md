@@ -674,6 +674,31 @@ One bullet per build step, written by that step (CONTRIBUTING.md, Working in par
     (a desk call without an enrolled credential, from another origin or with a staff session is
     refused; a revoked device at its next call), 20 in part (e2e: an admin enrols and revokes a
     tablet). The rest are steps 2 to 6.
+- **Step 2, a device as a caller and device roles** (branch `feat/stage-51-device-caller`; no
+  migration, ADR [0781](../adr/0781-a-device-as-a-caller-the-device-audience-and-device-roles.md),
+  ADRs 0402, 0436 and 0780 amended). Built:
+  - the `device` audience (`AUDIENCES`, `TOOL_AUDIENCES`): open to nobody else, read or write, in
+    `open-operations.json`, out of the HTTP contract and every staff surface;
+  - `StartedBy` and `ctx.caller` gain `{ kind: "device", deviceId, name }` (`DevicePrincipal` in
+    the host); the tool's own calls run as the extension;
+  - the pipeline's device check (`packages/core/src/devices/caller.ts`): the desk origin's handler
+    routes `device.heartbeat` and `x.<pack>.<tool>` as `{ kind: "device" }`; the pipeline
+    resolves the device from its credential, needs the `role` use and a declared role, and
+    refuses (audited) what the role does not reach, before the input;
+  - `deviceRoles` in the manifest (`DeviceRoleSpec`) and its contract checks
+    (`deviceRoleIssues`), refused for a runtime extension by check and install;
+    `loadDeviceRole` and `deviceRoleReaches` in `pack-roles.ts`; `device.enrol` and
+    `device.setUse` now accept a declared role;
+  - `device.heartbeat` (the device's name and role; seen in the call's batch).
+  - Deviations: no migration was needed (`core_device.role` is step 1's; the audit's actor has no
+    CHECK since migration 0400). Refusals outside the role are `forbidden` with rule
+    `device_role`; a non-device's call to a device operation is `unknown_operation`. Calls are
+    also limited per device and operation. `device.heartbeat` answers `{ name, role }`.
+  - Acceptance criteria this step meets: 2 (the other half: a signing device calls no device
+    tool), 14 (a device credential reaches nothing outside its role: the registry walk; no
+    credential, a revoked device, another origin or a staff session refused), 15 (a device role on
+    a runtime extension refused by check and install), 16 in part (the AI, MCP and automations
+    reach no device operation). The rest are steps 4 to 6.
 - **Step 3, the person's code and PIN** (branch `feat/stage-51-person-code`; migration 1135, ADR
   [0783](../adr/0783-a-persons-code-the-rotating-app-code-cards-and-the-pin.md), ADR 0600 amended).
   Built:

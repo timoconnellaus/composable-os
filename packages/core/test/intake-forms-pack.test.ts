@@ -172,6 +172,31 @@ describe("a form found by its address", () => {
     ).toMatchObject({ ok: false, error: { code: "not_found" } });
   });
 
+  it("is still found by its old address after a person changes it (a printed QR code)", async () => {
+    const { id, slug } = await makeForm();
+    await invoke(
+      "record.update",
+      { object: FORM, id, values: { slug: `${slug}-new` } },
+      context(admin),
+    );
+    await invoke("record.publish", { object: FORM, id }, context(admin));
+    for (const address of [slug, `${slug}-new`]) {
+      expect(
+        await call("intake.open", { object: FORM, slug: address }, asCaller(PUBLIC, later(1))),
+        address,
+      ).toMatchObject({ ok: true, value: { id } });
+    }
+    // An old address of a form that no longer takes answers is not found, as its address now is.
+    await invoke(
+      "record.update",
+      { object: FORM, id, values: { status: "closed" } },
+      context(admin),
+    );
+    const closed = await call("intake.open", { object: FORM, slug }, asCaller(PUBLIC, later(1)));
+    expect(closed).toMatchObject({ ok: false, error: { code: "not_found" } });
+    expect(JSON.stringify(closed)).not.toContain(id);
+  });
+
   it("is given by id or slug, not both", async () => {
     const { id, slug } = await makeForm();
     const both = await call("intake.open", { object: FORM, id, slug }, asCaller(PUBLIC, later(1)));

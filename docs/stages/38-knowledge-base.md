@@ -632,3 +632,31 @@ None open. The six questions this spec raised were decided by the coordinator (d
 - **Evidence:** whether a tap, or a completed course, is enough evidence that a staff member was
   told a procedure, for insurance or workplace safety purposes, is for the business to confirm with
   its lawyer or accountant (and its insurer).
+
+## Status
+
+- **Step 1, the published-text index and `content.search`** (PR #340): built. Migration 0970
+  (`core_published_text` and its FTS5 table), ADR 0700 (amends ADR 0442). Section anchors in the
+  SDK (`headingAnchors`, `richTextSections`), used by both content renderers; the index written in
+  the publish and unpublish batch, remade by erase and caught up by the minute cron
+  (`content.reindex`); `content.search` for the public, customers and staff over published words
+  only. Left: passages for the assistant (step 7).
+- **Step 2, staff read** (branch `feat/stage-38-staff-read`): built. ADR 0701 (amends ADRs 0436,
+  0446, 0600 and 0700); no migration. `publishable.staffRead` in the SDK and the registry; the
+  seam's staff-read source over the live view (`visibility/staff-read.ts`: the content fields and
+  slug, the version and when, never the working copy); `content.staffGet` (by id or slug, an old
+  slug answers with its `redirect`) and `content.staffList`, staff only; `content.search` for a
+  staff caller on a staff-read object over every text content field (the index holds them, a
+  public search still matches only the public's). Every pack role reaches the three
+  (`PACK_ROLE_STAFF_READS`), allowed only on a staff-read object, and the looks-after limit lets
+  them through only for an object it does not name; `roles.json` lists them. Tested against a
+  fixture role and the shipped `rostering.team`, `bookings.coach` and `ticketing.door`
+  (`packages/core/test/staff-read.test.ts`). Left: a pack-role account is not served a
+  procedure's pictures (`media.serve` is not in its reach; the spec lists no such reach, so it
+  waits for a decision); the Knowledge pack declaring it (step 5).
+- **Step 3, acknowledgements** (PR #340): built. Migration 0971 (`core_publish_ack` and its
+  triggers, `read_again` on versions and schedules), ADR 0702 (amends ADRs 0480 and 0436).
+  `publishable.acknowledge { who, manage }`, read again or small fix on every later publish (the
+  approver chooses for an AI's request), `ack.confirm`, `ack.mine`, `ack.status`, `ack.overview`,
+  who must read by staff role, pack role and grant on the day; every pack role reaches its own
+  list and confirmations. Left: the `to_read` warning (step 4), the notices (step 5).

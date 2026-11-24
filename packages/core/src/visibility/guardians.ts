@@ -159,6 +159,34 @@ export async function familyOf(reader: {
 }
 
 /**
+ * The caller's live dependants by id, each with what a parent calls them: their given name, else
+ * the first word of their display name, else their display name; "Child" when all are blank. For
+ * a customer only (empty for anyone else); one statement, the caller's id bound. The calendar feed
+ * (ADR 0890) puts it before a child's event so a parent tells two children's apart.
+ */
+export async function dependantFirstNames(reader: {
+  readonly db: Kysely<CoreDatabase>;
+  readonly principal: Principal;
+}): Promise<Map<string, string>> {
+  const principal = reader.principal;
+  if (principal.kind !== "customer") return new Map();
+  const { rows } = await sql<{
+    id: string;
+    given: string | null;
+    name: string | null;
+  }>`SELECT p.id AS id, p.given_name AS given, p.display_name AS name FROM core_person p WHERE p.id IN (${dependantsSql(principal.personId)})`.execute(
+    reader.db,
+  );
+  return new Map(
+    rows.map((row) => {
+      const given = (row.given ?? "").trim();
+      const display = (row.name ?? "").trim();
+      return [String(row.id), given || display.split(/\s+/)[0] || display || "Child"];
+    }),
+  );
+}
+
+/**
  * For staff ending a link (ADR 0540): how many live records a guardian made for a dependant, per
  * object that records who made them (`guardians.madeBy`). They stay when the link ends; staff are
  * told. Ids are bound; columns are registry identifiers.

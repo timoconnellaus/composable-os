@@ -21,7 +21,7 @@ The admin audit log: every write, every refusal and every failed non-human read,
 | Field | Type | Required | Limits | Description |
 | --- | --- | --- | --- | --- |
 | `userId` | string |   | max length 64 |   |
-| `actor` | `"human"`, `"assistant"`, `"mcp"`, `"automation"`, `"extension"`, `"customer"`, `"public"` |   |   |   |
+| `actor` | `"human"`, `"assistant"`, `"mcp"`, `"automation"`, `"extension"`, `"customer"`, `"public"`, `"device"` |   |   |   |
 | `operation` | string |   | max length 100, pattern `^[a-zA-Z0-9.]+(\.\*)?$` |   |
 | `outcome` | `"ok"`, `"forbidden"`, `"denied"`, `"review"`, `"error"` |   |   |   |
 | `object` | string |   | max length 64, pattern `^[a-z][a-z0-9_]*(\.[a-z][a-z0-9]*)?$` | Object type: person, organisation, task or an extension object (&lt;ext&gt;.&lt;object&gt;) |

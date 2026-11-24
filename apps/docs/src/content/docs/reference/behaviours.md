@@ -30,6 +30,12 @@ Things counted on a shelf, sold from a ledger the host keeps (see StockSpec, ADR
 
 Declared as `stock: StockSpec` on an object. Declared by: no shipped pack.
 
+## stockMoves
+
+A record's state moves stock: received adds, a write-off removes, a count sets (see StockMovesSpec, ADR 0681).
+
+Declared as `stockMoves: StockMovesSpec` on an object. Declared by: no shipped pack.
+
 ## allowance
 
 Uses a record holds (a pass, a membership), or a record that spends one (a booking): see AllowanceSpec, ADRs 0493 and 0494. The host counts and refuses a spend past the limit.
@@ -95,6 +101,12 @@ Declared as `team: TeamSpec` on an object. Declared by: [`programs.assignment`](
 A claim on a thing (see OccupiesSpec, ADR 0765): while live, the record takes the room (or chair, or hall) it names for its time. The host refuses, in the database, a second live record on the same thing at an overlapping time, whatever object it is.
 
 Declared as `occupies: OccupiesSpec` on an object. Declared by: [`bookings.class`](/packs/bookings/data-model/).
+
+## calendarEntry
+
+Events in the customer's private calendar feed (see CalendarEntrySpec, ADR 0891): the record's start, end, public title and place as paths the customer may read, and the states in which it shows. The host reads them as the customer, through the visibility seam, and shows a live dependant's to their guardian. Only shipped extensions may declare it.
+
+Declared as `calendarEntry: CalendarEntrySpec` on an object. Declared by: no shipped pack.
 
 ## intake
 

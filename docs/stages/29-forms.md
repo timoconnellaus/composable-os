@@ -53,7 +53,9 @@ interview.
   form's `slug`; `intake` gains `hourlyCap` (a form's) and `marketing` (a submission's,
   host-only). Decided while building: no public scope on a form (the public reads it only through
   `intake.open`, as a `when` cannot say who may answer); spam moves are `markSpam`'s and
-  `notSpam`'s only, both `personApproves`; a form's status is `personApproves`; the retention
+  `notSpam`'s only, both `personApproves`; a form's status, dates, daily cap and address are
+  `personApproves`; an old address redirects; the low-rating notice goes to the submission's owner,
+  else the admins; the destination is a text no object answers to until step 6; the retention
   settings wait for step 7 and `x.forms.ask` and `forms:manage` for step 5; the pack is not added
   to the CRM's packs. Not yet tried on a live host.
 

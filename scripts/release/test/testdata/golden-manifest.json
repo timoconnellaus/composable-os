@@ -539,6 +539,24 @@
           "type": "ratelimit"
         },
         {
+          "name": "CUSTOMER_FEED_RATE_LIMIT",
+          "namespace_id": "4890",
+          "simple": {
+            "limit": 10,
+            "period": 60
+          },
+          "type": "ratelimit"
+        },
+        {
+          "name": "CUSTOMER_FEED_ADDRESS_RATE_LIMIT",
+          "namespace_id": "4891",
+          "simple": {
+            "limit": 120,
+            "period": 60
+          },
+          "type": "ratelimit"
+        },
+        {
           "name": "DESK_RATE_LIMIT",
           "namespace_id": "4151",
           "simple": {
@@ -890,7 +908,7 @@
           "source": "user"
         }
       ],
-      "sha256": "7faf78352029a3ff49a0141556a2ee185087d7441871d51b4bb9752c0dd2c5a4"
+      "sha256": "5c9a2c36e7bdae16801de6ef07a532cb4bdbb9ef9f77b72688be5b8c17b75e7f"
     },
     {
       "bindings": [

@@ -552,7 +552,7 @@ List payments that arrived after their order had closed (expired or cancelled), 
 
 ## order.payments
 
-An order's money in detail, for staff: each checkout opened, each verified payment (applied, late or not matching) and each refund (asked for or confirmed), with what can still be refunded per payment. Amounts are in the currency's minor unit. Read-only.
+An order's money in detail, for staff: each checkout opened, each payment (the provider's, applied, late or not matching; or one a person recorded, and its reversal) and each refund (asked for or confirmed), with what can still be refunded per payment. Amounts are in the currency's minor unit. Read-only.
 
 |  |  |
 | --- | --- |
@@ -588,6 +588,13 @@ An order's money in detail, for staff: each checkout opened, each verified payme
 | `payments[].receivedAt` | string | yes |   |   |
 | `payments[].taxAmount` | number or null | yes |   | The provider's tax on it; null: not taxed |
 | `payments[].taxCountry` | string or null | yes |   |   |
+| `payments[].method` | string | yes |   | provider (the payment page), or recorded (taken another way by a person) |
+| `payments[].recordedKind` | string or null | yes |   | A recorded one: transfer, cash, … |
+| `payments[].recordedBy` | string or null | yes |   | A recorded one: who received it |
+| `payments[].receivedOn` | string or null | yes |   |   |
+| `payments[].reference` | string or null | yes |   |   |
+| `payments[].reverses` | string or null | yes |   | A reversal: the payment it takes back off (its amount is negative) |
+| `payments[].reason` | string or null | yes |   | A reversal's reason |
 | `refunds` | array of object | yes |   |   |
 | `refunds[].id` | string | yes |   |   |
 | `refunds[].amount` | number | yes |   |   |
@@ -598,10 +605,155 @@ An order's money in detail, for staff: each checkout opened, each verified payme
 | `refunds[].createdAt` | string | yes |   |   |
 | `refunds[].confirmedAt` | string or null | yes |   |   |
 | `refunds[].taxAmount` | number or null | yes |   | The tax it gave back, when the provider said; null: not said |
+| `refunds[].method` | string | yes |   | provider, or recorded (paid back by a person) |
+| `refunds[].recordedKind` | string or null | yes |   |   |
 | `refundable` | array of object | yes |   |   |
 | `refundable[].paymentRef` | string | yes |   |   |
+| `refundable[].method` | string | yes |   |   |
 | `refundable[].paid` | number | yes |   |   |
 | `refundable[].refundable` | number | yes |   |   |
+
+## order.recordPayment
+
+Record a payment taken another way than the payment page (a bank transfer, cash, a cheque, a card machine) on an order still owed money: any amount up to what is owed, never more (a drop-in that books a place is paid in full). The order becomes paid (or part paid) as if the provider had been paid, and what it bought is given. The payment names you as the person who received it. Admins are told of one over the amount an admin set, or when the buyer had opened a payment page (a payment made there now is refunded). A person only, with the permission to record payments: AI assistants, MCP clients, automations and extensions are refused. Returns the payment's id and the order.
+
+|  |  |
+| --- | --- |
+| Permission | `orders:payments` |
+| Risk | `write` |
+| Audiences | `staff` |
+| Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
+
+### Input
+
+| Field | Type | Required | Limits | Description |
+| --- | --- | --- | --- | --- |
+| `id` | string | yes | min length 1, max length 64 | Order id (ord_…) |
+| `amount` | integer | yes | ≥ 1, ≤ 100000000 | What was received, in the currency's minor unit (cents) |
+| `kind` | `"transfer"`, `"cash"`, `"cheque"`, `"card_machine"`, `"other"` | yes |   | How it was paid: transfer, cash, cheque, card_machine or other |
+| `receivedOn` | string | yes | pattern `^\d{4}-\d{2}-\d{2}$` | The day it was received (YYYY-MM-DD) |
+| `reference` | string |   | min length 1, max length 200 | The payer's reference: a bank reference, a cheque number |
+
+### Output
+
+| Field | Type | Required | Limits | Description |
+| --- | --- | --- | --- | --- |
+| `paymentId` | string | yes |   |   |
+| `order` | object | yes |   |   |
+| `order.id` | string | yes |   |   |
+| `order.state` | `"pending"`, `"part_paid"`, `"paid"`, `"cancelled"`, `"expired"`, `"refunded"` | yes |   |   |
+| `order.currency` | string | yes |   |   |
+| `order.total` | number | yes |   |   |
+| `order.paid` | number | yes |   |   |
+| `order.balance` | number | yes |   |   |
+| `order.refunded` | number | yes |   | What has gone back to the buyer, confirmed by the provider |
+| `order.pay` | `"full"`, `"deposit"` | yes |   |   |
+| `order.deposit` | number or null | yes |   |   |
+| `order.balanceDueAt` | string or null | yes |   |   |
+| `order.expiresAt` | string or null | yes |   |   |
+| `order.paidAt` | string or null | yes |   |   |
+| `order.createdAt` | string | yes |   |   |
+| `order.taxAmount` | number | yes |   | The tax inside what has been paid, as the payment provider calculated it. Prices include it, so it does not add to the total. Zero when tax is off or none was charged. |
+| `order.taxRefunded` | number | yes |   | The tax the provider said went back with refunds |
+| `order.taxCountry` | string or null | yes |   | The country the latest taxed payment was for |
+| `order.discount` | number | yes |   | Money taken off the order (its discounts), already out of the total |
+| `order.lines` | array of object | yes |   |   |
+| `order.lines[].id` | string | yes |   |   |
+| `order.lines[].position` | number | yes |   |   |
+| `order.lines[].object` | string | yes |   |   |
+| `order.lines[].recordId` | string | yes |   |   |
+| `order.lines[].title` | string | yes |   |   |
+| `order.lines[].quantity` | number | yes |   |   |
+| `order.lines[].unitPrice` | number | yes |   |   |
+| `order.lines[].total` | number | yes |   |   |
+| `order.lines[].taxAmount` | number | yes |   | The tax inside this line's payments, as the payment provider calculated it |
+| `order.lines[].discount` | number | yes |   | The line's share of the order's discounts: it costs total less this |
+| `order.adjustments` | array of object |   |   | Staff only: the discounts on the order, in the order they were given |
+| `order.adjustments[].id` | string | yes |   |   |
+| `order.adjustments[].lineId` | string or null | yes |   | The line it is on; null: spread over the order |
+| `order.adjustments[].kind` | `"code"`, `"automatic"`, `"staff"`, `"referral"` | yes |   |   |
+| `order.adjustments[].amount` | number | yes |   | What it took off, in the currency's minor unit |
+| `order.adjustments[].percent` | number or null | yes |   | The percentage asked for, when it was one |
+| `order.adjustments[].reason` | string or null | yes |   |   |
+| `order.adjustments[].givenBy` | string or null | yes |   | The staff account that gave it |
+| `order.adjustments[].approval` | string or null | yes |   | The approval it waited in, when it did |
+| `order.adjustments[].createdAt` | string | yes |   |   |
+| `order.personId` | string or null |   |   |   |
+| `order.email` | string or null |   |   |   |
+| `order.placedAs` | `"customer"`, `"public"`, `"staff"` |   |   |   |
+
+## order.recordRefund
+
+Record money paid back by hand on a payment that was recorded (taken by transfer, cash and so on): how it went back, how much (default: all that is left on that payment) and why. Nothing is sent: you say you paid it. The order is refunded once everything paid has gone back. Payments made on the payment page are refunded with order.refund instead. A person only, with the refund permission. Returns the refund and the order.
+
+|  |  |
+| --- | --- |
+| Permission | `orders:refund` |
+| Risk | `write` |
+| Audiences | `staff` |
+| Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
+
+### Input
+
+| Field | Type | Required | Limits | Description |
+| --- | --- | --- | --- | --- |
+| `id` | string | yes | min length 1, max length 64 | Order id (ord_…) |
+| `paymentId` | string | yes | min length 1, max length 64 | The recorded payment it went back on (opy_…) |
+| `amount` | integer |   | &gt; 0, ≤ 9007199254740991 | Minor units; default all |
+| `kind` | `"transfer"`, `"cash"`, `"cheque"`, `"card_machine"`, `"other"` | yes |   | How it was paid back: transfer, cash, cheque, card_machine or other |
+| `reference` | string |   | min length 1, max length 200 | Its reference, if any |
+| `reason` | string | yes | min length 1, max length 500 | Why, in staff's words |
+
+### Output
+
+| Field | Type | Required | Limits | Description |
+| --- | --- | --- | --- | --- |
+| `refundId` | string | yes |   |   |
+| `amount` | number | yes |   |   |
+| `order` | object | yes |   |   |
+| `order.id` | string | yes |   |   |
+| `order.state` | `"pending"`, `"part_paid"`, `"paid"`, `"cancelled"`, `"expired"`, `"refunded"` | yes |   |   |
+| `order.currency` | string | yes |   |   |
+| `order.total` | number | yes |   |   |
+| `order.paid` | number | yes |   |   |
+| `order.balance` | number | yes |   |   |
+| `order.refunded` | number | yes |   | What has gone back to the buyer, confirmed by the provider |
+| `order.pay` | `"full"`, `"deposit"` | yes |   |   |
+| `order.deposit` | number or null | yes |   |   |
+| `order.balanceDueAt` | string or null | yes |   |   |
+| `order.expiresAt` | string or null | yes |   |   |
+| `order.paidAt` | string or null | yes |   |   |
+| `order.createdAt` | string | yes |   |   |
+| `order.taxAmount` | number | yes |   | The tax inside what has been paid, as the payment provider calculated it. Prices include it, so it does not add to the total. Zero when tax is off or none was charged. |
+| `order.taxRefunded` | number | yes |   | The tax the provider said went back with refunds |
+| `order.taxCountry` | string or null | yes |   | The country the latest taxed payment was for |
+| `order.discount` | number | yes |   | Money taken off the order (its discounts), already out of the total |
+| `order.lines` | array of object | yes |   |   |
+| `order.lines[].id` | string | yes |   |   |
+| `order.lines[].position` | number | yes |   |   |
+| `order.lines[].object` | string | yes |   |   |
+| `order.lines[].recordId` | string | yes |   |   |
+| `order.lines[].title` | string | yes |   |   |
+| `order.lines[].quantity` | number | yes |   |   |
+| `order.lines[].unitPrice` | number | yes |   |   |
+| `order.lines[].total` | number | yes |   |   |
+| `order.lines[].taxAmount` | number | yes |   | The tax inside this line's payments, as the payment provider calculated it |
+| `order.lines[].discount` | number | yes |   | The line's share of the order's discounts: it costs total less this |
+| `order.adjustments` | array of object |   |   | Staff only: the discounts on the order, in the order they were given |
+| `order.adjustments[].id` | string | yes |   |   |
+| `order.adjustments[].lineId` | string or null | yes |   | The line it is on; null: spread over the order |
+| `order.adjustments[].kind` | `"code"`, `"automatic"`, `"staff"`, `"referral"` | yes |   |   |
+| `order.adjustments[].amount` | number | yes |   | What it took off, in the currency's minor unit |
+| `order.adjustments[].percent` | number or null | yes |   | The percentage asked for, when it was one |
+| `order.adjustments[].reason` | string or null | yes |   |   |
+| `order.adjustments[].givenBy` | string or null | yes |   | The staff account that gave it |
+| `order.adjustments[].approval` | string or null | yes |   | The approval it waited in, when it did |
+| `order.adjustments[].createdAt` | string | yes |   |   |
+| `order.personId` | string or null |   |   |   |
+| `order.email` | string or null |   |   |   |
+| `order.placedAs` | `"customer"`, `"public"`, `"staff"` |   |   |   |
 
 ## order.refund
 
@@ -687,6 +839,73 @@ Platform use only (the minute cron): release one paid guest drop-in still held f
 | Field | Type | Required | Limits | Description |
 | --- | --- | --- | --- | --- |
 | `released` | boolean | yes |   |   |
+
+## order.reversePayment
+
+Reverse a payment recorded in error (order.recordPayment): a second entry takes it back off, nothing is deleted, and an order it had paid is part paid again with the amount owed. What the order gave stays: take the right payment or cancel the order. A drop-in's booking is cancelled first. Not for the payment provider's payments (refund those). Admins are told. A person only, with the permission to record payments. Get the payment's id from order.payments. Returns the reversal's id and the order.
+
+|  |  |
+| --- | --- |
+| Permission | `orders:payments` |
+| Risk | `write` |
+| Audiences | `staff` |
+| Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
+
+### Input
+
+| Field | Type | Required | Limits | Description |
+| --- | --- | --- | --- | --- |
+| `paymentId` | string | yes | min length 1, max length 64 | The recorded payment (opy_…) |
+| `reason` | string | yes | min length 1, max length 500 | Why it was entered in error |
+
+### Output
+
+| Field | Type | Required | Limits | Description |
+| --- | --- | --- | --- | --- |
+| `paymentId` | string | yes |   |   |
+| `order` | object | yes |   |   |
+| `order.id` | string | yes |   |   |
+| `order.state` | `"pending"`, `"part_paid"`, `"paid"`, `"cancelled"`, `"expired"`, `"refunded"` | yes |   |   |
+| `order.currency` | string | yes |   |   |
+| `order.total` | number | yes |   |   |
+| `order.paid` | number | yes |   |   |
+| `order.balance` | number | yes |   |   |
+| `order.refunded` | number | yes |   | What has gone back to the buyer, confirmed by the provider |
+| `order.pay` | `"full"`, `"deposit"` | yes |   |   |
+| `order.deposit` | number or null | yes |   |   |
+| `order.balanceDueAt` | string or null | yes |   |   |
+| `order.expiresAt` | string or null | yes |   |   |
+| `order.paidAt` | string or null | yes |   |   |
+| `order.createdAt` | string | yes |   |   |
+| `order.taxAmount` | number | yes |   | The tax inside what has been paid, as the payment provider calculated it. Prices include it, so it does not add to the total. Zero when tax is off or none was charged. |
+| `order.taxRefunded` | number | yes |   | The tax the provider said went back with refunds |
+| `order.taxCountry` | string or null | yes |   | The country the latest taxed payment was for |
+| `order.discount` | number | yes |   | Money taken off the order (its discounts), already out of the total |
+| `order.lines` | array of object | yes |   |   |
+| `order.lines[].id` | string | yes |   |   |
+| `order.lines[].position` | number | yes |   |   |
+| `order.lines[].object` | string | yes |   |   |
+| `order.lines[].recordId` | string | yes |   |   |
+| `order.lines[].title` | string | yes |   |   |
+| `order.lines[].quantity` | number | yes |   |   |
+| `order.lines[].unitPrice` | number | yes |   |   |
+| `order.lines[].total` | number | yes |   |   |
+| `order.lines[].taxAmount` | number | yes |   | The tax inside this line's payments, as the payment provider calculated it |
+| `order.lines[].discount` | number | yes |   | The line's share of the order's discounts: it costs total less this |
+| `order.adjustments` | array of object |   |   | Staff only: the discounts on the order, in the order they were given |
+| `order.adjustments[].id` | string | yes |   |   |
+| `order.adjustments[].lineId` | string or null | yes |   | The line it is on; null: spread over the order |
+| `order.adjustments[].kind` | `"code"`, `"automatic"`, `"staff"`, `"referral"` | yes |   |   |
+| `order.adjustments[].amount` | number | yes |   | What it took off, in the currency's minor unit |
+| `order.adjustments[].percent` | number or null | yes |   | The percentage asked for, when it was one |
+| `order.adjustments[].reason` | string or null | yes |   |   |
+| `order.adjustments[].givenBy` | string or null | yes |   | The staff account that gave it |
+| `order.adjustments[].approval` | string or null | yes |   | The approval it waited in, when it did |
+| `order.adjustments[].createdAt` | string | yes |   |   |
+| `order.personId` | string or null |   |   |   |
+| `order.email` | string or null |   |   |   |
+| `order.placedAs` | `"customer"`, `"public"`, `"staff"` |   |   |   |
 
 ## order.setPerson
 
@@ -778,6 +997,7 @@ No fields.
 | `discountLimit` | object | yes |   | How much staff may take off one order on their own (order.adjust). Above it, a discount waits for an admin. Nothing (0) until a human admin sets it. |
 | `discountLimit.percent` | number | yes | ≥ 0, ≤ 100 | At most this percentage of the order |
 | `discountLimit.amount` | integer | yes | ≥ 0, ≤ 100000000 | And at most this much, in the currency's minor unit |
+| `recordedPaymentNotice` | number | yes |   | Admins are told of a payment recorded by hand (order.recordPayment) for more than this, in minor units. 0 until a human admin sets it: every one is told. |
 | `taxObjects` | array of object | yes |   |   |
 | `taxObjects[].object` | string | yes |   |   |
 | `taxObjects[].label` | string | yes |   |   |
@@ -787,7 +1007,7 @@ No fields.
 
 ## order.settings.update
 
-Change the order settings: the currency every order is in, the minutes an unpaid order lasts, the least part payment, the sites a buyer may come back to after paying, whether the payment provider calculates tax at checkout, the product tax code of an object for sale, or how much staff may take off an order on their own. Only what you pass changes. Orders already started keep the currency they were started in; turning tax on or off changes only payments made from then on. Admins only, and only a human can call it: AI assistants, MCP clients, automations and extensions are refused.
+Change the order settings: the currency every order is in, the minutes an unpaid order lasts, the least part payment, the sites a buyer may come back to after paying, whether the payment provider calculates tax at checkout, the product tax code of an object for sale, how much staff may take off an order on their own, or above what a payment recorded by hand tells admins. Only what you pass changes. Orders already started keep the currency they were started in; turning tax on or off changes only payments made from then on. Admins only, and only a human can call it: AI assistants, MCP clients, automations and extensions are refused.
 
 |  |  |
 | --- | --- |
@@ -810,6 +1030,7 @@ Change the order settings: the currency every order is in, the minutes an unpaid
 | `discountLimit` | object |   |   | How much staff may take off one order without an admin's approval: at most this percentage of the order and at most this amount (minor units), both at once. |
 | `discountLimit.percent` | number | yes | ≥ 0, ≤ 100 | At most this percentage of the order |
 | `discountLimit.amount` | integer | yes | ≥ 0, ≤ 100000000 | And at most this much, in the currency's minor unit |
+| `recordedPaymentNotice` | integer |   | ≥ 0, ≤ 100000000 | Tell admins of a payment recorded by hand for more than this (minor units) |
 
 ### Output
 
@@ -824,6 +1045,7 @@ Change the order settings: the currency every order is in, the minutes an unpaid
 | `discountLimit` | object | yes |   | How much staff may take off one order on their own (order.adjust). Above it, a discount waits for an admin. Nothing (0) until a human admin sets it. |
 | `discountLimit.percent` | number | yes | ≥ 0, ≤ 100 | At most this percentage of the order |
 | `discountLimit.amount` | integer | yes | ≥ 0, ≤ 100000000 | And at most this much, in the currency's minor unit |
+| `recordedPaymentNotice` | number | yes |   | Admins are told of a payment recorded by hand (order.recordPayment) for more than this, in minor units. 0 until a human admin sets it: every one is told. |
 | `previous` | object | yes |   |   |
 | `previous.currency` | string or null | yes |   | The one currency every order is in (ISO 4217). Null: not set, nothing can be sold. |
 | `previous.expiryMinutes` | number | yes |   | Minutes an order nothing has been paid on lasts. |
@@ -834,6 +1056,7 @@ Change the order settings: the currency every order is in, the minutes an unpaid
 | `previous.discountLimit` | object | yes |   | How much staff may take off one order on their own (order.adjust). Above it, a discount waits for an admin. Nothing (0) until a human admin sets it. |
 | `previous.discountLimit.percent` | number | yes | ≥ 0, ≤ 100 | At most this percentage of the order |
 | `previous.discountLimit.amount` | integer | yes | ≥ 0, ≤ 100000000 | And at most this much, in the currency's minor unit |
+| `previous.recordedPaymentNotice` | number | yes |   | Admins are told of a payment recorded by hand (order.recordPayment) for more than this, in minor units. 0 until a human admin sets it: every one is told. |
 
 ## order.start
 

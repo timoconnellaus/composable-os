@@ -680,7 +680,8 @@ describe("with Rostering installed", () => {
     );
     const runs = await run<{ runs: { object: string; record: string }[] }>(
       "x.rostering.checklistRuns",
-      { from: today(), to: today() },
+      // From yesterday: just after midnight the shift (10 minutes ago) is on yesterday's date.
+      { from: today(new Date(Date.now() - DAY)), to: today() },
       staff(),
     );
     expect(runs.runs.map((r) => r.object)).toEqual(expect.arrayContaining(["rostering.shift"]));
@@ -720,7 +721,9 @@ describe("what one call reads, at the largest input", () => {
         () =>
           run(
             "x.dailychecks.history",
-            { from: today(new Date(Date.now() - 61 * DAY)), to: today() },
+            // 60 days of 24 hours back: across a clock change it is 61 local days ago, and the
+            // range (at most 62 days) still holds just after midnight.
+            { from: today(new Date(Date.now() - 60 * DAY)), to: today() },
             staff(),
           ),
       ],

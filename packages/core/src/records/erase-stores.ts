@@ -892,7 +892,7 @@ export async function customerAddresses(
 /**
  * A person's customer account (stage 22, ADR 0402): the accounts linked to them or signed up with
  * one of their addresses (one waiting for a merge included), every session of those accounts,
- * one-time sign-in codes sent to their addresses, invites for their addresses, and their erase
+ * their calendar links, one-time sign-in codes sent to their addresses, invites for their addresses, and their erase
  * requests. All deleted, so nothing is left but the audit trail; an open request is closed as
  * `erased` in the audit first. Returns how many requests were closed.
  */
@@ -932,6 +932,8 @@ export async function queueEraseCustomers(ctx: HandlerContext, s: StoreSubject):
   for (const part of chunk(accountIds)) {
     ctx.write(
       ctx.db.deleteFrom("core_customer_session").where("customer_id", "in", part),
+      // Their calendar link (ADR 0890), before the account (the cascade would too).
+      ctx.db.deleteFrom("core_customer_feed").where("customer_id", "in", part),
       ctx.db.deleteFrom("core_customer").where("id", "in", part),
     );
   }
@@ -1053,7 +1055,10 @@ export async function queueEraseOrders(ctx: HandlerContext, s: StoreSubject): Pr
   // order is a financial record); a staff reason, which may say something about them, is blanked,
   // and so is the audit log's copy of it: the input of each order.adjust and order.unadjust on
   // their orders is redacted through the sanctioned path (core_audit_redactions). Their input
-  // names only the order, so the erase's own term match never finds them.
+  // names only the order, so the erase's own term match never finds them. The same holds for
+  // payments taken another way (ADR 0694): a recorded payment's reference (a bank reference
+  // naming the payer, say) and a reversal's reason are blanked, with the audit's copies of
+  // order.recordPayment, order.reversePayment (which names the payment) and order.recordRefund.
   if (orders.length) {
     const orderIds = jsonList(orders.map((row) => row.id));
     ctx.write(
@@ -1086,8 +1091,23 @@ export async function queueEraseOrders(ctx: HandlerContext, s: StoreSubject): Pr
               sql<string>`${ctx.user.id}`.as("user_id"),
               sql<string>`${ctx.now}`.as("at"),
             ])
-            .where("a.operation", "in", ["order.adjust", "order.unadjust"])
-            .where(sql<SqlBool>`json_extract(a.input, '$.id') IN ${orderIds}`),
+            .where((eb) =>
+              eb.or([
+                eb.and([
+                  eb("a.operation", "in", [
+                    "order.adjust",
+                    "order.unadjust",
+                    "order.recordPayment",
+                    "order.recordRefund",
+                  ]),
+                  sql<SqlBool>`json_extract(a.input, '$.id') IN ${orderIds}`,
+                ]),
+                eb.and([
+                  eb("a.operation", "=", "order.reversePayment"),
+                  sql<SqlBool>`json_extract(a.input, '$.paymentId') IN (SELECT event_id FROM core_order_payment WHERE provider = 'host' AND order_id IN ${orderIds})`,
+                ]),
+              ]),
+            ),
         ),
     );
   }
@@ -1136,8 +1156,17 @@ export async function queueEraseOrders(ctx: HandlerContext, s: StoreSubject): Pr
           updated_at: ctx.now,
         })
         .where("id", "in", part),
-      // Staff's words about a refund may name the person (migration 0422).
-      ctx.db.updateTable("core_order_refund").set({ reason: null }).where("order_id", "in", part),
+      // Staff's words about a refund may name the person (migration 0422), and so may a
+      // reference given with a payment or a refund taken another way (migration 0952).
+      ctx.db
+        .updateTable("core_order_refund")
+        .set({ reason: null, reference: null })
+        .where("order_id", "in", part),
+      ctx.db
+        .updateTable("core_order_payment")
+        .set({ reference: null, reason: null })
+        .where("order_id", "in", part)
+        .where((eb) => eb.or([eb("reference", "is not", null), eb("reason", "is not", null)])),
     );
   }
   return orders.length;

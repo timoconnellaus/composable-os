@@ -129,7 +129,7 @@ type Why = (typeof WHY)[keyof typeof WHY];
  */
 const REMAINING: Record<string, [reads: number, why: Why]> = {
   "ai/embedding.ts": [9, WHY.org],
-  "finance/book.ts": [5, WHY.finance],
+  "finance/book.ts": [8, WHY.finance],
   "ai/summaries.ts": [16, WHY.later],
   // Stage 32b (ADR 0493): a spend checks its Person is not in the Trash, in the write's own path.
   "agreements/due.ts": [2, WHY.agreements],
@@ -212,13 +212,22 @@ const REMAINING: Record<string, [reads: number, why: Why]> = {
   // A paid order's `sold` movements (stage 37, ADR 0680): the order's own lines, joined to its
   // claims in the statement that writes them, in the host's paid batch.
   "stock/index.ts": [1, WHY.host],
+  // A paid order's stock lines, for the low-stock check of its sale (stage 37 step 2, ADR 0681).
+  "stock/sold.ts": [1, WHY.host],
+  // The low-stock check (ADR 0681): each touched record's reorder level and title, joined in the
+  // host's own statements at the end of the write's batch.
+  "stock/low.ts": [1, WHY.write],
+  // stockMoves (ADR 0681): a moved record's lines (a count's), and whether the record a line is
+  // added to, or restored onto, has already moved stock, read by the write that moves or changes
+  // them; and the guard in the apply's batch counting its lines again at the commit.
+  "stock/moves.ts": [7, WHY.write],
   // Whether an object gaining or losing `stock` has any record or counter (ADR 0680, the review
   // of #370): one row at most, read by the reconcile that would change it.
   "extensions/reconciler.ts": [1, WHY.write],
   // Stage 44 step 3 (ADR 0644): honouring a late payment reads the order's lines for their points.
   "orders/late.ts": [3, WHY.host],
-  // ADR 0560: a record an order moves, read as the host (its values, a twin of it for its Person, who a buyer may point at, members' unpaid holds, unsettled guest holds, a Person in the Trash).
-  "orders/moves.ts": [9, WHY.host],
+  // ADR 0560: a record an order moves, read as the host (its values, a twin of it for its Person, who a buyer may point at, members' unpaid holds, unsettled guest holds, a Person in the Trash; ADR 0694: whether a payment taken another way moves one).
+  "orders/moves.ts": [10, WHY.host],
   // ADR 0560: an owed refund's order, read by the minute cron to settle the row.
   "orders/refund-due.ts": [1, WHY.host],
   // Programs' coach role (ADR 0889): the People an account looks after (its team's live records)

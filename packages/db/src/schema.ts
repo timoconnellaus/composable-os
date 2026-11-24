@@ -90,7 +90,8 @@ export type TaskStatus = "open" | "done";
 /** Who a staff-side call is made by: the actors the approval policy and the queue know. */
 export type StaffActor = "human" | "assistant" | "mcp" | "automation" | "extension";
 /** Every actor the audit log records: staff-side actors, customers and the public (migration 0400). */
-export type AuditActor = StaffActor | "customer" | "public";
+/** `device`: an enrolled device holding a device role (stage 51, ADR 0781). */
+export type AuditActor = StaffActor | "customer" | "public" | "device";
 export type AuditRisk =
   | "read"
   | "write"
@@ -1064,6 +1065,17 @@ export interface CoreStockMovementTable {
   /** Minor units, for what was received. */
   unit_cost: number | null;
 }
+/**
+ * Migration 0931 (stage 37, ADR 0681): a stock record at or below its reorder level now, and the
+ * crossing its low-stock notice was told for.
+ */
+export interface CoreStockLowTable {
+  object_type: string;
+  record_id: string;
+  crossing: string;
+  since: string;
+  told_at: string | null;
+}
 export type StockMovementKind =
   | "opening"
   | "received"
@@ -1870,6 +1882,16 @@ export interface CoreStaffFeedTable {
   account_id: string;
   token_hash: string;
   tool: string;
+  created_at: string;
+}
+
+/**
+ * Migration 1350 (stage 62 step 1, ADR 0890): a customer account's private calendar feed, by the
+ * SHA-256 of its token (never the token).
+ */
+export interface CoreCustomerFeedTable {
+  customer_id: string;
+  token_hash: string;
   created_at: string;
 }
 
@@ -2744,7 +2766,27 @@ export interface CoreOrderPaymentTable {
   tax_country: Defaulted<string | null>;
   /** Migration 0530: the subscription invoice this payment paid. */
   invoice_ref: Defaulted<string | null>;
+  /**
+   * Migration 0952 (ADR 0694): how it was paid. `provider` rows are the provider's verified
+   * payments; the others are the host's (provider `host`), made by `applyOtherPayment`.
+   */
+  method: Defaulted<PaymentMethod>;
+  /** A recorded payment: how, who received it, the day they did, and the payer's reference. */
+  recorded_kind: Defaulted<RecordedKind | null>;
+  recorded_by: Defaulted<string | null>;
+  received_on: Defaulted<string | null>;
+  reference: Defaulted<string | null>;
+  voucher_id: Defaulted<string | null>;
+  stored_value_id: Defaulted<string | null>;
+  /** A reversal: the event id of the host's row it undoes (its amount negated), and why. */
+  reverses: Defaulted<string | null>;
+  reason: Defaulted<string | null>;
 }
+
+/** Migration 0952 (ADR 0694): the ways an order's payment is made. */
+export type PaymentMethod = "provider" | "recorded" | "voucher" | "stored_value";
+/** How a recorded payment was paid. */
+export type RecordedKind = "transfer" | "cash" | "cheque" | "card_machine" | "other";
 
 /** Migration 0422: a checkout the host opened on the provider's page for an order. */
 export interface CoreOrderCheckoutTable {
@@ -2794,6 +2836,10 @@ export interface CoreOrderRefundTable {
   tax_amount: Defaulted<number | null>;
   /** Migration 0530: a credit note's tax that arrived before the refund's confirmation. */
   reported_tax: Defaulted<number | null>;
+  /** Migration 0952: the way it went back; a recorded one, how a person paid it back. */
+  method: Defaulted<PaymentMethod>;
+  recorded_kind: Defaulted<RecordedKind | null>;
+  reference: Defaulted<string | null>;
 }
 
 /** Migration 0530 (ADR 0485): a subscription's state, mirrored from the provider's. */
@@ -3104,6 +3150,53 @@ export interface CrmOrderAdjustmentView {
   removed_by: string | null;
   order_state: OrderState;
   currency: string;
+}
+
+/** Migration 0952: an order's payments by method, for reports. */
+export interface CrmOrderPaymentView {
+  id: string;
+  provider: string;
+  event_id: string;
+  order_id: string;
+  person_id: string | null;
+  method: PaymentMethod;
+  recorded_kind: RecordedKind | null;
+  recorded_by: string | null;
+  received_on: string | null;
+  reference: string | null;
+  voucher_id: string | null;
+  stored_value_id: string | null;
+  reverses: string | null;
+  reason: string | null;
+  amount: number;
+  currency: string;
+  outcome: "applied" | "mismatch" | "late";
+  resolved: "honoured" | "refunded" | null;
+  tax_amount: number | null;
+  received_at: Timestamp;
+  order_state: OrderState;
+}
+
+/** Migration 0952: an order's refunds by method, for reports. */
+export interface CrmOrderRefundView {
+  id: string;
+  order_id: string;
+  person_id: string | null;
+  provider: string;
+  payment_ref: string | null;
+  method: PaymentMethod;
+  recorded_kind: RecordedKind | null;
+  reference: string | null;
+  reason: string | null;
+  amount: number;
+  currency: string;
+  status: "requested" | "confirmed";
+  requested_by: string | null;
+  requested_at: Timestamp | null;
+  confirmed_at: Timestamp | null;
+  tax_amount: number | null;
+  created_at: Timestamp;
+  order_state: OrderState;
 }
 
 export interface CrmStageHistoryView {
@@ -3747,6 +3840,7 @@ export interface CoreDatabase {
   core_capacity: CoreCapacityTable;
   core_capacity_claim: CoreCapacityClaimTable;
   core_stock_movement: CoreStockMovementTable;
+  core_stock_low: CoreStockLowTable;
   core_person_link: CorePersonLinkTable;
   core_person_carer: CorePersonCarerTable;
   core_note_kind: CoreNoteKindTable;
@@ -3788,6 +3882,7 @@ export interface CoreDatabase {
   core_staff_hours: CoreStaffHoursTable;
   core_time_entry: CoreTimeEntryTable;
   core_staff_feed: CoreStaffFeedTable;
+  core_customer_feed: CoreCustomerFeedTable;
   core_person_code: CorePersonCodeTable;
   core_person_pin: CorePersonPinTable;
   core_identify_lockout: CoreIdentifyLockoutTable;
@@ -3846,6 +3941,8 @@ export interface CoreDatabase {
   rec_order: CrmOrderView;
   rec_order_line: CrmOrderLineView;
   rec_order_adjustment: CrmOrderAdjustmentView;
+  rec_order_payment: CrmOrderPaymentView;
+  rec_order_refund: CrmOrderRefundView;
   rec_task_link: CrmTaskLinksView;
   rec_record_tag: CrmRecordTagsView;
 }

@@ -42,6 +42,7 @@ const action = (extra: Partial<WaitingAction> = {}): WaitingAction => ({
   reason: "Fixture",
   status: "pending",
   preview: [],
+  outbound: null,
   secondStep: null,
   ...extra,
 });

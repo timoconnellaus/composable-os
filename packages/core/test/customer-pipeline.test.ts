@@ -99,6 +99,10 @@ describe("default closed (criterion 1)", () => {
       "me.agreements.pdf",
       // Stage 48 step 4 (ADR 0711): what needs their attention, worked out in core.
       "me.attention",
+      // Stage 62 step 1 (ADR 0890): their own calendar link, made by them alone.
+      "me.calendarFeed.revoke",
+      "me.calendarFeed.rotate",
+      "me.calendarFeed.status",
       // Stage 51 step 3 (ADR 0783): their own check-in code (and their dependants'), and PIN.
       "me.code",
       "me.deleteAccount",
@@ -473,6 +477,10 @@ describe("the closed handler context (ADR 0413)", () => {
       "me.agreements.pdf",
       // Stage 48 step 4 (ADR 0711): it reads the host's subscription, order and allowance rows.
       "me.attention",
+      // Stage 62 step 1 (ADR 0890): the calendar link is a core table, the caller's own account's.
+      "me.calendarFeed.revoke",
+      "me.calendarFeed.rotate",
+      "me.calendarFeed.status",
       // Stage 51 step 3 (ADR 0783): codes and PINs are core tables, for the caller's own sign-in.
       "me.code",
       "me.deleteAccount",

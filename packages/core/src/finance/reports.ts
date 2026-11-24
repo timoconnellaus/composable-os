@@ -57,11 +57,12 @@ const NOTES: Record<BuiltReport, string[]> = {
 async function userNames(ctx: HandlerContext, ids: readonly (string | null | undefined)[]) {
   const unique = [...new Set(ids.filter((id): id is string => typeof id === "string"))];
   if (!unique.length) return new Map<string, string>();
-  const rows = await ctx.db
-    .selectFrom("core_user")
-    .select(["id", "name"])
-    .where("id", "in", unique)
-    .execute();
+  // One JSON parameter, however many staff a year of refunds names (D1: 100 variables).
+  const rows = (
+    await sql<{ id: string; name: string }>`
+      SELECT id, name FROM core_user WHERE id IN (SELECT value FROM json_each(${JSON.stringify(unique)}))
+    `.execute(ctx.db)
+  ).rows;
   return new Map(rows.map((r) => [r.id, r.name]));
 }
 

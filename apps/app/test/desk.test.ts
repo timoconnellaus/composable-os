@@ -213,6 +213,40 @@ describe("the desk origin", () => {
     expect((await call("desk.documents", {}, { cookie: both })).status).toBe(401);
   });
 
+  it("a device's calls (ADR 0781) go to the pipeline as the device: a signing tablet's are refused", async () => {
+    const tablet = await enrol();
+    // The device's heartbeat and a pack's tools are routed here, and decided by the pipeline.
+    const signing = await call("device.heartbeat", {}, { cookie: tablet.cookie });
+    expect(signing.status).toBe(403);
+    expect((await signing.json()) as unknown).toMatchObject({
+      error: { details: { rule: "device_role" } },
+    });
+    const stranger = await call("device.heartbeat", {});
+    expect(stranger.status).toBe(401);
+    expect((await stranger.json()) as unknown).toMatchObject({
+      error: { details: { rule: "device_not_enrolled" } },
+    });
+    // A tool no installed pack has is no operation at all.
+    expect((await call("x.nopack.now", {}, { cookie: tablet.cookie })).status).toBe(404);
+    // The device's checks hold too: its Origin, and no staff session.
+    expect(
+      (await call("device.heartbeat", {}, { cookie: tablet.cookie, origin: ORIGIN })).status,
+    ).toBe(403);
+    expect(
+      (await call("device.heartbeat", {}, { cookie: `${tablet.cookie}; ${admin.cookie}` })).status,
+    ).toBe(403);
+    // Nothing a device calls is on the HTTP surface.
+    const surface = await handleApi(
+      new Request(`${ORIGIN}/api/v1/op/device.heartbeat`, {
+        method: "POST",
+        headers: { "content-type": "application/json", cookie: tablet.cookie },
+        body: JSON.stringify({ input: {} }),
+      }),
+      deskEnv as unknown as ApiEnv,
+    );
+    expect(surface?.status).toBe(404);
+  });
+
   it("the desk calls are not on the HTTP surface, and its cookies open nothing there", async () => {
     const tablet = await enrol();
     for (const name of ["desk.status", "desk.claim", "device.claim", "desk.documents"]) {

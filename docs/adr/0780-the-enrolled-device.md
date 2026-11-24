@@ -66,3 +66,9 @@ Two enrolment flows would be two attack surfaces and two Settings pages. Stage 4
   `core_device_guard`, fails its batch unless the device holds its credential).
 - **`device.list`** is a person's (`actors: ["human"]`): a device's browser and address are for an
   admin who is a person.
+
+**Amended 2026-11-24 (stage 51 step 2, [ADR 0781](0781-a-device-as-a-caller-the-device-audience-and-device-roles.md)):**
+the `role` use is no longer refused outright: a device may be enrolled for, or changed to, a
+device role an installed, active, shipped pack declares (`deviceRoles`). Its credential then
+calls that role's tools and `device.heartbeat` (the `device` audience), which records it as seen.
+No shipped pack declares one yet (Bookings' `bookings.checkin` is step 4).

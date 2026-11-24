@@ -8,6 +8,7 @@ import { type ExtensionManifest, type ManifestIssue, validateManifest } from "@c
 import type { Kysely } from "kysely";
 import { allowanceHostIssues } from "../allowance/check.ts";
 import { automationSyncStatements } from "../automations/registry.ts";
+import { calendarEntryHostIssues } from "../customers/calendar-entry-check.ts";
 import { dashboardSpecSchema } from "../dashboards/spec.ts";
 import { ConfigError, ValidationError } from "../errors.ts";
 import { listObjects } from "../fields/index.ts";
@@ -165,6 +166,13 @@ export async function checkManifest(
   // must let this holder pay, and fields one relation away must exist with the right type.
   if (manifest) {
     for (const issue of allowanceHostIssues(manifest)) {
+      all.push({ stage: "contract", code: "contract", path: issue.path, message: issue.message });
+    }
+  }
+  // A calendar entry's paths into another extension's objects (ADR 0891): each field on the way
+  // one the customer reads.
+  if (manifest) {
+    for (const issue of calendarEntryHostIssues(manifest)) {
       all.push({ stage: "contract", code: "contract", path: issue.path, message: issue.message });
     }
   }
@@ -394,6 +402,16 @@ function outsideDeclarations(manifest: ExtensionManifest): CheckIssue[] {
       message: `A runtime extension cannot declare a staff role. ${why}`,
     });
   }
+  // A device role is standing authority on the business's own device (ADR 0781): identity and
+  // access, so only a shipped pack's reviewed declaration says what one may do.
+  for (const name of Object.keys(manifest.deviceRoles ?? {})) {
+    issues.push({
+      stage: "contract",
+      code: "outside_audience",
+      path: `deviceRoles.${name}`,
+      message: `A runtime extension cannot declare a device role. ${why}`,
+    });
+  }
   for (const [name, object] of Object.entries(manifest.objects)) {
     if (object.customer) {
       issues.push({
@@ -456,6 +474,25 @@ function outsideDeclarations(manifest: ExtensionManifest): CheckIssue[] {
         code: "outside_audience",
         path: `objects.${name}.stock`,
         message: `A runtime extension cannot give ${name} stock the host sells from. ${why}`,
+      });
+    }
+    // A state moving stock writes the host's ledger (ADR 0681): a reviewed change, as stock is.
+    if (object.stockMoves) {
+      issues.push({
+        stage: "contract",
+        code: "outside_audience",
+        path: `objects.${name}.stockMoves`,
+        message: `A runtime extension cannot make ${name}'s states move stock. ${why}`,
+      });
+    }
+    // What a customer's private calendar feed shows (ADR 0891): a reviewed change, as what a
+    // customer reads is.
+    if (object.calendarEntry) {
+      issues.push({
+        stage: "contract",
+        code: "outside_audience",
+        path: `objects.${name}.calendarEntry`,
+        message: `A runtime extension cannot put ${name} in customers' calendar feeds. ${why}`,
       });
     }
     // Who works when feeds pay, and claims staff accounts' time (ADR 0621): a reviewed change.

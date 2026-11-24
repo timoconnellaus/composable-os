@@ -23,10 +23,13 @@
 //   as anything but a calendar, and sends no Referer anywhere.
 // - What it shows is `readStaffFeed`'s: the person's own shifts, their kind of work, place and
 //   times in UTC, nothing else (packages/core/src/staffing/feed.ts).
-import { addressKey } from "@composable-os/auth";
-import { writeCalendar } from "@composable-os/calendar-file";
-import { type RateLimitBinding, rateLimit, readStaffFeed, sha256Hex } from "@composable-os/core";
+//
+// All of that but what it shows is the shared feed module's (calendar-feed.ts, ADR 0890), which
+// the customer's feed uses too; this file says only what is the staff feed's own, and its answers
+// are byte for byte what they were before the module was shared.
+import { type RateLimitBinding, readStaffFeed } from "@composable-os/core";
 import { createCrmDb } from "@composable-os/db";
+import { isFeedPath, serveFeed } from "./calendar-feed.ts";
 
 export interface StaffFeedEnv {
   DB: D1Database;
@@ -38,128 +41,44 @@ export interface StaffFeedEnv {
   STAFF_FEED_ADDRESS_RATE_LIMIT?: RateLimitBinding;
 }
 
-/** The feed's address: the token, 43 base64url characters, then `.ics`. */
-const FEED = /^\/api\/v1\/staffing\/feed\/([A-Za-z0-9_-]{43})\.ics$/;
+const PREFIX = "/api/v1/staffing/feed";
 
 /** Whether `pathname` is under the feed's prefix (every such path is answered here). */
 export function isStaffFeedPath(pathname: string): boolean {
-  return pathname === "/api/v1/staffing/feed" || pathname.startsWith("/api/v1/staffing/feed/");
-}
-
-/** Headers on every answer of the feed's paths, found or not. */
-const PRIVATE: Record<string, string> = {
-  // Personal: never kept by a shared or a browser cache.
-  "cache-control": "private, no-store",
-  // Never in a search engine's index.
-  "x-robots-tag": "noindex, nofollow, noarchive",
-  // Never read as anything but what it says.
-  "x-content-type-options": "nosniff",
-  // A page that somehow rendered it could load nothing and send no Referer with the address.
-  "referrer-policy": "no-referrer",
-  "content-security-policy": "default-src 'none'; sandbox",
-};
-
-/** The surface's own answer to a missing route: its body; the headers are the feed's. */
-function notFound(): Response {
-  return new Response(JSON.stringify({ error: { code: "not_found", message: "No such route" } }), {
-    status: 404,
-    headers: { "content-type": "application/json; charset=utf-8", ...PRIVATE },
-  });
-}
-
-function limited(seconds: number): Response {
-  return new Response(
-    JSON.stringify({ error: { code: "rate_limited", message: "Too many requests" } }),
-    {
-      status: 429,
-      headers: {
-        "content-type": "application/json; charset=utf-8",
-        "retry-after": String(seconds),
-        ...PRIVATE,
-      },
-    },
-  );
+  return isFeedPath(PREFIX, pathname);
 }
 
 /** Serves one request under the feed's prefix. */
-export async function handleStaffFeed(
+export function handleStaffFeed(
   request: Request,
   env: StaffFeedEnv,
   now: () => Date = () => new Date(),
 ): Promise<Response> {
-  const url = new URL(request.url);
-  if (request.method !== "GET" && request.method !== "HEAD") {
-    return new Response(JSON.stringify({ error: { code: "invalid_input", message: "Use GET" } }), {
-      status: 405,
-      headers: {
-        "content-type": "application/json; charset=utf-8",
-        allow: "GET, HEAD",
-        ...PRIVATE,
-      },
-    });
-  }
-  try {
-    // Per client address first, before anything is looked up: guessing costs the guesser.
-    const address = request.headers.get("cf-connecting-ip");
-    if (address) {
-      const byAddress = await rateLimit(
-        env.STAFF_FEED_ADDRESS_RATE_LIMIT,
-        `feed-from:${await addressKey(address, env.BETTER_AUTH_SECRET ?? "")}`,
-      );
-      if (!byAddress.ok) return limited(byAddress.retryAfterSeconds);
-    }
-    const token = FEED.exec(url.pathname)?.[1];
-    if (!token) return notFound();
-    // Per token, keyed by its hash (the same for a real or a made-up one).
-    const byToken = await rateLimit(
-      env.STAFF_FEED_RATE_LIMIT,
-      `feed:${(await sha256Hex(token)).slice(0, 32)}`,
-    );
-    if (!byToken.ok) return limited(byToken.retryAfterSeconds);
-    const feed = await readStaffFeed(createCrmDb(env.DB).query, token, now());
-    if (!feed) return notFound();
-    const ics = writeCalendar({
+  return serveFeed(
+    request,
+    {
+      prefix: PREFIX,
       prodId: "-//Composable OS//Staff calendar feed//EN",
-      method: "PUBLISH",
       name: "Shifts",
-      // A hint: each calendar app fetches on its own schedule (often hours apart).
-      refresh: "PT1H",
-      events: feed.shifts.map((s) => ({
-        // Stable across every change of the shift, so a calendar app replaces, never duplicates.
-        uid: `${s.id}@${url.hostname}`,
-        // Never the record's last change, which other writes can move (ADR 0628): the shift's own
-        // start, so DTSTAMP says nothing of anything but the shift and the bytes stay the same
-        // while the shift does.
-        stamp: s.startsAt,
-        start: s.startsAt,
-        end: s.endsAt,
-        title: s.title,
-        location: s.place ?? undefined,
-      })),
-    });
-    const bytes = new TextEncoder().encode(ics);
-    return new Response(request.method === "HEAD" ? null : bytes, {
-      status: 200,
-      headers: {
-        "content-type": "text/calendar; charset=utf-8",
-        "content-disposition": 'inline; filename="shifts.ics"',
-        "content-length": String(bytes.byteLength),
-        ...PRIVATE,
+      file: "shifts",
+      tokenLimit: env.STAFF_FEED_RATE_LIMIT,
+      addressLimit: env.STAFF_FEED_ADDRESS_RATE_LIMIT,
+      keys: { token: "feed", address: "feed-from" },
+      secret: env.BETTER_AUTH_SECRET ?? "",
+      failure: "staff calendar feed could not be served",
+      async read(token, at) {
+        const feed = await readStaffFeed(createCrmDb(env.DB).query, token, at);
+        return feed
+          ? feed.shifts.map((s) => ({
+              uid: s.id,
+              title: s.title,
+              place: s.place,
+              startsAt: s.startsAt,
+              endsAt: s.endsAt,
+            }))
+          : null;
       },
-    });
-  } catch (error) {
-    // Never the URL or anything that could hold the token: the kind of failure only.
-    console.error("staff calendar feed could not be served", (error as Error)?.name ?? "error");
-    return new Response(
-      JSON.stringify({ error: { code: "unavailable", message: "Try again later" } }),
-      {
-        status: 503,
-        headers: {
-          "content-type": "application/json; charset=utf-8",
-          "retry-after": "60",
-          ...PRIVATE,
-        },
-      },
-    );
-  }
+    },
+    now,
+  );
 }

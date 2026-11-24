@@ -95,7 +95,7 @@ Disable an automation (admins): it stops starting runs. Runs already in progress
 | Field | Type | Required | Limits | Description |
 | --- | --- | --- | --- | --- |
 | `id` | string | yes |   |   |
-| `status` | `"active"`, `"disabled"`, `"paused"`, `"killed"`, `"removed"` | yes |   |   |
+| `status` | `"active"`, `"disabled"`, `"waiting"`, `"broken"`, `"paused"`, `"killed"`, `"removed"` | yes |   |   |
 
 ## automation.enable
 
@@ -118,7 +118,7 @@ Enable an automation (admins). Also clears an auto-pause from a rate limit, so i
 | Field | Type | Required | Limits | Description |
 | --- | --- | --- | --- | --- |
 | `id` | string | yes |   |   |
-| `status` | `"active"`, `"disabled"`, `"paused"`, `"killed"`, `"removed"` | yes |   |   |
+| `status` | `"active"`, `"disabled"`, `"waiting"`, `"broken"`, `"paused"`, `"killed"`, `"removed"` | yes |   |   |
 
 ## automation.explain
 
@@ -173,8 +173,10 @@ Get one automation: the host-written plain-English summary and step diagram (gen
 | `triggerType` | string | yes |   |   |
 | `triggerObject` | string or null | yes |   |   |
 | `triggerText` | string | yes |   |   |
-| `status` | `"active"`, `"disabled"`, `"paused"`, `"killed"`, `"removed"` | yes |   |   |
+| `status` | `"active"`, `"disabled"`, `"waiting"`, `"broken"`, `"paused"`, `"killed"`, `"removed"` | yes |   |   |
 | `pausedReason` | string or null | yes |   |   |
+| `waitingFor` | array of string | yes |   |   |
+| `unknownObjects` | array of string | yes |   |   |
 | `lastRunAt` | string or null | yes |   |   |
 | `lastRunStatus` | `"queued"`, `"running"`, `"waiting"`, `"review"`, `"completed"`, `"failed"`, `"cancelled"`, `"expired"`, `"skipped"` or null | yes |   |   |
 | `runs7d` | number | yes |   |   |
@@ -248,7 +250,7 @@ Engage or release the automation kill switch (human admins only). Engaged, no au
 
 ## automation.list
 
-List the automations installed extensions declare, with their status (active, disabled, paused by a rail, stopped by the kill switch, removed), trigger in plain English, last run and 7-day run and error counts. `manualFor` lists the manual automations of one object (the buttons on its record pages and bulk actions on its lists). Read-only.
+List the automations installed extensions declare, with their status (active, disabled, waiting for an extension it runs only with (`waitingFor`), paused by a rail, stopped by the kill switch, removed), trigger in plain English, last run and 7-day run and error counts. `manualFor` lists the manual automations of one object (the buttons on its record pages and bulk actions on its lists). Read-only.
 
 |  |  |
 | --- | --- |
@@ -277,8 +279,10 @@ List the automations installed extensions declare, with their status (active, di
 | `items[].triggerType` | string | yes |   |   |
 | `items[].triggerObject` | string or null | yes |   |   |
 | `items[].triggerText` | string | yes |   |   |
-| `items[].status` | `"active"`, `"disabled"`, `"paused"`, `"killed"`, `"removed"` | yes |   |   |
+| `items[].status` | `"active"`, `"disabled"`, `"waiting"`, `"broken"`, `"paused"`, `"killed"`, `"removed"` | yes |   |   |
 | `items[].pausedReason` | string or null | yes |   |   |
+| `items[].waitingFor` | array of string | yes |   |   |
+| `items[].unknownObjects` | array of string | yes |   |   |
 | `items[].lastRunAt` | string or null | yes |   |   |
 | `items[].lastRunStatus` | `"queued"`, `"running"`, `"waiting"`, `"review"`, `"completed"`, `"failed"`, `"cancelled"`, `"expired"`, `"skipped"` or null | yes |   |   |
 | `items[].runs7d` | number | yes |   |   |

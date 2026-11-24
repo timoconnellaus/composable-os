@@ -9,16 +9,24 @@
 //
 // What can still be refunded on a payment is what was paid on it, less the refunds confirmed and
 // the ones asked for whose action is still waiting or applied and not yet confirmed.
+//
+// Refunds go back the way the money came (stage 34, ADR 0694, amending ADR 0429): the provider's
+// payments as above; a payment a person recorded (a transfer, cash) is paid back by a person, who
+// records how (`order.recordRefund`, `orders:refund`, a person only): the host sends nothing.
 
+import type { PaymentMethod, RecordedKind } from "@composable-os/db";
 import type { PendingApproval } from "../errors.ts";
-import { ConflictError, ValidationError } from "../errors.ts";
+import { ConflictError, NotFoundError, ValidationError } from "../errors.ts";
 import { newId } from "../ids.ts";
 import type { HandlerContext } from "../operation.ts";
 import { paymentsTarget, requestProviderRefund } from "./gateway.ts";
-import { formatMoney, type OrderRow } from "./orders.ts";
+import { changeOrder, formatMoney, type OrderRow } from "./orders.ts";
+import { HOST_PROVIDER } from "./payments.ts";
 
 export interface RefundablePayment {
   provider: string;
+  /** How it was paid (ADR 0694): only the provider's go back through the gatekeeper. */
+  method: PaymentMethod;
   paymentRef: string;
   paid: number;
   refundable: number;
@@ -33,7 +41,7 @@ export async function refundablePayments(
 ): Promise<RefundablePayment[]> {
   const payments = await ctx.db
     .selectFrom("core_order_payment")
-    .select(["provider", "payment_ref", "amount", "received_at", "invoice_ref"])
+    .select(["provider", "payment_ref", "amount", "received_at", "invoice_ref", "method"])
     .where("order_id", "=", orderId)
     .where("payment_ref", "is not", null)
     .orderBy("received_at", "desc")
@@ -56,6 +64,7 @@ export async function refundablePayments(
     const key = `${p.provider}\u0000${p.payment_ref}`;
     const entry = byPayment.get(key) ?? {
       provider: p.provider,
+      method: p.method,
       paymentRef: p.payment_ref as string,
       paid: 0,
       refundable: 0,
@@ -112,15 +121,21 @@ export async function requestRefund(
       { order: row.id, state: row.state },
     );
   }
-  const payments = (await refundablePayments(ctx, row.id)).filter(
+  const refundable = (await refundablePayments(ctx, row.id)).filter(
     (p) =>
       p.refundable > 0 && (input.paymentRef === undefined || p.paymentRef === input.paymentRef),
   );
+  // Only the provider's payments go back through it (ADR 0694): money taken another way is paid
+  // back by a person, who records it (order.recordRefund).
+  const payments = refundable.filter((p) => p.method === "provider");
   const available = payments.reduce((sum, p) => sum + p.refundable, 0);
   if (available <= 0) {
-    throw new ConflictError("Everything paid on this order has been refunded or asked for", {
-      order: row.id,
-    });
+    throw new ConflictError(
+      refundable.length
+        ? "What is left to refund on this order was taken another way: pay it back and record it (order.recordRefund)"
+        : "Everything paid on this order has been refunded or asked for",
+      { order: row.id, ...(refundable.length ? { rule: "refund_method" } : {}) },
+    );
   }
   const wanted = input.amount ?? available;
   if (!Number.isSafeInteger(wanted) || wanted <= 0 || wanted > available) {
@@ -186,4 +201,106 @@ export async function requestRefund(
     });
   }
   return { refunds, pending };
+}
+
+/**
+ * Records money a person paid back on a recorded payment (ADR 0694), in the calling operation's
+ * batch: a confirmed refund row of method `recorded` naming how, and the order's `refunded` up by
+ * it; the order moves to `refunded`, as the host, when it was paid and everything paid has gone
+ * back. Nothing is sent anywhere. At most what is still refundable on that payment; as for the
+ * provider's, a part-paid order is cancelled first.
+ */
+export async function recordRefund(
+  ctx: HandlerContext,
+  row: OrderRow,
+  input: {
+    paymentId: string;
+    amount?: number | undefined;
+    kind: RecordedKind;
+    reference: string | null;
+    reason: string;
+  },
+): Promise<{ order: OrderRow; refundId: string; amount: number }> {
+  if (row.state === "pending" || row.state === "part_paid") {
+    throw new ConflictError(
+      row.state === "pending"
+        ? "Nothing has been paid on this order"
+        : "A part-paid order is cancelled first; then what was paid can be refunded",
+      { order: row.id, state: row.state },
+    );
+  }
+  const payment = await ctx.db
+    .selectFrom("core_order_payment")
+    .select(["method", "reverses"])
+    .where("provider", "=", HOST_PROVIDER)
+    .where("event_id", "=", input.paymentId)
+    .where("order_id", "=", row.id)
+    .executeTakeFirst();
+  if (!payment || payment.reverses !== null) throw new NotFoundError("payment", input.paymentId);
+  if (payment.method !== "recorded") {
+    throw new ConflictError("This payment goes back onto what paid it, not by hand", {
+      rule: "refund_method",
+      method: payment.method,
+    });
+  }
+  const left =
+    (await refundablePayments(ctx, row.id)).find(
+      (p) => p.provider === HOST_PROVIDER && p.paymentRef === input.paymentId,
+    )?.refundable ?? 0;
+  const amount = input.amount ?? left;
+  if (left <= 0) {
+    throw new ConflictError("Everything paid by this payment has been paid back or reversed", {
+      order: row.id,
+    });
+  }
+  if (!Number.isSafeInteger(amount) || amount <= 0 || amount > left) {
+    throw new ValidationError(
+      `At most ${formatMoney(left, row.currency)} can be paid back on this payment`,
+      { field: "amount", rule: "refund_amount", available: left },
+    );
+  }
+  const refundId = newId("refund");
+  ctx.write(
+    ctx.db.insertInto("core_order_refund").values({
+      id: refundId,
+      order_id: row.id,
+      provider: HOST_PROVIDER,
+      payment_ref: input.paymentId,
+      amount,
+      currency: row.currency,
+      reason: input.reason,
+      status: "confirmed",
+      requested_by: ctx.user.id,
+      requested_at: ctx.now,
+      confirmed_at: ctx.now,
+      created_at: ctx.now,
+      method: "recorded",
+      recorded_kind: input.kind,
+      reference: input.reference,
+    }),
+  );
+  const refunded = row.refunded + amount;
+  const whole = row.state === "paid" && refunded >= row.paid;
+  const order = await changeOrder(
+    ctx,
+    row,
+    whole ? "refunded" : row.state,
+    { refunded, ...(whole ? { refunded_at: ctx.now } : {}) },
+    // The host's move: a person with the refund permission says the money went back.
+    "host",
+  );
+  if (!whole && row.person_id) {
+    ctx.postActivity({
+      subject: `Order refund: ${formatMoney(amount, row.currency)}`,
+      payload: {
+        kind: "order.refunded",
+        orderId: row.id,
+        amount,
+        refunded,
+        currency: row.currency,
+      },
+      links: [{ object: "person", id: row.person_id }],
+    });
+  }
+  return { order, refundId, amount };
 }
