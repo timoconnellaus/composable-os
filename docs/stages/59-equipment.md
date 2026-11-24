@@ -27,6 +27,18 @@ Status: **spec agreed** (2026-11-24). Every question was decided as best practic
 owner's standing rule (best-practice answers are decided, not asked; the owner may override any of
 them): decisions 1 to 10 below. Nothing waits for an interview. Roadmap stage 59; no issue.
 
+- **Step 1 built** (P1, `feat/stage-59-interval`): `recurring`'s interval rule. The rule gains
+  optional `unit` (a select of `week`, `month`, `year`), `every` (1 to 100), `day` (1 to 31, the
+  month's last day when shorter), `month` (1 to 12) and `lengthDays` (a length in whole days,
+  ending at the same wall-clock time); `day` and `month` default to the `from` date's. Dates are
+  fixed on the calendar from `from` (weeks from its Monday-first week, months from its month,
+  years from its year). Without `unit` a rule is weekly as before; `weekdays` is optional only
+  when the unit cannot be `week`. Contract checks in `packages/sdk/src/recurring.ts`, the host's
+  rule in `packages/core/src/recurring/index.ts`, tests in
+  `packages/core/test/recurring-interval.test.ts` (Bookings', Rostering's and the weekly recurring
+  suites unchanged and green). No migration; ADR 0860 (0500 amended). Left: the plan and
+  maintenance objects that use it are step 4's.
+
 ## Goal
 
 A business keeps a register of what it owns and must look after: a gym's treadmills, racks, cable

@@ -15,6 +15,7 @@
 import type { CoreDatabase } from "@composable-os/db";
 import { CompiledQuery, type Kysely, sql } from "kysely";
 import { ValidationError } from "../errors.ts";
+import { jsonList } from "../records/common.ts";
 import { dependantsSql, GUARDIAN_LINK } from "../visibility/guardians.ts";
 import { readRev } from "./documents.ts";
 
@@ -83,7 +84,7 @@ export async function attachedDocuments(db: Db, point: string | null): Promise<A
       "ask_again_months",
       "effective_from",
     ])
-    .where("document_id", "in", ids)
+    .where("document_id", "in", jsonList(ids))
     .orderBy("number")
     .execute();
   const out = new Map<string, Attached>();
@@ -131,25 +132,44 @@ export interface PersonFacts {
 export const isMinor = (facts: PersonFacts) => facts.marked || facts.dependant;
 
 export async function personFacts(db: Db, personId: string): Promise<PersonFacts> {
+  return (await peopleFacts(db, [personId])).get(personId) ?? NO_PERSON;
+}
+
+export const NO_PERSON: PersonFacts = {
+  exists: false,
+  inTrash: false,
+  marked: false,
+  dependant: false,
+};
+
+/** `personFacts` for many People in one statement, their ids bound as one parameter. */
+export async function peopleFacts(
+  db: Db,
+  personIds: readonly string[],
+): Promise<Map<string, PersonFacts>> {
+  if (!personIds.length) return new Map();
   const { rows } = await sql<{
+    id: string;
     deleted_at: string | null;
     marked: number;
     dependant: number;
-  }>`SELECT p.deleted_at,
+  }>`SELECT p.id, p.deleted_at,
       EXISTS (SELECT 1 FROM core_agreement_minor m WHERE m.person_id = p.id) AS marked,
       EXISTS (SELECT 1 FROM core_person_link l
         JOIN core_person g ON g.id = l.guardian_id AND g.deleted_at IS NULL
         WHERE l.dependant_id = p.id AND l.kind = ${GUARDIAN_LINK} AND l.ended_at IS NULL
           AND p.deleted_at IS NULL) AS dependant
-    FROM core_person p WHERE p.id = ${personId}`.execute(db);
-  const row = rows[0];
-  if (!row) return { exists: false, inTrash: false, marked: false, dependant: false };
-  return {
-    exists: true,
-    inTrash: row.deleted_at !== null,
-    marked: Boolean(row.marked),
-    dependant: Boolean(row.dependant),
-  };
+    FROM core_person p WHERE p.id IN ${jsonList(personIds)}`.execute(db);
+  const out = new Map<string, PersonFacts>();
+  for (const row of rows) {
+    out.set(row.id, {
+      exists: true,
+      inTrash: row.deleted_at !== null,
+      marked: Boolean(row.marked),
+      dependant: Boolean(row.dependant),
+    });
+  }
+  return out;
 }
 
 /** An acceptance as the question reads it: no name typed, no signature, no answers. */
@@ -293,10 +313,10 @@ export async function acceptancesOf(
   const rows = await db
     .selectFrom("core_agreement_acceptance")
     .select([...ACCEPTANCE_COLUMNS])
-    .where("person_id", "in", [...personIds])
+    .where("person_id", "in", jsonList(personIds))
     // An erased acceptance (its Person's, or the guardian's who made it) no longer counts.
     .where("erased_at", "is", null)
-    .where("document_id", "in", [...documentIds])
+    .where("document_id", "in", jsonList(documentIds))
     .execute();
   return byPersonAndDocument(rows as AcceptanceRow[]);
 }

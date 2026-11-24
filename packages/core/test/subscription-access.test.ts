@@ -662,6 +662,15 @@ describe("access with no event, and only for live records (review of 32a)", () =
     expect(await held(buyer, undefined, asked)).toEqual([...courses].sort());
   });
 
+  it("answers a page of 200 ids, more than D1 binds in one statement one by one", async () => {
+    const { buyer } = await member("wholePage");
+    const asked = [
+      ...courses,
+      ...Array.from({ length: 200 - courses.length }, (_, i) => `rec_${i}`),
+    ];
+    expect(await held(buyer, undefined, asked)).toEqual([...courses].sort());
+  });
+
   it("past due gives access only until it has been failing 30 days; staff are told once when it lapses", async () => {
     const { buyer, id } = await member("longFailing");
     await deliver("invoice_payment_failed", read(id, { status: "past_due", trialEnd: null }));

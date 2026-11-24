@@ -16,7 +16,6 @@ import {
 } from "@composable-os/ui/components/select";
 import { Skeleton } from "@composable-os/ui/components/skeleton";
 import { cn } from "@composable-os/ui/lib/utils";
-import { useInfiniteQuery } from "@tanstack/react-query";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { ChevronRightIcon, LinkIcon, ListFilterIcon, LockIcon, ScrollTextIcon } from "lucide-react";
 import { type ReactNode, useEffect, useMemo, useState } from "react";
@@ -24,8 +23,8 @@ import { EmptyState, ErrorState } from "#/components/empty-state";
 import { VirtualFeed } from "#/components/layout/infinite";
 import { PageCount, PageLayout } from "#/components/layout/page-layout";
 import { diffValue, formatDateTime } from "#/lib/format";
-import { callOp } from "#/lib/operations";
-import { opKey } from "#/lib/query";
+import type { callOp } from "#/lib/operations";
+import { useInfiniteOp } from "#/lib/query";
 import { useDebounced } from "#/lib/use-debounced";
 import { useUsers } from "#/lib/users-adapter";
 
@@ -137,14 +136,7 @@ function AuditLog() {
     };
   }, [filters, typed.operation, typed.recordId, operationValid]);
 
-  const log = useInfiniteQuery({
-    queryKey: opKey("audit.list", input),
-    queryFn: ({ pageParam }) =>
-      callOp("audit.list", { ...input, ...(pageParam ? { cursor: pageParam } : {}) }),
-    initialPageParam: undefined as string | undefined,
-    getNextPageParam: (page) => page.nextCursor ?? undefined,
-    staleTime: 0,
-  });
+  const log = useInfiniteOp("audit.list", input, { staleTime: 0 });
   const entries = useMemo(() => log.data?.pages.flatMap((p) => p.items) ?? [], [log.data]);
   const filtered = JSON.stringify(filters) !== JSON.stringify(EMPTY);
   const activeFilters = (Object.keys(EMPTY) as (keyof Filters)[]).filter(

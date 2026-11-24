@@ -19,6 +19,7 @@
 import type { CoreDatabase } from "@composable-os/db";
 import { type Kysely, sql } from "kysely";
 import { mailboxKey } from "../customers/limits.ts";
+import { jsonList } from "../records/common.ts";
 
 type Db = Kysely<CoreDatabase>;
 
@@ -68,16 +69,12 @@ export async function deskMarks(
   if (!live.length) return out;
   const people = [...new Set(live.map((r) => r.personId as string))];
   // One bound value however many people: D1 allows 100 per statement.
-  const ids = JSON.stringify(people);
+  const ids = jsonList(people);
   const times = live.map((r) => Date.parse(r.acceptedAt));
   const from = new Date(Math.min(...times) - WINDOW_MS).toISOString();
   const to = new Date(Math.max(...times) + WINDOW_MS).toISOString();
   const [created, staff, changes] = await Promise.all([
-    db
-      .selectFrom("core_person")
-      .select(["id", "created_at"])
-      .where(sql<boolean>`id IN (SELECT value FROM json_each(${ids}))`)
-      .execute(),
+    db.selectFrom("core_person").select(["id", "created_at"]).where("id", "in", ids).execute(),
     db.selectFrom("core_user").select("email").where("kind", "=", "human").execute(),
     // The newest few changes of each Person's emails in the window (after the review of PR
     // #390: a cap across the page cut the newest, which matter most).
@@ -95,7 +92,7 @@ export async function deskMarks(
         JOIN core_audit a ON a.id = c.audit_id
         LEFT JOIN core_user u ON u.id = a.user_id
         WHERE c.object_type = 'person' AND c.action != 'create'
-          AND c.record_id IN (SELECT value FROM json_each(${ids}))
+          AND c.record_id IN ${ids}
           AND c.at >= ${from} AND c.at <= ${to} AND c.diff LIKE '%"emails"%')
       WHERE n <= ${CHANGES_PER_PERSON}`
       .execute(db)

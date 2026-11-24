@@ -38,6 +38,7 @@ import {
 } from "../errors.ts";
 import { isProvisionalId, newId, replaceIds } from "../ids.ts";
 import {
+  ACCOUNTING_VOID_KINDS,
   type OutboundInput,
   outboundAppliedAudit,
   READER_KINDS,
@@ -964,6 +965,15 @@ async function approveActions(
       { actionId: privileged.id, permission: "extensions:manage" },
     );
   }
+  // A change to how the system is set up is reviewed on a computer, never approved from the
+  // company's app on a phone (stage 60 decision 8, ADR 0872): the host holds the rule, not the
+  // owner's screen that says so.
+  if (privileged && ctx.origin.staffDevice) {
+    throw new ForbiddenError(`Review ${privileged.operation} on a computer: it changes the setup`, {
+      actionId: privileged.id,
+      reason: "review_on_computer",
+    });
+  }
   // A refund sends money back (ADR 0429): only a person approves one, and only a person who may
   // refund. No AI actor, under any policy, and not by relaying the person's words.
   const kindOf = (t: (typeof targets)[number]) =>
@@ -1001,6 +1011,27 @@ async function approveActions(
         actionId: reader.id,
         permission: "integrations:manage",
       });
+    }
+  }
+  // A void of an entry the host posted to the books (stage 61, ADR 0881): it takes back what the
+  // bookkeeper may already have reconciled, so a person who is an admin (integrations:manage,
+  // which no grant gives) approves it, never an AI actor.
+  const accountingVoid = targets.find((t) => ACCOUNTING_VOID_KINDS.has(kindOf(t)));
+  if (accountingVoid) {
+    if (ctx.actor !== "human") {
+      throw new ForbiddenError(
+        "A void in the books is approved by a person, never by an AI actor",
+        {
+          actionId: accountingVoid.id,
+          actor: ctx.actor,
+        },
+      );
+    }
+    if (!roleHasPermission(ctx.user.role, "integrations:manage")) {
+      throw new ForbiddenError(
+        "Approving a void in the books needs an admin (integrations:manage)",
+        { actionId: accountingVoid.id, permission: "integrations:manage" },
+      );
     }
   }
   // An AI actor's publish request (ADR 0480): only a person approves it, and only a person who
@@ -1074,6 +1105,23 @@ async function approveActions(
       throw new ForbiddenError(
         "Approving a checklist needs the checklists permission (checklists:write)",
         { actionId: checklist.id, permission: "checklists:write" },
+      );
+    }
+  }
+  // An AI's draft of a kind of note (stage 56, ADR 0833): approved only by a person who may keep
+  // the kinds themselves, so what staff are asked to write is always a person's.
+  const noteKind = targets.find((t) => t.operation === "note.kinds.save");
+  if (noteKind) {
+    if (ctx.actor !== "human") {
+      throw new ForbiddenError("A kind of note is approved by a person, never by an AI actor", {
+        actionId: noteKind.id,
+        actor: ctx.actor,
+      });
+    }
+    if (!holdsPermission(ctx.user, ctx.permissionGrants, "notes:manage")) {
+      throw new ForbiddenError(
+        "Approving a kind of note needs the notes permission (notes:manage)",
+        { actionId: noteKind.id, permission: "notes:manage" },
       );
     }
   }

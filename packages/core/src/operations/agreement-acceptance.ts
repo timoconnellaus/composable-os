@@ -39,13 +39,16 @@ import {
   countingAcceptance,
   type DueReason,
   isMinor,
+  NO_PERSON,
   type PersonFacts,
+  peopleFacts,
   personFacts,
 } from "../agreements/due.ts";
 import { healthListOf } from "../agreements/health-list.ts";
 import { ForbiddenError, NotFoundError, OperationError, ValidationError } from "../errors.ts";
 import { defineOperation, type HandlerContext } from "../operation.ts";
 import { type CustomerPrincipal, holdsPermission } from "../principals.ts";
+import { jsonList } from "../records/common.ts";
 import { isLiveDependant } from "../visibility/guardians.ts";
 import { requireVisible } from "./agreement-copy.ts";
 
@@ -168,7 +171,7 @@ export async function versionsById(
     .innerJoin("core_agreement_document as d", "d.id", "v.document_id")
     .selectAll("v")
     .select("d.kind")
-    .where("v.id", "in", [...new Set(ids)])
+    .where("v.id", "in", jsonList([...new Set(ids)]))
     .execute();
   for (const v of rows) {
     // A version whose stored text does not match its hash is never shown to agree to.
@@ -205,41 +208,67 @@ const documentStatus = z.object({
 });
 type DocumentStatus = z.infer<typeof documentStatus>;
 
+interface Standing {
+  documents: DocumentStatus[];
+  counting: Set<string>;
+}
+
 /** Where one Person stands on every document attached anywhere (spec 44, the Person tab). */
 export async function standing(
   ctx: HandlerContext,
   personId: string,
   facts: PersonFacts,
-): Promise<{ documents: DocumentStatus[]; counting: Set<string> }> {
-  const docs = (await attachedDocuments(ctx.db, null)).filter((d) => appliesTo(d, facts));
+): Promise<Standing> {
+  const one = (await standings(ctx, new Map([[personId, facts]]))).get(personId);
+  return one ?? { documents: [], counting: new Set() };
+}
+
+/** `standing` for many People at once: the documents and the acceptances are read once. */
+async function standings(
+  ctx: HandlerContext,
+  people: ReadonlyMap<string, PersonFacts>,
+): Promise<Map<string, Standing>> {
+  const attached = await attachedDocuments(ctx.db, null);
   const accepted = await acceptancesOf(
     ctx.db,
-    [personId],
-    docs.map((d) => d.id),
+    [...people.keys()],
+    attached.map((d) => d.id),
   );
-  const counting = new Set<string>();
-  const documents = docs.map((doc) => {
-    const { acceptance, reason } = countingAcceptance(
-      doc,
-      facts,
-      accepted.get(acceptanceKey(personId, doc.id)) ?? [],
-      ctx.now,
-    );
-    if (acceptance) counting.add(acceptance.id);
-    return {
-      documentId: doc.id,
-      kind: doc.kind,
-      title: doc.title,
-      points: doc.points,
-      versionId: doc.current.id,
-      versionNumber: doc.current.number,
-      status: acceptance ? ("current" as const) : ("due" as const),
-      reason: acceptance ? null : (reason as DueReason),
-      acceptanceId: acceptance?.id ?? null,
-      acceptedAt: acceptance?.acceptedAt ?? null,
-    };
-  });
-  return { documents, counting };
+  const out = new Map<string, Standing>();
+  for (const [personId, facts] of people) {
+    const counting = new Set<string>();
+    const documents = attached
+      .filter((d) => appliesTo(d, facts))
+      .map((doc) => {
+        const { acceptance, reason } = countingAcceptance(
+          doc,
+          facts,
+          accepted.get(acceptanceKey(personId, doc.id)) ?? [],
+          ctx.now,
+        );
+        if (acceptance) counting.add(acceptance.id);
+        return {
+          documentId: doc.id,
+          kind: doc.kind,
+          title: doc.title,
+          points: doc.points,
+          versionId: doc.current.id,
+          versionNumber: doc.current.number,
+          status: acceptance ? ("current" as const) : ("due" as const),
+          reason: acceptance ? null : (reason as DueReason),
+          acceptanceId: acceptance?.id ?? null,
+          acceptedAt: acceptance?.acceptedAt ?? null,
+        };
+      });
+    out.set(personId, { documents, counting });
+  }
+  return out;
+}
+
+/** Every acceptance that counts now for any of these People. */
+async function countingOf(ctx: HandlerContext, personIds: readonly string[]): Promise<Set<string>> {
+  const all = await standings(ctx, await peopleFacts(ctx.db, personIds));
+  return new Set([...all.values()].flatMap((one) => [...one.counting]));
 }
 
 /** Whose current health acceptance holds a yes (decision 18): a mark, no content. */
@@ -253,13 +282,13 @@ async function healthYes(ctx: HandlerContext, personIds: string[]): Promise<Set<
     personIds,
     health.map((d) => d.id),
   );
+  const facts = await peopleFacts(ctx.db, personIds);
   const counting: string[] = [];
   for (const personId of personIds) {
-    const facts = await personFacts(ctx.db, personId);
     for (const doc of health) {
       const { acceptance } = countingAcceptance(
         doc,
-        facts,
+        facts.get(personId) ?? NO_PERSON,
         accepted.get(acceptanceKey(personId, doc.id)) ?? [],
         ctx.now,
       );
@@ -271,7 +300,7 @@ async function healthYes(ctx: HandlerContext, personIds: string[]): Promise<Set<
     .selectFrom("core_agreement_answer as n")
     .innerJoin("core_agreement_acceptance as a", "a.id", "n.acceptance_id")
     .select("a.person_id")
-    .where("n.acceptance_id", "in", counting)
+    .where("n.acceptance_id", "in", jsonList(counting))
     .where("n.any_yes", "=", 1)
     .execute();
   for (const row of yes) if (row.person_id) out.add(row.person_id);
@@ -284,7 +313,7 @@ async function namesOf(ctx: HandlerContext, ids: string[]): Promise<Map<string, 
   const rows = await ctx.db
     .selectFrom("core_person")
     .select(["id", "display_name"])
-    .where("id", "in", wanted)
+    .where("id", "in", jsonList(wanted))
     .execute();
   return new Map(rows.map((r) => [r.id, r.display_name]));
 }
@@ -295,7 +324,7 @@ async function userNames(ctx: HandlerContext, ids: string[]): Promise<Map<string
   const rows = await ctx.db
     .selectFrom("core_user")
     .select(["id", "name"])
-    .where("id", "in", wanted)
+    .where("id", "in", jsonList(wanted))
     .execute();
   return new Map(rows.map((r) => [r.id, r.name]));
 }
@@ -410,11 +439,10 @@ export const meAgreementsList = defineOperation({
   mcp: { expose: false },
   async handler(_input, ctx) {
     const people = await myPeople(ctx);
-    const counting = new Set<string>();
-    for (const person of people) {
-      const facts = await personFacts(ctx.db, person.personId);
-      for (const id of (await standing(ctx, person.personId, facts)).counting) counting.add(id);
-    }
+    const counting = await countingOf(
+      ctx,
+      people.map((p) => p.personId),
+    );
     const rows = (await acceptanceRows(ctx)
       .where(
         "a.person_id",
@@ -674,7 +702,7 @@ async function deskOf(
   const out = new Map<string, z.infer<typeof deskOut>>();
   const atDesk = page.filter((r) => r.channel === "desk" && r.desk_session_id);
   if (!atDesk.length) return out;
-  const sessions = JSON.stringify([...new Set(atDesk.map((r) => r.desk_session_id as string))]);
+  const sessions = jsonList([...new Set(atDesk.map((r) => r.desk_session_id as string))]);
   const rows = await ctx.db
     .selectFrom("core_agreement_desk_session as s")
     .leftJoin("core_device as d", "d.id", "s.claimed_device_id")
@@ -690,7 +718,7 @@ async function deskOf(
       "e.name as enrolled_by",
       "u.name as started_by_name",
     ])
-    .where(sql<boolean>`s.id IN (SELECT value FROM json_each(${sessions}))`)
+    .where("s.id", "in", sessions)
     .execute();
   const { timezone } = await businessName(ctx.db);
   const marks = await deskMarks(
@@ -928,11 +956,7 @@ export const agreementAcceptances = defineOperation({
       page.map((r) => r.person_id ?? ""),
     );
     // Whether each counts now, per Person.
-    const counting = new Set<string>();
-    for (const personId of new Set(page.map((r) => r.person_id as string))) {
-      const facts = await personFacts(ctx.db, personId);
-      for (const one of (await standing(ctx, personId, facts)).counting) counting.add(one);
-    }
+    const counting = await countingOf(ctx, [...new Set(page.map((r) => r.person_id as string))]);
     const desk = await deskOf(ctx, page);
     const items = page.map((row) => ({
       ...summary(row, counting),
@@ -996,10 +1020,14 @@ export const agreementDueList = defineOperation({
       rows.map((r) => r.id),
       docs.map((d) => d.id),
     );
+    const people = await peopleFacts(
+      ctx.db,
+      rows.map((r) => r.id),
+    );
     const items = [];
     let more = false;
     for (const row of rows) {
-      const facts = await personFacts(ctx.db, row.id);
+      const facts = people.get(row.id) ?? NO_PERSON;
       const due = docs
         .filter((d) => appliesTo(d, facts))
         .flatMap((doc) => {

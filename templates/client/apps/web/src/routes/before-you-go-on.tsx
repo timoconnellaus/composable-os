@@ -17,7 +17,7 @@ function BeforeYouGoOn() {
   const load = useCallback(async (first: boolean) => {
     try {
       const due = await browserApi().call("me.agreements.due", {});
-      const people = due.people as DuePerson[];
+      const people: DuePerson[] = due.people;
       if (first && !dueSteps(people).length) window.location.assign("/account");
       else setPeople(people);
     } catch (error) {

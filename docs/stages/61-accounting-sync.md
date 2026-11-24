@@ -26,6 +26,19 @@ and a reopen); `packages/gatekeeper-payments/src/`, `packages/core/src/integrati
 Status: **spec agreed** (owner interviewed 2026-11-24: decisions 1 to 8). Build may start with
 steps 1 to 4 and 8; summaries wait for stage 52, documents for stage 35.
 
+- **Step 3 built** (`feat/stage-61-host-path`, ADR 0881, no migration): `callAsHost` purpose
+  `accounting` (core `IntegrationRuntime`, the integration host and its queue): the system user's
+  session on the books, its contacts and entries applied at once unless the deploy-time floor
+  denies them, its writes in the outbound audit as the system's (`system.accounting`), never read
+  by the outbound check; `accounting.void` in `ALWAYS_REVIEWED_KINDS` (`ACCOUNTING_VOID_KINDS`),
+  approved only by a human admin (`integrations:manage`; `accounting:manage` is step 2's, see
+  ADR 0881); the host-only rule: the integration host opens a session on a connection whose
+  gatekeeper `implements: "accounting"` (`keepsBooks`) only for that purpose and that purpose only
+  on books, so `integration.call` (refused first, `forbidden` with rule `accounting_host_only`),
+  the host's `call` (Code Mode's and an extension's `codemode:<gatekeeper>`) and `openSession` are
+  refused for every caller; `integration.types` still reads the contract's types. Tests:
+  `apps/runner/test/accounting-host-path.test.ts`.
+
 **This is not accounting or tax advice.** The host sends what it recorded to the accounts a person
 chose. Which accounts and tax rates, and how a figure is treated, are for the business to confirm
 with its accountant. The setup screen says so.

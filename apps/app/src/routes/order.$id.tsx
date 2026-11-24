@@ -25,6 +25,7 @@ import {
 import { useQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
 import { type FormEvent, type ReactNode, useEffect, useState } from "react";
+import { isEndOfUtcDay } from "../lib/format.ts";
 import { guestOrder, guestPay } from "../lib/guest-api.ts";
 import {
   formatMoney,
@@ -218,7 +219,13 @@ function OrderView({
           <Amount label="Balance">{money(order.balance)}</Amount>
           {order.refunded > 0 && <Amount label="Refunded">{money(order.refunded)}</Amount>}
           {order.state === "part_paid" && order.balanceDueAt && (
-            <Amount label="Balance due">{new Date(order.balanceDueAt).toLocaleDateString()}</Amount>
+            <Amount label="Balance due">
+              {/* A whole-day deadline is stored as the day's end in UTC: its UTC day is the day. */}
+              {new Date(order.balanceDueAt).toLocaleDateString(
+                undefined,
+                isEndOfUtcDay(order.balanceDueAt) ? { timeZone: "UTC" } : {},
+              )}
+            </Amount>
           )}
         </dl>
 
