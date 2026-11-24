@@ -207,3 +207,13 @@ and the cron promoting a waiter, and the waiter's next booking asked.
   record (`payer: null`, as `givePass`). A ticket with no holder names no Person and is not asked
   until it is given one.
 
+## Amended 2026-11-24: the Ticketing and Courses checkouts (issue #292)
+
+- **Every shipped point has its inline step.** Ticketing's checkout (`ticketing-checkout`) and
+  Courses' course page and subscribe blocks (`courses-course`, `courses-subscribe`) follow the
+  refusal as the Memberships and Bookings blocks do, and their points (`event`, `course`) declare
+  `inlineStep`, so attaching a document there no longer warns. Nothing in the host changed: the
+  buying tools already carried a visitor's `agreements`.
+- **The native apps have no step at these points**, because they never buy a ticket or a course
+  (`noPurchase`); the points are asked only at a purchase.
+

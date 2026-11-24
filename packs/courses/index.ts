@@ -40,8 +40,14 @@ import {
 const ACTIVE = { states: ["active"], until: "until" };
 // Where agreement may be needed to buy a course, a bundle or a plan (stage 44, ADR 0641): nothing
 // is attached by default, so each sells as before until the business attaches a document (its
-// terms) to "course".
-const BUYING: AgreementsSpec = { point: "course", label: "Buying a course", suggests: ["terms"] };
+// terms) to "course". The course page and subscribe blocks show what is due and let the buyer
+// agree on the way (issue #292).
+const BUYING: AgreementsSpec = {
+  point: "course",
+  label: "Buying a course",
+  suggests: ["terms"],
+  inlineStep: true,
+};
 
 export default defineExtension({
   id: "courses",

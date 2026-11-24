@@ -1471,8 +1471,8 @@ a yes.
 
 **Agreement step** and **Before you go on** (stage 44, built in step 5)
 The **agreement step** is what a block that buys or books shows when the host refuses the call with
-`agreements_due`: each document it named, in turn, before "Pay", "Book", "Buy" or "Join" is tried
-again. A member's are recorded as they agree (for a child, by their parent); a visitor's are kept
+`agreements_due`: each document it named, in turn, before "Pay", "Book", "Buy", "Join" or
+"Subscribe" is tried again (in Bookings, Memberships, Ticketing and Courses). A member's are recorded as they agree (for a child, by their parent); a visitor's are kept
 in the screen's memory only until the buying call, which carries them. **Before you go on** is the
 screen after sign-in that walks through everything due for the member and each child; "Not now"
 goes on. Neither decides anything: what is due, for whom, and whether the purchase may go ahead are

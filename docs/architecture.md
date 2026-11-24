@@ -2169,8 +2169,9 @@ a drawn signature in the host's stroke format within its limits). `web-agree` an
 (the Agree form, the signature pad on pointer events or React Native's touch responder, and the
 inline step), `web-agreements-due` and `native-agreements-due` ("Before you go on") and
 `web-my-agreements` and `native-my-agreements`. Bookings' drop-in and timetable blocks (web and
-native) and Memberships' passes and plans blocks show the step inline when the host refuses "Pay",
-"Book", "Buy" or "Join" with what is due; a visitor reads the words through
+native), Memberships' passes and plans blocks, Ticketing's checkout and Courses' course page and
+subscribe blocks (web; issue #292) show the step inline when the host refuses "Pay", "Book", "Buy",
+"Join" or "Subscribe" with what is due; a visitor reads the words through
 `agreement.guestVersions` (open to the public: only the versions in effect a guest is asked) and their
 acceptances travel in the buying call.
 Step 8 (migration 0855,

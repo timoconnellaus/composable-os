@@ -174,8 +174,14 @@ export default defineExtension({
       capacity: { places: "places", pool: "event", show: "low", lowAt: 10 },
       // Where agreement may be needed (stage 44, ADR 0641): nothing is attached by default, so a
       // ticket sells as before until the business attaches a document (a waiver) to "event". The
-      // buyer agrees for themselves (ADR 0644).
-      agreements: { point: "event", label: "Buying a ticket", suggests: ["waiver"] },
+      // buyer agrees for themselves (ADR 0644). The checkout block shows what is due and lets the
+      // buyer agree on the way (issue #292).
+      agreements: {
+        point: "event",
+        label: "Buying a ticket",
+        suggests: ["waiver"],
+        inlineStep: true,
+      },
       sellable: {
         price: "price",
         saleWindow: { from: "onSaleFrom", until: "onSaleUntil" },
