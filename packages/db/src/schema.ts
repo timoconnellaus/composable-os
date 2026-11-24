@@ -1386,6 +1386,29 @@ export interface CoreStaffAwayTable {
 }
 
 /**
+ * Migration 1090 (stage 49 step 3, ADR 0762): when someone takes appointments. A weekly rule in
+ * local time (overnight when the end is at or before the start), or extra hours as a range of
+ * instants; optionally only for some kinds of work (`only_for`, a JSON list of `{object, id}`).
+ * In no rec_* view.
+ */
+export interface CoreStaffHoursTable {
+  id: string;
+  account_id: string;
+  kind: "weekly" | "extra";
+  weekdays: string | null;
+  start_time: string | null;
+  end_time: string | null;
+  from_date: string | null;
+  until_date: string | null;
+  starts_at: string | null;
+  ends_at: string | null;
+  zone: string;
+  only_for: string | null;
+  set_by: string;
+  set_at: string;
+}
+
+/**
  * Migration 0812 (stage 45, ADR 0623): a shift offered for someone else to take. It leaves `open`
  * once; the database refuses every later move, so exactly one take wins.
  */
@@ -2999,6 +3022,7 @@ export interface CoreDatabase {
   core_staff_time: CoreStaffTimeTable;
   core_staff_qualification: CoreStaffQualificationTable;
   core_staff_away: CoreStaffAwayTable;
+  core_staff_hours: CoreStaffHoursTable;
   core_staff_feed: CoreStaffFeedTable;
   core_checklist: CoreChecklistTable;
   core_checklist_step: CoreChecklistStepTable;

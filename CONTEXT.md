@@ -70,7 +70,9 @@ while Deals is installed, else the Overview.
 
 **Widget**
 One tile on a dashboard: KPI, bar, line, donut, funnel, table, leaderboard or markdown. Data
-widgets run read-only SQL over `rec_*` views with named params bound from the dashboard's filters.
+widgets run read-only SQL over `rec_*` views with named params bound from the dashboard's filters. A
+date range ("today", "this month") is the business's, from its midnight in the organisation's time
+zone.
 
 **Click-through**
 A widget's filter template: clicking a segment, KPI or row opens the matching records as a
@@ -1429,6 +1431,14 @@ else is a warning. **Unavailable** (away) is a time they said they cannot work (
 keyed by the staff account, in no `rec_*` view; whether someone is away is known only to them and
 to rosterers. A person is **eligible** for a shift when they are qualified, free and not away.
 _Avoid_: skill, certification, availability (say when they are away)
+
+**Open hours** (stage 49, built in step 3: ADR 0762)
+When someone takes appointments: **weekly** (every Monday 09:00 to 12:00, in local time, from a
+date and until one; 22:00 to 06:00 runs overnight) or **extra** hours on a date, each for every
+kind of session or for some only (assessments on Saturdays). Set by the person or a rosterer
+(`staffing.hours.set`), kept by the host in no `rec_*` view, removed when they leave. A time they
+are not open is time off (unavailable), never a "closed" entry.
+_Avoid_: availability, slot, schedule (say open hours)
 
 **Offer** and **Take** (stage 45, built in step 3: ADR 0623)
 A shift's person **offers** it (or a rosterer offers an uncovered one), to everyone eligible or to
