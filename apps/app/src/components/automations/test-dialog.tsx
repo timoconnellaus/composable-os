@@ -22,9 +22,8 @@ import { useQuery } from "@tanstack/react-query";
 import { FlaskConicalIcon } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
-import { useStageMutation } from "#/lib/automation-ops";
 import { callOp } from "#/lib/operations";
-import { errorMessage } from "#/lib/query";
+import { errorMessage, useOpMutation } from "#/lib/query";
 import { useObjectInfo } from "#/lib/schema";
 import { useDebounced } from "#/lib/use-debounced";
 import type { AutomationDetailData } from "./hooks.ts";
@@ -57,7 +56,7 @@ export function TestButton({
   onReport: (report: AutomationTestReport) => void;
 }) {
   const [open, setOpen] = useState(false);
-  const test = useStageMutation("automation.test", { invalidates: ["automation."] });
+  const test = useOpMutation("automation.test", { invalidates: ["automation."] });
 
   async function run(record?: { object: string; id: string }) {
     try {

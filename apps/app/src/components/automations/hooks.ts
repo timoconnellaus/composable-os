@@ -1,28 +1,24 @@
 // Data hooks for the automation and notification UI: every read and write of automation.* and
 // notification.* lives here, so the shapes the pages consume are in one place.
+
+import type { CoreInput, CoreOutput } from "@composable-os/core";
 import { useInfiniteQuery } from "@tanstack/react-query";
 import { useMemo } from "react";
-import {
-  callStageOp,
-  type StageInput,
-  type StageOutput,
-  stageKey,
-  useStageMutation,
-  useStageOp,
-} from "#/lib/automation-ops";
+import { callOp } from "#/lib/operations";
+import { opKey, useOp, useOpMutation } from "#/lib/query";
 
-export type AutomationList = StageOutput<"automation.list">;
+export type AutomationList = CoreOutput<"automation.list">;
 export type AutomationItem = AutomationList["items"][number];
-export type AutomationDetailData = StageOutput<"automation.get">;
-export type RunData = StageOutput<"automation.runs">["items"][number];
-export type NotificationData = StageOutput<"notification.list">["items"][number];
+export type AutomationDetailData = CoreOutput<"automation.get">;
+export type RunData = CoreOutput<"automation.runs">["items"][number];
+export type NotificationData = CoreOutput<"notification.list">["items"][number];
 
 export function useAutomations() {
-  return useStageOp("automation.list", {}, { refetchOnWindowFocus: true });
+  return useOp("automation.list", {}, { refetchOnWindowFocus: true });
 }
 
 export function useAutomation(id: string) {
-  return useStageOp("automation.get", { id }, { refetchOnWindowFocus: true });
+  return useOp("automation.get", { id }, { refetchOnWindowFocus: true });
 }
 
 /**
@@ -30,11 +26,7 @@ export function useAutomation(id: string) {
  * bulk actions (`bulk` only). Failures (e.g. no automation operations yet) read as none.
  */
 export function useManualAutomations(object: string, which: "record" | "bulk"): AutomationItem[] {
-  const list = useStageOp(
-    "automation.list",
-    { manualFor: object },
-    { staleTime: 60_000, retry: false },
-  );
+  const list = useOp("automation.list", { manualFor: object }, { staleTime: 60_000, retry: false });
   return useMemo(
     () =>
       (list.data?.items ?? []).filter(
@@ -49,14 +41,14 @@ export function useManualAutomations(object: string, which: "record" | "bulk"): 
   );
 }
 
-type RunsInput = Omit<StageInput<"automation.runs">, "cursor">;
+type RunsInput = Omit<CoreInput<"automation.runs">, "cursor">;
 
 /** A paged list of runs (automation.runs), newest first. */
 export function useRuns(input: RunsInput, options: { enabled?: boolean } = {}) {
   const query = useInfiniteQuery({
-    queryKey: stageKey("automation.runs", input),
+    queryKey: opKey("automation.runs", input),
     queryFn: ({ pageParam }) =>
-      callStageOp("automation.runs", { ...input, ...(pageParam ? { cursor: pageParam } : {}) }),
+      callOp("automation.runs", { ...input, ...(pageParam ? { cursor: pageParam } : {}) }),
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (page) => page.nextCursor ?? undefined,
     retry: false,
@@ -68,7 +60,7 @@ export function useRuns(input: RunsInput, options: { enabled?: boolean } = {}) {
 
 /** One run by id (run detail). */
 export function useRun(runId: string | undefined) {
-  return useStageOp(
+  return useOp(
     "automation.runs",
     { runId: runId ?? "", limit: 1, includeTests: true },
     {
@@ -84,8 +76,8 @@ function isLive(run: RunData | undefined): boolean {
 
 export function useSetEnabled() {
   return {
-    enable: useStageMutation("automation.enable"),
-    disable: useStageMutation("automation.disable"),
+    enable: useOpMutation("automation.enable"),
+    disable: useOpMutation("automation.disable"),
   };
 }
 
@@ -93,7 +85,7 @@ export function useSetEnabled() {
 
 /** The bell's unread count: polled every 60 s while the page is visible, and on focus. */
 export function useUnreadCount() {
-  return useStageOp(
+  return useOp(
     "notification.unreadCount",
     {},
     {
@@ -109,9 +101,9 @@ export function useUnreadCount() {
 export function useNotifications(unreadOnly: boolean, limit = 30) {
   const input = { unreadOnly, limit };
   const query = useInfiniteQuery({
-    queryKey: stageKey("notification.list", input),
+    queryKey: opKey("notification.list", input),
     queryFn: ({ pageParam }) =>
-      callStageOp("notification.list", { ...input, ...(pageParam ? { cursor: pageParam } : {}) }),
+      callOp("notification.list", { ...input, ...(pageParam ? { cursor: pageParam } : {}) }),
     initialPageParam: undefined as string | undefined,
     getNextPageParam: (page) => page.nextCursor ?? undefined,
     refetchOnWindowFocus: true,
@@ -122,5 +114,5 @@ export function useNotifications(unreadOnly: boolean, limit = 30) {
 
 /** Mark read: ids or all; refreshes the bell and every list. */
 export function useMarkRead() {
-  return useStageMutation("notification.markRead");
+  return useOpMutation("notification.markRead");
 }
