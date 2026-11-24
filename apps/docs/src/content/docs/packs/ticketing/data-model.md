@@ -172,7 +172,8 @@ One kind of ticket for an event, with its own price and places: a package, a roo
     "label": "Buying a ticket",
     "suggests": [
       "waiver"
-    ]
+    ],
+    "inlineStep": true
   },
   "sellable": {
     "price": "price",
@@ -258,7 +259,7 @@ One person's ticket, granted by the host when its order was paid, with a code th
 | Plural | Tickets |
 | Title field | `name` |
 | Listed in | main |
-| Behaviours | [`states`](/reference/behaviours/#states), [`customer`](/reference/behaviours/#customer) |
+| Behaviours | [`states`](/reference/behaviours/#states), [`agreements`](/reference/behaviours/#agreements), [`customer`](/reference/behaviours/#customer) |
 | Indexes | `code`; `event, state`; `holder`; `order` |
 
 ### Fields
@@ -320,6 +321,22 @@ One person's ticket, granted by the host when its order was paid, with a code th
         "final": true
       }
     ]
+  },
+  "agreements": {
+    "point": "event",
+    "label": "Buying a ticket",
+    "suggests": [
+      "waiver"
+    ],
+    "enter": [
+      "valid"
+    ],
+    "keeps": [
+      "valid",
+      "used"
+    ],
+    "person": "holder",
+    "inlineStep": true
   },
   "customer": {
     "field": "holder",

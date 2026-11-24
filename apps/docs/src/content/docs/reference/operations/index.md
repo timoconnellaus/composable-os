@@ -45,6 +45,7 @@ Every operation in the core registry, grouped by the first part of its name. Any
 - [`extension`](/reference/operations/extension/)
 - [`extensionSettings`](/reference/operations/extensionsettings/)
 - [`fieldOptions`](/reference/operations/fieldoptions/)
+- [`finance`](/reference/operations/finance/)
 - [`import`](/reference/operations/import/)
 - [`intake`](/reference/operations/intake/)
 - [`integration`](/reference/operations/integration/)

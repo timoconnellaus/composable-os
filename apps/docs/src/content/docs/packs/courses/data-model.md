@@ -122,7 +122,8 @@ A course of lessons a studio sells: its outline, price, trailer and cover.
     "label": "Buying a course",
     "suggests": [
       "terms"
-    ]
+    ],
+    "inlineStep": true
   },
   "sellable": {
     "price": "price",
@@ -239,7 +240,8 @@ A fixed set of courses sold together at one price.
     "label": "Buying a course",
     "suggests": [
       "terms"
-    ]
+    ],
+    "inlineStep": true
   },
   "sellable": {
     "price": "price",
@@ -309,7 +311,8 @@ A subscription to every published course, paid every month, with a free trial wh
     "label": "Buying a course",
     "suggests": [
       "terms"
-    ]
+    ],
+    "inlineStep": true
   },
   "sellable": {
     "price": "price",
@@ -342,7 +345,7 @@ A student's access to a course or a bundle: bought (granted by a paid order), gi
 | Plural | Enrolments |
 | Title field | `code` |
 | Listed in | main |
-| Behaviours | [`states`](/reference/behaviours/#states), [`customer`](/reference/behaviours/#customer) |
+| Behaviours | [`states`](/reference/behaviours/#states), [`agreements`](/reference/behaviours/#agreements), [`customer`](/reference/behaviours/#customer) |
 | Indexes | `holder`; `course`; `bundle`; `order` |
 
 ### Fields
@@ -404,6 +407,19 @@ A student's access to a course or a bundle: bought (granted by a paid order), gi
         "final": true
       }
     ]
+  },
+  "agreements": {
+    "point": "course",
+    "label": "Buying a course",
+    "suggests": [
+      "terms"
+    ],
+    "enter": [
+      "active"
+    ],
+    "person": "holder",
+    "importMovesOver": true,
+    "inlineStep": true
   },
   "customer": {
     "field": "holder",
