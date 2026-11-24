@@ -171,7 +171,7 @@ export interface AcceptanceFact {
 
 /**
  * Whether a guest's acceptance, settled to its Person, counts for them at a later point
- * (coordinator decision of 2026-11-23 on the review of PR #280, owner to confirm; ADR 0644).
+ * (the owner's decision of 2026-11-24, on the review of PR #280; ADR 0644).
  * It does not: a guest's acceptance is the evidence for the purchase it came with (checked in
  * that buying call, `enforcePurchase`), never for anything after it. Anyone may type an address,
  * so counting it later would let a stranger's cheap guest purchase stand in for a member's own
@@ -210,7 +210,7 @@ export function countingAcceptance(
       if (reason === "never") reason = "guardian";
       continue;
     }
-    // A guest's counts only for its own purchase (ADR 0644, coordinator decision).
+    // A guest's counts only for its own purchase (ADR 0644, the owner's decision of 2026-11-24).
     if (a.by === "guest" && !guestAcceptanceCountsLater(a)) continue;
     if (version.number < doc.agreeFrom) {
       reason = "agree_again";
@@ -460,7 +460,8 @@ export async function agreementsDueAt(
  * A payer document that a minor would be the payer for (stage 44 step 3, the review of PR
  * #280): a Person a parent or guardian agrees for (marked a minor, or a live dependant) cannot be
  * the one who pays where the business asks the payer to agree, and nothing they do satisfies it.
- * A parent or guardian buys it for them. Returns the documents, or none.
+ * A parent or guardian buys it for them ("A parent or guardian needs to buy this for you": the
+ * owner's decision of 2026-11-24, ADR 0644). Returns the documents, or none.
  *
  * Whether a guardian's own earlier agreement could let a minor pay instead is the owner's to
  * decide: this is the one place to relax it.
