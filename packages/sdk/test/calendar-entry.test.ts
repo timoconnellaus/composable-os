@@ -6,7 +6,7 @@
 // pack's object is the host's check (core's checkManifest), and that only a shipped pack declares
 // one is the host's too.
 import { describe, expect, it } from "vitest";
-import { validateManifest } from "../src/index.ts";
+import { defineExtension, toManifest, validateManifest } from "../src/index.ts";
 
 type Obj = Record<string, unknown>;
 
@@ -194,5 +194,20 @@ describe("calendarEntry in one pack", () => {
       },
     });
     expect(issues(m, ["other.kind"])).toEqual([]);
+  });
+
+  it("is written in defineExtension and kept in the manifest", () => {
+    const m = pack();
+    const ext = defineExtension({
+      ...m,
+      objects: m.objects as never,
+    } as Parameters<typeof defineExtension>[0]);
+    expect(toManifest(ext).objects.booking?.calendarEntry).toEqual({
+      starts: "klass.startsAt",
+      ends: "klass.endsAt",
+      title: "kind.name",
+      place: "klass.room.name",
+      live: ["booked"],
+    });
   });
 });

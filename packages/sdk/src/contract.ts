@@ -5,6 +5,7 @@ import type { z } from "zod";
 import type { AgreementsSpec, HealthNotesSpec } from "./agreements.ts";
 import type { AllowanceSpec } from "./allowance.ts";
 import type { AutomationSpec } from "./automation.ts";
+import type { CalendarEntrySpec } from "./calendar-entry.ts";
 import type { CapacitySpec, ClaimsSpec } from "./capacity.ts";
 import type { ChecklistsSpec } from "./checklists.ts";
 import type { DocumentPathSpec, DocumentSchema } from "./document.ts";
@@ -329,6 +330,13 @@ export interface ObjectSpec {
    * record on the same thing at an overlapping time, whatever object it is.
    */
   occupies?: OccupiesSpec;
+  /**
+   * Events in the customer's private calendar feed (see CalendarEntrySpec, ADR 0891): the record's
+   * start, end, public title and place as paths the customer may read, and the states in which it
+   * shows. The host reads them as the customer, through the visibility seam, and shows a live
+   * dependant's to their guardian. Only shipped extensions may declare it.
+   */
+  calendarEntry?: CalendarEntrySpec;
   /**
    * The public-write door (see IntakeSpec, ADR 0720): a form the public answers, the submission
    * the host makes from the answers, or another pack's record a form may also make. Only the
