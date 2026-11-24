@@ -77,7 +77,16 @@ export function routineMailSummary(
         id: string;
         routineMail?: Record<
           string,
-          { label: string; about: string; on?: boolean; messages: Record<string, unknown> }
+          {
+            label: string;
+            about: string;
+            on?: boolean;
+            channels?: readonly string[];
+            essential?: boolean;
+            purpose?: string;
+            urgent?: boolean;
+            messages: Record<string, unknown>;
+          }
         >;
       }
     | null
@@ -91,7 +100,10 @@ export function routineMailSummary(
     ...kinds.map(
       ([name, kind]) =>
         `  ${manifest.id}.${name} (${kind.label}): about ${kind.about}; messages ` +
-        `${Object.keys(kind.messages).join(", ")}${kind.on === false ? "; off until an admin turns it on" : ""}`,
+        `${Object.keys(kind.messages).join(", ")}; by ${(kind.channels ?? ["email"]).join(", ")}` +
+        // A person may turn an optional kind's email off; an urgent one may go in quiet hours (ADR 0670).
+        `${(kind.essential ?? (kind.purpose ?? "account") === "account") ? "" : "; optional"}` +
+        `${kind.urgent ? "; urgent" : ""}${kind.on === false ? "; off until an admin turns it on" : ""}`,
     ),
   ];
 }

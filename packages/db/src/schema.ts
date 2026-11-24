@@ -1249,13 +1249,16 @@ export interface CoreRoutineMailTable {
   extension_id: string;
   record_object: string;
   record_id: string;
+  /** Migration 0910 (ADR 0670): the channel this row goes on. */
+  channel: Defaulted<"email" | "text" | "push">;
   recipient: string;
   recipient_rule: "person" | "guardian" | "order";
   recipient_person_id: Defaulted<string | null>;
   recipient_key: string;
   about_person_id: Defaulted<string | null>;
-  automation_id: string;
-  run_id: string;
+  /** Null for a host kind's row (migration 0910): host code asked for it, not an automation. */
+  automation_id: string | null;
+  run_id: string | null;
   trigger_type: string;
   triggered_by: Defaulted<string | null>;
   idempotency_key: string;
@@ -1263,7 +1266,19 @@ export interface CoreRoutineMailTable {
   ordinary: Defaulted<number>;
   claimed_at: Defaulted<string | null>;
   held_reason: Defaulted<string | null>;
-  status: "off" | "ready" | "sending" | "sent" | "waiting" | "denied" | "failed";
+  status:
+    | "off"
+    | "ready"
+    | "sending"
+    | "sent"
+    | "delivered"
+    | "waiting"
+    | "denied"
+    | "failed"
+    | "stopped"
+    | "expired"
+    | "over_limit"
+    | "no_channel";
   connection_id: Defaulted<string | null>;
   subject: Defaulted<string | null>;
   body: Defaulted<string | null>;
@@ -1272,6 +1287,15 @@ export interface CoreRoutineMailTable {
   sources: Defaulted<string | null>;
   pending_action_id: Defaulted<string | null>;
   error: Defaulted<string | null>;
+  /** A text's segments and cost (migration 0910). */
+  segments: Defaulted<number | null>;
+  cost_minor: Defaulted<number | null>;
+  provider_ref: Defaulted<string | null>;
+  delivered_at: Defaulted<string | null>;
+  /** Quiet hours (ADR 0676): a waiting text or push goes at this moment. */
+  wait_until: Defaulted<string | null>;
+  /** The kind's moment for the record: a text or push not sent by then is `expired`. */
+  until_at: Defaulted<string | null>;
   created_at: string;
   updated_at: string;
 }

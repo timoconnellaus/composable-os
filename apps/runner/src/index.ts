@@ -21,6 +21,7 @@ import {
   queueEventSink,
   type RunToolInput,
   type RunToolResult,
+  releaseWaitingRoutineMessages,
   retryOutbox,
   runAgreementsDue,
   runChecklistDue,
@@ -317,6 +318,7 @@ export async function minuteTick(env: Env, at: Date) {
       agreementCopies: null,
       customerSignup: null,
       deferredRuns: null,
+      routineMessages: null,
     };
   }
   const schedules = await minuteStep("schedules", () => runAutomationCron(env, at));
@@ -414,6 +416,15 @@ export async function minuteTick(env: Env, at: Date) {
     const { opened } = await watchSubscriberSignup(createCrmDb(env.DB), at);
     return { opened };
   });
+  // Quiet hours (stage 30, ADR 0676): texts and pushes that waited for them to end are ready to
+  // go, or expired when their moment passed. Their gatekeepers send them (later steps of stage
+  // 30); until those are built no row waits, and a quiet minute is one read.
+  const routineMessages = await minuteStep("routine messages", () =>
+    releaseWaitingRoutineMessages(createCrmDb(env.DB).query, at.toISOString()).then((r) => ({
+      ready: r.ready.length,
+      expired: r.expired,
+    })),
+  );
   return {
     paused: false,
     schedules,
@@ -433,6 +444,7 @@ export async function minuteTick(env: Env, at: Date) {
     customerSignup,
 
     deferredRuns,
+    routineMessages,
   };
 }
 

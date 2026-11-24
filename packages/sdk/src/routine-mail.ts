@@ -6,6 +6,12 @@
 // a message, and may pass only a choice among declared words, a time, a count or a flag. Nothing
 // a pack, an AI or a member types becomes free text, a link or an address in a routine email.
 //
+// Routine messages (ADR 0670, stage 30): a kind may also declare a text message's words and a push
+// notification's (a title and one line), with the same slots and the same checks, and say whether
+// a person may turn its email off (`essential`), what it is for (`purpose`), whether it may go
+// during quiet hours (`urgent`), the moment after which a text or push is pointless (`until`) and
+// the app screen a push opens (`open`). A kind that declares neither sends email only, as before.
+//
 // This module is the contract's part: the declaration's shape and checks, and the pure template
 // rendering and value checks the host and the testing harness share.
 import { z } from "zod";
@@ -32,6 +38,28 @@ export const ROUTINE_MEMBER_SLOT = "member";
 /** Most routine emails one recipient gets in a rolling day before the rest wait for a person. */
 export const ROUTINE_DAILY_CAP = 20;
 
+/** The channels a routine message goes on (ADR 0670). Email is every kind's. */
+export const ROUTINE_CHANNELS = ["email", "text", "push"] as const;
+export type RoutineChannel = (typeof ROUTINE_CHANNELS)[number];
+
+/**
+ * What a kind is for, as far as consent goes (stage 30): `account` (about something the person
+ * has or did) or `follow_up` (Reviews' ask, a welcome). Never `news_and_offers`: a routine kind is
+ * not promotional.
+ */
+export const ROUTINE_PURPOSES = ["account", "follow_up"] as const;
+export type RoutinePurpose = (typeof ROUTINE_PURPOSES)[number];
+
+/** The longest business name a text begins with: a longer one is cut to this (ADR 0670). */
+export const TEXT_SENDER_MAX = 30;
+/** What every text ends with, added by the host. */
+export const TEXT_STOP_LINE = "Reply STOP to stop";
+/** A text is at most two segments, the name and the stop line counted in. */
+export const TEXT_MAX_SEGMENTS = 2;
+/** A push's title and body, at most (it shows on a locked screen). */
+export const PUSH_TITLE_MAX = 60;
+export const PUSH_BODY_MAX = 140;
+
 // ---------------------------------------------------------------------------------------------
 // The declaration
 
@@ -50,6 +78,11 @@ export interface RoutineFieldSlot {
   max?: number;
   /** May be empty: only inside an optional part (`[...]`), which is left out when it is. */
   optional?: boolean;
+  /**
+   * Private (health, pay, a note): never in a push's words, which show on a locked screen
+   * (ADR 0670). Email and text may carry it.
+   */
+  private?: boolean;
 }
 
 export type RoutineSlotSpec =
@@ -98,12 +131,28 @@ export interface RoutineCalendarSpec {
   if?: string;
 }
 
+/** A push notification's words: a title and one line, with the same slots (ADR 0670). */
+export interface RoutinePushWords {
+  title: string;
+  body: string;
+}
+
 export interface RoutineMessageSpec {
   subject: string;
   /** Lines of words with `{slot}` and optional parts `[...]`. */
   text: string;
-  /** What a guardian of the member is sent instead (ADR 0540); `{member}` is the member's name. */
-  guardian?: { subject: string; text: string };
+  /**
+   * A text message's words, one line (ADR 0670): the host puts the business's name first and
+   * "Reply STOP to stop" last, and the whole must fit two segments with every slot at its longest.
+   */
+  textMessage?: string;
+  /** A push's words: a title of at most 60 characters and a body of at most 140, slots filled. */
+  push?: RoutinePushWords;
+  /**
+   * What a guardian of the member is sent instead (ADR 0540); `{member}` is the member's name. A
+   * guardian is texted or pushed only when their own words for that channel are declared.
+   */
+  guardian?: { subject: string; text: string; textMessage?: string; push?: RoutinePushWords };
   calendar?: RoutineCalendarSpec | readonly RoutineCalendarSpec[];
 }
 
@@ -116,6 +165,25 @@ export interface RoutineMailSpec {
   about: string;
   /** Sent unless an admin turns it off (default true). */
   on?: boolean;
+  /**
+   * Whether its email must always go (ADR 0670): a person may turn an optional kind's email off,
+   * never an essential one's (text and push of any kind can be turned off). Default true for
+   * `account`, false for `follow_up`, which is never essential.
+   */
+  essential?: boolean;
+  /** What it is for (default `account`). */
+  purpose?: RoutinePurpose;
+  /**
+   * May go during quiet hours, but only when waiting for them to end would make it late (its
+   * `until` moment is before they end): a class cancelled at short notice (ADR 0676).
+   */
+  urgent?: boolean;
+  /** A datetime path of the record (`class.startsAt`): a text or push not sent by then is dropped. */
+  until?: string;
+  /** The channels it may go on (default email only); text and push need their words. */
+  channels?: readonly RoutineChannel[];
+  /** The app screen a push opens, with the record's id: one the pack's native blocks declare. */
+  open?: { screen: string };
   slots?: Record<string, RoutineSlotSpec>;
   messages: Record<string, RoutineMessageSpec>;
 }
@@ -167,6 +235,7 @@ const fieldSlotSchema = z
     year: z.boolean().optional(),
     max: z.number().int().min(1).max(300).optional(),
     optional: z.boolean().optional(),
+    private: z.boolean().optional(),
   })
   .strict();
 
@@ -231,12 +300,24 @@ const calendarSchema = z
   })
   .strict();
 
+const pushSchema = z
+  .object({ title: z.string().min(1).max(200), body: z.string().min(1).max(400) })
+  .strict();
+const textMessageSchema = z.string().min(1).max(600);
+
 const messageSchema = z
   .object({
     subject: z.string().min(1).max(200),
     text: z.string().min(1).max(4000),
+    textMessage: textMessageSchema.optional(),
+    push: pushSchema.optional(),
     guardian: z
-      .object({ subject: z.string().min(1).max(200), text: z.string().min(1).max(4000) })
+      .object({
+        subject: z.string().min(1).max(200),
+        text: z.string().min(1).max(4000),
+        textMessage: textMessageSchema.optional(),
+        push: pushSchema.optional(),
+      })
       .strict()
       .optional(),
     calendar: z.union([calendarSchema, z.array(calendarSchema).min(1).max(2)]).optional(),
@@ -249,6 +330,12 @@ const routineMailKindSchema = z
     description: z.string().min(1).max(500),
     about: z.string().regex(/^[a-z][a-z0-9]{0,29}$/),
     on: z.boolean().optional(),
+    essential: z.boolean().optional(),
+    purpose: z.enum(ROUTINE_PURPOSES).optional(),
+    urgent: z.boolean().optional(),
+    until: path.optional(),
+    channels: z.array(z.enum(ROUTINE_CHANNELS)).min(1).max(3).optional(),
+    open: z.object({ screen: name }).strict().optional(),
     slots: z.record(name, slotSchema).default({}),
     messages: z.record(name, messageSchema),
   })
@@ -261,7 +348,16 @@ export type RoutineCalendarManifest = RoutineCalendarSpec;
 export interface RoutineMessageManifest {
   subject: string;
   text: string;
-  guardian?: { subject: string; text: string } | undefined;
+  textMessage?: string | undefined;
+  push?: RoutinePushWords | undefined;
+  guardian?:
+    | {
+        subject: string;
+        text: string;
+        textMessage?: string | undefined;
+        push?: RoutinePushWords | undefined;
+      }
+    | undefined;
   calendar?: RoutineCalendarSpec | readonly RoutineCalendarSpec[] | undefined;
 }
 export interface RoutineMailKindManifest {
@@ -269,12 +365,29 @@ export interface RoutineMailKindManifest {
   description: string;
   about: string;
   on?: boolean | undefined;
+  essential?: boolean | undefined;
+  purpose?: RoutinePurpose | undefined;
+  urgent?: boolean | undefined;
+  until?: string | undefined;
+  channels?: readonly RoutineChannel[] | undefined;
+  open?: { screen: string } | undefined;
   slots: Record<string, RoutineSlotSpec>;
   messages: Record<string, RoutineMessageManifest>;
 }
 
 export const routineMailManifestSchema: z.ZodType<Record<string, RoutineMailKindManifest>> =
   z.record(name, routineMailKindSchema) as never;
+
+/** The channels a kind may go on: email, and what it declares. */
+export function channelsOf(kind: Pick<RoutineMailKindManifest, "channels">): RoutineChannel[] {
+  const declared = new Set<RoutineChannel>(kind.channels ?? ["email"]);
+  return ROUTINE_CHANNELS.filter((c) => declared.has(c));
+}
+
+/** Whether a person may not turn the kind's email off (decision 9; follow-ups never are). */
+export function essentialOf(kind: Pick<RoutineMailKindManifest, "essential" | "purpose">): boolean {
+  return kind.essential ?? (kind.purpose ?? "account") === "account";
+}
 
 /** A kind's messages' calendar events, as a list. */
 export function calendarsOf(message: RoutineMessageManifest): RoutineCalendarManifest[] {
@@ -512,6 +625,92 @@ export function formatMoney(minor: number, currency: string): string | null {
 }
 
 // ---------------------------------------------------------------------------------------------
+// Text messages: segments, and the words the host wraps around a kind's (ADR 0670)
+
+// The GSM 03.38 alphabet a text is sent in when it can be; the extension table's characters take
+// two units. Anything else sends the whole text in the longer encoding (UCS-2).
+const GSM_BASIC = new Set(
+  "@£$¥èéùìòÇ\nØø\rÅåΔ_ΦΓΛΩΠΨΣΘΞÆæßÉ !\"#¤%&'()*+,-./0123456789:;<=>?¡ABCDEFGHIJKLMNOPQRSTUVWXYZÄÖÑÜ§¿abcdefghijklmnopqrstuvwxyzäöñüà",
+);
+const GSM_EXTENDED = new Set("^{}\\[~]|€\f");
+
+/** How a text is sent: its encoding, its length in that encoding's units, and its segments. */
+export function textSegments(value: string): {
+  encoding: "gsm" | "ucs2";
+  units: number;
+  segments: number;
+} {
+  let units = 0;
+  let gsm = true;
+  for (const ch of value) {
+    if (GSM_BASIC.has(ch)) units += 1;
+    else if (GSM_EXTENDED.has(ch)) units += 2;
+    else {
+      gsm = false;
+      break;
+    }
+  }
+  if (gsm) return { encoding: "gsm", units, segments: units <= 160 ? 1 : Math.ceil(units / 153) };
+  const length = value.length;
+  return { encoding: "ucs2", units: length, segments: length <= 70 ? 1 : Math.ceil(length / 67) };
+}
+
+/**
+ * A text in the plainest characters that say the same (a dash for an en dash, straight quotes,
+ * a space for a no-break space), so one typographic character does not double its cost.
+ */
+export function textForm(value: string): string {
+  return value
+    .replace(/[\u2013\u2014\u2212]/g, "-")
+    .replace(/[\u2018\u2019\u201b\u2032]/g, "'")
+    .replace(/[\u201c\u201d\u2033]/g, '"')
+    .replace(/\u2026/g, "...")
+    .replace(/[\u00a0\u2007\u202f]/g, " ");
+}
+
+/** A text as it is sent: the business's name first, the words, and the stop line last. */
+export function wrapText(sender: string, words: string): string {
+  const name = sender.trim().slice(0, TEXT_SENDER_MAX).trim();
+  return textForm(`${name}: ${words.trim()} ${TEXT_STOP_LINE}`);
+}
+
+/** The longest a moment written by `formatMoment` can be (the longest zone name counted). */
+const LONGEST_ZONE = 32;
+const MOMENT_MAX = {
+  // "Wednesday 30 September 2026 at 23:59 (America/Argentina/ComodRivadavia time)"
+  datetime: 9 + 1 + 2 + 1 + 9 + 4 + 5 + 2 + LONGEST_ZONE + 6,
+  time: 5,
+  date: 9 + 1 + 2 + 1 + 9,
+} as const;
+const YEAR = 5;
+
+/** The longest value a slot can be filled with (for the length checks), or null: not allowed. */
+function slotMaxLength(slot: RoutineSlotSpec, guardian: boolean): number | null {
+  if ("field" in slot) {
+    const format = slot.format ?? "text";
+    if (format === "text") return slot.max ?? 120;
+    if (format === "money") return 16;
+    if (format === "count") return 12;
+    return MOMENT_MAX[format] + (slot.year && format !== "time" ? YEAR : 0);
+  }
+  if ("choice" in slot) {
+    const words = Object.entries(slot.choice).map(
+      ([k, v]) => (guardian ? slot.guardian?.[k] : undefined) ?? v,
+    );
+    return Math.max(0, ...words.map((w) => w.length));
+  }
+  if ("at" in slot) return MOMENT_MAX.datetime + (slot.year ? YEAR : 0);
+  if ("count" in slot) return String(slot.count.max).length;
+  if ("flag" in slot) return 0;
+  return null;
+}
+
+/** The longest a member's name is written (`unroutineText`'s bound for it). */
+const MEMBER_MAX = 80;
+/** The longest link a text may carry: a longer one fails its row at the host (ADR 0670). */
+export const TEXT_LINK_MAX = 120;
+
+// ---------------------------------------------------------------------------------------------
 // The manifest check
 
 /** Field types a text slot may read: never an address, a link, a phone number or a user. */
@@ -687,6 +886,7 @@ export function routineMailIssues(manifest: CheckManifest): { path: string; mess
         }
       }
     }
+    channelIssues(manifest, base, kind, contract);
     const messages = Object.entries(kind.messages);
     if (!messages.length || messages.length > 12) {
       contract(`${base}.messages`, "A kind has 1 to 12 messages");
@@ -757,4 +957,141 @@ export function routineMailIssues(manifest: CheckManifest): { path: string; mess
     }
   }
   return issues;
+}
+
+/**
+ * A kind's text and push words, and what it says of itself (ADR 0670): the words use only its
+ * slots and fit when every slot is at its longest (a text two segments with the business's name
+ * and the stop line counted in; a push's title 60 characters and its body 140); a push shows no
+ * private slot, no link and no list; `until` is a time of the record; a push names the screen it
+ * opens; a follow-up is never essential. A channel needs its words in every message, and words
+ * need their channel declared.
+ */
+function channelIssues(
+  manifest: CheckManifest,
+  base: string,
+  kind: RoutineMailKindManifest,
+  contract: (path: string, message: string) => void,
+): void {
+  const declared = kind.channels ?? ["email"];
+  if (new Set(declared).size !== declared.length) contract(`${base}.channels`, "A channel twice");
+  if (!declared.includes("email")) {
+    contract(`${base}.channels`, "Every kind goes by email: list email first");
+  }
+  const channels = new Set(declared);
+  if ((kind.purpose ?? "account") === "follow_up" && kind.essential === true) {
+    contract(`${base}.essential`, "A follow-up is never essential: a person may always stop it");
+  }
+  if (kind.until) {
+    const found = routinePathType(manifest, kind.about, kind.until);
+    if ("problem" in found) contract(`${base}.until`, found.problem);
+    else if (!TIME_FIELD_TYPES.has(found.type)) {
+      contract(`${base}.until`, "until must be a date or datetime field of the record");
+    }
+  }
+  if (kind.urgent && !kind.until) {
+    contract(
+      `${base}.urgent`,
+      "An urgent kind names its moment (until): it goes in quiet hours only when waiting would be too late",
+    );
+  }
+  if (channels.has("push") && !kind.open) {
+    contract(`${base}.open`, "A push opens a screen of the app: name it (open.screen)");
+  }
+  if (kind.open && !channels.has("push")) {
+    contract(`${base}.open`, "open is for a push: declare the push channel");
+  }
+  const slots = kind.slots;
+  const check = (
+    at: string,
+    template: string,
+    guardian: boolean,
+    channel: "text" | "push",
+    bound: number | null,
+  ) => {
+    const parsed = parseTemplate(template);
+    if (parsed.error) return contract(at, parsed.error);
+    if (template.includes("\n")) contract(at, "One line");
+    const why = unroutineWords(literalText(parsed));
+    if (why) contract(at, `The words hold ${why}`);
+    const longest: Record<string, string> = {};
+    for (const used of parsed.slots) {
+      if (used === ROUTINE_MEMBER_SLOT) {
+        if (!guardian) contract(at, `{${used}} is only for what a guardian is sent`);
+        longest[used] = "a".repeat(MEMBER_MAX);
+        continue;
+      }
+      const slot = slots[used];
+      if (!slot) {
+        contract(at, `{${used}} is not a slot of the kind`);
+        continue;
+      }
+      if ("each" in slot) {
+        contract(
+          at,
+          `{${used}} is a list: a ${channel === "text" ? "text" : "push"} has no room for one`,
+        );
+        continue;
+      }
+      if (channel === "push" && "link" in slot) {
+        contract(at, `{${used}} is a link: a push opens a screen of the app, never a web address`);
+        continue;
+      }
+      if (channel === "push" && "field" in slot && slot.private) {
+        contract(at, `{${used}} is private: a push shows on a locked screen`);
+        continue;
+      }
+      const mayBeEmpty =
+        "link" in slot ||
+        "flag" in slot ||
+        (("field" in slot || "at" in slot) && slot.optional === true);
+      if (mayBeEmpty && !parsed.optionalOnly.has(used)) {
+        contract(at, `{${used}} may be empty: put it in an optional part [...]`);
+      }
+      const max = "link" in slot ? TEXT_LINK_MAX : slotMaxLength(slot, guardian);
+      longest[used] = "a".repeat(max ?? 0);
+    }
+    const filled = renderTemplate(parsed, longest);
+    if (channel === "text") {
+      const sent = wrapText("a".repeat(TEXT_SENDER_MAX), filled);
+      // The words decide the encoding: a value that forces the longer one fails its row (ADR 0670).
+      const literal = textSegments(wrapText("a", literalText(parsed)));
+      const units = literal.encoding === "gsm" ? textSegments(sent).units : sent.length;
+      const limit = literal.encoding === "gsm" ? 153 * TEXT_MAX_SEGMENTS : 67 * TEXT_MAX_SEGMENTS;
+      if (units > limit) {
+        contract(
+          at,
+          `With every slot at its longest, the business's name and "${TEXT_STOP_LINE}" it is ${units} characters: a text is at most ${limit} (two segments). Use shorter slots (a time, a date, a lower max)`,
+        );
+      }
+    } else if (bound !== null && filled.length > bound) {
+      contract(
+        at,
+        `With every slot at its longest it is ${filled.length} characters: at most ${bound}`,
+      );
+    }
+  };
+  for (const [messageName, message] of Object.entries(kind.messages)) {
+    const at = `${base}.messages.${messageName}`;
+    type Version = RoutineMessageManifest | NonNullable<RoutineMessageManifest["guardian"]>;
+    const versions: [string, Version, boolean][] = [[at, message, false]];
+    if (message.guardian) versions.push([`${at}.guardian`, message.guardian, true]);
+    for (const [where, version, guardian] of versions) {
+      if (version.textMessage !== undefined) {
+        if (!channels.has("text")) contract(`${where}.textMessage`, "Declare the text channel");
+        check(`${where}.textMessage`, version.textMessage, guardian, "text", null);
+      }
+      if (version.push) {
+        if (!channels.has("push")) contract(`${where}.push`, "Declare the push channel");
+        check(`${where}.push.title`, version.push.title, guardian, "push", PUSH_TITLE_MAX);
+        check(`${where}.push.body`, version.push.body, guardian, "push", PUSH_BODY_MAX);
+      }
+    }
+    if (channels.has("text") && message.textMessage === undefined) {
+      contract(`${at}.textMessage`, "The kind goes by text: each message needs its text words");
+    }
+    if (channels.has("push") && !message.push) {
+      contract(`${at}.push`, "The kind goes by push: each message needs its push words");
+    }
+  }
 }

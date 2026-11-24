@@ -8,8 +8,10 @@ import {
   formatMoment,
   parseTemplate,
   renderTemplate,
+  textSegments,
   unroutineText,
   validateManifest,
+  wrapText,
 } from "../src/index.ts";
 
 function gym(routineMail: object, modules = ["ops", "routine-mail"]) {
@@ -38,6 +40,7 @@ function gym(routineMail: object, modules = ["ops", "routine-mail"]) {
           title: { type: "text", label: "Title" },
           startsAt: { type: "datetime", label: "Starts" },
           zone: { type: "timezone", label: "Zone" },
+          health: { type: "text", label: "Health note" },
           room: { type: "relation", label: "Room", to: "gym.room" },
           coachEmail: { type: "email", label: "Coach's email" },
           owner: { type: "relation", label: "Owner", to: "person" },
@@ -324,5 +327,144 @@ describe("what a value may hold", () => {
     ]) {
       expect(unroutineText(value, 120), value).not.toBeNull();
     }
+  });
+});
+
+// Routine messages (ADR 0670, stage 30 acceptance criterion 5): text and push words use only
+// declared slots and fit with every slot at its longest; a push shows nothing private, no link and
+// no list; a follow-up is never essential; and none of it is a runtime extension's (that refusal
+// is `outsideDeclarations`, tested in packages/core/test/routine-mail.test.ts).
+describe("text and push words", () => {
+  const phone = (over: object = {}, message: object = {}) =>
+    kind({
+      channels: ["email", "text", "push"],
+      until: "class.startsAt",
+      open: { screen: "timetable" },
+      slots: {
+        class: { field: "class.title", max: 40 },
+        time: { field: "class.startsAt", format: "time", zone: "class.zone" },
+        day: { field: "class.startsAt", format: "date", zone: "class.zone" },
+        room: { field: "class.room.name", optional: true },
+        link: { link: "url" },
+        health: { field: "class.health", private: true },
+        long: { field: "class.title" },
+      },
+      messages: {
+        booked: {
+          subject: "Booked: {class}",
+          text: "You are booked into {class}.",
+          textMessage: "Booked: {class}, {day} at {time}[, in {room}].",
+          push: { title: "Booked for {day}", body: "{class} at {time}." },
+          ...message,
+        },
+      },
+      ...over,
+    });
+
+  it("accepts words that fit, with the business's name and the stop line counted in", () => {
+    expect(issues({ confirmation: phone() })).toEqual([]);
+  });
+
+  it("counts a text in segments: 160 plain characters in one, 153 a segment after; 70 and 67 in the longer encoding", () => {
+    expect(textSegments("a".repeat(160))).toEqual({ encoding: "gsm", units: 160, segments: 1 });
+    expect(textSegments("a".repeat(306)).segments).toBe(2);
+    expect(textSegments("a".repeat(307)).segments).toBe(3);
+    expect(textSegments("€".repeat(80))).toEqual({ encoding: "gsm", units: 160, segments: 1 });
+    expect(textSegments("ł".repeat(70))).toEqual({ encoding: "ucs2", units: 70, segments: 1 });
+    expect(textSegments("ł".repeat(134)).segments).toBe(2);
+    expect(wrapText("A Very Long Business Name That Goes On", "Booked – see you")).toBe(
+      "A Very Long Business Name That: Booked - see you Reply STOP to stop",
+    );
+  });
+
+  it("refuses text words that could exceed two segments", () => {
+    const found = issues({
+      confirmation: phone({}, { textMessage: "Booked: {long}, {long}, {day} at {time}." }),
+    });
+    expect(found.join("\n")).toMatch(/textMessage: With every slot at its longest.*at most 306/);
+    // Words that force the longer encoding have far less room.
+    const wide = issues({
+      confirmation: phone(
+        {},
+        { textMessage: "Zapisano: {class}, {day} o {time}. Dziękujemy, łączymy się wkrótce." },
+      ),
+    });
+    expect(wide.join("\n")).toMatch(/at most 134/);
+  });
+
+  it("refuses push words over the bounds", () => {
+    expect(
+      issues({
+        confirmation: phone({}, { push: { title: "Booked: {long}", body: "{class}" } }),
+      }).join("\n"),
+    ).toMatch(/push\.title: .*at most 60/);
+    expect(
+      issues({
+        confirmation: phone({}, { push: { title: "Booked", body: "{long} at {time} on {day}" } }),
+      }).join("\n"),
+    ).toMatch(/push\.body: .*at most 140/);
+  });
+
+  it("refuses a slot not declared, a private slot, a link or a list in a push", () => {
+    expect(
+      issues({ confirmation: phone({}, { textMessage: "Booked: {nope}." }) }).join("\n"),
+    ).toMatch(/\{nope\} is not a slot/);
+    expect(
+      issues({ confirmation: phone({}, { push: { title: "Booked", body: "{health}" } }) }).join(
+        "\n",
+      ),
+    ).toMatch(/\{health\} is private: a push shows on a locked screen/);
+    // A text may carry it: only the locked screen is the problem.
+    expect(issues({ confirmation: phone({}, { textMessage: "Note: {health}" }) })).toEqual([]);
+    expect(
+      issues({ confirmation: phone({}, { push: { title: "Booked", body: "[{link}]" } }) }).join(
+        "\n",
+      ),
+    ).toMatch(/\{link\} is a link: a push opens a screen of the app/);
+    expect(issues({ confirmation: phone({}, { textMessage: "Booked. [{link}]" }) })).toEqual([]);
+  });
+
+  it("refuses words with a link or an address, the member outside a guardian's words, and two lines", () => {
+    const found = issues({
+      confirmation: phone({}, { textMessage: "Booked {member}. See gym.example.com\nBye" }),
+    }).join("\n");
+    expect(found).toMatch(/link, an address or markup/);
+    expect(found).toMatch(/\{member\} is only for what a guardian is sent/);
+    expect(found).toMatch(/One line/);
+  });
+
+  it("refuses an essential follow-up", () => {
+    expect(
+      issues({ confirmation: phone({ purpose: "follow_up", essential: true }) }).join("\n"),
+    ).toMatch(/A follow-up is never essential/);
+    expect(issues({ confirmation: phone({ purpose: "follow_up" }) })).toEqual([]);
+    expect(issues({ confirmation: phone({ purpose: "news_and_offers" }) }).join("\n")).toMatch(
+      /purpose/,
+    );
+  });
+
+  it("needs each channel's words in every message, the channel for its words, a screen for a push, a time for until", () => {
+    expect(issues({ confirmation: phone({}, { textMessage: undefined }) }).join("\n")).toMatch(
+      /each message needs its text words/,
+    );
+    expect(
+      issues({ confirmation: phone({ channels: ["email"], open: undefined }) }).join("\n"),
+    ).toMatch(/textMessage: Declare the text channel[\s\S]*push: Declare the push channel/);
+    expect(issues({ confirmation: phone({ open: undefined }) }).join("\n")).toMatch(
+      /A push opens a screen of the app/,
+    );
+    expect(issues({ confirmation: phone({ until: "class.title" }) }).join("\n")).toMatch(
+      /until must be a date or datetime field/,
+    );
+    expect(issues({ confirmation: phone({ urgent: true, until: undefined }) }).join("\n")).toMatch(
+      /An urgent kind names its moment/,
+    );
+    expect(issues({ confirmation: phone({ channels: ["text", "push"] }) }).join("\n")).toMatch(
+      /Every kind goes by email/,
+    );
+  });
+
+  it("a kind with only email words behaves as before", () => {
+    expect(issues({ confirmation: kind() })).toEqual([]);
   });
 });

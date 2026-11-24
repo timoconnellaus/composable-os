@@ -313,8 +313,12 @@ export * from "./recurring/index.ts";
 export * from "./registry.ts";
 export * from "./relative.ts";
 export * from "./retention.ts";
+export * from "./routine-mail/host-kinds.ts";
+export * from "./routine-mail/host-send.ts";
 export * from "./routine-mail/index.ts";
 export { callerMarks, givenValues, toolRunStanding } from "./routine-mail/marks.ts";
+export * from "./routine-mail/quiet.ts";
+export * from "./routine-mail/reach.ts";
 export {
   AI_SETTINGS,
   BASE_CURRENCY_SETTING,

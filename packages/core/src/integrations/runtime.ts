@@ -167,6 +167,17 @@ export interface IntegrationRuntime {
     purpose: "orders" | "sign-in" | "agreements";
     origin?: "system.customer-mail" | "system.staff-mail";
   }): Promise<IntegrationCallResult>;
+  /**
+   * Sends one email row of core_routine_mail through `connectionId` (ADR 0670): a host kind's
+   * routine message, asked for by host code. The integration host claims the row and sends its
+   * own words through the routine-mail queue, exactly as for a pack's (ADR 0590); the caller
+   * passes only the row's id. Optional: a runtime without it sends no host kind's email.
+   */
+  sendRoutineMessage?(input: { connectionId: string; resource: string; id: string }): Promise<{
+    status: "sent" | "waiting" | "denied" | "failed" | "skipped" | "off";
+    pendingActionId?: string;
+    error?: string;
+  }>;
   /** The TypeScript declarations agents code against for a bound resource. */
   types(input: { connectionId: string; resource: string }): Promise<string>;
   /** Approval: applies a mirrored outbound action on its facet (in order per facet). */

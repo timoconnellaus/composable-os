@@ -633,7 +633,9 @@ notices.
 Block **BB**: migrations 0910 to 0929, ADRs 0670 to 0679. Expected:
 
 - **0910**: `core_routine_mail` grows (channel, statuses, cost, segments, provider ref, delivered,
-  wait until); `core_subscription` gains the card's expiry and the sent markers.
+  wait until, and `until_at`, the kind's moment, for `expired`; automation and run nullable for host
+  kinds). Built in step 1. `core_subscription`'s card expiry and sent markers were left to step 2,
+  which owns their design: it takes the block's next free number (0915).
 - **0911**: `core_text_spend`, `core_phone_check`.
 - **0912**: `core_push_device`.
 - **0913**: `core_contact_choice`, `core_contact_suppression`.
