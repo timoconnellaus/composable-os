@@ -70,7 +70,9 @@ while Deals is installed, else the Overview.
 
 **Widget**
 One tile on a dashboard: KPI, bar, line, donut, funnel, table, leaderboard or markdown. Data
-widgets run read-only SQL over `rec_*` views with named params bound from the dashboard's filters.
+widgets run read-only SQL over `rec_*` views with named params bound from the dashboard's filters. A
+date range ("today", "this month") is the business's, from its midnight in the organisation's time
+zone.
 
 **Click-through**
 A widget's filter template: clicking a segment, KPI or row opens the matching records as a

@@ -754,8 +754,10 @@ How stage 4a built it:
 - **Dashboards** ([ADR 0057](adr/0057-dashboards-params-cache-and-click-through.md)):
   `core_dashboards` plus the code-defined Overview, Home per user (`core_user_home`). Widget SQL
   uses named params (`:date_from`, `:owner`, `:now`, …) rewritten to `?N` and run through
-  `runReadOnlySql`; results are cached 60 s in the Workers Cache API by a hash of SQL, params and
-  visibility scope; click-through templates resolve to list filters.
+  `runReadOnlySql`; results are cached 60 s in the Workers Cache API by a hash of SQL, params,
+  visibility scope and time zone; click-through templates resolve to list filters. Date presets
+  and `:today` are the business's day, in the organisation's time zone (`localDay` in
+  `time/local.ts`, [ADR 0871](adr/0871-day-windows-in-the-business-zone.md)).
 - **Record tabs and panels, settings** ([ADR 0058](adr/0058-record-tabs-panels-and-extension-settings.md)):
   extensions declare `recordTabs`, `recordPanels` and typed `settings`; `view.recordViews` and
   `extensionSettings.*` serve them to the UI.

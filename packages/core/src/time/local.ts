@@ -210,3 +210,37 @@ export function localDaysBefore(at: number, days: number, timeZone: string): num
   const wall = { ...date, hour: p.hour, minute: p.minute, second: p.second };
   return wallClockToInstant(wall, timeZone) + ms;
 }
+
+// --- The business's day (stage 60 step 1, ADR 0871) ----------------------------------------------
+//
+// A local date's [from, to) as instants: from its first instant to the next date's first, so a day
+// across a change of clocks is 23 or 25 hours. Dashboards' date windows (issue #306), Today's
+// items and Finance reports' days all resolve through this.
+
+/** The first instant (ms) of a local date in `timeZone`; month and day may overflow (day 0, 32). */
+export function localDateStart(
+  date: { year: number; month: number; day: number },
+  timeZone: string,
+): number {
+  return wallClockToInstant(addLocalDays(date, 0), timeZone);
+}
+
+/** A local date as `[from, to)` ISO instants, and the date itself (`YYYY-MM-DD`). */
+export interface LocalDay {
+  date: string;
+  from: string;
+  to: string;
+}
+
+/**
+ * The local day `offsetDays` after the one `now` falls on in `timeZone` (before, when negative):
+ * `localDay(now, zone)` is today, `-1` yesterday, `-7` the same day last week.
+ */
+export function localDay(now: number | Date | string, timeZone: string, offsetDays = 0): LocalDay {
+  const date = addLocalDays(localParts(now, timeZone), offsetDays);
+  return {
+    date: `${date.year}-${pad(date.month)}-${pad(date.day)}`,
+    from: new Date(localDateStart(date, timeZone)).toISOString(),
+    to: new Date(localDateStart(addLocalDays(date, 1), timeZone)).toISOString(),
+  };
+}

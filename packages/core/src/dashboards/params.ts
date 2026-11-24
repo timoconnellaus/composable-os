@@ -3,9 +3,11 @@
 //
 // Date ranges always bind concrete ISO strings (all time is 0000… to 9999…), never NULL, so
 // `created_at >= :date_from AND created_at < :date_to` stays an index range scan. `:now` is
-// truncated to the minute so a widget's cache key holds for the 60 s cache window.
+// truncated to the minute so a widget's cache key holds for the 60 s cache window. Date ranges
+// and `:today` are the business's, in the organisation's time zone (ADR 0871, issue #306).
 import { ValidationError } from "../errors.ts";
 import { SqlRejectedError, tokenize } from "../operations/query.ts";
+import { localDateStart, localParts, parseLocalDate } from "../time/local.ts";
 import {
   allowedParamNames,
   type DashboardFilter,
@@ -24,75 +26,112 @@ export interface DateWindow {
   to: string;
 }
 
-const DAY = 86_400_000;
-const startOfDay = (d: Date) => Date.UTC(d.getUTCFullYear(), d.getUTCMonth(), d.getUTCDate());
-const iso = (ms: number) => new Date(ms).toISOString();
+interface LocalDate {
+  year: number;
+  month: number;
+  day: number;
+}
 
-/** The [from, to) window a preset or a { from, to } day range covers, in UTC. */
-export function resolveDateWindow(value: FilterValue | undefined, now: Date): DateWindow | null {
+/** The first instant of a local date (month and day may overflow), as ISO. */
+const startIso = (date: LocalDate, zone: string) =>
+  new Date(localDateStart(date, zone)).toISOString();
+
+/** A `{ from, to }` range's `YYYY-MM-DD` end, or a ValidationError. */
+function rangeDate(text: string): LocalDate {
+  const date = parseLocalDate(text);
+  if (!date) {
+    throw new ValidationError(`Not a date: ${text}`, { field: "filters" });
+  }
+  return date;
+}
+
+/**
+ * The [from, to) window a preset or a { from, to } day range covers, in the business's time zone
+ * (`zone`, the organisation's: ADR 0871). Days start at local midnight, so a day across a change
+ * of clocks is 23 or 25 hours; "last 7 days" is today and the six local days before it.
+ */
+export function resolveDateWindow(
+  value: FilterValue | undefined,
+  now: Date,
+  zone = "UTC",
+): DateWindow | null {
   if (value && typeof value === "object") {
-    const from = Date.parse(`${value.from}T00:00:00.000Z`);
-    const to = Date.parse(`${value.to}T00:00:00.000Z`) + DAY;
-    if (Number.isNaN(from) || Number.isNaN(to) || to <= from) {
+    const from = rangeDate(value.from);
+    const to = rangeDate(value.to);
+    if (Date.UTC(to.year, to.month - 1, to.day) < Date.UTC(from.year, from.month - 1, from.day)) {
       throw new ValidationError("A date range must end on or after its start", {
         field: "filters",
       });
     }
-    return { from: iso(from), to: iso(to) };
+    return { from: startIso(from, zone), to: startIso({ ...to, day: to.day + 1 }, zone) };
   }
-  const today = startOfDay(now);
-  const tomorrow = today + DAY;
-  const y = now.getUTCFullYear();
-  const m = now.getUTCMonth();
+  const { year: y, month: m, day: d } = localParts(now, zone);
+  const lastDays = (n: number) => ({
+    from: startIso({ year: y, month: m, day: d - (n - 1) }, zone),
+    to: startIso({ year: y, month: m, day: d + 1 }, zone),
+  });
+  const months = (from: number, to: number) => ({
+    from: startIso({ year: y, month: from, day: 1 }, zone),
+    to: startIso({ year: y, month: to, day: 1 }, zone),
+  });
   switch (value as DatePreset | null | undefined) {
     case "all_time":
     case null:
     case undefined:
       return null;
     case "today":
-      return { from: iso(today), to: iso(tomorrow) };
+      return lastDays(1);
     case "last_7_days":
-      return { from: iso(tomorrow - 7 * DAY), to: iso(tomorrow) };
+      return lastDays(7);
     case "last_30_days":
-      return { from: iso(tomorrow - 30 * DAY), to: iso(tomorrow) };
+      return lastDays(30);
     case "last_90_days":
-      return { from: iso(tomorrow - 90 * DAY), to: iso(tomorrow) };
+      return lastDays(90);
     case "last_365_days":
-      return { from: iso(tomorrow - 365 * DAY), to: iso(tomorrow) };
+      return lastDays(365);
     case "this_month":
-      return { from: iso(Date.UTC(y, m, 1)), to: iso(Date.UTC(y, m + 1, 1)) };
+      return months(m, m + 1);
     case "last_month":
-      return { from: iso(Date.UTC(y, m - 1, 1)), to: iso(Date.UTC(y, m, 1)) };
+      return months(m - 1, m);
     case "this_quarter": {
-      const q = Math.floor(m / 3) * 3;
-      return { from: iso(Date.UTC(y, q, 1)), to: iso(Date.UTC(y, q + 3, 1)) };
+      const q = Math.floor((m - 1) / 3) * 3 + 1;
+      return months(q, q + 3);
     }
     case "this_year":
-      return { from: iso(Date.UTC(y, 0, 1)), to: iso(Date.UTC(y + 1, 0, 1)) };
+      return months(1, 13);
     default:
       throw new ValidationError(`Unknown date range "${String(value)}"`, { field: "filters" });
   }
 }
 
 /**
- * The window just before `window`: calendar presets step back one unit (this month → last
- * month), rolling and custom ranges step back by their own length.
+ * The window just before `window`, in the same zone: calendar presets step back one unit (this
+ * month → last month), rolling and custom ranges step back by their own number of local days
+ * (today → yesterday, whatever its length in hours).
  */
-export function previousWindow(value: FilterValue | undefined, window: DateWindow): DateWindow {
-  const from = new Date(window.from);
-  const y = from.getUTCFullYear();
-  const m = from.getUTCMonth();
+export function previousWindow(
+  value: FilterValue | undefined,
+  window: DateWindow,
+  zone = "UTC",
+): DateWindow {
+  const from = localParts(window.from, zone);
+  const back = (date: LocalDate) => ({ from: startIso(date, zone), to: window.from });
   switch (value) {
     case "this_month":
     case "last_month":
-      return { from: iso(Date.UTC(y, m - 1, 1)), to: window.from };
+      return back({ year: from.year, month: from.month - 1, day: 1 });
     case "this_quarter":
-      return { from: iso(Date.UTC(y, m - 3, 1)), to: window.from };
+      return back({ year: from.year, month: from.month - 3, day: 1 });
     case "this_year":
-      return { from: iso(Date.UTC(y - 1, 0, 1)), to: window.from };
+      return back({ year: from.year - 1, month: 1, day: 1 });
     default: {
-      const length = Date.parse(window.to) - Date.parse(window.from);
-      return { from: iso(Date.parse(window.from) - length), to: window.from };
+      // The window's length in local days: both ends are local midnights.
+      const to = localParts(window.to, zone);
+      const days = Math.round(
+        (Date.UTC(to.year, to.month - 1, to.day) - Date.UTC(from.year, from.month - 1, from.day)) /
+          86_400_000,
+      );
+      return back({ year: from.year, month: from.month, day: from.day - days });
     }
   }
 }
@@ -118,7 +157,8 @@ function effectiveValue(filter: DashboardFilter, values: FilterValues): FilterVa
 
 /**
  * Binds a dashboard's filters (with the caller's values) and the system params. `me` resolves
- * to `userId`; a user filter set to "me" binds the caller's id.
+ * to `userId`; a user filter set to "me" binds the caller's id. Date windows and `:today` are in
+ * `zone`, the organisation's time zone (UTC when not given).
  */
 export function resolveParams(options: {
   filters: readonly DashboardFilter[];
@@ -126,12 +166,14 @@ export function resolveParams(options: {
   now: Date;
   userId: string;
   recordId?: string | null;
+  zone?: string;
 }): ResolvedParams {
   const { filters, values, now, userId } = options;
+  const zone = options.zone ?? "UTC";
   const minute = new Date(Math.floor(now.getTime() / 60_000) * 60_000);
   const bound: ParamValues = {
     now: minute.toISOString(),
-    today: minute.toISOString().slice(0, 10),
+    today: localParts(minute.getTime(), zone).date,
     me: userId,
     record_id: options.recordId ?? null,
   };
@@ -139,11 +181,11 @@ export function resolveParams(options: {
   for (const filter of filters) {
     const value = effectiveValue(filter, values);
     if (filter.type === "dateRange") {
-      const window = resolveDateWindow(value, now);
+      const window = resolveDateWindow(value, now, zone);
       bound[`${filter.id}_from`] = window?.from ?? ALL_TIME.from;
       bound[`${filter.id}_to`] = window?.to ?? ALL_TIME.to;
       if (window) {
-        const prev = previousWindow(value, window);
+        const prev = previousWindow(value, window, zone);
         previous ??= {};
         previous[`${filter.id}_from`] = prev.from;
         previous[`${filter.id}_to`] = prev.to;
