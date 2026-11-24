@@ -968,13 +968,16 @@ definition into its client repo.
 
 Stage 22; [ADR 0402](adr/0402-staff-and-customers.md).
 
-Every operation declares its audiences: `staff` (the default), `customer`, `public`.
+Every operation declares its audiences: `staff` (the default), `customer`, `public`, or
+`device` alone (stage 51, [ADR 0781](adr/0781-a-device-as-a-caller-the-device-audience-and-device-roles.md)).
 
 - **Staff** are today's users, with roles.
 - A **customer** is a Person with a sign-in. An object says which relation field is its customer;
   the visibility seam limits a customer to their own records. Customers never reach the admin, MCP,
   Code Mode, `query.sql`, dashboards or exports.
 - **Public** callers have no account. Public operations are few, low risk and rate limited.
+- A **device** is the business's own enrolled tablet holding a device role, signed in as nobody.
+  It calls only on the desk origin, and only its role's tools and `device.heartbeat`.
 
 As built (stage 22; ADRs [0410](adr/0410-the-seams-first-door-as-built.md),
 [0411](adr/0411-audiences-on-operations-as-built.md),
@@ -1002,6 +1005,13 @@ As built (stage 22; ADRs [0410](adr/0410-the-seams-first-door-as-built.md),
 - **A call for a customer or the public** carries a principal and no staff user. It takes a
   short path of its own in the pipeline: no role, no approval queue, a write check at the seam
   before the batch commits, and an audit row with actor `customer` or `public`.
+- **A call by an enrolled device** (ADR 0781) takes the same path, from the desk origin's handler
+  only, which says `{ kind: "device" }` and passes the request. The pipeline's device check
+  (`devices/caller.ts`) resolves the device from its credential (rotation, grace, clones and
+  lapsing, ADR 0780), requires the `role` use and a device role an installed, active, shipped pack
+  declares now (`loadDeviceRole`), and refuses, audited, any operation the role does not reach
+  (`deviceRoleReaches`), before the input is looked at. Audited with actor `device` and the
+  device's id; the seam gives it nothing, and its tools' own calls run as the extension.
 - **Its handler has no raw database.** It reads and writes records through `ctx.records`. A core
   operation marked `hostInternal` keeps the database for account and session bookkeeping.
 - **Customer accounts** are `core_customer` and its sessions, apart from `core_user`. A second
@@ -1923,6 +1933,12 @@ A pack may declare a tool permission **restricted**
 held by admins and by a grant of it, never by a member's or viewer's own role or by a pack role,
 and is never called by an automation or another extension's code (Rostering's `rostering:manage`;
 pay in step 6). A human admin grants it, never to their own account.
+A pack may also declare **device roles** (`deviceRoles`,
+[ADR 0781](adr/0781-a-device-as-a-caller-the-device-audience-and-device-roles.md)), held by an
+enrolled device of use `role` rather than an account: the role's tools (open to the `device`
+audience only, permissions no staff role, grant or restriction names) and `device.heartbeat` are
+all the device may do; `ctx.caller` is `{ kind: "device", deviceId, name }`, and the tool's calls
+run as the extension. The contract check and install refuse a runtime extension's.
 
 **Permission grants** ([ADR 0449](adr/0449-permissions-granted-one-by-one.md)). A human admin
 grants a staff account named permissions on top of its role (`user.setPermissions`,

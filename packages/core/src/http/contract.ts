@@ -4,7 +4,7 @@
 // (packages/core/api/v1/<audience>.json), and read by `cos client generate` to write a product's
 // typed client.
 import { z } from "zod";
-import { AUDIENCES, type Audience, audiencesOf } from "../audiences.ts";
+import { AUDIENCES, type Audience, audiencesOf, isDeviceOperation } from "../audiences.ts";
 import type { AnyOperation } from "../operation.ts";
 import type { RiskClass } from "../principals.ts";
 
@@ -108,11 +108,14 @@ function staleGroup(name: string): string {
 }
 
 /**
- * Operations a client can call: tool-only ones (reached only from inside a tool) and the desk
- * origin's own calls (reached only through its handler, ADR 0649) are left out.
+ * Operations a client can call: tool-only ones (reached only from inside a tool), and the desk
+ * origin's own calls and an enrolled device's (reached only through its handler, ADRs 0649 and
+ * 0781), are left out.
  */
 export function buildContract(operations: readonly AnyOperation[]): ApiContract {
-  const callable = operations.filter((op) => !op.toolOnly && !op.deskOnly);
+  const callable = operations.filter(
+    (op) => !op.toolOnly && !op.deskOnly && !isDeviceOperation(op),
+  );
   const queries = callable.filter((op) => op.risk === "read");
   const entries = callable.map((op): ContractOperation => {
     const kind = op.risk === "read" ? "query" : "mutation";

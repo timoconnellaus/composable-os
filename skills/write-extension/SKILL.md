@@ -393,6 +393,14 @@ it to a staff account; while it is held it, and the pack permissions granted to 
 all that account may do, on every operation. Use a role only for that; ordinary staff need none. Only a pack or the org's own extension may declare
 one. See Ticketing: `roles` in `packs/ticketing/index.ts`.
 
+A shipped pack may also declare **device roles** (`deviceRoles`, `DeviceRoleSpec` in
+`contract.ts`, ADR 0781) for the business's own enrolled device, signed in as nobody (a check-in
+tablet by the door): `{ label, description, permissions, screen: { block, export } }`. Its
+permissions are those of tools declared `audiences: ["device"]` and nothing else's (no staff
+role, grant or restriction names them); the tool reads as the extension, returns only what its
+output declares (never a Person id or a reason for the room), and records who ticked from
+`ctx.caller` (`{ kind: "device", deviceId, name }`). The screen is a web block of the pack.
+
 To let some staff call one tool their role does not reach (a viewer at the door), declare its
 permission **grantable** instead (`grantable: ["<id>:<word>"]`, ADR 0449): a human admin grants it
 to an account with `user.setPermissions`, on top of its role, a pack role included: they add up

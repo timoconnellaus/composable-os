@@ -176,11 +176,20 @@ export function toolOperation(
                 // A run calling this tool: the weaker of its standing and the tool's wins.
                 ...callerMarks(ctx),
               }
-            : {
-                actor: ctx.principal.kind,
-                userId: ctx.principal.kind === "customer" ? ctx.principal.customerId : "",
-                principal: ctx.principal,
-              },
+            : ctx.principal.kind === "device"
+              ? {
+                  // An enrolled device (ADR 0781): the tool records it; its calls are the
+                  // extension's, as for staff.
+                  actor: "device",
+                  userId: ctx.principal.deviceId,
+                  name: ctx.principal.name,
+                  device: { deviceId: ctx.principal.deviceId, name: ctx.principal.name },
+                }
+              : {
+                  actor: ctx.principal.kind,
+                  userId: ctx.principal.kind === "customer" ? ctx.principal.customerId : "",
+                  principal: ctx.principal,
+                },
       });
       if (!result.ok) {
         // A read tool in a dry run reached what the dry run does not touch: not run (dry-run.ts).

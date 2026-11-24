@@ -266,6 +266,7 @@ export {
   type AnyInvocationContext,
   type BatchOutcome,
   type CommitEvent,
+  type DeviceInvocationContext,
   type InBatch,
   type InvocationContext,
   invokeOperation,

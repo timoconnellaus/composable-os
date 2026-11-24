@@ -18215,7 +18215,8 @@
               "automation",
               "extension",
               "customer",
-              "public"
+              "public",
+              "device"
             ]
           },
           "operation": {

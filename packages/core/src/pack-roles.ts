@@ -27,8 +27,9 @@
 // holder looks after, ADR 0889) bind what the role gives and nothing else, and the pipeline
 // carries them only on a call the role allowed.
 import type { CoreDatabase, CrmDb } from "@composable-os/db";
-import type { ExtensionManifest, RoleManifest } from "@composable-os/sdk";
+import type { DeviceRoleManifest, ExtensionManifest, RoleManifest } from "@composable-os/sdk";
 import { type Kysely, sql } from "kysely";
+import { audiencesOf } from "./audiences.ts";
 import type { AnyOperation } from "./operation.ts";
 import type { LooksAfter, LooksAfterLimit, LooksAfterTeam } from "./pack-role-looks-after.ts";
 import { FIXED_ROLE_CORE_GRANTS, holdsPermission, type Role } from "./principals.ts";
@@ -349,4 +350,77 @@ export function packRoleAllows(role: HeldPackRole, op: AnyOperation, input: unkn
   // record.get and record.list name their object in the input.
   const object = (input as { object?: unknown } | null)?.object;
   return typeof object === "string" && role.read.includes(object);
+}
+
+// --- Device roles (stage 51, ADR 0781) -------------------------------------------------------------
+//
+// A pack declares device roles (`deviceRoles` in its manifest) as it declares staff roles, for a
+// holder that is not a person: an enrolled device of use `role` (`core_device.role`, ADR 0780).
+// While it holds one, the role is all the device may do: the pipeline lets its credential call
+// the pack's tools open to `device` whose permission the role lists, and `device.heartbeat`, and
+// refuses everything else before the input is looked at. No record read, no core operation.
+
+/** A device role as an enrolled device holds it. */
+export interface HeldDeviceRole {
+  /** `<extension>.<role>`, as stored on the device. */
+  readonly name: string;
+  readonly extension: string;
+  readonly label: string;
+  /** Tool permissions (`<extension>:<word>`) the role holds. */
+  readonly permissions: readonly string[];
+  readonly screen: { readonly block: string; readonly export: string };
+}
+
+/** The core operations every device role reaches: its own heartbeat (last seen). */
+export const DEVICE_ROLE_CORE: readonly string[] = ["device.heartbeat"];
+
+/**
+ * The device role `name` an installed, active, shipped pack declares now, or null. A role whose
+ * pack is disabled, uninstalled or not shipped, or that the manifest no longer declares, holds
+ * nothing (fail closed). One statement: the pack's row, by primary key.
+ */
+export async function loadDeviceRole(
+  db: Kysely<CoreDatabase>,
+  name: string,
+): Promise<HeldDeviceRole | null> {
+  const match = PACK_ROLE_NAME_RE.exec(name);
+  if (!match) return null;
+  const extension = match[1] as string;
+  const local = match[2] as string;
+  const row = await db
+    .selectFrom("core_extensions")
+    .select(["manifest", "status", "source"])
+    .where("id", "=", extension)
+    .executeTakeFirst();
+  let manifest: Partial<ExtensionManifest> | null;
+  try {
+    manifest = manifestOf(row);
+  } catch {
+    return null;
+  }
+  const roles = manifest?.deviceRoles ?? {};
+  const role: DeviceRoleManifest | undefined = Object.hasOwn(roles, local)
+    ? roles[local]
+    : undefined;
+  if (!role) return null;
+  return Object.freeze({
+    name,
+    extension,
+    label: role.label,
+    permissions: Object.freeze([...role.permissions]),
+    screen: Object.freeze({ block: role.screen.block, export: role.screen.export }),
+  });
+}
+
+/**
+ * Whether a device holding `role` may call `op` (for any input): its own heartbeat, or a tool of
+ * the role's own pack, open to `device` only, whose permission the role holds. Checked before the
+ * input is parsed, so a device learns nothing about any other operation.
+ */
+export function deviceRoleReaches(role: HeldDeviceRole, op: AnyOperation): boolean {
+  const audiences = audiencesOf(op);
+  if (audiences.length !== 1 || audiences[0] !== "device") return false;
+  if (op.packPermissions === undefined) return DEVICE_ROLE_CORE.includes(op.name);
+  if (!op.name.startsWith(`x.${role.extension}.`)) return false;
+  return op.packPermissions.some((p) => role.permissions.includes(p));
 }

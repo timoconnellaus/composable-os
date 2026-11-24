@@ -35,7 +35,7 @@ import { newId } from "../ids.ts";
 import { notifyStatements } from "../notifications/send.ts";
 import { type HandlerContext, type RecordChange, recordHostChange } from "../operation.ts";
 import { createRecord, updateRecord } from "../operations/record.ts";
-import type { Principal } from "../principals.ts";
+import { type Principal, placedAs } from "../principals.ts";
 import { viewColumnOf } from "../records/columns.ts";
 import { type MoveHook, onEveryRecordMove, onRecordMove } from "../records/lifecycle.ts";
 import { assertCreateRules } from "../records/states.ts";
@@ -381,7 +381,7 @@ export async function startHeld(ctx: HandlerContext, input: StartHeldInput): Pro
     // Who it is for: the booking's Person (a child a guardian buys for), not only who pays.
     participantId: holder,
     email,
-    placedAs: caller.kind,
+    placedAs: placedAs(caller),
     pay: "full",
     accessHash: token ? await hashOrderToken(token) : null,
     agreements: input.agreements,

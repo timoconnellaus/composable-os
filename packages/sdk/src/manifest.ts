@@ -354,7 +354,7 @@ export const toolManifestSchema = z.object({
   description: z.string().min(20).max(2000),
   risk: z.enum(TOOL_RISKS),
   recordAction: recordActionManifestSchema.optional(),
-  audiences: z.array(z.enum(TOOL_AUDIENCES)).min(1).max(3).optional(),
+  audiences: z.array(z.enum(TOOL_AUDIENCES)).min(1).max(4).optional(),
   customerFields: z.record(z.string().max(80), z.array(z.string().max(40)).max(50)).optional(),
   /** The permission a staff caller needs (`<id>:<word>`), for the extension's roles (ADR 0436). */
   permission: z.union([z.string().max(80), z.array(z.string().max(80)).min(1).max(5)]).optional(),
@@ -403,6 +403,19 @@ export const roleManifestSchema = z.object({
   looksAfter: z.record(z.string().max(80), z.string().max(40)).optional(),
 });
 export type RoleManifest = z.infer<typeof roleManifestSchema>;
+
+/** A device role (ADR 0781): see `DeviceRoleSpec`. */
+export const deviceRoleManifestSchema = z
+  .object({
+    label: z.string().min(1).max(60),
+    description: z.string().min(10).max(500),
+    permissions: z.array(z.string().max(80)).max(20).default([]),
+    screen: z
+      .object({ block: z.string().min(1).max(80), export: z.string().min(1).max(60) })
+      .strict(),
+  })
+  .strict();
+export type DeviceRoleManifest = z.infer<typeof deviceRoleManifestSchema>;
 
 /** A role's or a tool's permission: `<extension id>:<word>`. */
 export const EXTENSION_PERMISSION_RE = /^([a-z][a-z0-9]{1,29}):([a-z][a-zA-Z0-9]{0,39})$/;
@@ -560,6 +573,8 @@ export const manifestSchema = z.object({
   tools: z.record(z.string(), toolManifestSchema).default({}),
   automations: z.record(z.string(), automationManifestSchema).default({}),
   roles: z.record(z.string(), roleManifestSchema).default({}),
+  /** A shipped pack's device roles, for an enrolled device (ADR 0781). */
+  deviceRoles: z.record(z.string(), deviceRoleManifestSchema).optional(),
   /** Tool permissions an admin may grant one by one (ADR 0449). */
   grantable: z.array(z.string().max(80)).max(20).optional(),
   /** A shipped extension's routine mail (ADR 0590). */
@@ -857,6 +872,21 @@ export function toManifest(extension: Extension): ExtensionManifest {
           ),
         }
       : {}),
+    ...(extension.deviceRoles && Object.keys(extension.deviceRoles).length
+      ? {
+          deviceRoles: Object.fromEntries(
+            Object.entries(extension.deviceRoles).map(([name, role]) => [
+              name,
+              {
+                label: role.label,
+                description: role.description,
+                permissions: [...role.permissions],
+                screen: { block: role.screen.block, export: role.screen.export },
+              },
+            ]),
+          ),
+        }
+      : {}),
     ...(extension.requires?.length ? { requires: [...extension.requires] } : {}),
     ...(extension.routineMail && Object.keys(extension.routineMail).length
       ? { routineMail: extension.routineMail }
@@ -1069,6 +1099,94 @@ export function screenIssues(m: ExtensionManifest): { path: string; message: str
         );
       }
       if (!FIELD_NAME_RE.test(as)) add(`${path}.record.as`, `"${as}" must be a camelCase prop`);
+    }
+  }
+  return issues;
+}
+
+/**
+ * Device roles and the tools open to a device (ADR 0781), against the manifest itself:
+ *   - a tool open to `device` is open to nobody else, is a read or a write, and names a
+ *     permission of this pack that a device role holds; it is no record action, waits for no
+ *     person and is no staff tool's;
+ *   - a device role holds at least one permission, each a permission of this pack's device tools
+ *     only (never a staff tool's, a staff role's, a grantable or a restricted one), and names its
+ *     screen: a web block of this pack and the component it exports.
+ * That only a shipped pack declares device roles is the host's check (`cos ext check` and
+ * install refuse a runtime one).
+ */
+export function deviceRoleIssues(m: ExtensionManifest): { path: string; message: string }[] {
+  const issues: { path: string; message: string }[] = [];
+  const add = (path: string, message: string) => issues.push({ path, message });
+  const roles = m.deviceRoles ?? {};
+  const held = new Set(Object.values(roles).flatMap((role) => role.permissions));
+  const staffHeld = new Set([
+    ...Object.values(m.roles).flatMap((role) => role.permissions),
+    ...(m.grantable ?? []),
+    ...(m.restricted ?? []),
+  ]);
+  for (const [name, tool] of Object.entries(m.tools)) {
+    const audiences = tool.audiences ?? [];
+    if (!audiences.includes("device")) continue;
+    const path = `tools.${name}`;
+    if (audiences.length !== 1) {
+      add(
+        `${path}.audiences`,
+        'A tool open to device is open to nobody else: audiences ["device"]',
+      );
+    }
+    const permissions = toolPermissions(tool);
+    if (!permissions.length) {
+      add(`${path}.permission`, "A tool open to device names the permission a device role holds");
+    }
+    for (const permission of permissions) {
+      if (!held.has(permission)) {
+        add(`${path}.permission`, `No device role of this pack holds "${permission}"`);
+      }
+    }
+    if (tool.recordAction || tool.grantLiftsRoleLimits) {
+      add(path, "A tool open to device is no record action and lifts no staff role's limits");
+    }
+  }
+  for (const [name, role] of Object.entries(roles)) {
+    const path = `deviceRoles.${name}`;
+    if (!FIELD_NAME_RE.test(name)) add(path, `Device role name "${name}" must be camelCase`);
+    if (!role.permissions.length)
+      add(`${path}.permissions`, "A device role holds at least one permission");
+    for (const permission of role.permissions) {
+      const tools = Object.values(m.tools).filter((t) => toolPermissions(t).includes(permission));
+      const ok =
+        EXTENSION_PERMISSION_RE.exec(permission)?.[1] === m.id &&
+        tools.length > 0 &&
+        tools.every((t) => t.audiences?.length === 1 && t.audiences[0] === "device");
+      if (!ok) {
+        add(
+          `${path}.permissions`,
+          `"${permission}" must be the permission of this pack's tools open to device only (audiences ["device"])`,
+        );
+      }
+      if (staffHeld.has(permission)) {
+        add(
+          `${path}.permissions`,
+          `"${permission}" is a staff role's, grantable or restricted: a device role's permission is held by devices only`,
+        );
+      }
+    }
+    if (
+      !BLOCK_NAME_RE.test(role.screen.block) ||
+      !role.screen.block.startsWith(`${m.id}-`) ||
+      role.screen.block.includes("-native-")
+    ) {
+      add(
+        `${path}.screen.block`,
+        `"${role.screen.block}" must be a web block of this pack (${m.id}-<name>, never a native one or another pack's)`,
+      );
+    }
+    if (!COMPONENT_NAME_RE.test(role.screen.export)) {
+      add(
+        `${path}.screen.export`,
+        `"${role.screen.export}" must be the name of a component (PascalCase)`,
+      );
     }
   }
   return issues;
@@ -1940,7 +2058,9 @@ export function validateManifest(
       if (new Set(permissions).size !== permissions.length) {
         contract(`tools.${name}.permission`, "A tool names each permission once");
       }
-      if (tool.audiences && !tool.audiences.includes("staff")) {
+      // A device's tool names the permission its device role holds (ADR 0781).
+      const deviceOnly = tool.audiences?.length === 1 && tool.audiences[0] === "device";
+      if (tool.audiences && !tool.audiences.includes("staff") && !deviceOnly) {
         contract(
           `tools.${name}.permission`,
           "A permission is for staff callers; this tool is not open to staff",
@@ -2217,6 +2337,8 @@ export function validateManifest(
       }
     }
   }
+
+  for (const issue of deviceRoleIssues(m)) contract(issue.path, issue.message);
 
   for (const issue of screenIssues(m)) contract(issue.path, issue.message);
 

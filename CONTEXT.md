@@ -1016,12 +1016,13 @@ customers and the public only, the caller decided from the customer's verified s
 never staff (stage 24, ADR 0421).
 
 **Audience**
-Who may call an operation: `staff`, `customer` or `public` (stage 22, ADR 0402). An operation
-lists its audiences, staff only when it lists none. A caller outside them gets the answer an
-unknown operation gets (ADR 0411).
+Who may call an operation: `staff`, `customer` or `public` (stage 22, ADR 0402), or `device`, an
+**enrolled device** holding a **device role**, alone (stage 51, ADR 0781). An operation lists its
+audiences, staff only when it lists none. A caller outside them gets the answer an unknown
+operation gets (ADR 0411).
 
 **Open operation**
-An operation that lists `customer` or `public`. It is a `read` or a `write`, never more, and is
+An operation that lists `customer`, `public` or `device`. It is a `read` or a `write`, never more, and is
 named in the generated `packages/core/open-operations.json` (ADR 0411).
 
 **Visibility seam**
@@ -1521,14 +1522,24 @@ _Avoid_: kiosk (a standing sign-in on a shared device, which this is not)
 
 **Enrolled device** (stage 51 step 1, built with stage 44 step 6: ADR 0780)
 A tablet or other browser a human admin enrolled as the business's own (`core_device`), for one
-**use**: desk signing, a **device role** a pack declares (stage 51's check-in tablet, not built
-yet), or a till (stage 50, not built yet). It holds one credential, a cookie on the desk origin
+**use**: desk signing, a **device role** a pack declares (stage 51's check-in tablet: the role
+and its calls are built, Bookings' role and the tablet's screen are not yet), or a till (stage 50,
+not built yet). It holds one credential, a cookie on the desk origin
 that alone opens almost nothing, rotated at least daily (and on every signing claim): the next
 one is issued and the current one stays good until the device presents it, then the old one is
 accepted 60 seconds more; a credential rotated away and used later revokes it as a clone, and 30
 days unused lapse it. Every admin is told when one is enrolled, changed or revoked (Settings, Devices).
 Not a **Device session**, which is a person's own app sign-in.
 _Avoid_: kiosk, terminal, registered device
+
+**Device role** (stage 51 step 2: ADR 0781)
+What a pack lets an **enrolled device** do with no person signed in (`deviceRoles` in its
+manifest, held as `core_device.role`, `<pack>.<role>`): exactly the pack's tools open to the
+`device` audience whose permission the role lists, and `device.heartbeat`, decided by the
+pipeline from the device's credential on every call. Its tools see `ctx.caller` as `{ kind:
+"device", deviceId, name }` and run as the extension. Only a shipped pack declares one. Not a
+**Pack role**, which a staff account holds.
+_Avoid_: kiosk role, device account
 
 **Desk origin** (stage 44 step 6: ADR 0649)
 The host's second hostname, `desk.` before its name (`DESK_HOSTNAME`, set by `cos deploy` on a
