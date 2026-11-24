@@ -1,6 +1,6 @@
 // Data hooks for the automation and notification UI: every read and write of automation.* and
 // notification.* lives here, so the shapes the pages consume are in one place.
-import { useInfiniteQuery, useQueryClient } from "@tanstack/react-query";
+import { useInfiniteQuery } from "@tanstack/react-query";
 import { useMemo } from "react";
 import {
   callStageOp,
@@ -10,7 +10,6 @@ import {
   useStageMutation,
   useStageOp,
 } from "#/lib/automation-ops";
-import { invalidateOps } from "#/lib/query";
 
 export type AutomationList = StageOutput<"automation.list">;
 export type AutomationItem = AutomationList["items"][number];
@@ -88,12 +87,6 @@ export function useSetEnabled() {
     enable: useStageMutation("automation.enable"),
     disable: useStageMutation("automation.disable"),
   };
-}
-
-/** Refetches every automation read (after a run starts, a retry, a replay). */
-export function useRefreshAutomations() {
-  const client = useQueryClient();
-  return () => invalidateOps(client, "automation.");
 }
 
 // --- Notifications -----------------------------------------------------------------------------

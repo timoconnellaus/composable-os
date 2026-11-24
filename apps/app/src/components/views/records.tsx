@@ -109,12 +109,6 @@ export function missingFieldOf(error: unknown, info: ObjectInfo): FieldInfo | nu
   return field && !field.readOnly && field.extension ? field : null;
 }
 
-/** The choices of a select field, in declared order (extension choices or core enum values). */
-export function choiceValues(field: FieldInfo): string[] {
-  const choices = field.options?.choices as { value: string }[] | undefined;
-  return choices?.map((c) => c.value) ?? field.enumValues ?? [];
-}
-
 /** The label of a choice of a select field (extension choices or core enum values). */
 export function choiceLabel(field: FieldInfo, value: string | null): string {
   if (value === null) return `No ${field.label.toLowerCase()}`;
