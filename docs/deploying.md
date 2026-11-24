@@ -652,6 +652,16 @@ still pending at upgrade time. The inbox says its changes may already have been 
 approving would repeat them. It recommends rejecting it once you have checked the records it names.
 Nothing is rejected for you.
 
+### Upgrading past the business-day fix (ADR 0871, 2026-11-24)
+
+Release note: _Dashboards now count days in your business's time zone._ Until this release every
+dashboard's "today", "last 7 days", "this month" and the other date ranges started at midnight UTC,
+and `:today` in a widget's SQL was the UTC date. They now start at midnight in the time zone set in
+Settings → General (the first-run wizard's), and a day across a change of clocks is 23 or 25
+hours. **Every dashboard's figures shift on the day you upgrade** if the business is not on UTC:
+nothing in the data changes, only which day each record is counted on. A deployment with no time
+zone set keeps UTC.
+
 ## Rollback
 
 Settings → Updates → History → **Roll back** on the latest successful update, or:

@@ -66,7 +66,7 @@ commit**, by editing this table. Use the next free block. Unused numbers in a bl
 | BE | 0970–0989 | 0700–0709 | Stage 38, Knowledge base (spec `docs/stages/38-knowledge-base.md`): ADRs 0700 to 0707 named by the spec; migrations for the published-text index, `core_publish_ack` and the checklist's "how to" expected | specced |
 | BF | 0990–1009 | 0710–0719 | Stage 48, My account (spec `docs/stages/48-my-account.md`): `core_customer_email_change` (migration 0990), `me.portal`, `me.attention`, changing the sign-in address, deleting an account's consequences; ADRs 0710 to 0714 named in the spec | specced |
 | BB | 0910–0929 | 0670–0679 | Stage 30, Notifications (spec `docs/stages/30-notifications.md`). Step 1, routine messages (`feat/stage-30-routine-messages`): migration 0910, ADRs 0670 and 0676. Migrations 0911 to 0914 stay the spec's (steps 3 to 6); step 2 takes 0915 for the subscription's card expiry and sent markers, which 0910 left to it | in flight |
-| BG | 1010–1029 | 0720–0729 | Stage 29, Forms (spec `docs/stages/29-forms.md`) | specced |
+| BG | 1010–1029 | 0720–0729 | Stage 29, Forms (spec `docs/stages/29-forms.md`). Step 1, the question schema (`feat/stage-29-question-schema`): no migration, no ADR (the spec names none for it; 0720 to 0727 stay for the steps it names them for) | in flight |
 | BH | 1030–1049 | 0730–0739 | Stage 35, Invoices and quotes (spec `docs/stages/35-invoices-quotes.md`). Step 1, the PDF writer generalised (`feat/stage-35-pdf-writer`): ADR 0737, no migrations | in flight |
 | BI | 1050–1069 | 0740–0749 | Stage 36, Shared inbox (spec `docs/stages/36-inbox.md`) | specced |
 | BJ | 1070–1089 | 0750–0759 | Stage 39, Jobs and projects (spec `docs/stages/39-jobs.md`) | specced |
@@ -80,7 +80,7 @@ commit**, by editing this table. Use the next free block. Unused numbers in a bl
 | BR | 1230–1249 | 0830–0839 | Stage 56, Client notes (spec `docs/stages/56-client-notes.md`) | specced |
 | BS | 1250–1269 | 0840–0849 | Stage 57, Events and venue hire (spec `docs/stages/57-events-venue-hire.md`) | specced |
 | BT | 1270–1289 | 0850–0859 | Stage 58, Timesheets and leave (spec `docs/stages/58-timesheets-leave.md`) | specced |
-| BV | 1310–1329 | 0870–0879 | Stage 60, Owner's Today (spec `docs/stages/60-owners-today.md`) | specced |
+| BV | 1310–1329 | 0870–0879 | Stage 60, Owner's Today (spec `docs/stages/60-owners-today.md`) | step 1 built (ADR 0871 used; no migration) |
 | BW | 1330–1349 | 0880–0889 | Stage 61, Accounting sync (spec `docs/stages/61-accounting-sync.md`) | specced |
 | BY | 1370–1389 | 0900–0909 | Stage 63, App publishing (spec `docs/stages/63-app-publishing.md`) | specced |
 

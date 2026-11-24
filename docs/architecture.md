@@ -768,8 +768,10 @@ How stage 4a built it:
 - **Dashboards** ([ADR 0057](adr/0057-dashboards-params-cache-and-click-through.md)):
   `core_dashboards` plus the code-defined Overview, Home per user (`core_user_home`). Widget SQL
   uses named params (`:date_from`, `:owner`, `:now`, …) rewritten to `?N` and run through
-  `runReadOnlySql`; results are cached 60 s in the Workers Cache API by a hash of SQL, params and
-  visibility scope; click-through templates resolve to list filters.
+  `runReadOnlySql`; results are cached 60 s in the Workers Cache API by a hash of SQL, params,
+  visibility scope and time zone; click-through templates resolve to list filters. Date presets
+  and `:today` are the business's day, in the organisation's time zone (`localDay` in
+  `time/local.ts`, [ADR 0871](adr/0871-day-windows-in-the-business-zone.md)).
 - **Record tabs and panels, settings** ([ADR 0058](adr/0058-record-tabs-panels-and-extension-settings.md)):
   extensions declare `recordTabs`, `recordPanels` and typed `settings`; `view.recordViews` and
   `extensionSettings.*` serve them to the UI.
@@ -1373,6 +1375,20 @@ are `noMarkup` (no tag, comment or character reference) and links are checked by
 record, which stage 28's step 4 adds. `slug` is a field type: unique among an object's live records
 by a partial unique index the reconciler makes on its own table, made from the title when left
 empty, its old value kept in `core_slug_redirect` when a published record's slug changes.
+
+**The question schema** (stage 29, step 1, `packages/sdk/src/questions.ts`). A form's questions are
+a document field with the platform's one schema, `QUESTIONS_SCHEMA`: `{ items }`, at most 60, told
+apart by `kind` (text, email, phone, number, choice, date, rating, yesNo, consent, heading,
+paragraph), unique by `key`. Labels are `noMarkup` and a paragraph is rich text's inline runs.
+`checkQuestions` adds what the schema cannot say: camelCase keys, a `showIf` that names an earlier
+choice or yes/no with no `showIf` of its own and one of its values, a `map` to the Person (name,
+email, phone, each from the matching kind) or to a field the destination's intake lists, each
+filled once, none on an anonymous form, and no required marketing consent. `checkAnswers` checks
+`{ [key]: value }` against one version (types, required when shown, lengths, at most 3 links in a
+text, 20 KB in all, nothing for a hidden or unknown question) and gives the answers document a
+submission stores (`ANSWERS_SCHEMA`, private: no customer or public read). Its faults carry the
+question's key and a fault code, never the value. Wiring these checks into writes (the form's
+record, `intake.submit`) is stage 29's later steps.
 
 **`publishable`** ([ADR 0446](adr/0446-publishable-without-its-public-half.md),
 [ADR 0441](adr/0441-publishable-states-schedules-and-versions.md),
