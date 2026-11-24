@@ -155,11 +155,6 @@ export interface CorePersonEmailsTable {
   position: Defaulted<number>;
   /** Maintained by triggers from the person's deleted_at; never written by operations. */
   live: Defaulted<number>;
-  /**
-   * The address with its `+tag` dropped, for one-per-Person rules only (migration 0955, ADR 0692).
-   * Maintained by triggers from `email`; never written by operations.
-   */
-  folded: Defaulted<string | null>;
   created_at: Timestamp;
 }
 

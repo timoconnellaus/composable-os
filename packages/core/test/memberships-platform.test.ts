@@ -831,9 +831,10 @@ describe("an intro offer: one per Person (onePerPerson, ADR 0512)", () => {
     }
     await run("order.checkout", { id: order.id, returnUrl: RETURN }, as(one));
     await providerPays(order.id);
-    expect(await refusal(startFor(as(two), intro))).toMatchObject({
-      details: { rule: "once_per_person", reason: "used" },
-    });
+    const refused = await refusal(startFor(as(two), intro));
+    expect(refused).toMatchObject({ details: { rule: "once_per_person", reason: "used" } });
+    // Named as the same address, not as this Person's own (review of step 2).
+    expect(refused.message).toMatch(/bought for someone with this address \(a \+tag aside\)/);
     // Staff buying it for +2 are refused the same way.
     expect(await refusal(startFor(staff(), intro, two.email))).toMatchObject({
       details: { rule: "once_per_person", reason: "used" },
