@@ -521,7 +521,9 @@ describe("statements", () => {
 describe("the review of PR #380", () => {
   it("a discount given while the buyer's page is opening: the page is refused, and the next is for the new price", async () => {
     const order = await buy([{ id: yoga }]);
-    const original = runtime.callAsHost.bind(runtime);
+    const host = runtime.callAsHost;
+    if (!host) throw new Error("the payments double calls as the host");
+    const original = host.bind(runtime);
     let fired = false;
     runtime.callAsHost = async (input) => {
       if (input.method === "createCheckout" && !fired) {

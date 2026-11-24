@@ -35,7 +35,9 @@ net it paid).
 before), then `applyAdjustments` (`orders/adjustments.ts`) takes the adjustments off in the order
 they were made: one on a line from that line, one on the order spread over the lines by what each
 still costs (`splitInProportion`), whole minor units that always sum, no line below nothing. A
-percentage is rounded down on each line. `createOrder` prices through it (nothing is taken off at
+percentage is rounded down on each line: a whole-order percentage gives each line its own share,
+the percentage of that line rounded down (the row keeps the percentage for this), not a
+proportion of the sum. `createOrder` prices through it (nothing is taken off at
 the start in this step), and every change to a pending order's adjustments reprices the order
 through it from its lines' prices and every adjustment still on it, so the lines and the total are
 always the same function of the prices and the adjustments. The deal of a code or a member's price
@@ -53,7 +55,11 @@ and the order is paid in full.
 
 **Changing a price only before the checkout opens.** An adjustment is added to or taken off only
 a pending order whose checkout has not opened (`rule: "checkout_open"`): a provider page already
-open was made for the old amount.
+open was made for the old amount. The database holds both orders of that race (migration 0951): a
+new total is refused once a checkout is recorded, and a checkout for the whole price or the
+deposit is recorded only for what the order costs now, so a discount given while the buyer's page
+was being opened refuses that page (`rule: "price_changed"`) and the buyer pays again for the new
+price.
 
 **Nothing to pay is not reachable yet.** An adjustment that would take the order to nothing is
 refused (`rule: "total"`): an order with nothing to pay has no way to be paid until the stage's
@@ -66,7 +72,9 @@ and line objects gain `discount` (and the line `netTotal`), readable by the orde
 adjustments themselves (who gave one and why) are staff only (`order.get` for staff).
 
 **Erase.** A Person's orders keep their adjustments' amounts, kinds and sources (the order is a
-financial record); a staff reason is blanked.
+financial record); a staff reason is blanked, and so is the audit log's copy of it: every
+`order.adjust` and `order.unadjust` audit row on their orders is redacted (`core_audit_redactions`),
+since its input names only the order and the erase's term match would not find it.
 
 ## Consequences
 - No operation takes an order's price from its input still: the only amount a caller names is a
@@ -84,4 +92,7 @@ net lines and sum to the charge (criterion 2); a deposit order keeps its deposit
 drops (criterion 9); a refund asks for the net paid; the database refuses changing an adjustment's
 amount, deleting one and adding one to an order that is not pending; erase blanks a reason and
 keeps the amount; a discount on an order of 50 lines runs about 55 statements, each binding fewer
-than 100 values.
+than 100 values. From the review of PR #380: a discount given while the buyer's page is opening
+refuses that page and the next asks for the new price; the database refuses a new total once a
+page is recorded; erase redacts the discount calls' audit rows; a whole-order 99% on lines of 1 and
+3 cents takes 0 and 2.

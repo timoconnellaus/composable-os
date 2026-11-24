@@ -43385,7 +43385,7 @@
     },
     {
       "name": "order.unadjust",
-      "description": "Take a discount off a pending order whose payment page has not opened: the order's total goes back up by what it took off. Get the discount's id from order.get. Returns the order.",
+      "description": "Take a discount off a pending order whose payment page has not opened: the order's total goes back up by what it took off. Get the discount's id from order.get. An AI's request always waits for an admin. Returns the order.",
       "risk": "write",
       "audiences": [
         "staff"

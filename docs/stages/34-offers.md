@@ -60,7 +60,11 @@ module (the till): whichever is built first builds it once, to this design.
   spec's ADR table had staff discounts as 0693, this step was given 0690 and 0691, so staff
   discounts are 0691 and the `discount` behaviour moves to 0693 (table below). Left for later
   steps: codes, members' prices and referrals as adjustments (4, 5, 9), the order's adjustments
-  and "Give a discount" on staff screens (10), e2e journeys (10).
+  and "Give a discount" on staff screens (10), e2e journeys (10). After the PR's review: migration
+  0951 makes a discount and the buyer's payment page unable to cross; the limit is judged again on
+  the handler's read; an AI's `order.unadjust` waits for an admin; erase redacts the discount
+  calls' audit rows; a whole-order percentage gives each line its own rounded-down share; only a
+  person's waiting discount holds the checkout, not an AI's.
 
 ## Goal
 

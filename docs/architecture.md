@@ -1738,8 +1738,10 @@ change to a pending order's adjustments go through it. Today only staff give one
 `order.adjust` / `order.unadjust` (`orders:discount`, grantable, admin by default) on a pending
 order whose checkout has not opened, with a reason. Within the limit a human admin sets
 (`discountLimit`, a percentage and an amount per order, nothing until set) it applies at once;
-over it the call waits in Approvals (the operation's `reviewWhen`), an AI's always waits, only a
-human admin approves, and the order's checkout cannot open meanwhile. A discount cannot take an
+over it the call waits in Approvals (the operation's `reviewWhen`, judged again on the handler's
+read), an AI's always waits (and so does its `order.unadjust`), only a human admin approves, and
+the order's checkout cannot open while a person's waits. The database refuses a new total once a
+checkout is recorded, and a checkout for a price that changed meanwhile (migration 0951). A discount cannot take an
 order to nothing yet. Codes and members' prices (the `discount` behaviour) join the seam in a
 later step.
 

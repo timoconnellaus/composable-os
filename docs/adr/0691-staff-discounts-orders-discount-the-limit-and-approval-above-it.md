@@ -22,7 +22,9 @@ write`, `actors: ["human", "assistant", "mcp"]` (no automation or extension give
 the order, an optional line, a percentage (up to two decimals, of what is left to pay, rounded down
 per line) **or** an amount in minor units, and a reason (required). On a pending order whose
 checkout has not opened; refused when it takes nothing off, more than is left, or the whole order
-(ADR 0690). `order.unadjust` takes one off again (marked removed, the order repriced).
+(ADR 0690). `order.unadjust` takes one off again (marked removed, the order repriced). An AI's
+`order.unadjust` waits too (`alwaysReview: ["assistant", "mcp"]`): taking a discount off raises the
+price a customer was given, and may undo an admin's approval.
 
 **A core permission, `orders:discount`.** Admins by default, grantable one by one by a human
 admin as `orders:refund` is (ADR 0449): the owner grants it to desk staff. A member or viewer
@@ -40,17 +42,24 @@ default.
 application of a pending action, the pipeline asks it, and `true` queues the call as a forced
 review (`review_source: always`, so the policy adjudicator never approves it; a `deny` still
 applies). `order.adjust`'s says "over the limit". Its `alwaysReview: ["assistant", "mcp"]` makes
-an AI's call wait whatever the preset or the amount.
+an AI's call wait whatever the preset or the amount. The pipeline judges the limit on its own
+read, so the handler judges it again on the read its write is made from (which the order's version
+check holds to commit): a discount that another desk gave in between, and that with this one is
+over the limit, refuses this one (`rule: "discount_limit"`), and asked again it waits. An approved
+call, and the dry run of a call being queued, are not judged again: they are the approver's.
 
 **Only a human admin approves one.** `approval.approve` / `approval.decide` refuse an
-`order.adjust` action to any actor but a person, and to a person who is not an admin
+`order.adjust` or `order.unadjust` action to any actor but a person, and to a person who is not an admin
 (`settings:manage`, the permission that sets the limit): a desk member cannot approve their own
 discount. The applied adjustment records who gave it (`given_by`: the account that asked) and the
 approval it waited in.
 
-**While one waits, the order cannot be paid.** `openCheckout` refuses a pending order with an
-`order.adjust` action waiting (`rule: "discount_waiting"`): its price is not settled until a person
-decides. The order keeps its expiry: a discount approved after the order expired fails on the
+**While a person's waits, the order cannot be paid.** `openCheckout` refuses a pending order with
+an `order.adjust` action a person asked for waiting (`rule: "discount_waiting"`): the person at
+the desk is with the buyer, and the price is not settled until an admin decides. An AI's waiting
+request does not hold the checkout (review of PR #380): an assistant must not be able to stop a
+buyer paying by asking. If the buyer pays first, the approved discount is refused
+(`checkout_open`). The order keeps its expiry: a discount approved after the order expired fails on the
 order's state, and staff start a new order.
 
 ## Consequences
@@ -66,4 +75,7 @@ order's state, and staff start a new order.
 meanwhile, the desk and a member cannot approve it and an admin can, and the applied adjustment
 names the approval; the limit counts every staff discount by amount and percentage; the assistant's
 and an MCP client's requests wait under every preset; a member and a viewer without the permission
-are refused; only a human admin sets the limit.
+are refused; only a human admin sets the limit. From the review of PR #380: a discount another
+desk gives between the limit check and the write refuses this one, which asked again waits; an
+AI's `order.unadjust` waits under every preset and only an admin approves it; an AI's waiting
+request does not stop the buyer paying.
