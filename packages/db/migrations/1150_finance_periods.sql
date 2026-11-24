@@ -150,10 +150,23 @@ BEGIN
   SELECT RAISE(ABORT, 'core_finance_period_overlap')
   WHERE EXISTS (SELECT 1 FROM core_finance_period p WHERE p.month != NEW.month
     AND p.state IN ('closing', 'closed') AND p.starts < NEW.ends AND p.ends > NEW.starts);
+  -- In order, for every writer (the review of PR #337): no later month is closed, and the month
+  -- before is closed, unless this is the first month. The first month is the earliest month with
+  -- a version, fixed by the first close: a month before it never gets one.
+  SELECT RAISE(ABORT, 'core_finance_period_order')
+  WHERE EXISTS (SELECT 1 FROM core_finance_period p WHERE p.month > NEW.month
+      AND p.state IN ('closing', 'closed'))
+    OR NOT (
+      EXISTS (SELECT 1 FROM core_finance_period p
+        WHERE p.month = strftime('%Y-%m', NEW.month || '-01', '-1 month') AND p.state = 'closed')
+      OR (NOT EXISTS (SELECT 1 FROM core_finance_period p WHERE p.month < NEW.month)
+        AND (EXISTS (SELECT 1 FROM core_finance_period p WHERE p.month = NEW.month)
+          OR NOT EXISTS (SELECT 1 FROM core_finance_period p WHERE p.month > NEW.month))));
 END;
 
--- Only `closing` to `closed` (with its counts), and `closed` to `reopened` with who, when and why;
--- nothing else ever changes, and a reopened version never changes again.
+-- Only `closing` to `closed` (with its counts), and `closed` to `reopened` with who, when and why
+-- while no later month is closed; nothing else ever changes. A reopened version takes one change:
+-- an erase of the person its reason names (ADR 0320) makes the reason "[erased]".
 CREATE TRIGGER core_finance_period_update
 BEFORE UPDATE ON core_finance_period
 BEGIN
@@ -165,7 +178,15 @@ BEGIN
     OR NEW.closed_at IS NOT OLD.closed_at
     OR NOT ((OLD.state = 'closing' AND NEW.state = 'closed' AND NEW.reopened_by IS NULL)
       OR (OLD.state = 'closed' AND NEW.state = 'reopened' AND NEW.entry_count IS OLD.entry_count
-        AND NEW.line_count IS OLD.line_count AND NEW.row_count IS OLD.row_count));
+        AND NEW.line_count IS OLD.line_count AND NEW.row_count IS OLD.row_count)
+      OR (OLD.state = 'reopened' AND NEW.state = 'reopened' AND NEW.entry_count IS OLD.entry_count
+        AND NEW.line_count IS OLD.line_count AND NEW.row_count IS OLD.row_count
+        AND NEW.reopened_by IS OLD.reopened_by AND NEW.reopened_at IS OLD.reopened_at
+        AND NEW.reopen_reason = '[erased]'));
+  SELECT RAISE(ABORT, 'core_finance_period_order')
+  WHERE OLD.state = 'closed' AND NEW.state = 'reopened'
+    AND EXISTS (SELECT 1 FROM core_finance_period p WHERE p.month > OLD.month
+      AND p.state IN ('closing', 'closed'));
   -- Closed with exactly what was written into it.
   SELECT RAISE(ABORT, 'core_finance_period_fixed')
   WHERE OLD.state = 'closing' AND (

@@ -12,6 +12,7 @@
 // may read figures for an account that holds `finance:read`, and never closes, reopens or changes
 // anything here, whatever is granted (decision 7). No figure reaches the audit log or an error's
 // text: the audit rows say which month and version.
+import { CompiledQuery } from "kysely";
 import { z } from "zod";
 import { ConflictError, ValidationError } from "../errors.ts";
 import { closePlan, periodBook, readGuards } from "../finance/close.ts";
@@ -170,6 +171,18 @@ export const financeClose = defineOperation({
   actors: ["human"],
   mcp: { expose: false },
   auditSummary: (output) => ({ month: output.month, version: output.version, period: output.id }),
+  // A reopen of the month before, or another close, landed between the read and the batch.
+  async explainFailure(error, input, ctx) {
+    if ((error.details as { rule?: unknown } | undefined)?.rule !== "finance_order") return null;
+    const before = addMonths(input.month, -1);
+    if (!isClosed(await versionsOf(ctx.db, [before]))) {
+      return new ConflictError(`Close ${before} first: it was reopened a moment before.`, {
+        rule: "finance_previous_open",
+        month: before,
+      });
+    }
+    return null;
+  },
   async handler(input, ctx) {
     const clock = await financeClock(ctx.db, ctx.now);
     if (input.month < clock.firstMonth) {
@@ -236,6 +249,26 @@ export const financeReopen = defineOperation({
   // Why it was reopened may name a person or a figure: kept with the version, not in the audit log.
   redact: ["reason"],
   auditSummary: (output) => ({ month: output.month, version: output.version, period: output.id }),
+  // Another reopen or a later close landed between the read and the batch: say which.
+  async explainFailure(error, input, ctx) {
+    const rule = (error.details as { rule?: unknown } | undefined)?.rule;
+    if (rule !== "finance_changed" && rule !== "finance_order") return null;
+    if (!isClosed(await versionsOf(ctx.db, [input.month]))) {
+      return new ConflictError(
+        `${input.month} is not closed: someone reopened it a moment before.`,
+        {
+          rule: "finance_period_not_closed",
+        },
+      );
+    }
+    const later = await laterClosed(ctx.db, input.month);
+    return later
+      ? new ConflictError(`Reopen ${later} first: it was closed a moment before.`, {
+          rule: "finance_later_closed",
+          month: later,
+        })
+      : null;
+  },
   async handler(input, ctx) {
     const closed = (await versionsOf(ctx.db, [input.month])).at(-1);
     if (closed?.state !== "closed") {
@@ -254,6 +287,12 @@ export const financeReopen = defineOperation({
       );
     }
     ctx.write(
+      // Still closed when the batch runs (two reopens at once, the review of PR #337): the second
+      // fails whole and is told the month is not closed.
+      CompiledQuery.raw(
+        "INSERT INTO core_finance_guard (expected, actual) SELECT 1, (SELECT count(*) FROM core_finance_period WHERE id = ? AND state = 'closed')",
+        [closed.id],
+      ),
       ctx.db
         .updateTable("core_finance_period")
         .set({
@@ -304,7 +343,11 @@ export const financeSettingsUpdate = defineOperation({
     "in the app only.",
   input: z.object({
     yearStartMonth: z.number().int().min(1).max(12).optional(),
-    firstPeriod: month.nullable().optional().describe("Null: the month finance was installed"),
+    firstPeriod: month
+      .refine((m) => m >= "2000-01", "a month from 2000-01 on")
+      .nullable()
+      .optional()
+      .describe("Null: the month finance was installed"),
     categoryLabels: z
       .record(
         z
@@ -321,6 +364,15 @@ export const financeSettingsUpdate = defineOperation({
   risk: "write",
   actors: ["human"],
   mcp: { expose: false },
+  async explainFailure(error, _input, ctx) {
+    if ((error.details as { rule?: unknown } | undefined)?.rule !== "finance_changed") return null;
+    return (await anyVersion(ctx.db))
+      ? new ConflictError(
+          "A month was closed a moment before, so the first month finance counts from is fixed.",
+          { rule: "finance_started" },
+        )
+      : null;
+  },
   async handler(input, ctx) {
     const current = await loadFinanceSettings(ctx.db);
     const { installedAt: _installed, ...before } = current;
@@ -356,6 +408,16 @@ export const financeSettingsUpdate = defineOperation({
       next.categoryLabels = labels;
     }
     const value = JSON.stringify(next);
+    if (next.firstPeriod !== before.firstPeriod) {
+      // Still nothing closed when the batch runs (the review of PR #337): a first close landing
+      // between the read and the batch fails this whole.
+      ctx.write(
+        CompiledQuery.raw(
+          "INSERT INTO core_finance_guard (expected, actual) SELECT 0, (SELECT count(*) FROM core_finance_period)",
+          [],
+        ),
+      );
+    }
     ctx.write(
       ctx.db
         .insertInto("core_settings")

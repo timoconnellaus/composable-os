@@ -17,6 +17,17 @@ import { type BookEntry, type SealedEntry, sealEntry } from "./entries.ts";
 export const MAX_CLOSE_LINES = 100_000;
 /** Rows per insert statement: one JSON parameter each, so a month of 100,000 lines is 200. */
 export const CLOSE_CHUNK = 500;
+/**
+ * The most bytes one statement's JSON parameter carries (D1 caps a value at 2 MB; the local
+ * runtime enforces nothing): a chunk ends at 500 rows or this many bytes, whichever comes first.
+ */
+export const CLOSE_CHUNK_BYTES = 1_000_000;
+/** The most bytes one report row's figures take (its order ids included); more is refused. */
+export const MAX_ROW_BYTES = 100_000;
+/** The most guards one close reads and writes (one statement each, before and in the batch). */
+export const MAX_CLOSE_GUARDS = 50;
+/** The most statements one close's batch holds: D1 runs 1,000 an invocation, the rest is the pipeline's. */
+export const MAX_CLOSE_STATEMENTS = 900;
 
 export const REPORTS = [
   "sales",
@@ -86,7 +97,7 @@ export function guardStatements(queries: readonly string[], values: readonly num
   );
 }
 
-/** Rows inserted from one JSON array parameter, `CLOSE_CHUNK` to a statement. */
+/** Rows inserted from one JSON array parameter, `CLOSE_CHUNK` rows or `CLOSE_CHUNK_BYTES` to a statement. */
 function jsonInserts(
   table: string,
   cols: readonly (readonly [column: string, key: string])[],
@@ -96,9 +107,21 @@ function jsonInserts(
     `INSERT INTO ${table} (${cols.map(([c]) => c).join(", ")}) SELECT ` +
     `${cols.map(([, k]) => `json_extract(value, '$.${k}')`).join(", ")} FROM json_each(?)`;
   const out: CompiledQuery[] = [];
-  for (let i = 0; i < rows.length; i += CLOSE_CHUNK) {
-    out.push(CompiledQuery.raw(statement, [JSON.stringify(rows.slice(i, i + CLOSE_CHUNK))]));
+  let part: string[] = [];
+  let bytes = 2;
+  const flush = () => {
+    if (part.length) out.push(CompiledQuery.raw(statement, [`[${part.join(",")}]`]));
+    part = [];
+    bytes = 2;
+  };
+  for (const row of rows) {
+    const json = JSON.stringify(row);
+    const size = new TextEncoder().encode(json).length + 1;
+    if (part.length >= CLOSE_CHUNK || (part.length && bytes + size > CLOSE_CHUNK_BYTES)) flush();
+    part.push(json);
+    bytes += size;
   }
+  flush();
   return out;
 }
 
@@ -232,8 +255,20 @@ export async function closePlan(
 ): Promise<ClosePlan> {
   const { book } = args;
   const lines = book.entries.reduce((n, e) => n + e.lines.length, 0);
+  const tooLarge = () =>
+    new ConflictError(
+      `This month holds more than one close writes (${MAX_CLOSE_LINES.toLocaleString("en")} lines, rows, payments or entries), so it was not closed.`,
+      { rule: "finance_too_large" },
+    );
+  if (book.guards.length > MAX_CLOSE_GUARDS) throw tooLarge();
+  if (
+    book.rows.some((r) => new TextEncoder().encode(JSON.stringify(r.data)).length > MAX_ROW_BYTES)
+  ) {
+    throw tooLarge();
+  }
   if (
     lines > MAX_CLOSE_LINES ||
+    book.entries.length > MAX_CLOSE_LINES ||
     book.rows.length > MAX_CLOSE_LINES ||
     book.counted.length > MAX_CLOSE_LINES
   ) {
@@ -287,5 +322,7 @@ export async function closePlan(
       .where("id", "=", args.id)
       .compile(),
   ];
+  // Chunked by bytes too, so the count is checked once built: never more than D1 runs.
+  if (statements.length > MAX_CLOSE_STATEMENTS) throw tooLarge();
   return { entries, lines: kept, statements };
 }

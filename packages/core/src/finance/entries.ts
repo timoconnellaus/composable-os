@@ -118,9 +118,14 @@ const cleanLine = (l: EntryLine): EntryLine => ({
   category: l.category ?? null,
 });
 
-/** The debits less the credits of some lines (zero when they balance). */
+/** The sign of the debits less the credits of some lines (zero when they balance). */
 export function imbalance(lines: readonly EntryLine[]): number {
-  return lines.reduce((sum, l) => sum + (l.side === "debit" ? l.amount : -l.amount), 0);
+  // Summed exactly (BigInt), so amounts near the safe-integer limit cannot round to a balance.
+  const total = lines.reduce(
+    (sum, l) => sum + (l.side === "debit" ? BigInt(l.amount) : -BigInt(l.amount)),
+    0n,
+  );
+  return total === 0n ? 0 : total > 0n ? 1 : -1;
 }
 
 /**

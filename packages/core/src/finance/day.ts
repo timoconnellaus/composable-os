@@ -77,7 +77,7 @@ function requireMonth(month: string) {
 export function addMonths(month: string, n: number): string {
   const m = requireMonth(month);
   const index = m.year * 12 + (m.month - 1) + n;
-  return `${Math.floor(index / 12)}-${pad((index % 12) + 1)}`;
+  return `${String(Math.floor(index / 12)).padStart(4, "0")}-${pad((index % 12) + 1)}`;
 }
 
 /** A month's first and last local dates. */

@@ -78,7 +78,11 @@ export async function loadFinanceSettings(
   };
 }
 
-/** Where finance stands: the organisation's zone, the first month and the month it is now. */
+/**
+ * Where finance stands: the organisation's zone, the first month and the month it is now. The
+ * first month is the earliest month with a version once there is one; until then the month an
+ * admin picked, else the install month in the zone now.
+ */
 export interface FinanceClock {
   zone: string;
   firstMonth: string;
@@ -96,12 +100,19 @@ export async function financeClock(db: Db, nowIso: string): Promise<FinanceClock
   ]);
   const now = Math.floor(Date.parse(nowIso) / 1000);
   const currentMonth = localMonthAt(now, timezone);
+  // Fixed by the first close (the review of PR #337): once a month has a version the first month
+  // is the earliest such month, whatever the zone or the settings say since (migration 1150's
+  // trigger holds every writer to it).
+  const fixed = await db
+    .selectFrom("core_finance_period")
+    .select((eb) => eb.fn.min("month").as("first"))
+    .executeTakeFirst();
   const installedMonth = settings.installedAt
     ? localMonthAt(Math.floor(Date.parse(settings.installedAt) / 1000), timezone)
     : currentMonth;
   return {
     zone: timezone,
-    firstMonth: settings.firstPeriod ?? installedMonth,
+    firstMonth: fixed?.first ?? settings.firstPeriod ?? installedMonth,
     installedMonth,
     currentMonth,
     now,

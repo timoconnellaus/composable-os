@@ -352,6 +352,14 @@ export function toOperationError(error: unknown): OperationError {
       },
     );
   }
+  // Months close and reopen in order (migration 1150, the review of PR #337), for any writer: a
+  // close or reopen that raced another one landed second.
+  if (message.includes("core_finance_period_order")) {
+    return new ConflictError(
+      "Months are closed and reopened in order, and another close or reopen landed first, so nothing was changed. Look again.",
+      { rule: "finance_order" },
+    );
+  }
   // A closed version never changes (migration 1150, ADR 0790), for any writer.
   if (
     message.includes("core_finance_period_fixed") ||
