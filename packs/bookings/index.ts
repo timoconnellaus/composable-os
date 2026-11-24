@@ -885,6 +885,12 @@ export default defineExtension({
           // How much of a class unpaid guest holds may take at once.
           holdCap: { setting: "dropInHoldPercent" },
         },
+        // In the finance reports (ADR 0792): earned when the class starts.
+        finance: {
+          category: { key: "drop_ins", label: "Drop-ins" },
+          earned: "at_date",
+          at: "class.startsAt",
+        },
       },
       // A spender of the Memberships pack's holders (stage 32b's ids, spec 32): booked spends,
       // an in-time cancel, a class the gym cancels and a move give back; a late cancel and a
@@ -1064,6 +1070,24 @@ export default defineExtension({
   // person with the extensions permission (Settings → Extensions → Bookings).
   // The members' email (ADR 0590): routine mail the host sends without a person's approval.
   routineMail: bookingsRoutineMail,
+  // What a journey can start or stop on (stage 53, ADR 0802): the host records the last time each
+  // person had each, in the write's batch. "Not seen for two weeks" is no `attended` for 14 days.
+  // A tick taken back (attended to booked) is not a new booking.
+  journeySignals: {
+    booked: {
+      label: "Class booked",
+      description: "A place in a class is booked: made, taken from the waitlist, or paid for.",
+      object: "booking",
+      enters: ["booked"],
+      from: ["pending", "waiting"],
+    },
+    attended: {
+      label: "Class attended",
+      description: "A coach ticks the person's name on a class's list.",
+      object: "booking",
+      enters: ["attended"],
+    },
+  },
   settings: {
     opensDays: {
       type: "number",
