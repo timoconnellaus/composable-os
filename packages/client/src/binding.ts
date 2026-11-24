@@ -84,11 +84,17 @@ export async function keepCustomerSignedIn(options: KeepSignedInOptions): Promis
   if (checked > 0 && now - checked >= 0 && now - checked < SESSION_CHECK_INTERVAL_MS) return [];
   const [name, value] = session;
   const attributes = `; Path=/; HttpOnly; SameSite=Lax${name.startsWith("__Secure-") ? "; Secure" : ""}`;
-  const response = await options.fetch(
-    `${options.baseUrl.replace(/\/+$/, "")}${CUSTOMER_AUTH_PATH}/get-session`,
-    { method: "GET", headers: { cookie: customerCookies(options.cookieHeader) } },
-  );
-  // The host could not answer: leave the cookie as it is, and try again on a later request.
+  let response: Awaited<ReturnType<FetchLike>>;
+  try {
+    response = await options.fetch(
+      `${options.baseUrl.replace(/\/+$/, "")}${CUSTOMER_AUTH_PATH}/get-session`,
+      { method: "GET", headers: { cookie: customerCookies(options.cookieHeader) } },
+    );
+  } catch {
+    return [];
+  }
+  // The host could not answer (or was not reached, above): leave the cookie as it is, and try
+  // again on a later request.
   if (response.status >= 500) return [];
   let expiresAt = Number.NaN;
   if (response.status === 200) {
