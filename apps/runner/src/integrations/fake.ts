@@ -34,7 +34,7 @@ import {
   isHostSignInMail,
   isSignInCodeMessage,
 } from "../../../../packages/gatekeeper-email-send/src/sign-in.ts";
-import { connectHandoffPageHtml, htmlResponse } from "./pages.ts";
+import { connectHandoffPageHtml, escapeHtml, htmlResponse } from "./pages.ts";
 
 // --- Shapes ------------------------------------------------------------------------------------
 
@@ -391,7 +391,7 @@ export class FakeAccount extends DurableObject<Env> {
 <style>body{font-family:system-ui;max-width:28rem;margin:3rem auto;padding:0 1rem}input,button{font:inherit;padding:.5rem;width:100%;box-sizing:border-box;margin:.25rem 0}</style></head>
 <body><h1>Fake provider</h1><p>The CRM wants access to your fake mailbox and calendar.</p>
 <form method="post"><label for="address">Mailbox address</label>
-<input id="address" name="address" type="email" required value="${suggested.replace(/"/g, "&quot;")}">
+<input id="address" name="address" type="email" required value="${escapeHtml(suggested)}">
 <button type="submit">Allow</button></form></body></html>`);
     }
     if (request.method !== "POST") return new Response("Method not allowed", { status: 405 });
