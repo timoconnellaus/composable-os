@@ -545,6 +545,108 @@ describe("erase and merge", () => {
   });
 });
 
+describe("the review of PR #382", () => {
+  it("tries sent at once on one device get no further than one by one", async () => {
+    const m = await customer();
+    await invoke("me.pin.set", { pin: "6472" }, as(m));
+    const device = unique("dev");
+    const now = new Date();
+    const name = `${m.given} ${m.family}`;
+    const tries = [
+      ...Array.from({ length: 14 }, (_, n) => ({ name, pin: String(3000 + n) })),
+      { name, pin: "6472" },
+    ];
+    const answers = await Promise.all(
+      tries.map((input) => identifyPerson(db.query, keys, at(device, now), input)),
+    );
+    // At most five tries were checked; the rest, the right PIN last among them, were locked.
+    expect(answers.filter((a) => a.outcome !== "locked").length).toBeLessThanOrEqual(5);
+    expect(answers.at(-1)).toEqual({ outcome: "locked", entry: "name" });
+  });
+
+  it("wrong PINs sent at once from many devices disable the PIN before the right one is checked", async () => {
+    const m = await customer();
+    await invoke("me.pin.set", { pin: "8361" }, as(m));
+    const name = `${m.given} ${m.family}`;
+    const tries = [
+      ...Array.from({ length: 30 }, (_, n) => ({ name, pin: String(4000 + n) })),
+      { name, pin: "8361" },
+    ];
+    const answers = await Promise.all(
+      tries.map((input) => identifyPerson(db.query, keys, at(), input)),
+    );
+    expect(answers.at(-1)).toEqual({ outcome: "not_found" });
+    expect((await identifyPerson(db.query, keys, at(), { name, pin: "8361" })).outcome).toBe(
+      "not_found",
+    );
+  });
+
+  it("a name and PIN costs the same slow hashes whether or not the name is someone's", async () => {
+    const m = await customer();
+    await invoke("me.pin.set", { pin: "2947" }, as(m));
+    let hashes = 0;
+    const counting = {
+      ...keys,
+      pinInput(pin: string) {
+        hashes += 1;
+        return keys.pinInput(pin);
+      },
+    };
+    const cost = async (input: { name: string; pin: string }) => {
+      hashes = 0;
+      await identifyPerson(db.query, counting, at(), input);
+      return hashes;
+    };
+    const known = await cost({ name: `${m.given} ${m.family}`, pin: "1593" });
+    expect(known).toBe(5);
+    expect(await cost({ name: unique("Nobody"), pin: "1593" })).toBe(known);
+    expect(await cost({ name: `${m.given} ${m.family}`, pin: "15" })).toBe(known);
+  });
+
+  it("two first me.code calls at once both answer, with the one code kept", async () => {
+    const m = await customer();
+    const session = await browserSession(m);
+    const [a, b] = await Promise.all([
+      invoke("me.code", {}, as(m, session)),
+      invoke("me.code", {}, as(m, session)),
+    ]);
+    const idOf = (out: typeof a) => parseAppPayload(out.codes[0]?.payload as string)?.codeId;
+    expect(idOf(a)).toBeTruthy();
+    expect(idOf(a)).toBe(idOf(b));
+    expect(
+      (await identifyPerson(db.query, keys, at(), { code: a.codes[0]?.payload as string })).outcome,
+    ).toBe("found");
+  });
+
+  it("issuing a card is never queued for review, so its code is never kept in a pending action", async () => {
+    const holder = await person(unique("Ana"), unique("Lake"));
+    const code = unique("FLOORCARD");
+    const floor = { human: { write: "review" as const } };
+    await invoke(
+      "personCode.issueCard",
+      { personId: holder, code, label: "tag" },
+      staff(admin, { floor }),
+    );
+    expect((await identifyPerson(db.query, keys, at(), { code })).outcome).toBe("found");
+    const pending = await env.DB.prepare("SELECT input FROM core_pending_action").all();
+    expect(JSON.stringify(pending.results)).not.toContain(code);
+    // A provisional Person id (which would queue it) is refused by the input.
+    expect(
+      await refused(
+        invoke(
+          "personCode.issueCard",
+          {
+            personId: "per_pending_01ARZ3NDEKTSV4RRFFQ69G5FAV",
+            code: unique("PENDCARD"),
+            label: "t",
+          },
+          staff(admin),
+        ),
+      ),
+    ).toBe("invalid_input");
+  });
+});
+
 describe("cost", () => {
   it("one identification runs a bounded handful of statements, each with few bound values", async () => {
     let statements = 0;

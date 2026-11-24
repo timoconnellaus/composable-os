@@ -37,7 +37,8 @@ a try failed.
       secret.
     - It is risk `write` (the spec said read), because the first call on a sign-in makes the
       code. Later calls write nothing but the audit row, which records only how many codes were
-      shown.
+      shown. Two first calls at once keep one code: the second insert does nothing, and both
+      answer the code that was kept, read after the commit.
   - **A dependant's code** shown on a guardian's app identifies the dependant only while that link
     is live, and is checked again at every try. The Person's own app code is the only way in that
     may show their dependants' bookings (`family: true`). A card, a PIN and a dependant's code
@@ -45,6 +46,11 @@ a try failed.
 - **Cards** are a fixed long code (at least 8 characters, normalised as Ticketing's codes:
   upper case, no spaces or hyphens).
   - Only their HMAC is kept: the code is never stored, shown, listed or audited.
+    `personCode.issueCard` is never queued for review (`bookkeeping`, and a provisional Person
+    id is refused), because a pending action keeps its input whole.
+  - At least 8 characters is not "long enough not to be guessed" for tags numbered in sequence:
+    a member holding one could try the next. The operation's description tells staff to use
+    cards with random codes; the host does not print cards.
   - One live card per code. Revoked, a card identifies no one, and its code may go on a new card.
   - `personCode.issueCard`, `revokeCard` and `list` need the new core permission **`people:cards`**.
     Admins and members hold it by default. It is grantable, to a fixed-role account too (the ADR
@@ -81,10 +87,17 @@ a try failed.
     - ten wrong PINs for one Person in a day (from any devices) disable the PIN until the member
       sets it again.
     - A locked entry answers `locked` and checks nothing.
+    - **Counted before checked**: each try claims its place on the device's counter (one upsert
+      with `RETURNING`) and on each candidate's PIN counter before any PBKDF2, and is given back
+      only when it finds someone. Tries sent at once each see the ones before them, so parallel
+      tries get no further than tries one by one: the sixth name try in a minute is locked, and
+      a PIN's eleventh try in a day disables it unchecked (the review of PR #382).
     - The counters are written at once, outside the calling tool's batch: a failed try counts
       even if the tool then fails, and the tool is a read.
-  - **Cost**: each try runs at most six statements, each with a handful of bound values. A name
-    runs at most five PBKDF2 checks.
+  - **Time**: a name and PIN always runs five PBKDF2 checks (stand-ins for the candidates there
+    are not), so a miss takes as long whether or not the name is a member's with a PIN. One
+    statement more (the PIN counter's claim) runs when it is.
+  - **Cost**: each try runs at most six statements, each with a handful of bound values.
 - **Erase and merge.**
   - Erase deletes the Person's codes, cards and PIN, and the dependants' codes on their app, in
     the erase's batch (`people-codes/people.ts`; the foreign keys would too).
