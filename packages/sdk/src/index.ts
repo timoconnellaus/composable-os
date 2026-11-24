@@ -15,6 +15,7 @@ export * from "./document.ts";
 export * from "./field-types.ts";
 export * from "./manifest.ts";
 export * from "./media.ts";
+export * from "./occupies.ts";
 export * from "./permissions.ts";
 export * from "./questions.ts";
 export * from "./recurring.ts";

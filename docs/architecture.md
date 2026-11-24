@@ -1034,7 +1034,7 @@ The rules products share, declared in a manifest and enforced by the host in the
 `stages`, `states`, `capacity`, `sellable` and `publishable` exist (the last with its public
 half, and the media library beside it, since stage 28). `allowance` exists since stage 32b;
 `recurring`, capacity claimants and declared uniqueness since stage 31 (below); `staffed` since
-stage 45 (below). Behaviours stack:
+stage 45 and `occupies` since stage 49 (below). Behaviours stack:
 an event is publishable, sellable and has a capacity.
 
 `stages` and `states` are two declarations on one **transition engine**
@@ -1170,6 +1170,25 @@ made with (`unavailable`, `not_qualified`, `uncovered` within 14 days), which th
 records; `staffing.check` (tool-only) is the same answer first. Qualifications and unavailability
 are core tables in no `rec_*` view (`core_staff_qualification`, `core_staff_away`). Bookings' class
 declares it.
+
+**`occupies`** ([ADR 0765](adr/0765-occupies-the-claim-on-a-thing.md), `packages/core/src/occupies/`;
+stage 49 step 2). The time claim's twin for things: a record that declares
+`occupies: { thing, starts, ends, live, before?, after?, only? }` takes the thing its relation
+names (a room; one record or many) for its time, with margins in minutes before and after (a field
+of the record, or of what a relation names: a service's buffer). Every live occupant holds a claim
+per claimed thing in `core_thing_time` (migration 1095), and the database refuses two overlapping
+claims on one thing, whatever objects hold them (`conflict`, `rule: "room_taken"`, naming no other
+record), for every writer, statement shape and race. Only things whose `only` flag is set are
+claimed (Bookings' room "One booking at a time", off by default: a shared floor is never claimed).
+Triggers the reconciler builds on the occupant's table, the thing's table (its flag) and the
+margins' table derive the claims; a claim that has ended and clashes only with other ended ones
+is left out (history never refuses). A live record in a claimed room needs a start and an end
+the database can read (the contract requires both; an unreadable time is refused), and the
+overlap check reads one claim (claims on one thing never overlap, indexed by thing and start). Marking a room exclusive over a clash to come is refused; a
+reconcile over records that clash and have not ended is refused (`occupies_conflict`, past ones
+skipped and reported); a series' date whose room is taken is made with no room (a field exception)
+and the rosterers are told. Bookings' class declares it; appointments (stage 49 step 5) and stage
+57's venues reuse it.
 
 **Offers, takes and the roster's notices** ([ADR 0623](adr/0623-offers-and-takes-the-race-and-the-cut-off.md),
 [ADR 0624](adr/0624-the-rosters-notices-uncovered-shifts-and-leaving.md), stage 45 step 3). The
@@ -1994,7 +2013,7 @@ and the mobile Account tab are plain pages over the same entry.
 | Programs | `document`, `publishable` (no public half), `states`, `customer`, `signedIn` | stage 41: steps 1 to 6 built (the spine, the dashboard, views and Person tab, hooks and blocks, draft and import); Ghetto's app is step 7 |
 | Content | `publishable`, rich text, slugs, media | stage 28: steps 1 to 6 built (rich text, `publishable` completed, public reads, media, the editor, the pack: posts and categories, hooks, web and native renderers); the first client's import and blog routes are its own repository's |
 | Courses | `publishable`, `sellable` (grants and a tax code), `access` and holders' parts, `states`, `customer` with `requireAccess`, `requires: ["programs"]`, video media and `media.play` | stage 42: steps 1 to 4, 6, 7 and the draft built ([ADR 0478](adr/0478-the-courses-pack.md)); the import and the first client to come |
-| Bookings | `recurring`, `capacity` and `claims` with a waitlist, `unique`, `staffed` (a class is its coach's shift, stage 45), `states` with windows, staff-only rules and a requested cancel, `allowance` (spender, `waived`), `public`, `customer` with `guardians`, `customerVia`, `requires: ["programs"]` | stage 31a: steps 1 to 6 built (the behaviours, the pack's spine, [ADR 0504](adr/0504-the-bookings-pack.md); spending with the Memberships pack's memberships and passes, and the waitlist with promotion, [ADR 0520](adr/0520-a-waitlist-on-a-claimant.md); parents booking for their children, [ADR 0540](adr/0540-the-family-link.md)); step 7, attendance, moves and cancelling a class; step 8, drop-ins with `sellable.moves`, [ADR 0560](adr/0560-a-paid-line-moves-a-record-that-exists.md)); step 9, messages, the reminder, the dashboard and the coach's app screen, [ADR 0572](adr/0572-bookings-messages-the-dashboard-and-the-coachs-app-screen.md); step 10 to come |
+| Bookings | `recurring`, `capacity` and `claims` with a waitlist, `unique`, `staffed` (a class is its coach's shift, stage 45), `occupies` (a class takes a room marked "one booking at a time", stage 49 step 2, [ADR 0765](adr/0765-occupies-the-claim-on-a-thing.md)), `states` with windows, staff-only rules and a requested cancel, `allowance` (spender, `waived`), `public`, `customer` with `guardians`, `customerVia`, `requires: ["programs"]` | stage 31a: steps 1 to 6 built (the behaviours, the pack's spine, [ADR 0504](adr/0504-the-bookings-pack.md); spending with the Memberships pack's memberships and passes, and the waitlist with promotion, [ADR 0520](adr/0520-a-waitlist-on-a-claimant.md); parents booking for their children, [ADR 0540](adr/0540-the-family-link.md)); step 7, attendance, moves and cancelling a class; step 8, drop-ins with `sellable.moves`, [ADR 0560](adr/0560-a-paid-line-moves-a-record-that-exists.md)); step 9, messages, the reminder, the dashboard and the coach's app screen, [ADR 0572](adr/0572-bookings-messages-the-dashboard-and-the-coachs-app-screen.md); step 10 to come |
 | Rostering | `recurring` (duty series, a horizon from its setting), `staffed` (a duty shift is its person's shift), `states`, a pack role (`rostering.team`), grantable and restricted permissions, the roster's rules (`staffing`), the host's tool-only `staffing.*` operations | stage 45: step 4 built (duties, duty series and shifts, the team role, the roster's tools, settings, [ADR 0626](adr/0626-the-rostering-pack-and-bookings-additions.md)); step 6 built (pay periods: `rostering:pay`, restricted and a person's only, who is counted, totals, the not-worked mark, lock, reopen and export, [ADR 0627](adr/0627-pay-periods-the-basis-the-totals-the-lock-and-the-export.md)); step 5 built (each person's private calendar feed: `feed`, `feedRotate`, `feedRevoke`, [ADR 0628](adr/0628-the-staff-calendar-feed-and-the-shared-calendar-writer.md)); step 7 built (the screens as blocks over `@composable-os/pack-rostering/client`, my calendar among them, role clients with grants, `cos rostering import`, [ADR 0629](adr/0629-the-rosters-screens-role-clients-with-grants-and-the-roster-import.md)); checklists (4b) to come |
 | Memberships | `allowance` (holders), recurring billing with `recurring.grants` and `recurring.pause`, `sellable.onePerPerson`, `humanOnly` tools, `requires: ["programs"]` | stage 32b: steps 5 to 7 built (the behaviour, the pack, plan changes and pauses, the dashboard, views and blocks); the import (step 8) to come |
 

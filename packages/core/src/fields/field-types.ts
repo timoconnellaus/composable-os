@@ -59,7 +59,16 @@ export interface FieldTypeSpec {
 }
 
 const DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
-const DATETIME_RE = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}(:\d{2}(\.\d{1,9})?)?(Z|[+-]\d{2}:\d{2})$/;
+// Hours, minutes, seconds and offsets in range: a pattern that took any two digits let `T99:00`
+// through, which no clock (nor the database's strftime) can read (stage 49 step 2 review).
+const DATETIME_RE =
+  /^\d{4}-\d{2}-\d{2}T([01]\d|2[0-3]):[0-5]\d(:[0-5]\d(\.\d{1,9})?)?(Z|[+-]([01]\d|2[0-3]):[0-5]\d)$/;
+/** An ISO 8601 instant a clock can read: the pattern, and a real day of its month (no 31 February). */
+function isDatetime(value: string): boolean {
+  if (!DATETIME_RE.test(value) || !Number.isFinite(Date.parse(value))) return false;
+  const [y, m, d] = value.slice(0, 10).split("-").map(Number) as [number, number, number];
+  return m >= 1 && m <= 12 && d >= 1 && new Date(Date.UTC(y, m - 1, d)).getUTCDate() === d;
+}
 
 const nullable = (schema: z.ZodType) => schema.nullable();
 const text = (max: number) => z.string().max(max);
@@ -233,7 +242,7 @@ export const FIELD_TYPE_REGISTRY: Record<FieldTypeName, FieldTypeSpec> = {
     filterType: () => "datetime",
     multi: () => false,
     sortable: () => true,
-    schema: () => nullable(z.string().regex(DATETIME_RE, "Expected an ISO-8601 timestamp")),
+    schema: () => nullable(z.string().refine(isDatetime, "Expected an ISO-8601 timestamp")),
     toStorage: identity,
     fromStorage: identity,
     csv: {
