@@ -218,7 +218,10 @@ function OrderView({
           <Amount label="Balance">{money(order.balance)}</Amount>
           {order.refunded > 0 && <Amount label="Refunded">{money(order.refunded)}</Amount>}
           {order.state === "part_paid" && order.balanceDueAt && (
-            <Amount label="Balance due">{new Date(order.balanceDueAt).toLocaleDateString()}</Amount>
+            <Amount label="Balance due">
+              {/* Stored as the day's end in UTC: its UTC day is the day it is due. */}
+              {new Date(order.balanceDueAt).toLocaleDateString(undefined, { timeZone: "UTC" })}
+            </Amount>
           )}
         </dl>
 

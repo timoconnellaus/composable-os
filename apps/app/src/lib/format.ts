@@ -28,6 +28,18 @@ export function formatDate(value: string | null | undefined): string {
   return Number.isNaN(date.getTime()) ? value : dateOnly.format(date);
 }
 
+const utcDateOnly = new Intl.DateTimeFormat("en", { dateStyle: "medium", timeZone: "UTC" });
+
+/**
+ * An instant's day in UTC, for a day the host stores as its end in UTC (an order's balance due):
+ * in local time it would be the day after east of UTC.
+ */
+export function formatUtcDay(value: string | null | undefined): string {
+  if (!value) return "";
+  const date = new Date(value);
+  return Number.isNaN(date.getTime()) ? value : utcDateOnly.format(date);
+}
+
 /** A display string for any field value (arrays joined, booleans as Yes/No). */
 export function formatValue(value: unknown): string {
   if (value === null || value === undefined || value === "") return "";
