@@ -1415,6 +1415,67 @@ export interface CoreStaffAwayTable {
   zone: string;
   set_by: string;
   set_at: string;
+  /** Migration 1271 (stage 58, ADR 0853): the leave request whose approval wrote it, or null. */
+  leave_request: ColumnType<string | null, string | null | undefined, string | null>;
+}
+
+/** Migration 1271 (stage 58 step 4, ADR 0853): a kind of leave the business offers. */
+export interface CoreLeaveTypeTable {
+  id: string;
+  name: string;
+  unit: "hours" | "days";
+  keeps_balance: number;
+  below_zero: "warn" | "refuse";
+  paid: number;
+  active: Generated<number>;
+  position: Generated<number>;
+  created_by: string;
+  created_at: string;
+  updated_by: string;
+  updated_at: string;
+}
+
+/** Migration 1271 (stage 58 step 4, ADR 0853): one ask for time off. */
+export interface CoreLeaveRequestTable {
+  id: string;
+  account_id: string;
+  type_id: string;
+  start_date: string;
+  end_date: string;
+  start_time: string | null;
+  end_time: string | null;
+  zone: string;
+  starts_at: string;
+  ends_at: string;
+  state: "requested" | "approved" | "declined" | "cancelled";
+  note: string | null;
+  asked_by: string;
+  asked_at: string;
+  decided_by: string | null;
+  decided_at: string | null;
+  why: string | null;
+  updated_at: string;
+}
+
+/** Migration 1271 (stage 58 step 4, ADR 0853): a date of a leave request and its amounts. */
+export interface CoreLeaveDayTable {
+  request_id: string;
+  date: string;
+  asked: number;
+  approved: number | null;
+}
+
+/** Migration 1271 (stage 58 step 4, ADR 0853): one entry of the balance ledger (insert only). */
+export interface CoreLeaveBalanceEntryTable {
+  id: string;
+  account_id: string;
+  type_id: string;
+  amount: number;
+  why: "set" | "adjust" | "approved" | "cancelled";
+  request_id: string | null;
+  note: string | null;
+  made_by: string;
+  made_at: string;
 }
 
 /**
@@ -3249,6 +3310,10 @@ export interface CoreDatabase {
   core_thing_time: CoreThingTimeTable;
   core_staff_qualification: CoreStaffQualificationTable;
   core_staff_away: CoreStaffAwayTable;
+  core_leave_type: CoreLeaveTypeTable;
+  core_leave_request: CoreLeaveRequestTable;
+  core_leave_day: CoreLeaveDayTable;
+  core_leave_balance_entry: CoreLeaveBalanceEntryTable;
   core_staff_hours: CoreStaffHoursTable;
   core_time_entry: CoreTimeEntryTable;
   core_staff_feed: CoreStaffFeedTable;

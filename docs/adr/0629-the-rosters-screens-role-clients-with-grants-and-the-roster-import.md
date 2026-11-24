@@ -164,3 +164,13 @@ The open item above is closed: the roster's web screens are declared screens of 
 and shown in the product's admin, for whoever the host lets open each (the team's, the rosterers',
 pay), a rostered account with no other access in its role's small shell. See
 [ADR 0660](0660-pack-screens-in-the-admin.md).
+
+## Amendment, 2026-11-24 (stage 58 step 4, ADR 0853)
+Leave is asked for and decided in the existing time-off screens rather than new ones: My time off
+gains asking for leave (type, dates, the host's proposed amounts), the person's requests and their
+balances; the rosterers' Time off gains the requests waiting (with the balance after and the shifts
+covered), approving (saying what happens to the shifts) and declining; a pay holder's new screen
+holds the types and balances. Step 4 builds the host's operations they call
+(`staffing.leave.*`); the tools are stage 58 step 5's and the screens step 6's. No block decides a
+balance or who may approve. See
+[ADR 0853](0853-leave-types-requests-the-balance-ledger-and-approved-leave-as-unavailability.md).

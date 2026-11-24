@@ -1320,6 +1320,35 @@ verified caller only (`periodLines` narrowed to one account, or the locked lines
 through the pack that declares the pay periods, a person only, never an AI, with no one else's
 lines, who took a class's list or why a shift was not worked; audited as which period.
 
+**Leave** (stage 58 step 4, [ADR 0853](adr/0853-leave-types-requests-the-balance-ledger-and-approved-leave-as-unavailability.md),
+`packages/core/src/staffing/leave.ts`, `operations/staffing-leave.ts`, migration 1271): leave types
+the business sets (`core_leave_type`: hours or days, keeps a balance or not, below zero warned or
+refused, paid as a label; none ship), requests (`core_leave_request`: whole local days, or part of
+one day, with their range as instants) and their days (`core_leave_day`: the amount asked, proposed
+by the host from the person's rostered minutes that day or one day each, and approved), and the
+balance ledger (`core_leave_balance_entry`, insert only: the balance is its sum, entries a pay
+holder sets or adjusts and the host's own at approval and cancellation; nothing accrues), all core
+tables in no `rec_*` view, integers in the type's unit, no money. Triggers keep it: a request moves
+out of `requested` once (two approvals at once apply once), what it asks never changes, an approved
+one is never deleted, its days change only while it waits, and a type that refuses a balance below
+zero has the approving entry refused by the database. Approval is one batch: the days' amounts, the
+request, the balance entry, stage 45's `core_staff_away` row (kind `leave`, `leave_request` naming
+it, so the `unavailable` warning, eligibility and the notice hold unchanged), and the person taken
+off each covered shift that has not started, by the record write `staffing.assign` makes, each
+offered to everyone eligible as `staffing.offer` makes (each take-off guarded on the person still
+holding the shift at commit; eligibility read set-based for all of them, `eligibleForShifts`, and
+every offer notice one statement; at most 40 shifts an approval, 670 queries at that size with 400
+people told); the rosterers
+get the list of what was offered and what nobody could be. Cancelling approved leave removes the row
+and reverses the entry, and puts nobody back; the request's trigger moves it to `cancelled` only
+once both are done, so a stale cancel fails whole. `staffing.back` refuses a request's row;
+`staffing.away` makes no new kind `leave` once a type exists; `user.deactivate` cancels a leaver's
+waiting requests and marks an entry they left open finish missing. Approvers are the rosterers, never for their own request (an admin may when nobody
+else can); types and balances are a pay holder's. Every leave tool is a person's at the screen,
+never an assistant's or MCP's (saving a type: a person applies it); notes, reasons, amounts and
+balances never reach the audit log, a notice or an error. Refused into a locked pay period; the
+lock's own triggers over leave, and leave in the pay period's lines and export, are step 3's.
+
 The roster's screens (step 7,
 [ADR 0629](adr/0629-the-rosters-screens-role-clients-with-grants-and-the-roster-import.md)) are
 Rostering's blocks over its headless entry, and ask the host what a screen needs through more

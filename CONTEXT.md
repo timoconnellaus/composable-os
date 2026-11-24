@@ -1514,7 +1514,21 @@ else is a warning. **Unavailable** (away) is a time they said they cannot work (
 `staffing.back`): one-off (leave) or **regular** (every Wednesday afternoon). Both are host tables
 keyed by the staff account, in no `rec_*` view; whether someone is away is known only to them and
 to rosterers. A person is **eligible** for a shift when they are qualified, free and not away.
+Once the business has a leave type, leave is asked for (below) and a person says other or regular
+time off here; approved leave is written here as unavailability.
 _Avoid_: skill, certification, availability (say when they are away)
+
+**Leave** and **Leave balance** (stage 58, built in step 4: ADR 0853)
+**Leave** is approved time off of a **leave type** the business sets (annual, personal, unpaid:
+none ship), counted in hours or days. A **leave request** asks for it, for whole days or part of
+one day; the host proposes each date's amount from the person's roster, they or the approver may
+change it, and an approver (whoever rosters, never for their own) approves or declines it. Approved,
+the person is unavailable then, is taken off the shifts it covers that have not started, and each
+is offered; cancelling it gives the balance back and puts nobody back on a shift. A **balance** is
+what the business says a person has of a type: the sum of a ledger of entries a pay holder sets or
+adjusts and the leave approved; the host never accrues. A person sees their own requests and
+balances, approvers and pay holders everyone's, other staff nothing; never an assistant.
+_Avoid_: entitlement, accrual, time-off request (say leave request), holiday (say the type's name)
 
 **Open hours** (stage 49, built in step 3: ADR 0762)
 When someone takes appointments: **weekly** (every Monday 09:00 to 12:00, in local time, from a

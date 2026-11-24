@@ -105,6 +105,12 @@ export const ID_PREFIXES = {
   payPeriod: "ppe",
   /** A stretch of time a staff member worked (stage 58, ADR 0850). */
   timeEntry: "tme",
+  /** A kind of leave the business offers (stage 58 step 4, ADR 0853). */
+  leaveType: "lvt",
+  /** An ask for time off, approved, declined or cancelled (ADR 0853). */
+  leaveRequest: "lvr",
+  /** One entry of a leave balance's ledger, never changed (ADR 0853). */
+  leaveBalanceEntry: "lvb",
   /** A checklist template (stage 45 step 4b, ADR 0650). */
   checklist: "ckl",
   /** A run of a checklist on one record, never changed once closed (ADR 0650). */
