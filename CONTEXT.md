@@ -1572,7 +1572,7 @@ unless cancelled. One per Person (the holder) per plan object, and only for a ho
 who they are (a signed-in customer, or staff with `subscriptions:manage` starting it for them): a
 guest is charged from the start. It is used when the provider confirms a subscription opened with
 the plan's trial days, not when its page is opened; a continuation's free time is not a trial
-(ADR 0489).
+(ADR 0489). "Per Person" counts every Person sharing a **folded address** (ADR 0692).
 _Avoid_: trial offer (the provider's newer feature, not used), continuation (stage 32a step 4's
 free period until a paid-up date)
 
@@ -1634,8 +1634,18 @@ _Avoid_: ticket (a ticket is a place at an event), credit
 A pass type a Person buys once, across every pass type marked so (`sellable.onePerPerson`, ADR
 0512): only when they proved who they are (signed in, or staff for them), held from the order's
 start so two orders at once give one, used when it is paid, given back only when the unpaid order
-expires or is cancelled.
+expires or is cancelled. "A Person" counts every Person sharing a **folded address** (ADR 0692).
 _Avoid_: trial (a subscription plan's free first days), coupon, discount
+
+**Folded address**
+An address with its `+tag` dropped, on every domain (`a+1@x` and `a+2@x` are both `a@x`); dots
+are not folded (`a.b@x` and `ab@x` stay two). Used only to decide "the same person" for the
+one-per-Person rules (a free trial, an intro offer; later a per-person code, a new-customer check
+and a referral): every live Person with an address folding to one of a Person's counts as them
+(ADR 0692, `core_person_emails.folded`, `samePeople`). Never an identity: the Person, the account
+and the address mailed stay as typed.
+_Avoid_: mailbox key (the sign-in code limit's and routine mail's `mailboxKey`, which also folds
+Gmail's dots, for counting sends only), normalised address (trimmed and lower-cased only)
 
 **Grant**
 A record the host creates when an order is first paid, one per unit of a line whose object
