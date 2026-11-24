@@ -19,6 +19,9 @@ How releases are built (ADR 0053, ADR 0160, ADR 0161). Deploying them is `packag
 - **Golden file:** `test/testdata/golden-manifest.json`. Any change to a Worker's config, a
   `deploy-inputs.json` or the migrations changes it. Review the diff, then regenerate:
   `UPDATE_GOLDEN=1 pnpm --filter @composable-os/release-scripts test`.
+- **Completeness:** `test/release-completeness.test.ts` fails when a pack under `packs/` or a block
+  under `blocks/` or `packs/*/blocks/` is not in what a release publishes (the bundle, its client
+  kit, the npm packages). Something left out on purpose goes in its allow-list, with why.
 - `changelog.ts --tag vX.Y.Z` writes the release notes from PR titles (`--all` for a whole changelog).
 - `inspect-bundle.ts <bundle>` opens a bundle the way deployers do and prints what it holds.
 
