@@ -17,7 +17,9 @@ import { CURRENCY } from "./order-fixtures.ts";
 
 export interface Gateway {
   checkouts: { ref: string; orderId: string; amount: number; currency: string }[];
-  emails: { to: string[]; subject: string; text: string }[];
+  emails: { to: string[]; subject: string; text: string; idempotencyKey?: string }[];
+  /** The next email's answer: held for a person's approval, or the mail gatekeeper throwing. */
+  nextEmail?: "pending" | "throw" | undefined;
   refunds: Map<number, { orderId: string; paymentRef: string; amount: number; refundId: string }>;
   applied: number[];
   action: number;
@@ -213,13 +215,37 @@ export function paymentsDouble(events: () => Events, crm: () => CrmDb = () => db
           actionKind: `payments.${input.method}`,
           title: "x",
         };
+        // A cancel waiting for a person: submitted to the approval queue as the integration host
+        // submits one, so a test can reject it or let it expire.
+        const waiting =
+          how === "pending"
+            ? await submitOutbound(db, {
+                connectionId,
+                connectionTitle: "Payments",
+                vendor: "payments",
+                facetKey: "merchant",
+                resourceTitle: "Payments with Fake provider",
+                action: gw.changes.length + 1000,
+                description: {
+                  title: "End a subscription now",
+                  description: "Cancel a subscription.",
+                  fields: [],
+                  actionKind: { tag: "payments.subscription.cancel", label: "Cancel a subscription" },
+                  autoApprovable: false,
+                  descriptionIsComplete: true,
+                },
+                actor: "automation",
+                user: { id: "system", email: "system@crm.invalid", name: "System", role: "admin" },
+                origin: { surface: "system", automationId: "system.orders" },
+              })
+            : null;
         return {
           value:
             input.method === "openPortal"
               ? { url: "https://billing.example/portal" }
               : { status: how === "applied" ? "sent" : "pending", id: gw.changes.length },
           // A cancel waiting for a person at the gatekeeper: only its presence is read.
-          pending: how === "pending" ? [{ actionId: "pac_x" } as never] : [],
+          pending: waiting && waiting.decision === "review" ? [waiting.pending] : [],
           applied: (changing || cancelling) && how !== "applied" ? [] : [action],
           ...(how === "retryable"
             ? {
@@ -255,6 +281,16 @@ export function paymentsDouble(events: () => Events, crm: () => CrmDb = () => db
         };
       }
       if (input.method === "send") {
+        const how = gw.nextEmail;
+        gw.nextEmail = undefined;
+        if (how === "throw") throw new Error("the mail gatekeeper did not answer");
+        if (how === "pending") {
+          return {
+            value: { status: "pending" },
+            pending: [{ actionId: "pac_mail" } as never],
+            applied: [],
+          };
+        }
         gw.emails.push(input.args[0] as Gateway["emails"][number]);
         return {
           value: { status: "sent" },

@@ -298,19 +298,24 @@ function CoolingOff({ subscription: s }: { subscription: SubscriptionData }) {
   const again = own?.askAgain === true;
   const words = own
     ? own.state === "lapsed"
-      ? "Asked in its cooling-off period, but it ended another way later: nothing is owed as cooled off yet. To refund what was paid in the period, finish the cooling off here (it then counts as the member's one); do not refund it by hand from the orders."
+      ? own.lapsedBecause === "used"
+        ? "Asked in its cooling-off period, but the member had already cooled off another membership: this one did not count, and nothing is owed as cooled off."
+        : "Its cooling off lapsed (it did not end the membership by its deadline): nothing is owed as cooled off yet, and the membership can be cancelled as usual. To refund what was paid in the period, finish the cooling off here (it then counts as the member's one); do not refund it by hand from the orders."
       : own.state === "ended"
-        ? `Ended in its cooling-off period${own.endedAt ? ` on ${formatDateTime(own.endedAt)}` : ""}. ` +
+        ? `${own.finished ? "Finished by staff" : "Ended in its cooling-off period"}${own.endedAt ? ` on ${formatDateTime(own.endedAt)}` : ""}. ` +
           (own.refunds === "refunded"
             ? `Refunded ${formatMoney(own.refunded, c.currency)}.`
             : own.refunds === "held"
               ? `A refund of ${formatMoney(own.paid - own.refunded, c.currency)} is owed and was not approved or could not be asked: refund it from the orders below.`
               : `A full refund of ${formatMoney(own.paid - own.refunded, c.currency)} is owed: each period's refund waits in Approvals.`)
-        : own.state === "refused"
-          ? "Asked to end in its cooling-off period, and the payment provider refused: nothing ended. Ask again."
-          : own.asked === "sent" || own.asked === "pending"
-            ? `Asked ${own.askedBy === "staff" ? "by staff" : "by the payer"} to end in its cooling-off period on ${formatDateTime(own.askedAt)}: waiting for the payment provider to confirm.`
-            : "Asked to end in its cooling-off period, and the payment provider's answer was lost: ask again."
+        : `Asked ${own.askedBy === "staff" ? "by staff" : "by the payer"} on ${formatDateTime(own.askedAt)}; open until ${formatDateTime(own.deadline)}, when it lapses if the membership has not ended. ` +
+          (own.asked === "refused"
+            ? "The payment provider refused: ask again."
+            : own.asked === "pending"
+              ? "Ending it waits for approval at the payments gatekeeper."
+              : own.asked === "sent"
+                ? "Waiting for the payment provider to confirm."
+                : "The payment provider's answer was lost: the host asks again; you may too.")
     : c.offered
       ? `A new member's cooling-off period of ${c.days} days runs to the end of ${localDay(c.until)}. Ending it now owes a full refund of ${formatMoney(c.refund, c.currency)}, each period's refund approved in Approvals.`
       : (NOT_OFFERED_WORDS[c.why ?? ""] ?? "Not in its cooling-off period.");

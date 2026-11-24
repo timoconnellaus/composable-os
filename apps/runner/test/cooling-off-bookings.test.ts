@@ -2,9 +2,10 @@
 // Memberships in the real host, with the real payments gatekeeper and its fake provider (never a
 // real one). A member cools off a membership that paid for bookings ahead: each is cancelled as the
 // business's (`cancelled_by_us`), its place freed so the waiting list moves people in as usual, and
-// the member's own place on a waiting list it would pay for goes too; with 60 ahead, 20 go in the
-// end's own batch and the minute cron's follow-ups release the rest, every batch well under D1's
-// 1,000 statements. Every name and figure is invented.
+// the member's own place on a waiting list it would pay for goes too (one naming it, or naming
+// nothing when they hold nothing else live). The end's own batch releases none (ADR 0647, rule F):
+// the minute cron's steps do, 30 at a time, every batch well under D1's 1,000 statements. Every
+// name and figure is invented.
 import { env, exports } from "cloudflare:workers";
 import {
   type ActingUser,
@@ -397,7 +398,7 @@ describe("cooling off releases the bookings ahead (the real Bookings pack)", () 
     expect(out.endBatch).toBeLessThan(500);
   }, 180_000);
 
-  it("60 ahead: 20 in the end's batch, the rest by follow-ups; every batch well under D1's limit", async () => {
+  it("60 ahead: none in the end's batch, all by the steps after; every batch well under D1's limit", async () => {
     const out = await coolOffWith(60);
     expect(out.failures).toEqual([]);
     expect(out.states.every((s) => s === "cancelled_by_us")).toBe(true);
@@ -405,4 +406,42 @@ describe("cooling off releases the bookings ahead (the real Bookings pack)", () 
     console.log("cooling off batches", { end: out.endBatch, largest: out.largest });
     expect(out.largest).toBeLessThan(700);
   }, 600_000);
+
+  it("a member who holds a pass too: the waiting place naming nothing and the one naming the pass are kept; the one naming the membership goes", async () => {
+    const who = await member("withpass");
+    const membership = await subscribe(who, unlimited);
+    const pass = await givePass(who, 5);
+    const sub = await subscriptionOf(who.personId);
+    const week = monday(1);
+    const waitOn = async (hour: number, holderId?: string) => {
+      const c = await klass(yoga, local(addDays(week, 4), hour), 1);
+      const someone = await member("full");
+      await givePass(someone, 5);
+      await book(someone, c);
+      const w = await book(who, c, holderId ? { holderId } : {});
+      expect(w.result).toBe("waiting");
+      return w.bookingId as string;
+    };
+    const unnamed = await waitOn(9);
+    const namedPass = await waitOn(10, pass);
+    const namedMembership = await waitOn(11, membership);
+    await run("subscription.coolOff", { id: sub?.id }, as(who));
+    await vi.waitFor(
+      async () =>
+        expect(
+          (
+            await env.DB.prepare(
+              "SELECT state FROM core_subscription_cool_off WHERE subscription_id = ?",
+            )
+              .bind(sub?.id)
+              .first<{ state: string }>()
+          )?.state,
+        ).toBe("ended"),
+      { timeout: 30_000 },
+    );
+    for (let i = 0; i < 3; i += 1) await runCoolOffSweep(db, { integrations });
+    expect((await get(BOOKING, namedMembership)).state).toBe("cancelled_by_us");
+    expect((await get(BOOKING, unnamed)).state).toBe("waiting");
+    expect((await get(BOOKING, namedPass)).state).toBe("waiting");
+  }, 180_000);
 });

@@ -2327,17 +2327,26 @@ export interface CoreSubscriptionCoolOffTable {
   asked_by_user: string | null;
   days: number;
   window_ends_at: Timestamp;
-  state: "asked" | "refused" | "ended" | "lapsed";
-  call_outcome: "sent" | "pending" | "unknown" | null;
+  state: "asked" | "ended" | "lapsed";
+  call_outcome: "sent" | "pending" | "unknown" | "refused" | null;
   asked_at: Timestamp;
+  deadline_at: Timestamp;
   last_asked_at: Timestamp;
   ask_count: Defaulted<number>;
+  pending_action_id: Defaulted<string | null>;
   ended_at: Timestamp | null;
+  finished: Defaulted<number>;
+  owed_from: Defaulted<Timestamp | null>;
+  owed_to: Defaulted<Timestamp | null>;
+  lapsed_because: Defaulted<"deadline" | "action" | "end_time" | "used" | null>;
   told_at: Defaulted<Timestamp | null>;
   release_left: Defaulted<number>;
   released_count: Defaulted<number>;
+  release_stopped: Defaulted<number>;
   release_failures: Defaulted<number>;
-  mail_state: Defaulted<"due" | "sending" | "sent" | "failed" | null>;
+  mail_state: Defaulted<"due" | "sending" | "sent" | "pending" | "failed" | null>;
+  mail_claimed_at: Defaulted<Timestamp | null>;
+  mail_tries: Defaulted<number>;
   updated_at: Timestamp;
 }
 

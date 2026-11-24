@@ -97,11 +97,15 @@ export interface CoolingOffStatus {
   refund: number;
   currency: string;
   coolOff: {
-    state: "asked" | "refused" | "ended" | "lapsed";
-    asked: "sent" | "pending" | "unknown" | null;
+    state: "asked" | "ended" | "lapsed";
+    asked: "sent" | "pending" | "unknown" | "refused" | null;
     askedBy: "payer" | "staff";
     askedAt: string;
+    /** Open until then; if nothing ended by it, it lapses and the ordinary cancel works. */
+    deadline: string;
     endedAt: string | null;
+    finished: boolean;
+    lapsedBecause: "deadline" | "action" | "end_time" | "used" | null;
     /** The host says this caller may ask the provider again now. */
     askAgain: boolean;
     /** Under way: the ordinary cancel waits. */
@@ -470,16 +474,22 @@ export function coolOffProgressWords(
   const money = sum(c.state === "ended" ? c.paid - c.refunded : status.refund);
   const told = c.staffTold ? " The business has been told." : "";
   if (c.state === "lapsed") {
-    return "Your membership ended another way, not in the cooling-off period: ask the business about any refund.";
-  }
-  if (c.state === "refused") {
-    return c.askAgain
-      ? `Ending it in the cooling-off period did not go through: ask again.${told}`
-      : `Ending it in the cooling-off period did not go through.${told} Ask the business, or cancel it as usual.`;
+    return c.lapsedBecause === "used"
+      ? "Cooling off has been used for this member before: this one did not count. Ask the business about any refund."
+      : "Your cooling off did not end the membership in time, so it lapsed: you can cancel it as usual. Ask the business about any refund.";
   }
   if (c.state === "asked") {
+    const until = ` If it has not ended by ${day(c.deadline)}, it lapses and you can cancel it as usual.`;
+    if (c.asked === "refused") {
+      return c.askAgain
+        ? `Ending it in the cooling-off period did not go through: ask again.${told}${until}`
+        : `Ending it in the cooling-off period did not go through.${told}${until}`;
+    }
+    if (c.asked === "pending") {
+      return `You asked to end it in the cooling-off period: it waits for the business to confirm.${until}`;
+    }
     return c.asked === "unknown" || c.asked === null
-      ? `You asked to end it in the cooling-off period. We have not heard back from the payment provider yet.${told}`
+      ? `You asked to end it in the cooling-off period. We have not heard back from the payment provider yet.${told}${until}`
       : "You asked to end it in the cooling-off period. It shows as ended here once the payment provider confirms.";
   }
   switch (c.refunds) {

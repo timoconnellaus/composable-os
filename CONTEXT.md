@@ -1376,10 +1376,12 @@ change) in which a **new member** (a membership started here, not one moving ove
 continuation offer, not a pass) may end their membership at once for a full refund of every period
 they paid for the period, whatever they used. The window runs from the provider-confirmed start to
 the end of the last day in the business's time zone; the days are those in force when they joined,
-for good; once per member. A member asks again only inside the window. Each refund is **owed** once
-the provider shows the membership ended because of it, and waits for a person with
-`orders:refund`; an end it did not cause owes nothing as cooled off (it **lapses**). The bookings
-ahead it paid for are cancelled as the business's. Nothing is offered in a free trial (nothing
+for good; once per member. An ask made inside the window opens it until a **deadline** seven days
+later; while it is open any end of the membership is the cooling off's, and what is **owed** is
+every order paid up to the window's end or after the ask and up to the end, each waiting for a
+person with `orders:refund`. At the deadline an open one that has not ended **lapses** (owing
+nothing as cooled off; the ordinary cancel works again; staff may **finish** it, for the window's
+payments only). The bookings ahead it paid for are cancelled as the business's. Nothing is offered in a free trial (nothing
 paid: the ordinary cancel ends it). What the law asks is the business's to confirm.
 _Avoid_: trial (a plan's free first days), grace period, cancellation (which ends it at the
 period's end, with no refund)

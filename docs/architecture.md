@@ -1817,19 +1817,22 @@ checkout at the start, for good. `subscription.coolingOff` (customer, their own 
 answers it for up to 20 subscriptions in a fixed number of statements; the blocks show the button
 only when it says so. `subscription.coolOff` (the payer, or staff with `subscriptions:manage`; a
 person only) writes `core_subscription_cool_off` in its batch and, after the commit, asks the
-payments gatekeeper to end the subscription now; a lost or refused answer is kept on the row and
-admins are told once. The member asks again only inside the window; staff finish one after it. The
-minute cron's `subscription.coolOffSweep` (a host step; an idle tick invokes nothing) resolves an
-ask whose answer was lost, never made or long waiting, reading the provider first; every ask is
-its own request to the provider (`askKey`). In the batch of the provider's verified event that
-shows it ended, `causedBy` says whether the cooling off ended it (from the first ask: inside the
-window, within two days of the latest ask, or an approval at the gatekeeper given late); then one
-statement owes back each order paid up to the window's end or between that ask and the end
-(`core_sellable_refund_due`, `entered: "cooled_off"`), and the bookings ahead the membership paid
-for, and the member's own waiting places it would pay for, are moved into their spender's
-`released` state (`allowance.spends.released`: Bookings' `cancelled_by_us`), 20 in the batch and
-the rest by `subscription.coolOffRelease`, with one summary email to the member; any other end
-makes it `lapsed`, owing nothing as cooled off until staff finish it. The minute cron
+payments gatekeeper to end the subscription now. A valid ask is made inside the window and fixes
+a deadline seven days later (the gatekeeper's approval expiry, `DEFAULT_APPROVAL_EXPIRY_DAYS`);
+asking again (the member inside the window, staff before the deadline) is a new request to the
+provider (`askKey`) and never moves the deadline. While it is open, any end the provider reports
+(whatever its reason) is the cooling off's, bounded by the ask less a five-minute tolerance and the
+deadline; one statement owes back each order paid up to the window's end or after the ask and up
+to the end (`core_sellable_refund_due`, `entered: "cooled_off"`), the same bounds as the figure
+shown. At the deadline the minute cron's `subscription.coolOffSweep` (a host step; an idle tick
+invokes nothing) lapses an open one, rejecting its cancel still waiting at the gatekeeper, and the
+ordinary cancel works again; staff may finish a lapsed one (the window's payments only). Once per
+holder: the ask, the finish and the end check it before writing, and an end is always recorded
+(one for a holder who used theirs lapses the row as not counted). The end's batch releases
+nothing: `subscription.coolOffRelease`, run by the minute cron in its own batch, moves the bookings
+ahead the membership paid for, and the member's own waiting places it would pay for, into their
+spender's `released` state (`allowance.spends.released`: Bookings' `cancelled_by_us`), 30 a step,
+then one summary email goes to the member, claimed before it is sent. The minute cron
 asks the gatekeeper for each refund, which waits for a person with `orders:refund` (ADR 0429).
 Nothing refunds a card on its own.
 

@@ -521,7 +521,10 @@ describe("plan changes, pauses and the dashboard (stage 32b, ADRs 0530 to 0532)"
         asked: "sent",
         askedBy: "payer",
         askedAt: "2026-10-11T00:00:00.000Z",
+        deadline: "2026-10-18T00:00:00.000Z",
         endedAt: "2026-10-11T00:01:00.000Z",
+        finished: false,
+        lapsedBecause: null,
         askAgain: false,
         open: false,
         staffTold: false,
@@ -550,7 +553,7 @@ describe("plan changes, pauses and the dashboard (stage 32b, ADRs 0530 to 0532)"
       }),
     ).toContain("has been told");
     expect(coolOffProgressWords({ ...ended, coolOff: { ...own, state: "lapsed" } })).toContain(
-      "ended another way",
+      "cancel it as usual",
     );
     expect(coolOffRefusalWords({ rule: "cooling_off", reason: "window_passed" })).toContain(
       "has ended",

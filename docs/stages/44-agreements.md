@@ -1875,6 +1875,40 @@ Fixed in the same PR (ADR 0647 rewritten to match; migration 0856 edited in plac
 Statements, measured: `subscription.coolingOff` 8, `subscription.coolOff` 13, the provider's end
 37 plus about 11 for each booking released (20 in the batch); a follow-up of 30 about 360.
 
+### Step 7: after the third review of PR #299 (2026-11-24)
+
+The coordinator replaced the "whose end is it" logic with one rule (ADR 0647, "The rule", A to G,
+recorded there as replacing the earlier wording); migration 0856 edited in place:
+
+- **A.** A valid ask is made inside the window and fixes a deadline at `asked_at` + 7 days
+  (`COOL_OFF_OPEN_DAYS = DEFAULT_APPROVAL_EXPIRY_DAYS`); asking again never moves either.
+- **B.** While open and before the deadline any end is the cooling off's, whatever the reason; the
+  only allowance is a five-minute clock tolerance before the ask.
+- **C.** Owed: every order paid on or before the window's end, plus those paid after the ask and
+  on or before the end. The figure shown is the same function over the same bounds.
+- **D.** At the deadline the sweep lapses an open one, rejects its cancel waiting at the
+  gatekeeper (its id kept on the row), and tells admins once; one whose waiting cancel is rejected
+  or expires lapses at once. A lapsed row never becomes the cooling off's.
+- **E.** Staff finish a lapsed one: it ends the membership now, owes the window's payments only,
+  releases bookings ahead and sends the summary; stored as finished with its bounds.
+- **F.** Once per member, checked before writing; nothing in the path fails an end's recording
+  (a holder who used theirs: the end is recorded, the row lapses as `used`, admins told; probe P8).
+  The end's batch releases no bookings; the steps after it do.
+- **G.** Each state's exit is in ADR 0647's table, each tested.
+
+Also: stored payment events failing five times tell admins once and keep being tried with backoff;
+waiting places are read in full, future only, ordered by class start (one naming the membership,
+or naming nothing when nothing else is live); the uses are paged so what cannot be released never
+hides those after, and only what can be released counts toward what is left, so the steps end;
+the summary email is claimed before it is sent with an idempotency key, a held one is `pending`
+(not sent), a crash after the claim is tried once more, one that cannot go tells admins once, and
+it never claims more cancelled than were. The e2e flake in `agreement-acceptances.spec.ts` (a class
+at now + 30 minutes that fell on the next UTC day) is fixed. The probes P1 to P8 are tests with
+exact amounts in `packages/core/test/subscription-cooling-off.test.ts`.
+
+Statements, measured: `subscription.coolingOff` 8, `subscription.coolOff` 13, the provider's end
+35 whatever is booked ahead; a release step about 40 plus 6 a booking (30 a step).
+
 **The owner's answers (interview of 2026-11-24)**, confirming what is built, recorded in ADR 0647:
 (1) when a member cools off, classes booked for later are cancelled and the places freed, waiting
 lists moving people in; (2) once per member, ever; (3) the ceiling for the setting is 30 days;
