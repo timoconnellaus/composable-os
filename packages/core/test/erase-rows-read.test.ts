@@ -107,6 +107,8 @@ describe("erase rows read", () => {
       "core_extension_runs",
       "core_extension_kv",
       "core_search_docs",
+      // Erase lists the x_* tables from sqlite_master, a row per table, index and trigger.
+      "sqlite_master",
     ]);
     rowsRead = 0;
     await invokeByName("person.erase", { id: person.id }, ctx());
