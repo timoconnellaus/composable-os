@@ -12,7 +12,6 @@ import {
   embedPlayer,
   headingAnchors,
   type Inline,
-  inlineText,
   type ListBody,
   mediaPath,
   type RichText as RichTextValue,
@@ -241,10 +240,4 @@ export function RichText({
       })}
     </div>
   );
-}
-
-/** A document's first paragraph as text, for a summary where the post has no excerpt. */
-export function firstParagraph(value: RichTextValue | null | undefined): string {
-  const first = value?.blocks.find((b) => b.type === "paragraph");
-  return first && first.type === "paragraph" ? inlineText(first.content) : "";
 }

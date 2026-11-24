@@ -193,7 +193,7 @@ export function ShiftChecklistNative({
                 {step.tick?.note ? <Text>Note: {step.tick.note}</Text> : null}
                 {step.history.map((h) => (
                   <Text key={h.id}>
-                    Earlier: {h.state === "cleared" ? h.label : tickLabel(h)}
+                    Earlier: {tickLabel(h)}
                     {h.why ? ` · Why: ${h.why}` : ""}
                     {h.note ? ` · Note: ${h.note}` : ""}
                   </Text>

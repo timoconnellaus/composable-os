@@ -13,21 +13,12 @@ import {
   type RosterRefusal,
   refusalNext,
   rosterRefusal,
+  WEEKDAYS,
 } from "@composable-os/pack-rostering/client";
 import { type FormEvent, useId, useState } from "react";
 import { Button } from "../ui-button/button.tsx";
 
 type Hooks = Pick<RosteringHooks, "useMe" | "usePatterns" | "usePeople" | "useSetPattern">;
-
-const DAYS = [
-  ["mon", "Monday"],
-  ["tue", "Tuesday"],
-  ["wed", "Wednesday"],
-  ["thu", "Thursday"],
-  ["fri", "Friday"],
-  ["sat", "Saturday"],
-  ["sun", "Sunday"],
-] as const;
 
 export function Patterns({ rostering, locale = "en-AU" }: { rostering: Hooks; locale?: string }) {
   const me = rostering.useMe();
@@ -59,7 +50,7 @@ export function Patterns({ rostering, locale = "en-AU" }: { rostering: Hooks; lo
         </p>
       ) : null}
       <ol className="grid gap-3 md:grid-cols-7" aria-label="Days of the week">
-        {DAYS.map(([day, label]) => {
+        {WEEKDAYS.map(([day, label]) => {
           const on = all.filter((p) => p.weekdays.includes(day));
           return (
             <li key={day} className="min-w-0 rounded-md border p-2">
