@@ -36,6 +36,7 @@ import {
   SYSTEM_USER,
   type SyncConfig,
   settleRoutineMail,
+  sha256Hex,
   siteOriginOf,
   syncedInWindow,
   syncKindOf,
@@ -136,11 +137,6 @@ export function syncErrorText(error: unknown): string {
   return text
     .replace(/[^\s"'<>()[\]{},;:]+@[^\s"'<>()[\]{},;:]+\.[^\s"'<>()[\]{},;:]+/g, "[address]")
     .slice(0, SYNC_ERROR_MAX);
-}
-
-async function sha256(text: string): Promise<string> {
-  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
-  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
 function token(): string {
@@ -367,7 +363,7 @@ export class IntegrationHost extends DurableObject<Env> {
     await this.ctx.storage.put<PendingConnect>("connect", {
       vendor,
       userId,
-      nonceHash: await sha256(nonce),
+      nonceHash: await sha256Hex(nonce),
       appOrigin: new URL(origin).origin,
       mode,
       startedAt: Date.now(),
@@ -403,7 +399,7 @@ export class IntegrationHost extends DurableObject<Env> {
     await this.ctx.storage.put("staged-account", account);
     await this.ctx.storage.put<Staged>("staged", {
       vendor,
-      ticketHash: await sha256(ticket),
+      ticketHash: await sha256Hex(ticket),
       expiresAt: Date.now() + STAGE_TTL_MS,
       mode: pending.mode,
     });
@@ -425,7 +421,7 @@ export class IntegrationHost extends DurableObject<Env> {
     const ticket = `${meta.connectionId}.${token()}`;
     await this.ctx.storage.put<Staged>("staged", {
       vendor,
-      ticketHash: await sha256(ticket),
+      ticketHash: await sha256Hex(ticket),
       expiresAt: Date.now() + STAGE_TTL_MS,
       mode: "reconnect",
       stageId,
@@ -464,9 +460,10 @@ export class IntegrationHost extends DurableObject<Env> {
     if (staged.expiresAt < Date.now()) return fail("This connect flow expired. Start again.");
     if (input.userId !== pending.userId)
       return fail("Only the user who started this flow can finish it");
-    if ((await sha256(input.nonce)) !== pending.nonceHash)
+    if ((await sha256Hex(input.nonce)) !== pending.nonceHash)
       return fail("This handoff is not for this window");
-    if ((await sha256(input.ticket)) !== staged.ticketHash) return fail("Unknown or used ticket");
+    if ((await sha256Hex(input.ticket)) !== staged.ticketHash)
+      return fail("Unknown or used ticket");
 
     await this.ctx.storage.delete(["connect", "staged"]);
     let label: string | null = null;
@@ -622,7 +619,7 @@ export class IntegrationHost extends DurableObject<Env> {
 
   async bindResource(url: string): Promise<BoundResource> {
     const meta = await this.#meta();
-    const key = (await sha256(url)).slice(0, 16);
+    const key = (await sha256Hex(url)).slice(0, 16);
     const existing = await this.ctx.storage.get<FacetRecord>(`facet:${key}`);
     if (existing) return this.#bound(existing);
     let vendor = meta.vendor;

@@ -14,6 +14,7 @@
 //   The object is read and checked against the hash, so only what the deploy set is installed;
 //   anything else fails closed. Its extensions are shipped extensions: they arrived by a deploy
 //   a person ran, as packs do, and install without approval (ADR 0414's `shipped` source).
+import { sha256Hex } from "@composable-os/core";
 import { PRODUCT_PACKS, SHIPPED_EXTENSIONS } from "../generated/shipped.ts";
 
 export type ShippedSource = (typeof SHIPPED_EXTENSIONS)[number];
@@ -77,11 +78,6 @@ export function packsProblem(value: string | undefined): string | null {
   } catch (error) {
     return (error as Error).message;
   }
-}
-
-async function sha256Hex(bytes: ArrayBuffer): Promise<string> {
-  const digest = await crypto.subtle.digest("SHA-256", bytes);
-  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
 const orgCache = new Map<string, ShippedSource[]>();

@@ -9,6 +9,7 @@ import { AGREEMENT_KINDS, RICH_TEXT_SCHEMA, validateDocument } from "@composable
 import type { Kysely } from "kysely";
 import { sql } from "kysely";
 import { z } from "zod";
+import { sha256Hex } from "../digest.ts";
 import { listObjects } from "../fields/index.ts";
 
 export { AGREEMENT_KINDS };
@@ -191,7 +192,7 @@ export interface VersionContent {
 
 /** SHA-256 (hex) of the canonical JSON of a version's whole content. */
 export async function versionHash(content: VersionContent): Promise<string> {
-  const bytes = new TextEncoder().encode(
+  return sha256Hex(
     canonicalJson({
       kind: content.kind,
       title: content.title,
@@ -204,8 +205,6 @@ export async function versionHash(content: VersionContent): Promise<string> {
       askAgainMonths: content.askAgainMonths ?? null,
     }),
   );
-  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", bytes));
-  return [...digest].map((b) => b.toString(16).padStart(2, "0")).join("");
 }
 
 /** A stored version row, as migration 0850 holds it. */
