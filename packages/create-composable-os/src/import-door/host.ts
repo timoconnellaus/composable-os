@@ -17,6 +17,14 @@ export interface ImportHost {
   send?(url: string, init: RequestInit): Promise<Response>;
 }
 
+/** The body as JSON; an error page that is not JSON (a gateway's) reads as `{}`. */
+async function readBody(response: Response): Promise<unknown> {
+  return response.json().catch((error: unknown) => {
+    if (response.ok) throw error;
+    return {};
+  });
+}
+
 async function readError(response: Response): Promise<string> {
   const body = (await response.json().catch(() => ({}))) as { error?: { message?: string } };
   return body.error?.message ?? `HTTP ${response.status}`;
@@ -40,7 +48,7 @@ export function sessionHost(
         },
         body: JSON.stringify(input),
       });
-      const body = (await response.json()) as {
+      const body = (await readBody(response)) as {
         data?: T;
         error?: { code: string; message: string; details?: unknown };
       };
@@ -58,7 +66,7 @@ export function sessionHost(
         headers: { "content-type": "application/octet-stream", ...(await headers()) },
         body: new Uint8Array(bytes),
       });
-      const body = (await response.json()) as {
+      const body = (await readBody(response)) as {
         data?: { id: string; existing: boolean };
         error?: { message: string };
       };
