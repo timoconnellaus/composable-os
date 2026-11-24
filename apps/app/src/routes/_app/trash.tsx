@@ -48,6 +48,9 @@ const OBJECTS: Record<TrashObject, { label: string; icon: LucideIcon }> = {
 
 const ALL = "all";
 
+/** What putting an item in or out of Trash changes besides its own object: its links. */
+const TRASH_TOUCHES = ["person.", "organisation.", "affiliation."];
+
 /** Moves a restored item back to Trash (Undo). */
 function trashAgain(object: TrashObject, id: string) {
   switch (object) {
@@ -117,7 +120,7 @@ function TrashPage() {
           onClick: () =>
             void trashAgain(item.object, item.id)
               .then(() =>
-                invalidateAfterWrite(client, `${item.object}.delete`, ["person.", "organisation."]),
+                invalidateAfterWrite(client, `${item.object}.delete`, TRASH_TOUCHES),
               )
               .catch((error: unknown) => toast.error(errorMessage(error))),
         },
@@ -127,7 +130,7 @@ function TrashPage() {
       toast.error(errorMessage(error));
     } finally {
       setRestoring(null);
-      await invalidateAfterWrite(client, `${item.object}.restore`, ["person.", "organisation."]);
+      await invalidateAfterWrite(client, `${item.object}.restore`, TRASH_TOUCHES);
     }
   }
 

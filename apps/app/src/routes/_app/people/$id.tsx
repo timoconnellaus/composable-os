@@ -150,7 +150,7 @@ function PersonRecord({
   const taskActions = useTaskActions("person", person.id);
   const affiliations = useAffiliations("person", person.id);
   const history = useRecordHistory("person", person.id);
-  const restore = useOpMutation("person.restore");
+  const restore = useOpMutation("person.restore", { invalidates: ["affiliation."] });
   const { create } = useAppCommands();
   const [dialog, setDialog] = useState<"add" | "changeJob" | null>(null);
   const [ending, setEnding] = useState<AffiliationItem | null>(null);
@@ -366,7 +366,7 @@ function PersonRecord({
 function DeleteAction({ id, name }: { id: string; name: string }) {
   const [open, setOpen] = useState(false);
   const remove = useOpMutation("person.delete");
-  const restore = useOpMutation("person.restore");
+  const restore = useOpMutation("person.restore", { invalidates: ["affiliation."] });
   const merge = useMergeAction("person", id);
   const enrich = useEnrichAction("person", id);
 
