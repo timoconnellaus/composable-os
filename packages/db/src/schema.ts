@@ -1987,6 +1987,171 @@ export interface CoreStaffHoursTable {
 }
 
 /**
+ * Migration 1030 (stage 35 step 2, ADR 0730): a numbering series for quotes, invoices or credit
+ * notes. The next number only goes up; every change moves `version` by one (compare-and-set).
+ */
+export interface CoreDocumentCounterTable {
+  series: "quote" | "invoice" | "credit_note";
+  prefix: string;
+  next_number: number;
+  version: number;
+  updated_at: string | null;
+  updated_by: string | null;
+}
+
+/** The columns quotes, invoices and credit notes share (migration 1030, ADR 0730). */
+interface DocumentColumns {
+  id: string;
+  number: Defaulted<string | null>;
+  number_seq: Defaulted<number | null>;
+  currency: string;
+  tax_mode: "exclusive" | "inclusive";
+  person_id: Defaulted<string | null>;
+  organisation_id: Defaulted<string | null>;
+  bill_to_name: Defaulted<string | null>;
+  bill_to_address: Defaulted<string | null>;
+  bill_to_tax_number: Defaulted<string | null>;
+  bill_to_email: Defaulted<string | null>;
+  net_total: Defaulted<number>;
+  tax_total: Defaulted<number>;
+  total: Defaulted<number>;
+  tax_by_rate: Defaulted<string>;
+  created_at: string;
+  created_by: string;
+  updated_at: string;
+  updated_by: string;
+  version: Defaulted<number>;
+}
+
+/** Migration 1030: a quote. Once sent, the database refuses any change to what it says. */
+export interface CoreQuoteTable extends DocumentColumns {
+  state: Defaulted<"draft" | "sent" | "accepted" | "declined" | "expired" | "withdrawn">;
+  site_address: Defaulted<string | null>;
+  about_object: Defaulted<string | null>;
+  about_id: Defaulted<string | null>;
+  title: Defaulted<string | null>;
+  notes: Defaulted<string | null>;
+  valid_until: Defaulted<string | null>;
+  deposit_kind: Defaulted<"none" | "amount" | "percent">;
+  deposit_value: Defaulted<number | null>;
+  replaces_quote_id: Defaulted<string | null>;
+  acceptance_id: Defaulted<string | null>;
+  sent_at: Defaulted<string | null>;
+  accepted_at: Defaulted<string | null>;
+  declined_at: Defaulted<string | null>;
+  decline_reason: Defaulted<string | null>;
+  withdrawn_at: Defaulted<string | null>;
+  expired_at: Defaulted<string | null>;
+}
+
+/** Migration 1030: an invoice. Once issued, the database refuses any change to what it says. */
+export interface CoreInvoiceTable extends DocumentColumns {
+  state: Defaulted<"draft" | "issued" | "sent" | "part_paid" | "paid" | "credited" | "void">;
+  kind: Defaulted<"standard" | "deposit" | "final">;
+  site_address: Defaulted<string | null>;
+  about_object: Defaulted<string | null>;
+  about_id: Defaulted<string | null>;
+  title: Defaulted<string | null>;
+  notes: Defaulted<string | null>;
+  quote_id: Defaulted<string | null>;
+  order_id: Defaulted<string | null>;
+  payment_terms_days: number;
+  issued_on: Defaulted<string | null>;
+  due_on: Defaulted<string | null>;
+  issued_at: Defaulted<string | null>;
+  sent_at: Defaulted<string | null>;
+  allow_part_payments: Defaulted<number>;
+  reminders_paused: Defaulted<number>;
+  reminders_paused_reason: Defaulted<string | null>;
+  business: Defaulted<string | null>;
+}
+
+/** Migration 1030: a credit note against an invoice. Once issued, never changed. */
+export interface CoreCreditNoteTable extends DocumentColumns {
+  state: Defaulted<"draft" | "issued">;
+  invoice_id: string;
+  reason: Defaulted<string | null>;
+  settle: Defaulted<"reduce" | "refund" | "both">;
+  issued_on: Defaulted<string | null>;
+  issued_at: Defaulted<string | null>;
+  business: Defaulted<string | null>;
+}
+
+/** The columns every document line has (migration 1030). */
+interface DocumentLineColumns {
+  id: string;
+  position: number;
+  description: string;
+  quantity_milli: number;
+  unit: Defaulted<string | null>;
+  unit_price: number;
+  tax_key: Defaulted<string | null>;
+  tax_label: Defaulted<string | null>;
+  tax_rate: Defaulted<number>;
+  line_net: number;
+  line_tax: number;
+  line_total: number;
+  created_at: string;
+}
+
+/** The columns of a quote's or an invoice's line that a credit note's line does not have. */
+interface PricedLineColumns extends DocumentLineColumns {
+  discount_kind: Defaulted<"amount" | "percent" | null>;
+  discount_value: Defaulted<number | null>;
+  discount_reason: Defaulted<string | null>;
+  discount: Defaulted<number>;
+  source_object: Defaulted<string | null>;
+  source_id: Defaulted<string | null>;
+  source_category: Defaulted<string | null>;
+  source_price: Defaulted<number | null>;
+}
+
+/** Migration 1030: a quote's line; changed only while the quote is a draft. */
+export interface CoreQuoteLineTable extends PricedLineColumns {
+  quote_id: string;
+  source: "record" | "custom";
+}
+
+/** Migration 1030: an invoice's line; changed only while the invoice is a draft. */
+export interface CoreInvoiceLineTable extends PricedLineColumns {
+  invoice_id: string;
+  source: "record" | "custom" | "deduction";
+  deducts_invoice_id: Defaulted<string | null>;
+}
+
+/** Migration 1030: a credit note's line; changed only while the credit note is a draft. */
+export interface CoreCreditNoteLineTable extends DocumentLineColumns {
+  credit_note_id: string;
+  credits_line_id: Defaulted<string | null>;
+}
+
+/**
+ * Migration 1030 (decision 11 of stage 35): the document event log, read by `seq`. Insert only:
+ * the database refuses any update or delete, and a row below the newest.
+ */
+export interface CoreInvoiceEventTable {
+  seq: Generated<number>;
+  document_kind: "quote" | "invoice" | "credit_note";
+  document_id: string;
+  invoice_id: string | null;
+  event:
+    | "issued"
+    | "sent"
+    | "payment_applied"
+    | "payment_reversed"
+    | "credited"
+    | "refund_confirmed"
+    | "paid_back"
+    | "voided";
+  payment_id: string | null;
+  method: string | null;
+  amount: number | null;
+  currency: string | null;
+  at: string;
+  by_user: string | null;
+}
+
+/**
  * Migration 1270 (stage 58 step 1, ADR 0850): one stretch of time a staff member worked, the one
  * record of time worked. Times are unix seconds; `ends` is null while open. The database refuses
  * two overlapping entries of one account and a second open one.
@@ -4058,6 +4223,14 @@ export interface CoreDatabase {
   core_leave_day: CoreLeaveDayTable;
   core_leave_balance_entry: CoreLeaveBalanceEntryTable;
   core_staff_hours: CoreStaffHoursTable;
+  core_document_counter: CoreDocumentCounterTable;
+  core_quote: CoreQuoteTable;
+  core_quote_line: CoreQuoteLineTable;
+  core_invoice: CoreInvoiceTable;
+  core_invoice_line: CoreInvoiceLineTable;
+  core_credit_note: CoreCreditNoteTable;
+  core_credit_note_line: CoreCreditNoteLineTable;
+  core_invoice_event: CoreInvoiceEventTable;
   core_time_entry: CoreTimeEntryTable;
   core_staff_feed: CoreStaffFeedTable;
   core_customer_feed: CoreCustomerFeedTable;

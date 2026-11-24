@@ -102,6 +102,16 @@ export type Role = (typeof ROLES)[number];
  *   Admins by default, grantable as `orders:refund` is. An AI acting for an account that holds it
  *   may draft one; its write always waits for a person who holds it too, so a checklist staff are
  *   asked to follow is always one a person approved.
+ * - `invoices:write` draft quotes, invoices and credit notes (stage 35, ADR 0730). Admins by
+ *   default, grantable. The assistant may draft for an account that holds it, through the gate.
+ * - `invoices:send` send a quote, issue and send an invoice, and change an issued invoice's due
+ *   date, part payments and reminders (stage 35). Admins by default, grantable; an AI may ask, a
+ *   person approves.
+ * - `invoices:credit` issue a credit note and void an invoice (stage 35). Admins by default,
+ *   grantable; a person only whatever is granted.
+ * - `invoices:payments` record and reverse a payment taken another way, read the document event
+ *   log and export invoices (stage 35, decision 7). Restricted: admins, and the accounts another
+ *   human admin grants it to (never one's own, ADR 0625's rule); a person only.
  * - `notes:clients` read notes kept to a client's coaches (level `coaches`) of every client
  *   (stage 56, ADR 0832): how a business's managers read them. Admins by default; grantable,
  *   restricted (never to oneself, never to a pack role's account), and nothing for an AI actor.
@@ -161,6 +171,10 @@ export const PERMISSIONS = [
   "agreements:health",
   "agreements:desk",
   "checklists:write",
+  "invoices:write",
+  "invoices:send",
+  "invoices:credit",
+  "invoices:payments",
   "notes:clients",
   "notes:sensitive",
   "notes:manage",
@@ -212,6 +226,10 @@ export const GRANTABLE_PERMISSIONS = [
   "agreements:health",
   "agreements:desk",
   "checklists:write",
+  "invoices:write",
+  "invoices:send",
+  "invoices:credit",
+  "invoices:payments",
   "notes:clients",
   "notes:sensitive",
   "notes:manage",
@@ -229,13 +247,15 @@ export const GRANTABLE_PERMISSIONS = [
 /**
  * Core grantable permissions that are restricted (stage 56, ADR 0832, extending ADR 0625 to core
  * permissions): held by admins and by a human admin's grant only, never granted to oneself, never
- * to an account with a pack's fixed role, and never anything for an AI actor.
+ * to an account with a pack's fixed role, and never anything for an AI actor. `invoices:payments`
+ * is one too (stage 35 decision 7, ADR 0730).
  */
 export const RESTRICTED_CORE_PERMISSIONS: readonly Permission[] = [
   "notes:clients",
   "notes:sensitive",
   "notes:manage",
   "orders:payments",
+  "invoices:payments",
 ];
 
 /**

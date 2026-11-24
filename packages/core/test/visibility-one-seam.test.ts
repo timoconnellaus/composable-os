@@ -38,6 +38,13 @@ const RECORD_TABLES = [
   "core_order_line",
   // Stage 28 (ADR 0444): media items are records.
   "core_media",
+  // Stage 35 (ADR 0730): quotes, invoices and credit notes, and their lines.
+  "core_quote",
+  "core_quote_line",
+  "core_invoice",
+  "core_invoice_line",
+  "core_credit_note",
+  "core_credit_note_line",
 ];
 
 // `rec_user` is the staff directory, not a record: no object declares it, and it is read by
@@ -95,6 +102,12 @@ const WHY = {
    * their display name for staff. Never a list of anyone else.
    */
   agreements: "agreements: the Trash, minor and name facts of a Person the host was given",
+  /**
+   * Quotes, invoices and credit notes (stage 35, ADR 0730), staff only: the issuing batch's
+   * check that the document is still a draft, and which tax rate keys documents' lines use
+   * (keys, never a document) when an admin changes the rates.
+   */
+  invoices: "invoices: host code for a document it is numbering, or the rate keys lines use",
   /**
    * Check-in codes (stage 51 step 3, ADR 0783): whether a Person a code, card or PIN names is
    * live, and their names to compare with the name typed, answered to host code only; a member's
@@ -185,6 +198,10 @@ const REMAINING: Record<string, [reads: number, why: Why]> = {
   "intake/person.ts": [3, WHY.intake],
   "intake/submit.ts": [2, WHY.intake],
   "integrations/outbound-check.ts": [2, WHY.org],
+  // Stage 35 (the review of PR #386): whether a bill-to's contact is at the organisation, both
+  // already read through the seam.
+  "invoices/drafts.ts": [1, WHY.part],
+  "invoices/numbering.ts": [1, WHY.invoices],
   "notifications/delivery.ts": [1, WHY.org],
   "notifications/digest-content.ts": [4, WHY.org],
   // Journeys (stage 53 step 3, ADR 0800): a manual entry reads whether each Person it is about to
@@ -202,6 +219,7 @@ const REMAINING: Record<string, [reads: number, why: Why]> = {
   "operations/agreement-acceptance.ts": [6, WHY.agreements],
   "operations/agreement.ts": [1, WHY.agreements],
   "operations/duplicate.ts": [3, WHY.later],
+  "operations/invoice.ts": [2, WHY.invoices],
   "operations/enrichment.ts": [8, WHY.write],
   "operations/erasure.ts": [2, WHY.write],
   "operations/import.ts": [8, WHY.write],

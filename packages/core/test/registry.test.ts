@@ -54,10 +54,12 @@ describe("core registry", () => {
         // may start a desk session, agreements:desk (ADR 0649).
         // The finance months and figures are read only with finance:read (stage 52, ADR 0794).
         // The booking system's copy, its lists and To match with bookingSystem:manage (stage 65,
-        // ADR 0922).
+        // ADR 0922). The invoice event log is read with invoices:payments (stage 35 decision 11,
+        // ADR 0730): what was paid, by which method, is that permission's.
         if (op.risk === "read") {
           expect([
             "bookingSystem:manage",
+            "invoices:payments",
             "journeys:read",
             "journeys:manage",
             "agreements:desk",

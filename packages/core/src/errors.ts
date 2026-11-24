@@ -699,6 +699,38 @@ export function toOperationError(error: unknown): OperationError {
       reason: "not_full",
     });
   }
+  // Quotes, invoices and credit notes (migration 1030, ADR 0730): an issued document nobody
+  // changes; a draft changed by someone else since it was read; a number given out of turn; a
+  // series changed meanwhile; the event log, insert only.
+  if (message.includes("core_document_immutable")) {
+    return new ForbiddenError(
+      "A sent quote, or an issued invoice or credit note, is never changed or deleted: withdraw the quote, or credit the invoice.",
+      { rule: "document_immutable" },
+    );
+  }
+  if (message.includes("core_document_stale") || message.includes("core_document_new")) {
+    return new ConflictError(
+      "The draft changed while you were changing it (someone else saved it). Look at it again; nothing was changed.",
+      { rule: "document_changed" },
+    );
+  }
+  if (
+    message.includes("core_document_number") ||
+    message.includes("core_document_counter_back") ||
+    message.includes("UNIQUE constraint failed: core_quote.number_seq") ||
+    message.includes("UNIQUE constraint failed: core_invoice.number_seq") ||
+    message.includes("UNIQUE constraint failed: core_credit_note.number_seq")
+  ) {
+    return new ConflictError(
+      "The numbering changed meanwhile (a number was given, or the series was changed). Look at it again; no number was used.",
+      { rule: "document_numbering" },
+    );
+  }
+  if (message.includes("core_invoice_event_immutable")) {
+    return new ForbiddenError("The invoice log is never changed: rows are only added.", {
+      rule: "invoice_event_immutable",
+    });
+  }
   // Agreement documents (migration 0850, ADR 0640): a version nobody changes; a publish of a
   // working copy changed since it was read, or of a retired document; attaching a document that
   // is not live; two publishes of the same number at once.
