@@ -602,10 +602,11 @@ async function writeOrderChange(
     updated_at: ctx.now,
     version: row.version + 1,
     // A guest's link outlives the order's closing by a while, then stops. A later change to a
-    // closed order (its Person given, a refund) keeps the date it closed with.
+    // closed order (its Person given, a refund) keeps the date it closed with; an expired order
+    // becoming paid (a late payment honoured) closes again, as paid, and its time starts now.
     access_until: !CLOSED.has(to)
       ? null
-      : CLOSED.has(row.state) && row.access_until
+      : CLOSED.has(row.state) && row.access_until && !(to === "paid" && row.state !== "paid")
         ? row.access_until
         : new Date(Date.parse(ctx.now) + ORDER_ACCESS_DAYS_AFTER_CLOSE * 86_400_000).toISOString(),
   };
