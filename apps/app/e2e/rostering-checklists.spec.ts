@@ -126,7 +126,10 @@ async function shift(admin: Page, duty: string, at: number, staff: string) {
 async function writeChecklist(page: Page, name: string): Promise<string> {
   await open(page, "/settings");
   // The settings page's own link (the sidebar also lists the rosterers' Checklists screen).
-  await page.locator("#main").getByRole("link", { name: /Checklists/ }).click();
+  await page
+    .locator("#main")
+    .getByRole("link", { name: /Checklists/ })
+    .click();
   await expect(page.getByRole("heading", { name: "Checklists" }).first()).toBeVisible();
   await page.getByTestId("checklist-new").click();
   const form = page.getByTestId("checklist-form");
