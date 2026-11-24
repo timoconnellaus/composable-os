@@ -75,7 +75,7 @@ here is what made parallel PRs conflict.
 | BH | 1030–1049 | 0730–0739 | Stage 35, Invoices and quotes (spec `docs/stages/35-invoices-quotes.md`). Step 1, the PDF writer generalised (`feat/stage-35-pdf-writer`): ADR 0737, no migrations | in flight |
 | BI | 1050–1069 | 0740–0749 | Stage 36, Shared inbox (spec `docs/stages/36-inbox.md`) | specced |
 | BJ | 1070–1089 | 0750–0759 | Stage 39, Jobs and projects (spec `docs/stages/39-jobs.md`) | specced |
-| BK | 1090–1109 | 0760–0769 | Stage 49, Appointments (spec `docs/stages/49-appointments.md`). Step 3, open hours (`feat/stage-49-open-hours`): migration 1090, ADR 0762 (the spec's number for open hours and free times; step 4 amends it). Step 2 (`occupies`) takes migrations from 1095; the spec's 1091 for open hours was not used | in flight |
+| BK | 1090–1109 | 0760–0769 | Stage 49, Appointments (spec `docs/stages/49-appointments.md`). Step 3, open hours (`feat/stage-49-open-hours`): migration 1090, ADR 0762 (the spec's number for open hours and free times; step 4 amends it); the spec's 1091 for open hours was not used. Step 2, `occupies` and `core_thing_time` (`feat/stage-49-occupies`): migration 1095, ADR 0765 (the spec's "0761" for `occupies`). Later steps: the lowest free numbers | in flight |
 | BL | 1110–1129 | 0770–0779 | Stage 50, Till (spec `docs/stages/50-till.md`) | specced |
 | BM | 1130–1149 | 0780–0789 | Stage 51, Kiosk check-in (spec `docs/stages/51-kiosk-check-in.md`) | specced |
 | BN | 1150–1169 | 0790–0799 | Stage 52, Finance reports (spec `docs/stages/52-finance-reports.md`) | specced |
@@ -88,6 +88,7 @@ here is what made parallel PRs conflict.
 | BV | 1310–1329 | 0870–0879 | Stage 60, Owner's Today (spec `docs/stages/60-owners-today.md`) | step 1 built (ADR 0871 used; no migration) |
 | BW | 1330–1349 | 0880–0889 | Stage 61, Accounting sync (spec `docs/stages/61-accounting-sync.md`; step 1, `feat/stage-61-accounting-contract`: the contract, the fake and the conformance suite, ADR 0880, no migration) | in flight |
 | BY | 1370–1389 | 0900–0909 | Stage 63, App publishing (spec `docs/stages/63-app-publishing.md`) | specced |
+| CA | 1410–1429 | 0920–0929 | Stage 65, Booking system connection (spec `docs/stages/65-booking-system-connection.md`): migrations 1410 and 1411, ADRs 0920 to 0927 named in the spec | specced |
 
 **`core_write_guard` remakes come in order.** Each kind added drops and recreates the table and its
 trigger, carrying every earlier kind. Stage 44 step 2's remake (migration 0851, kind `agreements`)
