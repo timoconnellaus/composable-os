@@ -957,6 +957,17 @@ As built (stage 22; ADRs [0410](adr/0410-the-seams-first-door-as-built.md),
 - **The visibility seam** (`packages/core/src/visibility/`). `visibleSource(ctx, object)` is the
   source every read of a record takes. Staff get the plain view. A customer gets a source holding
   only their rows and only the columns the object lists, and the public get none.
+- **The note scope** (stage 56, ADR [0830](adr/0830-note-levels-kept-out-of-every-bulk-path.md);
+  `visibility/notes.ts`). A note has a level: `staff`, `coaches` or `sensitive`. Levels 2 and 3
+  are not in `core_base_activities`, `rec_activity`, `rec_activity_link` or search (migration
+  1230), so `query.sql`, dashboards, exports, embeddings and summaries never see them. Staff read
+  them only through `visibleTable(ctx, "activity")`, which keeps the ones the caller may read:
+  a person (never an AI actor) who wrote it, looks after its one Person (`core_person_carer`,
+  ADR [0831](adr/0831-looks-after-a-person.md)), is an admin or holds `notes:clients` /
+  `notes:sensitive` (ADR [0832](adr/0832-the-notes-permissions.md)). A read that returns a
+  `coaches` note's text writes an audit row naming its id (`ctx.auditRead`); a sensitive note is
+  listed locked and read with `note.open`, every opening audited. Its changes are audited by
+  field name and are no automation event.
 - **The audience check** is the pipeline's first step. A caller outside an operation's audiences
   gets the answer an unknown operation gets. `packages/core/open-operations.json` lists what is
   open, and a test keeps it equal to the registry.

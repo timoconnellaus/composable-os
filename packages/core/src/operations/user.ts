@@ -14,6 +14,7 @@ import {
   GRANTABLE_PERMISSIONS,
   holdsPermission,
   PERMISSIONS,
+  RESTRICTED_CORE_PERMISSIONS,
   ROLES,
 } from "../principals.ts";
 import { feedRevocations } from "../staffing/feed.ts";
@@ -399,6 +400,9 @@ export async function grantable(
     "agreements:paper": "Record that someone signed an agreement on paper",
     "agreements:health": "Read members' health form answers (every read is logged)",
     "checklists:write": "Write the checklists staff tick off (their steps, and which are in use)",
+    "notes:clients": "Read every client's notes kept to their coaches (every read is logged)",
+    "notes:sensitive": "Read sensitive notes (every opening is logged)",
+    "notes:manage": "Change and delete others' notes, and lower a note's level",
     "people:cards": "Issue and revoke members' check-in cards",
   };
   return [
@@ -408,7 +412,8 @@ export async function grantable(
       from: "core",
       // A few core permissions open person-scoped operations a desk account needs (ADR 0783).
       forFixedRole: FIXED_ROLE_CORE_GRANTS.includes(permission),
-      restricted: false,
+      // The notes permissions (stage 56, ADR 0832) are restricted as a pack's may be (ADR 0625).
+      restricted: RESTRICTED_CORE_PERMISSIONS.includes(permission),
     })),
     ...packs,
   ];

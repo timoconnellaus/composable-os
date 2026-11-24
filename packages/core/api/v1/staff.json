@@ -905,6 +905,16 @@
               "string",
               "null"
             ]
+          },
+          "level": {
+            "type": "string",
+            "enum": [
+              "coaches",
+              "sensitive"
+            ]
+          },
+          "locked": {
+            "type": "boolean"
           }
         },
         "required": [
@@ -1239,6 +1249,16 @@
                     "string",
                     "null"
                   ]
+                },
+                "level": {
+                  "type": "string",
+                  "enum": [
+                    "coaches",
+                    "sensitive"
+                  ]
+                },
+                "locked": {
+                  "type": "boolean"
                 }
               },
               "required": [
@@ -1447,6 +1467,16 @@
                     "string",
                     "null"
                   ]
+                },
+                "level": {
+                  "type": "string",
+                  "enum": [
+                    "coaches",
+                    "sensitive"
+                  ]
+                },
+                "locked": {
+                  "type": "boolean"
                 }
               },
               "required": [
@@ -1561,6 +1591,16 @@
                 "type": "object",
                 "properties": {},
                 "additionalProperties": false
+              },
+              "level": {
+                "default": "staff",
+                "type": "string",
+                "enum": [
+                  "staff",
+                  "coaches",
+                  "sensitive"
+                ],
+                "description": "Who may read the note: staff (every staff account, the default), coaches (its author, the staff who look after the one Person it is about, and managers) or sensitive (its author and the people the business named one by one; every opening is recorded). A note at coaches or sensitive is about exactly one Person. Notes only."
               }
             },
             "required": [
@@ -2070,6 +2110,16 @@
               "string",
               "null"
             ]
+          },
+          "level": {
+            "type": "string",
+            "enum": [
+              "coaches",
+              "sensitive"
+            ]
+          },
+          "locked": {
+            "type": "boolean"
           }
         },
         "required": [
@@ -2265,6 +2315,16 @@
               "string",
               "null"
             ]
+          },
+          "level": {
+            "type": "string",
+            "enum": [
+              "coaches",
+              "sensitive"
+            ]
+          },
+          "locked": {
+            "type": "boolean"
           }
         },
         "required": [
@@ -2440,6 +2500,16 @@
               "string",
               "null"
             ]
+          },
+          "level": {
+            "type": "string",
+            "enum": [
+              "coaches",
+              "sensitive"
+            ]
+          },
+          "locked": {
+            "type": "boolean"
           }
         },
         "required": [
@@ -2619,6 +2689,16 @@
               "string",
               "null"
             ]
+          },
+          "level": {
+            "type": "string",
+            "enum": [
+              "coaches",
+              "sensitive"
+            ]
+          },
+          "locked": {
+            "type": "boolean"
           }
         },
         "required": [
@@ -2647,7 +2727,7 @@
     },
     {
       "name": "activity.update",
-      "description": "Edit a note, email, call or meeting: subject, body, occurredAt, payload (validated for the activity's type, replacing the old payload) or links (replacing the list). The type cannot change. System activities cannot be edited. Returns the updated activity.",
+      "description": "Edit a note, email, call or meeting: subject, body, occurredAt, payload (validated for the activity's type, replacing the old payload), links (replacing the list) or a note's level. The type cannot change. System activities cannot be edited. A note is changed by its author or someone allowed to manage notes; lowering a level is a person's, with that permission. Returns the updated activity.",
       "risk": "write",
       "audiences": [
         "staff"
@@ -2727,6 +2807,15 @@
               ]
             },
             "description": "Records whose timelines show this activity (people, organisations, tasks)"
+          },
+          "level": {
+            "type": "string",
+            "enum": [
+              "staff",
+              "coaches",
+              "sensitive"
+            ],
+            "description": "Who may read the note: staff (every staff account, the default), coaches (its author, the staff who look after the one Person it is about, and managers) or sensitive (its author and the people the business named one by one; every opening is recorded). A note at coaches or sensitive is about exactly one Person. Notes only."
           }
         },
         "required": [
@@ -2859,6 +2948,16 @@
               "string",
               "null"
             ]
+          },
+          "level": {
+            "type": "string",
+            "enum": [
+              "coaches",
+              "sensitive"
+            ]
+          },
+          "locked": {
+            "type": "boolean"
           }
         },
         "required": [
@@ -19675,6 +19774,280 @@
         "additionalProperties": false
       },
       "invalidates": []
+    },
+    {
+      "name": "carer.end",
+      "description": "End a looks-after row (carer.list gives its id): from the next read the account no longer reads the person's notes kept to their coaches, except the ones it wrote. The row is kept, ended, with who ended it. Only a person on the staff with people:link can do this. Audited.",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "The row (pcr_…)"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "personId": {
+            "type": "string"
+          },
+          "user": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "name": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "id",
+              "name"
+            ],
+            "additionalProperties": false
+          },
+          "startedAt": {
+            "type": "string"
+          },
+          "setBy": {
+            "type": "string"
+          },
+          "endedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "endedBy": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "personId",
+          "user",
+          "startedAt",
+          "setBy",
+          "endedAt",
+          "endedBy"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "carer.list"
+      ]
+    },
+    {
+      "name": "carer.list",
+      "description": "Who looks after a person (their coaches): the staff accounts that read the person's notes kept to their coaches, with who set each and when, live ones first, and (with ended) the rows that have ended. Read-only.",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "personId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "The person (per_…)"
+          },
+          "ended": {
+            "default": false,
+            "description": "Include rows that have ended",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "personId"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "personId": {
+                  "type": "string"
+                },
+                "user": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "name"
+                  ],
+                  "additionalProperties": false
+                },
+                "startedAt": {
+                  "type": "string"
+                },
+                "setBy": {
+                  "type": "string"
+                },
+                "endedAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "endedBy": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "personId",
+                "user",
+                "startedAt",
+                "setBy",
+                "endedAt",
+                "endedBy"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
+      "name": "carer.set",
+      "description": "Say that a staff account looks after a person (their coach): from then on it reads the person's notes kept to their coaches, and stops when the row is ended with carer.end. Choose it on the person's page; it is never worked out from bookings. Refused when the account already looks after them. Only a person on the staff with people:link can do this: never the assistant, an MCP client or code. Audited.",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "personId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "The person (per_…)"
+          },
+          "userId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "The staff account (usr_…)"
+          }
+        },
+        "required": [
+          "personId",
+          "userId"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "personId": {
+            "type": "string"
+          },
+          "user": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "name": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "id",
+              "name"
+            ],
+            "additionalProperties": false
+          },
+          "startedAt": {
+            "type": "string"
+          },
+          "setBy": {
+            "type": "string"
+          },
+          "endedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "endedBy": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "personId",
+          "user",
+          "startedAt",
+          "setBy",
+          "endedAt",
+          "endedBy"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "carer.list"
+      ]
     },
     {
       "name": "changeset.begin",
@@ -38232,6 +38605,186 @@
       "invalidates": [
         "memory.list"
       ]
+    },
+    {
+      "name": "note.open",
+      "description": "Open a note to read its text: a sensitive note is listed on timelines without it. Only a person who may read the note (its author, admins, and people the business named one by one) can open it; anyone else gets not found. Every opening is recorded in the audit log, without the text. Read-only.",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "maxLength": 64,
+            "format": "starts_with",
+            "pattern": "^act_.*",
+            "description": "The note (act_…)"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "note",
+              "email",
+              "call",
+              "meeting",
+              "system"
+            ]
+          },
+          "subject": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "body": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "payload": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {}
+          },
+          "occurredAt": {
+            "type": "string"
+          },
+          "authorUserId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "authorName": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "authorActor": {
+            "type": "string"
+          },
+          "links": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "object": {
+                  "type": "string",
+                  "maxLength": 64,
+                  "pattern": "^[a-z][a-z0-9_]*(\\.[a-z][a-z0-9]*)?$",
+                  "description": "Object type: person, organisation, task or an extension object (<ext>.<object>)"
+                },
+                "id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 64,
+                  "description": "Record id, e.g. per_…"
+                },
+                "title": {
+                  "description": "The record's display name, if it still exists",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "object",
+                "id",
+                "title"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "type": "string"
+          },
+          "deletedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "synced": {
+            "type": "boolean"
+          },
+          "private": {
+            "type": "boolean"
+          },
+          "disclosure": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "full",
+                  "metadata"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "hasFullBody": {
+            "type": "boolean"
+          },
+          "threadKey": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "level": {
+            "type": "string",
+            "enum": [
+              "coaches",
+              "sensitive"
+            ]
+          },
+          "locked": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "type",
+          "subject",
+          "body",
+          "payload",
+          "occurredAt",
+          "authorUserId",
+          "authorName",
+          "authorActor",
+          "links",
+          "createdAt",
+          "updatedAt",
+          "deletedAt"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": []
     },
     {
       "name": "notification.deliverySettings",

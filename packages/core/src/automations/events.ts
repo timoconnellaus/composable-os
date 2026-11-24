@@ -35,6 +35,8 @@ const ACTIONS: Partial<Record<RecordChange["action"], RecordEventType>> = {
 
 /** The record event of one change, or null when it emits none. Diff values are capped. */
 export function recordEventChange(change: RecordChange): RecordEventChange | null {
+  // A note kept from the whole staff is nothing an automation hears of (stage 56, ADR 0830).
+  if (change.restricted) return null;
   let action = ACTIONS[change.action];
   if (!action) return null;
   if (action === "updated") {

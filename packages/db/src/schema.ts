@@ -270,7 +270,23 @@ export interface CoreActivityTable extends RecordColumns {
   body_ref: Defaulted<string | null>;
   /** Migration 0111: what a synced activity discloses. */
   disclosure: Defaulted<"full" | "metadata" | null>;
+  /** Migration 1230 (stage 56, ADR 0830): who may read a note. Only a note is not `staff`. */
+  level: Defaulted<NoteLevel>;
+  /** Migration 1230: the note's kind (core_note_kind, stage 56 step 2). */
+  kind_id: Defaulted<string | null>;
+  /** Migration 1230: when and by whom the note was shared with its client (stage 56 step 5). */
+  shared_at: Defaulted<string | null>;
+  shared_by: Defaulted<string | null>;
+  /** Migration 1230: the customer account (cus_…) that sent it (stage 56 step 6). */
+  from_customer: Defaulted<string | null>;
+  /** Migration 1230: copied from its kind at write; never changed (stage 56 step 7). */
+  evidence: Defaulted<0 | 1>;
+  /** Migration 1230: the kind's template sections as filled in, JSON (stage 56 step 2). */
+  sections: Defaulted<JsonText | null>;
 }
+
+/** Migration 1230 (stage 56, ADR 0830): who may read a note. */
+export type NoteLevel = "staff" | "coaches" | "sensitive";
 
 export interface CoreActivityLinksTable {
   activity_id: string;
@@ -1042,6 +1058,17 @@ export interface CorePersonLinkTable {
   ended_at: Defaulted<string | null>;
   ended_by: Defaulted<string | null>;
   end_reason: Defaulted<string | null>;
+}
+
+/** Migration 1231 (stage 56, ADR 0831): a staff account that looks after a Person. */
+export interface CorePersonCarerTable {
+  id: string;
+  person_id: string;
+  user_id: string;
+  set_by: string;
+  started_at: string;
+  ended_at: Defaulted<string | null>;
+  ended_by: Defaulted<string | null>;
 }
 
 /** Migration 0850 (stage 44, ADR 0640): an agreement document and its working copy. */
@@ -3287,6 +3314,7 @@ export interface CoreDatabase {
   core_capacity: CoreCapacityTable;
   core_capacity_claim: CoreCapacityClaimTable;
   core_person_link: CorePersonLinkTable;
+  core_person_carer: CorePersonCarerTable;
   core_agreement_document: CoreAgreementDocumentTable;
   core_agreement_version: CoreAgreementVersionTable;
   core_agreement_point: CoreAgreementPointTable;
@@ -3328,6 +3356,8 @@ export interface CoreDatabase {
   core_staff_offer: CoreStaffOfferTable;
   core_staff_run: CoreStaffRunTable;
   core_staff_guard: CoreStaffGuardTable;
+  /** Migration 1230 (stage 56): a note's change fails whole when its level moved meanwhile. */
+  core_note_guard: CoreStaffGuardTable;
   core_staff_pay_basis: CoreStaffPayBasisTable;
   core_staff_not_worked: CoreStaffNotWorkedTable;
   core_pay_period: CorePayPeriodTable;

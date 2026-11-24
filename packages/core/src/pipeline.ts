@@ -384,6 +384,25 @@ export function redactInput(value: unknown, extra: readonly string[] = []): unkn
   return value;
 }
 
+/** The input keys an operation's audit row leaves out. */
+function auditRedactions(op: AnyOperation): readonly string[] {
+  return op.auditRedact ? [...(op.redact ?? []), ...op.auditRedact] : (op.redact ?? []);
+}
+
+/** Two read-audit summaries as one: lists under the same key are joined, without repeats. */
+function mergeReadAudit(
+  into: Record<string, unknown> | null,
+  summary: Record<string, unknown>,
+): Record<string, unknown> {
+  const out: Record<string, unknown> = { ...into };
+  for (const [key, value] of Object.entries(summary)) {
+    const before = out[key];
+    out[key] =
+      Array.isArray(before) && Array.isArray(value) ? [...new Set([...before, ...value])] : value;
+  }
+  return out;
+}
+
 /**
  * Reads by humans are not audited; every write, refusal and non-human call is. A non-human read
  * that succeeds is counted in core_audit_read_counts instead of getting its own row (ADR 0090);
@@ -484,7 +503,7 @@ function auditInsert(db: CrmDb, row: AuditRow): Compilable {
     actor: row.ctx.actor,
     user_id: row.ctx.user.id,
     origin: JSON.stringify(originSchema.parse(row.ctx.origin)),
-    input: JSON.stringify(redactInput(row.input, row.op.redact) ?? null),
+    input: JSON.stringify(redactInput(row.input, auditRedactions(row.op)) ?? null),
     result:
       row.result === undefined
         ? null
@@ -917,6 +936,8 @@ async function invokeOnce<O extends AnyOperation>(
         }
       : undefined;
   let preChecked = false;
+  // A read that returned restricted text asks for its audit row (stage 56, ADR 0830).
+  const readAudit: { summary: Record<string, unknown> | null } = { summary: null };
   const liveCtx: HandlerContext = {
     operation: op.name,
     actor: ctx.actor,
@@ -942,6 +963,13 @@ async function invokeOnce<O extends AnyOperation>(
             actionId: ctx.approval.actionId,
             approvedBy: ctx.approval.approvedBy,
             preview: ctx.approval.preview,
+          },
+        }
+      : {}),
+    ...(op.risk === "read" && !ctx.simulate
+      ? {
+          auditRead: (summary: Record<string, unknown>) => {
+            readAudit.summary = mergeReadAudit(readAudit.summary, summary);
           },
         }
       : {}),
@@ -1371,9 +1399,17 @@ async function invokeOnce<O extends AnyOperation>(
   // keyed by its object's generation, bumped here in the change's own batch.
   if (op.risk !== "read") statements.push(...contentGenerationWrites(changes, now));
 
-  const summary =
-    op.auditSummary && !deferred ? op.auditSummary(output, input) : defaultSummary(output, changes);
-  if (audited && op.risk === "read" && !op.auditReads) {
+  const summary = readAudit.summary
+    ? readAudit.summary
+    : op.auditSummary && !deferred
+      ? op.auditSummary(output, input)
+      : defaultSummary(output, changes);
+  if (readAudit.summary) {
+    // A read of restricted text: its own row, a person's included, naming ids only.
+    statements.push(
+      auditInsert(ctx.db, { ...base, gate: decision, outcome: "ok", result: readAudit.summary }),
+    );
+  } else if (audited && op.risk === "read" && !op.auditReads) {
     // A successful non-human read: counted, not audited row by row (ADR 0090).
     if (!ctx.simulate) await countRead(op, ctx, now, false);
   } else if (audited) {
@@ -2036,7 +2072,7 @@ function outsideAuditInsert(db: CrmDb, row: OutsideAudit): Compilable {
     actor: row.actor,
     user_id: row.subjectId,
     origin: JSON.stringify(row.origin),
-    input: JSON.stringify(redactInput(row.input, row.op.redact) ?? null),
+    input: JSON.stringify(redactInput(row.input, auditRedactions(row.op)) ?? null),
     result:
       row.result === undefined
         ? null

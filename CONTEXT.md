@@ -162,6 +162,20 @@ _Avoid_: purge (that is retention), delete (that is soft)
 **Activity**
 One entry on a record's timeline: a note, email, call, meeting or system event.
 
+**Note level**
+Who may read a note (stage 56, ADR 0830): `staff` (every staff account, the default and every
+note before stage 56), `coaches` (its author, the staff who look after its one Person, admins and
+holders of `notes:clients`) or `sensitive` (its author, admins and holders of `notes:sensitive`;
+listed locked, each opening with `note.open` audited). Levels 2 and 3 are in no `rec_*` view, no
+search, embedding or summary, and no AI actor reads them with any grant. Only a note has one.
+_Avoid_: private (a synced email's `private_to`, its owner's only), confidential, clinical
+
+**Looks after**
+A staff account that looks after a Person (stage 56, ADR 0831): it reads their `coaches` notes
+while the row is live. Set on the Person's page with `carer.set` by a person with `people:link`,
+never worked out from bookings; ended with `carer.end`, effective on the next read.
+_Avoid_: assigned, owner (a record's owner field), coach (the Bookings pack role)
+
 **Operation**
 One thing a user or AI can do, defined once in the operations registry with zod input/output, a
 model-facing description, a permission and a risk class. It is exposed as a server function, an MCP
@@ -1894,6 +1908,9 @@ _Avoid_: role (a role is admin, member or viewer), scope (an MCP token's)
 A pack tool permission held by admins and by a permission grant only (ADR 0625): a member or
 viewer does not hold its tools through their role, no pack role holds it, no automation or other
 extension's code calls them, and nobody grants it to themselves. Rostering's `rostering:manage`.
+Since stage 56 (ADR 0832) core permissions can be restricted too: `notes:clients`,
+`notes:sensitive` and `notes:manage` are never granted to oneself or to a fixed role's account,
+and give an AI actor nothing.
 _Avoid_: admin-only (it can be granted), private
 
 **Through their own records** (`customerVia`)
