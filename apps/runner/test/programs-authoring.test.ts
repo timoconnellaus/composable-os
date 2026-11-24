@@ -126,3 +126,56 @@ describe("the text import (criterion 8)", () => {
     for (const id of refsOf(program.values.layout)) expect(Object.values(bank)).toContain(id);
   });
 });
+
+describe("the text import, run again (criterion 8)", () => {
+  type Out = { programId: string | null; outcome: string; unread: unknown[]; faults: unknown[] };
+  const byKey = async (key: string) =>
+    (
+      await env.DB.prepare(
+        "SELECT count(*) AS n FROM x_programs_program WHERE import_key = ? AND deleted_at IS NULL",
+      )
+        .bind(key)
+        .first<{ n: number }>()
+    )?.n;
+
+  it("with a key makes one program, however often it runs; an edit since is kept", async () => {
+    const key = unique("strength");
+    const dry = await run<Out>(
+      "x.programs.importText",
+      { text: SHORTHAND, key, dryRun: true },
+      staff(admin),
+    );
+    expect(dry).toMatchObject({ programId: null, outcome: "created", faults: [] });
+    expect(dry.unread).toHaveLength(4);
+    expect(await byKey(key)).toBe(0);
+    const first = await run<Out>("x.programs.importText", { text: SHORTHAND, key }, staff(admin));
+    expect(first.outcome).toBe("created");
+    const again = await run<Out>("x.programs.importText", { text: SHORTHAND, key }, staff(admin));
+    expect(again).toMatchObject({ programId: first.programId, outcome: "unchanged" });
+    const changed = await run<Out>(
+      "x.programs.importText",
+      { text: SHORTHAND.replace("Session: Thursday", "Session: Friday"), key },
+      staff(admin),
+    );
+    expect(changed).toMatchObject({ programId: first.programId, outcome: "updated" });
+    expect(await byKey(key)).toBe(1);
+    // A coach edits the working copy: the import leaves it as the coach left it.
+    await run(
+      "record.update",
+      { object: PROGRAM, id: first.programId, values: { title: "The coach's title" } },
+      staff(admin),
+    );
+    const kept = await run<Out>("x.programs.importText", { text: SHORTHAND, key }, staff(admin));
+    expect(kept).toMatchObject({ programId: first.programId, outcome: "conflict" });
+    const program = await run<{ values: Record<string, unknown> }>(
+      "record.get",
+      { object: PROGRAM, id: first.programId },
+      staff(admin),
+    );
+    expect(program.values.title).toBe("The coach's title");
+    expect(await byKey(key)).toBe(1);
+    // Without a key it is a new working copy each time, as pasting it twice is.
+    await run("x.programs.importText", { text: SHORTHAND }, staff(admin));
+    expect(await byKey(key)).toBe(1);
+  });
+});

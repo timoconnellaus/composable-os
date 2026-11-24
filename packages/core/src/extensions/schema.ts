@@ -15,6 +15,7 @@ import {
   type FieldManifest,
   type FieldTypeName,
   formulaTypeOf,
+  type IntakeManifest,
   isDocumentType,
   type OccupiesManifest,
   RECURRING_HORIZON_DAYS,
@@ -23,6 +24,7 @@ import {
   type StaffedManifest,
   type StagesManifest,
   type StatesManifest,
+  type StockManifest,
   sellableFinance,
   spendsOnList,
   type UniqueManifest,
@@ -82,6 +84,7 @@ export interface ObjectDefinitionJson {
   stages?: StagesManifest;
   capacity?: CapacityManifest;
   sellable?: SellableManifest;
+  stock?: StockManifest;
   allowance?: AllowanceManifest;
   /** An agreement point (stage 44, ADR 0641), as declared. */
   agreements?: AgreementsManifest;
@@ -99,6 +102,8 @@ export interface ObjectDefinitionJson {
   workedOn?: WorkedOnManifest;
   /** A claim on a thing (stage 49, ADR 0765), as declared. */
   occupies?: OccupiesManifest;
+  /** The public-write door (stage 29, ADR 0720), as declared. */
+  intake?: IntakeManifest;
   /** A checklist its person ticks off (stage 45 step 4b, ADR 0650), as declared. */
   checklists?: ChecklistsManifest;
   owner?: string;
@@ -413,6 +418,11 @@ export function buildViews(state: SchemaState): ViewBuild {
       columns.push(...capacity.columns);
       joins.push(...capacity.joins);
     }
+    if (object.definition.stock) {
+      const stock = stockView(object.name);
+      columns.push(...stock.columns);
+      joins.push(...stock.joins);
+    }
     if (object.definition.publishable) {
       const published = publishedView(object.name);
       columns.push(...published.columns);
@@ -428,7 +438,7 @@ export function buildViews(state: SchemaState): ViewBuild {
       `CREATE VIEW ${view} AS SELECT ${columns.join(", ")} FROM ${ident(object.tableName)} t${joins.length ? ` ${joins.join(" ")}` : ""} WHERE t.deleted_at IS NULL`,
     );
     if (object.definition.publishable) {
-      build.creates.push(liveViewSql(object, own, object.definition.capacity !== undefined));
+      build.creates.push(liveViewSql(object, own));
     }
   }
   // The live views of objects that are no longer publishable (or gone) go with the rest.
@@ -448,7 +458,7 @@ export function buildViews(state: SchemaState): ViewBuild {
  * version was published. Not a rec_* view: `query.sql` does not read it, and nothing but the
  * visibility seam's public source does (visibility/public.ts).
  */
-function liveViewSql(object: ObjectState, own: FieldState[], capacity: boolean): string {
+function liveViewSql(object: ObjectState, own: FieldState[]): string {
   const publishable = object.definition.publishable as NonNullable<
     ObjectDefinitionJson["publishable"]
   >;
@@ -479,8 +489,13 @@ function liveViewSql(object: ObjectState, own: FieldState[], capacity: boolean):
   const joins = [
     `JOIN core_publish_version pub ON pub.object_type = ${sqlString(object.name)} AND pub.record_id = t.id AND pub.current = 1`,
   ];
-  if (capacity) {
+  if (object.definition.capacity) {
     const view = capacityView(object.name);
+    columns.push(...view.columns);
+    joins.push(...view.joins);
+  }
+  if (object.definition.stock) {
+    const view = stockView(object.name);
     columns.push(...view.columns);
     joins.push(...view.joins);
   }
@@ -519,6 +534,22 @@ function capacityView(object: string): { joins: string[]; columns: string[] } {
       `coalesce(cap.held, 0) AS ${CAPACITY_COLUMNS.held}`,
       `coalesce(cap.taken, 0) AS ${CAPACITY_COLUMNS.taken}`,
       `CASE WHEN cap.places IS NULL AND capp.places IS NULL THEN NULL WHEN capp.places IS NULL THEN ${left("cap")} WHEN cap.places IS NULL THEN ${left("capp")} ELSE min(${left("cap")}, ${left("capp")}) END AS ${CAPACITY_COLUMNS.available}`,
+    ],
+  };
+}
+
+/**
+ * The stock values of an object's view (stage 37, ADR 0680): from its counter on core_capacity,
+ * on hand is places - taken (what came in less what was sold) and available is on hand - held.
+ */
+function stockView(object: string): { joins: string[]; columns: string[] } {
+  const name = `'${object.replaceAll("'", "''")}'`;
+  return {
+    joins: [`LEFT JOIN core_capacity stk ON stk.object_type = ${name} AND stk.record_id = t.id`],
+    columns: [
+      `coalesce(stk.places, 0) - coalesce(stk.taken, 0) AS ${STOCK_COLUMNS.onHand}`,
+      `coalesce(stk.held, 0) AS ${STOCK_COLUMNS.held}`,
+      `max(coalesce(stk.places, 0) - coalesce(stk.taken, 0) - coalesce(stk.held, 0), 0) AS ${STOCK_COLUMNS.available}`,
     ],
   };
 }
@@ -707,6 +738,47 @@ export const CAPACITY_FIELDS: readonly FieldDefinition[] = [
   },
 ];
 
+/** View columns of the stock values: no declared field's column can start with `_`. */
+export const STOCK_COLUMNS = {
+  onHand: "_stk_on_hand",
+  held: "_stk_held",
+  available: "_stk_available",
+} as const;
+
+/** The read-only stock values on every record of an object with stock (STOCK_VALUES). */
+export const STOCK_FIELDS: readonly FieldDefinition[] = [
+  {
+    name: "onHand",
+    label: "On hand",
+    type: "number",
+    column: STOCK_COLUMNS.onHand,
+    filterable: true,
+    sortable: true,
+    readOnly: true,
+    description: "How many there are, sold ones gone. Changed only by stock movements.",
+  },
+  {
+    name: "held",
+    label: "Held",
+    type: "number",
+    column: STOCK_COLUMNS.held,
+    filterable: true,
+    sortable: true,
+    readOnly: true,
+    description: "How many orders being paid for hold.",
+  },
+  {
+    name: "available",
+    label: "Available",
+    type: "number",
+    column: STOCK_COLUMNS.available,
+    filterable: true,
+    sortable: true,
+    readOnly: true,
+    description: "On hand less held: how many can be sold now.",
+  },
+];
+
 /** View columns of the allowance values: no declared field's column can start with `_`. */
 export const ALLOWANCE_COLUMNS = { used: "_alw_used", left: "_alw_left" } as const;
 
@@ -792,6 +864,19 @@ function capacityDefinition(object: ObjectState, own: FieldState[]): ObjectDefin
   };
 }
 
+/** The stock declaration with registry field names, or undefined (ADR 0680). */
+function stockDefinition(object: ObjectState, own: FieldState[]): ObjectDefinition["stock"] {
+  const declared = object.definition.stock;
+  if (!declared) return undefined;
+  const nameOf = (local: string) => own.find((f) => f.localName === local)?.name ?? local;
+  return {
+    ...(declared.reorderAt ? { reorderAt: nameOf(declared.reorderAt) } : {}),
+    ...(declared.reorderQty ? { reorderQty: nameOf(declared.reorderQty) } : {}),
+    show: declared.show ?? "availability",
+    ...(declared.lowAt !== undefined ? { lowAt: declared.lowAt } : {}),
+  };
+}
+
 /** The claimant declaration (ADR 0501), with the claimed object's registry name. */
 function claimsDefinition(
   object: ObjectState,
@@ -827,6 +912,18 @@ function claimsDefinition(
 }
 
 /** The recurring declaration (ADR 0500), with the objects' registry names. */
+/** The intake declaration (ADR 0720), with a submission's form object's registry name. */
+function intakeDefinition(
+  object: ObjectState,
+  own: readonly FieldState[],
+): Pick<ObjectDefinition, "intake"> {
+  const declared = object.definition.intake;
+  if (!declared) return {};
+  if (declared.role !== "submission") return { intake: declared };
+  const formObject = own.find((f) => f.localName === declared.form)?.definition.to ?? "";
+  return { intake: { ...declared, formObject } };
+}
+
 /** The staffed declaration (ADR 0621), with the account holder's registry name. */
 function staffedDefinition(
   object: ObjectState,
@@ -1213,6 +1310,7 @@ export function buildRegistry(state: SchemaState): Map<string, ObjectDefinition>
     );
     const capacity = capacityDefinition(object, own);
     const sellable = sellableDefinition(object, own);
+    const stock = stockDefinition(object, own);
     const allowance = allowanceDefinition(object);
     const publishable = object.definition.publishable;
     const fields = [
@@ -1221,6 +1319,7 @@ export function buildRegistry(state: SchemaState): Map<string, ObjectDefinition>
       ...foreign.map((f) => registryField(f, object.name)),
       ...[...own, ...foreign].flatMap((f) => documentPathFields(f, object.name)),
       ...(capacity ? CAPACITY_FIELDS : []),
+      ...(stock ? STOCK_FIELDS : []),
       ...(allowance?.kind === "holder" ? ALLOWANCE_FIELDS : []),
       ...(publishable ? PUBLISHED_FIELDS : []),
     ];
@@ -1242,6 +1341,7 @@ export function buildRegistry(state: SchemaState): Map<string, ObjectDefinition>
       ...(object.definition.stages ? { stages: object.definition.stages } : {}),
       ...(capacity ? { capacity } : {}),
       ...(sellable ? { sellable } : {}),
+      ...(stock ? { stock } : {}),
       ...(allowance ? { allowance } : {}),
       ...(object.definition.agreements ? { agreements: object.definition.agreements } : {}),
       ...(object.definition.healthNotes ? { healthNotes: object.definition.healthNotes } : {}),
@@ -1253,6 +1353,7 @@ export function buildRegistry(state: SchemaState): Map<string, ObjectDefinition>
       ...staffedDefinition(object, own),
       ...workedOnDefinition(object, own),
       ...occupiesDefinition(object, own),
+      ...intakeDefinition(object, own),
       ...checklistsDefinition(object, own),
       ...(object.definition.owner ? { ownerField: object.definition.owner } : {}),
       ...(object.definition.customer ? { customer: object.definition.customer } : {}),

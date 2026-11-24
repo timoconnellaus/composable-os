@@ -58,7 +58,7 @@ error when unused). Checked not vacuous: with the block taking the full `Ticketi
 fails. `packs/ticketing/test/client.test.ts`: a client of the door's operations gets exactly those
 three hooks at run time.
 
-## Amendment, 2026-11-24 (ADR 0881): a hook that reads each audience's way
+## Amendment, 2026-11-24 (ADR 0889): a hook that reads each audience's way
 A hook's entry in `*_HOOKS_CALL` may be `{ anyOf: [["record.list"], ["my.list"]] }`: the hook is
 there for a client holding all of one of the lists, and the pack's `make` is given `holds(name)`
 to pick the read (the first held list wins). Programs' `useClassTypes` uses it, so a member's client

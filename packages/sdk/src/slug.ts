@@ -15,11 +15,16 @@ export const SLUG_FROM_TITLE_MAX = 80;
  * a hyphen, at most SLUG_FROM_TITLE_MAX characters. Empty when nothing is left.
  */
 export function slugify(title: string): string {
-  const plain = title
+  return hyphenate(title, SLUG_FROM_TITLE_MAX);
+}
+
+/** Text as words of lowercase letters and digits joined by hyphens, accents dropped, at most `max`. */
+export function hyphenate(text: string, max: number): string {
+  const plain = text
     .normalize("NFKD")
     .replace(/[̀-ͯ]/g, "")
     .toLowerCase()
     .replace(/[^a-z0-9]+/g, "-")
     .replace(/^-+|-+$/g, "");
-  return plain.slice(0, SLUG_FROM_TITLE_MAX).replace(/-+$/g, "");
+  return plain.slice(0, max).replace(/-+$/g, "");
 }

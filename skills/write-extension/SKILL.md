@@ -134,6 +134,14 @@ extension declares it; it never implements it. Each behaviour the platform has i
   `on` cannot change (a move to another class is a new record) and it cannot go to Trash. Never
   count places or claim them in a tool. See `ClaimsSpec` in `packages/sdk/src/capacity.ts` and
   ADR 0501.
+- **`stock`** on a sellable object: its records are things counted on a shelf (a variant of an
+  item), and the host keeps how many there are from a ledger nobody edits. Declare
+  `stock: { reorderAt?: "<number field>", reorderQty?: "<number field>", show?, lowAt? }`; not
+  beside a `capacity`, and with no `sellable.deposit`, `recurring` or `moves`. Records get
+  read-only `onHand`, `held` and `available`, so don't declare fields with those names, and never
+  write a count field of your own: an order's line holds and sells in its batch, and staff record
+  opening stock and corrections with `stock.opening` and `stock.adjust`. A shipped pack only. See
+  `StockSpec` in `packages/sdk/src/stock.ts` and ADR 0680.
 - **`unique`** on an object: `unique: [{ fields: [<up to 4 fields>], states?: [<states>] }]`, no
   two live records in those states share the fields (one active booking per Person per class).
   The database refuses the second, however many write at once (`conflict`, `rule: "unique"`).
@@ -209,6 +217,23 @@ extension declares it; it never implements it. Each behaviour the platform has i
   things with that flag set are claimed (a room marked "one booking at a time"; a shared floor
   never). Never check whether a room is free in a tool. See `OccupiesSpec` in
   `packages/sdk/src/occupies.ts` and ADR 0765.
+- **`intake`** when the public or customers send answers (a form, its submissions, a record a
+  form may also make): `intake: { role: "form", questions: "<document field with
+  QUESTIONS_SCHEMA, in publishable.content>", answeredBy: "<select: public, customers, links,
+  staff>", openIn: [<states>], anonymous?, destination?, opensAt?, closesAt?, dailyCap?, notify? }`
+  on a publishable form object, with `answeredBy`, `anonymous` and `destination` in its
+  `publishable.content` (they are read from the version answered); `{ role: "submission", form: "<relation to it>", version,
+  answers: "<document field with ANSWERS_SCHEMA>", person, certainty: "<select: account, link,
+  staff, address>", spam: "<a state the host creates it in>", via?, rating? }` on its submission
+  (never with `customer`, `public` or `signedIn`); `{ role: "destination", person, fields: [<what
+  a form may fill>], source? }` on a record another pack's form may make. The host's one door,
+  `intake.submit` (tool-only: your tool calls it for your own form, with `intake.open` first for
+  the public's shown-time token), checks the form is open to the caller, Turnstile, the honeypot,
+  the fill time, the caps and the answers, and makes the submission, the Person (empty fields
+  only) and any destination record itself. Never create a submission or check spam in a tool: only the door creates one, and a
+  submission's form, version, answers, certainty, via and rating are the host's on every path.
+  Shipped packs and the org's own extensions only. See `IntakeSpec` in
+  `packages/sdk/src/intake.ts` and ADRs 0720 to 0722 and 0725.
 - **`sellable`** on an object: its records can be bought (ticket types, passes, products). Only
   an object that declares it can go on an order, and the host reads its price and rules from the
   record: `sellable: { price: "<currency field>", saleWindow?: { from?, until? }, maxPerOrder?,

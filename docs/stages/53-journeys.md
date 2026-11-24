@@ -41,6 +41,24 @@ Built so far:
   Ticketing `ticketBought` and `checkedIn`. Recorded in the pipeline rather than the transition
   engine and record create (the same writes, with the standing and bulk flag they lack). Nothing
   reads the rows yet: entries and the scan are steps 3 and 4.
+- **Step 3** (`feat/stage-53-journeys-core`, ADR 0800, migration 1170): journeys, versions, entries
+  and the step log (`core_journey*`, with triggers that refuse any change of a version and any
+  version not made from the reviewed working copy); `packages/core/src/journeys/` (the working
+  copy's shape and publish checks, the plain-words summary, the hash, the preview's rendering, the
+  settings, manual entry and erase); the operations `journey.list`, `get`, `version`, `preview`,
+  `create`, `update`, `archive`, `publish` (an AI's call is a request only a person with
+  `journeys:publish` approves, never the adjudicator), `goLive`, `pause`, `resume`, `enter`, `stop`,
+  `entries`, `log`, `settings` and `settings.update`; the permissions `journeys:read`,
+  `journeys:manage` and `journeys:publish`; the four starter journeys seeded as drafts with no
+  reply-to. Nothing sends. After the review: a publish request shows its approver every message's
+  words; archiving and changing the owner are a person's; an AI's entry is approved only with
+  `journeys:manage`; the Trash's purge erases entries; entry and log rows are fixed for every
+  statement shape; settings saves change only what they name; a manual entry leaves out an erased
+  address; `journey.list` pages. Going live refuses a signal no installed pack declares (step 2's
+  declarations). Not in this step: going live does not yet count who already qualifies (the scan, step 4); an
+  organisation reply-to address confirmed by a code (it needs a send, step 4); merge moving entries
+  (step 4's exits, with step 7's merge rules); a plan's or class type's name as a slot (with step
+  2's declarations).
 
 ## Goal
 

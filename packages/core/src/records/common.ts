@@ -63,6 +63,22 @@ export async function assertUserExists(
   if (!user) throw new ValidationError(`No user with id ${id}`, { field });
 }
 
+/** Whether a record has had a published version, current or not. */
+export async function everPublished(
+  db: Kysely<CoreDatabase>,
+  object: string,
+  id: string,
+): Promise<boolean> {
+  const row = await db
+    .selectFrom("core_publish_version")
+    .select("version")
+    .where("object_type", "=", object)
+    .where("record_id", "=", id)
+    .limit(1)
+    .executeTakeFirst();
+  return row !== undefined;
+}
+
 /** Gives exactly one item `primary: true`: the flagged one, else the first. */
 export function withPrimary<T extends { primary?: boolean | undefined }>(
   items: readonly T[],

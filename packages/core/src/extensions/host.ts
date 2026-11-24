@@ -33,7 +33,7 @@ export interface ToolCaller {
    */
   roleToday?: import("../pack-role-today.ts").TodayLimits;
   /**
-   * The staff caller's pack role limit to the People they look after (ADR 0881): the run's
+   * The staff caller's pack role limit to the People they look after (ADR 0889): the run's
    * record reads and writes of these objects reach those People's records only.
    */
   roleLooksAfter?: import("../pack-role-looks-after.ts").LooksAfterLimit;

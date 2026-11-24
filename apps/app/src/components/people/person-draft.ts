@@ -1,6 +1,7 @@
 // The person details editor's form model: a draft built from a Person, and the minimal
 // person.update input for what changed. Pure, so it is unit-tested.
 import type { CoreInput, Person } from "@composable-os/core";
+import { orNull, same, withOnePrimary } from "#/lib/draft";
 
 export interface PersonDraft {
   givenName: string;
@@ -48,18 +49,6 @@ export function toDraft(person: Person): PersonDraft {
 
 const joinName = (given: string, family: string) =>
   [given, family].filter(Boolean).join(" ").trim();
-
-/** Exactly one primary among the kept rows: the flagged one, else the first. */
-function withOnePrimary<T extends { primary: boolean }>(rows: T[]): T[] {
-  const index = Math.max(
-    0,
-    rows.findIndex((row) => row.primary),
-  );
-  return rows.map((row, i) => ({ ...row, primary: i === index }));
-}
-
-const same = (a: unknown, b: unknown) => JSON.stringify(a) === JSON.stringify(b);
-const orNull = (value: string) => (value.trim() ? value.trim() : null);
 
 /**
  * The person.update input for the fields that changed (plus `id`). Blank rows are dropped,

@@ -132,7 +132,7 @@ type IndexState = Record<string, ObjectState>;
 
 const fingerprint = (fields: string[]) => JSON.stringify({ v: INDEX_VERSION, fields });
 
-async function readState(ctx: HandlerContext): Promise<IndexState> {
+async function readState(ctx: Pick<HandlerContext, "db">): Promise<IndexState> {
   const row = await ctx.db
     .selectFrom("core_settings")
     .select("value")
@@ -143,6 +143,31 @@ async function readState(ctx: HandlerContext): Promise<IndexState> {
   } catch {
     return {};
   }
+}
+
+/** Each indexed object's fingerprint: what its rows should have been made from. */
+function wantedIndex(): Map<string, string> {
+  const wanted = new Map<string, string>();
+  for (const object of listObjects()) {
+    const fields = indexedFields(object);
+    if (fields) wanted.set(object.name, fingerprint(fields));
+  }
+  return wanted;
+}
+
+/**
+ * Whether a round of catching up has anything to do (an object to remake, or one to empty):
+ * one settings read, outside any operation. The registry must be fresh (refreshSchemaRegistry).
+ */
+export async function reindexPending(db: HandlerContext["db"]): Promise<boolean> {
+  const state = await readState({ db });
+  const wanted = wantedIndex();
+  if (Object.keys(state).some((name) => !wanted.has(name))) return true;
+  for (const [name, fp] of wanted) {
+    const was = state[name];
+    if (getObject(name) && !(was && was.fp === fp && was.after === null)) return true;
+  }
+  return false;
 }
 
 /**
@@ -160,11 +185,7 @@ export async function reindexStep(
   let records = 0;
   let more = false;
   let changed = false;
-  const wanted = new Map<string, string>();
-  for (const object of listObjects()) {
-    const fields = indexedFields(object);
-    if (fields) wanted.set(object.name, fingerprint(fields));
-  }
+  const wanted = wantedIndex();
   // An object the index held and no longer holds: its rows go.
   for (const name of Object.keys(state)) {
     if (wanted.has(name)) continue;

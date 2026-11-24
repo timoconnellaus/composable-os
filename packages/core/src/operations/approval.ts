@@ -1022,6 +1022,41 @@ async function approveActions(
       );
     }
   }
+  // An AI's journey publish (stage 53, ADR 0800): the approval of the wording members get without
+  // anyone approving each send, so only a person who may publish journeys approves it.
+  const journeyPublish = targets.find((t) => t.operation === "journey.publish");
+  if (journeyPublish) {
+    if (ctx.actor !== "human") {
+      throw new ForbiddenError("A journey is published by a person, never by an AI actor", {
+        actionId: journeyPublish.id,
+        actor: ctx.actor,
+      });
+    }
+    if (!holdsPermission(ctx.user, ctx.permissionGrants, "journeys:publish")) {
+      throw new ForbiddenError(
+        "Approving a journey's publish needs the journeys publish permission (journeys:publish)",
+        { actionId: journeyPublish.id, permission: "journeys:publish" },
+      );
+    }
+  }
+  // An AI's manual journey entry (ADR 0800): the entry counts as a person's (its messages are
+  // not held for the AI's cause) only because a person approved it, so the approver must be one
+  // who could have added those people themselves.
+  const journeyEnter = targets.find((t) => t.operation === "journey.enter");
+  if (journeyEnter) {
+    if (ctx.actor !== "human") {
+      throw new ForbiddenError("People are added to a journey by a person, never by an AI actor", {
+        actionId: journeyEnter.id,
+        actor: ctx.actor,
+      });
+    }
+    if (!holdsPermission(ctx.user, ctx.permissionGrants, "journeys:manage")) {
+      throw new ForbiddenError(
+        "Approving people added to a journey needs the journeys permission (journeys:manage)",
+        { actionId: journeyEnter.id, permission: "journeys:manage" },
+      );
+    }
+  }
   // A roster change (stage 45, ADRs 0625 and 0626): a restricted tool's call is approved only by
   // someone who holds the tool, and a write of who works a shift only by someone who rosters.
   await assertRosterApprover(ctx, ctx.db, targets);
@@ -1040,6 +1075,48 @@ async function approveActions(
         "Approving a checklist needs the checklists permission (checklists:write)",
         { actionId: checklist.id, permission: "checklists:write" },
       );
+    }
+  }
+  // An AI's opening stock or correction (stage 37, ADR 0680): approved only by a person who may
+  // change stock themselves, so stock is never changed by an AI alone.
+  const stock = targets.find(
+    (t) => t.operation === "stock.adjust" || t.operation === "stock.opening",
+  );
+  if (stock) {
+    if (ctx.actor !== "human") {
+      throw new ForbiddenError("A stock change is approved by a person, never by an AI actor", {
+        actionId: stock.id,
+        actor: ctx.actor,
+      });
+    }
+    if (!holdsPermission(ctx.user, ctx.permissionGrants, "stock:adjust")) {
+      throw new ForbiddenError(
+        "Approving a stock change needs the stock permission (stock:adjust)",
+        {
+          actionId: stock.id,
+          permission: "stock:adjust",
+        },
+      );
+    }
+  }
+  // A staff discount over the limit, or asked by an AI, and an AI's taking one off (stage 34,
+  // ADR 0691): approved only by a human admin, so an order's price beyond what the owner allowed,
+  // or an AI's change to it, is always the owner's decision.
+  const discount = targets.find(
+    (t) => t.operation === "order.adjust" || t.operation === "order.unadjust",
+  );
+  if (discount) {
+    if (ctx.actor !== "human") {
+      throw new ForbiddenError("A discount is approved by a person, never by an AI actor", {
+        actionId: discount.id,
+        actor: ctx.actor,
+      });
+    }
+    if (!roleHasPermission(ctx.user.role, "settings:manage")) {
+      throw new ForbiddenError("Approving a discount over the limit needs an admin", {
+        actionId: discount.id,
+        permission: "settings:manage",
+      });
     }
   }
   const targetIds = new Set(targets.map((t) => t.id));

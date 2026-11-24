@@ -53,6 +53,8 @@ it("after migrations every read view is rec_<object>, and none keeps the old pre
     // Stage 28 (migration 0461): the media library.
     "rec_media",
     "rec_order",
+    // Stage 34 (migration 0950): money off orders, for reports.
+    "rec_order_adjustment",
     "rec_order_line",
     "rec_organisation",
     "rec_person",
@@ -60,6 +62,8 @@ it("after migrations every read view is rec_<object>, and none keeps the old pre
     "rec_record_tag",
     "rec_stage_history",
     "rec_state_history",
+    // Stage 37 (migration 0930): the stock ledger.
+    "rec_stock_movement",
     "rec_subscription",
     // Stage 32b (migration 0630): plan changes and pauses asked of the provider.
     "rec_subscription_change",

@@ -21,6 +21,7 @@ import {
 import { createCrmDb } from "@composable-os/db";
 import { productName } from "@composable-os/product";
 import { product } from "@composable-os/products/active";
+import { escapeHtml } from "../html.ts";
 import { authorize } from "../identity.ts";
 import type { ApiEnv } from "./api.ts";
 
@@ -48,12 +49,6 @@ function refuse(status: number, message: string): Response {
     headers: { "content-type": "text/plain; charset=utf-8", ...PAGE_HEADERS },
   });
 }
-
-const escapeHtml = (text: string) =>
-  text.replace(
-    /[&<>"']/g,
-    (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c] as string,
-  );
 
 interface SignInRequest {
   redirectUri: string;

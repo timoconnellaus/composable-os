@@ -11,6 +11,7 @@
 // to the database every time.
 import type { CoreDatabase } from "@composable-os/db";
 import { CompiledQuery, type Kysely } from "kysely";
+import { sha256Hex } from "../digest.ts";
 import { getObject } from "../fields/index.ts";
 import type { RecordChange } from "../operation.ts";
 
@@ -58,11 +59,8 @@ export function generationWrite(object: string, now: string): CompiledQuery {
   );
 }
 
-/** SHA-256 of `text`, as hex. */
-export async function sha256Hex(text: string): Promise<string> {
-  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
-  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
-}
+/** SHA-256 of `text`, as hex (operations/content.ts takes it from here). */
+export { sha256Hex };
 
 /**
  * The answer to a public read of `object` named by `key` (the operation and its input): from the

@@ -443,6 +443,33 @@ describe("reading a session", () => {
     expect(sent.sent.at(-1)).toMatchObject({ item: "A2", exercise: "rec_full", level: 3 });
   });
 
+  it("an item's exercise for everyone is logged beside its levels, with no level", () => {
+    const both: Session = {
+      ...plan,
+      blocks: [
+        {
+          label: "A",
+          items: [
+            {
+              kind: "levels",
+              label: "A1",
+              exercises: [{ exercise: "rec_hold", sets: plank.targets }],
+              levels: [
+                { mode: "one", level: 1, exercise: { exercise: "rec_kneel", sets: plank.targets } },
+              ],
+            },
+          ],
+        },
+      ],
+    };
+    const exercises = logExercisesOf(both, []);
+    expect(exercises.map((e) => [e.item, e.exercise, e.level])).toEqual([
+      ["A1", "rec_hold", null],
+      ["A1", "rec_kneel", 1],
+    ]);
+    expect(progressOf(loaded(exercises))).toEqual({ done: 0, planned: 4 });
+  });
+
   it("the rest after a set is its own, else the screen's", () => {
     expect(restAfter(squat.targets[0], 90)).toBe(120);
     expect(restAfter(plank.targets[0], 90)).toBe(90);

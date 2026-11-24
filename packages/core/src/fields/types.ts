@@ -126,6 +126,8 @@ export interface ObjectDefinition {
   capacity?: CapacityDefinition;
   /** Extension objects: something that can be bought (stage 27, ADR 0435). */
   sellable?: SellableDefinition;
+  /** Extension objects: things counted on a shelf, kept from a ledger (stage 37, ADR 0680). */
+  stock?: StockDefinition;
   /** Extension objects: uses held (a pass) or spent (a booking) (stage 32b, ADR 0493). */
   allowance?: AllowanceDefinition;
   /**
@@ -169,6 +171,11 @@ export interface ObjectDefinition {
   workedOn?: WorkedOnDefinition;
   /** Extension objects: a claim on a thing (a room) for the record's time (stage 49, ADR 0765). */
   occupies?: OccupiesDefinition;
+  /**
+   * Extension objects of a shipped pack: the public-write door (stage 29, ADR 0720), a form the
+   * public answers, the submission the host makes, or a destination a form may also make.
+   */
+  intake?: IntakeDefinition;
   /** A checklist its person ticks off (stage 45 step 4b, ADR 0650), with registry names. */
   checklists?: ChecklistsDefinition;
   /**
@@ -358,6 +365,16 @@ export interface CapacityDefinition {
   /** `low`'s threshold. */
   lowAt?: number | undefined;
   releaseOnRefund: boolean;
+}
+
+/** The stock behaviour as the host enforces it (the SDK's StockSpec, validated), registry names. */
+export interface StockDefinition {
+  /** The number field holding the reorder level, and the one holding how many to order then. */
+  reorderAt?: string | undefined;
+  reorderQty?: string | undefined;
+  show: "exact" | "low" | "availability";
+  /** `low`'s threshold. */
+  lowAt?: number | undefined;
 }
 
 /**
@@ -748,3 +765,12 @@ export type AccessSource = RecordAccessSource | KindAccessSource;
 export interface AccessDeclaration {
   readonly sources: readonly AccessSource[];
 }
+
+/**
+ * The SDK's IntakeSpec (ADR 0720): field names are the object's own; a submission's `formObject`
+ * is the registry name of the form object its `form` relation names.
+ */
+export type IntakeDefinition =
+  | import("@composable-os/sdk").IntakeFormSpec
+  | (import("@composable-os/sdk").IntakeSubmissionSpec & { formObject: string })
+  | import("@composable-os/sdk").IntakeDestinationSpec;

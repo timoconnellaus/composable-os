@@ -23,10 +23,10 @@ import { type ReactNode, useEffect, useMemo, useState } from "react";
 import { EmptyState, ErrorState } from "#/components/empty-state";
 import { VirtualFeed } from "#/components/layout/infinite";
 import { PageCount, PageLayout } from "#/components/layout/page-layout";
-import { diffValue } from "#/components/record/history";
-import { formatDateTime } from "#/lib/format";
+import { diffValue, formatDateTime } from "#/lib/format";
 import { callOp } from "#/lib/operations";
 import { opKey } from "#/lib/query";
+import { useDebounced } from "#/lib/use-debounced";
 import { useUsers } from "#/lib/users-adapter";
 
 export const Route = createFileRoute("/_app/settings/audit")({
@@ -84,15 +84,6 @@ function dayStart(date: string, addDays = 0): string | undefined {
   return d.toISOString();
 }
 
-function useDebounced<T>(value: T, ms: number): T {
-  const [debounced, setDebounced] = useState(value);
-  useEffect(() => {
-    const timer = setTimeout(() => setDebounced(value), ms);
-    return () => clearTimeout(timer);
-  }, [value, ms]);
-  return debounced;
-}
-
 function AuditPage() {
   const { isAdmin } = Route.useRouteContext();
   if (!isAdmin) {
@@ -119,7 +110,12 @@ function AuditLog() {
     navigate({ search: { pendingActionId: id } });
     set("pendingActionId", id);
   };
-  const typed = useDebounced({ operation: filters.operation, recordId: filters.recordId }, 300);
+  // Debounced one string at a time: an object made here is new on every render, so debouncing it
+  // would set state every 300 ms and re-render the page forever.
+  const typed = {
+    operation: useDebounced(filters.operation, 300),
+    recordId: useDebounced(filters.recordId, 300),
+  };
 
   const operationValid = !typed.operation || /^[a-zA-Z0-9.]+(\.\*)?$/.test(typed.operation.trim());
   const input = useMemo(() => {
@@ -139,7 +135,7 @@ function AuditLog() {
       ...(from ? { from } : {}),
       ...(to ? { to } : {}),
     };
-  }, [filters, typed, operationValid]);
+  }, [filters, typed.operation, typed.recordId, operationValid]);
 
   const log = useInfiniteQuery({
     queryKey: opKey("audit.list", input),

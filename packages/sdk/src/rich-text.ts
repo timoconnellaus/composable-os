@@ -14,6 +14,7 @@
 // host and both renderers read this one declaration. Changing it changes what every product
 // stores; a block type added here must be added to both renderers (stage 28, step 6).
 import type { DocumentNode, DocumentObjectNode, DocumentSchema } from "./document.ts";
+import { hyphenate } from "./slug.ts";
 
 /** The block types, in the order a renderer lists them. */
 export const RICH_TEXT_BLOCKS = [
@@ -247,13 +248,7 @@ function runsText(content: Runs): string {
 }
 
 function anchorBase(text: string): string {
-  const plain = text
-    .normalize("NFKD")
-    .replace(/[̀-ͯ]/g, "")
-    .toLowerCase()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
-  return plain.slice(0, ANCHOR_MAX).replace(/-+$/g, "") || "section";
+  return hyphenate(text, ANCHOR_MAX) || "section";
 }
 
 /** Each heading block's anchor, in the order the headings come in the document. */

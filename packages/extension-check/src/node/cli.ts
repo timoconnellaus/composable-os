@@ -175,7 +175,7 @@ export function rolesSummary(
             ([name, role]) =>
               `  role ${manifest.id}.${name} (${role.label}): tools with ${role.permissions.join(", ") || "no permission"}; ` +
               `reads ${role.read.join(", ") || "nothing"}` +
-              // Limited to the People its holder looks after (ADR 0881).
+              // Limited to the People its holder looks after (ADR 0889).
               (role.looksAfter && Object.keys(role.looksAfter).length
                 ? `; only the people its holder looks after on ${Object.keys(role.looksAfter).join(", ")}`
                 : ""),

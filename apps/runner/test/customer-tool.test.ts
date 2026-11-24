@@ -195,6 +195,21 @@ describe("a pack's tool called by a customer", () => {
     expect(await stored(orderA)).toMatchObject({ secret: "secret-A" });
   });
 
+  it("a tool cannot make an operation kept to a person, such as deleting the account", async () => {
+    // As the runner calls an operation for the shipped tool `cancel` the customer called. Stage
+    // 48 step 6 (ADR 0713): me.deleteAccount ends subscriptions, and is `actors: ["human"]`.
+    for (const [name, input] of [
+      ["me.deleteAccount", {}],
+      ["subscription.cancel", { id: "sbs_none" }],
+    ] as const) {
+      const refused = await invokeByName(name, input, {
+        ...outside(a),
+        tool: { extension: id, tool: "cancel" },
+      }).catch((error: { code?: string; details?: { rule?: string } }) => error);
+      expect(refused, name).toMatchObject({ code: "forbidden", details: { rule: "actor" } });
+    }
+  });
+
   it("a tool open to customers alone does not exist for staff", async () => {
     const refused = await outcome(call(admin, `x.${id}.cancel`, { id: orderA }));
     expect(refused).toMatchObject({ ok: false, code: "unknown_operation" });

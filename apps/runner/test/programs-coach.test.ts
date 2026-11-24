@@ -1,4 +1,4 @@
-// Programs' coach role (ADR 0881) in the real host and sandbox: a staff account given
+// Programs' coach role (ADR 0889) in the real host and sandbox: a staff account given
 // `programs.coach` reaches its own clients' training only, the People an active assignment names
 // it coach of. It lists and opens their sessions, reads them with the tools, logs and marks for
 // them, and reads their history and progress; it reaches nobody else's sessions, sets or
@@ -15,8 +15,10 @@ import {
   coreRegistry,
   type LooksAfterLimit,
   loadExtensionOperations,
+  loadStaffRights,
   looksAfterWhere,
   newId,
+  roleLooksAfterFor,
 } from "@composable-os/core";
 import { toManifest, validateManifest } from "@composable-os/sdk";
 import { beforeAll, describe, expect, it } from "vitest";
@@ -116,21 +118,19 @@ beforeAll(async () => {
     await run("record.publish", { object: PROGRAM, id }, staff(admin));
   }
   classType = await create(admin, CLASSTYPE, { name: "Handstands", order: 1 });
-  adaAssignment = await assign({
-    programId: clientProgram,
-    personId: ada.personId,
-    coachId: kim.id,
-  });
+  adaAssignment = await assign({ programId: clientProgram, personId: ada.personId });
   benAssignment = await assign({ programId: clientProgram, personId: ben.personId });
   // A class's assignment naming Kim gives no one: it is about no Person.
-  classAssignment = await assign({
-    programId: classProgram,
-    classTypeId: classType,
-    coachId: kim.id,
-  });
+  classAssignment = await assign({ programId: classProgram, classTypeId: classType });
+  // A person names the coach on the assignment's page.
+  for (const id of [adaAssignment, classAssignment]) await setCoach(id, kim.id);
 }, 180_000);
 
-describe("the coach role (ADR 0881)", () => {
+/** A person (an admin, in the admin) names the assignment's coach. */
+const setCoach = (id: string, coach: string | null) =>
+  run("record.update", { object: ASSIGNMENT, id, values: { coach } }, staff(admin));
+
+describe("the coach role (ADR 0889)", () => {
   it("lists and opens its clients' sessions and assignments, and nobody else's", async () => {
     const ada1 = (await sessionsOf(adaAssignment)).map((s) => s.id).sort();
     const ben1 = await sessionsOf(benAssignment);
@@ -407,11 +407,7 @@ describe("the coach role (ADR 0881)", () => {
       (await run<Page>("record.list", { object: ASSIGNMENT }, staff(who))).items.map((a) => a.id);
     expect(await list(lee)).toEqual([]);
     // Ben gets a coach: Lee now reaches him, Kim still does not.
-    await run(
-      "record.update",
-      { object: ASSIGNMENT, id: benAssignment, values: { coach: lee.id } },
-      staff(admin),
-    );
+    await setCoach(benAssignment, lee.id);
     expect(await list(lee)).toEqual([benAssignment]);
     expect(await list(kim)).not.toContain(benAssignment);
     // His program ends: Lee reaches nothing of his again.
@@ -513,6 +509,101 @@ describe("the coach role (ADR 0881)", () => {
     expect(looksAfterWhere(limit, EXERCISE, "e")).toBeUndefined();
   });
 
+  it("who a client's coach is, is a person's choice: anyone else's change waits for one", async () => {
+    // Review of #392, finding 1: a member's assistant named Kim coach of Ben's program and Kim
+    // reached his sessions at once. Now the write waits for a person, and nothing changes meanwhile.
+    const nadia = await staffAccount("Nadia");
+    const [eve] = [await createCustomer(admin, "eve", "Eve")];
+    const eves = await assign({ programId: clientProgram, personId: eve.personId });
+    const sessions = async () =>
+      (
+        await run<Page>(
+          "record.list",
+          { object: SESSION, filter: { field: "assignment", op: "eq", value: eves } },
+          staff(kim),
+        )
+      ).items;
+    expect(await sessions()).toEqual([]);
+    for (const actor of [
+      { actor: "assistant" as const, origin: { surface: "assistant" as const } },
+      { actor: "mcp" as const, origin: { surface: "mcp" as const } },
+    ]) {
+      expect(
+        await refusal(
+          run(
+            "record.update",
+            { object: ASSIGNMENT, id: eves, values: { coach: kim.id } },
+            staff(nadia, actor),
+          ),
+        ),
+        actor.actor,
+      ).toMatchObject({ code: "pending_approval" });
+    }
+    expect(await sessions()).toEqual([]);
+    // Code cannot set it on its own either: an assignment created with a coach by an AI waits too.
+    expect(
+      await refusal(
+        run(
+          "record.create",
+          {
+            object: ASSIGNMENT,
+            values: {
+              title: "Sneaky",
+              program: clientProgram,
+              person: eve.personId,
+              coach: kim.id,
+              startDate: START,
+            },
+          },
+          staff(nadia, { actor: "assistant", origin: { surface: "assistant" } }),
+        ),
+      ),
+    ).toMatchObject({ code: "pending_approval" });
+    // A person (any member of staff, in the admin) names the coach: Kim reaches Eve's sessions.
+    await run(
+      "record.update",
+      { object: ASSIGNMENT, id: eves, values: { coach: kim.id } },
+      staff(nadia),
+    );
+    expect(await sessions()).toHaveLength(4);
+    await setCoach(eves, null);
+    expect(await sessions()).toEqual([]);
+  });
+
+  it("fails closed: under the limit only the record operations it checks run (review finding 2)", async () => {
+    const limit: LooksAfterLimit = {
+      userId: kim.id,
+      teams: [{ object: ASSIGNMENT, person: "person", staff: ["coach"] }],
+      reach: { [SESSION]: "person" },
+    };
+    const [benMon] = await sessionsOf(benAssignment);
+    const held = staff(plain, { roleLooksAfter: limit });
+    // Operations that name records under another key than `object` are refused, not let through.
+    for (const [name, input] of [
+      ["task.create", { title: "Call Ben", links: [{ object: SESSION, id: benMon?.id }] }],
+      ["task.create", { title: "No links at all" }],
+      ["person.list", {}],
+      ["record.count", { object: EXERCISE }],
+    ] as const) {
+      expect([name, (await refusal(run(name, input, held))).code]).toEqual([name, "forbidden"]);
+    }
+    // What it checks still runs: an object it does not limit, and the account's own screens.
+    await run("record.list", { object: EXERCISE }, held);
+    await run("screens.mine", {}, held);
+    // The limit is the role's own pack's: another pack's tool the role reaches (Daily checklists'
+    // anyStaff `today`, ADR 0652) runs without it, so its host operation (`checklist.today`) is not
+    // refused; Programs' own tools carry it.
+    const rights = await loadStaffRights(db.query, kim.id);
+    const tool = (name: string) => ({ name }) as AnyOperation;
+    expect(roleLooksAfterFor(rights, tool("x.dailychecks.today"), kim.id)).toBeUndefined();
+    expect(roleLooksAfterFor(rights, tool("x.programs.sessionGet"), kim.id)).toMatchObject({
+      userId: kim.id,
+    });
+    expect(roleLooksAfterFor(rights, tool("record.list"), kim.id)).toMatchObject({
+      userId: kim.id,
+    });
+  });
+
   it("a team and a limit are a shipped pack's, and their mistakes are named", async () => {
     const manifest = toManifest(programsPack);
     expect(validateManifest(manifest).issues).toEqual([]);
@@ -533,6 +624,13 @@ describe("the coach role (ADR 0881)", () => {
         expect.stringMatching(/^roles\.coach\.looksAfter\.bookings\.class: .*not an object/),
       ]),
     );
+    const loose = structuredClone(manifest);
+    const coachField = (loose.objects.assignment as { fields: Record<string, unknown> }).fields
+      .coach as { personApproves?: boolean };
+    delete coachField.personApproves;
+    expect(validateManifest(loose).issues.map((i) => `${i.path}: ${i.message}`)).toEqual([
+      expect.stringMatching(/^objects\.assignment\.team\.staff\.0: .*a person approves/),
+    ]);
     const noTeam = structuredClone(manifest);
     delete (noTeam.objects.assignment as { team?: unknown }).team;
     expect(validateManifest(noTeam).issues.map((i) => i.path)).toContain("roles.coach.looksAfter");

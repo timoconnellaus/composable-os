@@ -43,7 +43,7 @@ export async function hasLiveLink(
   personIds: readonly string[],
 ): Promise<boolean> {
   if (!personIds.length) return false;
-  const ids = jsonList([...personIds]);
+  const ids = jsonList(personIds);
   const row = await db
     .selectFrom("core_person_link")
     .select("id")
@@ -163,7 +163,7 @@ export async function dependantsLeftAlone(
   personIds: readonly string[],
 ): Promise<string[]> {
   if (!personIds.length) return [];
-  const erased = jsonList([...personIds]);
+  const erased = jsonList(personIds);
   const rows = await ctx.db
     .selectFrom("core_person_link as l")
     .select("l.dependant_id")
@@ -189,7 +189,7 @@ export function queueEraseLinks(
   leftAlone: readonly string[] = [],
 ): void {
   if (!personIds.length) return;
-  const erased = jsonList([...personIds]);
+  const erased = jsonList(personIds);
   ctx.write(
     ctx.db
       .deleteFrom("core_person_link")

@@ -118,6 +118,11 @@ One **D1** database per deployment, with real tables ([ADR 0002](adr/0002-d1-rea
   people, organisations, activities and tasks after 30 days through the operations pipeline
   (`trash.purge`), and admin erase redacts the append-only audit log through a sanctioned path
   ([ADR 0019](adr/0019-audit-redaction-for-erasure.md)).
+- **What it costs** ([`cloudflare-costs.md`](cloudflare-costs.md)): an idle host's minute cron
+  writes nothing. Each host step reads whether it has work before it calls its operation, so a
+  quiet minute leaves no audit row, and its reads walk indexes
+  ([ADR 0130](adr/0130-automation-runtime.md), amended 2026-11-24). Cost tests count statements,
+  rows read and rows written (`apps/runner/test/idle-minute-cost.test.ts`).
 - **Duplicates** ([ADR 0247](adr/0247-duplicate-rules-and-scan.md)): plain rules in code with a
   stated reason, no score. Every write that sets a name writes `name_key`, so `duplicate.check` at
   creation and the scan are indexed lookups. cos-runner's minute cron runs a bounded
@@ -333,7 +338,9 @@ Stage 6a ([ADR 0110](adr/0110-integration-host-per-connection.md) to
   mirrored into the approval queue; approval calls `applyAction` on the facet, in order per facet.
 - **Sync**: hook-driven, alarm-chunked mail and calendar sync per connection (90 days by default),
   written by `sync.ingest` with an indexed external key, bodies in R2 (`cos-blobs`), sharing level per
-  connection, private activities, suggested contacts and job-change suggestions.
+  connection, private activities, suggested contacts and job-change suggestions. A 15-minute
+  catch-up alarm backs up the hooks; it stops while the connection's credentials are expired and
+  starts again on a reconnect (what each Durable Object costs: [`docs/cloudflare-costs.md`](cloudflare-costs.md)).
 - **Code**: `integration.call` (MCP), and `codemode:<gatekeeper>` host modules for extension tools and
   Code Mode.
 - **Routine mail** ([ADR 0590](adr/0590-routine-mail.md)): a shipped pack declares fixed member
@@ -465,6 +472,12 @@ stateless Streamable HTTP handler with an MCP SDK v2 server per request
 A deploy-time **identity adapter** ([ADR 0008](adr/0008-identity-adapters.md)): Better Auth (the
 default) or Cloudflare Access, selected by env var. The MCP OAuth 2.1 server sits on top and delegates
 login to the active adapter. Identity is never runtime-pluggable.
+
+**The desk origin** ([ADR 0649](adr/0649-signing-at-the-desk.md)). A request to the host's second
+hostname (`DESK_HOSTNAME`, `desk.` before its name) is answered first, by its own handler, and
+serves only the enrolled tablet's two pages and its calls: no admin page, server function, HTTP
+surface, MCP or sign-in. The staff origin answers the desk's paths as not found. The tablet holds
+no sign-in, only an enrolled device's credential ([ADR 0780](adr/0780-the-enrolled-device.md)).
 
 In `cos-app`, one TanStack Start request middleware resolves the **Principal** for every page
 route, server route and server function call. Everything is private by default: only `/sign-in`,
@@ -957,6 +970,17 @@ As built (stage 22; ADRs [0410](adr/0410-the-seams-first-door-as-built.md),
 - **The visibility seam** (`packages/core/src/visibility/`). `visibleSource(ctx, object)` is the
   source every read of a record takes. Staff get the plain view. A customer gets a source holding
   only their rows and only the columns the object lists, and the public get none.
+- **The note scope** (stage 56, ADR [0830](adr/0830-note-levels-kept-out-of-every-bulk-path.md);
+  `visibility/notes.ts`). A note has a level: `staff`, `coaches` or `sensitive`. Levels 2 and 3
+  are not in `core_base_activities`, `rec_activity`, `rec_activity_link` or search (migration
+  1230), so `query.sql`, dashboards, exports, embeddings and summaries never see them. Staff read
+  them only through `visibleTable(ctx, "activity")`, which keeps the ones the caller may read:
+  a person (never an AI actor) who wrote it, looks after its one Person (`core_person_carer`,
+  ADR [0831](adr/0831-looks-after-a-person.md)), is an admin or holds `notes:clients` /
+  `notes:sensitive` (ADR [0832](adr/0832-the-notes-permissions.md)). A read that returns a
+  `coaches` note's text writes an audit row naming its id (`ctx.auditRead`); a sensitive note is
+  listed locked and read with `note.open`, every opening audited. Its changes are audited by
+  field name and are no automation event.
 - **The audience check** is the pipeline's first step. A caller outside an operation's audiences
   gets the answer an unknown operation gets. `packages/core/open-operations.json` lists what is
   open, and a test keeps it equal to the registry.
@@ -971,13 +995,20 @@ As built (stage 22; ADRs [0410](adr/0410-the-seams-first-door-as-built.md),
   staff. Who may sign up is a human admin's setting: invite only, also buyers (ADR 0458), or
   anyone; and, on top, anyone starting a subscription while a plan is on sale (ADR 0459).
 - **Open operations:** `me.get`, `me.update`, `me.family`, `me.signOut`, `me.sessions.*`,
-  `me.deleteAccount`, `my.list`, `my.get`, and for tools only `my.create`, `my.update`, and
-  `my.delete` (the Trash, only for an object whose `customer.delete` says so: a logged set).
+  `me.deleteAccount`, `me.attention` (stage 48, ADR 0711), `my.list`, `my.get`, and for tools
+  only `my.create`, `my.update`, and `my.delete` (the Trash, only for an object whose
+  `customer.delete` says so: a logged set).
 - **A pack's tool called by a customer runs as that customer.** Its operation calls take the same
   outside path with the same principal. It may set an object's writable fields and the fields
   the tool lists in its manifest. A runtime extension can open nothing.
-- **Deleting an account** disables it, ends its sessions and creates an erase request with a due
-  date for staff, who erase the person or decline with a reason.
+- **Deleting an account** first says what it will do (`me.deleteAccount` without `confirm`,
+  ADR 0713): subscriptions the member pays end at their period's end (or with a cooling off
+  under way), nothing refunded, and one the host cannot end so is listed for staff; unpaid
+  orders are cancelled; open records of objects that declare a customer, part-paid orders and a
+  child left without a guardian stay for staff. Confirmed with the preview's `expect`, it asks the
+  provider first, then in one batch cancels the orders, disables the account, ends its sessions
+  and creates an erase request with a due date for staff, who erase the person or decline with a
+  reason; admins are told what was left (`customers/account-delete.ts`).
   (`core_erase_request`, migration 0402; due after `customer.settings` `eraseDueDays`, default
   30; `eraseRequest.list` / `eraseRequest.decline`, shown under Settings → Storage; the daily
   maintenance cron reminds admins once a day about an overdue one.)
@@ -1047,7 +1078,7 @@ The rules products share, declared in a manifest and enforced by the host in the
 `stages`, `states`, `capacity`, `sellable` and `publishable` exist (the last with its public
 half, and the media library beside it, since stage 28). `allowance` exists since stage 32b;
 `recurring`, capacity claimants and declared uniqueness since stage 31 (below); `staffed` since
-stage 45 and `occupies` since stage 49 (below). Behaviours stack:
+stage 45, `occupies` since stage 49 and `stock` since stage 37 (below). Behaviours stack:
 an event is publishable, sellable and has a capacity.
 
 `stages` and `states` are two declarations on one **transition engine**
@@ -1321,6 +1352,35 @@ verified caller only (`periodLines` narrowed to one account, or the locked lines
 through the pack that declares the pay periods, a person only, never an AI, with no one else's
 lines, who took a class's list or why a shift was not worked; audited as which period.
 
+**Leave** (stage 58 step 4, [ADR 0853](adr/0853-leave-types-requests-the-balance-ledger-and-approved-leave-as-unavailability.md),
+`packages/core/src/staffing/leave.ts`, `operations/staffing-leave.ts`, migration 1271): leave types
+the business sets (`core_leave_type`: hours or days, keeps a balance or not, below zero warned or
+refused, paid as a label; none ship), requests (`core_leave_request`: whole local days, or part of
+one day, with their range as instants) and their days (`core_leave_day`: the amount asked, proposed
+by the host from the person's rostered minutes that day or one day each, and approved), and the
+balance ledger (`core_leave_balance_entry`, insert only: the balance is its sum, entries a pay
+holder sets or adjusts and the host's own at approval and cancellation; nothing accrues), all core
+tables in no `rec_*` view, integers in the type's unit, no money. Triggers keep it: a request moves
+out of `requested` once (two approvals at once apply once), what it asks never changes, an approved
+one is never deleted, its days change only while it waits, and a type that refuses a balance below
+zero has the approving entry refused by the database. Approval is one batch: the days' amounts, the
+request, the balance entry, stage 45's `core_staff_away` row (kind `leave`, `leave_request` naming
+it, so the `unavailable` warning, eligibility and the notice hold unchanged), and the person taken
+off each covered shift that has not started, by the record write `staffing.assign` makes, each
+offered to everyone eligible as `staffing.offer` makes (each take-off guarded on the person still
+holding the shift at commit; eligibility read set-based for all of them, `eligibleForShifts`, and
+every offer notice one statement; at most 40 shifts an approval, 670 queries at that size with 400
+people told); the rosterers
+get the list of what was offered and what nobody could be. Cancelling approved leave removes the row
+and reverses the entry, and puts nobody back; the request's trigger moves it to `cancelled` only
+once both are done, so a stale cancel fails whole. `staffing.back` refuses a request's row;
+`staffing.away` makes no new kind `leave` once a type exists; `user.deactivate` cancels a leaver's
+waiting requests and marks an entry they left open finish missing. Approvers are the rosterers, never for their own request (an admin may when nobody
+else can); types and balances are a pay holder's. Every leave tool is a person's at the screen,
+never an assistant's or MCP's (saving a type: a person applies it); notes, reasons, amounts and
+balances never reach the audit log, a notice or an error. Refused into a locked pay period; the
+lock's own triggers over leave, and leave in the pay period's lines and export, are step 3's.
+
 The roster's screens (step 7,
 [ADR 0629](adr/0629-the-rosters-screens-role-clients-with-grants-and-the-roster-import.md)) are
 Rostering's blocks over its headless entry, and ask the host what a screen needs through more
@@ -1374,6 +1434,27 @@ check on every tick and finish, on someone's behalf only by a manager. The tool-
 (`packs/dailychecks`), whose tools are open to every staff account, pack roles included
 (`anyStaff`), or held to `checklists:write` (`corePermission`, ADR 0652). Rostering's checklist
 operations never see a day run.
+
+**Journeys** (stage 53 step 3, [ADR 0800](adr/0800-journeys-as-a-host-primitive.md),
+`packages/core/src/journeys/`, `operations/journey.ts`, migration 1170): messages the host sends on
+its own to one Person at a time because of what they did or stopped doing, as a host primitive, not
+automations and not a pack. A journey (`core_journey`, kind `service` or `promotional`, status
+`draft`, `live`, `paused` or `archived`) has a working copy: one JSON document with its entry rule,
+conditions, exits, re-entry rule, `includeBulk`, reply-to and steps (send, wait, branch, task,
+end), written with `journeys:manage` (the assistant may draft it). A person with `journeys:publish`
+publishes it as a version (`core_journey_version`) of the copy at the rev the editor showed
+(`journey.preview` renders every message for a sample Person); an AI's publish is a request only a
+person who holds the permission approves, never the adjudicator, reading every message's words in
+the request; triggers refuse any change of a version and any version not made
+from the reviewed copy. The words follow routine mail's rules (no typed link, address or phone
+number; links only through `{site:/path}`; `{unsubscribe}` in every body); the reply-to is an
+address a human admin allowed (`journey.settings.update`). Entries (`core_journey_entry`, one live
+per Person per journey) are added by hand with `journey.enter` (up to 500, a `bulk-write`, minors
+kept off promotional journeys; an AI's approved only by someone who holds `journeys:manage`) and
+keep the standing of their cause; archiving is a person's; the step log keeps no words.
+The four starter journeys are seeded as drafts. Nothing sends yet: the tick, the daily scan, exits
+and the send decision through stage 30's routine messages are step 4. The tables are in no `rec_*`
+view; erase and the Trash's purge delete a Person's entries and log.
 
 `sellable.moves` ([ADR 0560](adr/0560-a-paid-line-moves-a-record-that-exists.md),
 `packages/core/src/orders/moves.ts` and `refund-due.ts`) is a paid line that moves a record that
@@ -1498,8 +1579,35 @@ filled once, none on an anonymous form, and no required marketing consent. `chec
 `{ [key]: value }` against one version (types, required when shown, lengths, at most 3 links in a
 text, 20 KB in all, nothing for a hidden or unknown question) and gives the answers document a
 submission stores (`ANSWERS_SCHEMA`, private: no customer or public read). Its faults carry the
-question's key and a fault code, never the value. Wiring these checks into writes (the form's
-record, `intake.submit`) is stage 29's later steps.
+question's key and a fault code, never the value. The record operations run `checkQuestions` on
+every create and update of an object declaring `intake` as a form, and `intake.submit` runs
+`checkAnswers` (below).
+
+**The public-write door** (stage 29, step 2, [ADR 0720](adr/0720-the-intake-door-one-public-write.md)
+to [0722](adr/0722-abuse-checks-turnstile-honeypot-fill-time-caps.md) and
+[0725](adr/0725-anonymous-submissions.md), `packages/sdk/src/intake.ts`,
+`packages/core/src/intake/`). The one reviewed way the public creates a record that is not a
+purchase. A shipped pack declares `intake` in a role per object: a `form` (publishable, its
+questions in its published content, who may answer, the states it is open in, and optionally
+anonymous, a destination, dates, a daily cap and who is told), its `submission` (the form, the
+version answered, the answers, the Person, the certainty, a spam state; never readable outside the
+org) and a `destination` another pack offers (its Person, the fields a form may fill, a source set
+to `website`). Two core operations, `toolOnly` and `hostInternal`, open to staff, customers and the
+public and reached only from the form's own pack's tool: `intake.open` (the form as the caller may
+answer it, and for the public a shown-time token) and `intake.submit`. The door finds a form only
+while it is published, open, within its dates and open to the caller (else not found), verifies a
+visitor's Turnstile token with cos-runner's env-only `TURNSTILE_SECRET_KEY` (none set: no public
+answers, admins told), answers success and stores nothing for a filled honeypot or a form sent
+under 3 seconds after it was shown, caps 200 an hour per deployment and the form's own per 24
+hours ("try later", admins told once), checks the answers against the version, keeps a sixth from
+one mailbox to one form in 24 hours as spam, and then writes in one batch, as the host's change:
+the submitter's Person by the shared address matcher (`personForAddress`, also `resolveBuyer`'s;
+certainty `account`, `staff` or `address`; only empty fields filled), the submission, a destination
+record and the notice to staff. Only the door creates a submission, and its form, version, answers,
+certainty, via and rating are the host's alone on every path; who may answer, anonymity and the
+destination are read from the published version, as the questions are. An anonymous form keeps no Person, and the call forgets the
+customer (`ctx.anonymise`): no account or session in its audit row, marks or events. No client
+address, user agent or fingerprint is stored.
 
 **`publishable`** ([ADR 0446](adr/0446-publishable-without-its-public-half.md),
 [ADR 0441](adr/0441-publishable-states-schedules-and-versions.md),
@@ -1645,6 +1753,13 @@ writes only the courses whose videos are ready. It writes access as `courses.enr
 with source `import` (never orders), finding each student by email, and progress by the lesson's
 `sourceId`. A student's own progress is reported as a conflict and kept.
 
+`cos programs import <folder>` (stage 41, ADR 0448 amended, `src/programs-import/`) is the door
+for a gym's exercise bank, class types, programs in the Programs pack's shorthand (read by the
+pack's own `readProgramText`) and past training: sessions done before, with no assignment, and
+their sets, both `source: import`. Every batch is dry-run, then written in order, each naming the
+records the ones before made by id. Whatever the door writes starts no automation and sends no
+notification: its events are always bulk and carry `origin.imported` (ADR 0470, amended).
+
 **The editor** (`apps/app/src/components/fields/rich-text-editor.tsx`). Rich text fields are
 edited with Tiptap, whose schema is the platform's blocks and marks; `toRichText`
 (`apps/app/src/lib/rich-text-map.ts`) maps its document to `RICH_TEXT_SCHEMA` at its edge and is
@@ -1661,7 +1776,9 @@ operations: `assign`, `today`, `sessionGet`, `classToday`, `logAdd`, `logUpdate`
 set ticked by mistake, to the Trash: `my.delete` for its person), `sessionComplete`, `history`,
 `progress`, and, for staff,
 `draft` (a working copy from a brief, with the `extract` model role) and `importText` (coaches'
-shorthand into structured targets, unread lines listed). The staff side is declarations: the
+shorthand into structured targets, unread lines listed; with a key, one program per key and a
+coach's edit saved before the run kept; with `dryRun`, nothing written). An item of the layout is for
+everyone, has levels, or both. The staff side is declarations: the
 Training dashboard, saved views, the Person page's Training tab and panels. Its headless entry
 (`@composable-os/pack-programs/client`) holds the layout's pure edits, a self-saving working
 copy, a person's past sessions with their sets done of planned (`loadPastSessions`, over a
@@ -1787,12 +1904,12 @@ pack permissions granted to its account add up
 ([ADR 0600](adr/0600-a-pack-role-and-its-grants-add-up.md)): `staffAuthority` decides per call
 whether a grant (a tool naming a granted, grantable permission; judged first) or the role allows
 it, and the role's limits (Bookings' coach: today only, ADR 0553; Programs' coach: only the People
-its holder looks after, ADR 0881) travel only on the role's calls and the runs they start.
+its holder looks after, ADR 0889) travel only on the role's calls and the runs they start.
 A role's `looksAfter` names, by object, its relation to the Person; a pack's object declares a
 `team` (its user fields naming who looks after the Person it is about, while live), and the host
 holds a list of a limited object to those People in its own query (one subquery, the account bound
 once), finds no record of anyone else's for a get, update or create, and refuses any other
-operation on it ([ADR 0881](adr/0881-a-pack-role-limited-to-the-people-its-holder-looks-after.md)). A tool may name several permissions, any one of which opens it.
+operation on it ([ADR 0889](adr/0889-a-pack-role-limited-to-the-people-its-holder-looks-after.md)). A tool may name several permissions, any one of which opens it.
 A pack may declare a tool permission **restricted**
 ([ADR 0625](adr/0625-restricted-pack-permissions.md)): a tool naming only restricted permissions is
 held by admins and by a grant of it, never by a member's or viewer's own role or by a pack role,
@@ -1862,6 +1979,27 @@ The verified payment carries the provider's tax; `applyVerifiedPayment` stores i
 the lines and the order, after checking it fits what was asked, and never works one out. The
 amount charged is unchanged, so the match rule above holds. Otherwise the checkout is exactly as
 before.
+
+**Adjustments and the pricing seam** (stage 34, ADRs
+[0690](adr/0690-adjustments-on-orders-net-lines-and-the-pricing-seam.md) and
+[0691](adr/0691-staff-discounts-orders-discount-the-limit-and-approval-above-it.md),
+`orders/adjustments.ts`, `orders/staff-discounts.ts`). Money off is an adjustment, kept by the
+host in `core_order_adjustment`: on a line, or on the whole order and spread over its lines in
+proportion. Each line keeps its price (`line_total`) and its share (`line_discount`); the order's
+`total` is what is owed after adjustments and `discount` their sum, so the checkout, its tax
+shares (split over the net lines), the deposit rule, the amount a verified payment must match and
+what a refund gives back all read the net. An order is priced through one seam: `priceLines`
+reads the records, then `applyAdjustments` takes the adjustments off; `createOrder` and every
+change to a pending order's adjustments go through it. Today only staff give one:
+`order.adjust` / `order.unadjust` (`orders:discount`, grantable, admin by default) on a pending
+order whose checkout has not opened, with a reason. Within the limit a human admin sets
+(`discountLimit`, a percentage and an amount per order, nothing until set) it applies at once;
+over it the call waits in Approvals (the operation's `reviewWhen`, judged again on the handler's
+read), an AI's always waits (and so does its `order.unadjust`), only a human admin approves, and
+the order's checkout cannot open while a person's waits. The database refuses a new total once a
+checkout is recorded, and a checkout for a price that changed meanwhile (migration 0951). A discount cannot take an
+order to nothing yet. Codes and members' prices (the `discount` behaviour) join the seam in a
+later step.
 
 **Subscriptions** (stage 32a, ADRs [0485](adr/0485-recurring-billing-the-provider-runs-the-schedule.md)
 to [0487](adr/0487-the-payer-and-the-holder.md), `packages/core/src/subscriptions/`). The provider
@@ -1939,6 +2077,20 @@ counter that refused. Confirm and release are three statements each, idempotent,
 owner (an order, from stage 25) calls them. Records carry read-only `held`, `taken` and `available`;
 `capacity.get` gives staff the numbers and outsiders only what `show` allows;
 `rec_capacity` and `rec_capacity_claim` are queryable.
+
+**`stock`** (stage 37, [ADR 0680](adr/0680-the-stock-behaviour.md), `packages/sdk/src/stock.ts`,
+`packages/core/src/stock/`). Things counted on a shelf. The count is capacity's counter: a record of
+a stock object gets a `core_capacity` row with nothing on hand, and `places` moves only with a
+movement in the append-only ledger `core_stock_movement` (migration 0930: a place on every row,
+triggers refusing update, delete and replace, one `opening` per record), written in the same batch
+with no read first. On hand is `places − taken`, available is on hand less `held`; records carry
+read-only `onHand`, `held` and `available`. An order's stock line claims as a capacity line does;
+the paid batch writes one `sold` movement per line (one statement) before the confirm, and nothing
+gives confirmed stock back but a return. `stock.opening` and `stock.adjust` need the core
+`stock:adjust` permission and an AI's call waits for a person; `stock.get` tells outsiders only
+what `show` allows; `stock.movements` and `rec_stock_movement` read the ledger. The reconciler
+refuses adding `stock` to an object that has records, or taking it off one, so every stock counter
+started with nothing on hand.
 
 **`allowance`** (stage 32b, ADRs [0493](adr/0493-the-allowance-behaviour.md) and
 [0494](adr/0494-which-holder-pays-and-what-happens-to-uses.md), `packages/sdk/src/allowance.ts`,
@@ -2040,7 +2192,25 @@ email gatekeeper owes a **scrub** (`scrub_due_at`): the host asks each email-sen
 reached (`via`), through its own agreements queue only (`callAsHost`, method `scrubAgreementCopy`), to drop the copy's journal
 records, refuse any later send under its key and blank its history lines; a send in flight during
 the erase is scrubbed after it. Merge moves acceptances unchanged (`agreement.mergePlan` counts
-them for the preview). Signing at the desk is a later step (`docs/stages/44-agreements.md`).
+them for the preview). Step 6 (migration 0858, [ADR 0649](adr/0649-signing-at-the-desk.md)),
+built with stage 51's step 1 (migration 1130, [ADR 0780](adr/0780-the-enrolled-device.md)), is
+**signing at the desk**: a member signs on the business's own **enrolled device**
+(`core_device`, `packages/core/src/devices/`): a tablet a human admin enrolled for one use
+(`device.enrol`, `device.setUse`, `device.revoke`, users:manage and a person; every admin told),
+whose credential (a cookie on the desk origin, an HMAC under `DESK_SECRET` in the host) rotates
+at least daily, confirmed by use (the current one stays good until the device presents the next),
+and revokes the device as a clone when a rotated-away one comes back after 60 seconds, and lapses after 30 days unused. A person with `agreements:desk` (a core permission
+grantable even to a fixed-role account, ADR 0600 amended; a core screen in `screens.mine` for
+them) starts a **desk signing session** (`core_agreement_desk_session`, `agreements/desk.ts`) for
+one Person on a chosen device; the tablet claims it with a one-time code and gets a session token
+that reaches only the five desk calls (`desk.claim`, `desk.documents`, `desk.accept`,
+`desk.heartbeat`, `desk.finish`), each a public `deskOnly` operation: reached only from the
+**desk origin**'s own handler (`apps/app/src/server/http/desk.ts`, its own hostname `desk.` before
+the host's, set by `cos deploy`), never from the HTTP surface. The host keeps the limits (3
+minutes idle, 20 in all, a bounded heartbeat, wrong-code lock-outs, one session per device) and
+migration 0858 holds every desk acceptance to a claimed, open session for its Person. The
+Acceptances list and the Person tab show how one was made and its **marks** (address changed
+recently, created that day, a staff account's address; `agreements/desk-marks.ts`).
 
 **Cooling off** (stage 44 step 7, [ADR 0647](adr/0647-cooling-off-a-new-member-ends-it-for-a-full-refund-a-person-approves.md)):
 a plan's pack names a number setting of its own as the plan's cooling-off days
@@ -2138,8 +2308,18 @@ over operations that already existed (`me.*`, `my.list` on `order` and `orderLin
 `subscription.*`). Orders is the one list of a customer's orders: a page of 20, then their lines in
 one `my.list` naming the page's orders. Payment method shows for a customer who pays a
 subscription that has not ended. The packs' sections are passed to the shell in `sections` for
-now; `me.portal`, the `portal` declaration, `me.attention` and the generated wiring are later
-steps. In the app, money opens the website ([ADR 0714](adr/0714-the-app-shows-money-and-opens-the-website.md)):
+now; `me.portal`, the `portal` declaration and the generated wiring are later steps. Step 4 is
+built: **Needs your attention** is `me.attention`, one customer read worked out in core
+(`packages/core/src/customers/attention.ts`, [ADR 0711](adr/0711-needs-your-attention.md)) from
+agreements, orders, subscriptions and the `allowance` behaviour, never from a pack's code. Eight
+kinds: `agree`, `card_failing`, `confirm_payment`, `balance_due`, `finish_paying`,
+`pass_expiring`, `pass_used_up` and `trial_ending`, for the caller and, for agreements and passes
+on objects that open to guardians, their live dependants; soonest first, each with the record, the
+moment, the money in minor units and a pass's uses left. A pass expiring and a trial ending are
+listed within `account.attentionDays` (`customer.settings` `attentionDays`, default 7, 1 to 30,
+human admins). It reads a fixed number of statements whatever the packs installed, the family's size or the
+number of documents, and lists a pass only where its customer reads its uses and end; its block is a
+later step. In the app, money opens the website ([ADR 0714](adr/0714-the-app-shows-money-and-opens-the-website.md)):
 the native shell shows orders and subscriptions, and "Manage on the website" opens the business's
 website account page; no native block calls a billing operation. The template's `/account` route
 and the mobile Account tab are plain pages over the same entry.
@@ -2149,7 +2329,7 @@ and the mobile Account tab are plain pages over the same entry.
 | Deals | `stages` | exists |
 | Leads, lifecycle | fields, tools | exists |
 | Ticketing | `states`, `capacity`, `sellable`, `customer`, `public`, `customerVia`, a `timezone` field, a pack role, payments | stage 27: objects, tools, check-in and the door role built |
-| Programs | `document`, `publishable` (no public half), `states`, `customer`, `signedIn` | stage 41: steps 1 to 6 built (the spine, the dashboard, views and Person tab, hooks and blocks, draft and import); Ghetto's app is step 7 |
+| Programs | `document`, `publishable` (no public half), `states`, `customer`, `signedIn`, `unique` | stage 41: steps 1 to 6 built (the spine, the dashboard, views and Person tab, hooks and blocks, draft and import), and a repeatable import (`cos programs import`); Ghetto's app is step 7 |
 | Content | `publishable`, rich text, slugs, media | stage 28: steps 1 to 6 built (rich text, `publishable` completed, public reads, media, the editor, the pack: posts and categories, hooks, web and native renderers); the first client's import and blog routes are its own repository's |
 | Courses | `publishable`, `sellable` (grants and a tax code), `access` and holders' parts, `states`, `customer` with `requireAccess`, `requires: ["programs", "content"]`, video media and `media.play` | stage 42: steps 1 to 4, 6, 7 and the draft built ([ADR 0478](adr/0478-the-courses-pack.md)); the import and the first client to come |
 | Bookings | `recurring`, `capacity` and `claims` with a waitlist, `unique`, `staffed` (a class is its coach's shift, stage 45), `occupies` (a class takes a room marked "one booking at a time", stage 49 step 2, [ADR 0765](adr/0765-occupies-the-claim-on-a-thing.md)), `states` with windows, staff-only rules and a requested cancel, `allowance` (spender, `waived`), `public`, `customer` with `guardians`, `customerVia`, `requires: ["programs"]` | stage 31a: steps 1 to 6 built (the behaviours, the pack's spine, [ADR 0504](adr/0504-the-bookings-pack.md); spending with the Memberships pack's memberships and passes, and the waitlist with promotion, [ADR 0520](adr/0520-a-waitlist-on-a-claimant.md); parents booking for their children, [ADR 0540](adr/0540-the-family-link.md)); step 7, attendance, moves and cancelling a class; step 8, drop-ins with `sellable.moves`, [ADR 0560](adr/0560-a-paid-line-moves-a-record-that-exists.md)); step 9, messages, the reminder, the dashboard and the coach's app screen, [ADR 0572](adr/0572-bookings-messages-the-dashboard-and-the-coachs-app-screen.md); step 10 to come |

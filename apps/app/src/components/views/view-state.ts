@@ -107,7 +107,7 @@ function parseColumns(object: ObjectDefinition, raw: unknown): string[] | undefi
   return cols.length ? cols : undefined;
 }
 
-function parseFilter(raw: unknown): Filter | undefined {
+export function parseFilter(raw: unknown): Filter | undefined {
   // Router search parsing already turns JSON into objects; accept a string too (hand-made links).
   let value = raw;
   if (typeof raw === "string") {

@@ -1,4 +1,4 @@
-// A pack role limited to the People its holder looks after (ADR 0881): a role may declare, by
+// A pack role limited to the People its holder looks after (ADR 0889): a role may declare, by
 // object, the relation to the Person its records are about (`looksAfter: { "programs.session":
 // "person" }`). Its holder looks after a Person when a live record of one of the role's pack's
 // objects that declares a `team` names the account in one of its staff fields (ADR 0831: a
@@ -11,13 +11,28 @@
 //     found; an update that points the record at another Person must point it at one they look
 //     after (a delete is to the Trash, and still passes the gate: a coach's un-ticked set);
 //   - record.create: the new record's Person must be one they look after, else not found;
-//   - any other operation naming a limited object (count, createMany, batch, …): refused.
+//   - a tool runs (its own calls are held in turn), and so do the account's own core operations
+//     (`screens.mine`, `ack.*`); every other operation is refused, whatever it names, so one that
+//     names records under another key (an activity's links, a task's refs, a batch) cannot pass.
 // Nobody else is limited, and nothing is cached: ending the record ends the reach on the next call.
 import type { CoreDatabase } from "@composable-os/db";
 import { type Kysely, type RawBuilder, type SqlBool, sql } from "kysely";
 import { ForbiddenError, NotFoundError } from "./errors.ts";
 import { getObject } from "./fields/index.ts";
+import { PACK_ROLE_CORE_READS, PACK_ROLE_OWN } from "./pack-roles.ts";
 import { viewColumnOf } from "./records/columns.ts";
+
+/** The record operations the limit understands: a list, a get, an update, a delete and a create. */
+const CHECKED: ReadonlySet<string> = new Set([
+  "record.list",
+  "record.get",
+  "record.update",
+  "record.delete",
+  "record.create",
+]);
+
+/** Operations that read or write no record of anyone's: the account's own (pack-roles.ts). */
+const LIMIT_PASSES: ReadonlySet<string> = new Set([...PACK_ROLE_CORE_READS, ...PACK_ROLE_OWN]);
 
 /** One object whose records say who looks after whom (`team`, ADR 0831), as the role's pack has it. */
 export interface LooksAfterTeam {
@@ -136,6 +151,18 @@ export async function holdRoleLooksAfter(
   input: unknown,
 ): Promise<void> {
   if (!limit) return;
+  // Fail closed: under the limit, only the record operations it checks, a tool (its own calls are
+  // held in turn), and the account's own core operations run. Anything else, whatever key its input
+  // names a record by (`links`, `refs`, a batch), is refused.
+  if (!operation.startsWith("x.") && !LIMIT_PASSES.has(operation)) {
+    if (!CHECKED.has(operation)) {
+      throw new ForbiddenError(
+        `${operation} is not open to this role: it reaches the records of the people its holder looks after only`,
+        { rule: "role_looks_after", operation },
+      );
+    }
+  }
+  if (!CHECKED.has(operation)) return;
   const record = (input ?? {}) as Record<string, unknown>;
   const object = record.object;
   if (typeof object !== "string" || !Object.hasOwn(limit.reach, object)) return;
@@ -158,14 +185,8 @@ export async function holdRoleLooksAfter(
     }
     return;
   }
-  if (operation === "record.create") {
-    if (!(await looksAfterPerson(db, limit, values[relation]))) {
-      throw new NotFoundError("person", String(values[relation] ?? ""));
-    }
-    return;
+  // record.create
+  if (!(await looksAfterPerson(db, limit, values[relation]))) {
+    throw new NotFoundError("person", String(values[relation] ?? ""));
   }
-  throw new ForbiddenError(
-    `${operation} on ${object} is not open to this role: it reaches the records of the people its holder looks after only`,
-    { rule: "role_looks_after", object, operation },
-  );
 }

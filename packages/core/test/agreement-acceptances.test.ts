@@ -889,7 +889,12 @@ describe("health answers are isolated", () => {
           // The Person tab an AI may read: titles and dates, no mark, no name typed.
           const tab = await invoke("agreement.person", { personId: subject }, ctx);
           expect(tab.healthNote).toBeNull();
-          expect(tab.can).toEqual({ recordPaper: false, setMinor: false, readAnswers: false });
+          expect(tab.can).toEqual({
+            recordPaper: false,
+            setMinor: false,
+            readAnswers: false,
+            signAtDesk: false,
+          });
           expect(JSON.stringify(tab)).not.toContain(SECRET);
           const list = await invoke("agreement.acceptances", { documentId: healthDoc.id }, ctx);
           expect(JSON.stringify(list)).not.toContain(SECRET);

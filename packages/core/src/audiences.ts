@@ -26,6 +26,7 @@ export interface AudienceDeclaration {
   readonly audiences?: readonly Audience[] | undefined;
   readonly hostInternal?: boolean | undefined;
   readonly toolOnly?: boolean | undefined;
+  readonly deskOnly?: boolean | undefined;
 }
 
 export function audiencesOf(op: Pick<AudienceDeclaration, "audiences">): readonly Audience[] {
@@ -83,6 +84,8 @@ export interface OpenOperation {
   hostInternal?: true;
   /** Present and true when customers reach it only from inside a pack's tool (ADR 0414). */
   toolOnly?: true;
+  /** Present and true when only the desk origin's own handler reaches it (ADR 0649). */
+  deskOnly?: true;
   /** The pack whose tool it is (`x.<pack>.<tool>`); absent for a core operation. */
   pack?: string;
 }
@@ -110,6 +113,7 @@ export function openOperations(operations: readonly AudienceDeclaration[]): Open
         risk: op.risk,
         ...(op.hostInternal ? { hostInternal: true as const } : {}),
         ...(op.toolOnly ? { toolOnly: true as const } : {}),
+        ...(op.deskOnly ? { deskOnly: true as const } : {}),
       }))
       .sort((a, b) => a.name.localeCompare(b.name)),
   };

@@ -19,10 +19,12 @@
 // An unknown role, or one whose pack is not installed, active and shipped, holds nothing.
 //
 // Roles and grants add up (ADR 0600): an account holding a pack role may also be granted pack
-// permissions a pack declares grantable (Bookings' `bookings:desk`), never a core permission.
+// permissions a pack declares grantable (Bookings' `bookings:desk`), and the few core permissions
+// core declares grantable to such an account (`FIXED_ROLE_CORE_GRANTS`: `people:cards`,
+// `agreements:desk`), never another core permission.
 // Each call is allowed by one authority, decided here (`staffAuthority`): a grant that opens the
 // tool, else the pack role. The role's limits (today's records only, ADR 0553; the People its
-// holder looks after, ADR 0881) bind what the role gives and nothing else, and the pipeline
+// holder looks after, ADR 0889) bind what the role gives and nothing else, and the pipeline
 // carries them only on a call the role allowed.
 import type { CoreDatabase, CrmDb } from "@composable-os/db";
 import type { ExtensionManifest, RoleManifest } from "@composable-os/sdk";
@@ -43,7 +45,7 @@ export interface HeldPackRole {
   readonly read: readonly string[];
   /** Objects reached only on the organisation's local today, by the datetime path (ADR 0553). */
   readonly today?: import("./pack-role-today.ts").TodayLimits;
-  /** Objects reached only for the People the holder looks after, and the teams saying so (ADR 0881). */
+  /** Objects reached only for the People the holder looks after, and the teams saying so (ADR 0889). */
   readonly looksAfter?: LooksAfter;
 }
 
@@ -224,12 +226,12 @@ export function packRoleReaches(role: HeldPackRole, op: AnyOperation): boolean {
 /**
  * Whether a permission granted to the account opens the pack tool `op`: one of the tool's
  * permissions its installed pack still declares grantable (ADR 0449), or a core operation whose
- * permission is one of FIXED_ROLE_CORE_GRANTS (ADR 0783). So for an account holding a pack role a
+ * permission is one of FIXED_ROLE_CORE_GRANTS (ADRs 0783 and 0649). So for an account holding a pack role a
  * grant opens exactly the tools naming the granted permission and those few core operations, and
  * no record read, list, search or setting (ADR 0600).
  */
 export function grantOpens(grants: readonly string[], op: AnyOperation): boolean {
-  // The few core permissions a fixed role's account may be granted (ADR 0783): `people:cards`.
+  // The few core permissions a fixed role's account may be granted (ADRs 0783 and 0649).
   if (FIXED_ROLE_CORE_GRANTS.includes(op.permission) && grants.includes(op.permission)) return true;
   return (op.packGrantable ?? []).some((p) => grants.includes(p));
 }
@@ -297,7 +299,7 @@ export function roleLimitsFor(
 }
 
 /**
- * The pack role's limit to the People its holder looks after a call of `op` holds (ADR 0881): as
+ * The pack role's limit to the People its holder looks after a call of `op` holds (ADR 0889): as
  * for today's (`roleLimitsFor`), the role's unless a grant opens the operation. `userId` is the
  * account itself, whose People they are.
  */
@@ -306,8 +308,13 @@ export function roleLooksAfterFor(
   op: AnyOperation,
   userId: string,
 ): LooksAfterLimit | undefined {
-  const looksAfter = rights.packRole?.looksAfter;
-  if (!looksAfter) return undefined;
+  const role = rights.packRole;
+  const looksAfter = role?.looksAfter;
+  if (!role || !looksAfter) return undefined;
+  // Another pack's tool the role reaches (`anyStaff`, ADR 0652: Daily checklists') answers for
+  // the account by its own host operations: the limit is about the role's own pack's records,
+  // and holding it there would refuse those operations (it fails closed).
+  if (op.name.startsWith("x.") && !op.name.startsWith(`x.${role.extension}.`)) return undefined;
   return grantOpens(rights.grants, op) ? undefined : { userId, ...looksAfter };
 }
 

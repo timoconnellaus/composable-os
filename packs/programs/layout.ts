@@ -7,7 +7,8 @@
 //
 // An item is for everyone (`kind: "all"`: one or more bank exercises done together) or has
 // levels (`kind: "levels"`: up to five, possibly sparse, each one exercise, several done
-// together, or alternatives). Each exercise is a bank exercise (a ref the host checks is a live
+// together, or alternatives), and an item with levels may also have exercises for everyone
+// beside them (a hold everyone does after the level they took). Each exercise is a bank exercise (a ref the host checks is a live
 // `programs.exercise`) with typed sets (reps, time or a hold, with load, tempo and rest) and a
 // free-text note in the coach's words. A note on a session, block or item is for coaches only
 // unless marked `members: true`; the host removes the others from what a member reads.
@@ -181,9 +182,15 @@ const ITEM: DocumentUnionNode = {
     },
     levels: {
       type: "object",
-      description: "Up to five levels, possibly sparse (only 1 and 5)",
+      description:
+        "Up to five levels, possibly sparse (only 1 and 5), and optionally exercises for everyone",
       fields: {
         label: { type: "text", min: 1, max: 6 },
+        exercises: {
+          ...EXERCISES(1),
+          optional: true,
+          description: "Done by everyone, whatever level they take",
+        },
         levels: {
           type: "array",
           min: 1,
@@ -308,7 +315,14 @@ export type Level =
   | { mode: "together" | "alternatives"; level: number; exercises: Prescription[] };
 export type Item =
   | { kind: "all"; label: string; exercises: Prescription[]; notes?: Note[] }
-  | { kind: "levels"; label: string; levels: Level[]; notes?: Note[] };
+  | {
+      kind: "levels";
+      label: string;
+      /** Done by everyone beside the levels. */
+      exercises?: Prescription[];
+      levels: Level[];
+      notes?: Note[];
+    };
 export interface Block {
   label: string;
   rounds?: number;
@@ -333,7 +347,7 @@ export function levelExercises(level: Level): Prescription[] {
   return level.mode === "one" ? [level.exercise] : level.exercises;
 }
 
-/** Every prescription of a session, with the item label and level it is under. */
+/** Every prescription of a session, with the item label and level it is under (null: everyone's). */
 export function prescriptions(
   session: Session,
 ): { item: string; level: number | null; prescription: Prescription }[] {
@@ -344,6 +358,9 @@ export function prescriptions(
         for (const p of item.exercises)
           out.push({ item: item.label, level: null, prescription: p });
       } else {
+        for (const p of item.exercises ?? []) {
+          out.push({ item: item.label, level: null, prescription: p });
+        }
         for (const level of item.levels) {
           for (const p of levelExercises(level)) {
             out.push({ item: item.label, level: level.level, prescription: p });

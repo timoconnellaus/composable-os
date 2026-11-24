@@ -111,7 +111,7 @@ export const SOLUTIONS: readonly Solution[] = [
         },
         {
           title: "Training programs",
-          body: "Programs built from your exercise bank, given to a member or a whole class, with every set logged against its target.",
+          body: "Programs built from your exercise bank, given to a member or a whole class, with every set logged against its target. Your exercises, programs and members' past training come across with an import.",
           status: "built",
         },
         {
@@ -138,7 +138,7 @@ export const SOLUTIONS: readonly Solution[] = [
         },
         {
           title: "Waivers and agreements",
-          body: "Your membership terms, waiver, health questions and a parent's consent, in your own words. Members read and agree on your site or in your app, by ticking and typing their name or by drawing a signature, as you choose for each document. A visitor agrees on the way to paying for a class, and a parent agrees for their child. Nobody books a class or buys a membership or pass without agreeing first, and when you change a document you choose whether everyone agrees again before their next booking. A copy goes by email to whoever agrees online, and you can download the signed PDF at any time. Health answers are read only by the staff you allow; a coach sees a mark beside the name, never the answers. The screens in your app are built but not yet tried on phones. You can set a cooling-off period: a new member can end their membership on your website inside it, once, and what they paid in that period is refunded once a member of staff approves it (not for members moving over from another system). Still to come: signing on the gym's own tablet at the desk.",
+          body: "Your membership terms, waiver, health questions and a parent's consent, in your own words. Members read and agree on your site or in your app, by ticking and typing their name or by drawing a signature, as you choose for each document. A visitor agrees on the way to paying for a class, and a parent agrees for their child. Nobody books a class or buys a membership or pass without agreeing first, and when you change a document you choose whether everyone agrees again before their next booking. A copy goes by email to whoever agrees online, and you can download the signed PDF at any time. Health answers are read only by the staff you allow; a coach sees a mark beside the name, never the answers. The screens in your app are built but not yet tried on phones. You can set a cooling-off period: a new member can end their membership on your website inside it, once, and what they paid in that period is refunded once a member of staff approves it (not for members moving over from another system). A member can also sign at your desk, on the gym's own tablet: someone on your staff starts a session for them, the tablet holds no sign-in, and the copy is emailed to them (not yet tried on a real tablet or a live host).",
           status: "building",
         },
         {

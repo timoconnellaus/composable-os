@@ -335,7 +335,8 @@ describe("a pack role and its grants add up, each call by one authority (ADR 060
       for (const op of all) {
         const input = inputFor(op);
         // The few core grants a fixed role's account may hold open their own operations, and
-        // nothing else (ADR 0783: people:cards, the card operations).
+        // nothing else (ADR 0783: people:cards, the card operations; ADR 0649: agreements:desk,
+        // the desk session operations).
         if (FIXED_ROLE_CORE_GRANTS.includes(granted as Permission) && op.permission === granted) {
           expect(staffAuthority(viewer, rights, op, input), `${granted} ${op.name}`).toBe("grant");
           continue;

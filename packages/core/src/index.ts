@@ -11,6 +11,7 @@ export {
   scrubErasedCopies,
   sendAgreementCopies,
 } from "./agreements/copy.ts";
+export { CODE_MS, IDLE_MS, TOTAL_MS } from "./agreements/desk.ts";
 export {
   AGREEMENT_FOR,
   AGREEMENT_HOW,
@@ -93,6 +94,15 @@ export * from "./dashboards/overview.ts";
 export * from "./dashboards/params.ts";
 export * from "./dashboards/run.ts";
 export * from "./dashboards/spec.ts";
+export {
+  DEVICE_USES,
+  type DeskHost,
+  type DeskRequest,
+  type DeviceUse,
+  GRACE_MS,
+  LAPSE_MS,
+  ROTATE_MS,
+} from "./devices/devices.ts";
 export * from "./diff.ts";
 export { runDuplicateCron } from "./duplicates/cron.ts";
 export * from "./duplicates/normalise.ts";
@@ -122,6 +132,7 @@ export * from "./filter.ts";
 export * from "./gate.ts";
 export * from "./http/index.ts";
 export * from "./ids.ts";
+export * from "./intake/runtime.ts";
 export * from "./integrations/catalogue.ts";
 export * from "./integrations/events.ts";
 export * from "./integrations/outbound.ts";
@@ -190,6 +201,7 @@ export { coreOperations } from "./operations/index.ts";
 export * from "./operations/integration.ts";
 export * from "./operations/judge.ts";
 export * from "./operations/me.ts";
+export * from "./operations/me-attention.ts";
 export * from "./operations/media.ts";
 export * from "./operations/media-video.ts";
 export * from "./operations/memory.ts";
@@ -351,6 +363,7 @@ export {
   readStaffFeed,
 } from "./staffing/feed.ts";
 export * from "./staffing/index.ts";
+export * from "./stock/index.ts";
 export * from "./subscriptions/index.ts";
 export * from "./support.ts";
 export * from "./sync/ingest.ts";
@@ -363,4 +376,5 @@ export * from "./visibility/access.ts";
 export * from "./visibility/capacity.ts";
 export * from "./visibility/index.ts";
 export { getVisible, listVisible, type VisibleRecord } from "./visibility/records.ts";
+export * from "./visibility/stock.ts";
 export { assertVisibleWrites } from "./visibility/writes.ts";

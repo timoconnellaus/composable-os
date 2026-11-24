@@ -298,7 +298,11 @@ function ItemToDo({
   const levels = item.kind === "levels" ? item.levels : [];
   const chosen = levelOf(shared.state, item.label);
   const level = levels.find((l) => l.level === chosen);
-  const prescriptions = item.kind === "all" ? item.exercises : level ? levelExercises(level) : [];
+  // Everyone's exercises (beside the levels, if any), then the level's.
+  const prescriptions =
+    item.kind === "all"
+      ? item.exercises
+      : [...(item.exercises ?? []), ...(level ? levelExercises(level) : [])];
   return (
     <div
       className="grid gap-2 rounded-md border p-3"

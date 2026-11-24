@@ -70,8 +70,9 @@ export async function eligibleAccounts(
   exclude: ReadonlySet<string>,
 ): Promise<string[]> {
   const kindObject = kindObjectOf(s.object);
-  const kind = s.shift.kind;
-  if (!kindObject || !kind) return [];
+  const { kind, starts, ends } = s.shift;
+  // Nothing to offer without a kind of work and a time: answered before any read.
+  if (!kindObject || !kind || starts === null || ends === null || !(ends > starts)) return [];
   const rows = await ctx.db
     .selectFrom("core_staff_qualification")
     .select("account_id")
@@ -97,8 +98,6 @@ export async function eligibleAccounts(
   const first = candidates.find((a) => active.has(a));
   if (!first || !(await qualified(ctx, s.object, first, kind, true))) return [];
   const persons = await personValuesFor(ctx, s, [...active]);
-  const { starts, ends } = s.shift;
-  if (starts === null || ends === null || !(ends > starts)) return [];
   const out: string[] = [];
   // Two indexed reads each: their unavailability that can still overlap, their claims around it.
   for (const account of candidates) {

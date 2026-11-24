@@ -387,6 +387,16 @@ export function placeholderValues(
   };
 }
 
+/**
+ * The desk origin's hostname (stage 44 step 6, ADR 0649): `desk.` before the deployment's own
+ * name, on a custom domain only. A workers.dev or dispatch deployment has none (it cannot add the
+ * hostname), so it has no desk signing and no enrolled devices: nothing falls back to the staff
+ * origin.
+ */
+export function deskHostname(state: Pick<DeploymentState, "hostnameMode" | "hostname">): string {
+  return state.hostnameMode === "custom" ? `desk.${state.hostname}` : "";
+}
+
 /** The bindings a Worker is uploaded with in this deployment. */
 export function workerBindings(
   worker: WorkerEntry,
@@ -403,6 +413,10 @@ export function workerBindings(
   const bindings = renderBindings(wanted, values).map((binding) => {
     if (binding.type === "plain_text" && overrides[binding.name] !== undefined) {
       return { ...binding, text: overrides[binding.name] };
+    }
+    // The Worker that declares the desk's hostname is told it (the app): set here, never a var.
+    if (binding.type === "plain_text" && binding.name === "DESK_HOSTNAME") {
+      return { ...binding, text: deskHostname(state) };
     }
     const email = state.sendEmail?.[worker.name]?.[binding.name];
     if (binding.type === "send_email" && email) {
@@ -624,6 +638,10 @@ export async function deployWorkers(input: DeployInput): Promise<DeployResult> {
     await api.setWorkersDev(state.accountId, deployedName, onWorkersDev);
     if (worker.public && state.hostnameMode === "custom" && state.zoneId) {
       await api.putDomain(state.accountId, state.hostname, deployedName, state.zoneId);
+      // The desk origin, on the same Worker (ADR 0649), for the Worker that serves it.
+      if (worker.bindings.some((b) => b.type === "plain_text" && b.name === "DESK_HOSTNAME")) {
+        await api.putDomain(state.accountId, deskHostname(state), deployedName, state.zoneId);
+      }
     }
   }
   return { url: `https://${state.hostname}`, workers: result };

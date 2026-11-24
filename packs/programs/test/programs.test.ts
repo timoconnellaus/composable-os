@@ -73,6 +73,19 @@ function layout(): Layout {
                       },
                     ],
                   },
+                  {
+                    // An exercise for everyone, and levels beside it.
+                    kind: "levels",
+                    label: "A3",
+                    exercises: [{ exercise: hollow, sets: [{ kind: "time", seconds: 30 }] }],
+                    levels: [
+                      {
+                        mode: "one",
+                        level: 2,
+                        exercise: { exercise: row, sets: [{ kind: "reps", reps: 6 }] },
+                      },
+                    ],
+                  },
                 ],
               },
             ],
@@ -402,5 +415,37 @@ describe("logging and reading, as a coach", () => {
       { caller: STAFF },
     );
     expect(set).toMatchObject({ level: 1, target: { reps: 5 } });
+  });
+
+  it("an item with an exercise for everyone and levels: each logged against its own target", async () => {
+    const { host, session } = await assigned({ classTypeId: "rec_hand" });
+    const log = (input: Record<string, unknown>) =>
+      host.runTool<Record<string, unknown>>(
+        "logAdd",
+        { sessionId: session, item: "A3", setNumber: 1, personId: "per_ada", ...input },
+        { caller: STAFF },
+      );
+    // Everyone's exercise needs no level; with the level taken, it keeps it.
+    expect(await log({ exerciseId: hollow, actual: { seconds: 30 } })).toMatchObject({
+      exercise: hollow,
+      level: null,
+      target: { seconds: 30 },
+    });
+    expect(await log({ exerciseId: hollow, level: 2, actual: { seconds: 25 } })).toMatchObject({
+      exercise: hollow,
+      level: 2,
+    });
+    expect(await log({ level: 2, exerciseId: row, actual: { reps: 6 } })).toMatchObject({
+      exercise: row,
+      level: 2,
+      target: { reps: 6 },
+    });
+    // The level's exercise needs its level, and a level the item does not have is refused.
+    await expect(log({ exerciseId: row, actual: { reps: 6 } })).rejects.toMatchObject({
+      code: "invalid_input",
+    });
+    await expect(
+      log({ level: 4, exerciseId: hollow, actual: { seconds: 5 } }),
+    ).rejects.toMatchObject({ code: "invalid_input" });
   });
 });

@@ -384,7 +384,13 @@ describe("signing out and deleting the account end what the cookie can do", () =
   it("deleting the account ends every session at once, and no new one starts", async () => {
     const eve = await newCustomer("Eve");
     const second = cookiesOf(await signIn(eve.email));
-    const deleted = await call("me.deleteAccount", {}, { cookie: eve.cookie });
+    const preview = await call("me.deleteAccount", {}, { cookie: eve.cookie });
+    expect(preview.body.data).toMatchObject({ deleted: false });
+    const deleted = await call(
+      "me.deleteAccount",
+      { confirm: true, expect: preview.body.data.expect },
+      { cookie: eve.cookie },
+    );
     expect(deleted.status, JSON.stringify(deleted.body)).toBe(200);
     for (const cookie of [eve.cookie, second]) {
       expect((await call("me.get", {}, { cookie })).status).toBe(404);

@@ -135,9 +135,16 @@ export function logExercisesOf(
       const entries =
         item.kind === "all"
           ? item.exercises.map((p) => ({ p, level: null as number | null }))
-          : item.levels.flatMap((l) =>
-              (l.mode === "one" ? [l.exercise] : l.exercises).map((p) => ({ p, level: l.level })),
-            );
+          : [
+              // Everyone's exercises beside the levels, then each level's.
+              ...(item.exercises ?? []).map((p) => ({ p, level: null as number | null })),
+              ...item.levels.flatMap((l) =>
+                (l.mode === "one" ? [l.exercise] : l.exercises).map((p) => ({
+                  p,
+                  level: l.level as number | null,
+                })),
+              ),
+            ];
       for (const { p, level } of entries) {
         out.push({
           item: item.label,

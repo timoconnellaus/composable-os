@@ -1084,6 +1084,10 @@
             "description": "The country the latest taxed payment was for",
             "type": ["string", "null"]
           },
+          "discount": {
+            "type": "number",
+            "description": "Money taken off the order (its discounts), already out of the total"
+          },
           "lines": {
             "type": "array",
             "items": {
@@ -1116,6 +1120,10 @@
                 "taxAmount": {
                   "type": "number",
                   "description": "The tax inside this line's payments, as the payment provider calculated it"
+                },
+                "discount": {
+                  "type": "number",
+                  "description": "The line's share of the order's discounts: it costs total less this"
                 }
               },
               "required": [
@@ -1127,7 +1135,62 @@
                 "quantity",
                 "unitPrice",
                 "total",
-                "taxAmount"
+                "taxAmount",
+                "discount"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "adjustments": {
+            "description": "Staff only: the discounts on the order, in the order they were given",
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "lineId": {
+                  "description": "The line it is on; null: spread over the order",
+                  "type": ["string", "null"]
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": ["code", "automatic", "staff", "referral"]
+                },
+                "amount": {
+                  "type": "number",
+                  "description": "What it took off, in the currency's minor unit"
+                },
+                "percent": {
+                  "description": "The percentage asked for, when it was one",
+                  "type": ["number", "null"]
+                },
+                "reason": {
+                  "type": ["string", "null"]
+                },
+                "givenBy": {
+                  "description": "The staff account that gave it",
+                  "type": ["string", "null"]
+                },
+                "approval": {
+                  "description": "The approval it waited in, when it did",
+                  "type": ["string", "null"]
+                },
+                "createdAt": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "lineId",
+                "kind",
+                "amount",
+                "percent",
+                "reason",
+                "givenBy",
+                "approval",
+                "createdAt"
               ],
               "additionalProperties": false
             }
@@ -1164,6 +1227,7 @@
           "taxAmount",
           "taxRefunded",
           "taxCountry",
+          "discount",
           "lines",
           "token"
         ],
@@ -1252,6 +1316,10 @@
             "description": "The country the latest taxed payment was for",
             "type": ["string", "null"]
           },
+          "discount": {
+            "type": "number",
+            "description": "Money taken off the order (its discounts), already out of the total"
+          },
           "lines": {
             "type": "array",
             "items": {
@@ -1284,6 +1352,10 @@
                 "taxAmount": {
                   "type": "number",
                   "description": "The tax inside this line's payments, as the payment provider calculated it"
+                },
+                "discount": {
+                  "type": "number",
+                  "description": "The line's share of the order's discounts: it costs total less this"
                 }
               },
               "required": [
@@ -1295,7 +1367,62 @@
                 "quantity",
                 "unitPrice",
                 "total",
-                "taxAmount"
+                "taxAmount",
+                "discount"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "adjustments": {
+            "description": "Staff only: the discounts on the order, in the order they were given",
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "lineId": {
+                  "description": "The line it is on; null: spread over the order",
+                  "type": ["string", "null"]
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": ["code", "automatic", "staff", "referral"]
+                },
+                "amount": {
+                  "type": "number",
+                  "description": "What it took off, in the currency's minor unit"
+                },
+                "percent": {
+                  "description": "The percentage asked for, when it was one",
+                  "type": ["number", "null"]
+                },
+                "reason": {
+                  "type": ["string", "null"]
+                },
+                "givenBy": {
+                  "description": "The staff account that gave it",
+                  "type": ["string", "null"]
+                },
+                "approval": {
+                  "description": "The approval it waited in, when it did",
+                  "type": ["string", "null"]
+                },
+                "createdAt": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "lineId",
+                "kind",
+                "amount",
+                "percent",
+                "reason",
+                "givenBy",
+                "approval",
+                "createdAt"
               ],
               "additionalProperties": false
             }
@@ -1328,8 +1455,109 @@
           "taxAmount",
           "taxRefunded",
           "taxCountry",
+          "discount",
           "lines"
         ],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
+      "name": "stock.get",
+      "description": "How many of a thing in stock there are (a variant of an item in a shop). Staff get on hand (sold ones gone), held (by orders being paid for), available (on hand less held) and the reorder level, and the last five movements. Customers and the public get only what the object shows: in stock or sold out, a low-stock warning, or the number available. Read-only; holds nothing.",
+      "risk": "read",
+      "audiences": ["public"],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "object": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80,
+            "description": "An extension object that declares stock"
+          },
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          }
+        },
+        "required": ["object", "id"]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "object": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": ["in_stock", "low", "sold_out"],
+            "description": "`low` only when the object shows a low-stock warning and few are left"
+          },
+          "available": {
+            "description": "How many can be bought now. Shown to outsiders only when `show` allows",
+            "type": "number"
+          },
+          "onHand": {
+            "description": "Staff only: how many there are, sold ones gone",
+            "type": "number"
+          },
+          "held": {
+            "description": "Staff only: how many unpaid orders hold",
+            "type": "number"
+          },
+          "reorderAt": {
+            "type": ["number", "null"]
+          },
+          "reorderQty": {
+            "type": ["number", "null"]
+          },
+          "atReorderLevel": {
+            "type": "boolean"
+          },
+          "show": {
+            "type": "string",
+            "enum": ["exact", "low", "availability"]
+          },
+          "lowAt": {
+            "type": ["number", "null"]
+          },
+          "recent": {
+            "description": "Staff only: the last five movements, newest first; the rest is stock.movements",
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "kind": {
+                  "type": "string"
+                },
+                "quantity": {
+                  "type": "number"
+                },
+                "place": {
+                  "type": "string"
+                },
+                "at": {
+                  "type": "string"
+                },
+                "note": {
+                  "type": ["string", "null"]
+                }
+              },
+              "required": ["id", "kind", "quantity", "place", "at", "note"],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["object", "id", "status"],
         "additionalProperties": false
       },
       "invalidates": []

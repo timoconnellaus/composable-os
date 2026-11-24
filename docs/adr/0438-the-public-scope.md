@@ -120,3 +120,8 @@ current version, their content from that version. `when` holds beside it. Three 
 `content.get`, `content.list` and `content.preview`, are open to the public to call directly
 (not `toolOnly`), each reading as the public whoever calls. See
 [ADR 0442](0442-what-the-public-reads-of-content.md).
+
+## Amendment, 2026-11-24 (stage 29, ADR 0720)
+A form the public answers is read through the door (`intake.open`), which checks it takes answers
+from the caller now, beside any public scope its pack declares; and the public answers it through
+`intake.submit`. See [ADR 0720](0720-the-intake-door-one-public-write.md).

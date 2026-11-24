@@ -98,7 +98,7 @@ beforeAll(async () => {
   member = await createCustomer(admin, "hooks", "Hana");
 }, 120_000);
 
-/** A staff account a human admin gave Programs' coach role (ADR 0881). */
+/** A staff account a human admin gave Programs' coach role (ADR 0889). */
 async function coachRole(): Promise<ActingUser> {
   const id = `usr_${unique("kim")}`;
   const { env } = await import("cloudflare:workers");
@@ -271,9 +271,14 @@ describe("the hooks against the host", () => {
     );
     await run("record.publish", { object: "programs.program", id: program.id }, staff(admin));
     const theirs = await createCustomer(admin, "coached", "Cora");
-    await run(
+    const { assignmentId } = await run<{ assignmentId: string }>(
       "x.programs.assign",
-      { programId: program.id, personId: theirs.personId, startDate: "2027-10-04", coachId: k.id },
+      { programId: program.id, personId: theirs.personId, startDate: "2027-10-04" },
+      staff(admin),
+    );
+    await run(
+      "record.update",
+      { object: "programs.assignment", id: assignmentId, values: { coach: k.id } },
       staff(admin),
     );
     hooks.hooks.useClientSessions(theirs.personId);

@@ -36,7 +36,8 @@ export interface FormState {
   complete: boolean;
 }
 
-const filled = (value: Value | undefined) => value !== null && value !== undefined && value !== "";
+const filled = (value: Value | undefined): value is NonNullable<Value> =>
+  value !== null && value !== undefined && value !== "";
 
 export function useFormValues(fields: readonly FormField[]): FormState {
   const [values, setValues] = useState<Values>(() =>
@@ -58,8 +59,7 @@ export function formValues(fields: readonly FormField[], values: Values): Record
   for (const field of fields) {
     const value = values[field.name];
     if (!filled(value)) continue;
-    out[field.name] =
-      field.kind === "number" || field.kind === "money" ? Number(value) : (value as Value);
+    out[field.name] = field.kind === "number" || field.kind === "money" ? Number(value) : value;
   }
   return out;
 }

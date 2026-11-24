@@ -262,7 +262,11 @@ function NativeItem({
   const levels = item.kind === "levels" ? item.levels : [];
   const chosen = levelOf(state, item.label);
   const level = levels.find((l) => l.level === chosen);
-  const list = item.kind === "all" ? item.exercises : level ? levelExercises(level) : [];
+  // Everyone's exercises (beside the levels, if any), then the level's.
+  const list =
+    item.kind === "all"
+      ? item.exercises
+      : [...(item.exercises ?? []), ...(level ? levelExercises(level) : [])];
   return (
     <View style={styles.item}>
       <Text style={styles.heading}>{item.label}</Text>

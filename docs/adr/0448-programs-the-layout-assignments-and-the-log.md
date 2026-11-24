@@ -133,13 +133,13 @@ are not a member's to mark. Every staff member sees every client's training unti
   write still checks the schema and every ref. The draft asks for the `extract` model role and
   reads the brief itself when no model is configured.
 
-## Amendment, 2026-11-24 (ADR 0881): the coach role
+## Amendment, 2026-11-24 (ADR 0889): the coach role
 "Every staff member sees every client's training until stage 14a" still holds for staff; a staff
 account given Programs' pack role `programs.coach` sees only its own clients': an assignment gains
-`coach` (a user field, `coachId` on `x.programs.assign`) and declares a `team`, and the role
+`coach` (a user field a person approves: anyone else's write waits for one) and declares a `team`, and the role
 reaches assignments, sessions and logged sets only for the People an active assignment names it
 coach of. The read and log tools declare `programs:coach`. See
-[ADR 0881](0881-a-pack-role-limited-to-the-people-its-holder-looks-after.md).
+[ADR 0889](0889-a-pack-role-limited-to-the-people-its-holder-looks-after.md).
 
 ## Amendment, 2026-11-24 (past sessions in the app)
 - **A person's past sessions are read through the reads each caller already has,** not a new
@@ -153,6 +153,59 @@ coach of. The read and log tools declare `programs:coach`. See
   which is later work if a gym asks.
 - **Correcting a set is `logUpdate` as it was:** nothing new is allowed. A page of 20 sessions
   reads the sessions and their sets in two to six calls (an `in` filter of at most 20 ids).
+
+## Amendment, 2026-11-24 (stage 41: a safe, repeatable import)
+Found while moving the first client's programs onto the platform: running `x.programs.importText`
+twice made two programs, and a logged set must name a session, which only an assignment made, so
+past training had nowhere to go.
+- **`cos programs import <folder>`** (`packages/create-composable-os/src/programs-import/`), on the
+  import door (ADR 0470) and shaped as `cos courses import` is: exercises, class types, programs in
+  the shorthand (read by the pack's own `readProgramText`, exported from its public entry) and
+  past training, checked whole before signing in, every batch dry-run on the host, then written in
+  order with `record.import`, each batch naming what the one before made by id. A shorthand line
+  the reader cannot use stops the run with its file and line: an import that silently dropped a
+  coach's line would be wrong in a way nobody sees. `docs/importing.md`, Programs, is the format;
+  `skills/import-programs` the order.
+- **Past sessions.** A session is an assignment's, or one brought in from before:
+  `programs.session.assignment` is no longer required, and `requireOneOf: [["assignment",
+  "source"]]` holds the rule in the host. An imported session is done, has no assignment, plan or
+  kind (it was never planned here, so the dashboard's planned and done leave it out), and says
+  `source: import`; its sets say `source: import` too. A member reads their own as the rest of
+  their training and cannot log on one (no plan). Past training is personal: a class's past
+  attendance is the booking import's.
+- **What the import door writes starts nothing** (ADR 0470, amended): no automation, not even one
+  that takes bulk changes, and no notification.
+- **`x.programs.importText` with a key** makes one program per key: `importKey` and
+  `importedHash` (read-only, the tool's own) on `programs.program`, and a declared unique rule on
+  `importKey` (ADR 0502), so two runs at once cannot make two. Run again, the program is updated
+  while it still holds what the import last wrote, left unchanged when the text is the same, and
+  reported as a conflict, untouched, when someone has edited it since: the door's rule, kept by
+  the tool because a tool's own calls are not a person's and cannot use `record.import`. The hash
+  is of the title, kind, guidance and layout, canonical (keys in order), so publishing or a
+  change elsewhere on the record is not an edit. `dryRun` reads and checks the text against the
+  layout schema (`faults`, with their paths) and says what would happen, writing nothing. A
+  `Kind:` line says the program's kind.
+- **An item may have an exercise for everyone and levels**: the `levels` item takes optional
+  `exercises` beside its levels (a hold everyone does after the level they took). Logging one
+  needs no level; with the level taken, the set keeps it. The builder, the session blocks and the
+  hooks (`At.everyone`) show and edit them; the shorthand writes it as an exercise on the item's
+  line with level lines under it.
+
+### Fixed at review (2026-11-24)
+- **One set is never written over another.** Set numbers left out, and duplicates, are worked out
+  after each row's exercise (a key or a name) and person (either of their addresses) are known,
+  by the same identity the set's import key is made from. Two rows that are one set are a problem
+  with both lines. A key longer than the door takes (200), or the same key twice in a batch, is a
+  problem with its line, and the run stops at that batch; a session's name is at most 100
+  characters.
+- **A member cannot reopen an imported session:** the move back to planned is `staffOnly` while
+  the formula `imported` (`source` is `import`) is true.
+- **`x.programs.importText`'s check and write are two calls.** It reads the program, compares the
+  hash, then updates it; `record.update` has no "unchanged since" guard for a record without
+  states, so a coach's save landing between the two (milliseconds) would be overwritten. A save
+  before the run is never overwritten, and two runs cannot make two programs (the unique rule).
+  Closing the window needs a version guard on `record.update` for any object: platform work, not
+  this step's.
 
 ## Amendment, 2026-11-24 (fast logging on a phone)
 - **One row per set and person.** A phone retries a save it got no answer to, and a save sent

@@ -34,6 +34,22 @@ Status: **spec agreed** (2026-11-24: the draft's ten questions were decided as b
 the owner's standing rule on questions, with no interview needed; decisions 1 to 10 below). Build
 may start. A new stage, numbered 56.
 
+- **Step 1 built** (branch `feat/stage-56-note-levels`, ADRs 0830, 0831, 0832; migrations 1230 and
+  1231): `core_activity.level` and the note's other columns; levels 2 and 3 out of
+  `core_base_activities`, `rec_activity`, `rec_activity_link`, search, embeddings and summaries;
+  the note scope in the seam (`visibility/notes.ts`, through `visibleTable(ctx, "activity")`),
+  knowing the actor: no AI actor reads a kept note with any grant; `activity.log` and
+  `.update` take a level (a person only above `staff`, about exactly one Person; lowering needs
+  `notes:manage`); a note is changed or deleted by its author or `notes:manage`, deleted by a
+  person only; a sensitive note listed locked and read with `note.open` (every opening audited);
+  each read of a `coaches` note's text audited with ids (`ctx.auditRead`); kept notes' changes
+  audited by field name, no automation event, hidden from an AI's `audit.list` and from a
+  record's history for those who may not read them; `core_person_carer` with `carer.set`,
+  `.end`, `.list`; `notes:clients`, `notes:sensitive`, `notes:manage` (admins and grants,
+  restricted: never self-granted). Not in step 1: kinds and templates and every admin screen
+  (step 2), the shipped pack's `team` key (with Jobs), merge moving looks-after rows (step 7),
+  the digest needed nothing (it reads no activities).
+
 These notes can hold health and injury details. This stage is exact about who reads each note,
 records every read of a restricted one, and deletes them on erase. **It is not a clinical record**:
 allied health's clinical layer is out of scope (the owner ranked that market lower), and nothing

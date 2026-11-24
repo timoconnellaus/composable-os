@@ -42,7 +42,8 @@ export function matchNotificationRoutes(
   message: RecordEventMessage,
   routes: readonly NotificationRoute[],
 ): RouteMatch[] {
-  if (message.origin.bulk) return [];
+  // Bulk changes, and what the import door brings in (always bulk), notify nobody.
+  if (message.origin.bulk || message.origin.imported) return [];
   const out: RouteMatch[] = [];
   for (const change of message.changes) {
     if (UNROUTABLE_OBJECTS.includes(change.object)) continue;

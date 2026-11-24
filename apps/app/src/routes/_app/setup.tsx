@@ -67,9 +67,7 @@ const MAX_LOGO_BYTES = 140_000;
 
 function timezones(): string[] {
   try {
-    return (Intl as unknown as { supportedValuesOf(key: string): string[] }).supportedValuesOf(
-      "timeZone",
-    );
+    return Intl.supportedValuesOf("timeZone");
   } catch {
     return ["UTC"];
   }

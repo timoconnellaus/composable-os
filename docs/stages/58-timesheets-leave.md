@@ -23,6 +23,25 @@ the coordinator, open to override). Build may start.
   work); finish missing on the minute cron (`staffing.due`); `workedOn` in the SDK, refused to a
   runtime extension. Until step 2 every finished or entered entry waits. Leaving does not yet mark
   an open entry finish missing (step 4 amends `leaving.ts`).
+- **Step 4, leave** (branch `feat/stage-58-leave`; migration 1271, ADR 0853; amends ADRs 0622,
+  0624, 0629): built in core. `core_leave_type`, `core_leave_request`, `core_leave_day`,
+  `core_leave_balance_entry` (insert only) and `core_staff_away.leave_request`, with triggers
+  (a request decided once, so two approvals at once apply once; what it asked fixed; an approved
+  one never deleted; a refusing type's approval refused below zero by the database). The tool-only
+  operations `staffing.leave.types`, `saveType`, `request`, `requestFor` (with `approve`),
+  `cancel`, `mine`, `pending`, `approve`, `decline`, `cancelApproved`, `balances`, `setBalance`,
+  `adjust` (`staffing/leave.ts`, `operations/staffing-leave.ts`). Approval in one batch writes the
+  balance entry, the away row and takes the person off each covered shift not started, offering
+  each to everyone eligible (each take-off guarded on the person still holding it; eligibility and
+  the offer notices set-based; at most 40 shifts an approval, 670 queries at that size with four
+  kinds of 100 qualified people, `staffing-leave-cost.test.ts`). Approved leave is cancelled only
+  with its away row removed and its balance reversed (a stale cancel fails whole). Open: a weekly
+  pattern's later generation can name the person on a shift inside approved leave (ADR 0853).
+  `staffing.back` refuses a request's row;
+  `staffing.away` makes no new kind `leave` once a type exists; `user.deactivate` cancels waiting
+  requests and marks an entry left open finish missing (no finish written). Tests: `packages/core/test/staffing-leave.test.ts`. Left for later steps: the lock's
+  triggers over leave and leave lines in pay (step 3, migration 1272), Rostering's tools and
+  notification words (step 5), the screens (step 6), the `forget` additions (with `staffing.forget`).
 
 ## Goal
 
