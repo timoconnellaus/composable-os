@@ -172,16 +172,17 @@ export type RosteringClient = PackClient<RosteringOperations>;
 
 // --- Plain functions (display only) --------------------------------------------------------------
 
-const WEEKDAY_ORDER = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"] as const;
-const WEEKDAY_NAMES: Record<string, string> = {
-  mon: "Monday",
-  tue: "Tuesday",
-  wed: "Wednesday",
-  thu: "Thursday",
-  fri: "Friday",
-  sat: "Saturday",
-  sun: "Sunday",
-};
+/** The days of a regular week, Monday first, as the host names them and as a person reads them. */
+export const WEEKDAYS = [
+  ["mon", "Monday"],
+  ["tue", "Tuesday"],
+  ["wed", "Wednesday"],
+  ["thu", "Thursday"],
+  ["fri", "Friday"],
+  ["sat", "Saturday"],
+  ["sun", "Sunday"],
+] as const;
+export type Weekday = (typeof WEEKDAYS)[number][0];
 
 /** A `YYYY-MM-DD` date `days` later (or earlier): calendar dates only, no time of day or zone. */
 export function addDays(date: string, days: number): string {
@@ -306,8 +307,8 @@ export function warningLabel(code: StaffWarning["code"]): string {
 /** A time off as a person reads it, in its own zone. */
 export function awayWhen(item: AwayItem, locale = "en-AU"): string {
   if (item.kind === "regular") {
-    const days = WEEKDAY_ORDER.filter((d) => item.weekdays.includes(d))
-      .map((d) => WEEKDAY_NAMES[d])
+    const days = WEEKDAYS.filter(([d]) => item.weekdays.includes(d))
+      .map(([, name]) => name)
       .join(", ");
     const range = item.untilDate
       ? `from ${dayLabel(item.fromDate ?? "", locale)} until ${dayLabel(item.untilDate, locale)}`
@@ -325,8 +326,8 @@ export function awayKind(kind: AwayItem["kind"]): string {
 
 /** A pattern's regular week as a person reads it ("Mon, Wed 06:00, 60 minutes"). */
 export function patternWhen(p: Pattern): string {
-  const days = WEEKDAY_ORDER.filter((d) => p.weekdays.includes(d))
-    .map((d) => (WEEKDAY_NAMES[d] ?? d).slice(0, 3))
+  const days = WEEKDAYS.filter(([d]) => p.weekdays.includes(d))
+    .map(([, name]) => name.slice(0, 3))
     .join(", ");
   return [days, p.time, p.length ? `${p.length} minutes` : null].filter(Boolean).join(" ");
 }
