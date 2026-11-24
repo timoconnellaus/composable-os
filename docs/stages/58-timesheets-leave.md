@@ -14,6 +14,24 @@ Status: **spec agreed** (owner interviewed 2026-11-24: decision 1; the owner's e
 decisions of 2026-11-24 stand as decisions 2 to 4; decisions 5 to 13 decided as best practice by
 the coordinator, open to override). Build may start.
 
+## Status
+
+- **Step 4, leave** (branch `feat/stage-58-leave`; migration 1271, ADR 0853; amends ADRs 0622,
+  0624, 0629): built in core. `core_leave_type`, `core_leave_request`, `core_leave_day`,
+  `core_leave_balance_entry` (insert only) and `core_staff_away.leave_request`, with triggers
+  (a request decided once, so two approvals at once apply once; what it asked fixed; an approved
+  one never deleted; a refusing type's approval refused below zero by the database). The tool-only
+  operations `staffing.leave.types`, `saveType`, `request`, `requestFor` (with `approve`),
+  `cancel`, `mine`, `pending`, `approve`, `decline`, `cancelApproved`, `balances`, `setBalance`,
+  `adjust` (`staffing/leave.ts`, `operations/staffing-leave.ts`). Approval in one batch writes the
+  balance entry, the away row and takes the person off each covered shift not started, offering
+  each to everyone eligible (eligibility read set-based; at most 40 shifts an approval, about 680
+  queries at that size, `staffing-leave-cost.test.ts`). `staffing.back` refuses a request's row;
+  `staffing.away` makes no new kind `leave` once a type exists; `user.deactivate` cancels waiting
+  requests. Tests: `packages/core/test/staffing-leave.test.ts`. Left for later steps: the lock's
+  triggers over leave and leave lines in pay (step 3, migration 1272), Rostering's tools and
+  notification words (step 5), the screens (step 6), the `forget` additions (with `staffing.forget`).
+
 ## Goal
 
 Staff record the time they actually worked, and the business pays from it. A cleaner taps "start"

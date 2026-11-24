@@ -77,3 +77,12 @@ leaving must not leave their future classes pointing at an account that cannot w
 ## Amended 2026-11-24 (stage 45 step 7, ADR 0629; a coordinator's decision)
 
 An assistant or MCP acting for a rosterer no longer gets `unavailable` warnings from `staffing.week`, `staffing.check` or `staffing.candidates` (or from Rostering's tools over them): it learns clashes and qualifications, never who is away. A person at the screen sees them as before.
+
+## Amended 2026-11-24 (stage 58 step 4, ADR 0853)
+
+Leaving also cancels the leaver's leave requests still waiting, in `user.deactivate`'s batch
+(`staffing/leaving.ts`); approved leave and leave balances stay as they are, as payroll records.
+Approving leave takes the person off each covered shift that has not started and offers it, and
+the rosterers get this ADR's notice of someone away over their shifts with which were offered and
+which nobody could be. See
+[ADR 0853](0853-leave-types-requests-the-balance-ledger-and-approved-leave-as-unavailability.md).

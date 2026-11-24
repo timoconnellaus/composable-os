@@ -101,6 +101,12 @@ export const ID_PREFIXES = {
   staffHours: "soh",
   /** One locked version of a pay period (stage 45 step 6, ADR 0627). */
   payPeriod: "ppe",
+  /** A kind of leave the business offers (stage 58 step 4, ADR 0853). */
+  leaveType: "lvt",
+  /** An ask for time off, approved, declined or cancelled (ADR 0853). */
+  leaveRequest: "lvr",
+  /** One entry of a leave balance's ledger, never changed (ADR 0853). */
+  leaveBalanceEntry: "lvb",
   /** A checklist template (stage 45 step 4b, ADR 0650). */
   checklist: "ckl",
   /** A run of a checklist on one record, never changed once closed (ADR 0650). */

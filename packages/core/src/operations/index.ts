@@ -77,6 +77,7 @@ import { setupOperations } from "./setup.ts";
 import { staffingOperations } from "./staffing.ts";
 import { staffingFeedOperations } from "./staffing-feed.ts";
 import { staffingHoursOperations } from "./staffing-hours.ts";
+import { staffingLeaveOperations } from "./staffing-leave.ts";
 import { staffingPayOperations } from "./staffing-pay.ts";
 import { staffingScreenOperations } from "./staffing-screens.ts";
 import { stateResolveOperations } from "./state-resolve.ts";
@@ -179,6 +180,7 @@ export const coreOperations = [
   ...staffingOperations,
   ...staffingFeedOperations,
   ...staffingHoursOperations,
+  ...staffingLeaveOperations,
   ...staffingPayOperations,
   ...staffingScreenOperations,
   ...screenOperations,

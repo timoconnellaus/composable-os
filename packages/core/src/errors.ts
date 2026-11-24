@@ -394,6 +394,41 @@ export function toOperationError(error: unknown): OperationError {
       },
     );
   }
+  // Leave (migration 1271, ADR 0853): a request decided a moment before (of two approvals at once
+  // one applies), what was asked never changes, the ledger is insert only, and a type that refuses
+  // a balance below zero. The answer names no note, amount or balance.
+  if (message.includes("core_leave_request_closed")) {
+    return new ConflictError(
+      "This leave request was decided or cancelled a moment before, so nothing was changed. Look again.",
+      { rule: "leave_closed" },
+    );
+  }
+  if (
+    message.includes("core_leave_request_fixed") ||
+    message.includes("core_leave_balance_fixed")
+  ) {
+    return new ConflictError(
+      "What a leave request asked for and the balance ledger never change, so nothing was changed.",
+      { rule: "leave_fixed" },
+    );
+  }
+  if (message.includes("core_leave_below_zero")) {
+    return new ConflictError(
+      "This leave would take the balance below zero, which its type does not allow, so nothing was changed.",
+      { rule: "leave_below_zero" },
+    );
+  }
+  if (message.includes("core_leave_type_used")) {
+    return new ConflictError(
+      "Leave or a balance is recorded in this type, so its unit cannot change and it is not removed. Make it inactive instead.",
+      { rule: "leave_type_used" },
+    );
+  }
+  if (message.includes("UNIQUE constraint failed: core_leave_type")) {
+    return new ConflictError("There is already a leave type with that name.", {
+      rule: "leave_type_name",
+    });
+  }
   // A live shift whose end is not after its start (ADR 0621), written by a path that does not
   // check first: the trigger on the staffed object's table refuses it.
   if (message.includes("core_staff_time_backwards")) {
