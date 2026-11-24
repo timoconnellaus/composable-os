@@ -4,28 +4,20 @@
 // asks, and reports what the host answered.
 import { defineTool, type ExtensionContext, OpsCallError, z } from "@composable-os/sdk";
 import { formatMoney } from "./money.ts";
-
-const EVENT = "ticketing.event";
-const TICKET_TYPE = "ticketing.tickettype";
-const TICKET = "ticketing.ticket";
-
-interface RecordShape {
-  id: string;
-  title: string | null;
-  values: Record<string, unknown>;
-}
-
-interface ListShape {
-  items: RecordShape[];
-  nextCursor?: string | null;
-  /** On a sellable object's records (a ticket type): the currency its prices are in. */
-  currency?: string | null;
-}
+import {
+  EVENT,
+  type HostPage,
+  type HostRecord,
+  isConflict,
+  TICKET,
+  TICKET_TYPE,
+} from "./objects.ts";
 
 const text = (value: unknown): string | null =>
   value === null || value === undefined ? null : String(value);
 const num = (value: unknown): number | null =>
   typeof value === "number" ? value : value == null ? null : Number(value);
+const sum = (values: number[]): number => values.reduce((total, value) => total + value, 0);
 
 // --- On sale -------------------------------------------------------------------------------------
 
@@ -97,29 +89,30 @@ export const eventsOnSale = defineTool({
   async handler(input, ctx) {
     // The seam decides which events and which fields: the public scope shows an event only
     // while it is on sale, and a ticket type only while its event is (ADR 0438).
-    const events = await ctx.ops.call<ListShape>("public.list", {
+    const events = await ctx.ops.call<HostPage>("public.list", {
       object: EVENT,
       ...(input.event ? { filter: { field: "id", op: "eq", value: input.event } } : {}),
       sort: { field: "startsAt", direction: "asc" },
       limit: input.limit,
     });
-    const places = async (object: string, id: string) => {
-      const view = await ctx.ops.call<{
-        status: "available" | "low" | "sold_out";
-        available?: number | null;
-      }>("capacity.get", { object, id });
-      return {
-        status: view.status,
-        ...(view.available === undefined ? {} : { available: view.available }),
-      };
+    const places = async (object: string, id: string): Promise<z.infer<typeof availability>> => {
+      const { status, available } = await ctx.ops.call<z.infer<typeof availability>>(
+        "capacity.get",
+        { object, id },
+      );
+      return available === undefined ? { status } : { status, available };
     };
     const out = [];
     for (const event of events.items) {
-      const types = await ctx.ops.call<ListShape>("public.list", {
-        object: TICKET_TYPE,
-        filter: { field: "event", op: "eq", value: event.id },
-        limit: 50,
-      });
+      // The event's ticket types and its own places, asked together.
+      const [types, eventPlaces] = await Promise.all([
+        ctx.ops.call<HostPage>("public.list", {
+          object: TICKET_TYPE,
+          filter: { field: "event", op: "eq", value: event.id },
+          limit: 50,
+        }),
+        places(EVENT, event.id),
+      ]);
       const v = event.values;
       out.push({
         id: event.id,
@@ -130,7 +123,7 @@ export const eventsOnSale = defineTool({
         venue: text(v.venue),
         description: text(v.description),
         image: text(v.image),
-        availability: await places(EVENT, event.id),
+        availability: eventPlaces,
         ticketTypes: await Promise.all(
           types.items.map(async (type) => ({
             id: type.id,
@@ -325,7 +318,7 @@ export const myTickets = defineTool({
     ];
     // The host's seam gives a customer their own tickets and the fields the ticket declares for
     // them, and nothing else: no filter here decides whose tickets these are.
-    const page = await ctx.ops.call<ListShape>("my.list", {
+    const page = await ctx.ops.call<HostPage>("my.list", {
       object: TICKET,
       ...(conditions.length === 0
         ? {}
@@ -337,17 +330,23 @@ export const myTickets = defineTool({
     // fields those objects declare for them (customerVia, ADR 0439), whatever the event's state,
     // and only for records one of their own tickets points to.
     const pointed = async (object: string, field: string) => {
-      const ids = [...new Set(page.items.map((t) => text(t.values[field])).filter(Boolean))];
+      const ids = [
+        ...new Set(
+          page.items.map((t) => text(t.values[field])).filter((id): id is string => Boolean(id)),
+        ),
+      ];
       if (!ids.length) return new Map<string, Record<string, unknown>>();
-      const found = await ctx.ops.call<ListShape>("my.list", {
+      const found = await ctx.ops.call<HostPage>("my.list", {
         object,
         filter: { field: "id", op: "in", value: ids },
         limit: ids.length,
       });
       return new Map(found.items.map((item) => [item.id, item.values]));
     };
-    const events = await pointed(EVENT, "event");
-    const types = await pointed(TICKET_TYPE, "tickettype");
+    const [events, types] = await Promise.all([
+      pointed(EVENT, "event"),
+      pointed(TICKET_TYPE, "tickettype"),
+    ]);
     return {
       items: page.items.map((ticket) => {
         const eventId = text(ticket.values.event);
@@ -407,16 +406,19 @@ export const salesSummary = defineTool({
   }),
   risk: "read",
   async handler(input, ctx) {
-    const event = await ctx.ops.call<RecordShape>("record.get", {
+    const event = await ctx.ops.call<HostRecord>("record.get", {
       object: EVENT,
       id: input.eventId,
     });
-    const types = await ctx.ops.call<ListShape>("record.list", {
-      object: TICKET_TYPE,
-      filter: { field: "event", op: "eq", value: event.id },
-      sort: { field: "name", direction: "asc" },
-      limit: 200,
-    });
+    const [types, settings] = await Promise.all([
+      ctx.ops.call<HostPage>("record.list", {
+        object: TICKET_TYPE,
+        filter: { field: "event", op: "eq", value: event.id },
+        sort: { field: "name", direction: "asc" },
+        limit: 200,
+      }),
+      ctx.ops.call<{ currency: string | null }>("order.settings.get", {}),
+    ]);
     const revenue = new Map<string, number>();
     if (types.items.length) {
       // Revenue from the order lines the host snapshotted: paid in full, or by deposit.
@@ -445,16 +447,15 @@ export const salesSummary = defineTool({
     }));
     const eventLeft = num(event.values.available);
     const typesLeft = ticketTypes.every((t) => t.remaining !== null)
-      ? ticketTypes.reduce((sum, t) => sum + (t.remaining ?? 0), 0)
+      ? sum(ticketTypes.map((t) => t.remaining ?? 0))
       : null;
-    const settings = await ctx.ops.call<{ currency: string | null }>("order.settings.get", {});
     return {
       event: { id: event.id, name: text(event.values.name), status: text(event.values.status) },
       currency: settings.currency ?? null,
       ticketTypes,
       totals: {
-        sold: ticketTypes.reduce((sum, t) => sum + t.sold, 0),
-        held: ticketTypes.reduce((sum, t) => sum + t.held, 0),
+        sold: sum(ticketTypes.map((t) => t.sold)),
+        held: sum(ticketTypes.map((t) => t.held)),
         // The fewer of the event's places left and the ticket types' own.
         remaining:
           eventLeft === null
@@ -462,7 +463,7 @@ export const salesSummary = defineTool({
             : typesLeft === null
               ? eventLeft
               : Math.min(eventLeft, typesLeft),
-        revenue: ticketTypes.reduce((sum, t) => sum + t.revenue, 0),
+        revenue: sum(ticketTypes.map((t) => t.revenue)),
       },
     };
   },
@@ -510,9 +511,9 @@ const checkInOutput = z.object({
     .describe("Set when the ticket's order still has a balance to pay. It does not refuse entry."),
 });
 
-type Ctx = ExtensionContext;
+type CheckInResult = z.infer<typeof checkInOutput>;
 
-async function personName(ctx: Ctx, id: string): Promise<string | null> {
+async function personName(ctx: ExtensionContext, id: string): Promise<string | null> {
   try {
     const person = await ctx.ops.call<{ displayName?: string | null } | null>("person.get", { id });
     return person?.displayName ?? null;
@@ -522,7 +523,7 @@ async function personName(ctx: Ctx, id: string): Promise<string | null> {
   }
 }
 
-async function describeTicket(ctx: Ctx, ticket: RecordShape): Promise<TicketOut> {
+async function describeTicket(ctx: ExtensionContext, ticket: HostRecord): Promise<TicketOut> {
   const v = ticket.values;
   const holder = text(v.holder);
   const usedBy = text(v.usedBy);
@@ -538,8 +539,13 @@ async function describeTicket(ctx: Ctx, ticket: RecordShape): Promise<TicketOut>
   };
 }
 
+/** A ticket as it is now, after the host refused to move it. */
+async function readTicket(ctx: ExtensionContext, id: string): Promise<TicketOut> {
+  return describeTicket(ctx, await ctx.ops.call<HostRecord>("record.get", { object: TICKET, id }));
+}
+
 /** What a ticket that cannot be let in is reported as. */
-function refusedFor(ticket: TicketOut): z.infer<typeof checkInOutput> | null {
+function refusedFor(ticket: TicketOut): CheckInResult | null {
   if (ticket.state === "void") {
     return {
       result: "void",
@@ -563,9 +569,9 @@ function refusedFor(ticket: TicketOut): z.infer<typeof checkInOutput> | null {
 }
 
 async function balanceOwing(
-  ctx: Ctx,
+  ctx: ExtensionContext,
   orderId: string | null,
-): Promise<z.infer<typeof checkInOutput>["balanceOwing"]> {
+): Promise<CheckInResult["balanceOwing"]> {
   if (!orderId) return null;
   const order = await ctx.ops.call<{
     state: string;
@@ -583,18 +589,18 @@ const checkInInput = z.object({
 
 async function checkInHandler(
   input: z.output<typeof checkInInput>,
-  ctx: Ctx,
-): Promise<z.infer<typeof checkInOutput>> {
+  ctx: ExtensionContext,
+): Promise<CheckInResult> {
   const code = normaliseCode(input.code);
-  const unknown = {
-    result: "unknown" as const,
+  const unknown: CheckInResult = {
+    result: "unknown",
     accepted: false,
     message: "No ticket has this code. Check it was scanned whole, or look the buyer up.",
     ticket: null,
     balanceOwing: null,
   };
   if (!CODE_RE.test(code)) return unknown;
-  const found = await ctx.ops.call<ListShape>("record.list", {
+  const found = await ctx.ops.call<HostPage>("record.list", {
     object: TICKET,
     filter: { field: "code", op: "eq", value: code },
     limit: 1,
@@ -607,6 +613,7 @@ async function checkInHandler(
   const usedAt = new Date().toISOString();
   const staff = ctx.caller?.kind === "staff" ? ctx.caller : null;
   const usedBy = staff?.userId ?? null;
+  const usedByName = staff?.name || null;
   try {
     // Moved out of `valid` only if it is still valid when the host writes it (ADR 0437): of two
     // scanners at the same moment, one is let in and the other told who was first.
@@ -614,12 +621,11 @@ async function checkInHandler(
       object: TICKET,
       id: record.id,
       from: "valid",
-      values: { state: "used", usedAt, usedBy, usedByName: staff?.name || null },
+      values: { state: "used", usedAt, usedBy, usedByName },
     });
   } catch (error) {
-    if (!(error instanceof OpsCallError) || error.code !== "conflict") throw error;
-    const now = await ctx.ops.call<RecordShape>("record.get", { object: TICKET, id: record.id });
-    const ticket = await describeTicket(ctx, now);
+    if (!isConflict(error)) throw error;
+    const ticket = await readTicket(ctx, record.id);
     return (
       refusedFor(ticket) ?? {
         // Moved by someone and back again in the meantime: say so, and let them scan again.
@@ -643,7 +649,7 @@ async function checkInHandler(
       ...before,
       state: "used",
       usedAt,
-      usedBy: usedBy ? { id: usedBy, name: staff?.name || null } : null,
+      usedBy: usedBy ? { id: usedBy, name: usedByName } : null,
     },
     balanceOwing: owing,
   };
@@ -673,7 +679,7 @@ export const undoCheckIn = defineTool({
   permission: "ticketing:checkin",
   async handler(input, ctx) {
     try {
-      const after = await ctx.ops.call<RecordShape>("record.update", {
+      const after = await ctx.ops.call<HostRecord>("record.update", {
         object: TICKET,
         id: input.ticketId,
         from: "used",
@@ -685,12 +691,8 @@ export const undoCheckIn = defineTool({
         ticket: await describeTicket(ctx, after),
       };
     } catch (error) {
-      if (!(error instanceof OpsCallError) || error.code !== "conflict") throw error;
-      const now = await ctx.ops.call<RecordShape>("record.get", {
-        object: TICKET,
-        id: input.ticketId,
-      });
-      const ticket = await describeTicket(ctx, now);
+      if (!isConflict(error)) throw error;
+      const ticket = await readTicket(ctx, input.ticketId);
       return {
         undone: false,
         message:
