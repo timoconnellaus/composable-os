@@ -43,7 +43,11 @@ migration; see "Built in step 7" below). Build step 4b, checklists (templates, r
 `checklists` declaration and the `checklist` field type, a done run kept unchanged by the database,
 the read rule, Settings → Checklists, the duty's checklist and ticking on "my shifts"), is built
 ([ADR 0650](../adr/0650-checklists-templates-runs-ticks-and-a-done-run-kept-unchanged.md),
-migration 0815; see "Built in step 4b" below). Builds on stage
+migration 0815; see "Built in step 4b" below). A follow-on to step 4b, checklists on their own
+without a roster (the owner's decision of 2026-11-24: the first client starts with checklists alone),
+is built ([ADR 0651](../adr/0651-checklists-on-their-own-a-schedule-a-run-a-day-and-who-may-do-it.md),
+[ADR 0652](../adr/0652-a-tool-for-every-staff-account-and-a-tool-held-to-a-core-permission.md),
+migration 0816; see "Built: checklists on their own" below). Builds on stage
 31a (built) and ADR 0600 (merged). Replaces the roadmap's placeholder stage 40 (Rosters), which was
 never specced. Where this spec guesses, it says **(guess)**.
 
@@ -918,6 +922,13 @@ migration; no `core_write_guard` remake (0852 stays free).
   alone is unchanged. An AI's roster change is approved only by someone who could make it. See
   ADR 0626. (Step 4 as first written restricted only the tools: a member could still write a
   shift's person directly.)
+- **An AI's restore is approved only by a rosterer** (issue #285, 2026-11-24): a pending
+  `record.restore` of a shift or series in the Trash with someone on it, and a pending
+  `record.restoreVersion` of an object whose versioned content says who works it, are roster
+  changes for their approval (`rosterChangeCall` in `staffing/approvals.ts`, read by the approver
+  check and the queue's redaction); a restore of one with nobody on it is anyone's who may approve.
+  Tests: `apps/runner/test/rostering.test.ts` (a shift and a series, a member's approval refused and
+  a rosterer's applied), `packages/core/test/roster-approvals.test.ts`.
 - **A `rostering.team` account may be granted `rostering:manage`** by a human admin, and then rosters
   (ADR 0625 allows a fixed-role account any pack permission; a coach who also rosters is the case
   the spec names). This is deliberate.
@@ -1205,8 +1216,45 @@ triggers). No `core_write_guard` remake (0852 stays free).
   `checklistRuns` 17.
 - **Not in this step**: the spec's follow-ons (photos, a missed step raising a task, checklists on
   class types, events or a member's first week, a second sign-off, conditional steps, scores,
-  offline ticking, a checklist with no shift), an export of runs, and the product's admin showing
+  offline ticking, a checklist with no shift: since built, "Built: checklists on their own"), an
+  export of runs, and the product's admin showing
   Rostering's web screens to staff (step 7's open item: the blocks mount on `/blocks` only).
+
+### Built: checklists on their own (2026-11-24)
+A follow-on to step 4b (the owner decided on 2026-11-24 that the first client starts with checklists
+alone: opening, closing, cleaning; the roster and hours later).
+[ADR 0651](../adr/0651-checklists-on-their-own-a-schedule-a-run-a-day-and-who-may-do-it.md) (ADR
+0650 amended), [ADR 0652](../adr/0652-a-tool-for-every-staff-account-and-a-tool-held-to-a-core-permission.md)
+(ADRs 0436 and 0660 amended), migration 0816 (block AV), Daily checklists (`packs/dailychecks`, new).
+- **A template's standing schedule**: the weekdays it is due in the business's time zone, a time it
+  is due by, and who may do it (everyone on staff who may write, a role or a pack role, or a
+  grant), written with the template in Settings → Checklists ("Done on its own"); an assistant's
+  draft waits for a person who holds `checklists:write`, as before.
+- **One run a day**: in `core_checklist_run` (`checklist.day`, `<template>:<date>`), open for that
+  local day with no grace, made by the minute cron at the day's start (or by the first tick),
+  copying the steps, who may do it and the due time. Anyone who may do it ticks it; each tick keeps
+  who and when; whoever ticks the last step finishes it (optional steps left: finished by hand once
+  the required ones are); not finished by the day's end, it is missed and the managers are told.
+- **The host's two rules, in the database too**: migration 0816's triggers refuse a tick for
+  anyone who may not do the day's checklist, a tick on someone's behalf by anyone who does not
+  manage checklists, a finish by anyone else, and any change of a day run's who, day or due time;
+  0815's triggers keep a finished or missed run unchanged.
+- **Those who manage checklists** (`checklists:write`: admins and those granted it, never a pack
+  role) see how each day went (done, by whom, for whom, when, late, or missed with the steps not
+  done) and tick or finish one for someone who may do it, with why.
+- **Screens** (stage 47's way), in a pack of their own so a business without Rostering has them:
+  Today's checklists (web, and `dailychecks-native-today` for the app) for every staff account that
+  may write, each seeing only what they may do; Checklist history for the managers.
+- **Two tool declarations** (ADR 0652): `anyStaff` (every staff account, pack roles included, so a
+  cleaner's or coach's account reaches today's checklists meant for its role) and
+  `corePermission` (the history held to `checklists:write`).
+- **With Rostering**: a duty's checklist is unchanged; Rostering's checklist operations never see
+  a day run.
+- **Cost** (D1 statements, 200 scheduled checklists of 50 long steps; ceiling 250): cron making 30,
+  closing 52, Today's checklists 21, the history over 62 days 17.
+- **Not in this step**: corrections beside a day run, several runs a day, schedules by date or
+  closures, reminders before the due time, offline ticking, an export; not yet tried on a live host
+  or the app's screen on a phone.
 
 **The spine is steps 2 to 4**: without the claim, the rules and the permissions, nothing can be
 rostered safely. Step 1 is built; step 2 can start now and is the riskiest (every write that covers

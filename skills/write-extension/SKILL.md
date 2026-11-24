@@ -188,7 +188,11 @@ extension declares it; it never implements it. Each behaviour the platform has i
   duty shift): `staffed: { who: { field: "<user field>" } | { field: "<relation to another of
   your objects>", account: "<its user field>" }, starts, ends, zone?, kind: "<relation: what
   qualifications are for>", live: [<states in which it is a shift>], place?, pattern?: { link,
-  who } }`. The host refuses one staff account on two overlapping shifts in the database, across
+  who }, claimBefore?, claimAfter?, account?: "required", private? }`. `claimBefore`/`claimAfter`
+  (`{ field: "<kind>.<number field>" }`, minutes; the kind one of your objects) are a buffer the
+  claim keeps free around the shift (ADR 0760); `account: "required"` refuses a shift whose profile
+  holds no account; `private: true` when the title can name a client: the roster shows the kind
+  instead to other staff, and it is never offered (ADR 0761). The host refuses one staff account on two overlapping shifts in the database, across
   every staffed object, for every writer (`conflict`, `rule: "double_booked"`), and answers each
   write with its warnings (away, not qualified, nobody on it). Shipped packs and the org's own
   extensions only. Never check for a clash, or work out who may take a shift, in a tool. See
@@ -225,7 +229,10 @@ extension declares it; it never implements it. Each behaviour the platform has i
   declares `onePerPerson: "<boolean field>"`: while true on a record, one per Person across the
   object's records with it on, bought signed in, held from the order's start (ADR 0512). A line
   that grants holds at most the record's `maxPerOrder` (10 when unset) and an order at most 100
-  grants. Only a pack or
+  grants. Say what kind of sale it is in the finance reports with `finance: { category: { key,
+  label }, earned }` (ADR 0792): `earned` is `at_sale` (the default), `over_period` (a plan's
+  paid period, only with `recurring`), `per_use` (a grant that holds uses, a pass) or `at_date`
+  with `at: "<date field or relation.field>"` (an event's start). One key, one label. Only a pack or
   the org's own extension (its client repo) may declare `sellable`: one written in the workspace
   is refused, since selling to the public is a reviewed change. Never create tickets or check a
   sale window in a tool or an automation. See `SellableSpec` in `packages/sdk/src/sellable.ts`
@@ -399,6 +406,19 @@ as that prop; with `nav` too it is also in the navigation, opened without a reco
 the pack's hooks as the prop named for the pack and nothing else, so a screen whose block needs
 other props gets a small wrapper export that works them out (Bookings' `FrontDesk` around `Desk`).
 A runtime extension declaring `screens` is refused. See Bookings and Rostering: `screens`.
+
+### Journey signals (shipped packs only)
+
+A **shipped pack** may name the moments about a Person that a journey can start or stop on
+(`journeySignals`, `JourneySignalSpec` in `journey-signals.ts`, ADR 0802): `journeySignals: {
+attended: { label: "Class attended", object: "booking", enters: ["attended"] } }`. A signal is a
+record of one of the pack's objects created (no `enters`), or entering one of its states;
+`from: [...]` counts only a move out of those states, and `created: false` leaves out a record
+created straight into one. `person` is the relation to one person it is about, by default the
+object's customer field. Declare what a business would follow up on ("membership ended", "trial
+ended", "class attended"), not every state. Never record one in a tool or a hook: the host records
+the last time each Person had each, in the write's batch, for every writer. A runtime extension
+declaring `journeySignals` is refused. See Memberships, Bookings and Ticketing: `journeySignals`.
 
 ## The rules
 

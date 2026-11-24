@@ -34,6 +34,7 @@ import { hostMailFor } from "./host-mail.ts";
 import { blobStoreFor, integrationRuntimeFor } from "./integrations.ts";
 import { deleteGrantTokens } from "./mcp/handler.ts";
 import { mediaStoreFor } from "./media.ts";
+import { personCodeKeysEntry } from "./person-codes.ts";
 import { runner } from "./runner.ts";
 import { updaterRuntimeFor } from "./updater.ts";
 
@@ -63,6 +64,8 @@ export interface OperationsEnv extends AiAppEnv {
   ASSISTANT?: DurableObjectNamespace<AssistantAgent>;
   /** One object per agent (ADR 0344). */
   AGENT_JOB?: DurableObjectNamespace<AgentJob>;
+  /** The host's auth secret: the keys of check-in codes and PINs are derived from it (ADR 0783). */
+  BETTER_AUTH_SECRET?: string;
 }
 
 /** The agents' objects as operations see them (ADR 0344). */
@@ -268,6 +271,8 @@ export async function staffContext(
     updater: updaterRuntimeFor(env),
     // The host's own mail for staff (ADR 0455): the invite notice.
     hostMail: hostMailFor(env, appOrigin),
+    // Check-in codes, cards and PINs (stage 51, ADR 0783).
+    ...personCodeKeysEntry(env),
     ...aiContextFor(env, db),
     approvalExpiryDays: Number.parseInt(env.APPROVAL_EXPIRY_DAYS ?? "", 10) || undefined,
   };

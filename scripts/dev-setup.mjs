@@ -192,6 +192,13 @@ execFileSync("pnpm", ["exec", "wrangler", "d1", "migrations", "apply", "DB", "--
       readFileSync(join(root, "packs/rostering", file), "utf8"),
     ]),
   );
+  // And Daily checklists (ADR 0651), which requires nothing, the same way, for its e2e spec.
+  const dailychecks = Object.fromEntries(
+    ["index.ts", "tools.ts"].map((file) => [
+      file,
+      readFileSync(join(root, "packs/dailychecks", file), "utf8"),
+    ]),
+  );
   // And Content (stage 28), the same way, for its e2e spec.
   const content = Object.fromEntries(
     ["index.ts", "tools.ts"].map((file) => [
@@ -233,6 +240,7 @@ execFileSync("pnpm", ["exec", "wrangler", "d1", "migrations", "apply", "DB", "--
       { id: "bookings", version: "0.1.0", optional: true, files: bookings },
       { id: "memberships", version: "0.1.0", optional: true, files: memberships },
       { id: "rostering", version: "0.1.0", optional: true, files: rostering },
+      { id: "dailychecks", version: "0.1.0", optional: true, files: dailychecks },
     ].filter((extension) => asOrgExtension(extension.id)),
   });
   const hash = createHash("sha256").update(text).digest("hex");

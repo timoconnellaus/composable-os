@@ -130,6 +130,7 @@ export * from "./integrations/outcome.ts";
 export * from "./integrations/runtime.ts";
 export * from "./invites.ts";
 export * from "./invoke.ts";
+export * from "./journeys/signals.ts";
 export * from "./judge/calibrated.ts";
 export * from "./judge/index.ts";
 export * from "./judge/load.ts";
@@ -234,8 +235,21 @@ export {
   type WaitlistDueResult,
 } from "./operations/waitlist.ts";
 export * from "./orders/index.ts";
+export {
+  holdRoleLooksAfter,
+  type LooksAfter,
+  type LooksAfterLimit,
+  type LooksAfterTeam,
+  looksAfterWhere,
+} from "./pack-role-looks-after.ts";
 export { holdRoleToday, type TodayLimit, type TodayLimits } from "./pack-role-today.ts";
 export * from "./pack-roles.ts";
+export {
+  type Identified,
+  type IdentifyInput,
+  identifyPerson,
+} from "./people-codes/identify.ts";
+export { type PersonCodeKeys, personCodeKeys } from "./people-codes/keys.ts";
 export {
   type AnyInvocationContext,
   type BatchOutcome,
