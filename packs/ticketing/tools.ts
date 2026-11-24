@@ -3,6 +3,7 @@
 // order, places, who may see a ticket and that a ticket is used once are all the host's. A tool
 // asks, and reports what the host answered.
 import { defineTool, type ExtensionContext, OpsCallError, z } from "@composable-os/sdk";
+import { formatMoney } from "./money.ts";
 
 const EVENT = "ticketing.event";
 const TICKET_TYPE = "ticketing.tickettype";
@@ -637,7 +638,7 @@ async function checkInHandler(
     accepted: true,
     message:
       `Valid${name ? `: ${name}` : ""}. Let them in.` +
-      (owing ? ` A balance of ${(owing.amount / 100).toFixed(2)} ${owing.currency} is owing.` : ""),
+      (owing ? ` A balance of ${formatMoney(owing.amount, owing.currency)} is owing.` : ""),
     ticket: {
       ...before,
       state: "used",

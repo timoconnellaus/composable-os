@@ -400,6 +400,21 @@ describe("checkIn (test host)", () => {
     expect(out.message).toContain("300.00 AUD");
   });
 
+  it("says a balance owing in its currency's own unit, as the scanner shows it", async () => {
+    const h = host([ticket()], {
+      state: "part_paid",
+      balance: 5000,
+      currency: "JPY",
+      balanceDueAt: null,
+    });
+    const out = await h.runTool<{ message: string }>(
+      "checkIn",
+      { code: CODE },
+      { caller: scanner },
+    );
+    expect(out.message).toContain("A balance of 5000 JPY is owing.");
+  });
+
   it("normalises a typed code", () => {
     expect(normaliseCode(" 0123-4567 89ab ")).toBe("0123456789AB");
   });
