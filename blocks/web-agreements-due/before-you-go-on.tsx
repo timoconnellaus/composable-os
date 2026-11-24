@@ -30,12 +30,10 @@ export function BeforeYouGoOn({
   // Documents a person cannot agree to themselves (a parent agrees for them), passed for now.
   const [passed, setPassed] = useState<string[]>([]);
   const agreedAny = useRef(false);
-  const steps = due.data
-    ? dueSteps(due.data.people).filter(
-        (s) => !passed.includes(`${s.person.personId}:${s.item.documentId}`),
-      )
-    : null;
-  const nothingAtAll = !!due.data && dueSteps(due.data.people).length === 0 && !agreedAny.current;
+  const all = due.data ? dueSteps(due.data.people) : null;
+  const steps =
+    all?.filter((s) => !passed.includes(`${s.person.personId}:${s.item.documentId}`)) ?? null;
+  const nothingAtAll = !!all && all.length === 0 && !agreedAny.current;
   useEffect(() => {
     if (nothingAtAll) onDone();
   }, [nothingAtAll, onDone]);

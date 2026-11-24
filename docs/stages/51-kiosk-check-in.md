@@ -570,10 +570,12 @@ Block **BM**: migrations 1130–1149, ADRs 0780–0789.
      desk ADR if step 6 writes it first).
   2. **0781** A device as a caller: the `device` audience and device roles (amends ADRs 0402 and
      0436).
-  3. **0782** A person's code: the rotating app code, cards and the PIN; identification only inside
-     a device tool, one answer for every failure, the lock-outs.
-  4. **0783** Checking in at the door: Bookings' check-in tools, the door's own policy on a document
-     due (decision 5, beside ADR 0644), and the door log.
+  3. **0783** (written by step 3; first planned as 0782) A person's code: the rotating app code,
+     cards and the PIN; identification only inside a device tool, one answer for every failure,
+     the lock-outs.
+  4. **A number the coordinator gives step 4** (first planned as 0783, which step 3 took)
+     Checking in at the door: Bookings' check-in tools, the door's own policy on a document due
+     (decision 5, beside ADR 0644), and the door log.
   5. **0784** A device's screen, served on the desk origin only (extends stage 47's screens).
 - **Amended with dated notes**: ADR 0600 (`people:cards` grantable to a fixed-role account), ADR
   0553 (a tick may be a device's), stage 44's spec (the device section, when step 6 is built).
@@ -659,8 +661,11 @@ One bullet per build step, written by that step (CONTRIBUTING.md, Working in par
   - `identifyPerson` (`packages/core/src/people-codes/identify.ts`): host code with the lock-outs
     and one answer for every miss; erase and merge.
   - Keys come from `BETTER_AUTH_SECRET` (HKDF), passed as `ctx.personCodes`.
-  - Deviations, in the ADR: it is ADR 0783 (the spec said 0782; block BM gave this step 0783 and
-    0784); `me.code` is risk `write` (it makes the code on a sign-in's first call); a name is
+  - After review: every try is counted before it is checked (parallel tries get no further than
+    one by one), a name and PIN always costs five slow hashes, issuing a card is never queued for
+    review, and two first `me.code` calls at once keep one code.
+  - Deviations, in the ADR: it is ADR 0783 (the spec said 0782; the coordinator gave this step
+    0783 and 0784, and the numbering list above now says so); `me.code` is risk `write` (it makes the code on a sign-in's first call); a name is
     compared by the indexed name key of the Person's listed name.
   - Left: the host path from step 4's `doorNow` to `identifyPerson` (steps 2 and 4); the door
     log's and handles' erase (step 4); Cards on the Person page (step 6); the member's blocks

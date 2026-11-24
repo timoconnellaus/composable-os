@@ -11,9 +11,12 @@ import type { Compilable, CompiledQuery } from "kysely";
 import { afterEach, beforeAll, describe, expect, it } from "vitest";
 import {
   type ActingUser,
+  applyPlan,
   checkManifest,
   invokeByName,
   PendingApprovalError,
+  planDropHidden,
+  refreshSchemaRegistry,
 } from "../src/index.ts";
 import { extId, manifest, reconcile } from "./extension-helpers.ts";
 import { context, createUser, db, setPreset, unique } from "./helpers.ts";
@@ -150,6 +153,53 @@ describe("the declaration", () => {
     expect(
       declare({ "Not-camel": { label: "A", object: "member", person: "person" } }),
     ).not.toEqual([]);
+  });
+
+  it("refuses a signal no declared move or create can make (the review of PR #371)", () => {
+    // From and to the same state: a move never stays put.
+    expect(
+      declare({
+        a: { label: "A", object: "member", person: "person", enters: ["ended"], from: ["ended"] },
+      }),
+    ).toEqual(["journeySignals.a.enters"]);
+    // No move leaves the final state: a create into the first state can make it, but the `from`
+    // names nothing.
+    expect(
+      declare({
+        a: { label: "A", object: "member", person: "person", enters: ["trial"], from: ["ended"] },
+      }),
+    ).toEqual(["journeySignals.a.from.0"]);
+    // And with creates left out, nothing can make it.
+    expect(
+      declare({
+        a: {
+          label: "A",
+          object: "member",
+          person: "person",
+          enters: ["trial"],
+          from: ["ended"],
+          created: false,
+        },
+      }),
+    ).toEqual(["journeySignals.a.enters"]);
+    // One `from` that leads into it and one that does not: the second names nothing.
+    expect(
+      declare({
+        a: {
+          label: "A",
+          object: "member",
+          person: "person",
+          enters: ["active"],
+          from: ["trial", "ended"],
+        },
+      }),
+    ).toEqual(["journeySignals.a.from.1"]);
+    // A state only a create reaches, with creates left out.
+    expect(
+      declare({
+        a: { label: "A", object: "member", person: "person", enters: ["trial"], created: false },
+      }),
+    ).toEqual([]);
   });
 
   it("a runtime extension (written in the app) cannot declare one; a shipped one can", async () => {
@@ -294,6 +344,92 @@ describe("recording", () => {
     for (const p of people) {
       expect((await signals(p)).joined).toMatchObject({ bulk: 1, standing: "person" });
     }
+  });
+});
+
+describe("bulk", () => {
+  it("an import is bulk even when its call carries one record (the review of PR #371)", async () => {
+    const p = await person();
+    await invokeByName(
+      "record.import",
+      { object: MEMBER, records: [{ key: unique("k"), values: { title: "One", person: p } }] },
+      context(admin),
+    );
+    expect((await signals(p)).joined).toMatchObject({ bulk: 1, standing: "person" });
+  });
+});
+
+describe("a signal that is no longer declared, and a dropped object", () => {
+  it("their rows go with them (the review of PR #371)", async () => {
+    const id = extId("sigdrop");
+    const objects = {
+      member: OBJECTS.member,
+      visit: {
+        label: "Visit",
+        plural: "Visits",
+        titleField: "title",
+        fields: {
+          title: { type: "text", label: "Title" },
+          person: { type: "relation", label: "Person", to: "person" },
+        },
+      },
+    };
+    const signalsOf = {
+      joined: SIGNALS.joined,
+      ended: SIGNALS.ended,
+      visited: { label: "Visited", object: "visit", person: "person" },
+    };
+    await reconcile(manifest(id, { objects, journeySignals: signalsOf } as never));
+    const p = await person();
+    const make = (object: string, values: Record<string, unknown>) =>
+      invokeByName(
+        "record.create",
+        { object: `${id}.${object}`, values },
+        context(admin),
+      ) as Promise<{
+        id: string;
+      }>;
+    const m = await make("member", { title: "M", person: p });
+    await invokeByName(
+      "record.update",
+      { object: `${id}.member`, id: m.id, values: { state: "ended" } },
+      context(admin),
+    );
+    await make("visit", { title: "V", person: p });
+    const mine = async () => {
+      const { results } = await env.DB.prepare(
+        "SELECT signal FROM core_person_signal WHERE person_id = ? ORDER BY signal",
+      )
+        .bind(p)
+        .all<{ signal: string }>();
+      return results.map((r) => r.signal.slice(id.length + 1));
+    };
+    expect(await mine()).toEqual(["ended", "joined", "visited"]);
+
+    // The pack stops declaring `ended`: its rows go; the rest stay.
+    await reconcile(
+      manifest(id, {
+        objects,
+        journeySignals: { joined: SIGNALS.joined, visited: signalsOf.visited },
+      } as never),
+    );
+    expect(await mine()).toEqual(["joined", "visited"]);
+
+    // The visit object is dropped (hidden, then its table dropped): its signals go with it.
+    await reconcile(
+      manifest(id, {
+        objects: { member: OBJECTS.member },
+        journeySignals: { joined: SIGNALS.joined },
+      } as never),
+    );
+    const plan = await planDropHidden(db.query, id, {
+      now: new Date().toISOString(),
+      minAgeDays: 0,
+    });
+    expect(plan.changes.some((c) => c.kind === "drop_object")).toBe(true);
+    await applyPlan((statements) => db.batch(statements), plan);
+    await refreshSchemaRegistry(db.query);
+    expect(await mine()).toEqual(["joined"]);
   });
 });
 

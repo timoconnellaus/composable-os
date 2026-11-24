@@ -25,7 +25,8 @@
 -- One open entry per account (a partial unique index): of twenty starts at once, one lands. A
 -- start retried with its idempotency key (`start_key`) finds the entry it made.
 CREATE TABLE core_time_entry (
-  id TEXT PRIMARY KEY,
+  -- NOT NULL: a rowid table's TEXT key would otherwise take a NULL, which no comparison matches.
+  id TEXT PRIMARY KEY NOT NULL,
   account_id TEXT NOT NULL,
   starts INTEGER NOT NULL,
   -- Null while open (clocked in, not yet finished).
@@ -96,11 +97,20 @@ CREATE INDEX core_time_entry_open_starts ON core_time_entry (starts)
 CREATE TRIGGER core_time_entry_overlap_insert
 BEFORE INSERT ON core_time_entry
 BEGIN
+  -- A second open entry (of twenty starts at once, all but one): said as such, before the overlap
+  -- it also is.
+  SELECT RAISE(ABORT, 'core_time_open')
+  WHERE NEW.ends IS NULL AND EXISTS (
+    SELECT 1 FROM core_time_entry e
+    WHERE e.account_id = NEW.account_id
+      AND e.id IS NOT NEW.id
+      AND e.ends IS NULL
+  );
   SELECT RAISE(ABORT, 'core_time_overlap')
   WHERE EXISTS (
     SELECT 1 FROM core_time_entry e
     WHERE e.account_id = NEW.account_id
-      AND e.id != NEW.id
+      AND e.id IS NOT NEW.id
       AND ifnull(e.ends, 9223372036854775807) > NEW.starts
       AND e.starts < ifnull(NEW.ends, 9223372036854775807)
   );
@@ -109,12 +119,22 @@ END;
 CREATE TRIGGER core_time_entry_overlap_update
 BEFORE UPDATE ON core_time_entry
 BEGIN
+  -- A second open entry (of twenty starts at once, all but one): said as such, before the overlap
+  -- it also is.
+  SELECT RAISE(ABORT, 'core_time_open')
+  WHERE NEW.ends IS NULL AND EXISTS (
+    SELECT 1 FROM core_time_entry e
+    WHERE e.account_id = NEW.account_id
+      AND e.id IS NOT OLD.id
+      AND e.id IS NOT NEW.id
+      AND e.ends IS NULL
+  );
   SELECT RAISE(ABORT, 'core_time_overlap')
   WHERE EXISTS (
     SELECT 1 FROM core_time_entry e
     WHERE e.account_id = NEW.account_id
-      AND e.id != OLD.id
-      AND e.id != NEW.id
+      AND e.id IS NOT OLD.id
+      AND e.id IS NOT NEW.id
       AND ifnull(e.ends, 9223372036854775807) > NEW.starts
       AND e.starts < ifnull(NEW.ends, 9223372036854775807)
   );

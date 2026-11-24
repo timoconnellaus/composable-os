@@ -119,6 +119,11 @@ export function runAfterCommit<T>(value: AfterCommit<T>): Promise<T> {
  * activities, so an operation applies completely or not at all. Queued writes are not visible
  * to reads in the same handler.
  */
+/** How many more records state cascades may move (ADR 0841): drawn down by each cascade. */
+export interface FollowerBudget {
+  left: number;
+}
+
 /** A file a person uploaded (stage 28, ADR 0444): its bytes, as the upload route read them. */
 export interface MediaUpload {
   readonly bytes: Uint8Array;
@@ -228,6 +233,11 @@ export interface HandlerContext {
    * or deleted, so checks such as link targets accept provisional ids (`per_pending_…`).
    */
   readonly simulation?: SimulationView;
+  /**
+   * The records state cascades may still move in this call (ADR 0841), when the caller shares one
+   * across calls (the minute cron's tick). Absent: the call's own (records/follows.ts).
+   */
+  readonly followerBudget?: FollowerBudget;
   /**
    * Trusted pipeline access for the approval operations, which re-run queued actions through
    * the pipeline on approval. Other handlers never need it.

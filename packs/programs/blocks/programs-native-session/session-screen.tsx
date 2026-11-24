@@ -40,9 +40,10 @@ import {
   weighed,
 } from "@composable-os/pack-programs/client";
 import { useEffect, useState } from "react";
-import { AppState, Pressable, StyleSheet, Text, TextInput, View } from "react-native";
+import { AppState, Pressable, StyleSheet, TextInput, View } from "react-native";
 import { Button } from "../native-base/button.tsx";
 import { Screen } from "../native-base/screen.tsx";
+import { Text } from "../native-base/text.tsx";
 import { theme } from "../native-base/theme.ts";
 
 type Programs = Pick<ProgramsHooks, "useMarkSession" | "useSessionLog">;
@@ -103,13 +104,17 @@ export function SessionScreen({
   if (detail.isPending)
     return (
       <Screen title="Session">
-        <Text>Loading…</Text>
+        <Text tone="muted" accessibilityRole="progressbar">
+          Loading…
+        </Text>
       </Screen>
     );
   if (!detail.data)
     return (
       <Screen title="Session">
-        <Text>We could not load this session.</Text>
+        <Text tone="danger" accessibilityRole="alert">
+          We could not load this session. Check the connection and try again.
+        </Text>
       </Screen>
     );
   const { session, exercises } = detail.data;

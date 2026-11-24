@@ -30,7 +30,7 @@ export function YourDetails({ account }: { account: Hooks }) {
   const [form, setForm] = useState<DetailsForm | null>(null);
   const [problems, setProblems] = useState<Partial<Record<keyof DetailsForm, string>>>({});
   const [said, setSaid] = useState<string | null>(null);
-  if (me.isPending) return <ActivityIndicator />;
+  if (me.isPending) return <ActivityIndicator color={theme.color.muted} />;
   if (me.error || !me.data) {
     return (
       <Text style={styles.body} accessibilityRole="alert">

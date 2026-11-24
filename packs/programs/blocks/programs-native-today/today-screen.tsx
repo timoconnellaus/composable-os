@@ -4,11 +4,12 @@
 // again when the app comes back or goes to the background (`useUnsavedSets`).
 import type { PlannedSession, ProgramsHooks } from "@composable-os/pack-programs/client";
 import { useEffect } from "react";
-import { AppState, StyleSheet, Text, View } from "react-native";
+import { AppState, StyleSheet, View } from "react-native";
 import { Button } from "../native-base/button.tsx";
 import { List } from "../native-base/list.tsx";
 import { Row } from "../native-base/row.tsx";
 import { Screen } from "../native-base/screen.tsx";
+import { Text } from "../native-base/text.tsx";
 import { theme } from "../native-base/theme.ts";
 
 export function TodayScreen({
@@ -39,7 +40,16 @@ export function TodayScreen({
           <Button quiet label="Try now" onPress={() => void flush()} />
         </View>
       ) : null}
-      {today.isPending ? <Text>Loading…</Text> : null}
+      {today.isPending ? (
+        <Text tone="muted" accessibilityRole="progressbar">
+          Loading…
+        </Text>
+      ) : null}
+      {today.error ? (
+        <Text tone="danger" accessibilityRole="alert">
+          We could not load today's sessions. Check the connection and try again.
+        </Text>
+      ) : null}
       {today.data ? (
         <List empty="Nothing planned today.">
           {today.data.sessions.map((s) => (

@@ -40,3 +40,18 @@ failing on the second email, the run retried: each address once, keys `run:0` to
 ## Amended 2026-11-23 (ADR 0590)
 Routine mail is keyed by the host, not the pack: each email's row by the run its chain began with,
 the kind, the message, the record and the recipient, and its send by `routine:<row id>`.
+
+## Amended 2026-11-24 (issue #286): keys per caller
+Keys are no longer kept per sender address for every caller. The host's own mail had its own
+spaces already (ADR 0645); now each ordinary caller has one too: the integration host's queue
+names who is calling (`callerKeySpace`, from how it opened the queue, never from the message): a
+person, the assistant or an agent job by actor and person; an MCP app by person and connected app;
+an automation by its id (so its runs and their retries share it); extension code by its extension.
+The gatekeeper keeps that caller's keys under a hash of the name, and prunes each caller's 2,000
+most recent on its own, so one caller never answers, pre-claims or evicts another's key. Bookings'
+and routine mail's keys are unchanged. A queue that names no caller (a host older than this) keeps
+its callers in one space, as before.
+
+Proof: `packages/gatekeeper-email-send/test/agreement.test.ts` (an ordinary caller's keys are its
+own), `apps/runner/test/agreement-copy.test.ts` (through the real integration host: a person, two
+MCP apps, the assistant and two automations under one key, each its own send and its own retry).

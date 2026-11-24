@@ -201,5 +201,10 @@
         "x.rostering.withdraw"
       ]
     }
-  ]
+  ],
+  "requires": {
+    "bookings": ["programs"],
+    "courses": ["programs", "content"],
+    "memberships": ["programs"]
+  }
 }

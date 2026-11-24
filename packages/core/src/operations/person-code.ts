@@ -39,7 +39,8 @@ import {
 import type { CustomerPrincipal } from "../principals.ts";
 import { base64url } from "../records/stream.ts";
 
-const personId = z.string().startsWith("per_").max(64);
+/** A Person's id: a real one only, never a provisional `per_pending_…` (which would queue the call). */
+const personId = z.string().regex(/^per_[0-9A-HJKMNP-TV-Z]{26}$/, "a Person's id (per_…)");
 
 function customerOf(ctx: HandlerContext): CustomerPrincipal {
   const principal = ctx.principal;
@@ -154,55 +155,65 @@ export const meCode = defineOperation({
         n.given_name?.trim() || n.display_name.trim().split(/\s+/)[0] || null,
       ]),
     );
-    const existing = await ctx.db
-      .selectFrom("core_person_code")
-      .select(["id", "person_id", "secret_enc"])
-      .where(column, "=", sessionId)
-      .where("kind", "=", "app")
-      .where("revoked_at", "is", null)
-      .execute();
-    const byPerson = new Map(existing.map((row) => [row.person_id, row]));
-
+    const readCodes = () =>
+      ctx.db
+        .selectFrom("core_person_code")
+        .select(["id", "person_id", "secret_enc"])
+        .where(column, "=", sessionId)
+        .where("kind", "=", "app")
+        .where("revoked_at", "is", null)
+        .execute();
     const step = appCodeStep(new Date(ctx.now));
-    const codes: z.input<typeof codeSchema>[] = [];
-    for (const person of people) {
-      let row = byPerson.get(person.personId);
-      let secret: Uint8Array;
-      if (row?.secret_enc) {
-        secret = await keys.decrypt(row.secret_enc);
-      } else {
-        secret = newAppSecret();
-        row = { id: newId("personCode"), person_id: person.personId, secret_enc: null };
-        ctx.write(
-          ctx.db.insertInto("core_person_code").values({
-            id: row.id,
+    const answer = async (rows: Awaited<ReturnType<typeof readCodes>>) => {
+      const byPerson = new Map(rows.map((row) => [row.person_id, row]));
+      const codes: z.input<typeof codeSchema>[] = [];
+      for (const person of people) {
+        const row = byPerson.get(person.personId);
+        if (!row?.secret_enc) continue;
+        const secret = await keys.decrypt(row.secret_enc);
+        codes.push({
+          givenName: person.own ? null : (nameOf.get(person.personId) ?? null),
+          own: person.own,
+          payload: appCodePayload(row.id, await appCodeValue(secret, step)),
+          secret: "device" in signIn ? base32(secret) : null,
+        });
+      }
+      return {
+        codes,
+        refreshAt: new Date((step + 1) * APP_CODE_STEP_SECONDS * 1000).toISOString(),
+        algorithm: {
+          kind: "totp" as const,
+          hash: "SHA-1" as const,
+          periodSeconds: APP_CODE_STEP_SECONDS,
+          digits: APP_CODE_DIGITS,
+        },
+      };
+    };
+
+    const existing = await readCodes();
+    const have = new Set(existing.map((row) => row.person_id));
+    const missing = people.filter((person) => !have.has(person.personId));
+    if (!missing.length) return answer(existing);
+    for (const person of missing) {
+      // Two first calls at once on one sign-in (the review of PR #382): the one-per-sign-in
+      // index keeps the first insert and the other does nothing; both answer what was kept.
+      ctx.write(
+        ctx.db
+          .insertInto("core_person_code")
+          .values({
+            id: newId("personCode"),
             person_id: person.personId,
             kind: "app",
-            secret_enc: await keys.encrypt(secret),
+            secret_enc: await keys.encrypt(newAppSecret()),
             device_session_id: "device" in signIn ? sessionId : null,
             customer_session_id: "browser" in signIn ? sessionId : null,
             guardian_id: person.own ? null : me,
             created_at: ctx.now,
-          }),
-        );
-      }
-      codes.push({
-        givenName: person.own ? null : (nameOf.get(person.personId) ?? null),
-        own: person.own,
-        payload: appCodePayload(row.id, await appCodeValue(secret, step)),
-        secret: "device" in signIn ? base32(secret) : null,
-      });
+          })
+          .onConflict((oc) => oc.doNothing()),
+      );
     }
-    return {
-      codes,
-      refreshAt: new Date((step + 1) * APP_CODE_STEP_SECONDS * 1000).toISOString(),
-      algorithm: {
-        kind: "totp" as const,
-        hash: "SHA-1" as const,
-        periodSeconds: APP_CODE_STEP_SECONDS,
-        digits: APP_CODE_DIGITS,
-      },
-    };
+    return ctx.afterCommit(async () => answer(await readCodes()));
   },
 });
 
@@ -304,7 +315,8 @@ export const personCodeIssueCard = defineOperation({
   name: "personCode.issueCard",
   description:
     "Give a person a check-in card or key tag: scan or type the card's code (at least 8 " +
-    "characters) and a label to tell it apart. The card then checks them in at the check-in " +
+    "characters; a tag numbered in sequence can be guessed from its neighbour, so use cards " +
+    "with random codes) and a label to tell it apart. The card then checks them in at the check-in " +
     "tablet until it is revoked. The code is never stored or shown again (only a keyed hash), " +
     "and a code already on someone's live card is refused. Only a person on the staff with " +
     "people:cards can do this: never the assistant, an MCP client or code. Audited.",
@@ -321,6 +333,11 @@ export const personCodeIssueCard = defineOperation({
   actors: ["human"],
   mcp: { expose: false },
   redact: ["code"],
+  // Never queued for review (the review of PR #382): a pending action keeps its input whole, and
+  // the card's code must never be stored. A floor's or policy's deny still applies; a review
+  // floor lets a person issue it, as for a token's revoke. A provisional Person id is refused by
+  // the input, so nothing routes it to review either.
+  bookkeeping: true,
   async handler(input, ctx) {
     const keys = keysOf(ctx);
     const normalised = normaliseCardCode(input.code);

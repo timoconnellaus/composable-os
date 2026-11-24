@@ -351,6 +351,110 @@ export interface PaymentsRefundReceipt {
   id: number;
 }
 
+// --- In-person payments (stage 50, ADR 0774) ---------------------------------------------------
+// A card reader belongs to the business's own payment account, at a location (an address the
+// provider requires). The reader is driven from the server: the host asks for an amount on a named
+// reader, the buyer taps or inserts their card, and the provider's webhook reports the payment.
+// Card details never reach the host or this gatekeeper.
+
+/** Where a reader is: the address the provider registers it at. */
+export interface PaymentsReaderAddress {
+  /** ISO 3166-1 alpha-2, upper case. */
+  country: string;
+  /** The street address, 1 to 200 characters. */
+  line1: string;
+  /** 1 to 100 characters. */
+  city: string;
+  /** 1 to 20 characters. */
+  postcode: string;
+  /** A state, province or region, 1 to 100 characters, where the country has them. */
+  region?: string;
+}
+
+/**
+ * What `registerReader()` takes: the code the reader shows, typed by an admin, the label it goes by
+ * ("Front desk") and where it is. The host's own call only; submitted as an action a person
+ * approves.
+ */
+export interface PaymentsRegisterReaderInput {
+  /** The host's id for the reader (1 to 64 characters of `[A-Za-z0-9_-]`): one registration each. */
+  readerId: string;
+  /** The pairing code the reader shows, 1 to 100 characters of `[A-Za-z0-9-]`. */
+  registrationCode: string;
+  /** 1 to 64 characters, a single line. */
+  label: string;
+  /** The place's name at the provider (the business's), 1 to 100 characters. */
+  locationName: string;
+  address: PaymentsReaderAddress;
+}
+
+/** What `removeReader()` takes. The host's own call only; submitted as an action. */
+export interface PaymentsRemoveReaderInput {
+  readerId: string;
+  /** The provider's reader reference (`tmr_…`). */
+  readerRef: string;
+  /** 1 to 500 characters, shown to the approver. */
+  reason: string;
+}
+
+/** A reader as the provider has it. */
+export interface PaymentsReader {
+  provider: PaymentsProviderName;
+  /** The provider's reader reference (`tmr_…`). */
+  ref: string;
+  /** The host's id the registration gave it, or null for a reader registered another way. */
+  readerId: string | null;
+  label: string;
+  /** The provider's location reference, or null. */
+  locationRef: string | null;
+  /** Whether the provider can reach it now, when it says. */
+  status: "online" | "offline" | null;
+  /** The provider's device type, when it says. */
+  deviceType: string | null;
+}
+
+/** A submitted reader registration or removal: `pending` until the host applies it. */
+export interface PaymentsReaderChangeReceipt {
+  status: "pending" | "sent";
+  /** The action id in the approval queue. */
+  id: number;
+}
+
+/**
+ * What `presentPayment()` takes: one card-present payment of the order's amount, handed to a
+ * reader. The host's own call only.
+ */
+export interface PaymentsPresentInput {
+  /** The host's order id, carried in the payment's metadata (informational: the host matches on `ref`). */
+  orderId: string;
+  /** A positive safe integer, minor units. */
+  amount: number;
+  currency: string;
+  /** 1 to 200 characters, on the provider's records. */
+  description: string;
+  /** The provider's reader reference. */
+  readerRef: string;
+  /**
+   * 1 to 200 characters, one per presentation: the same key makes no second payment, so a retry
+   * after a timeout charges once (Stripe keeps a key 24 hours). Sent again with another order,
+   * amount or currency, it is refused.
+   */
+  idempotencyKey: string;
+}
+
+/** A payment presented on a reader. */
+export interface PaymentsPresentation {
+  provider: PaymentsProviderName;
+  /**
+   * The provider's payment reference (a Stripe PaymentIntent id). The payment event reports it as
+   * both `checkoutRef` and `paymentRef`; a reader event names it as `checkoutRef`.
+   */
+  ref: string;
+  readerRef: string;
+  /** `presented`: on the reader, waiting for the card. `paid`: an earlier try with this key was paid. */
+  status: "presented" | "paid";
+}
+
 /** A verified event from the provider. Currencies are upper case, times ISO 8601. */
 export type PaymentsEvent =
   | {
@@ -387,6 +491,24 @@ export type PaymentsEvent =
        * refund `refundRef` gave back, and confirms nothing; the refund's own event does that.
        */
       creditNote?: boolean;
+    }
+  | {
+      /**
+       * A reader's action did not take the payment (stage 50, ADR 0774): the card was declined, the
+       * buyer or the host cancelled it, or the reader failed. Nothing was paid; the host matches it
+       * on `checkoutRef`, the reference `presentPayment()` returned, never on metadata.
+       */
+      kind: "reader";
+      provider: PaymentsProviderName;
+      eventId: string;
+      readerRef: string;
+      /** The presented payment's reference, when the provider names it. */
+      checkoutRef: string | null;
+      /** `cancelled`: cancelled on the reader or by `cancelPresented()`. `failed`: anything else. */
+      outcome: "failed" | "cancelled";
+      /** The provider's code (`card_declined`, …), or null. Never card details. */
+      failureCode: string | null;
+      occurredAt: string;
     }
   | {
       /**
@@ -488,6 +610,26 @@ export interface PaymentsSession {
    * past invoices on (no cancelling or plan changes there). Records an observation first.
    */
   openPortal(input: PaymentsPortalInput): Promise<PaymentsPortal>;
+  /**
+   * Submits `payments.reader.register` (never auto-approvable): registers a card reader to the
+   * payment account at its address. It moves no money but adds a device that can take it. The
+   * host's own call only, as every reader call below is: any other session is refused.
+   */
+  registerReader(input: PaymentsRegisterReaderInput): Promise<PaymentsReaderChangeReceipt>;
+  /**
+   * Submits `payments.reader.remove` (never auto-approvable): takes a reader off the account. The
+   * provider's reader must be the host's reader of `readerId`, or nothing is removed.
+   */
+  removeReader(input: PaymentsRemoveReaderInput): Promise<PaymentsReaderChangeReceipt>;
+  /** The account's readers, at most 100. Records an observation first. The host's own call only. */
+  listReaders(): Promise<PaymentsReader[]>;
+  /**
+   * Puts a payment of the order's amount on a reader. Records an observation first. No approval:
+   * no money moves until the buyer's card does. Refused while the reader has another payment on it.
+   */
+  presentPayment(input: PaymentsPresentInput): Promise<PaymentsPresentation>;
+  /** Clears whatever payment is on the reader; it stays unpaid. Records an observation first. */
+  cancelPresented(readerRef: string): Promise<void>;
   /** Asks the host to bind a hook that receives every verified payment, refund and subscription event. */
   subscribe(hook: PaymentsEventHook): Promise<void>;
 }
