@@ -14,3 +14,9 @@ We will run our own instance, deployed exactly like anyone else's. There is no h
 ## Consequences
 - Simpler data layer and auth. Adding multi-tenancy later would be a significant change, accepted knowingly.
 - Every external dependency (AI keys, OAuth apps) is supplied per deployment.
+
+## Amended 2026-11-24: locations inside the one organisation
+Stage 64 ([ADR 0910](0910-locations-a-base-record-inside-the-one-organisation.md)) adds
+**locations**: the places one organisation works from (a gym's second studio), as a base record
+inside it. A location is never a tenant: nothing is keyed by it, and the deployment stays the
+isolation boundary. Separately owned businesses that share a brand are still separate deployments.

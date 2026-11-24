@@ -3478,6 +3478,31 @@ export interface CoreMediaCaptionTable {
 /** `rec_media` (migration 0461): the live media items. */
 export type RecMediaView = Omit<CoreMediaTable, "deleted_at" | "deleted_by" | "sha256">;
 
+/**
+ * `core_location` (migration 1390, ADR 0910): one place the business works from, inside the one
+ * organisation. The main location (`main = 1`) is made by the migration; nothing deletes one.
+ */
+export interface CoreLocationTable {
+  id: string;
+  name: string;
+  short_name: string | null;
+  address: string | null;
+  timezone: string;
+  public: Generated<number>;
+  /** Minor units; null: not set. */
+  drop_in_price: number | null;
+  state: Generated<"open" | "closed">;
+  notes: string | null;
+  main: Generated<number>;
+  created_at: Timestamp;
+  created_by: string | null;
+  updated_at: Timestamp;
+  updated_by: string | null;
+}
+
+/** `rec_location` (migration 1390): every location, with `listed` for the public (ADR 0916). */
+export type RecLocationView = CoreLocationTable & { listed: "yes" | "no" };
+
 /** `core_import_key` (migration 0501): what an import made, and the values it last wrote. */
 export interface CoreImportKeyTable {
   object_type: string;
@@ -3720,6 +3745,7 @@ export interface CoreDatabase {
   core_preview_link: CorePreviewLinkTable;
   core_content_generation: CoreContentGenerationTable;
   core_media: CoreMediaTable;
+  core_location: CoreLocationTable;
   core_published_media: CorePublishedMediaTable;
   core_media_caption: CoreMediaCaptionTable;
   core_import_key: CoreImportKeyTable;
@@ -3728,6 +3754,7 @@ export interface CoreDatabase {
   core_journey_entry: CoreJourneyEntryTable;
   core_journey_step_log: CoreJourneyStepLogTable;
   rec_media: RecMediaView;
+  rec_location: RecLocationView;
   rec_publish_version: RecPublishVersionView;
   rec_stage_history: CrmStageHistoryView;
   rec_state_history: RecStateHistoryView;
