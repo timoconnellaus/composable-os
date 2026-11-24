@@ -12,6 +12,7 @@ import { handleNativeStaffSignIn } from "../src/server/http/native.ts";
 import { runOperation } from "../src/server/operations.ts";
 import { boundTestEnv } from "./bound-env.ts";
 import { signInInBrowser } from "./browser-sign-in.ts";
+import { memoryStore } from "./helpers.ts";
 import { ORIGIN, signUp, type TestUser, unique } from "./mcp-helpers.ts";
 
 const REDIRECT = "gym://staff-sign-in";
@@ -52,17 +53,6 @@ const phone: FetchLike = async (url, init) => {
 
 /** The system browser, signed in to the host as `user`: follows the host back to the app. */
 const browserAs = (user: TestUser) => (url: string) => signInInBrowser(serve, url, user.cookie);
-
-function memoryStore() {
-  let saved: Tokens | null = null;
-  return {
-    load: async () => saved,
-    save: async (tokens: Tokens | null) => {
-      saved = tokens;
-    },
-    peek: () => saved,
-  };
-}
 
 const call = (token: string, name: string, input: unknown) =>
   serve(

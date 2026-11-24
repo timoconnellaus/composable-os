@@ -245,19 +245,27 @@ async function memberLogsTheirSession(
   });
   expect(signedIn.status(), await signedIn.text()).toBe(200);
 
-  // Their day, in the today block: the session, a set logged, the rest timer, marked done.
+  // Their day, in the today block: the session, a set logged with one tap on its tick (the reps
+  // typed, the load suggested from the target, effort tapped), the rest timer, finished.
   const memberPage = await member.newPage();
   await memberPage.goto(block("programs-today", "Today", { date: "2028-02-07" }));
   await memberPage.getByRole("button", { name: "Press" }).click();
   const view = memberPage.getByTestId("session-view");
   await expect(view).toBeVisible();
+  await expect(view.getByTestId("progress")).toContainText("0 of 1 sets");
   const set = view.getByTestId("set-row").first();
+  await expect(set.getByLabel("Set 1 load")).toHaveAttribute("placeholder", "20");
+  await set.getByRole("button", { name: "Set 1 effort" }).click();
+  await set.getByRole("button", { name: "8.5", exact: true }).click();
+  // Typed and ticked straight away, with the field still focused.
   await set.getByLabel("Set 1 reps done").fill("7");
-  await set.getByLabel("Set 1 effort").fill("8.5");
-  await set.getByRole("button", { name: "Log set" }).click();
+  await set.getByRole("button", { name: "Set 1 done" }).click();
   await expect(view.getByRole("timer")).toBeVisible();
-  await expect(set).toHaveAttribute("data-done", "true");
-  await view.getByRole("button", { name: "Mark done" }).click();
+  await expect(view.getByTestId("progress")).toContainText("1 of 1 sets");
+  // The exercise folds away once its last set is ticked; opened again, the set is done.
+  await view.getByTestId("exercise-folded").click();
+  await expect(view.getByTestId("set-row").first()).toHaveAttribute("data-done", "true");
+  await view.getByRole("button", { name: "Finish session" }).click();
   await expect(view.getByRole("button", { name: "Done" })).toBeVisible();
 
   // Looking back, in the history block: the session with its sets done, opened set by set, and

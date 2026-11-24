@@ -531,3 +531,18 @@ be checked with the business during setup.
 - **Needs a real device and a real account**: the native screen on phones, the staff sign-in
   there, failed renewals from the payment provider's test mode, and (with stage 30) push on both
   phone platforms.
+
+## Built
+
+- **Step 2** (branch `feat/stage-60-today-items`): `todayItems` in the manifest (`TodayItemSpec`,
+  `TODAY_ITEM_FORMATS`, `TODAY_ITEM_COMPARES`, `TODAY_ITEM_PARAMS` in `packages/sdk/src/contract.ts`;
+  `todayItemManifestSchema`, `todayItemIssues` and `toManifest` in `manifest.ts`): at most 8, keys
+  camelCase, `count` or `percent` (a money format refused with the reason), the gate of the pack's
+  own tools as a screen's, rows opening its own object or a base one, `web.screen` one of its
+  screens. The SQL check is the host's, in `checkManifest` (`todayItemSqlIssues` in
+  `packages/core/src/today/declaration.ts`): the widget guards with only `:today_from`, `:today_to`
+  and `:now`, the pack's own views counted as present, and exactly `value` (or the rows' declared
+  columns) returned. A runtime extension declaring items is refused (`outside_audience`) by its check
+  and at install. [ADR 0870](../adr/0870-todays-items-and-the-today-items-declaration.md) (amends
+  0010 and 0057). No migration. Criterion 12 is met; nothing yet reads the items (step 3), and no
+  pack declares any (step 4).
