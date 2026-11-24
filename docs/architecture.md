@@ -1875,12 +1875,12 @@ pack permissions granted to its account add up
 ([ADR 0600](adr/0600-a-pack-role-and-its-grants-add-up.md)): `staffAuthority` decides per call
 whether a grant (a tool naming a granted, grantable permission; judged first) or the role allows
 it, and the role's limits (Bookings' coach: today only, ADR 0553; Programs' coach: only the People
-its holder looks after, ADR 0881) travel only on the role's calls and the runs they start.
+its holder looks after, ADR 0889) travel only on the role's calls and the runs they start.
 A role's `looksAfter` names, by object, its relation to the Person; a pack's object declares a
 `team` (its user fields naming who looks after the Person it is about, while live), and the host
 holds a list of a limited object to those People in its own query (one subquery, the account bound
 once), finds no record of anyone else's for a get, update or create, and refuses any other
-operation on it ([ADR 0881](adr/0881-a-pack-role-limited-to-the-people-its-holder-looks-after.md)). A tool may name several permissions, any one of which opens it.
+operation on it ([ADR 0889](adr/0889-a-pack-role-limited-to-the-people-its-holder-looks-after.md)). A tool may name several permissions, any one of which opens it.
 A pack may declare a tool permission **restricted**
 ([ADR 0625](adr/0625-restricted-pack-permissions.md)): a tool naming only restricted permissions is
 held by admins and by a grant of it, never by a member's or viewer's own role or by a pack role,

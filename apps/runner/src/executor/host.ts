@@ -179,7 +179,7 @@ export interface RunState {
    */
   roleToday?: TodayLimits;
   /**
-   * The calling staff account's pack role limit to the People it looks after (ADR 0881): the
+   * The calling staff account's pack role limit to the People it looks after (ADR 0889): the
    * run's record reads and writes of these objects reach those People's records only.
    */
   roleLooksAfter?: LooksAfterLimit;

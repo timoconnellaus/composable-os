@@ -264,12 +264,15 @@ export default defineExtension({
           label: "Coach",
           description:
             "Who looks after this client on it. With the coach role, they see and log this " +
-            "person's training while it is active, and no one else's.",
+            "person's training while it is active, and no one else's. A person chooses it: " +
+            "anyone else's change waits for a person.",
+          // Who reaches whose training is access (ADR 0889): a person's to set.
+          personApproves: true,
         },
       },
       requireOneOf: [["person", "classType"]],
       // Who looks after whom (ADR 0831): a client's coach while their program is live. What the
-      // coach role reaches through it is the host's (`roles.coach.looksAfter`, ADR 0881).
+      // coach role reaches through it is the host's (`roles.coach.looksAfter`, ADR 0889).
       team: { person: "person", staff: ["coach"], live: ["generating", "active"] },
       states: {
         field: "state",
@@ -633,7 +636,7 @@ export default defineExtension({
       order: 41,
     },
   },
-  // The coach role (ADR 0881): a coach's own clients, in the app: their sessions and sets, logging
+  // The coach role (ADR 0889): a coach's own clients, in the app: their sessions and sets, logging
   // and marking for them, their history and progress. Only the People an active assignment names
   // them coach of; nothing else: no class sessions, no programs or the builder, no assigning, no
   // people, no settings.
@@ -666,10 +669,11 @@ export default defineExtension({
     draft,
     importText,
   },
-  // Staff screens in the product's admin (stage 47, ADR 0660). Programs' tools declare no
-  // permission, so each is gated by what it writes: the bank its exercises and the builder its
-  // programs (core record writes: any member, never a viewer or a pack role), the builder's import
-  // too; the client view, a tab on Person, by logging and completing a client's sessions.
+  // Staff screens in the product's admin (stage 47, ADR 0660), each gated by what it writes or
+  // calls: the bank its exercises and the builder its programs (core record writes: any member,
+  // never a viewer or a pack role), the builder's import too; the client view, a tab on Person, by
+  // logging and completing a client's sessions (`programs:coach`, which the coach role holds too,
+  // ADR 0889; the role never opens a Person's page).
   screens: {
     bank: {
       label: "Exercise bank",

@@ -448,7 +448,7 @@ function outsideDeclarations(manifest: ExtensionManifest): CheckIssue[] {
         message: `A runtime extension cannot declare ${name} something staff record their time against. ${why}`,
       });
     }
-    // Who looks after whom opens a pack role's reach to a Person's records (ADRs 0831, 0881).
+    // Who looks after whom opens a pack role's reach to a Person's records (ADRs 0831, 0889).
     if (object.team) {
       issues.push({
         stage: "contract",

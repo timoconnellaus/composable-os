@@ -22,7 +22,7 @@
 // permissions a pack declares grantable (Bookings' `bookings:desk`), never a core permission.
 // Each call is allowed by one authority, decided here (`staffAuthority`): a grant that opens the
 // tool, else the pack role. The role's limits (today's records only, ADR 0553; the People its
-// holder looks after, ADR 0881) bind what the role gives and nothing else, and the pipeline
+// holder looks after, ADR 0889) bind what the role gives and nothing else, and the pipeline
 // carries them only on a call the role allowed.
 import type { CoreDatabase, CrmDb } from "@composable-os/db";
 import type { ExtensionManifest, RoleManifest } from "@composable-os/sdk";
@@ -43,7 +43,7 @@ export interface HeldPackRole {
   readonly read: readonly string[];
   /** Objects reached only on the organisation's local today, by the datetime path (ADR 0553). */
   readonly today?: import("./pack-role-today.ts").TodayLimits;
-  /** Objects reached only for the People the holder looks after, and the teams saying so (ADR 0881). */
+  /** Objects reached only for the People the holder looks after, and the teams saying so (ADR 0889). */
   readonly looksAfter?: LooksAfter;
 }
 
@@ -297,7 +297,7 @@ export function roleLimitsFor(
 }
 
 /**
- * The pack role's limit to the People its holder looks after a call of `op` holds (ADR 0881): as
+ * The pack role's limit to the People its holder looks after a call of `op` holds (ADR 0889): as
  * for today's (`roleLimitsFor`), the role's unless a grant opens the operation. `userId` is the
  * account itself, whose People they are.
  */
@@ -306,8 +306,13 @@ export function roleLooksAfterFor(
   op: AnyOperation,
   userId: string,
 ): LooksAfterLimit | undefined {
-  const looksAfter = rights.packRole?.looksAfter;
-  if (!looksAfter) return undefined;
+  const role = rights.packRole;
+  const looksAfter = role?.looksAfter;
+  if (!role || !looksAfter) return undefined;
+  // Another pack's tool the role reaches (`anyStaff`, ADR 0652: Daily checklists') answers for
+  // the account by its own host operations: the limit is about the role's own pack's records,
+  // and holding it there would refuse those operations (it fails closed).
+  if (op.name.startsWith("x.") && !op.name.startsWith(`x.${role.extension}.`)) return undefined;
   return grantOpens(rights.grants, op) ? undefined : { userId, ...looksAfter };
 }
 

@@ -1787,7 +1787,7 @@ export const recordList = defineOperation({
   mcp: { idempotent: true },
   async handler(input, ctx) {
     const object = requireObject(input.object);
-    // A pack role limited to the People its holder looks after (ADR 0881): in the list's own query.
+    // A pack role limited to the People its holder looks after (ADR 0889): in the list's own query.
     const page = await runListQuery<{ id: string }>(
       ctx,
       object,

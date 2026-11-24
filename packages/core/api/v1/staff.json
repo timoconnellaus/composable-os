@@ -83771,12 +83771,6 @@
           "startDate": {
             "type": "string",
             "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
-          },
-          "coachId": {
-            "type": "string",
-            "minLength": 1,
-            "maxLength": 64,
-            "description": "A staff account (usr_…): the client's coach on it, who with the coach role sees and logs their training"
           }
         },
         "required": [

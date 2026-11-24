@@ -177,7 +177,7 @@ export interface HandlerContext {
    */
   readonly roleToday?: import("./pack-role-today.ts").TodayLimits | undefined;
   /**
-   * The staff caller's pack role limit to the People they look after (ADR 0881), with the
+   * The staff caller's pack role limit to the People they look after (ADR 0889), with the
    * account it is for; absent when it holds no such role. A tool's run carries it on.
    */
   readonly roleLooksAfter?: import("./pack-role-looks-after.ts").LooksAfterLimit | undefined;
