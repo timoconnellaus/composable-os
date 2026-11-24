@@ -13,6 +13,7 @@
 // fingerprint under DRAFT_KEY, which the pipeline compares on approval).
 import { documentBytes } from "@composable-os/sdk";
 import { CompiledQuery, sql } from "kysely";
+import { clearPublishedTextWrite, publishedTextWrites } from "../content/published-text.ts";
 import { type FieldDiff, valuesEqual } from "../diff.ts";
 import { ConflictError, ValidationError } from "../errors.ts";
 import type { ObjectDefinition, PublishableDefinition } from "../fields/types.ts";
@@ -285,8 +286,11 @@ export async function nextVersion(ctx: HandlerContext, object: string, id: strin
 
 /**
  * The statements that make `content` the record's current version, numbered `version`, and drop
- * any scheduled publish of it. Racing publishes take the same number: the second batch fails on
- * the key, as a conflict (`published_meanwhile`).
+ * any scheduled publish of it: its media (ADR 0444) and its words in the published-text index
+ * (ADR 0700) follow it in the same batch. `readAgain` is an acknowledged object's choice (ADR
+ * 0702): whether the version asks everyone who must read it to confirm again; null elsewhere.
+ * Racing publishes take the same number: the second batch fails on the key, as a conflict
+ * (`published_meanwhile`).
  */
 export function publishWrites(
   definition: ObjectDefinition,
@@ -299,6 +303,7 @@ export function publishWrites(
     note: string | null;
     requestedBy?: string | null;
     requestedVia?: string | null;
+    readAgain?: boolean | null;
   },
 ): CompiledQuery[] {
   const object = definition.name;
@@ -316,7 +321,7 @@ export function publishWrites(
       [object, id],
     ),
     CompiledQuery.raw(
-      "INSERT INTO core_publish_version (object_type, record_id, version, content, bytes, current, published_at, published_by, note, requested_by, requested_via) VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?)",
+      "INSERT INTO core_publish_version (object_type, record_id, version, content, bytes, current, published_at, published_by, note, requested_by, requested_via, read_again) VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?)",
       [
         object,
         id,
@@ -328,11 +333,16 @@ export function publishWrites(
         by.note,
         by.requestedBy ?? null,
         by.requestedVia ?? null,
+        readAgainColumn(by.readAgain),
       ],
     ),
+    ...publishedTextWrites(definition, id, version, values),
     clearScheduleWrite(object, id),
   ];
 }
+
+const readAgainColumn = (value: boolean | null | undefined) =>
+  value === true ? 1 : value === false ? 0 : null;
 
 /** No version is current: the public reads none of it. The versions are kept. */
 export function unpublishWrites(object: string, id: string): CompiledQuery[] {
@@ -342,6 +352,7 @@ export function unpublishWrites(object: string, id: string): CompiledQuery[] {
       "UPDATE core_publish_version SET current = 0 WHERE object_type = ? AND record_id = ? AND current = 1",
       [object, id],
     ),
+    clearPublishedTextWrite(object, id),
     clearScheduleWrite(object, id),
   ];
 }
@@ -374,10 +385,11 @@ export function scheduleWrite(
     note: string | null;
     requestedBy: string | null;
     requestedVia: string | null;
+    readAgain?: boolean | null;
   },
 ): CompiledQuery {
   return CompiledQuery.raw(
-    "INSERT INTO core_publish_schedule (object_type, record_id, publish_at, content, bytes, note, scheduled_by, scheduled_at, requested_by, requested_via) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (object_type, record_id) DO UPDATE SET publish_at = excluded.publish_at, content = excluded.content, bytes = excluded.bytes, note = excluded.note, scheduled_by = excluded.scheduled_by, scheduled_at = excluded.scheduled_at, requested_by = excluded.requested_by, requested_via = excluded.requested_via",
+    "INSERT INTO core_publish_schedule (object_type, record_id, publish_at, content, bytes, note, scheduled_by, scheduled_at, requested_by, requested_via, read_again) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (object_type, record_id) DO UPDATE SET publish_at = excluded.publish_at, content = excluded.content, bytes = excluded.bytes, note = excluded.note, scheduled_by = excluded.scheduled_by, scheduled_at = excluded.scheduled_at, requested_by = excluded.requested_by, requested_via = excluded.requested_via, read_again = excluded.read_again",
     [
       object,
       id,
@@ -389,6 +401,7 @@ export function scheduleWrite(
       by.now,
       by.requestedBy,
       by.requestedVia,
+      readAgainColumn(by.readAgain),
     ],
   );
 }
@@ -413,6 +426,7 @@ export async function scheduleOf(ctx: HandlerContext, object: string, id: string
         "content",
         "requested_by",
         "requested_via",
+        "read_again",
       ])
       .where("object_type", "=", object)
       .where("record_id", "=", id)

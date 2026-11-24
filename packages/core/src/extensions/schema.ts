@@ -117,6 +117,7 @@ export interface ObjectDefinitionJson {
     slug?: string | undefined;
     date?: string | undefined;
     publishIn?: string[] | undefined;
+    acknowledge?: { who: string; manage: string } | undefined;
   };
   navigationOrder?: number;
   requireOneOf?: string[][];
@@ -755,6 +756,7 @@ function allowanceDefinition(object: ObjectState): ObjectDefinition["allowance"]
     ...(sp.movedFrom ? { movedFrom: { ...sp.movedFrom } } : {}),
     paidBy: [...(sp.paidBy ?? [])],
     ...(sp.waived ? { waived: sp.waived } : {}),
+    ...(sp.released ? { released: sp.released } : {}),
   };
 }
 
@@ -1002,6 +1004,9 @@ function sellableDefinition(object: ObjectState, own: FieldState[]): ObjectDefin
                   },
                 }
               : {}),
+            ...(declared.recurring.coolingOff
+              ? { coolingOff: { setting: declared.recurring.coolingOff.setting } }
+              : {}),
             ...(declared.recurring.grants
               ? {
                   grants: {
@@ -1191,6 +1196,14 @@ export function buildRegistry(state: SchemaState): Map<string, ObjectDefinition>
               ...(publishable.slug ? { slug: publishable.slug } : {}),
               ...(publishable.date ? { date: publishable.date } : {}),
               ...(publishable.publishIn ? { publishIn: [...publishable.publishIn] } : {}),
+              ...(publishable.acknowledge
+                ? {
+                    acknowledge: {
+                      who: publishable.acknowledge.who,
+                      manage: publishable.acknowledge.manage,
+                    },
+                  }
+                : {}),
             },
           }
         : {}),

@@ -81,7 +81,7 @@ The SDK's test harness (`publish` in `createTestHost`) refuses outside `publishI
   such records are made by their author (stage 29's door) or by the host.
 - A signed-in customer reads other authors' published records only through `content.list`, not
   through `public.list` or `public.get` in a pack's tool: their scope on the object is their own.
-- Leaving the listed states costs three statements in the write's batch (the unpublish's), on a
+- Leaving the listed states costs four statements in the write's batch (the unpublish's), on a
   write that sets the state; none otherwise.
 
 ## Proof

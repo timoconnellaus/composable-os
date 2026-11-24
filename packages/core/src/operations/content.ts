@@ -4,6 +4,7 @@
 //   content.get          anyone   one published record by slug, or where an old slug now points
 //   content.list         anyone   a page of the published records (an object with no slug: only
 //                                 this, ADR 0810)
+//   content.search       anyone   published records whose words match, best first (ADR 0700)
 //   content.preview      anyone   one record's working copy, with a preview link's token
 //   content.previewLink  staff    make that link: one record, until it expires
 //
@@ -18,9 +19,10 @@
 // slugs, preview links and the cache's generation); every record they return is read through
 // the public's seam.
 import { SLUG_MAX, SLUG_RE } from "@composable-os/sdk";
-import { CompiledQuery } from "kysely";
+import { CompiledQuery, sql } from "kysely";
 import { z } from "zod";
 import { cachedContent, sha256Hex } from "../content/cache.ts";
+import { indexedFields, reindexStep } from "../content/published-text.ts";
 import { OperationError, ValidationError } from "../errors.ts";
 import { getObject } from "../fields/index.ts";
 import type { ObjectDefinition, PublishableDefinition } from "../fields/types.ts";
@@ -28,9 +30,18 @@ import { filterSchema } from "../filter.ts";
 import { LIST_MAX_LIMIT, sortSchema } from "../list.ts";
 import { defineOperation, type HandlerContext } from "../operation.ts";
 import type { PublicPrincipal } from "../principals.ts";
-import type { Reader } from "../visibility/index.ts";
+import { jsonList } from "../records/common.ts";
+import { type Reader, visibleSource } from "../visibility/index.ts";
 import { getVisible, listVisible, previewVisible } from "../visibility/records.ts";
 import { loadRecord } from "./record.ts";
+import {
+  ftsQuery,
+  highlight,
+  SNIPPET_CLOSE,
+  SNIPPET_OPEN,
+  searchTerms,
+  snippetSegments,
+} from "./search.ts";
 
 const objectName = z
   .string()
@@ -178,6 +189,181 @@ export const contentList = defineOperation({
       });
       return { items: result.items, nextCursor: result.nextCursor };
     });
+  },
+});
+
+/** The most sections one search reads from the index before it keeps one per record. */
+export const SEARCH_SCAN = 200;
+/** The shortest word content.search looks for: shorter ones are left out of the query. */
+export const SEARCH_MIN_TERM = 2;
+/** The most results one page of content.search gives. */
+export const SEARCH_MAX_LIMIT = 50;
+/** A snippet's length in words around the match (FTS5 `snippet`), and a plain one's in characters. */
+const SNIPPET_WORDS = 14;
+const PLAIN_SNIPPET_CHARS = 160;
+
+const segment = z.object({ text: z.string(), match: z.boolean() });
+
+const searchHit = z.object({
+  object: z.string(),
+  id: z.string(),
+  slug: z.string().describe("Read the record with content.get by this slug"),
+  title: z.string().nullable().describe("The record's title, when the public reads it"),
+  titleHighlight: z.array(segment).describe("The title in parts, matching words marked"),
+  version: z.number().int().describe("The published version the words are from"),
+  section: z
+    .object({
+      field: z.string().describe("The content field the match is in"),
+      anchor: z
+        .string()
+        .nullable()
+        .describe("The heading's anchor: link to `#<anchor>`. Null: the top of the record"),
+      heading: z.string().describe("The heading's words; empty before the first heading"),
+      headingHighlight: z.array(segment),
+    })
+    .describe("Where in the record the best match is"),
+  snippet: z
+    .array(segment)
+    .nullable()
+    .describe("A short excerpt of the matching words, as plain and matching parts (no HTML)"),
+});
+
+interface IndexMatch {
+  record_id: string;
+  version: number;
+  field: string;
+  anchor: string | null;
+  heading: string;
+  body: string;
+  snip: string | null;
+}
+
+const cursorSchema = z
+  .string()
+  .regex(/^\d{1,3}$/)
+  .describe("nextCursor from the previous page");
+
+export const contentSearch = defineOperation({
+  name: "content.search",
+  description:
+    "Search the published records of a content object (help pages, blog posts) by the words " +
+    "the public reads in them: their published versions only, never a draft or a working copy. " +
+    "Every word of two letters or more must match the start of a word, so partial input works. " +
+    "Best matches first, " +
+    "one result per record, each with its slug, title, the section the best match is in (its " +
+    "heading and anchor, to link to) and a highlighted snippet as plain and matching parts. " +
+    "Pass nextCursor back as cursor. Read-only.",
+  input: z.object({
+    object: objectName,
+    q: z.string().max(200).describe("What the reader typed"),
+    cursor: cursorSchema.optional(),
+    limit: z.number().int().min(1).max(SEARCH_MAX_LIMIT).default(10),
+  }),
+  output: z.object({ items: z.array(searchHit), nextCursor: z.string().nullable() }),
+  permission: "records:read",
+  risk: "read",
+  audiences: ["staff", "customer", "public"],
+  hostInternal: true,
+  mcp: { idempotent: true },
+  async handler(input, ctx) {
+    const object = contentObject(input.object);
+    const fields = object ? indexedFields(object) : null;
+    if (!object || !fields) throw contentNotFound(input.object);
+    // Words of at least two characters: a one-letter prefix matches nearly everything. Sorted,
+    // so the same words in another order are one cached answer.
+    const terms = searchTerms(input.q)
+      .filter((t) => t.length >= SEARCH_MIN_TERM)
+      .sort();
+    if (!terms.length) return { items: [], nextCursor: null };
+    const offset = Number(input.cursor ?? 0);
+    return cachedContent(ctx.db, object.name, ["search", terms, offset, input.limit], async () => {
+      const reader = publicReader(ctx);
+      const matches = await sql<IndexMatch>`
+          SELECT t.record_id, t.version, t.field, t.anchor, t.heading, t.body,
+            snippet(core_published_text_fts, 1, ${SNIPPET_OPEN}, ${SNIPPET_CLOSE}, '…', ${SNIPPET_WORDS}) AS snip
+          FROM core_published_text_fts
+          JOIN core_published_text t ON t.id = core_published_text_fts.rowid
+          WHERE core_published_text_fts MATCH ${ftsQuery(terms)} AND t.object_type = ${object.name}
+            AND t.field IN ${jsonList(fields)}
+          ORDER BY bm25(core_published_text_fts, 5.0, 1.0), t.id
+          LIMIT ${SEARCH_SCAN}
+        `.execute(ctx.db);
+      // The best section of each record, in the order of the best.
+      const best = new Map<string, IndexMatch>();
+      for (const m of matches.rows) if (!best.has(m.record_id)) best.set(m.record_id, m);
+      if (!best.size) return { items: [], nextCursor: null };
+      // Only what the public reads now: the seam's source (published, live, `when`).
+      const readable = new Set(object.public?.read ?? []);
+      const column = (name: string) => object.fields.find((f) => f.name === name)?.column;
+      const slugColumn = column(object.publishable.slug);
+      const titleColumn =
+        object.titleField && readable.has(object.titleField) ? column(object.titleField) : null;
+      if (!slugColumn) throw contentNotFound(input.object);
+      const visible = await sql<{ id: string; slug: string | null; title: string | null }>`
+          SELECT id, ${sql.ref(slugColumn)} AS slug,
+            ${titleColumn ? sql.ref(titleColumn) : sql`NULL`} AS title
+          FROM ${visibleSource(reader, object)}
+          WHERE id IN ${jsonList([...best.keys()])}
+        `.execute(ctx.db);
+      const shown = new Map(visible.rows.map((r) => [r.id, r]));
+      const hits = [...best.values()].filter((m) => shown.get(m.record_id)?.slug);
+      const page = hits.slice(offset, offset + input.limit);
+      return {
+        items: page.map((m) => {
+          const record = shown.get(m.record_id);
+          const title = record?.title ?? null;
+          const plain = m.body.trim()
+            ? [
+                {
+                  text:
+                    m.body.length > PLAIN_SNIPPET_CHARS
+                      ? `${m.body.slice(0, PLAIN_SNIPPET_CHARS).trimEnd()}…`
+                      : m.body,
+                  match: false,
+                },
+              ]
+            : null;
+          return {
+            object: object.name,
+            id: m.record_id,
+            slug: String(record?.slug),
+            title,
+            titleHighlight: title ? highlight(title, terms) : [],
+            version: Number(m.version),
+            section: {
+              field: m.field,
+              anchor: m.anchor,
+              heading: m.anchor ? m.heading : "",
+              headingHighlight: m.anchor ? highlight(m.heading, terms) : [],
+            },
+            snippet: snippetSegments(m.snip) ?? plain,
+          };
+        }),
+        nextCursor:
+          offset + input.limit < hits.length && offset + input.limit < 1000
+            ? String(offset + input.limit)
+            : null,
+      };
+    });
+  },
+});
+
+export const contentReindex = defineOperation({
+  name: "content.reindex",
+  description:
+    "Platform use only: catch the published-text index up with the objects' declarations (the " +
+    "minute cron): an object whose searchable fields changed has its records' rows made again " +
+    "from their current versions, a batch a call; an object no longer searched loses its rows. " +
+    "Returns how many records were written and whether more is due.",
+  input: z.object({}),
+  output: z.object({ records: z.number().int(), more: z.boolean() }),
+  permission: "records:write",
+  risk: "write",
+  // Nothing in the input names a record or its words: it writes what was published.
+  actors: ["automation"],
+  mcp: { expose: false },
+  async handler(_input, ctx) {
+    return reindexStep(ctx);
   },
 });
 
@@ -376,6 +562,8 @@ export const contentRevokePreview = defineOperation({
 export const contentOperations = [
   contentGet,
   contentList,
+  contentSearch,
+  contentReindex,
   contentPreview,
   contentPreviewLink,
   contentPreviewLinks,
