@@ -355,7 +355,9 @@ describe("starting and finishing", () => {
     );
     expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1);
     for (const r of results) {
-      if (r.status === "rejected") expect((r.reason as { code: string }).code).toBe("conflict");
+      if (r.status === "rejected") {
+        expect(r.reason).toMatchObject({ code: "conflict", details: { rule: "time_open" } });
+      }
     }
     expect(await rows(who.id)).toHaveLength(1);
   });
@@ -369,6 +371,28 @@ describe("what an entry is against", () => {
     expect(
       (await refusal(time("clockIn", { against: { object: DUTY, id: theirs } }, who))).details,
     ).toMatchObject({ rule: "not_your_shift" });
+    // A colleague's cancelled or trashed shift is refused as theirs, saying nothing of its state.
+    const theirsCancelled = await duty(
+      other,
+      "2026-06-10T13:00:00.000Z",
+      "2026-06-10T14:00:00.000Z",
+    );
+    await invokeByName(
+      "record.update",
+      { object: DUTY, id: theirsCancelled, values: { state: "cancelled" } },
+      context(admin, { clock: () => new Date(NOW) }),
+    );
+    const theirsTrashed = await duty(other, "2026-06-10T15:00:00.000Z", "2026-06-10T16:00:00.000Z");
+    await invokeByName(
+      "record.delete",
+      { object: DUTY, id: theirsTrashed },
+      context(admin, { clock: () => new Date(NOW) }),
+    );
+    for (const id of [theirsCancelled, theirsTrashed]) {
+      expect(
+        (await refusal(time("clockIn", { against: { object: DUTY, id } }, who))).details,
+      ).toMatchObject({ rule: "not_your_shift" });
+    }
     const mineShift = await duty(who, "2026-06-10T09:00:00.000Z", "2026-06-10T12:00:00.000Z");
     await invokeByName(
       "record.update",
@@ -604,6 +628,117 @@ describe("a missing finish", () => {
   });
 });
 
+describe("the review's sequences (PR #364)", () => {
+  /** A pay period locked as the lock writes it: made `locking`, then `locked`. */
+  async function lock(id: string, start: string, end: string) {
+    await env.DB.prepare(
+      "INSERT INTO core_pay_period (id, start_date, end_date, zone, starts, ends, version, state, locked_by, locked_at) VALUES (?, ?, ?, 'UTC', ?, ?, 1, 'locking', ?, ?)",
+    )
+      .bind(
+        id,
+        start,
+        end,
+        s(`${start}T00:00:00.000Z`),
+        s(`${end}T00:00:00.000Z`) + 86_400,
+        admin.id,
+        NOW,
+      )
+      .run();
+    await env.DB.prepare("UPDATE core_pay_period SET state = 'locked' WHERE id = ?").bind(id).run();
+  }
+
+  it("a finish missing for longer than the days back can still be entered, or the entry withdrawn", async () => {
+    const who = await createUser("member");
+    const first = await time("clockIn", { against: null }, who, "2026-08-01T08:00:00.000Z");
+    await runStaffingDue(db, { clock: () => new Date("2026-08-01T23:00:00.000Z") });
+    expect((await rows(who.id))[0]).toMatchObject({ finish_missing: 1 });
+    // Nineteen days later (the setting is 14): the real finish is taken.
+    const fixed = await time(
+      "edit",
+      { id: first.id, endsAt: "2026-08-01T16:00" },
+      who,
+      "2026-08-20T09:00:00.000Z",
+    );
+    expect(fixed.entry).toMatchObject({ state: "waiting", minutes: 480, localDate: "2026-08-01" });
+    // And another left open the same way may be withdrawn instead; then the clock starts again.
+    const second = await time("clockIn", { against: null }, who, "2026-08-02T08:00:00.000Z");
+    await runStaffingDue(db, { clock: () => new Date("2026-08-02T23:00:00.000Z") });
+    await time("withdraw", { id: second.id }, who, "2026-08-21T09:00:00.000Z");
+    const again = await time("clockIn", { against: null }, who, "2026-08-21T09:00:00.000Z");
+    expect(again.entry.state).toBe("open");
+    expect((await rows(who.id)).map((r) => r.id)).toEqual([first.id, again.id]);
+  });
+
+  it("the clock does not finish an entry inside a locked pay period", async () => {
+    const who = await createUser("member");
+    await time("clockIn", { against: null }, who, "2026-09-01T08:00:00.000Z");
+    await lock("ppe_time2", "2026-09-01", "2026-09-07");
+    const e = await refusal(time("clockOut", {}, who, "2026-09-01T12:00:00.000Z"));
+    expect(e).toMatchObject({ code: "conflict", details: { rule: "pay_period_locked" } });
+    expect((await rows(who.id))[0]).toMatchObject({ ends: null, state: "open" });
+  });
+
+  it("of two corrections at once, one is saved and the other fails: none answers what was not saved", async () => {
+    const who = await createUser("member");
+    const e = await time(
+      "enter",
+      { startsAt: "2026-06-09T13:00", endsAt: "2026-06-09T16:00" },
+      who,
+    );
+    const results = await Promise.allSettled([
+      time("edit", { id: e.id, breakMinutes: 10 }, who),
+      time("edit", { id: e.id, breakMinutes: 50 }, who),
+    ]);
+    const saved = (await rows(who.id)).find((r) => r.id === e.id)?.break_minutes;
+    const answered = results.flatMap((r) =>
+      r.status === "fulfilled" ? [r.value.entry.breakMinutes] : [],
+    );
+    expect(answered).toEqual([saved]);
+    for (const r of results) {
+      if (r.status === "rejected") expect((r.reason as { code: string }).code).toBe("conflict");
+    }
+  });
+
+  it("an entry against a shift given to someone else since is not corrected as this person's", async () => {
+    const who = await createUser("member");
+    const other = await createUser("member");
+    const shift = await duty(who, "2026-06-09T08:00:00.000Z", "2026-06-09T10:00:00.000Z");
+    const e = await time(
+      "enter",
+      {
+        startsAt: "2026-06-09T08:00",
+        endsAt: "2026-06-09T10:00",
+        against: { object: DUTY, id: shift },
+      },
+      who,
+    );
+    await invokeByName(
+      "record.update",
+      { object: DUTY, id: shift, values: { staff: other.id } },
+      context(admin, { clock: () => new Date(NOW) }),
+    );
+    const refused = await refusal(
+      time("edit", { id: e.id, startsAt: "2026-06-09T08:15", endsAt: "2026-06-09T10:00" }, who),
+    );
+    expect(refused.details).toMatchObject({ rule: "not_your_shift" });
+    // Said as other work, it is theirs to correct.
+    const fixed = await time(
+      "edit",
+      { id: e.id, startsAt: "2026-06-09T08:15", endsAt: "2026-06-09T10:00", against: null },
+      who,
+    );
+    expect(fixed.entry.against).toBeNull();
+  });
+
+  it("my time lists the open entry once", async () => {
+    const who = await createUser("member");
+    const start = await time("clockIn", { against: null }, who);
+    const mine = await time<{ open: Entry | null; items: Entry[] }>("mine", {}, who, plus(NOW, 10));
+    expect(mine.open?.id).toBe(start.id);
+    expect(mine.items.map((i) => i.id)).not.toContain(start.id);
+  });
+});
+
 describe("overlaps, refused by the database", () => {
   const insert = (verb: string, id: string, account: string, starts: number, ends: number | null) =>
     env.DB.prepare(
@@ -616,7 +751,9 @@ describe("overlaps, refused by the database", () => {
       () => null,
       (x: unknown) => x,
     );
-    expect(String(e)).toMatch(/core_time_overlap|UNIQUE constraint failed: core_time_entry/);
+    expect(String(e)).toMatch(
+      /core_time_overlap|core_time_open|UNIQUE constraint failed: core_time_entry/,
+    );
   };
   const H = 3600;
   const T0 = s("2026-06-01T08:00:00.000Z");
@@ -658,6 +795,14 @@ describe("overlaps, refused by the database", () => {
     await overlap(insert("INSERT", "tme_e", a, T0 + 20 * H, T0 + 21 * H));
     await insert("INSERT", "tme_f", a, T0 + 9 * H, T0 + 10 * H);
     await overlap(insert("INSERT", "tme_g", a, T0 + 30 * H, null));
+    // A NULL id (a rowid table's TEXT key would take one) is refused, by insert and by update.
+    const nullId = /NOT NULL constraint failed: core_time_entry\.id|core_time_overlap/;
+    await expect(insert("INSERT", null as never, a, T0 + 30 * 60, T0 + H)).rejects.toThrow(nullId);
+    await expect(
+      env.DB.prepare("UPDATE core_time_entry SET id = NULL, starts = ? WHERE id = 'tme_b'")
+        .bind(T0 + H)
+        .run(),
+    ).rejects.toThrow(nullId);
     // Another account's time is its own.
     const other = await createUser("member");
     await insert("INSERT", "tme_h", other.id, T0, T0 + 2 * H);
