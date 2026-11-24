@@ -153,6 +153,30 @@ step adds a bullet of its own under it, saying what it built (the branch or PR, 
 ADRs it used, what is left), and does not rewrite another step's. A spec without a Status section
 gets one at its first build step.
 
+## The docs site
+
+The technical docs (`apps/docs`, docs.composableos.dev, [ADR 0930](docs/adr/0930-the-docs-site-generated-from-the-code.md))
+are generated from the code, with overviews and guides written beside it.
+
+- **A pull request that adds or changes a pack, a block or an operation updates its overview in the
+  same pull request**: `packs/<id>/docs/overview.md`, a capability's `docs/overview.md`
+  (Agreements: `packages/core/src/agreements/docs/overview.md`), or the guide in `docs/guides/`.
+- **Reference pages are never edited by hand.** Run the generator and commit what it writes:
+
+  ```sh
+  pnpm --filter @composable-os/docs generate   # write the pages, the sidebar and llms.txt
+  pnpm --filter @composable-os/docs check      # what CI's lint job runs
+  pnpm --filter @composable-os/docs dev        # http://localhost:4322
+  ```
+
+- CI's lint job fails when a generated page is stale, when a pack, block, core operation or
+  gatekeeper has no reference page, when a pack has no overview (nine packs are on the pending list
+  in `apps/docs/docs.config.mjs` until theirs are written), when an overview lacks a section, or
+  when an internal link is broken; the typecheck job builds the site and checks its links again.
+  A change to documents only runs `--check --markdown-only`, which needs no install.
+- On a conflict in `apps/docs/src/content/docs/`, `src/sidebar.json` or `public/llms.txt`, take
+  either side and run the generator again.
+
 ## Pull requests
 
 - Branch from `main`, keep commits focused, and open a pull request against `main`.

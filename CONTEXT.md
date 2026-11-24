@@ -974,6 +974,15 @@ MIT, inside the release; copied into a client app with `cos add`, recorded in
 holds no rules; the block lint refuses one that does (stage 24, ADRs 0401, 0424).
 _Avoid_: component (too general), widget (a widget is a dashboard tile), template
 
+**Docs site**
+The technical documentation at docs.composableos.dev, `apps/docs` (ADR 0930). Its **reference
+pages** are generated from the code (packs' manifests, blocks, the core registry, behaviours,
+gatekeepers, the `cos` help, products, this file) and never edited by hand; its **overviews**
+(`packs/<id>/docs/overview.md`, a capability's `docs/overview.md`) and **guides**
+(`docs/guides/`) are written beside the code. On the site a pack's pages and a **capability**'s (a
+core piece any pack composes, documented as a unit: Agreements) are listed apart.
+_Avoid_: module (for a pack), wiki
+
 **Screen**
 A shipped pack's staff screen in the product's admin (stage 47, ADR 0660): one of its web blocks,
 declared in its manifest (`screens`: a label, the block and export, where it sits in the

@@ -466,6 +466,13 @@ gatekeeper, a core operation, an ADR where `AGENTS.md` asks for one, and this sk
 match. Never fake it in extension code with a shortcut or a workaround (a rule enforced in a tool,
 a write past an operation, a call past a gatekeeper). If the change is too large for the request,
 say so and stop; do not ship the workaround.
+
+**A shipped pack has an overview.** In `packs/<id>/`, write `docs/overview.md` in the same pull
+request: front matter (`title`, `summary`, `stage`, `spec`, `adrs`) and the sections "What it is
+for", "Concepts", "How the pieces fit", "Main flows" and "What is built", describing only what the
+code does (Bookings' and Rostering's are the pattern). Then run
+`pnpm --filter @composable-os/docs generate`: the docs site's reference pages are generated from
+the manifest and never edited by hand, and CI fails while they are stale (ADR 0930).
 <!-- /platform-repo -->
 <!-- client-repo
 **When something is missing.** In a client repo you cannot change the platform. When the work
