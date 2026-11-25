@@ -62,7 +62,7 @@ Built (`feat/stage-63-app-cli`, ADRs 0900, 0901 and 0905; not yet tried on a rea
 - **Step 6** — not built — `native-update-required`; template wiring (`onUpgradeRequired`, the account
   shell).
 
-- **Step 7** — not built — needs: stage 46 step 5 — The API version guard in `cos deploy` and the fleet
+- **Step 7** — not built — needs: stage 66 step 7 — The API version guard in `cos deploy` and the fleet
   update.
 
 - **Step 8** — not built — needs: stage 30 step 4 — Push readiness.
