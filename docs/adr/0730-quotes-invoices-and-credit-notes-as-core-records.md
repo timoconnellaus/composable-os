@@ -158,6 +158,8 @@ Issuing (`invoice.issue`) calls `numberStatements` with the issue's columns and 
 after it in the same batch; the database makes an invoice's order only after its invoice is issued
 and names it. A record's lines are checked with the goods rules too (`checkRecordLines`): goods are
 refused on a document (they need a delivery). A deduction line is taken off the document's totals,
-by its rate. Credit notes are drafted, issued and voided by their own operations, and a credit
-note's own tables are read as a quote's and an invoice's are. The event log's rows for payments,
+by its rate. Credit notes are drafted, issued and voided by their own operations. Every document
+is read through the seam first (its `rec_*` view), then its table for the columns the view leaves
+out and its lines (review of PR #460: step 2's table map is left for writes only, and the seam test lists these
+reads). The event log's rows for payments,
 credits, refunds confirmed, paid back and void are written by those steps.

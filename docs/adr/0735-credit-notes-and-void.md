@@ -56,9 +56,28 @@ provider refund of the same order must never both give the same money back.
   same money back. A recorded payment a credit note gives money back on cannot be reversed.
 - Account credit instead of money back waits for stage 34's account credit (its step 8).
 
+- **A refund that did not go through is owed, and asked for again** (review of PR #460). Each of a
+  credit note's refunds is `given_back` (confirmed, or recorded paid back), `asked` (waiting for a
+  person or the provider) or `owed` (a recorded one not yet paid back; a provider's a person
+  rejected, whose approval expired or that failed). `creditNote.get` shows each and what is owed
+  back, and `invoice.get` the invoice's (`money.owedBack`). A person with `orders:refund` asks again
+  (`creditNote.askRefundAgain`, human only): the same amount on the same payment, through the same
+  approval, the row naming the new refund and its attempt moving on by one (the database refuses
+  anything else, and a second ask at once fails its batch on the order's version). What credit
+  notes owe back is never given back by another: a later credit note can give back only what was
+  paid less what is given back, asked for or owed back. The event log says what went back
+  (`refund_confirmed`, `paid_back`) and nothing else, so until then it never says money went back.
+- **A payment that never applied is refunded in any state.** `order.refund` gives back a late or
+  unmatched payment on an invoice's order whatever the order's state (it is not what was paid).
+- **The invoice's state after it is credited in full and everything paid goes back** stays `paid`
+  (nothing is owed) while its order is `refunded`, as the spec words it: its credit notes say what
+  went back.
+- A credit note may not be issued while a payment page opened in the last day has had no payment
+  (`checkout_open`, ADR 0733).
+- Every act here that may wait for a person names the version read: `creditNote.issue` the credit
+  note's, `invoice.void` the invoice's.
+
 ## Consequences
-- A refund a credit note asked for and a person rejected stays asked in the credit note's rows:
-  the money is not given back, and staff see it (`creditNote.get`). Asking again is a later step.
 - Erase and retention of credit notes are step 11's.
 
 ## Checks that were broken on purpose (each made a test fail, then restored)
@@ -66,3 +85,6 @@ provider refund of the same order must never both give the same money back.
   for the same line was issued, giving back more than was paid, and the "proof c" test failed.
 - `order.refund` let through an invoice's applied payments: the same test failed (the refund was
   asked beside the credit notes).
+- From the review of PR #460: a rejected or expired provider refund read as still asked: both
+  "refund that did not go through" tests failed; the reversal to nothing left the order part paid:
+  the void and full credit after a bounced transfer failed.

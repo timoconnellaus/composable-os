@@ -78,7 +78,13 @@ business to confirm with its accountant.
 4. **Put it right.** Staff draft a credit note (`creditNote.create`) and a person issues it
    (`creditNote.issue`): what is still owed goes down, and what was paid beyond it goes back, a
    payment made online through Approvals, one taken another way paid back by a person and recorded
-   (`order.recordRefund`). An unpaid invoice is voided in one step (`invoice.void`).
+   (`order.recordRefund`). A refund a person rejected, or whose approval expired, shows as owed
+   back on the credit note and the invoice, and a person asks for it again
+   (`creditNote.askRefundAgain`). An unpaid invoice is voided in one step (`invoice.void`), and so
+   is one whose every payment was reversed: it is unpaid again.
+6. **Approve.** Issuing, a payment, a credit note and a void each name the version of the document
+   they were read at, so a person who approves one approves what was asked: the document changed
+   since, it is refused.
 5. **Read.** Staff read documents (`invoice.get` with its money, `invoice.list`, `creditNote.get`,
    `creditNote.list`) and the event log by cursor (`invoice.events`).
 

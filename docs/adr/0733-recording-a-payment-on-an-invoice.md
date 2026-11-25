@@ -34,6 +34,20 @@ the invoice (ADR 0731).
 - **The order's own doors refuse an invoice's order**: `order.recordPayment` and
   `order.reversePayment` (`rule: "invoice_order"`), so every payment on an invoice is in its log.
 
+- **Every reversed: unpaid again** (the coordinator's decision, 2026-11-26, review of PR #460).
+  When reversals leave nothing paid on an invoice's order, it goes back to `pending` (a new host
+  move, `paid`/`part_paid` → `pending`), in the reversal's own batch, and its invoice to `issued`
+  (or `sent`): `invoice.void` and a full credit note then work as for any unpaid invoice. Its
+  payment's tax share comes off with it. What it granted stays; paid again, it grants nothing more
+  (the grants hook grants an invoice's order once), and its places, confirmed by the first payment,
+  go back if it is then voided. Any other order stays part paid, as ADR 0694 says.
+- **What a person approves is what was asked.** `invoice.recordPayment` names the invoice's
+  version it was read at (required), as `invoice.issue`, `invoice.allowPartPayments`,
+  `creditNote.issue` and `invoice.void` do: a call that waits for approval (the deploy-time floor
+  can hold a person's) and is applied after the invoice changed is refused. Recording a payment, or
+  a credit note, while a payment page opened in the last day has had no payment is refused
+  (`checkout_open`): that page asks for the old amount.
+
 ## Consequences
 - No other caller can record or reverse one: an AI, an MCP client, an automation, an extension and
   an import are refused by the operation's actors, a member without the grant by its permission.

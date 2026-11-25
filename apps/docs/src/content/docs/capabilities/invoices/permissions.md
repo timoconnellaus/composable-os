@@ -16,3 +16,4 @@ The permissions its operations need, and which of them only a person may call.
 | `invoices:payments` | [`invoice.events`](/reference/operations/invoice/#invoiceevents), [`invoice.recordPayment`](/reference/operations/invoice/#invoicerecordpayment), [`invoice.reversePayment`](/reference/operations/invoice/#invoicereversepayment) | `invoice.recordPayment`, `invoice.reversePayment` |
 | `invoices:send` | [`invoice.issue`](/reference/operations/invoice/#invoiceissue), [`invoice.allowPartPayments`](/reference/operations/invoice/#invoiceallowpartpayments) |   |
 | `invoices:credit` | [`creditNote.issue`](/reference/operations/creditnote/#creditnoteissue), [`invoice.void`](/reference/operations/invoice/#invoicevoid) | `creditNote.issue`, `invoice.void` |
+| `orders:refund` | [`creditNote.askRefundAgain`](/reference/operations/creditnote/#creditnoteaskrefundagain) | `creditNote.askRefundAgain` |

@@ -119,4 +119,7 @@ the total less paid less credited (`core_order.credited`, what a credit note too
 `applyOtherPayment` takes the threshold over which admins are told from its caller when it has its
 own (an invoice's: the invoice settings'). On an invoice's order, `order.recordPayment` and
 `order.reversePayment` refuse (the invoice's own operations do it), and `order.recordRefund` pays
-back only what a credit note owes on a recorded payment, for exactly that amount.
+back only what a credit note owes on a recorded payment, for exactly that amount. On an invoice's
+order only, a reversal that leaves nothing paid moves it back to `pending` (a host move,
+`paid`/`part_paid` → `pending`; the coordinator's decision, 2026-11-26, ADR 0733), and each payment
+row and refund row carries its share of the document's tax (ADR 0731).

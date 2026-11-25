@@ -108,6 +108,7 @@ Add a line to a draft invoice: a record for sale (item: its object and id), pric
 | `money.credited` | number | yes |   | What credit notes took off what was owed |
 | `money.refunded` | number | yes |   | What has gone back, confirmed or recorded |
 | `money.balance` | number | yes |   | What is still owed: total less paid less credited |
+| `money.owedBack` | number | yes |   | What credit notes give back that has not gone back yet, nor waits for approval |
 | `money.orderState` | string | yes |   |   |
 
 ## invoice.allowPartPayments
@@ -126,7 +127,7 @@ Allow (or stop) part payments online on an issued invoice. Without, the payment 
 | --- | --- | --- | --- | --- |
 | `id` | string | yes | min length 1, max length 64 | The invoice's id (inv_…) |
 | `allow` | boolean | yes |   |   |
-| `version` | integer |   | ≥ 0, ≤ 9007199254740991 | The version you read: one changed since by someone else is refused |
+| `version` | integer | yes | ≥ 0, ≤ 9007199254740991 | The version you read (from get): required, so what is approved is what was asked; one changed since is refused |
 
 ### Output
 
@@ -200,6 +201,7 @@ Allow (or stop) part payments online on an issued invoice. Without, the payment 
 | `money.credited` | number | yes |   | What credit notes took off what was owed |
 | `money.refunded` | number | yes |   | What has gone back, confirmed or recorded |
 | `money.balance` | number | yes |   | What is still owed: total less paid less credited |
+| `money.owedBack` | number | yes |   | What credit notes give back that has not gone back yet, nor waits for approval |
 | `money.orderState` | string | yes |   |   |
 
 ## invoice.create
@@ -314,6 +316,7 @@ Start an invoice as a draft: whom it is for (a Person, or an Organisation with i
 | `money.credited` | number | yes |   | What credit notes took off what was owed |
 | `money.refunded` | number | yes |   | What has gone back, confirmed or recorded |
 | `money.balance` | number | yes |   | What is still owed: total less paid less credited |
+| `money.owedBack` | number | yes |   | What credit notes give back that has not gone back yet, nor waits for approval |
 | `money.orderState` | string | yes |   |   |
 
 ## invoice.delete
@@ -463,6 +466,7 @@ One invoice with its lines, totals by rate, whom it bills and (once issued) its 
 | `money.credited` | number | yes |   | What credit notes took off what was owed |
 | `money.refunded` | number | yes |   | What has gone back, confirmed or recorded |
 | `money.balance` | number | yes |   | What is still owed: total less paid less credited |
+| `money.owedBack` | number | yes |   | What credit notes give back that has not gone back yet, nor waits for approval |
 | `money.orderState` | string | yes |   |   |
 
 ## invoice.issue
@@ -482,7 +486,7 @@ Issue a draft invoice: it takes the next number of the invoice series (INV-0042)
 | Field | Type | Required | Limits | Description |
 | --- | --- | --- | --- | --- |
 | `id` | string | yes | min length 1, max length 64 | The invoice's id (inv_…) |
-| `version` | integer |   | ≥ 0, ≤ 9007199254740991 | The version you read: one changed since by someone else is refused |
+| `version` | integer | yes | ≥ 0, ≤ 9007199254740991 | The version you read (from get): required, so what is approved is what was asked; one changed since is refused |
 
 ### Output
 
@@ -556,6 +560,7 @@ Issue a draft invoice: it takes the next number of the invoice series (INV-0042)
 | `money.credited` | number | yes |   | What credit notes took off what was owed |
 | `money.refunded` | number | yes |   | What has gone back, confirmed or recorded |
 | `money.balance` | number | yes |   | What is still owed: total less paid less credited |
+| `money.owedBack` | number | yes |   | What credit notes give back that has not gone back yet, nor waits for approval |
 | `money.orderState` | string | yes |   |   |
 
 ## invoice.list
@@ -622,6 +627,7 @@ Record a payment of an issued invoice taken another way than the payment page: a
 | `kind` | `"transfer"`, `"cash"`, `"cheque"`, `"card_machine"`, `"other"` | yes |   | How it was paid: transfer, cash, cheque, card_machine or other |
 | `receivedOn` | string | yes | pattern `^\d{4}-\d{2}-\d{2}$` | The day it was received (YYYY-MM-DD) |
 | `reference` | string |   | min length 1, max length 200 | The payer's reference: a bank reference, a cheque number |
+| `version` | integer | yes | ≥ 0, ≤ 9007199254740991 | The version you read (from get): required, so what is approved is what was asked; one changed since is refused |
 
 ### Output
 
@@ -697,6 +703,7 @@ Record a payment of an issued invoice taken another way than the payment page: a
 | `invoice.money.credited` | number | yes |   | What credit notes took off what was owed |
 | `invoice.money.refunded` | number | yes |   | What has gone back, confirmed or recorded |
 | `invoice.money.balance` | number | yes |   | What is still owed: total less paid less credited |
+| `invoice.money.owedBack` | number | yes |   | What credit notes give back that has not gone back yet, nor waits for approval |
 | `invoice.money.orderState` | string | yes |   |   |
 
 ## invoice.removeLine
@@ -788,6 +795,7 @@ Remove a line from a draft invoice. The others close up, and the totals are work
 | `money.credited` | number | yes |   | What credit notes took off what was owed |
 | `money.refunded` | number | yes |   | What has gone back, confirmed or recorded |
 | `money.balance` | number | yes |   | What is still owed: total less paid less credited |
+| `money.owedBack` | number | yes |   | What credit notes give back that has not gone back yet, nor waits for approval |
 | `money.orderState` | string | yes |   |   |
 
 ## invoice.reversePayment
@@ -883,6 +891,7 @@ Reverse a payment recorded on an invoice in error (invoice.recordPayment): a sec
 | `invoice.money.credited` | number | yes |   | What credit notes took off what was owed |
 | `invoice.money.refunded` | number | yes |   | What has gone back, confirmed or recorded |
 | `invoice.money.balance` | number | yes |   | What is still owed: total less paid less credited |
+| `invoice.money.owedBack` | number | yes |   | What credit notes give back that has not gone back yet, nor waits for approval |
 | `invoice.money.orderState` | string | yes |   |   |
 
 ## invoice.settings.get
@@ -1116,6 +1125,7 @@ Change a draft invoice: whom it is for, the site address, what it is about, titl
 | `money.credited` | number | yes |   | What credit notes took off what was owed |
 | `money.refunded` | number | yes |   | What has gone back, confirmed or recorded |
 | `money.balance` | number | yes |   | What is still owed: total less paid less credited |
+| `money.owedBack` | number | yes |   | What credit notes give back that has not gone back yet, nor waits for approval |
 | `money.orderState` | string | yes |   |   |
 
 ## invoice.updateLine
@@ -1218,6 +1228,7 @@ Change a line of a draft invoice: its description, quantity, unit, unit price (a
 | `money.credited` | number | yes |   | What credit notes took off what was owed |
 | `money.refunded` | number | yes |   | What has gone back, confirmed or recorded |
 | `money.balance` | number | yes |   | What is still owed: total less paid less credited |
+| `money.owedBack` | number | yes |   | What credit notes give back that has not gone back yet, nor waits for approval |
 | `money.orderState` | string | yes |   |   |
 
 ## invoice.void
@@ -1238,7 +1249,7 @@ Void an issued invoice nothing has been paid on: a credit note for everything st
 | --- | --- | --- | --- | --- |
 | `id` | string | yes | min length 1, max length 64 | The invoice's id (inv_…) |
 | `reason` | string | yes | min length 1, max length 500 | Why, as printed on the credit note |
-| `version` | integer |   | ≥ 0, ≤ 9007199254740991 | The version you read: one changed since by someone else is refused |
+| `version` | integer | yes | ≥ 0, ≤ 9007199254740991 | The version you read (from get): required, so what is approved is what was asked; one changed since is refused |
 
 ### Output
 
@@ -1271,12 +1282,15 @@ Void an issued invoice nothing has been paid on: a credit note for everything st
 | `taxTotal` | number | yes |   |   |
 | `total` | number | yes |   |   |
 | `issuedOn` | string or null | yes |   |   |
-| `refunds` | array of object | yes |   | What it gives back, per payment: a provider's waits for approval, a recorded one for a person to record it paid back |
+| `refunds` | array of object | yes |   | What it gives back, per payment, and where each stands |
 | `refunds[].paymentRef` | string | yes |   |   |
 | `refunds[].method` | `"provider"`, `"recorded"` | yes |   |   |
 | `refunds[].amount` | number | yes |   |   |
 | `refunds[].refundId` | string or null | yes |   | The refund asked for (provider) or recorded (paid back); null: still owed |
 | `refunds[].paidBackAt` | string or null | yes |   |   |
+| `refunds[].attempt` | number | yes |   | 1, or how many times a provider's refund was asked for |
+| `refunds[].state` | `"given_back"`, `"asked"`, `"owed"` | yes |   | given_back: confirmed or recorded paid back; asked: waits for approval or the provider; owed: not given back (a person pays a recorded one back; a provider's rejected, expired or failed is asked for again with creditNote.askRefundAgain) |
+| `owedBack` | number | yes |   | What it still owes back: not given back, nor waiting |
 | `version` | number | yes |   |   |
 | `createdAt` | string | yes |   |   |
 | `invoice` | object | yes |   |   |
@@ -1348,5 +1362,6 @@ Void an issued invoice nothing has been paid on: a credit note for everything st
 | `invoice.money.credited` | number | yes |   | What credit notes took off what was owed |
 | `invoice.money.refunded` | number | yes |   | What has gone back, confirmed or recorded |
 | `invoice.money.balance` | number | yes |   | What is still owed: total less paid less credited |
+| `invoice.money.owedBack` | number | yes |   | What credit notes give back that has not gone back yet, nor waits for approval |
 | `invoice.money.orderState` | string | yes |   |   |
 | `pending` | array of string | yes |   | The refunds waiting in Approvals for a person with the refund permission |

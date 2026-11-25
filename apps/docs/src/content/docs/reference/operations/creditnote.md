@@ -6,6 +6,68 @@ sidebar:
 editUrl: false
 ---
 
+## creditNote.askRefundAgain
+
+Ask again for what an issued credit note gives back on the payment page, where its refund was rejected, its approval expired or it failed: the same amount, on the same payment, waiting in the Approvals inbox for a person with the refund permission as before. Until then the credit note shows it as owed back. A person only, with the refund permission. Returns the credit note and the refunds waiting.
+
+|  |  |
+| --- | --- |
+| Permission | `orders:refund` |
+| Risk | `write` |
+| Audiences | `staff` |
+| Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
+
+### Input
+
+| Field | Type | Required | Limits | Description |
+| --- | --- | --- | --- | --- |
+| `id` | string | yes | min length 1, max length 64 | The credit note's id (cn_…) |
+
+### Output
+
+| Field | Type | Required | Limits | Description |
+| --- | --- | --- | --- | --- |
+| `id` | string | yes |   |   |
+| `number` | string or null | yes |   | Given when issued; null on a draft |
+| `state` | `"draft"`, `"issued"` | yes |   |   |
+| `invoiceId` | string | yes |   |   |
+| `currency` | string | yes |   |   |
+| `taxMode` | `"exclusive"`, `"inclusive"` | yes |   |   |
+| `reason` | string or null | yes |   |   |
+| `settle` | `"reduce"`, `"refund"`, `"both"` | yes |   | reduce: take it off what is still owed; refund: give it back from what was paid (nothing may be owed); both: take off what is owed first, then give back the rest |
+| `lines` | array of object | yes |   |   |
+| `lines[].id` | string | yes |   |   |
+| `lines[].position` | number | yes |   |   |
+| `lines[].description` | string | yes |   |   |
+| `lines[].quantity` | number | yes |   |   |
+| `lines[].unit` | string or null | yes |   |   |
+| `lines[].unitPrice` | number | yes |   |   |
+| `lines[].taxRate` | object or null | yes |   |   |
+| `lines[].taxRate.key` | string | yes |   |   |
+| `lines[].taxRate.label` | string | yes |   |   |
+| `lines[].taxRate.rate` | number | yes |   |   |
+| `lines[].net` | number | yes |   |   |
+| `lines[].tax` | number | yes |   |   |
+| `lines[].total` | number | yes |   |   |
+| `lines[].creditsLineId` | string or null | yes |   | The invoice line it credits; null: an amount |
+| `netTotal` | number | yes |   |   |
+| `taxTotal` | number | yes |   |   |
+| `total` | number | yes |   |   |
+| `issuedOn` | string or null | yes |   |   |
+| `refunds` | array of object | yes |   | What it gives back, per payment, and where each stands |
+| `refunds[].paymentRef` | string | yes |   |   |
+| `refunds[].method` | `"provider"`, `"recorded"` | yes |   |   |
+| `refunds[].amount` | number | yes |   |   |
+| `refunds[].refundId` | string or null | yes |   | The refund asked for (provider) or recorded (paid back); null: still owed |
+| `refunds[].paidBackAt` | string or null | yes |   |   |
+| `refunds[].attempt` | number | yes |   | 1, or how many times a provider's refund was asked for |
+| `refunds[].state` | `"given_back"`, `"asked"`, `"owed"` | yes |   | given_back: confirmed or recorded paid back; asked: waits for approval or the provider; owed: not given back (a person pays a recorded one back; a provider's rejected, expired or failed is asked for again with creditNote.askRefundAgain) |
+| `owedBack` | number | yes |   | What it still owes back: not given back, nor waiting |
+| `version` | number | yes |   |   |
+| `createdAt` | string | yes |   |   |
+| `pending` | array of string | yes |   | The refunds now waiting in Approvals |
+
 ## creditNote.create
 
 Draft a credit note against an issued invoice: some of its lines (each with a quantity, or all that is left of it), or an amount at one of its tax rates (in minor units, as the invoice's amounts are typed). Its tax is worked out as the invoice's was. Never more than is left to credit of a line, a rate or the invoice. Say why, and how it settles: reduce what is still owed, give back what was paid, or both. A draft changes nothing until a person with the permission to credit issues it. Returns the draft.
@@ -62,12 +124,15 @@ Draft a credit note against an issued invoice: some of its lines (each with a qu
 | `taxTotal` | number | yes |   |   |
 | `total` | number | yes |   |   |
 | `issuedOn` | string or null | yes |   |   |
-| `refunds` | array of object | yes |   | What it gives back, per payment: a provider's waits for approval, a recorded one for a person to record it paid back |
+| `refunds` | array of object | yes |   | What it gives back, per payment, and where each stands |
 | `refunds[].paymentRef` | string | yes |   |   |
 | `refunds[].method` | `"provider"`, `"recorded"` | yes |   |   |
 | `refunds[].amount` | number | yes |   |   |
 | `refunds[].refundId` | string or null | yes |   | The refund asked for (provider) or recorded (paid back); null: still owed |
 | `refunds[].paidBackAt` | string or null | yes |   |   |
+| `refunds[].attempt` | number | yes |   | 1, or how many times a provider's refund was asked for |
+| `refunds[].state` | `"given_back"`, `"asked"`, `"owed"` | yes |   | given_back: confirmed or recorded paid back; asked: waits for approval or the provider; owed: not given back (a person pays a recorded one back; a provider's rejected, expired or failed is asked for again with creditNote.askRefundAgain) |
+| `owedBack` | number | yes |   | What it still owes back: not given back, nor waiting |
 | `version` | number | yes |   |   |
 | `createdAt` | string | yes |   |   |
 
@@ -142,12 +207,15 @@ One credit note with its lines, totals, how it settles and what it gives back pe
 | `taxTotal` | number | yes |   |   |
 | `total` | number | yes |   |   |
 | `issuedOn` | string or null | yes |   |   |
-| `refunds` | array of object | yes |   | What it gives back, per payment: a provider's waits for approval, a recorded one for a person to record it paid back |
+| `refunds` | array of object | yes |   | What it gives back, per payment, and where each stands |
 | `refunds[].paymentRef` | string | yes |   |   |
 | `refunds[].method` | `"provider"`, `"recorded"` | yes |   |   |
 | `refunds[].amount` | number | yes |   |   |
 | `refunds[].refundId` | string or null | yes |   | The refund asked for (provider) or recorded (paid back); null: still owed |
 | `refunds[].paidBackAt` | string or null | yes |   |   |
+| `refunds[].attempt` | number | yes |   | 1, or how many times a provider's refund was asked for |
+| `refunds[].state` | `"given_back"`, `"asked"`, `"owed"` | yes |   | given_back: confirmed or recorded paid back; asked: waits for approval or the provider; owed: not given back (a person pays a recorded one back; a provider's rejected, expired or failed is asked for again with creditNote.askRefundAgain) |
+| `owedBack` | number | yes |   | What it still owes back: not given back, nor waiting |
 | `version` | number | yes |   |   |
 | `createdAt` | string | yes |   |   |
 
@@ -168,7 +236,7 @@ Issue a draft credit note: it takes the next number of the credit note series an
 | Field | Type | Required | Limits | Description |
 | --- | --- | --- | --- | --- |
 | `id` | string | yes | min length 1, max length 64 | The credit note's id (cn_…) |
-| `version` | integer |   | ≥ 0, ≤ 9007199254740991 | The version you read: one changed since by someone else is refused |
+| `version` | integer | yes | ≥ 0, ≤ 9007199254740991 | The version you read (from get): required, so what is approved is what was asked; one changed since is refused |
 
 ### Output
 
@@ -201,12 +269,15 @@ Issue a draft credit note: it takes the next number of the credit note series an
 | `taxTotal` | number | yes |   |   |
 | `total` | number | yes |   |   |
 | `issuedOn` | string or null | yes |   |   |
-| `refunds` | array of object | yes |   | What it gives back, per payment: a provider's waits for approval, a recorded one for a person to record it paid back |
+| `refunds` | array of object | yes |   | What it gives back, per payment, and where each stands |
 | `refunds[].paymentRef` | string | yes |   |   |
 | `refunds[].method` | `"provider"`, `"recorded"` | yes |   |   |
 | `refunds[].amount` | number | yes |   |   |
 | `refunds[].refundId` | string or null | yes |   | The refund asked for (provider) or recorded (paid back); null: still owed |
 | `refunds[].paidBackAt` | string or null | yes |   |   |
+| `refunds[].attempt` | number | yes |   | 1, or how many times a provider's refund was asked for |
+| `refunds[].state` | `"given_back"`, `"asked"`, `"owed"` | yes |   | given_back: confirmed or recorded paid back; asked: waits for approval or the provider; owed: not given back (a person pays a recorded one back; a provider's rejected, expired or failed is asked for again with creditNote.askRefundAgain) |
+| `owedBack` | number | yes |   | What it still owes back: not given back, nor waiting |
 | `version` | number | yes |   |   |
 | `createdAt` | string | yes |   |   |
 | `invoice` | object | yes |   |   |
@@ -278,6 +349,7 @@ Issue a draft credit note: it takes the next number of the credit note series an
 | `invoice.money.credited` | number | yes |   | What credit notes took off what was owed |
 | `invoice.money.refunded` | number | yes |   | What has gone back, confirmed or recorded |
 | `invoice.money.balance` | number | yes |   | What is still owed: total less paid less credited |
+| `invoice.money.owedBack` | number | yes |   | What credit notes give back that has not gone back yet, nor waits for approval |
 | `invoice.money.orderState` | string | yes |   |   |
 | `pending` | array of string | yes |   | The refunds waiting in Approvals for a person with the refund permission |
 

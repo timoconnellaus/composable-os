@@ -67,7 +67,7 @@ merge; step 4 builds on, or builds, stage 34's shared step "an order paid anothe
 
 - **Step 3** — built — PR #460 — Issue as an order: `invoice.issue` numbers the draft and starts its
   order in one batch through `createOrder` (priced lines, line discounts as `staff` adjustments,
-  the host's `rounding` and `prepaid` kinds, no deal, the goods rules: goods refused, the document's
+  the host's `prepaid` kind, no deal, the goods rules: goods refused, the document's
   tax, no expiry, its due date), `invoice.allowPartPayments`; `order.*` refuses to move it;
   migration 1031, ADR 0731
 
@@ -77,7 +77,11 @@ merge; step 4 builds on, or builds, stage 34's shared step "an order paid anothe
 
 - **Step 5** — built — PR #460 — Credit notes and void: `creditNote.create/get/list/delete/issue`
   and `invoice.void`, `core_order.credited`, refunds by method per payment
-  (`core_credit_note_refund`), never more than was paid; ADR 0735
+  (`core_credit_note_refund`), never more than was paid; ADR 0735. After review: every act that may
+  wait for a person names the version read; a refund rejected or expired is owed and asked again
+  (`creditNote.askRefundAgain`); reversals to nothing put the invoice back to unpaid; account
+  deletion and erase never cancel an invoice's order; each payment and refund carries its share of
+  the document's tax (stage 52's book); an open payment page holds credits and recorded payments
 
 - **Step 6** — not built — needs: step 2 — Quotes and acceptance (the deposit invoice needs step 3)
 
