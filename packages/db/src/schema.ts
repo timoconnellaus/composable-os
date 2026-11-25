@@ -1064,6 +1064,14 @@ export interface CoreNativeHandoffTable {
   expires_at: string;
 }
 
+/** Wrong guesses per client address, group and hour (migration 1450, ADR 0940). */
+export interface CoreWrongGuessTable {
+  /** SHA-256 of the address's key, the group and the hour: never an address. */
+  guess_key: string;
+  window_start: string;
+  wrong: Generated<number>;
+}
+
 export interface CoreIdempotencyClaimTable {
   scope: string;
   idempotency_key: string;
@@ -4474,6 +4482,7 @@ export interface CoreDatabase {
   core_erase_request: CoreEraseRequestTable;
   core_idempotency_key: CoreIdempotencyKeyTable;
   core_idempotency_claim: CoreIdempotencyClaimTable;
+  core_wrong_guess: CoreWrongGuessTable;
   core_device_session: CoreDeviceSessionTable;
   core_user_invite: CoreUserInviteTable;
   core_native_handoff: CoreNativeHandoffTable;

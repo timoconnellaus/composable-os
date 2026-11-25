@@ -417,6 +417,9 @@ export const orderStart = defineOperation({
   permission: "records:write",
   risk: "write",
   audiences: ["staff", "customer", "public"],
+  // Per client address, with order.startHeld: one count for both (ADR 0940). Each start holds stock
+  // and places until it expires.
+  publicLimit: { tier: "strict", group: "order.start" },
   hostInternal: true,
   mcp: { expose: false },
   // What a visitor typed, drew and answered never reaches the audit log.
@@ -548,6 +551,8 @@ export const orderQuote = defineOperation({
   permission: "records:read",
   risk: "read",
   audiences: ["staff", "customer", "public"],
+  // Tighter than a read's default (ADR 0940): each quote prices every line.
+  publicLimit: { tier: "low" },
   hostInternal: true,
   mcp: { idempotent: true },
   redact: ["address"],
@@ -1829,6 +1834,8 @@ export const orderStartHeld = defineOperation({
   permission: "records:write",
   risk: "write",
   audiences: ["staff", "customer", "public"],
+  // Per client address, with order.start: one count for both (ADR 0940).
+  publicLimit: { tier: "strict", group: "order.start" },
   hostInternal: true,
   toolOnly: true,
   mcp: { expose: false },

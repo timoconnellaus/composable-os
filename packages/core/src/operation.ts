@@ -37,6 +37,7 @@ import {
   RISK_CLASSES,
   type RiskClass,
 } from "./principals.ts";
+import { PUBLIC_LIMIT_TIERS } from "./public-limits.ts";
 import type { MediaStore } from "./records/media.ts";
 import type { UpdaterRuntime } from "./updates.ts";
 import type { RecordAccess } from "./visibility/records.ts";
@@ -348,6 +349,18 @@ export interface HandlerContext {
    * PINs are refused. On a customer's call only a `hostInternal` core operation gets it.
    */
   readonly personCodes?: PersonCodeKeys;
+  /**
+   * On a call from outside the org to a core `hostInternal` operation declaring
+   * `publicLimit.guesses` (ADR 0940): check before looking at a code, and count a wrong one.
+   * Absent on staff calls, and when the adapter keeps no limiter.
+   */
+  readonly guesses?: import("./guesses.ts").Guesses;
+  /**
+   * On the operation the host builds to start a pack's tool, called from outside the org: the
+   * caller's address key (ADR 0940), handed to the run so the tool's strict calls are counted
+   * against the same address. Never an address.
+   */
+  readonly clientAddress?: import("./public-limits.ts").ClientAddress;
 }
 
 /**
@@ -570,6 +583,12 @@ export interface OperationDefinition<
    * risk class must be `read` or `write`, and the operation joins open-operations.json.
    */
   audiences?: readonly Audience[];
+  /**
+   * Open to `public` only: how tightly a call from outside the org is limited per client address
+   * (ADR 0940, public-limits.ts). Left out, the default for the risk class: `standard` for a read,
+   * `low` for a write. Tighter for anything guessable or costly (a code check, an order start).
+   */
+  publicLimit?: import("./public-limits.ts").PublicLimit;
   /** For bulk operations: how many records this input touches (the gate's bulk threshold). */
   bulkSize?: (input: z.output<In>) => number;
   /** Extra input keys to redact in the audit log (secrets matching common names always are). */
@@ -770,6 +789,25 @@ export function operationProblems(op: AnyOperation): string[] {
     const audiences = audiencesOf(op);
     if (!audiences.includes("customer") && !(audiences.length === 1 && audiences[0] === "staff")) {
       problems.push("toolOnly is for an operation open to customer callers, or to staff only");
+    }
+  }
+  if (op.publicLimit !== undefined) {
+    const limit = op.publicLimit;
+    if (!audiencesOf(op).includes("public")) {
+      problems.push("publicLimit is for an operation open to the public");
+    }
+    if (!PUBLIC_LIMIT_TIERS.includes(limit.tier)) problems.push("publicLimit.tier is unknown");
+    if (limit.group !== undefined && !/^[a-z][a-zA-Z0-9.]{1,60}$/.test(limit.group)) {
+      problems.push("publicLimit.group is a name like order.start");
+    }
+    if (limit.inTools !== undefined && limit.inTools !== true) {
+      problems.push("publicLimit.inTools is true or left out");
+    }
+    if (limit.guesses !== undefined) {
+      if (op.hostInternal !== true || op.name?.startsWith("x.")) {
+        problems.push("publicLimit.guesses is for a core hostInternal operation");
+      }
+      if (limit.tier !== "strict") problems.push("publicLimit.guesses needs the strict tier");
     }
   }
   if (isOpenOutside(op) && op.alwaysReview) {

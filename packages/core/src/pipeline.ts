@@ -79,6 +79,7 @@ import {
   type GateFloor,
   type GateResult,
 } from "./gate.ts";
+import { guessCounter } from "./guesses.ts";
 import { findProvisionalIds, newId } from "./ids.ts";
 import type { IntakeRuntime } from "./intake/runtime.ts";
 import type { BlobStore, IntegrationRuntime } from "./integrations/runtime.ts";
@@ -134,6 +135,12 @@ import {
   type Permission,
   staffPrincipal,
 } from "./principals.ts";
+import {
+  type ClientAddress,
+  checkPublicLimit,
+  type PublicLimitBindings,
+  publicLimitOf,
+} from "./public-limits.ts";
 import type { RateLimitBinding } from "./rate-limit.ts";
 import type { MediaStore } from "./records/media.ts";
 import { touchesPersonApproves } from "./records/person-approves.ts";
@@ -1951,6 +1958,18 @@ export interface OutsideInvocationContext {
    */
   rateLimit?: RateLimitBinding;
   /**
+   * The limit per client address on operations open to the public (ADR 0940, public-limits.ts):
+   * the bindings, one per tier. Absent: the adapter keeps no limiter (a test, a script), and
+   * nothing is counted here; every adapter that serves people sets it.
+   */
+  publicLimits?: PublicLimitBindings;
+  /**
+   * Who the call is counted as: a keyed hash of the client's address, made by the adapter from the
+   * connection (the HTTP surface) or from the client app's word (the binding), or the client app's
+   * shared bucket. Never an address. Absent with `publicLimits`: one shared unknown bucket.
+   */
+  clientAddress?: ClientAddress;
+  /**
    * The integration host, given only to a `hostInternal` core operation's handler (stage 25,
    * ADR 0429: `order.checkout` opens the payment provider's page for a buyer).
    */
@@ -2266,6 +2285,16 @@ async function auditDeviceRefusal(
   }
 }
 
+/** `ctx.guesses` for an operation that declares `publicLimit.guesses` (ADR 0940). */
+function guessesFor(
+  op: AnyOperation,
+  ctx: OutsideInvocationContext | DeviceInvocationContext,
+  now: string,
+): { guesses?: ReturnType<typeof guessCounter> } {
+  const group = publicLimitOf(op)?.guesses;
+  return group ? { guesses: guessCounter(ctx.db, ctx.clientAddress, group, now) } : {};
+}
+
 /**
  * Runs one operation for a customer or the public:
  *
@@ -2335,6 +2364,12 @@ async function invokeOutside<O extends AnyOperation>(
   // Counted once the call is one this caller may make at all, and before any work is done for it.
   // A tool's own calls are part of the one call that started the tool.
   if (!ctx.tool) await checkOutsideRateLimit(ctx.rateLimit, principal, op.name);
+  // And per client address, on an operation open to the public (ADR 0940): a customer too, never
+  // an enrolled device (limited per device above, and the desk origin per address). Inside a
+  // pack's tool only a strict operation is counted again.
+  if (principal.kind !== "device") {
+    await checkPublicLimit(ctx.publicLimits, ctx.clientAddress, op, { inTool: Boolean(ctx.tool) });
+  }
   // An option only staff may pass is not the customer's or the public's to send (it is not in
   // their contract either).
   const staffKeys = (op.staffInput ?? []).filter(
@@ -2522,6 +2557,12 @@ async function invokeOutside<O extends AnyOperation>(
           : {}),
         // The pack tool whose run made this call (ADR 0414), from the runner.
         ...(ctx.tool ? { callingTool: { ...ctx.tool } } : {}),
+        // A tool's run counts its strict calls against the caller's address (ADR 0940).
+        ...(hostTool && ctx.clientAddress ? { clientAddress: ctx.clientAddress } : {}),
+        // A code check counts wrong codes per address (ADR 0940, guesses.ts).
+        ...(op.hostInternal === true && !op.name.startsWith("x.") && ctx.publicLimits
+          ? guessesFor(op, ctx, now)
+          : {}),
         // The public-write door's runtime, for its own operations only (ADR 0722).
         ...(op.name.startsWith("intake.") && ctx.intake ? { intake: ctx.intake } : {}),
         // An anonymous form (ADR 0725): from now on nothing this call writes names the account.

@@ -285,6 +285,8 @@ export const contactStop = defineOperation({
   permission: "records:write",
   risk: "write",
   audiences: ["customer", "public"],
+  // Per client address (ADR 0940): a token cannot be guessed, so this bounds the write load.
+  publicLimit: { tier: "strict" },
   hostInternal: true,
   mcp: { expose: false },
   async handler(input, ctx) {
