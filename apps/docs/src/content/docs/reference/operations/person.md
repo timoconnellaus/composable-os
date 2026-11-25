@@ -98,6 +98,37 @@ Record that a person changed jobs: their current primary affiliation ends (it st
 | `started.updatedAt` | string | yes |   |   |
 | `activityId` | string | yes |   |   |
 
+## person.contact.record
+
+Records a member's contact choice they gave by phone or on paper: a kind of message, a channel and on or off (news_and_offers: yes or no, with the words they agreed to). Says why. A person only, never an AI. It cannot turn back on what the member stopped themselves.
+
+|  |  |
+| --- | --- |
+| Permission | `records:write` |
+| Risk | `write` |
+| Audiences | `staff` |
+| Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
+
+### Input
+
+| Field | Type | Required | Limits | Description |
+| --- | --- | --- | --- | --- |
+| `personId` | string | yes | min length 1, max length 64 |   |
+| `choices` | array of object | yes | at least 1, at most 40 |   |
+| `choices[].scope` | string | yes | min length 1, max length 80 | A kind of message: a routine message kind (bookings.reminder), follow_up, or news_and_offers |
+| `choices[].channel` | `"email"`, `"text"`, `"push"` | yes |   |   |
+| `choices[].value` | `"on"`, `"off"`, `"yes"`, `"no"` | yes |   | on or off; for news_and_offers, yes or no |
+| `how` | `"staff_on_request"`, `"staff_from_paper"` | yes |   | They asked (by phone, at the desk), or on a paper form |
+| `reason` | string | yes | min length 3, max length 500 | Why, in a few words |
+| `wording` | string |   | max length 1000 | For a yes to news and offers: the words they agreed to |
+
+### Output
+
+| Field | Type | Required | Limits | Description |
+| --- | --- | --- | --- | --- |
+| `changed` | integer | yes | ≥ -9007199254740991, ≤ 9007199254740991 |   |
+
 ## person.create
 
 Create a person (a contact) with optional names, emails, phones, location, owner, tags and description. Use it after checking with person.list or search that the person does not already exist: emails must be unique across live people, and a taken email fails with a conflict. Returns the created person. Unknown tags are created. Check possibleDuplicates in the result: existing people this one may duplicate by plain rules (same name and organisation, same name and email domain, same phone number, same name only), each with its reason. If one is the same person, merge them with person.merge.

@@ -300,7 +300,12 @@ const stopped = async (to: string) => {
   const { numberHash } = await import("@composable-os/core");
   const hash = await numberHash(db.query, to);
   return Boolean(
-    await env.DB.prepare("SELECT 1 FROM core_text_stop WHERE number_hash = ?").bind(hash).first(),
+    // The consent register's suppression list (ADR 0675, migration 0913 took core_text_stop in).
+    await env.DB.prepare(
+      "SELECT 1 FROM core_contact_suppression WHERE channel = 'text' AND value_hash = ?",
+    )
+      .bind(hash)
+      .first(),
   );
 };
 
@@ -551,6 +556,26 @@ describe("receipts, STOP and START (ADR 0672)", { timeout: 60_000 }, () => {
     await vi.waitFor(async () => expect(await stopped(phone.to)).toBe(true), { timeout: 10_000 });
     await sendReadyTexts({ db: db.query, integrations }, { ids: [text.id] });
     expect((await rowById(text.id)).status).toBe("stopped");
+    expect(await sentTo(phone.to)).toEqual([]);
+  });
+
+  it("a text claimed after the member turned the kind's texts off in their account is stopped (ADR 0675)", async () => {
+    const phone = mobile();
+    const who = await member("prefs-later", phone);
+    const bookingId = await booking(who);
+    const runId = await confirm(bookingId);
+    const text = await textOf(bookingId, runId);
+    expect(text.status).toBe("ready");
+    await invokeByName(
+      "me.contact.setChoices",
+      { choices: [{ scope: "bookings.confirmation", channel: "text", value: "off" }] },
+      as(who),
+    );
+    await sendReadyTexts({ db: db.query, integrations }, { ids: [text.id] });
+    expect(await rowById(text.id)).toMatchObject({
+      status: "stopped",
+      error: "they turned these off by text",
+    });
     expect(await sentTo(phone.to)).toEqual([]);
   });
 });

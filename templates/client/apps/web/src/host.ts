@@ -253,3 +253,70 @@ export async function mediaRoute(request: Request, env: HostEnv): Promise<Respon
     headers,
   });
 }
+
+/** Where a stop link opens: the host makes each one for this site (`stopLink`, stage 30). */
+export const STOP_ROUTE = "/stop";
+
+const STOP_TOKEN = /^[A-Za-z0-9._-]{1,400}$/;
+
+const stopPage = (body: string) =>
+  new Response(
+    `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="robots" content="noindex"><title>Stop these messages</title></head><body style="font-family: system-ui, sans-serif; max-width: 32rem; margin: 3rem auto; padding: 0 1rem">${body}</body></html>`,
+    {
+      headers: {
+        "content-type": "text/html; charset=utf-8",
+        "cache-control": "no-store",
+        "x-content-type-options": "nosniff",
+        "content-security-policy":
+          "default-src 'none'; style-src 'unsafe-inline'; form-action 'self'",
+        "referrer-policy": "no-referrer",
+      },
+    },
+  );
+
+/**
+ * The one-tap stop on this site (stage 30, ADR 0675). A stoppable email links here with the
+ * host's token (`/stop?t=…`) and names the same address in its List-Unsubscribe header:
+ *
+ * - GET shows a page with one button. Opening the link stops nothing, so a mail scanner that
+ *   fetches every link stops nothing.
+ * - POST stops: the page's button, or a mail app's one-click (`List-Unsubscribe=One-Click`,
+ *   RFC 8058). It calls the host's public `contact.stop` with the token and nothing else (no
+ *   cookie: the token alone says who and what), and answers the same whatever the host said.
+ *
+ * What a token may turn off is the host's to decide; this only carries it. Null for any other
+ * request.
+ */
+export async function stopRoute(request: Request, env: HostEnv): Promise<Response | null> {
+  const url = new URL(request.url);
+  if (url.pathname !== STOP_ROUTE) return null;
+  const token = url.searchParams.get("t") ?? "";
+  if (request.method === "GET" || request.method === "HEAD") {
+    if (url.searchParams.get("done") === "1") {
+      return stopPage("<h1>Done</h1><p>You will not get these messages any more.</p>");
+    }
+    if (!STOP_TOKEN.test(token)) {
+      return stopPage("<h1>Stop these messages</h1><p>This link is not complete.</p>");
+    }
+    return stopPage(
+      `<h1>Stop these messages</h1><p>Press the button and we will stop sending you these messages. You can turn them back on in your account.</p><form method="post"><input type="hidden" name="List-Unsubscribe" value="One-Click"><button type="submit">Stop these messages</button></form>`,
+    );
+  }
+  if (request.method !== "POST") return refuse(405, "invalid_input", "Use GET or POST");
+  if (STOP_TOKEN.test(token)) {
+    try {
+      // The typed client, as the public: no cookie, so the token alone says who and what.
+      await createCustomerClient({
+        baseUrl: BOUND,
+        fetch: (url, init) => env.HOST.fetch(url, init),
+      }).call("contact.stop", { token });
+    } catch {
+      // The same answer whatever happened: a mail app does not retry on our word.
+    }
+  }
+  // The page's own button goes on to say it is done; a mail app's one-click gets a plain yes.
+  if (request.headers.get("origin") === url.origin) {
+    return new Response(null, { status: 303, headers: { location: `${STOP_ROUTE}?done=1` } });
+  }
+  return new Response(null, { status: 200 });
+}

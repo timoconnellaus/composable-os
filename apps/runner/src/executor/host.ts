@@ -688,7 +688,8 @@ export class RunHost extends RpcTarget {
       let held = 0;
       for (const done of prepared.done) {
         if (done.status === "sent" && done.routine) sent += 1;
-        else if (done.status === "waiting" || !done.routine) held += done.status === "off" ? 0 : 1;
+        else if (done.status === "waiting" || !done.routine)
+          held += done.status === "off" || done.status === "stopped" ? 0 : 1;
       }
       let off = prepared.off;
       for (const row of prepared.toSend) {
