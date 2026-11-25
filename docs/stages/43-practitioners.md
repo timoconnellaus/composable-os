@@ -30,7 +30,7 @@ practice is an outside practice it works with. Nothing here depends on stages 31
 - **Step 2** — not built — Programs' additions: kinds `rehab` and `habits`, `check` and `amount` measures,
   sets and log fields, `confidential` marks on layout notes (inert until step 5).
 
-- **Step 3** — not built — The principal, audience, accounts, invites and sign-in.
+- **Step 3** — in progress — branch `feat/stage-43-practitioner-principal` — The principal, audience, accounts, invites and sign-in.
 
 - **Step 4** — not built — needs: step 3 — The care link and consent, sharing, the guard, the consent page,
   Trash, merge and erase of links.
