@@ -489,7 +489,11 @@ describe("what an AI may change does not reach a text (the review of PR #339)", 
 
   it("an MCP client changing the organisation's time zone does not move quiet hours", async () => {
     const local = (days: number, clock: string) => {
-      const day = new Date(Date.now() + days * DAY).toISOString().slice(0, 10);
+      // The local day, not the UTC one: late in the UTC day the two differ, and "tomorrow at
+      // 06:00" would land in the past.
+      const day = new Intl.DateTimeFormat("en-CA", { timeZone: ZONE }).format(
+        new Date(Date.now() + days * DAY),
+      );
       const at = Date.parse(`${day}T${clock}:00+11:00`);
       const shown = new Intl.DateTimeFormat("en-GB", {
         timeZone: ZONE,
@@ -526,7 +530,11 @@ describe("what an AI may change does not reach a text (the review of PR #339)", 
 describe("quiet hours (ADR 0676)", { timeout: 60_000 }, () => {
   /** An instant at a local time in Sydney, `days` from now (summer: +11:00). */
   const local = (days: number, clock: string) => {
-    const day = new Date(Date.now() + days * DAY).toISOString().slice(0, 10);
+    // The local day, not the UTC one: late in the UTC day the two differ, and "tomorrow at
+    // 06:00" would land in the past (the test then failed from 19:00 to 24:00 UTC).
+    const day = new Intl.DateTimeFormat("en-CA", { timeZone: ZONE }).format(
+      new Date(Date.now() + days * DAY),
+    );
     const at = Date.parse(`${day}T${clock}:00+11:00`);
     // Correct for winter (+10:00): put it on that local clock.
     const shown = new Intl.DateTimeFormat("en-GB", {
