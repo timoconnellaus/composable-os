@@ -102,7 +102,11 @@ describe("the screens registry (ADR 0660)", () => {
     const importing = files(join(ROOT, "apps/app/src")).filter((path) =>
       /from\s+["']@composable-os\/pack-/.test(readFileSync(path, "utf8")),
     );
-    expect(importing).toEqual([]);
+    // One reviewed exception (stage 29 step 4, ADR 0728): the form page the host serves at
+    // /f/<slug> and /form is the Forms pack's, drawn on the server, not a screen of the admin.
+    expect(importing.map((path) => path.slice(ROOT.length))).toEqual([
+      "apps/app/src/server/http/form-page.ts",
+    ]);
     // And the screens' own files name none, in code or in words.
     const ids = new RegExp(
       readdirSync(join(ROOT, "packs"))
