@@ -98,7 +98,13 @@ async function payment(
     .run();
 }
 
-async function refund(orderId: string, ref: string, paymentRef: string, amount: number, at: string) {
+async function refund(
+  orderId: string,
+  ref: string,
+  paymentRef: string,
+  amount: number,
+  at: string,
+) {
   const id = newId("refund");
   await env.DB.prepare(
     `INSERT INTO core_order_refund (id, order_id, provider, payment_ref, amount, currency, status,

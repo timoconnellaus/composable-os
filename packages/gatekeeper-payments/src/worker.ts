@@ -1129,7 +1129,7 @@ export class PaymentsGatekeeper
       snippet:
         `Open ${PROVIDER_TITLES[provider]} checkouts, read them, and refund payments. Each ` +
         "refund waits for approval. The host also puts payments on registered card readers, and " +
-          "reads the payouts sent to the bank for its finance reports.",
+        "reads the payouts sent to the bank for its finance reports.",
       suggestedBindingName: "PAYMENTS",
       tsType: "PaymentsSession",
       hookTsType: "PaymentsEventHook",

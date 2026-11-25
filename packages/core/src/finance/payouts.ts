@@ -167,7 +167,13 @@ const splitMatch = (value: string | null) => {
 };
 
 /** What the provider's payments and refunds of the window not yet in a payout come to. */
-async function notPaidOut(db: Db, from: string, to: string, endDate: string, currency: string | null) {
+async function notPaidOut(
+  db: Db,
+  from: string,
+  to: string,
+  endDate: string,
+  currency: string | null,
+) {
   const paidOut = (column: string, kind: string, ref: string) =>
     `EXISTS (SELECT 1 FROM core_payout_line l JOIN core_payout o
        ON o.provider = l.provider AND o.ref = l.payout_ref
@@ -320,7 +326,12 @@ export async function payoutBook(
   currency: string | null,
 ): Promise<PayoutBook> {
   const lateFrom = late.length ? late.map((m) => m.start_date).sort()[0] : null;
-  const lateTo = late.length ? late.map((m) => m.end_date).sort().at(-1) : null;
+  const lateTo = late.length
+    ? late
+        .map((m) => m.end_date)
+        .sort()
+        .at(-1)
+    : null;
   const toIso = new Date(range.ends * 1000).toISOString();
   const fromIso = new Date((range.ends - NOT_PAID_OUT_DAYS * 86_400) * 1000).toISOString();
   const [own, ownFailures, earlier, earlierFailures, waiting] = await Promise.all([
@@ -414,7 +425,8 @@ export async function payoutBook(
         orderCount: orders.length,
       }),
     );
-    for (const r of made.rows) rows.push(row({ ...r, date: p.arrival_date, belongsTo: p.belongsTo }));
+    for (const r of made.rows)
+      rows.push(row({ ...r, date: p.arrival_date, belongsTo: p.belongsTo }));
   }
 
   for (const f of failures) {

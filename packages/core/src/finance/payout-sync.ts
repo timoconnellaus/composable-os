@@ -429,7 +429,10 @@ export async function syncPayouts(ctx: HandlerContext): Promise<PayoutSyncResult
       for (const payout of page.payouts) {
         if (isRecorded.has(payout.ref)) {
           // A correction, never an edit: the bank returned a payout recorded as arrived.
-          if ((payout.status === "failed" || payout.status === "canceled") && !isFailed.has(payout.ref)) {
+          if (
+            (payout.status === "failed" || payout.status === "canceled") &&
+            !isFailed.has(payout.ref)
+          ) {
             statements.push(failureInsert(provider, payout.ref, today, ctx.now));
             isFailed.add(payout.ref);
             out.failed += 1;
@@ -479,7 +482,10 @@ export async function syncPayouts(ctx: HandlerContext): Promise<PayoutSyncResult
       });
     } else {
       // More to read: the next minute carries on from the marker.
-      Object.assign(row, { state: row.state === "unavailable" ? "ok" : row.state, next_at: ctx.now });
+      Object.assign(row, {
+        state: row.state === "unavailable" ? "ok" : row.state,
+        next_at: ctx.now,
+      });
     }
   } catch (error) {
     // The provider failed: keep the place and what was read, and try again later. A provider

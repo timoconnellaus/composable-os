@@ -20,8 +20,8 @@ import type {
   PaymentsEvent,
   PaymentsInterval,
   PaymentsInvoice,
-  PaymentsPauseSubscriptionInput,
   PaymentsListPayoutsInput,
+  PaymentsPauseSubscriptionInput,
   PaymentsPayment,
   PaymentsPayout,
   PaymentsPayoutLinePage,
@@ -1376,7 +1376,10 @@ export class FakePaymentsLedger extends DurableObject<Cloudflare.Env> {
   }
 
   #payoutReads(): FakePayoutReads {
-    return { ...DEFAULT_PAYOUT_READS, ...(this.ctx.storage.kv.get<FakePayoutReads>(PAYOUT_READS) ?? {}) };
+    return {
+      ...DEFAULT_PAYOUT_READS,
+      ...(this.ctx.storage.kv.get<FakePayoutReads>(PAYOUT_READS) ?? {}),
+    };
   }
 
   /** Counts a read, and answers a refusal or a failure when a test turned one on. */

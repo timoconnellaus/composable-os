@@ -45,7 +45,11 @@ beforeAll(async () => {
   };
   await setSetting("org_timezone", "Australia/Sydney");
   await setSetting("order_currency", "AUD");
-  await setSetting("finance_settings", { yearStartMonth: 7, firstPeriod: "2025-11", categoryLabels: {} });
+  await setSetting("finance_settings", {
+    yearStartMonth: 7,
+    firstPeriod: "2025-11",
+    categoryLabels: {},
+  });
   await fake.configurePayoutReads({ auto: false, pageSize: 10, reads: "ok" });
   await invokeByName("integration.setVendor", { vendor: "payments", enabled: true }, staff);
   const connection = (await invokeByName(
@@ -125,7 +129,9 @@ describe("the daily payout read in the minute cron", () => {
     ]);
     // Two key lookups (one per provider) and the one row: never the payouts themselves.
     expect(own[0]?.rowsRead).toBeLessThanOrEqual(3);
-    expect(meter.statements.filter((s) => /core_payout/.test(s.sql) && !/^\s*select/i.test(s.sql))).toEqual([]);
+    expect(
+      meter.statements.filter((s) => /core_payout/.test(s.sql) && !/^\s*select/i.test(s.sql)),
+    ).toEqual([]);
   });
 
   it("the next day, with nothing new, is one provider call; two runs at once record nothing twice", async () => {
@@ -152,9 +158,7 @@ describe("the daily payout read in the minute cron", () => {
     const result = await tick("2026-11-02T20:00:00.000Z");
     expect(result.payouts).toMatchObject({ recorded: 1, state: "ok", more: false });
     expect(
-      await env.DB.prepare("SELECT amount FROM core_payout WHERE ref = ?")
-        .bind(made?.ref)
-        .first(),
+      await env.DB.prepare("SELECT amount FROM core_payout WHERE ref = ?").bind(made?.ref).first(),
     ).toEqual({ amount: 250 });
     expect(await count("core_payout")).toBe(151);
   });

@@ -73,7 +73,7 @@ describe("the fake provider's payouts", () => {
     const first = (await h.call("listPayouts", [{ since: "2026-04-01" }])) as PaymentsPayoutPage;
     if (first.unavailable) throw new Error("unavailable");
     expect(first.payouts.map((p) => p.ref)).toContain(payout.ref);
-    const lines: PaymentsPayoutLinePage[] = [];
+    const lines: Exclude<PaymentsPayoutLinePage, { unavailable: true }>[] = [];
     let after: string | null = null;
     do {
       const page = (await h.call("payoutLines", [
@@ -160,7 +160,17 @@ describe("Stripe's payouts", () => {
       createdAt: "2026-04-13T00:00:00.000Z",
       itemised: true,
     });
-    expect(stripePayoutRead({ id: "po_2", amount: 1, currency: "nzd", arrival_date: 1, created: 1, status: "paid", automatic: false })?.itemised).toBe(false);
+    expect(
+      stripePayoutRead({
+        id: "po_2",
+        amount: 1,
+        currency: "nzd",
+        arrival_date: 1,
+        created: 1,
+        status: "paid",
+        automatic: false,
+      })?.itemised,
+    ).toBe(false);
     expect(stripePayoutRead({ id: "po_3" })).toBeNull();
   });
 
@@ -206,7 +216,13 @@ describe("Stripe's payouts", () => {
       }),
     ).toMatchObject({ kind: "dispute", paymentRef: "pi_1", refundRef: null });
     expect(
-      stripePayoutLineRead({ ...base, id: "txn_4", amount: -500, fee: 0, reporting_category: "fee" }),
+      stripePayoutLineRead({
+        ...base,
+        id: "txn_4",
+        amount: -500,
+        fee: 0,
+        reporting_category: "fee",
+      }),
     ).toMatchObject({ kind: "fee" });
     expect(
       stripePayoutLineRead({
@@ -219,7 +235,13 @@ describe("Stripe's payouts", () => {
     ).toMatchObject({ kind: "adjustment", paymentRef: null });
     // The payout's own balance transaction is not one of its lines.
     expect(
-      stripePayoutLineRead({ ...base, id: "txn_6", amount: -16553, fee: 0, reporting_category: "payout" }),
+      stripePayoutLineRead({
+        ...base,
+        id: "txn_6",
+        amount: -16553,
+        fee: 0,
+        reporting_category: "payout",
+      }),
     ).toBeNull();
     // Nothing of a charge's billing details is passed on.
     expect(
@@ -241,7 +263,15 @@ describe("Stripe's payouts", () => {
       url.includes("/v1/payouts")
         ? ok({
             data: [
-              { id: "po_1", amount: 1, currency: "aud", arrival_date: 1, created: 1, status: "paid", automatic: true },
+              {
+                id: "po_1",
+                amount: 1,
+                currency: "aud",
+                arrival_date: 1,
+                created: 1,
+                status: "paid",
+                automatic: true,
+              },
             ],
             has_more: true,
           })
@@ -262,7 +292,10 @@ describe("Stripe's payouts", () => {
   });
 
   it("answers a key that may not read payouts as unavailable; anything else throws", async () => {
-    const refused = stripe(() => new Response(JSON.stringify({ error: { type: "invalid_request_error" } }), { status: 403 }));
+    const refused = stripe(
+      () =>
+        new Response(JSON.stringify({ error: { type: "invalid_request_error" } }), { status: 403 }),
+    );
     expect(await refused.provider.listPayouts({ since: "2026-04-01" })).toMatchObject({
       unavailable: true,
     });
