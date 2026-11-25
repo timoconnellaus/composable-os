@@ -679,8 +679,14 @@ None open. The six questions this spec raised were decided by the coordinator (d
   pack. Left: blocks and screens (step 6); pack-role accounts are not served a procedure's
   pictures and cannot read section names.
 
-- **Step 6** — in progress — branch `feat/stage-38-knowledge-blocks` — Blocks: help centre,
-  procedure reader, to read, confirm, read status; the declared screens
+- **Step 6** — built — PR #480 — Blocks: help centre, procedure reader, to read, confirm, read
+  status; the declared screens. ADR 0708 (amends ADRs 0424 and 0660); no migration, no new
+  operation. Web and native blocks (`knowledge-help-centre`, `-help-page`, `-native-help`,
+  `-procedures`, `-native-procedures`, `-to-read`, `-native-to-read`, `-read-status`); admin
+  screens Procedures, To read, the reader as a record screen, Read status; a record screen opened
+  by `?record=`, a fixed-role account's record link sent to it; `cos add` brings Content's
+  renderer whatever packs are listed. Left: a pack-role account is not served a procedure's
+  pictures and cannot read section names (ADR 0708 names the smallest host change for each).
 
 - **Step 7** — not built — needs: step 1 — Passages and the assistant: chunking at headings,
   passage vectors, `content.passages`, citations
