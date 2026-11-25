@@ -90,7 +90,17 @@ buttons, fields, lists, sheets, or a pack's screens. Blocks ship inside the plat
    `src/server.ts` calls, forwarding `GET /api/media/<id>?w=` to the host over the binding (in an
    adopted site, call `mediaRoute(request, env)` from the site's own Worker before its pages; pass
    `mediaBase` for another origin). In the app, pass `mediaUrl={mediaUrlFor({ hostUrl })}` from the
-   mobile template's `src/host.ts`: the host's `/api/v1/media/<id>`, and the native one an `openUrl` (React Native's `Linking.openURL`). The Courses
+   mobile template's `src/host.ts`: the host's `/api/v1/media/<id>`, and the native one an `openUrl` (React Native's `Linking.openURL`). Forms'
+   blocks (`forms-form`, `forms-native-form`) take `forms`: `createFormsHooks({ useQuery,
+   useMutation, useState }, api)` from `@composable-os/pack-forms/client`; give `FormBlock` (or
+   `FormScreen`) the form's address, and for a public form pass the app's Turnstile widget as
+   `Turnstile` (for example `@marsidev/react-turnstile` with the site key of the app's hostname,
+   its `onSuccess` calling the block's `onToken`): the block loads no script of its own. A
+   member's form from Needs your attention (`form_to_fill`, whose `link` is the link's id) is
+   `LinkedFormBlock` (`LinkedFormScreen` in the app) with that `linkId`. The personal link an
+   email sends (`/form?t=…`) and a form's own page (`/f/<slug>`) need no block: the template's
+   `formPageRoute`, which `src/server.ts` calls, serves the host's page on the site (in an adopted
+   site, call it from the site's own Worker before its pages). The Courses
    players (`courses-player`, `courses-native-player`) bring Content's rich text block with them
    (Courses requires Content): pass `renderText` drawing the lesson's value with it: `RichText` on
    the web, `RichTextView` with `mediaUrl` and `openUrl` in the app. `api` is the client the

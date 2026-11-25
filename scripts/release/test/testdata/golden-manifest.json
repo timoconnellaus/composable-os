@@ -779,6 +779,11 @@
           "name": "STREAM_SIGNING_JWK",
           "text": "$SECRET(STREAM_SIGNING_JWK)",
           "type": "secret_text"
+        },
+        {
+          "name": "TURNSTILE_SITE_KEY",
+          "text": "$SECRET(TURNSTILE_SITE_KEY)",
+          "type": "secret_text"
         }
       ],
       "compatibilityDate": "2026-10-01",
@@ -906,9 +911,15 @@
           "name": "STREAM_SIGNING_JWK",
           "required": false,
           "source": "user"
+        },
+        {
+          "description": "Optional. The Turnstile widget's site key (stage 29, ADR 0728) that the host's form page (/f/<slug>, on the host's address and on a web app's site through its binding) draws for a public form. Not secret: kept as one so it stays out of wrangler.jsonc and each deploy keeps it. Set by a person beside TURNSTILE_SECRET_KEY on cos-runner (docs/deploying.md, Forms: Turnstile).",
+          "name": "TURNSTILE_SITE_KEY",
+          "required": false,
+          "source": "user"
         }
       ],
-      "sha256": "5c9a2c36e7bdae16801de6ef07a532cb4bdbb9ef9f77b72688be5b8c17b75e7f"
+      "sha256": "5674fd9b78d94686db5e86b15cbd764aea2c1f2cd7ea3fb0b37eeada684efcba"
     },
     {
       "bindings": [

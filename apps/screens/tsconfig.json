@@ -11,6 +11,7 @@
       "../../packs/content/blocks",
       "../../packs/courses/blocks",
       "../../packs/dailychecks/blocks",
+      "../../packs/forms/blocks",
       "../../packs/memberships/blocks",
       "../../packs/programs/blocks",
       "../../packs/rostering/blocks",

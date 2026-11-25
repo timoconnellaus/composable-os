@@ -1,4 +1,4 @@
-// Stage 29 step 4 (ADR 0728): the form page (packs/forms/page) against the real host: its typed
+// Stage 29 step 4 (ADR 0728): the form page (packs/forms/client/page.ts) against the real host: its typed
 // client calls the HTTP surface (core's createHttpSurface over the real invoker), the Forms tools
 // run in the sandbox, and the door is the real one, with real D1.
 //
@@ -22,7 +22,7 @@ import {
   refreshSchemaRegistry,
 } from "@composable-os/core";
 import { beforeAll, describe, expect, it } from "vitest";
-import { formPage, formPageClient } from "../../../packs/forms/page/index.ts";
+import { formPage, formPageClient } from "../../../packs/forms/client/page.ts";
 import { integrationRuntime } from "../src/integrations/runtime.ts";
 import { setPreset } from "./automation-fixture.ts";
 import { createAdmin, db, host, newCustomer, run, unique } from "./helpers.ts";

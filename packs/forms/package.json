@@ -7,7 +7,7 @@
   "exports": {
     ".": "./index.ts",
     "./client": "./client/index.ts",
-    "./page": "./page/index.ts"
+    "./page": "./client/page.ts"
   },
   "description": "Forms: forms a business builds and publishes, and the answers people send to them, kept as submissions in an inbox (stage 29, ADR 0726). Answers arrive only through the host's intake door (ADR 0720). Bundled as source into cos-runner.",
   "composableOs": {

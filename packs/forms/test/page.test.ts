@@ -11,7 +11,7 @@ import {
   PAGE_SCRIPT,
   pageScriptSource,
   TURNSTILE_ORIGIN,
-} from "../page/index.ts";
+} from "../client/page.ts";
 
 const TOKEN = "A".repeat(43);
 

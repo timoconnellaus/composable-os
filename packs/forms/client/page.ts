@@ -43,7 +43,7 @@ import {
   ratingLabel,
   ratingValues,
   refusalOf,
-} from "../client/index.ts";
+} from "./index.ts";
 
 /** Where a form's own page is: `/f/<slug>`. */
 export const FORM_PAGE_PREFIX = "/f/";

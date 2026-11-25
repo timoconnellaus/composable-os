@@ -126,7 +126,7 @@ rules), which counts per IP at the edge and stores nothing in the deployment:
 
 | Setting | Value |
 | --- | --- |
-| Expression | `(starts_with(http.request.uri.path, "/api/v1/op/") or starts_with(http.request.uri.path, "/api/customer-auth/"))` |
+| Expression | `(starts_with(http.request.uri.path, "/api/v1/op/") or starts_with(http.request.uri.path, "/api/customer-auth/") or starts_with(http.request.uri.path, "/f/") or http.request.uri.path eq "/form")` |
 | Counting characteristic | IP (`ip.src`) |
 | Period | 10 seconds |
 | Requests | 30 |
@@ -138,19 +138,26 @@ hostname in front before opening anything to the public.
 #### Forms: Turnstile
 
 A form the public answers (stage 29, ADR 0722) is checked with Cloudflare Turnstile before the host
-keeps anything. Create a Turnstile widget for the site's hostname (Cloudflare dashboard → Turnstile,
-managed mode), put its **site key** in the client app that draws the form, and set its **secret
-key** on cos-runner, where a pack's tool and the door (`intake.submit`) run:
+keeps anything. Create a Turnstile widget (Cloudflare dashboard → Turnstile, managed mode) listing
+the hostnames forms are drawn on: the host's own (its form page, `/f/<slug>`) and the business's
+site (the same page through the web app's binding, and the `forms-form` block). Set its **secret
+key** on cos-runner, where a pack's tool and the door (`intake.submit`) run, and its **site key** on
+cos-app, which the form page draws the widget with (ADR 0728; not a secret, kept as one so it stays
+out of `wrangler.jsonc`); a client app's own block takes the same site key in the app's widget:
 
 ```sh
 wrangler secret put TURNSTILE_SECRET_KEY   # in apps/runner; scripts/deploy.mjs also reads it from the environment
+wrangler secret put TURNSTILE_SITE_KEY     # in apps/app; scripts/deploy.mjs also reads it from the environment
 ```
 
 It is an env-only secret: never in D1, an input or the audit log. Without it, forms take answers
 from signed-in customers and staff only; every public answer is turned away and admins are told
 once a day. A testing host uses Cloudflare's documented test keys (a secret that always passes).
-The edge rule above already counts the calls a form sends (`/api/v1/op/`); the hosted form page
-(`/f/<slug>`, a later step) joins it then. Not yet tried with a real site key on a live host.
+The edge rule above counts the calls a form sends (`/api/v1/op/`) and the form page's own paths
+(`/f/`, `/form`); a web app with Forms on names them in its own rule too (`cos create` prints it).
+Without the site key, a public form's page says it cannot be sent there. Local development and the
+e2e suite use Cloudflare's test keys (`scripts/dev-setup.mjs`). Not yet tried with a real site key
+on a live host.
 
 #### Customer sign-in
 

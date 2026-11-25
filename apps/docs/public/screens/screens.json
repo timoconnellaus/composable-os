@@ -155,6 +155,18 @@
     "height": 1388,
     "fingerprint": "82bf0fd60eff3431"
   },
+  "forms-form": {
+    "skin": "web",
+    "width": 640,
+    "height": 1000,
+    "fingerprint": "e9d742bf0a7f4ea0"
+  },
+  "forms-native-form": {
+    "skin": "native",
+    "width": 390,
+    "height": 844,
+    "fingerprint": "f45d0b425c141111"
+  },
   "memberships-mine": {
     "skin": "web",
     "width": 720,

@@ -100,6 +100,9 @@ export default defineWorkersTestConfig({
         // Stage 6a: the fake OAuth provider and gatekeeper (fake transports only, no accounts).
         INTEGRATIONS_FAKE_PROVIDER: "true",
         APP_ORIGIN: "http://crm.test",
+        // No Turnstile secret, whatever .dev.vars says (local dev sets Cloudflare's test key,
+        // scripts/dev-setup.mjs): the forms tests answer as a runner with none.
+        TURNSTILE_SECRET_KEY: "",
       },
       serviceBindings: {
         GATEKEEPER_WEBHOOK: { name: "cos-gatekeeper-webhook", entrypoint: "GatekeeperVendor" },
