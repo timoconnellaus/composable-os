@@ -12,6 +12,13 @@ import {
   customerIdentity,
   type SendCustomerCode,
 } from "./customer-auth.ts";
+import {
+  createPractitionerAuth,
+  type PractitionerIdentity,
+  practitionerIdentity,
+  practitionerSessionSecret,
+  type SendPractitionerCode,
+} from "./practitioner-auth.ts";
 import type { IdentityProvider, IdentityProviderKind } from "./principal.ts";
 
 export {
@@ -50,6 +57,20 @@ export {
   customerIdentity,
   type SendCustomerCode,
 } from "./customer-auth.ts";
+export {
+  createPractitionerAuth,
+  PRACTITIONER_AUTH_BASE_PATH,
+  PRACTITIONER_CODE_ATTEMPTS,
+  PRACTITIONER_CODE_LENGTH,
+  PRACTITIONER_CODE_TTL_SECONDS,
+  PRACTITIONER_COOKIE_PREFIX,
+  type PractitionerAuthInstance,
+  type PractitionerAuthOptions,
+  type PractitionerIdentity,
+  practitionerIdentity,
+  practitionerSessionSecret,
+  type SendPractitionerCode,
+} from "./practitioner-auth.ts";
 export type { IdentityProvider, IdentityProviderKind, Principal } from "./principal.ts";
 
 /** The env vars and bindings identity reads. All auth secrets are env-only (ADR 0008). */
@@ -208,6 +229,44 @@ export function getCustomerIdentity(
     });
     identity = customerIdentity(auth, env.DB);
     customerIdentityCache.set(env, identity);
+  }
+  return identity;
+}
+
+const practitionerIdentityCache = new WeakMap<object, PractitionerIdentity>();
+
+/**
+ * Practitioner sign-in for this env (stage 43, ADR 0581), built once per isolate. Its sessions
+ * are signed with a key derived from CUSTOMER_AUTH_SECRET (`practitionerSessionSecret`), so it
+ * needs no secret of its own; it fails closed as customer sign-in does: without that secret, and
+ * when that secret is the staff one.
+ */
+export function getPractitionerIdentity(
+  env: CustomerIdentityEnv,
+  sendCode: SendPractitionerCode,
+  /** Why codes cannot be sent yet, or null. */
+  ready?: () => Promise<string | null>,
+): PractitionerIdentity {
+  let identity = practitionerIdentityCache.get(env);
+  if (!identity) {
+    const secret = env.CUSTOMER_AUTH_SECRET;
+    if (!secret) throw new IdentityConfigError("CUSTOMER_AUTH_SECRET is not set");
+    if (secret === env.BETTER_AUTH_SECRET) {
+      throw new IdentityConfigError("CUSTOMER_AUTH_SECRET must differ from BETTER_AUTH_SECRET");
+    }
+    const auth = practitionerSessionSecret(secret).then((key) =>
+      createPractitionerAuth({
+        db: env.DB,
+        secret: key,
+        baseURL: env.CUSTOMER_AUTH_URL || undefined,
+        sendCode,
+        codeRateLimit: env.CUSTOMER_CODE_RATE_LIMIT,
+        codeAddressRateLimit: env.CUSTOMER_CODE_ADDRESS_RATE_LIMIT,
+        ready,
+      }),
+    );
+    identity = practitionerIdentity(auth, env.DB);
+    practitionerIdentityCache.set(env, identity);
   }
   return identity;
 }

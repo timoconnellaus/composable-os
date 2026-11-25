@@ -156,6 +156,10 @@ export type Role = (typeof ROLES)[number];
  *   acting for an account that holds it may read figures; downloading a file is a person's only.
  * - `finance:close` close and reopen a month's figures (stage 52, ADR 0794). Admins by default,
  *   grantable; a person only whatever is granted (the operations are `actors: ["human"]`).
+ * - `practitioners:manage` invite outside practitioners (a physiotherapist, a dietitian), list
+ *   them and end their accounts (stage 43, ADR 0581). Admins by default, grantable one by one as
+ *   `people:link` is, and a person only whatever is granted (the operations are
+ *   `actors: ["human"]`): never the assistant, MCP, an automation, an extension or an import.
  * - `bookingSystem:manage` the copy of the business's booking system (stage 65, ADR 0922): read
  *   its lists, their ages and who waits to be matched, and (a person only, whatever is granted)
  *   load and remove a list and link or unlink an outside person or coach. Admins by default,
@@ -202,6 +206,7 @@ export const PERMISSIONS = [
   "finance:read",
   "finance:close",
   "bookingSystem:manage",
+  "practitioners:manage",
 ] as const;
 export type Permission = (typeof PERMISSIONS)[number];
 
@@ -264,6 +269,7 @@ export const GRANTABLE_PERMISSIONS = [
   "finance:read",
   "finance:close",
   "bookingSystem:manage",
+  "practitioners:manage",
 ] as const;
 
 /**
@@ -370,6 +376,8 @@ export interface ActingUser {
  * - `customer`: a Person who signed in to their own account. Never a `core_user`, never a role.
  * - `public`: a caller with no account.
  * - `device`: an enrolled device holding a device role (ADR 0781, `DevicePrincipal` below).
+ * - `practitioner`: an outside person the business invited (stage 43, ADR 0581), signed in to
+ *   their own practitioner account. Never a `core_user`, never a customer, never a role.
  * The visibility seam and the audience check read nothing else about the caller.
  */
 export interface StaffPrincipal {
@@ -390,7 +398,21 @@ export interface PublicPrincipal {
   readonly kind: "public";
 }
 
-export type OutsidePrincipal = CustomerPrincipal | PublicPrincipal;
+/**
+ * A practitioner signed in to their own account (stage 43, ADR 0581): an outside person the
+ * business invited, who works with the clients who agreed to it. Their own Person is never one of
+ * their clients, and nothing about the same human's staff or customer account is read when this
+ * principal decides what they may see: each sign-in is one hat (decision 16).
+ */
+export interface PractitionerPrincipal {
+  readonly kind: "practitioner";
+  /** The practitioner account (prc_…). */
+  readonly practitionerId: string;
+  /** The practitioner's own Person (per_…). Never a client of theirs. */
+  readonly personId: string;
+}
+
+export type OutsidePrincipal = CustomerPrincipal | PublicPrincipal | PractitionerPrincipal;
 
 /**
  * An enrolled device holding a device role (stage 51, ADR 0781): the business's own tablet, signed
@@ -421,6 +443,8 @@ export type Principal = StaffPrincipal | OutsidePrincipal | DevicePrincipal;
  */
 export function placedAs(principal: Principal): "staff" | "customer" | "public" {
   if (principal.kind === "device") throw new Error("An enrolled device places no order");
+  // Nor a practitioner (ADR 0581): no checkout is open to them, and this holds if one were.
+  if (principal.kind === "practitioner") throw new Error("A practitioner places no order");
   return principal.kind;
 }
 
@@ -431,9 +455,10 @@ export function staffPrincipal(user: Pick<ActingUser, "id" | "role">): StaffPrin
 /**
  * The actors of calls from outside the org, as the audit log records them. They are not in
  * `ACTORS`: the approval policy, the queue and an operation's `actors` are about staff-side
- * callers, and a customer's, the public's or an enrolled device's call is never queued.
+ * callers, and a customer's, the public's, an enrolled device's or a practitioner's call is never
+ * queued (ADR 0581: a practitioner's call is applied or refused).
  */
-export const OUTSIDE_ACTORS = ["customer", "public", "device"] as const;
+export const OUTSIDE_ACTORS = ["customer", "public", "device", "practitioner"] as const;
 export type OutsideActor = (typeof OUTSIDE_ACTORS)[number];
 /** Every actor a handler can be called by and the audit log can hold. */
 export const ALL_ACTORS = [...ACTORS, ...OUTSIDE_ACTORS] as const;

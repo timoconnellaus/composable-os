@@ -10,16 +10,23 @@
 // only. An operation open to it is open to nobody else, and is reached only through the desk
 // origin's handler, where the pipeline resolves the device from its credential and lets it call
 // its role's tools and `device.heartbeat`, nothing else. It is listed in open-operations.json too.
+//
+// `practitioner` (stage 43, ADR 0581): an outside person the business invited, signed in to their
+// own practitioner account. Like a customer's, a practitioner's call has the risk floor (`read`,
+// `write`), gets no raw database and no write queue unless the operation is `hostInternal`, and is
+// applied or refused, never queued. Opening an operation to practitioners is a reviewed change,
+// listed in open-operations.json, as opening one to customers is.
 import type { Principal, RiskClass } from "./principals.ts";
 
-export const AUDIENCES = ["staff", "customer", "public", "device"] as const;
+export const AUDIENCES = ["staff", "customer", "public", "device", "practitioner"] as const;
 export type Audience = (typeof AUDIENCES)[number];
 
 /** What an operation is when it declares no audiences. */
 export const DEFAULT_AUDIENCES: readonly Audience[] = Object.freeze(["staff"]);
 
 /**
- * The risk floor: the only risk classes an operation open to customers or the public may have.
+ * The risk floor: the only risk classes an operation open to customers, the public or
+ * practitioners may have.
  * Set here, in code, and not configurable (ADR 0402).
  */
 export const OUTSIDE_RISK_CLASSES: readonly RiskClass[] = Object.freeze(["read", "write"]);
@@ -66,11 +73,13 @@ export function audienceProblems(op: AudienceDeclaration): string[] {
   const declared = op.audiences;
   if (declared !== undefined) {
     if (!Array.isArray(declared) || declared.length === 0) {
-      problems.push("audiences must list at least one of staff, customer, public, device");
+      problems.push(
+        "audiences must list at least one of staff, customer, public, device, practitioner",
+      );
       return problems;
     }
     if (declared.some((a) => !AUDIENCES.includes(a))) {
-      problems.push("audiences must be a subset of staff, customer, public, device");
+      problems.push("audiences must be a subset of staff, customer, public, device, practitioner");
       return problems;
     }
     if (new Set(declared).size !== declared.length) problems.push("audiences lists one twice");
@@ -114,12 +123,12 @@ export interface OpenOperationsFile {
 }
 
 export const OPEN_OPERATIONS_COMMENT =
-  "Generated. Every operation customers, the public or an enrolled device may call, with its " +
-  "risk class (ADR 0402, ADR 0411, ADR 0781). Do not edit: run " +
+  "Generated. Every operation customers, the public, an enrolled device or a practitioner may " +
+  "call, with its risk class (ADR 0402, ADR 0411, ADR 0781, ADR 0581). Do not edit: run " +
   "`pnpm --filter @composable-os/core open-operations`. " +
   "A new line here opens the host to people outside the org, so review it as such.";
 
-/** Every operation in `operations` open to customers, the public or a device, by name. */
+/** Every operation in `operations` open to anyone but staff, by name. */
 export function openOperations(operations: readonly AudienceDeclaration[]): OpenOperationsFile {
   return {
     $comment: OPEN_OPERATIONS_COMMENT,

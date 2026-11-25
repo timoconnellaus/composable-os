@@ -12,7 +12,7 @@
 
 - [Approvals and AI](https://docs.composableos.dev/guides/approvals-and-ai/): The approval pipeline, the policy adjudicator, model roles, and what an AI may and may not do.
 - [Architecture](https://docs.composableos.dev/guides/architecture/): The host, operations, data, extensions, gatekeepers and the release, in one page.
-- [Audiences and the visibility seam](https://docs.composableos.dev/guides/audiences-and-visibility/): Who may call an operation (staff, customers, the public) and how the host limits what each one sees.
+- [Audiences and the visibility seam](https://docs.composableos.dev/guides/audiences-and-visibility/): Who may call an operation (staff, customers, the public, practitioners) and how the host limits what each one sees.
 - [Client apps and blocks](https://docs.composableos.dev/guides/client-apps-and-blocks/): A company's own web and mobile apps, the typed client, and blocks copied with cos add.
 - [Deploying](https://docs.composableos.dev/guides/deploying/): Installing a product, a company's own repository and cos deploy, upgrades and rollback.
 - [Extensions and packs](https://docs.composableos.dev/guides/extensions/): What an extension declares, how a pack is made, and how both are checked.
@@ -345,6 +345,7 @@
 - [personCode.* operations](https://docs.composableos.dev/reference/operations/personcode/): The core operations named personCode.*
 - [plan.* operations](https://docs.composableos.dev/reference/operations/plan/): The core operations named plan.*
 - [policy.* operations](https://docs.composableos.dev/reference/operations/policy/): The core operations named policy.*
+- [practitioner.* operations](https://docs.composableos.dev/reference/operations/practitioner/): The core operations named practitioner.*
 - [public.* operations](https://docs.composableos.dev/reference/operations/public/): The core operations named public.*
 - [query.* operations](https://docs.composableos.dev/reference/operations/query/): The core operations named query.*
 - [quote.* operations](https://docs.composableos.dev/reference/operations/quote/): The core operations named quote.*

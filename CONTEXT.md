@@ -700,9 +700,11 @@ never loses an event.
 
 **Principal**
 The authenticated caller of a request: `{ userId, email, name, roles }`, resolved by the identity
-adapter for every route and server function. In the operation layer the principal is one of three
-kinds, one per audience: `staff` (a user and their role), `customer` (a customer account and its
-Person) or `public` (no account). A handler reads it as `ctx.principal` (stage 22, ADR 0412).
+adapter for every route and server function. In the operation layer the principal is one of
+these kinds, one per audience: `staff` (a user and their role), `customer` (a customer account and
+its Person), `public` (no account), `device` (an enrolled device, ADR 0781) or `practitioner` (a
+practitioner account and its own Person, stage 43, ADR 0581). A handler reads it as
+`ctx.principal` (stage 22, ADR 0412).
 _Avoid_: user (when you mean the caller of a request), session
 
 **Identity adapter**
@@ -1152,14 +1154,15 @@ customers and the public only, the caller decided from the customer's verified s
 never staff (stage 24, ADR 0421).
 
 **Audience**
-Who may call an operation: `staff`, `customer` or `public` (stage 22, ADR 0402), or `device`, an
-**enrolled device** holding a **device role**, alone (stage 51, ADR 0781). An operation lists its
+Who may call an operation: `staff`, `customer` or `public` (stage 22, ADR 0402), `practitioner`
+(stage 43, ADR 0581), or `device`, an **enrolled device** holding a **device role**, alone (stage
+51, ADR 0781). An operation lists its
 audiences, staff only when it lists none. A caller outside them gets the answer an unknown
 operation gets (ADR 0411).
 
 **Open operation**
-An operation that lists `customer`, `public` or `device`. It is a `read` or a `write`, never more, and is
-named in the generated `packages/core/open-operations.json` (ADR 0411).
+An operation that lists `customer`, `public`, `practitioner` or `device`. It is a `read` or a
+`write`, never more, and is named in the generated `packages/core/open-operations.json` (ADR 0411).
 
 **Visibility seam**
 `packages/core/src/visibility/`: the one place that decides which records, and which fields of
@@ -1186,6 +1189,23 @@ repo a client is the company a product is built for)
 
 **Public**
 A caller with no account: a visitor reading a published page or starting a checkout (stage 22).
+
+**Practitioner**
+An outside person the business invites to work with its clients (a physiotherapist, a dietitian;
+stage 43, ADR 0581), with a **discipline** (a label) and optionally a **practice** (the outside
+business they work for, an Organisation). A caller of its own kind, audience `practitioner`: never
+staff, never a customer, and it reaches nothing about anyone until a client agrees (stage 43's
+care link, a later step). Invited and ended only by a person on the staff with
+`practitioners:manage`.
+_Avoid_: external staff, contractor, partner
+
+**Practitioner account**
+What a practitioner signs in to: a row of `core_practitioner` linked to exactly one Person (their
+own), `invited` until the first sign-in, then `active`, then `ended`, with sessions and a cookie of
+its own. One human may hold a staff account, a customer account and a practitioner account on one
+address (**three hats**): each signed in alone, and a request carrying two kinds of session is
+refused (ADR 0581).
+_Avoid_: user, login
 
 **Customer account**
 What a customer signs in to: a row of `core_customer` linked to exactly one Person, with sessions

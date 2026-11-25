@@ -109,7 +109,12 @@ const isOutside = (ctx: AnyInvocationContext) => ctx.principal !== undefined;
 /** The scope of a caller's idempotency keys. */
 function keyScope(ctx: AnyInvocationContext): string {
   if (!ctx.principal) return `staff:${ctx.user.id}`;
-  return ctx.principal.kind === "customer" ? `customer:${ctx.principal.customerId}` : "public";
+  if (ctx.principal.kind === "customer") return `customer:${ctx.principal.customerId}`;
+  // A practitioner's keys are their account's (ADR 0581): never shared with the public's.
+  if (ctx.principal.kind === "practitioner") {
+    return `practitioner:${ctx.principal.practitionerId}`;
+  }
+  return "public";
 }
 
 /** What an outcome sends, as the surface sends it: the same bytes whether stored or not. */

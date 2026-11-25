@@ -308,6 +308,7 @@ export {
   readCountHour,
   redactInput,
 } from "./pipeline.ts";
+export * from "./practitioners/accounts.ts";
 export * from "./principals.ts";
 export { runTrashPurge, type TrashPurgeOptions } from "./purge.ts";
 export * from "./rate-limit.ts";

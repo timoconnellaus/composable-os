@@ -92,7 +92,7 @@ export type TaskStatus = "open" | "done";
 export type StaffActor = "human" | "assistant" | "mcp" | "automation" | "extension";
 /** Every actor the audit log records: staff-side actors, customers and the public (migration 0400). */
 /** `device`: an enrolled device holding a device role (stage 51, ADR 0781). */
-export type AuditActor = StaffActor | "customer" | "public" | "device";
+export type AuditActor = StaffActor | "customer" | "public" | "device" | "practitioner";
 export type AuditRisk =
   | "read"
   | "write"
@@ -899,6 +899,52 @@ export interface CoreCustomerSessionTable {
 
 /** Migration 0401: a customer's one-time sign-in code (hashed). */
 export interface CoreCustomerVerificationTable {
+  id: string;
+  identifier: string;
+  value: string;
+  expires_at: DateColumn;
+  created_at: DateColumn;
+  updated_at: DateColumn;
+}
+
+/**
+ * Migration 0730 (stage 43 step 3, ADR 0581): a practitioner account, an outside person the
+ * business invited, with their own sign-in. Never a core_user and never a core_customer. Better
+ * Auth's user model for practitioners (packages/auth/src/practitioner-auth.ts).
+ */
+export interface CorePractitionerTable {
+  id: string;
+  person_id: string;
+  email: string;
+  email_verified: Defaulted<number>;
+  name: string;
+  discipline: string;
+  practice_id: Defaulted<string | null>;
+  status: Defaulted<PractitionerStatus>;
+  invited_by: string;
+  invited_at: string;
+  activated_at: Defaulted<string | null>;
+  ended_at: Defaulted<string | null>;
+  ended_by: Defaulted<string | null>;
+  ended_reason: Defaulted<string | null>;
+  last_sign_in_at: Defaulted<string | null>;
+  created_at: DateColumn;
+  updated_at: DateColumn;
+}
+export type PractitionerStatus = "invited" | "active" | "ended";
+
+/** Migration 0730: a practitioner's session. No client address and no user agent, by design. */
+export interface CorePractitionerSessionTable {
+  id: string;
+  practitioner_id: string;
+  token: string;
+  expires_at: DateColumn;
+  created_at: DateColumn;
+  updated_at: DateColumn;
+}
+
+/** Migration 0730: a practitioner's one-time sign-in code (hashed). */
+export interface CorePractitionerVerificationTable {
   id: string;
   identifier: string;
   value: string;
@@ -4422,6 +4468,9 @@ export interface CoreDatabase {
   core_customer_email_change: CoreCustomerEmailChangeTable;
   core_customer_verification: CoreCustomerVerificationTable;
   core_customer_invite: CoreCustomerInviteTable;
+  core_practitioner: CorePractitionerTable;
+  core_practitioner_session: CorePractitionerSessionTable;
+  core_practitioner_verification: CorePractitionerVerificationTable;
   core_erase_request: CoreEraseRequestTable;
   core_idempotency_key: CoreIdempotencyKeyTable;
   core_idempotency_claim: CoreIdempotencyClaimTable;
