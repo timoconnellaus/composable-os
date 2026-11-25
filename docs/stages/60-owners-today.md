@@ -40,7 +40,12 @@ nothing.
 
 - **Step 2** — built — PR #353 — `todayItems` declaration and contract checks: see "Built" below (ADR 0870, no migration)
 
-- **Step 3** — in progress — branch `feat/stage-60-today-get` — `today.get`, `today.rows`, host items; the pack-role reach (money items after stage 52 merges)
+- **Step 3** — built — PR #471 — `today.get`, `today.rows`, host items; the pack-role reach (money items after stage 52 merges):
+  `today.get` and `today.rows` (`packages/core/src/today/`), each item gated by what the caller could
+  already call; host items `host.takings` (Sales net, `finance:read`), `host.approvals` (the approver
+  rules, now `approvals/approvers.ts`), `host.uncovered`, `host.checklists`, `host.notices`; pack
+  items as columns of one statement; every pack role reaches both (`PACK_ROLE_TODAY`).
+  `host.paymentsFailing` waits for stage 52 step 5. ADR 0874, no migration.
 
 - **Step 4** — not built — needs: step 3 — Packs declare items
 
