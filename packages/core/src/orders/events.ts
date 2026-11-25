@@ -451,7 +451,7 @@ async function confirmRefund(
   // checkout never asked the provider for.
   const refundTax =
     row.invoice_id && event.paymentRef
-      ? await invoiceRefundTax(ctx, row.id, event.provider, event.paymentRef, event.amount)
+      ? await invoiceRefundTax(ctx, row, event.provider, event.paymentRef, event.amount)
       : await refundTaxOf(
           ctx,
           row.id,

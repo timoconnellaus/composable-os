@@ -220,10 +220,40 @@ export function orderPieces(
     const last = i === shape.length - 1;
     const share = last ? taxLeft : undiscounted ? Math.floor((tax * total) / undiscounted) : 0;
     taxLeft -= share;
-    const off = last ? offLeft : Math.min(offLeft, total);
+    // The discount shared as the tax is (review of PR #460), so no piece carries tax and no money.
+    const off = last
+      ? offLeft
+      : undiscounted
+        ? Math.min(offLeft, total, Math.floor((discount * total) / undiscounted))
+        : 0;
     offLeft -= off;
     return { ...piece, tax: share, discount: off };
   });
+}
+
+/**
+ * Refuses an invoice whose lines would make more than an order's lines once a record's line
+ * that does not divide by its quantity is split (`orderPieces`): at draft as at issue, so a
+ * draft that is accepted can be issued (review of PR #460).
+ */
+export function requireOrderRoom(doc: Pick<InvoiceRow, "tax_mode">, lines: readonly LineRow[]) {
+  let count = 0;
+  for (const { line, undiscounted, discount } of lineFigures(doc, lines)) {
+    const whole = line.quantity_milli % 1000 === 0 ? line.quantity_milli / 1000 : null;
+    count += orderPieces(
+      line.source === "record",
+      whole,
+      undiscounted,
+      line.line_tax,
+      discount,
+    ).length;
+  }
+  if (count > ORDER_MAX_LINES) {
+    throw new ValidationError(
+      `These lines make ${count} order lines, more than an order's ${ORDER_MAX_LINES} (a record's line whose amount with tax does not divide by its quantity is two): split the invoice in two`,
+      { field: "lines", rule: "too_many_lines", max: ORDER_MAX_LINES, count },
+    );
+  }
 }
 
 export interface IssuedInvoice {

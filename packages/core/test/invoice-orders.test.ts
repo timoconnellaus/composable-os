@@ -19,6 +19,7 @@ import {
   loadOrderRow,
   memoryEventSink,
   PendingApprovalError,
+  runRefundsDue,
 } from "../src/index.ts";
 import { extId, manifest, reconcile } from "./extension-helpers.ts";
 import { context, createUser, db, setPreset, unique } from "./helpers.ts";
@@ -1674,5 +1675,262 @@ describe("issuing stays inside D1's limits (criterion 23)", () => {
     // 81 measured on 2026-11-26, well inside D1's 1,000.
     expect(meter.bound.length).toBeLessThanOrEqual(90);
     expect(Math.max(...meter.bound)).toBeLessThan(100);
+  });
+});
+
+// --- The second review of PR #460 ----------------------------------------------------------------
+
+describe("the invoice's version moves with every money act (second review, item 2)", () => {
+  it("V1: two people entering the same transfer from one read: the second is refused", async () => {
+    const invoice = await issued();
+    await allowParts(invoice.id);
+    const read = await versionOf("core_invoice", invoice.id);
+    const enter = () =>
+      run(
+        "invoice.recordPayment",
+        {
+          invoiceId: invoice.id,
+          amount: 1_000,
+          kind: "transfer",
+          receivedOn: TODAY,
+          version: read,
+        },
+        staff(desk),
+      );
+    await enter();
+    expect((await refusal(enter())).details.rule).toBe("document_changed");
+    // A second part payment moves it too (the state stays part paid).
+    const before = await versionOf("core_invoice", invoice.id);
+    await recordPayment(invoice.id, 1_000);
+    expect(await versionOf("core_invoice", invoice.id)).toBe(before + 1);
+    // And a credit note.
+    const typed = invoice.lines[1] as Line;
+    const v = await versionOf("core_invoice", invoice.id);
+    await issueCredit(
+      (
+        await credit({
+          invoiceId: invoice.id,
+          lines: [{ lineId: typed.id, quantity: 0.1 }],
+          settle: "reduce",
+        })
+      ).id,
+    );
+    expect(await versionOf("core_invoice", invoice.id)).toBe(v + 1);
+  });
+});
+
+describe("INSERT OR REPLACE cannot get round the guards (second review, item 3)", () => {
+  it("P8c: on an invoice's order, its lines, its adjustments, the invoice and its credit notes", async () => {
+    const invoice = await issued(undefined, {
+      lines: [
+        {
+          description: "Workshop",
+          unitPrice: 10_000,
+          discount: { kind: "amount", value: 500, reason: "Regular" },
+        },
+      ],
+    });
+    const order = invoice.orderId as string;
+    const note = await issueCredit(
+      (
+        await credit({
+          invoiceId: invoice.id,
+          amount: { value: 100, taxRate: "gst" },
+          settle: "reduce",
+        })
+      ).id,
+    );
+    for (const sql of [
+      "INSERT OR REPLACE INTO core_order (id, person_id, email, currency, total, state, placed_as, created_at, updated_at) VALUES (?1, NULL, NULL, 'AUD', 1, 'pending', 'staff', '2026-01-01', '2026-01-01')",
+      "INSERT OR REPLACE INTO core_order_line (id, order_id, position, object_type, record_id, title, quantity, unit_price, line_total, created_at) SELECT id, order_id, 0, 'invoice', 'x', 'x', 1, 1, 1, created_at FROM core_order_line WHERE order_id = ?1",
+      "INSERT OR REPLACE INTO core_order_adjustment (id, order_id, line_id, kind, given_by, amount, created_at) SELECT id, order_id, line_id, 'staff', 'x', 1, created_at FROM core_order_adjustment WHERE order_id = ?1",
+    ]) {
+      await expect(env.DB.prepare(sql).bind(order).run(), sql).rejects.toThrow(
+        /core_order_invoice|core_order_adjustment_kept/,
+      );
+    }
+    for (const sql of [
+      "INSERT OR REPLACE INTO core_invoice SELECT * FROM core_invoice WHERE id = ?1",
+      "INSERT OR REPLACE INTO core_invoice_line SELECT * FROM core_invoice_line WHERE invoice_id = ?1",
+    ]) {
+      await expect(env.DB.prepare(sql).bind(invoice.id).run(), sql).rejects.toThrow();
+    }
+    for (const sql of [
+      "INSERT OR REPLACE INTO core_credit_note SELECT * FROM core_credit_note WHERE id = ?1",
+      "INSERT OR REPLACE INTO core_credit_note_line SELECT * FROM core_credit_note_line WHERE credit_note_id = ?1",
+    ]) {
+      await expect(env.DB.prepare(sql).bind(note.id).run(), sql).rejects.toThrow();
+    }
+    expect(await orderOf(invoice)).toMatchObject({ invoice_id: invoice.id, total: invoice.total });
+    const lines = await env.DB.prepare(
+      "SELECT count(*) AS n FROM core_order_line WHERE order_id = ?",
+    )
+      .bind(order)
+      .first<{ n: number }>();
+    expect(lines?.n).toBe(1);
+  });
+
+  it("only an invoice's order moves back to pending (second review, item 9)", async () => {
+    const shop = await run<{ id: string }>(
+      "order.start",
+      {
+        lines: [{ object: TICKET_TYPE, id: await ticketType(), quantity: 1 }],
+        email: `${unique("g")}@buyers.example`,
+      },
+      outside({ kind: "public" }, { integrations: runtime, events }),
+    );
+    await env.DB.prepare(
+      "UPDATE core_order SET state = 'paid', paid = total, version = version + 1 WHERE id = ?",
+    )
+      .bind(shop.id)
+      .run();
+    await expect(
+      env.DB.prepare(
+        "UPDATE core_order SET state = 'pending', paid = 0, version = version + 1 WHERE id = ?",
+      )
+        .bind(shop.id)
+        .run(),
+    ).rejects.toThrow(/core_order_invoice/);
+  });
+});
+
+describe("a refund that may have reached the provider is asked again as the same refund (second review, items 4 and 5)", () => {
+  async function creditedOnline() {
+    const invoice = await issued();
+    await run("order.checkout", { id: invoice.orderId, returnUrl: RETURN }, staff());
+    await providerPays(invoice.orderId as string);
+    const note = await issueCredit(
+      (
+        await credit({
+          invoiceId: invoice.id,
+          lines: [{ lineId: (invoice.lines[1] as Line).id }],
+          settle: "refund",
+        })
+      ).id,
+    );
+    return { invoice, note, amount: (invoice.lines[1] as Line).total };
+  }
+
+  it("P7b: the provider refunded and then the gatekeeper failed: asked again, it is the same refund, never two", async () => {
+    const { invoice, note, amount } = await creditedOnline();
+    const first = (note.refunds[0] as { refundId: string }).refundId;
+    // Approved; the provider makes the refund, then the gatekeeper's answer fails.
+    await env.DB.prepare(
+      "UPDATE core_pending_action SET status = 'failed', decided_at = ? WHERE id = ?",
+    )
+      .bind(new Date().toISOString(), note.pending?.[0])
+      .run();
+    const owed = await run<CreditNote>("creditNote.get", { id: note.id }, staff());
+    expect(owed.refunds[0]).toMatchObject({ state: "owed", why: "failed" });
+    const again = await run<CreditNote & { pending: string[] }>(
+      "creditNote.askRefundAgain",
+      { id: note.id },
+      staff(desk),
+    );
+    // The same refund id goes to the provider again: its idempotency key.
+    expect(again.refunds[0]).toMatchObject({ refundId: first, attempt: 2, state: "asked" });
+    const sent = [...gw.refunds.values()].filter((r) => r.refundId === first);
+    expect(sent).toHaveLength(2);
+    // The provider confirms the one refund it made; its second answer is the same refund.
+    const event = {
+      kind: "refund" as const,
+      provider: "fake",
+      orderId: invoice.orderId as string,
+      refundId: first,
+      refundRef: `fre_${unique("same")}`,
+      paymentRef: sent[0]?.paymentRef as string,
+      amount,
+      currency: CURRENCY,
+      occurredAt: new Date().toISOString(),
+    };
+    await payments.deliver({ ...event, eventId: `fevt_${unique("a")}` });
+    await payments.deliver({ ...event, eventId: `fevt_${unique("b")}` });
+    expect(await orderOf(invoice)).toMatchObject({ refunded: amount });
+    const done = await run<CreditNote>("creditNote.get", { id: note.id }, staff());
+    expect(done.refunds[0]).toMatchObject({ state: "given_back" });
+  });
+
+  it("approved, never confirmed within five days: owed, staff told once, asked again as the same refund", async () => {
+    const { note } = await creditedOnline();
+    const first = (note.refunds[0] as { refundId: string }).refundId;
+    const old = new Date(Date.now() - 6 * 86_400_000).toISOString();
+    await env.DB.prepare(
+      "UPDATE core_pending_action SET status = 'applied', decided_at = ? WHERE id = ?",
+    )
+      .bind(old, note.pending?.[0])
+      .run();
+    const owed = await run<CreditNote>("creditNote.get", { id: note.id }, staff());
+    expect(owed.refunds[0]).toMatchObject({ state: "owed", why: "unconfirmed" });
+    await runRefundsDue(db, { integrations: runtime });
+    await runRefundsDue(db, { integrations: runtime });
+    const told = await env.DB.prepare(
+      "SELECT count(*) AS n FROM core_notifications WHERE dedupe_key LIKE ?",
+    )
+      .bind(`credit_note.refund_unconfirmed:%`)
+      .first<{ n: number }>();
+    expect(told?.n).toBeGreaterThan(0);
+    const again = await run<CreditNote>("creditNote.askRefundAgain", { id: note.id }, staff(desk));
+    expect(again.refunds[0]).toMatchObject({ refundId: first, attempt: 2, state: "asked" });
+  });
+});
+
+describe("the second review's smaller items", () => {
+  it("item 6: a draft whose lines split past an order's 50 is refused at draft", async () => {
+    const ticket = await ticketType({}, 500);
+    const lines = [
+      // 2 x 45.45 plus 10% is 99.99: two order lines.
+      { item: { object: TICKET_TYPE, id: ticket }, quantity: 2 },
+      ...Array.from({ length: 49 }, (_, i) => ({ description: `Line ${i}`, unitPrice: 100 + i })),
+    ];
+    const refused = await refusal(
+      run("invoice.create", { billTo: { personId }, taxMode: "exclusive", lines }, staff()),
+    );
+    expect(refused.details.rule).toBe("too_many_lines");
+  });
+
+  it("item 8: an unpaid invoice's order shows the document's tax, to staff and its customer", async () => {
+    const buyer = await createBuyer(admin, "invtax");
+    const drafted = await run<Invoice>(
+      "invoice.create",
+      {
+        billTo: { personId: buyer.principal.personId },
+        lines: [{ description: "Hire", unitPrice: 11_000 }],
+      },
+      staff(),
+    );
+    const invoice = await issue(drafted.id);
+    const asStaff = await run<{ taxAmount: number; lines: { taxAmount: number }[] }>(
+      "order.get",
+      { id: invoice.orderId },
+      staff(),
+    );
+    expect(asStaff.taxAmount).toBe(invoice.taxTotal);
+    expect(asStaff.lines[0]?.taxAmount).toBe(invoice.taxTotal);
+    const asCustomer = await run<{ taxAmount: number }>(
+      "order.get",
+      { id: invoice.orderId },
+      outside(buyer.principal, { integrations: runtime, events }),
+    );
+    expect(asCustomer.taxAmount).toBe(invoice.taxTotal);
+    // What the book counts stays what the payments carried: nothing yet.
+    expect((await orderOf(invoice)).tax_amount).toBe(0);
+  });
+
+  it("item 10: person.erase says how many issued invoices it keeps with the bill-to as printed", async () => {
+    const person = (
+      await run<{ id: string }>(
+        "person.create",
+        { givenName: unique("Kept"), emails: [{ email: `${unique("kp")}@example.com` }] },
+        context(admin),
+      )
+    ).id;
+    const drafted = await run<Invoice>(
+      "invoice.create",
+      { billTo: { personId: person }, lines: [{ description: "Hire", unitPrice: 5_000 }] },
+      staff(),
+    );
+    await issue(drafted.id);
+    const out = await run<{ invoicesKept: number }>("person.erase", { id: person }, context(admin));
+    expect(out.invoicesKept).toBe(1);
   });
 });

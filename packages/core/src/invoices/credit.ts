@@ -28,7 +28,7 @@ import { newId } from "../ids.ts";
 import type { HandlerContext } from "../operation.ts";
 import { refusePageOpen } from "../orders/checkout.ts";
 import { changeOrder, formatMoney, loadOrderRow, type OrderRow, owedOn } from "../orders/orders.ts";
-import { refundablePayments, requestRefund } from "../orders/refunds.ts";
+import { askSameRefundAgain, refundablePayments, requestRefund } from "../orders/refunds.ts";
 import { loadGeneralSettings } from "../settings.ts";
 import { localDay } from "../time/local.ts";
 import { orgReader, type Viewer, visibleSource } from "../visibility/index.ts";
@@ -441,7 +441,21 @@ export interface CreditRefund {
   attempt: number;
   paidBackAt: string | null;
   state: "given_back" | "asked" | "owed";
+  /**
+   * Why an owed one is owed: a recorded payment not yet paid back; a provider's refund a person
+   * rejected, whose approval expired, that failed when it was applied, or that the provider has
+   * not confirmed within CREDIT_REFUND_CONFIRM_DAYS of its approval.
+   */
+  why: "not_paid_back" | "rejected" | "expired" | "failed" | "unconfirmed" | null;
 }
+
+/**
+ * How long a provider's refund, once approved, may go without its confirmation before it is owed
+ * again (review of PR #460): five days. A card refund the provider takes is confirmed within
+ * seconds by its webhook, which it retries for up to three days; past that, it did not happen, or
+ * its confirmation was lost, and staff are told (orders/refund-due.ts).
+ */
+export const CREDIT_REFUND_CONFIRM_DAYS = 5;
 
 /** The money back an order's credit notes (or one of them) give, each with where it stands. */
 export async function creditRefunds(
@@ -466,24 +480,32 @@ export async function creditRefunds(
       "r.status as refund",
       "p.status as action",
       "p.expires_at",
+      "p.decided_at",
     ])
     .where("c.order_id", "=", orderId);
   if (creditNoteId) query = query.where("c.credit_note_id", "=", creditNoteId);
   const rows = await query.orderBy("c.created_at").orderBy("c.id").execute();
+  const confirmBy = new Date(
+    Date.parse(ctx.now) - CREDIT_REFUND_CONFIRM_DAYS * 86_400_000,
+  ).toISOString();
   return rows.map((row) => {
-    const asked =
-      row.action === "applied" ||
-      (row.action === "pending" && (row.expires_at === null || row.expires_at > ctx.now));
-    const state: CreditRefund["state"] =
-      row.method === "recorded"
-        ? row.paid_back_at
-          ? "given_back"
-          : "owed"
-        : row.refund === "confirmed"
-          ? "given_back"
-          : asked
-            ? "asked"
-            : "owed";
+    let state: CreditRefund["state"];
+    let why: CreditRefund["why"] = null;
+    if (row.method === "recorded") {
+      state = row.paid_back_at ? "given_back" : "owed";
+      if (!row.paid_back_at) why = "not_paid_back";
+    } else if (row.refund === "confirmed") {
+      state = "given_back";
+    } else if (row.action === "applied") {
+      const lapsed = (row.decided_at ?? "") < confirmBy;
+      state = lapsed ? "owed" : "asked";
+      if (lapsed) why = "unconfirmed";
+    } else if (row.action === "pending" && (row.expires_at === null || row.expires_at > ctx.now)) {
+      state = "asked";
+    } else {
+      state = "owed";
+      why = row.action === "rejected" ? "rejected" : row.action === "failed" ? "failed" : "expired";
+    }
     return {
       id: row.id,
       creditNoteId: row.credit_note_id,
@@ -495,14 +517,18 @@ export async function creditRefunds(
       attempt: row.attempt,
       paidBackAt: row.paid_back_at,
       state,
+      why,
     };
   });
 }
 
 /**
- * Asks again, in the calling batch, for each of a credit note's provider refunds that is owed (a
- * person rejected it, its approval expired or it failed): the same amount, on the same payment,
- * through the same approval, the row naming the new refund. Returns the approvals asked for.
+ * Asks again, in the calling batch, for each of a credit note's provider refunds that is owed:
+ * the same amount, on the same payment, through the same approval. One that may have reached the
+ * provider (it failed when it was applied, or the provider never confirmed it) is asked again under
+ * the same refund id, which is the provider's idempotency key, so a refund that did happen is
+ * recognised there, never made twice; one that never left the approval (rejected, expired) is a
+ * new refund. Returns the approvals asked for.
  */
 export async function askRefundAgain(
   ctx: HandlerContext,
@@ -513,7 +539,7 @@ export async function askRefundAgain(
       rule: "credit_state",
     });
   }
-  const invoice = await loadDocument(ctx.db, "invoice", note.invoice_id);
+  const invoice = await loadDocument(ctx.db, "invoice", note.invoice_id, ctx);
   const order = await loadOrderRow(ctx.db, invoice.order_id as string);
   const owed = (await creditRefunds(ctx, order.id, note.id)).filter(
     (r) => r.method === "provider" && r.state === "owed",
@@ -526,24 +552,32 @@ export async function askRefundAgain(
   }
   const pending: string[] = [];
   for (const row of owed) {
-    const asked = await requestRefund(ctx, order, {
-      amount: row.amount,
-      reason: `Credit note ${note.number}, asked again: ${note.reason ?? ""}`.slice(0, 500),
-      paymentRef: row.paymentRef,
-      outcome: "applied",
-    });
-    const refund = asked.refunds[0];
-    if (asked.refunds.length !== 1 || !refund || refund.amount !== row.amount) {
-      // What can go back on the payment is less than the credit note owes: a bug, write nothing.
-      throw new ConflictError("This payment cannot give back what the credit note owes", {
-        rule: "credit_beyond_paid",
+    let refundId: string;
+    if ((row.why === "failed" || row.why === "unconfirmed") && row.refundId) {
+      const again = await askSameRefundAgain(ctx, order, row.refundId);
+      refundId = row.refundId;
+      if (again.pendingActionId) pending.push(again.pendingActionId);
+    } else {
+      const asked = await requestRefund(ctx, order, {
+        amount: row.amount,
+        reason: `Credit note ${note.number}, asked again: ${note.reason ?? ""}`.slice(0, 500),
+        paymentRef: row.paymentRef,
+        outcome: "applied",
       });
+      const refund = asked.refunds[0];
+      if (asked.refunds.length !== 1 || !refund || refund.amount !== row.amount) {
+        // What can go back on the payment is less than the credit note owes: a bug, write nothing.
+        throw new ConflictError("This payment cannot give back what the credit note owes", {
+          rule: "credit_beyond_paid",
+        });
+      }
+      refundId = refund.id;
+      if (refund.pendingActionId) pending.push(refund.pendingActionId);
     }
-    if (refund.pendingActionId) pending.push(refund.pendingActionId);
     ctx.write(
       ctx.db
         .updateTable("core_credit_note_refund")
-        .set({ refund_id: refund.id, attempt: row.attempt + 1 })
+        .set({ refund_id: refundId, attempt: row.attempt + 1 })
         .where("id", "=", row.id)
         .where("attempt", "=", row.attempt),
     );
@@ -553,7 +587,9 @@ export async function askRefundAgain(
     id: note.id,
     action: "update",
     before: { owed: owed.reduce((sum, r) => sum + r.amount, 0) },
-    after: { askedAgain: owed.map((r) => ({ paymentRef: r.paymentRef, amount: r.amount })) },
+    after: {
+      askedAgain: owed.map((r) => ({ paymentRef: r.paymentRef, amount: r.amount, why: r.why })),
+    },
   });
   // Two asks at once are never both made: the order's version moves, so the second batch fails.
   await changeOrder(ctx, order, order.state, {}, "host");
@@ -592,7 +628,7 @@ export async function issueCreditNote(
       rule: "document_immutable",
     });
   }
-  const invoice = await loadDocument(ctx.db, "invoice", note.invoice_id);
+  const invoice = await loadDocument(ctx.db, "invoice", note.invoice_id, ctx);
   requireCreditable(invoice);
   if (!invoice.order_id) {
     throw new ConflictError("This invoice has no order to credit", { rule: "credit_state" });
@@ -685,6 +721,7 @@ export async function issueCreditNote(
     },
     // The host's move: a person with invoices:credit issued the credit note that says so.
     "host",
+    cancelled ? { invoiceState: options.voiding ? "void" : "credited" } : {},
   );
 
   // What goes back: the provider's payments asked for (each waits for a person's approval), the
@@ -762,8 +799,8 @@ export async function issueCreditNote(
     });
   }
 
-  // The invoice: credited in full with nothing paid, `credited` (or `void`); otherwise its money
-  // state follows its order (invoices/hooks.ts).
+  // The invoice moved with its order's write above (its version, and `credited` or `void` when
+  // credited in full with nothing paid; otherwise its money state follows its order).
   const invoiceState: InvoiceRow["state"] = cancelled
     ? options.voiding
       ? "void"
@@ -771,19 +808,6 @@ export async function issueCreditNote(
     : next.state === "paid"
       ? "paid"
       : invoice.state;
-  if (cancelled) {
-    ctx.write(
-      ctx.db
-        .updateTable("core_invoice")
-        .set({
-          state: invoiceState,
-          version: invoice.version + 1,
-          updated_at: ctx.now,
-          updated_by: ctx.user.id,
-        })
-        .where("id", "=", invoice.id),
-    );
-  }
   const entry = {
     invoiceId: invoice.id,
     currency: invoice.currency,

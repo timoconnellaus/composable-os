@@ -13,7 +13,7 @@
 //     only platform code passes `by: "host"`, and no operation takes the mover from its input.
 
 import type { CoreDatabase, CoreOrderTable } from "@composable-os/db";
-import type { Kysely, Selectable } from "kysely";
+import { type Kysely, type Selectable, sql } from "kysely";
 import {
   enforcePurchase,
   type GuestAcceptance,
@@ -30,7 +30,7 @@ import {
 import { holdDealUse } from "../discounts/uses.ts";
 import { ConfigError, ConflictError, NotFoundError, ValidationError } from "../errors.ts";
 import { getObject } from "../fields/index.ts";
-import { invoiceObject } from "../fields/invoice.ts";
+import { creditNoteObject, invoiceObject } from "../fields/invoice.ts";
 import { type OrderState, orderObject } from "../fields/order.ts";
 import type { FieldDefinition, ObjectDefinition } from "../fields/types.ts";
 import type { Guesses } from "../guesses.ts";
@@ -886,8 +886,10 @@ export function changeOrder(
   to: OrderState,
   change: OrderChange,
   by: Mover,
+  /** An invoice's order: the state its invoice takes (a credit note in full: credited or void). */
+  options: { invoiceState?: "credited" | "void" } = {},
 ): Promise<OrderRow> {
-  return writeOrderChange(ctx, row, to, change, by);
+  return writeOrderChange(ctx, row, to, change, by, options);
 }
 
 /** What a change to a pending order's adjustments sets: its total and their sum (ADR 0690). */
@@ -908,12 +910,47 @@ export function changeOrderPrice(
   return writeOrderChange(ctx, row, row.state, change, by);
 }
 
+/**
+ * An invoice's write in the batch of every change to its order (ADR 0731, review of PR #460): its
+ * version moves by one, so a person's act made from a read before any money act on it (a payment,
+ * a reversal, a credit note, a refund asked, confirmed or paid back) is refused, and its money
+ * state follows the order: part paid, paid, unpaid again (issued, or sent when it was); credited
+ * or void when a credit note in full cancels it. A final state (credited, void) never moves. One
+ * statement, from no read: it is written once, with the order's own write, whose version check
+ * holds the batch.
+ */
+function invoiceFollows(
+  ctx: HandlerContext,
+  invoiceId: string,
+  from: OrderState,
+  to: OrderState,
+  options: { invoiceState?: "credited" | "void" },
+) {
+  const money = from === "paid" || from === "part_paid";
+  const state = options.invoiceState
+    ? sql`${options.invoiceState}`
+    : to === "paid" || to === "part_paid"
+      ? sql`${to}`
+      : to === "pending" && money
+        ? sql`CASE WHEN sent_at IS NOT NULL THEN 'sent' ELSE 'issued' END`
+        : sql`state`;
+  return ctx.db
+    .updateTable("core_invoice")
+    .set({
+      state: sql`CASE WHEN state IN ('draft', 'credited', 'void') THEN state ELSE ${state} END`,
+      version: sql`version + 1`,
+      updated_at: ctx.now,
+    })
+    .where("id", "=", invoiceId);
+}
+
 async function writeOrderChange(
   ctx: HandlerContext,
   row: OrderRow,
   to: OrderState,
   change: OrderChange | OrderPriceChange,
   by: Mover,
+  options: { invoiceState?: "credited" | "void" } = {},
 ): Promise<OrderRow> {
   const before = orderSnapshot(row);
   const next: OrderRow = {
@@ -946,6 +983,7 @@ async function writeOrderChange(
       .where("id", "=", row.id),
     ...outcome.history,
   );
+  if (row.invoice_id) ctx.write(invoiceFollows(ctx, row.invoice_id, row.state, to, options));
   recordHostChange(ctx, {
     object: "order",
     id: row.id,
@@ -1118,28 +1156,71 @@ export async function chargeOptions(
 }
 
 /**
- * The share of an invoice's tax (worked out on the document, ADR 0732) that a payment of `amount`
- * on its order carries (ADR 0731): in proportion to the invoice's total, rounded half up, never
- * past the document's tax; the payment that settles an order nothing was credited on takes what is
- * left, so the payments' shares add up to the document's tax exactly. Zero for any other order:
- * there the provider says the tax at checkout (ADR 0479).
+ * The tax a money act on an invoice's order carries (ADR 0731, the review of PR #460), worked from
+ * the documents so that it is always right after the act:
+ *   - what the invoice still asks for is its total less its credit notes' totals, and the tax in it
+ *     its tax less theirs (each line's and each rate's own, so a GST-free line credited takes no
+ *     tax off and a taxed one takes its own);
+ *   - what has been kept is what was paid less what was given back; the tax it should carry is that
+ *     share of the tax still asked for, half up, and all of it once everything still asked for is
+ *     kept;
+ *   - a payment carries the rise in that tax, a refund the fall, each never below nothing nor above
+ *     its own amount.
+ * So once an invoice is settled by a payment or a refund, the tax its payments carried less what
+ * its refunds gave back is the document's tax less its credit notes', exactly. A credit note that
+ * settles an order with nothing moving (it takes off the last of what was owed) leaves the tax its
+ * payments carried as it was collected: the credit note's own tax is the adjustment (ADR 0735).
+ * Zero for any other order: there the provider says the tax at checkout (ADR 0479).
  */
-export async function invoiceTaxShare(
+export async function invoiceTaxFor(
   db: Kysely<CoreDatabase>,
   row: OrderRow,
-  amount: number,
+  act: { kind: "payment" | "refund"; amount: number },
 ): Promise<number> {
-  if (!row.invoice_id || amount <= 0) return 0;
+  if (!row.invoice_id || act.amount <= 0) return 0;
+  const reader = orgReader(db);
   const invoice = await viewRow(
     db,
-    visibleSource(orgReader(db), getObject("invoice") ?? invoiceObject),
+    visibleSource(reader, getObject("invoice") ?? invoiceObject),
     row.invoice_id,
   );
-  const tax = Number(invoice?.tax_total ?? 0);
-  if (!tax || !row.total) return 0;
-  const left = Math.max(0, tax - row.tax_amount);
-  if (row.credited === 0 && row.paid + amount === row.total) return left;
-  return Math.min(left, mulDivHalfUp(amount, tax, row.total));
+  // biome-ignore lint/suspicious/noExplicitAny: the source is a registry-driven view, not a key of the typed schema.
+  const notes = (await (db as any)
+    .selectFrom(visibleSource(reader, getObject("creditNote") ?? creditNoteObject))
+    .select(["total", "tax_total"])
+    .where("invoice_id", "=", row.invoice_id)
+    .where("state", "=", "issued")
+    .execute()) as { total: number; tax_total: number }[];
+  // What was given back of what was applied (a late or unmatched payment's refund is not counted).
+  const back = await db
+    .selectFrom("core_order_refund as r")
+    .select((eb) => eb.fn.coalesce(eb.fn.sum<number>("r.amount"), eb.val(0)).as("amount"))
+    .where("r.order_id", "=", row.id)
+    .where("r.status", "=", "confirmed")
+    .where((eb) =>
+      eb.exists(
+        eb
+          .selectFrom("core_order_payment as p")
+          .select("p.event_id")
+          .whereRef("p.order_id", "=", "r.order_id")
+          .whereRef("p.provider", "=", "r.provider")
+          .whereRef("p.payment_ref", "=", "r.payment_ref")
+          .where("p.outcome", "=", "applied"),
+      ),
+    )
+    .executeTakeFirst();
+  const asked = row.total - notes.reduce((sum, n) => sum + n.total, 0);
+  const askedTax = Math.max(
+    0,
+    Number(invoice?.tax_total ?? 0) - notes.reduce((sum, n) => sum + n.tax_total, 0),
+  );
+  const kept =
+    row.paid - Number(back?.amount ?? 0) + (act.kind === "payment" ? act.amount : -act.amount);
+  const should =
+    asked <= 0 || kept <= 0 ? 0 : kept >= asked ? askedTax : mulDivHalfUp(kept, askedTax, asked);
+  const carried = row.tax_amount - row.tax_refunded;
+  const change = act.kind === "payment" ? should - carried : carried - should;
+  return Math.max(0, Math.min(act.amount, change));
 }
 
 // --- Overdue balances --------------------------------------------------------------------------

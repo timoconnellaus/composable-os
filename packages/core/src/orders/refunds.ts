@@ -19,10 +19,9 @@ import type { PendingApproval } from "../errors.ts";
 import { ConflictError, NotFoundError, ValidationError } from "../errors.ts";
 import { newId } from "../ids.ts";
 import { eventStatement } from "../invoices/events.ts";
-import { mulDivHalfUp } from "../invoices/tax.ts";
 import type { HandlerContext } from "../operation.ts";
 import { paymentsTarget, requestProviderRefund } from "./gateway.ts";
-import { changeOrder, formatMoney, type OrderRow } from "./orders.ts";
+import { changeOrder, formatMoney, invoiceTaxFor, type OrderRow } from "./orders.ts";
 import { HOST_PROVIDER } from "./payments.ts";
 
 export interface RefundablePayment {
@@ -95,47 +94,29 @@ export async function refundablePayments(
 }
 
 /**
- * The tax a refund of `amount` on one payment of an invoice's order gives back (ADR 0731): that
- * payment's share of the document's tax, in proportion, rounded half up, never past what its
- * earlier refunds left; all of what is left when the refund takes the rest of the payment.
+ * The tax a refund of `amount` on one payment of an invoice's order gives back (ADR 0731): the fall
+ * in what the money kept should carry (`invoiceTaxFor`), worked from the documents, so a refund a
+ * credit note makes carries that credit note's own tax (none for a GST-free line). A payment that
+ * was never applied (late, not matching) carried none and gives none back.
  */
 export async function invoiceRefundTax(
   ctx: Pick<HandlerContext, "db">,
-  orderId: string,
+  row: OrderRow,
   provider: string,
   paymentRef: string,
   amount: number,
 ): Promise<number> {
-  const [paid, back] = await Promise.all([
-    ctx.db
-      .selectFrom("core_order_payment")
-      .select((eb) => [
-        eb.fn.coalesce(eb.fn.sum<number>("amount"), eb.val(0)).as("amount"),
-        eb.fn.coalesce(eb.fn.sum<number>("tax_amount"), eb.val(0)).as("tax"),
-      ])
-      .where("order_id", "=", orderId)
-      .where("provider", "=", provider)
-      .where("payment_ref", "=", paymentRef)
-      .where("outcome", "=", "applied")
-      .executeTakeFirst(),
-    ctx.db
-      .selectFrom("core_order_refund")
-      .select((eb) => [
-        eb.fn.coalesce(eb.fn.sum<number>("amount"), eb.val(0)).as("amount"),
-        eb.fn.coalesce(eb.fn.sum<number>("tax_amount"), eb.val(0)).as("tax"),
-      ])
-      .where("order_id", "=", orderId)
-      .where("provider", "=", provider)
-      .where("payment_ref", "=", paymentRef)
-      .where("status", "=", "confirmed")
-      .executeTakeFirst(),
-  ]);
-  const payAmount = Number(paid?.amount ?? 0);
-  const payTax = Number(paid?.tax ?? 0);
-  const taxLeft = Math.max(0, payTax - Number(back?.tax ?? 0));
-  if (!payTax || payAmount <= 0) return 0;
-  if (Number(back?.amount ?? 0) + amount >= payAmount) return taxLeft;
-  return Math.min(taxLeft, mulDivHalfUp(amount, payTax, payAmount));
+  const applied = await ctx.db
+    .selectFrom("core_order_payment")
+    .select("event_id")
+    .where("order_id", "=", row.id)
+    .where("provider", "=", provider)
+    .where("payment_ref", "=", paymentRef)
+    .where("outcome", "=", "applied")
+    .limit(1)
+    .executeTakeFirst();
+  if (!applied) return 0;
+  return invoiceTaxFor(ctx.db, row, { kind: "refund", amount });
 }
 
 export interface RequestedRefund {
@@ -269,6 +250,65 @@ export async function requestRefund(
 }
 
 /**
+ * Asks the payments gatekeeper again for refund `refundId` of `row`, under the same id (the
+ * provider's idempotency key), in the calling batch: for a refund that may have reached the
+ * provider (its application failed, or the provider never confirmed it), so the provider answers
+ * with the refund it made rather than making a second (review of PR #460). The refund's row names
+ * the new approval; nothing else of it changes.
+ */
+export async function askSameRefundAgain(
+  ctx: HandlerContext,
+  row: OrderRow,
+  refundId: string,
+): Promise<{ pendingActionId: string | null }> {
+  const refund = await ctx.db
+    .selectFrom("core_order_refund")
+    .selectAll()
+    .where("id", "=", refundId)
+    .where("order_id", "=", row.id)
+    .executeTakeFirst();
+  if (
+    !refund ||
+    refund.status === "confirmed" ||
+    refund.method !== "provider" ||
+    !refund.payment_ref
+  ) {
+    throw new ConflictError("This refund cannot be asked for again", { rule: "refund_not_owed" });
+  }
+  const target = await paymentsTarget(ctx.db);
+  const result = await requestProviderRefund(
+    ctx.integrations,
+    target,
+    {
+      actor: ctx.actor,
+      userId: ctx.user.id,
+      userName: ctx.user.name,
+      role: ctx.user.role,
+      origin: ctx.origin,
+      grantedPermissions: ctx.grantedPermissions,
+      reason: ctx.reason ?? refund.reason ?? "Asked again",
+    },
+    {
+      orderId: row.id,
+      paymentRef: refund.payment_ref,
+      amount: refund.amount,
+      currency: refund.currency,
+      reason: refund.reason ?? "Asked again",
+      refundId: refund.id,
+    },
+  );
+  const action = result.pending[0] ?? null;
+  ctx.write(
+    ctx.db
+      .updateTable("core_order_refund")
+      .set({ pending_action_id: action?.actionId ?? null, requested_at: ctx.now })
+      .where("id", "=", refund.id)
+      .where("status", "=", "requested"),
+  );
+  return { pendingActionId: action?.actionId ?? null };
+}
+
+/**
  * Records money a person paid back on a recorded payment (ADR 0694), in the calling operation's
  * batch: a confirmed refund row of method `recorded` naming how, and the order's `refunded` up by
  * it; the order moves to `refunded`, as the host, when it was paid and everything paid has gone
@@ -374,7 +414,7 @@ export async function recordRefund(
   }
   // An invoice's order (ADR 0731): the payment's tax share goes back with it.
   const tax = row.invoice_id
-    ? await invoiceRefundTax(ctx, row.id, HOST_PROVIDER, input.paymentId, amount)
+    ? await invoiceRefundTax(ctx, row, HOST_PROVIDER, input.paymentId, amount)
     : 0;
   ctx.write(
     ctx.db.insertInto("core_order_refund").values({

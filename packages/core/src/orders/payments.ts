@@ -24,7 +24,7 @@ import {
   chargeFor,
   chargeOptions,
   formatMoney,
-  invoiceTaxShare,
+  invoiceTaxFor,
   loadOrderRow,
   type OrderChange,
   type OrderRow,
@@ -219,7 +219,7 @@ export async function applyVerifiedPayment(
     return { outcome: "mismatch", orderId: row.id };
   }
 
-  const invoiceTax = await invoiceTaxShare(ctx.db, row, payment.amount);
+  const invoiceTax = await invoiceTaxFor(ctx.db, row, { kind: "payment", amount: payment.amount });
   record("applied", invoiceTax);
   if (taxed && payment.sentTax) {
     // Each line's share of the provider's tax, by the line the checkout sent it as.
@@ -433,7 +433,7 @@ export async function applyOtherPayment(
   }
   const paymentId = newId("orderPayment");
   // An invoice's order (ADR 0731): the payment's share of the document's tax.
-  const invoiceTax = await invoiceTaxShare(ctx.db, row, amount);
+  const invoiceTax = await invoiceTaxFor(ctx.db, row, { kind: "payment", amount });
   ctx.write(
     ctx.db.insertInto("core_order_payment").values({
       provider: HOST_PROVIDER,

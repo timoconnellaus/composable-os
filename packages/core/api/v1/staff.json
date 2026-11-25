@@ -29373,6 +29373,24 @@
                   "type": "number",
                   "description": "1, or how many times a provider's refund was asked for"
                 },
+                "why": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "enum": [
+                        "not_paid_back",
+                        "rejected",
+                        "expired",
+                        "failed",
+                        "unconfirmed"
+                      ]
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "Why an owed one is owed: not paid back yet (recorded), or the provider's refund was rejected, its approval expired, it failed when applied, or the provider has not confirmed it within five days"
+                },
                 "state": {
                   "type": "string",
                   "enum": [
@@ -29390,6 +29408,7 @@
                 "refundId",
                 "paidBackAt",
                 "attempt",
+                "why",
                 "state"
               ],
               "additionalProperties": false
@@ -29722,6 +29741,24 @@
                   "type": "number",
                   "description": "1, or how many times a provider's refund was asked for"
                 },
+                "why": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "enum": [
+                        "not_paid_back",
+                        "rejected",
+                        "expired",
+                        "failed",
+                        "unconfirmed"
+                      ]
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "Why an owed one is owed: not paid back yet (recorded), or the provider's refund was rejected, its approval expired, it failed when applied, or the provider has not confirmed it within five days"
+                },
                 "state": {
                   "type": "string",
                   "enum": [
@@ -29739,6 +29776,7 @@
                 "refundId",
                 "paidBackAt",
                 "attempt",
+                "why",
                 "state"
               ],
               "additionalProperties": false
@@ -30038,6 +30076,24 @@
                   "type": "number",
                   "description": "1, or how many times a provider's refund was asked for"
                 },
+                "why": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "enum": [
+                        "not_paid_back",
+                        "rejected",
+                        "expired",
+                        "failed",
+                        "unconfirmed"
+                      ]
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "Why an owed one is owed: not paid back yet (recorded), or the provider's refund was rejected, its approval expired, it failed when applied, or the provider has not confirmed it within five days"
+                },
                 "state": {
                   "type": "string",
                   "enum": [
@@ -30055,6 +30111,7 @@
                 "refundId",
                 "paidBackAt",
                 "attempt",
+                "why",
                 "state"
               ],
               "additionalProperties": false
@@ -30308,6 +30365,24 @@
                   "type": "number",
                   "description": "1, or how many times a provider's refund was asked for"
                 },
+                "why": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "enum": [
+                        "not_paid_back",
+                        "rejected",
+                        "expired",
+                        "failed",
+                        "unconfirmed"
+                      ]
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "Why an owed one is owed: not paid back yet (recorded), or the provider's refund was rejected, its approval expired, it failed when applied, or the provider has not confirmed it within five days"
+                },
                 "state": {
                   "type": "string",
                   "enum": [
@@ -30325,6 +30400,7 @@
                 "refundId",
                 "paidBackAt",
                 "attempt",
+                "why",
                 "state"
               ],
               "additionalProperties": false
@@ -50673,6 +50749,24 @@
                   "type": "number",
                   "description": "1, or how many times a provider's refund was asked for"
                 },
+                "why": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "enum": [
+                        "not_paid_back",
+                        "rejected",
+                        "expired",
+                        "failed",
+                        "unconfirmed"
+                      ]
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "Why an owed one is owed: not paid back yet (recorded), or the provider's refund was rejected, its approval expired, it failed when applied, or the provider has not confirmed it within five days"
+                },
                 "state": {
                   "type": "string",
                   "enum": [
@@ -50690,6 +50784,7 @@
                 "refundId",
                 "paidBackAt",
                 "attempt",
+                "why",
                 "state"
               ],
               "additionalProperties": false
@@ -72445,6 +72540,10 @@
             ],
             "additionalProperties": false,
             "description": "Their subscriptions, as payer or holder (issue #293, ADR 0533): nothing is refunded"
+          },
+          "invoicesKept": {
+            "type": "number",
+            "description": "Issued invoices billed to them (stage 35): kept, no longer theirs, with their number, amounts and the bill-to as printed (the name, address and email they were sent to), for the books until the retention period decides (stage 35 step 11); staff credit or void one still owed"
           }
         },
         "required": [
@@ -72461,7 +72560,8 @@
           "memoryLinesDeleted",
           "eraseRequestsClosed",
           "bodiesDeleted",
-          "subscriptionsEnding"
+          "subscriptionsEnding",
+          "invoicesKept"
         ],
         "additionalProperties": false
       },

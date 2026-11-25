@@ -39,7 +39,6 @@ import {
   loadDocument,
   presentInvoice,
 } from "../invoices/drafts.ts";
-import "../invoices/hooks.ts";
 import { invoiceDiscountsWithinLimit, issueInvoice } from "../invoices/issue.ts";
 import { loadInvoiceSettings } from "../invoices/settings.ts";
 import { defineOperation, type HandlerContext } from "../operation.ts";
@@ -81,7 +80,7 @@ function checkVersion(doc: { version: number }, version: number | undefined): vo
 /** The invoice as it is once the batch has committed (its number, its state). */
 const invoiceAfter = (ctx: HandlerContext, id: string) =>
   ctx.afterCommit(async () => {
-    const doc = await loadDocument(ctx.db, "invoice", id);
+    const doc = await loadDocument(ctx.db, "invoice", id, ctx);
     return presentInvoice(doc, await linesOf(ctx.db, "invoice", id));
   });
 
@@ -117,7 +116,7 @@ export const invoiceIssue = defineOperation({
     total: output.total,
   }),
   async handler(input, ctx) {
-    const doc = await loadDocument(ctx.db, "invoice", input.id);
+    const doc = await loadDocument(ctx.db, "invoice", input.id, ctx);
     checkVersion(doc, input.version);
     await issueInvoice(ctx, doc, await linesOf(ctx.db, "invoice", doc.id));
     return invoiceAfter(ctx, doc.id);
@@ -126,7 +125,7 @@ export const invoiceIssue = defineOperation({
 
 /** An issued invoice still owed something: its order pending or part paid. */
 async function owingInvoice(ctx: HandlerContext, id: string) {
-  const doc = await loadDocument(ctx.db, "invoice", id);
+  const doc = await loadDocument(ctx.db, "invoice", id, ctx);
   if (!["issued", "sent", "part_paid"].includes(doc.state) || !doc.order_id) {
     throw new ConflictError(
       doc.state === "draft"
@@ -277,7 +276,7 @@ export const invoiceRecordPayment = defineOperation({
     return ctx.afterCommit(async () => ({
       paymentId: paid.paymentId,
       invoice: presentInvoice(
-        await loadDocument(ctx.db, "invoice", doc.id),
+        await loadDocument(ctx.db, "invoice", doc.id, ctx),
         await linesOf(ctx.db, "invoice", doc.id),
       ),
     }));
@@ -336,7 +335,7 @@ export const invoiceReversePayment = defineOperation({
     return ctx.afterCommit(async () => ({
       paymentId: reversed.reversalId,
       invoice: presentInvoice(
-        await loadDocument(ctx.db, "invoice", id),
+        await loadDocument(ctx.db, "invoice", id, ctx),
         await linesOf(ctx.db, "invoice", id),
       ),
     }));
@@ -392,6 +391,12 @@ const creditNoteOutput = z.object({
           .describe("The refund asked for (provider) or recorded (paid back); null: still owed"),
         paidBackAt: z.string().nullable(),
         attempt: z.number().describe("1, or how many times a provider's refund was asked for"),
+        why: z
+          .enum(["not_paid_back", "rejected", "expired", "failed", "unconfirmed"])
+          .nullable()
+          .describe(
+            "Why an owed one is owed: not paid back yet (recorded), or the provider's refund was rejected, its approval expired, it failed when applied, or the provider has not confirmed it within five days",
+          ),
         state: z
           .enum(["given_back", "asked", "owed"])
           .describe(
@@ -410,7 +415,7 @@ async function presentCreditNote(
   note: CreditNoteRow,
   lines: readonly Omit<CreditLineRow, "credit_note_id" | "created_at">[],
 ): Promise<z.infer<typeof creditNoteOutput>> {
-  const invoice = await loadDocument(ctx.db, "invoice", note.invoice_id);
+  const invoice = await loadDocument(ctx.db, "invoice", note.invoice_id, ctx);
   const refunds = invoice.order_id ? await creditRefunds(ctx, invoice.order_id, note.id) : [];
   return {
     id: note.id,
@@ -451,6 +456,7 @@ async function presentCreditNote(
       paidBackAt: r.paidBackAt,
       attempt: r.attempt,
       state: r.state,
+      why: r.why,
     })),
     owedBack: refunds.filter((r) => r.state === "owed").reduce((sum, r) => sum + r.amount, 0),
     version: note.version,
@@ -508,7 +514,7 @@ export const creditNoteCreate = defineOperation({
   permission: "invoices:write",
   risk: "write",
   async handler(input, ctx) {
-    const invoice = await loadDocument(ctx.db, "invoice", input.invoiceId);
+    const invoice = await loadDocument(ctx.db, "invoice", input.invoiceId, ctx);
     requireCreditable(invoice);
     const invoiceLines = await linesOf(ctx.db, "invoice", invoice.id);
     const lines = creditLines(
@@ -609,7 +615,7 @@ export const creditNoteDelete = defineOperation({
   permission: "invoices:write",
   risk: "write",
   async handler(input, ctx) {
-    const { note, lines } = await loadCreditNote(ctx, input.id);
+    const { note, lines } = await loadCreditNote(ctx, input.id, ctx);
     if (note.state !== "draft") {
       throw new ConflictError("An issued credit note is never deleted", {
         rule: "document_immutable",
@@ -649,11 +655,11 @@ async function issuedAfter(
   pending: string[],
 ) {
   return ctx.afterCommit(async () => {
-    const { note, lines } = await loadCreditNote(ctx, noteId);
+    const { note, lines } = await loadCreditNote(ctx, noteId, ctx);
     return {
       ...(await presentCreditNote(ctx, note, lines)),
       invoice: presentInvoice(
-        await loadDocument(ctx.db, "invoice", invoice.id),
+        await loadDocument(ctx.db, "invoice", invoice.id, ctx),
         await linesOf(ctx.db, "invoice", invoice.id),
       ),
       pending,
@@ -685,10 +691,10 @@ export const creditNoteIssue = defineOperation({
     total: output.total,
   }),
   async handler(input, ctx) {
-    const { note, lines } = await loadCreditNote(ctx, input.id);
+    const { note, lines } = await loadCreditNote(ctx, input.id, ctx);
     checkVersion(note, input.version);
     const settled = await issueCreditNote(ctx, note, lines);
-    const invoice = await loadDocument(ctx.db, "invoice", note.invoice_id);
+    const invoice = await loadDocument(ctx.db, "invoice", note.invoice_id, ctx);
     return issuedAfter(
       ctx,
       note.id,
@@ -716,10 +722,10 @@ export const creditNoteAskRefundAgain = defineOperation({
   mcp: { expose: false },
   auditSummary: (output, input) => ({ id: input.id, pending: output.pending.length }),
   async handler(input, ctx) {
-    const { note } = await loadCreditNote(ctx, input.id);
+    const { note } = await loadCreditNote(ctx, input.id, ctx);
     const asked = await askRefundAgain(ctx, note);
     return ctx.afterCommit(async () => {
-      const read = await loadCreditNote(ctx, input.id);
+      const read = await loadCreditNote(ctx, input.id, ctx);
       return {
         ...(await presentCreditNote(ctx, read.note, read.lines)),
         pending: asked.pending,

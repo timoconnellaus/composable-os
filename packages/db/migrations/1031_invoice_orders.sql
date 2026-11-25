@@ -67,10 +67,28 @@ BEGIN
   SELECT RAISE(ABORT, 'core_order_invoice');
 END;
 
--- An invoice's order is never deleted (retention, stage 35 step 11, is specified later).
+-- An invoice's order is never deleted (retention, stage 35 step 11, is specified later), and never
+-- replaced: an INSERT OR REPLACE deletes the row it replaces without firing a delete trigger (D1
+-- runs with recursive triggers off), so an insert over an invoice's order is refused.
 CREATE TRIGGER core_order_invoice_kept
 BEFORE DELETE ON core_order
 WHEN OLD.invoice_id IS NOT NULL
+BEGIN
+  SELECT RAISE(ABORT, 'core_order_invoice');
+END;
+
+CREATE TRIGGER core_order_invoice_replaced
+BEFORE INSERT ON core_order
+WHEN EXISTS (SELECT 1 FROM core_order o WHERE o.id = NEW.id AND o.invoice_id IS NOT NULL)
+BEGIN
+  SELECT RAISE(ABORT, 'core_order_invoice');
+END;
+
+-- Only an invoice's order is unpaid again by its reversals (ADR 0733): no other order moves from
+-- paid or part paid back to pending, whoever writes it.
+CREATE TRIGGER core_order_unpaid_again
+BEFORE UPDATE OF state ON core_order
+WHEN NEW.state = 'pending' AND OLD.state IN ('paid', 'part_paid') AND OLD.invoice_id IS NULL
 BEGIN
   SELECT RAISE(ABORT, 'core_order_invoice');
 END;
@@ -97,9 +115,12 @@ END;
 
 CREATE TRIGGER core_order_line_invoice_new
 BEFORE INSERT ON core_order_line
-WHEN (SELECT invoice_id FROM core_order WHERE id = NEW.order_id) IS NOT NULL
+WHEN ((SELECT invoice_id FROM core_order WHERE id = NEW.order_id) IS NOT NULL
   AND EXISTS (SELECT 1 FROM core_transition_history h
-    WHERE h.object_type = 'order' AND h.record_id = NEW.order_id)
+    WHERE h.object_type = 'order' AND h.record_id = NEW.order_id))
+  -- Nor over a line of one (a REPLACE, whatever order it names).
+  OR EXISTS (SELECT 1 FROM core_order_line l JOIN core_order o ON o.id = l.order_id
+    WHERE l.id = NEW.id AND o.invoice_id IS NOT NULL)
 BEGIN
   SELECT RAISE(ABORT, 'core_order_invoice');
 END;
@@ -115,17 +136,25 @@ BEGIN
   SELECT RAISE(ABORT, 'core_order_stale');
 END;
 
--- The balance is what is still owed: what credit notes took off is not owed.
+-- The balance is what is still owed: what credit notes took off is not owed. An invoice's order's
+-- tax, as staff and its customer read it, is the document's (what the invoice shows, beside its
+-- lines' tax), never the figure its payments have carried so far: that one is the book's
+-- (core_order.tax_amount, which `net` is still worked from).
 DROP VIEW rec_order;
 CREATE VIEW rec_order AS
 SELECT
-  id, person_id, email, currency, total, paid, total - paid - credited AS balance, refunded, state,
-  pay, deposit, balance_due_at, expires_at, placed_as, paid_at, cancelled_at, refunded_at,
-  created_at, updated_at, tax_amount, tax_refunded, tax_country,
-  (paid - refunded) - (tax_amount - tax_refunded) AS net,
-  subscription_id, period_start, period_end, period_flag,
-  discount, invoice_id, credited
-FROM core_order;
+  o.id, o.person_id, o.email, o.currency, o.total, o.paid,
+  o.total - o.paid - o.credited AS balance, o.refunded, o.state, o.pay, o.deposit,
+  o.balance_due_at, o.expires_at, o.placed_as, o.paid_at, o.cancelled_at, o.refunded_at,
+  o.created_at, o.updated_at,
+  CASE WHEN o.invoice_id IS NULL THEN o.tax_amount
+    ELSE coalesce((SELECT i.tax_total FROM core_invoice i WHERE i.id = o.invoice_id), 0)
+  END AS tax_amount,
+  o.tax_refunded, o.tax_country,
+  (o.paid - o.refunded) - (o.tax_amount - o.tax_refunded) AS net,
+  o.subscription_id, o.period_start, o.period_end, o.period_flag,
+  o.discount, o.invoice_id, o.credited
+FROM core_order o;
 
 -- Adjustments gain a kind only the host writes on an invoice's order: `prepaid` (a final
 -- invoice's "less deposit paid", stage 35 step 6 writes its lines), naming the invoice. SQLite cannot change a CHECK, so the table is remade with its rows; nothing
@@ -200,6 +229,14 @@ BEGIN
   SELECT RAISE(ABORT, 'core_order_adjustment_pending');
 END;
 
+-- Never over an existing adjustment (a REPLACE would delete it without the kept trigger firing).
+CREATE TRIGGER core_order_adjustment_replaced
+BEFORE INSERT ON core_order_adjustment
+WHEN EXISTS (SELECT 1 FROM core_order_adjustment a WHERE a.id = NEW.id)
+BEGIN
+  SELECT RAISE(ABORT, 'core_order_adjustment_kept');
+END;
+
 CREATE VIEW rec_order_adjustment AS
 SELECT
   a.id, a.order_id, o.person_id, a.line_id, a.kind, a.source_object, a.source_id, a.given_by,
@@ -257,7 +294,7 @@ WHEN NEW.id IS NOT OLD.id OR NEW.credit_note_id IS NOT OLD.credit_note_id
   OR (OLD.method = 'recorded' AND (NEW.paid_back_at IS NULL OR NEW.attempt IS NOT OLD.attempt))
   -- A provider's: asked again, for the same amount, when the one before was never confirmed.
   OR (OLD.method = 'provider' AND (NEW.paid_back_at IS NOT NULL
-    OR NEW.attempt IS NOT OLD.attempt + 1 OR NEW.refund_id IS OLD.refund_id
+    OR NEW.attempt IS NOT OLD.attempt + 1
     OR EXISTS (SELECT 1 FROM core_order_refund r WHERE r.id = OLD.refund_id
       AND r.status = 'confirmed')
     OR NOT EXISTS (SELECT 1 FROM core_order_refund r WHERE r.id = NEW.refund_id

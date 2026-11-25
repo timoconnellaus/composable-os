@@ -445,8 +445,10 @@ export async function loadDocument<K extends DraftKind>(
   db: Kysely<CoreDatabase>,
   kind: K,
   id: string,
+  /** Whose read it is: the caller's (`ctx`) for a caller's operation; org-wide for host code. */
+  reader: Viewer = orgReader(db),
 ): Promise<K extends "quote" ? QuoteRow : InvoiceRow> {
-  if (!(await documentVisible(db, orgReader(db), kind, id))) {
+  if (!(await documentVisible(db, reader, kind, id))) {
     throw new NotFoundError(KIND_TABLES[kind].label, id);
   }
   const row =
@@ -492,26 +494,32 @@ export async function loadLine(
   db: Kysely<CoreDatabase>,
   kind: DraftKind,
   lineId: string,
+  reader: Viewer = orgReader(db),
 ): Promise<{ doc: DocumentRow; lines: LineRow[]; line: LineRow }> {
   const t = KIND_TABLES[kind];
-  const of =
+  // The documents the caller may read, through the seam, first; then the line among their parts
+  // (review of PR #460): a line id from input never reaches a table on its own.
+  const docs = visibleSource(reader, documentObject(kind));
+  const view = documentObject(kind).source;
+  // biome-ignore lint/suspicious/noExplicitAny: the source is a registry-driven view, not a key of the typed schema.
+  const anyDb = db as any;
+  const found = (
     kind === "quote"
-      ? (
-          await db
-            .selectFrom("core_quote_line")
-            .select("quote_id as doc")
-            .where("id", "=", lineId)
-            .executeTakeFirst()
-        )?.doc
-      : (
-          await db
-            .selectFrom("core_invoice_line")
-            .select("invoice_id as doc")
-            .where("id", "=", lineId)
-            .executeTakeFirst()
-        )?.doc;
-  if (!of) throw new NotFoundError(`${t.label} line`, lineId);
-  const doc = await loadDocument(db, kind, of);
+      ? await anyDb
+          .selectFrom(docs)
+          .innerJoin("core_quote_line as l", "l.quote_id", `${view}.id`)
+          .select(`${view}.id as doc`)
+          .where("l.id", "=", lineId)
+          .executeTakeFirst()
+      : await anyDb
+          .selectFrom(docs)
+          .innerJoin("core_invoice_line as l", "l.invoice_id", `${view}.id`)
+          .select(`${view}.id as doc`)
+          .where("l.id", "=", lineId)
+          .executeTakeFirst()
+  ) as { doc: string } | undefined;
+  if (!found) throw new NotFoundError(`${t.label} line`, lineId);
+  const doc = await loadDocument(db, kind, found.doc, reader);
   const lines = await linesOf(db, kind, doc.id);
   const line = lines.find((l) => l.id === lineId);
   if (!line) throw new NotFoundError(`${t.label} line`, lineId);
