@@ -97,10 +97,10 @@ provider's page".
   ends with it, and one with a later end date at the provider is left for staff and said to
   charge. The recent sign-in before deleting is step 2's.
 
-- **Step 7** — not built — needs: step 3, step 4, step 6 — Attention, change address and delete blocks
+- **Step 7** — in progress — branch `feat/stage-48-account-finish` — Attention, change address and delete blocks
   (web and native); Memberships, Courses and Bookings blocks consolidated; staff card.
 
-- **Step 8** — not built — needs: step 7 — E2E, `SITE.md`, ADRs.
+- **Step 8** — in progress — branch `feat/stage-48-account-finish` — E2E, `SITE.md`, ADRs.
 
 ## Goal
 
