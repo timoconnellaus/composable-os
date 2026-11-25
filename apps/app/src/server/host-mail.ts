@@ -13,6 +13,7 @@ import {
   type HostMail,
   hostMailCall,
   parseFloor,
+  practitionerInviteEmail,
   STAFF_MAIL_ORIGIN,
   sendCustomerCode,
   sendEmail,
@@ -27,7 +28,11 @@ import { product } from "@composable-os/products/active";
 import { integrationRuntimeFor } from "./integrations.ts";
 import type { OperationsEnv } from "./operations.ts";
 
-type MailEnv = OperationsEnv & { IDENTITY_PROVIDER?: string };
+type MailEnv = OperationsEnv & {
+  IDENTITY_PROVIDER?: string;
+  /** The business's web app (customer and practitioner sign-in), when it is set. */
+  CUSTOMER_AUTH_URL?: string;
+};
 
 /** Null when sign-in codes go out at once now, or why not, for an admin to act on. */
 export async function signInMailProblem(env: MailEnv): Promise<string | null> {
@@ -36,10 +41,15 @@ export async function signInMailProblem(env: MailEnv): Promise<string | null> {
   return state.problem;
 }
 
-/** Sends one sign-in code as the host, for a customer or a staff member. Throws unless sent. */
+/**
+ * Sends one sign-in code as the host, for a customer, a staff member or a practitioner. Throws
+ * unless sent. A practitioner's code is the staff code's fixed template on the staff mail origin
+ * (ADR 0581): the gatekeeper gives the sign-in kind only to that template, and the words name no
+ * hat.
+ */
 export async function sendSignInCode(
   env: MailEnv,
-  audience: "customer" | "staff",
+  audience: "customer" | "staff" | "practitioner",
   message: { to: string; code: string },
 ): Promise<void> {
   const target = await customerCodeTarget(createCrmDb(env.DB).query);
@@ -77,6 +87,34 @@ export function hostMailFor(env: MailEnv, appOrigin: string | undefined): HostMa
     staffSignIn,
     signInMailProblem: () => signInMailProblem(env),
     sendSignInCode: (message) => sendSignInCode(env, "staff", message),
+    async sendPractitionerInvite({ to, invitedBy, discipline }) {
+      try {
+        const target = await customerCodeTarget(createCrmDb(env.DB).query);
+        const runtime = integrationRuntimeFor(env);
+        if ("problem" in target || !runtime) return "not_sent";
+        const call = hostMailCall(
+          runtime,
+          `${invitedBy} invited a practitioner`,
+          STAFF_MAIL_ORIGIN,
+        );
+        const outcome = await sendEmail(call, target.target, {
+          to,
+          ...practitionerInviteEmail(
+            productName(product),
+            invitedBy,
+            discipline,
+            env.CUSTOMER_AUTH_URL?.trim() || null,
+          ),
+        });
+        return outcome.status === "sent" ? "sent" : "pending";
+      } catch (error) {
+        console.error(
+          "practitioner invite email not sent",
+          error instanceof Error ? error.message : error,
+        );
+        return "not_sent";
+      }
+    },
     async sendStaffInvite({ to, invitedBy }) {
       try {
         const target = await customerCodeTarget(createCrmDb(env.DB).query);

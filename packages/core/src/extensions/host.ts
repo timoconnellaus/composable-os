@@ -3,7 +3,7 @@
 // reaches the same implementation over the RUNNER service binding. Extension operations receive
 // it through the invocation context, so packages/core never imports the runtime.
 
-import type { OutsidePrincipal } from "../principals.ts";
+import type { CustomerPrincipal, PublicPrincipal } from "../principals.ts";
 
 /** A problem found evaluating extension source (before the manifest exists). */
 export interface SourceIssue {
@@ -24,9 +24,10 @@ export interface ToolCaller {
   /**
    * Set when a customer or the public called the tool (ADR 0414): the run then acts as that
    * principal. Its operation calls go through the outside path of the pipeline, never as the
-   * extension, so which records it reaches stays the host's decision.
+   * extension, so which records it reaches stays the host's decision. Never a practitioner: no
+   * pack's tool is open to them (ADR 0581).
    */
-  principal?: OutsidePrincipal;
+  principal?: CustomerPrincipal | PublicPrincipal;
   /**
    * Set when an enrolled device holding a device role called the tool (ADR 0781): who started
    * it, for the tool to record (`ctx.caller`). The run's operation calls are the extension's, as

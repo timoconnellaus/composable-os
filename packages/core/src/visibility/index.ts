@@ -7,8 +7,9 @@
 // A customer has the rows whose declared customer field is their own Person, and of those only
 // the fields the object lists (customer.ts). The public has the rows an object's `public`
 // declaration lets them read, and of those only the fields it lists (public.ts, ADR 0438); so
-// does a customer on an object that declares no customer. Anyone else, on any other object, has
-// nothing: for them the object does not exist.
+// does a customer on an object that declares no customer. A practitioner (ADR 0581) has nothing
+// yet, on every object. Anyone else, on any other object, has nothing: for them the object does
+// not exist.
 // Stage 14a adds staff scopes (own, own team), the rewrite of user SQL and search hydration to
 // this module. It must extend this seam and not add a second one.
 //
@@ -119,6 +120,11 @@ export function scopeOf(
       );
     case "public":
       return publicScope(object) ?? NONE;
+    case "practitioner":
+      // The empty scope (stage 43 step 3, ADR 0581): a practitioner reads no record of any
+      // object, not even what the public may read, and the object does not exist for them.
+      // Step 5 gives the practitioner scope here: their live clients' rows they wrote.
+      return NONE;
     default:
       // A principal this code does not know sees nothing.
       return NONE;

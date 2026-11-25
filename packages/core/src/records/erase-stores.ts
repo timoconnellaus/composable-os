@@ -965,7 +965,39 @@ export async function queueEraseCustomers(ctx: HandlerContext, s: StoreSubject):
     ),
     ctx.db.deleteFrom("core_customer_invite").where("email", "in", emails),
   );
+  await queueErasePractitionerCodes(ctx, s, ids);
   return open.length;
+}
+
+/**
+ * A practitioner account of the erased Person (stage 43 step 3, ADR 0581). The account and its
+ * sessions go with the Person (the cascade). Two things name the account or its address and not
+ * the Person, so they are deleted here: its one-time sign-in codes (`<type>-otp-<address>`, as
+ * for customers) and the HTTP surface's stored replies of the account.
+ */
+async function queueErasePractitionerCodes(
+  ctx: HandlerContext,
+  s: StoreSubject,
+  ids: ReturnType<typeof jsonList>,
+): Promise<void> {
+  const accounts = await ctx.db
+    .selectFrom("core_practitioner")
+    .select(["id", "email"])
+    .where(sql<SqlBool>`person_id IN ${ids}`)
+    .execute();
+  const emails = jsonList([...new Set([...s.addresses, ...accounts.map((a) => a.email)])]);
+  ctx.write(
+    ctx.db.deleteFrom("core_practitioner_verification").where(
+      sql<SqlBool>`instr(identifier, '-otp-') > 0
+          AND lower(substr(identifier, instr(identifier, '-otp-') + 5)) IN ${emails}`,
+    ),
+  );
+  for (const part of chunk(accounts.map((a) => `practitioner:${a.id}`))) {
+    ctx.write(
+      ctx.db.deleteFrom("core_idempotency_key").where("scope", "in", part),
+      ctx.db.deleteFrom("core_idempotency_claim").where("scope", "in", part),
+    );
+  }
 }
 
 // --- Orders and lifecycle history (stage 25, ADR 0426) -------------------------------------------

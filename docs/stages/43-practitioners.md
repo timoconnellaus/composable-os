@@ -30,7 +30,10 @@ practice is an outside practice it works with. Nothing here depends on stages 31
 - **Step 2** — not built — Programs' additions: kinds `rehab` and `habits`, `check` and `amount` measures,
   sets and log fields, `confidential` marks on layout notes (inert until step 5).
 
-- **Step 3** — not built — The principal, audience, accounts, invites and sign-in.
+- **Step 3** — built — PR #453 — The principal, audience, accounts, invites and sign-in: migration
+  0730, ADR 0581 (ADR 0402 amended); `practitioner.me` the one operation open to them, the empty
+  scope; sign-in by cookie at `/api/practitioner-auth/*`; the native token routes, the hat switch
+  and the admin screen left (ADR 0581).
 
 - **Step 4** — not built — needs: step 3 — The care link and consent, sharing, the guard, the consent page,
   Trash, merge and erase of links.

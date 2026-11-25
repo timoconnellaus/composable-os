@@ -73,8 +73,8 @@ stage 30".
   send Workflow, `email.campaign`, report
 
 - **Step 8** — not built — needs: stage 30 step 3, stage 30 step 5 — 36b Texts: inbound and
-  outbound on conversations, STOP (whether stage 30 step 3's text gatekeeper is the two-way one
-  this step needs is to be checked when it starts)
+  outbound on conversations, STOP (decided 2026-11-25: this step builds inbound texts on stage 30's text gatekeeper;
+  stage 30 left two-way texting to this stage)
 
 - **Step 9** — not built — needs: step 3 — The staff native inbox; "about" declared by Bookings,
   Memberships and Leads

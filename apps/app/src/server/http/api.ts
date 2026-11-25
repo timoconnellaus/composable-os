@@ -8,11 +8,14 @@
 // - A staff session (Better Auth's cookie, or Cloudflare Access's JWT, or hosted support access)
 //   is staff, with the context the UI's server functions build (`staffContext`), origin `client`.
 // - A customer session (`cos-customer.*`, its own secret and table, stage 22) is that customer.
+// - A practitioner session (`cos-practitioner.*`, its own key and table, stage 43, ADR 0581) is
+//   that practitioner, while their account is active.
 // - Anything else is the public. So a customer's credential on a staff operation gets exactly the
 //   answer none gets: the operation is not open to them, and that is answered as a name that
 //   does not exist.
-// - A request carrying both a staff session and a customer session is refused: the two are
-//   separate accounts and never one caller (ADR 0402).
+// - A request carrying two kinds of session (staff and customer, staff and practitioner, customer
+//   and practitioner) is refused: they are separate accounts and never one caller (ADR 0402,
+//   ADR 0581: one hat per call).
 //
 // Every call goes through `coreInvoker`, which is `invoke()`. A customer's or the public's call
 // gets an outside context: a principal and the database for the pipeline, never a staff user.
@@ -28,7 +31,11 @@ import {
   createIdentityProvider,
   getBetterAuth,
   getCustomerIdentity,
+  getPractitionerIdentity,
   type IdentityEnv,
+  PRACTITIONER_AUTH_BASE_PATH,
+  PRACTITIONER_COOKIE_PREFIX,
+  type PractitionerIdentity,
   type Principal,
   requestStaffCode,
   staffSignInWithCode,
@@ -46,6 +53,7 @@ import {
   issueDeviceSession,
   loadCustomer,
   type OutsideInvocationContext,
+  type PractitionerPrincipal,
   type PublicPrincipal,
   parseAllowedOrigins,
   parseFloor,
@@ -97,6 +105,19 @@ export function customers(env: ApiEnv): CustomerIdentity | null {
 }
 
 /**
+ * Practitioner sign-in for this env (stage 43, ADR 0581), or null when CUSTOMER_AUTH_SECRET is not
+ * set: its key is derived from that secret. Codes go out as the host's sign-in mail.
+ */
+export function practitioners(env: ApiEnv): PractitionerIdentity | null {
+  if (!env.CUSTOMER_AUTH_SECRET) return null;
+  return getPractitionerIdentity(
+    env,
+    (message) => sendSignInCode(env, "practitioner", message),
+    () => signInMailProblem(env),
+  );
+}
+
+/**
  * The staff session a request carries, if any. Refused (`staff_cross_origin`) when the request
  * does not come from the host's own pages (`staffCookieAllowed`): every staff call here, the
  * token exchange included, reads its session through this.
@@ -109,12 +130,35 @@ async function staffSession(request: Request, env: ApiEnv): Promise<Principal | 
   return staff;
 }
 
-function hasCustomerCookie(request: Request): boolean {
+function hasCookie(request: Request, prefix: string): boolean {
   const cookie = request.headers.get("cookie") ?? "";
   // Better Auth prefixes secure cookies with `__Secure-`.
   return cookie
     .split(/;\s*/)
-    .some((part) => part.replace(/^__(Secure|Host)-/, "").startsWith(`${CUSTOMER_COOKIE_PREFIX}.`));
+    .some((part) => part.replace(/^__(Secure|Host)-/, "").startsWith(`${prefix}.`));
+}
+
+function hasCustomerCookie(request: Request): boolean {
+  return hasCookie(request, CUSTOMER_COOKIE_PREFIX);
+}
+
+function hasPractitionerCookie(request: Request): boolean {
+  return hasCookie(request, PRACTITIONER_COOKIE_PREFIX);
+}
+
+/**
+ * Refuses a request that carries two kinds of session: one call is one hat (ADR 0581). Which
+ * sessions are valid is not looked at: a second kind's cookie at all is refused.
+ */
+function oneHat(request: Request, staff: boolean): void {
+  const kinds = [staff, hasCustomerCookie(request), hasPractitionerCookie(request)].filter(Boolean);
+  if (kinds.length > 1) {
+    throw new ForbiddenError(
+      staff && hasCustomerCookie(request)
+        ? "This request carries a staff session and a customer session. Sign out of one."
+        : "This request carries more than one kind of session (staff, customer, practitioner). Sign out of all but one.",
+    );
+  }
 }
 
 function bearer(request: Request): string | null {
@@ -130,7 +174,7 @@ function bearer(request: Request): string | null {
 export async function outsideContext(
   env: ApiEnv,
   db: CrmDb,
-  principal: CustomerPrincipal | PublicPrincipal,
+  principal: CustomerPrincipal | PublicPrincipal | PractitionerPrincipal,
   sessionId: string | null,
 ): Promise<OutsideInvocationContext> {
   await ensureShippedExtensions(env);
@@ -193,15 +237,22 @@ export async function apiContext(request: Request, env: ApiEnv): Promise<AnyInvo
   const token = bearer(request);
   if (token) return deviceContext(env, db, token, new URL(request.url));
   const staff = await staffSession(request, env);
+  oneHat(request, Boolean(staff));
   if (staff) {
-    if (hasCustomerCookie(request)) {
-      throw new ForbiddenError(
-        "This request carries a staff session and a customer session. Sign out of one.",
-      );
-    }
     // `staffSession` refused a staff cookie from anywhere but the host's own pages (stage 47,
     // ADR 0660). A native app's bearer token above, and customer cookies, are unchanged.
     return staffContext(env, staff, { surface: "client" }, new URL(request.url).origin);
+  }
+  // A practitioner's session (ADR 0581): that practitioner, or, when it no longer resolves, the
+  // public, as a customer's session that no longer resolves is.
+  if (hasPractitionerCookie(request)) {
+    const resolved = (await practitioners(env)?.resolveSession(request)) ?? null;
+    return outsideContext(
+      env,
+      db,
+      resolved?.principal ?? PUBLIC,
+      resolved?.principal ? resolved.sessionId : null,
+    );
   }
   const identity = customers(env);
   const { principal, sessionId } = identity
@@ -423,12 +474,15 @@ async function authRoutes(route: string, request: Request, env: ApiEnv): Promise
     }
     const deviceName = deviceNameSchema(input.deviceName);
     const staff = await staffSession(request, env);
+    oneHat(request, Boolean(staff));
+    // A practitioner works on the web (ADR 0581): their session is not exchanged for app tokens.
+    if (hasPractitionerCookie(request)) {
+      throw new ForbiddenError("A practitioner's sign-in is not exchanged for app tokens", {
+        reason: "practitioner_web_only",
+        httpStatus: 401,
+      });
+    }
     if (staff) {
-      if (hasCustomerCookie(request)) {
-        throw new ForbiddenError(
-          "This request carries a staff session and a customer session. Sign out of one.",
-        );
-      }
       const user = await resolveActingUser(db, staff);
       return dataReply(
         await issueDeviceSession(db, { audience: "staff", subjectId: user.id }, deviceName, now),
@@ -476,6 +530,31 @@ export function handleApi(request: Request, env: ApiEnv): Promise<Response | nul
 
 export function isCustomerAuthPath(pathname: string): boolean {
   return pathname === CUSTOMER_AUTH_BASE_PATH || pathname.startsWith(`${CUSTOMER_AUTH_BASE_PATH}/`);
+}
+
+export function isPractitionerAuthPath(pathname: string): boolean {
+  return (
+    pathname === PRACTITIONER_AUTH_BASE_PATH ||
+    pathname.startsWith(`${PRACTITIONER_AUTH_BASE_PATH}/`)
+  );
+}
+
+/**
+ * Practitioner sign-in (`/api/practitioner-auth/*`, stage 43, ADR 0581): a code by email, then a
+ * session of its own. Without CUSTOMER_AUTH_SECRET it answers that sign-in is not set up.
+ */
+export async function handlePractitionerAuth(request: Request, env: ApiEnv): Promise<Response> {
+  const identity = practitioners(env);
+  if (!identity) {
+    return Response.json(
+      {
+        code: "SIGN_IN_NOT_SET_UP",
+        message: "Practitioner sign-in is not set up on this deployment (CUSTOMER_AUTH_SECRET)",
+      },
+      { status: 503 },
+    );
+  }
+  return (await identity.handle(request)) ?? new Response("Not found", { status: 404 });
 }
 
 /**

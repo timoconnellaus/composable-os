@@ -60,7 +60,7 @@ all is not known; see "Suggested build order".
 
 - **Step 4** — not built — needs: step 2 — Ticketing: `listed`, the public calendar block, cues, crew roles and crew shifts
 
-- **Step 5** — not built — needs: step 1, step 2, step 3, the business's answer on whether it hires out rooms — Venue hire pack: spaces, rates, hires, lines, room uses, states, tools, agreement point, routine mail, views, dashboard
+- **Step 5** — not built — needs: step 1, step 2, step 3 — Venue hire pack: spaces, rates, hires, lines, room uses, states, tools, agreement point, routine mail, views, dashboard
   (transfers after stage 34 step 3; step 2's note: `follows` needs widening again for room uses)
 
 - **Step 6** — not built — needs: step 4, step 5 — Blocks and screens: room calendar, hire board, hire page, run sheet, the Hires section and `hold_to_confirm`
@@ -533,6 +533,9 @@ pack grown and one new.
 | Who records a transfer | Only a person holding both `venuehire:manage` and `orders:payments` |
 
 ## Questions for the owner
+
+**Answered by the owner on 2026-11-25: the first client does hire out its space,** so steps 5 and 7
+and the hire half of step 6 are to be built. As first written:
 
 None open. Before step 5 is started, the coordinator checks with the business whether it hires out
 rooms at all (a fact, not a design question; decision 1).

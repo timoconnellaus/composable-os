@@ -1,21 +1,26 @@
 ---
 title: Audiences and the visibility seam
-description: Who may call an operation (staff, customers, the public) and how the host limits what each one sees.
+description: Who may call an operation (staff, customers, the public, practitioners) and how the host limits what each one sees.
 order: 2
 ---
 
 An outline; the full description is in [docs/architecture.md](../architecture.md#audiences-and-customers).
 
-## Three audiences
+## The audiences
 
 Every operation declares its audiences ([ADR 0402](../adr/0402-staff-and-customers.md),
 [ADR 0411](../adr/0411-audiences-on-operations-as-built.md)):
 
 - **staff**, the default: the business's users, with roles and permissions;
 - **customer**: a Person with a sign-in, limited to their own records;
-- **public**: callers with no account. Public operations are few, low risk and rate limited.
+- **public**: callers with no account. Public operations are few, low risk and rate limited;
+- **practitioner**: an outside person the business invited (a physiotherapist, a dietitian),
+  signed in to their own practitioner account
+  ([ADR 0581](../adr/0581-the-practitioner-principal-accounts-and-sign-in.md)). One operation is
+  open to them, `practitioner.me`, and the seam gives them no record of any object yet;
+- **device**: the business's own enrolled tablet, on the desk origin only.
 
-Opening an operation or a pack's tool to `customer` or `public` is a reviewed change: its risk
+Opening an operation or a pack's tool to `customer`, `public` or `practitioner` is a reviewed change: its risk
 class must be `read` or `write`, and it joins `packages/core/open-operations.json`, which a test
 keeps equal to the registry. A caller outside an operation's audiences gets the answer an unknown
 operation gets. Each operation's audiences are on its [reference entry](/reference/operations/).
@@ -36,6 +41,16 @@ commits, and an audit row naming the actor. Its handler has no raw database: it 
 records through the seam ([ADR 0413](../adr/0413-outside-handlers-have-no-raw-database.md)). A
 pack's tool called by a customer runs as that customer
 ([ADR 0414](../adr/0414-pack-tools-run-as-the-customer.md)).
+
+## Practitioner accounts and sign-in
+
+A person on the staff with `practitioners:manage`, at the web admin, invites a practitioner
+(`practitioner.invite`) and ends their account (`practitioner.end`, which ends every session at
+once); the assistant, MCP, automations, extensions and a device session cannot. The practitioner
+signs in by an emailed code at `/api/practitioner-auth/*`, on the host or over the client-app
+binding, where the business's web app forwards their `cos-practitioner.*` cookie and calls
+through the generated `practitioner.ts` client. One address may hold a staff, a customer and a practitioner account:
+each is signed in on its own, and a request carrying two kinds of session is refused.
 
 ## Rules live in the host
 

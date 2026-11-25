@@ -73,6 +73,8 @@ describe("every route of cos-app is accounted for behind Access", () => {
       SOCKET_PATH: "/api/assistant/socket",
       isApiPath: "/api/v1/op/me.get",
       isCustomerAuthPath: "/api/customer-auth/sign-in/email-otp",
+      // Stage 43 step 3 (ADR 0581): practitioners sign in outside Access, as customers do.
+      isPractitionerAuthPath: "/api/practitioner-auth/sign-in/email-otp",
       NATIVE_STAFF_SIGN_IN_PATH: "/native/staff-sign-in",
       // Stage 28 (ADR 0444): staff upload and view pictures here. Outsiders are served them at
       // /api/v1/media/<id> (the bypassed surface, below) or through the client-app binding.
@@ -96,6 +98,7 @@ describe("every route of cos-app is accounted for behind Access", () => {
       SOCKET_PATH: "staff",
       isApiPath: "bypass",
       isCustomerAuthPath: "bypass",
+      isPractitionerAuthPath: "bypass",
       NATIVE_STAFF_SIGN_IN_PATH: "staff",
       isMediaPath: "staff",
       isAgreementPdfPath: "staff",

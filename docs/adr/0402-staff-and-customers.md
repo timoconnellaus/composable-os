@@ -127,3 +127,13 @@ a fourth audience, `device`: an enrolled device holding a device role, on the de
 An operation open to it is open to nobody else, is a `read` or a `write`, is listed in
 `open-operations.json`, and is left out of the HTTP contract; the pipeline resolves the device from
 its credential and lets it call only its role's tools and `device.heartbeat`.
+
+**Amended 2026-11-25** (stage 43 step 3, [ADR 0581](0581-the-practitioner-principal-accounts-and-sign-in.md)):
+a fifth audience and a fourth kind of person calling, `practitioner`: an outside person the
+business invited (a physiotherapist, a dietitian), signed in to their own practitioner account
+(`core_practitioner`, a third Better Auth configuration with its own tables, cookie and key). A
+practitioner is never staff and never a customer; one address may hold all three accounts, each
+signed in alone, and a request carrying two kinds of session is refused. Their call takes the
+outside path (no role, never queued, the risk floor, no raw database unless `hostInternal`); the
+seam gives them nothing on every object until stage 43's practitioner scope. Opening an operation
+to them is listed in `open-operations.json`; the first is `practitioner.me`.

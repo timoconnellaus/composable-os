@@ -205,6 +205,25 @@ describe("per product (criterion 6)", () => {
   });
 });
 
+describe("the practitioner entry point (stage 43, ADR 0581)", () => {
+  it("holds the operations open to practitioners and no other", () => {
+    const contract = productContract([deals, greeter]);
+    expect(operationsFor(contract, "practitioner").map((op) => op.name)).toEqual([
+      "practitioner.me",
+    ]);
+    const files = renderClient(contract, { product: "crm" });
+    const text = files["practitioner.ts"] as string;
+    expect(text).toContain("export function createPractitionerClient(");
+    expect(text).toContain('"practitioner.me": {');
+    for (const name of ["me.get", "person.list", "x.greeter.greet", "practitioner.invite"]) {
+      expect(text, name).not.toContain(`"${name}"`);
+    }
+    // And no other entry point holds it.
+    expect(files["customer.ts"]).not.toContain('"practitioner.me"');
+    expect(files["staff.ts"]).not.toContain('"practitioner.me"');
+  });
+});
+
 describe("the bundle split (criterion 7)", () => {
   it("the built customer entry point contains no staff operation name", async () => {
     const contract = productContract([deals, greeter]);
