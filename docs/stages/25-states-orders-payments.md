@@ -321,3 +321,7 @@ ADR 0429, migration 0422. Where the build read the spec one way, or decided what
   purchases may use an outside payment page. Event tickets and classes are goods and services
   used outside the app, which have been allowed; anything digital may not be.
 - Stripe's current fees were not checked for this spec.
+
+## Status
+
+- **All steps** — built — PRs #83, #152 — States, orders and payments: the transition engine and states (#83); orders and payments (#152).

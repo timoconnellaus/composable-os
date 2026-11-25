@@ -37,7 +37,7 @@ questions at the end refine later steps and block none of the first ones.
 
 ## Status
 
-- **Step 1, the `stock` behaviour** (`feat/stage-37-shop-step-1`; migration 0930, ADR 0680, which
+- **Step 1** — built — PR #370 — The `stock` behaviour (`feat/stage-37-shop-step-1`; migration 0930, ADR 0680, which
   amends ADRs 0431 and 0433): the SDK declaration `stock: { reorderAt?, reorderQty?, show?, lowAt? }`
   and its checks (not beside a capacity; no `sellable.deposit`, `recurring` or `moves`; refused in a
   runtime extension); the ledger `core_stock_movement` with a place on every row (`default`),
@@ -55,7 +55,8 @@ questions at the end refine later steps and block none of the first ones.
   used by `stockMoves`" is checked when steps 2 and 3 add those. After review: the reconciler
   refuses adding `stock` to an object with records, or taking it off one (`stock_change`), and
   `stock.get` gives staff the last five movements.
-- **Step 2, `stockMoves` and low stock** (`feat/stage-37-stock-moves`; migration 0931, ADR 0681,
+
+- **Step 2** — built — PR #422 — `stockMoves` and low stock (`feat/stage-37-stock-moves`; migration 0931, ADR 0681,
   which amends ADR 0680): the SDK declaration `stockMoves: { move: add | remove | set, on,
   quantity, when, through?, kind?, unitCost?, note? }` and its checks (a target with stock in the
   same extension, a state no move leaves, `through` a relation to an object with states; refused
@@ -77,6 +78,39 @@ questions at the end refine later steps and block none of the first ones.
   of a count's apply with its lines both ways; a line cannot be restored under an applied count; a
   crossing is marked told (it outlives the notices' purge); a fixed role is told only of objects
   it reads. Left: steps 3 to 14.
+
+- **Step 3** — in progress — branch `feat/stage-37-goods-delivery` — Goods and delivery:
+  `sellable.goods` with `soldIn`, `sellable.delivery`, `core_order_delivery`, postage,
+  `order.quote`
+
+- **Step 4** — not built — needs: step 1, step 3 — Returns and line refunds (`order.return`)
+
+- **Step 5** — not built — needs: step 1, step 3 — The Shop pack's spine: items, variants,
+  delivery options, shipments, supplier fields, the stockroom role
+
+- **Step 6** — not built — needs: step 5 — Purchase orders, receipts, quick stock-in, counts,
+  write-offs, `draftReorder`, `sendPo`
+
+- **Step 7** — not built — needs: step 4, step 5 — Returns recorded by staff (`recordReturn`),
+  routine mail kinds, notices' wording
+
+- **Step 8** — not built — needs: step 5, stage 47 — Blocks: customer web and native, staff
+  screens for stage 47, e2e (the Deliveries section's `portal` declaration after stage 48 step 5)
+
+- **Step 9** — not built — needs: step 5 — `cos shop import`, the site and `SITE.md`
+
+- **Step 10** — not built — needs: step 9, the first client — The first client: the gym's drinks
+  and clothing, a test-mode sale online and at the gym
+
+- **Step 11** — not built — needs: step 3, a later decision to build it — Later: postage by weight
+
+- **Step 12** — not built — needs: step 3, a later decision to build it — Later: a tax setting per
+  record (#198)
+
+- **Step 13** — not built — needs: step 3, a later decision to build it — Later: the shipping
+  gatekeeper, live rates, labels, tracking
+
+- **Step 14** — not built — needs: a trades client who needs it — Later: stock in several places
 
 Vocabulary: "product" is the platform's word for a composition (ADR 0400) and is avoided for what
 a business sells. This spec says **item** (a thing in the shop: "Club hoodie") and **variant** (one

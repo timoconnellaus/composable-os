@@ -12,6 +12,28 @@ behaviour), ADRs 0017, 0023, 0024, `packages/sdk/src/field-types.ts`,
 Status: **spec agreed** (interview 2026-11-21). Builds on stages 22, 23 and 41: stage 41 brings
 `publishable` forward without its public half, and this stage adds that half.
 
+## Status
+
+- **Step 1** — built — PR #179 — The `richText` schema, its validation and the fuzz test.
+
+- **Step 2** — built — PR #179 — `publishable`: working copy, versions, states, the publish
+  operation.
+
+- **Step 3** — built — PR #179 — Public reads, the not-found rule and the cache.
+
+- **Step 4** — built — PRs #180, #182 — Media and image serving (#182: pictures on a company's own
+  site and app).
+
+- **Step 5** — built — PR #180 — The editor and the publish controls.
+
+- **Step 6** — built — PR #180 — The Content pack, hooks and both renderers.
+
+- **Step 7** — not built — needs: the first client's own site — Ghetto's import and the blog's
+  routes. The import door it uses, `cos content import`, is built (PR #185).
+
+- Criterion 12, an AI actor asks to publish and a person approves: built, PR #191 (details in
+  "As built: criterion 12" below).
+
 ## Goal
 
 A product can hold content that staff write and the public reads: blog posts, event descriptions,

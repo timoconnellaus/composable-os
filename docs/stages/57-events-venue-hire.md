@@ -30,7 +30,8 @@ all is not known; see "Suggested build order".
 
 ## Status
 
-- **Step 1, the room calendar** (branch `feat/stage-57-provisional`, ADR 0844, no migration):
+- **Step 1** — built — PR #421 — The room calendar: `occupies.provisional` and `title`, `rooms.week`, `rooms.check`, generation over a taken room
+  (branch `feat/stage-57-provisional`, ADR 0844, no migration):
   `occupies.provisional` (live states shown as provisional; the claim is unchanged) and
   `occupies.title` (a text or select field, or `relation.field` of one of the extension's own
   records; the object's label otherwise), checked by the contract; `rooms.week` and `rooms.check`,
@@ -42,8 +43,9 @@ all is not known; see "Suggested build order".
   untouched), now also tested against a confirmed room use. Left: no shipped pack calls the reads
   yet (steps 5 and 6); stage 49's appointment declares its service as its title when built; each
   claim carries instants and the answer the organisation's zone, not a zone per claim.
-- **Step 2, cascades widened** (branch `feat/stage-57-cascades`, PR #355, ADR 0841, no
-  migration): a child that draws no places may `follows` a pool (a member of the pool, or a
+
+- **Step 2** — built — PR #355 — Cascades widened
+  (branch `feat/stage-57-cascades`, ADR 0841, no migration): a child that draws no places may `follows` a pool (a member of the pool, or a
   claimant of the parent or of a member, is still refused); a child may follow a parent in an
   extension it `requires`, with the parent's states checked by the host at install and on every
   upgrade of either extension (a runtime extension may not); the counter guard is queued only when
@@ -53,6 +55,18 @@ all is not known; see "Suggested build order".
   500 a parent), and a tick of timed moves shares one budget. ADRs 0507 and 0550 amended. Left:
   one `from` list serves every state in `when`, so step 5's room use following a hire into
   `held`, `confirmed` and `released` from different states needs `follows` widened again.
+
+- **Step 3** — not built — Money: `moves.waits` with deposit; the `sum` field (migrations 1250 to 1251)
+
+- **Step 4** — not built — needs: step 2 — Ticketing: `listed`, the public calendar block, cues, crew roles and crew shifts
+
+- **Step 5** — not built — needs: step 1, step 2, step 3, the business's answer on whether it hires out rooms — Venue hire pack: spaces, rates, hires, lines, room uses, states, tools, agreement point, routine mail, views, dashboard
+  (transfers after stage 34 step 3; step 2's note: `follows` needs widening again for room uses)
+
+- **Step 6** — not built — needs: step 4, step 5 — Blocks and screens: room calendar, hire board, hire page, run sheet, the Hires section and `hold_to_confirm`
+  (also after stage 48's shell)
+
+- **Step 7** — not built — needs: stage 29 step 2, step 5 — The website enquiry: a Forms form with the hire as its destination
 
 ## Goal
 

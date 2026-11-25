@@ -169,3 +169,7 @@ email/calendar sync, AI features, record-level visibility.
     phone widths.
 14. `pnpm lint typecheck test` passes in CI. ADRs and `CONTEXT.md` are updated for any new decision
     or term.
+
+## Status
+
+- **All steps** — built — PR #9 — Core data: core objects, the operations registry, the gate and audit log, the UI shell (spec PR #1).

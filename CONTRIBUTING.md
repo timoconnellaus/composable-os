@@ -148,10 +148,38 @@ edits. Do not edit:
   A budget that fails after you add a migration is measuring the schema: fix the test, don't
   raise the number.
 
-Progress is recorded in the stage spec (`docs/stages/NN-*.md`), in its Status section: each build
-step adds a bullet of its own under it, saying what it built (the branch or PR, the migrations and
-ADRs it used, what is left), and does not rewrite another step's. A spec without a Status section
-gets one at its first build step.
+Progress is recorded in the stage spec (`docs/stages/NN-*.md`), in its `## Status` section, and
+read with `pnpm stage:status` (`--next` lists every step whose needs are all built, `--json` the
+whole parse). The section has one bullet per step of the spec's "Suggested build order", with a
+blank line between bullets so that two pull requests changing different steps do not conflict:
+
+```markdown
+- **Step 3** — built — PR #429 — The answers screen: what it built, migrations 0950-0951, ADR 0690
+
+- **Step 4** — in progress — branch `feat/stage-30-consent` — Consent
+
+- **Step 5** — not built — needs: step 3, stage 37 step 3, the first client — Free postage
+
+- **Step 6** — unclear — why git cannot tell — The step's name
+
+- **Step 7** — superseded — by stage 49 — The step's name
+```
+
+- The parts are separated by ` — ` (an em dash with a space each side). The state is one of
+  `built`, `in progress`, `not built`, `unclear`, `superseded`.
+- `built` is followed by `PR #N`, `PRs #N, #M` or `commit <sha>` (several joined by `; `);
+  `in progress` by ``branch `name` ``; `unclear` and `superseded` by the reason.
+- `not built` may be followed by `needs:` and a comma-separated list. `step M`, `stage NN step M`
+  and `stage NN` are met when built; anything else (the first client, a real account, an owner
+  decision) is what the stage waits on and is never met by a build session.
+- Then the step's name from the build order and, once built, one line on what it built (the
+  migrations and ADRs it used, what is left). The bullet may continue on lines indented two
+  spaces; other lines in the section are notes.
+- A build step changes its own step's line (`not built` to `in progress` to `built`) and does not
+  rewrite another step's. A spec without a Status section gets one at its first build step; a
+  stage built before this format may have a single `- **All steps** — ...` bullet.
+- `pnpm lint` (and the Documents check in CI) fails on a spec whose Status section is missing or
+  unreadable, or whose needs name a step no spec has.
 
 ## The docs site
 

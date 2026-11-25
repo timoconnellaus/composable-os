@@ -13,6 +13,30 @@ logging), `mobile/` (Today, Workout, History, Progress).
 Status: **spec agreed** (interview 2026-11-21). Builds on stages 22, 23, 24 and 28. The first client
 is Ghetto Movement. Courses ([stage 42](../roadmap.md)) builds on this stage.
 
+## Status
+
+- **Step 1** — built — PR #162 — The structured document field, and `publishable` on a non-public
+  object (see "As built (steps 1 to 3)" below)
+
+- **Step 2** — built — PR #162 — The pack's objects and the layout schema; versions and assign
+
+- **Step 3** — built — PR #162 — Logging, history and progress, with the isolation test
+
+- **Step 4** — built — PR #170 — The dashboard, views and the Person tab (see "As built (steps 4
+  to 6)" below)
+
+- **Step 5** — built — PR #170 — Hooks, then the builder and the bank (web), then the native
+  blocks
+
+- **Step 6** — built — PR #170 — The assistant's draft and the text import
+
+- **Step 7** — not built — needs: step 6, the first client — Ghetto: the app's Today, Workout,
+  History and Progress on the pack; class programs moved in
+
+Follow-ups since, each in its own "As built" section below: AI publish requests (PR #191), fast
+logging on a phone (PR #377), past sessions in the app (PR #389), a safe, repeatable import
+(PR #391), the coach role and class types for a member's client (PR #392).
+
 ## Goal
 
 A gym keeps one bank of exercises and builds every program from it: the plan a coach runs a group

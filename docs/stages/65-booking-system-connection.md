@@ -42,7 +42,8 @@ business, and its lawyer or the booking system's support, to confirm. The load s
 
 ## Status
 
-- **Step 1** (built 2026-11-24, branch `feat/stage-65-booking-contract`; ADR 0920; no migration):
+- **Step 1** — built — PR #366 — The contract, fake, conformance suite and file session
+  (built 2026-11-24, branch `feat/stage-65-booking-contract`; ADR 0920; no migration):
   `packages/gatekeeper-booking-system`: `BookingSystemSession` and its types (`types.d.ts`, served
   as the resource's types), the input checks and limits and the contract's shape every answer is
   copied into (`validate.ts`, `reads.ts`), the refusal codes (`refusal.ts`), the shared facet
@@ -55,6 +56,10 @@ business, and its lawyer or the booking system's support, to confirm. The load s
   `TEST_BOOKING_SYSTEM`) and the CRM's dev server; the catalogue has `implements:
   "booking-system"` and the dev-only entry. Left for later steps: the Settings → Integrations
   heading and the one-connection rule (with step 3 or 6), the host path (step 3), everything else.
+
+- **Step 2** — built — PR #346; commit 106a7c00 — The naming rule: `scripts/check-stray-names.mjs`
+  refuses the booking system's name in every file but the check and its tests (ADR 0921).
+
 - **Owner's change of plan (2026-11-24, during step 1)**: the booking system this spec names for the
   first connector cannot be used (its developer terms bar use in a competing product), so there is
   no named connector, and no outside product is named in code, tests, docs or the catalogue. Step 1
@@ -67,7 +72,9 @@ business, and its lawyer or the booking system's support, to confirm. The load s
   dry run and meant for the host's pass. The contract gained `offers.source` (`api` or `file`).
   Not done: amending this spec (steps 2 and 9, ADR 0927 and the names in it are moot), and
   storing and loading files through an operation and a screen (with step 4 on).
-- **Step 3** (built 2026-11-24, branch `feat/stage-65-core`; ADR 0922; migration 1410): the core
+
+- **Step 3** — built — PR #428 — Core records, settings, matching, ingest, `bookingSystem:manage`
+  (built 2026-11-24, branch `feat/stage-65-core`; ADR 0922; migration 1410): the core
   copy in `packages/core/src/outside/`. Migration 1410 adds all eleven `core_outside_*` tables (one
   settings row by default). `settings.ts`: the settings and each list's age (from its export date,
   in the business's zone; a members list past the largest age is "too old to count").
@@ -90,7 +97,8 @@ business, and its lawyer or the booking system's support, to confirm. The load s
   screens and `outside.person` (step 5); `memberOf` and every consumer (step 6); outside classes in
   Bookings (step 7); erase writing `core_outside_suppressed` and removing the rows, and merge (step
   10).
-- **Step 3, after review** (2026-11-24, PR #428): `person.restore` and `import.csv.commit` link
+
+- After review of step 3 (2026-11-24, PR #428): `person.restore` and `import.csv.commit` link
   too (one read for a whole import), and nothing links from a Person write while the copy is off;
   an unlink is kept by the hash of the ref (`core_outside_unlinked`, in migration 1410), so an
   unlinked person's row stays only while they count; a staff link to a Person in the Trash is
@@ -98,6 +106,27 @@ business, and its lawyer or the booking system's support, to confirm. The load s
   erased address keeps nothing; a membership is live by the business's day; a plan over 900
   statements is refused. **Gate: step 4 does not merge before step 10** (erase reaching the copy),
   because from step 4 on a list can be loaded and `person.erase` would leave its copy behind.
+
+- **Step 4** — not built — needs: step 3, step 10 — The file source: column mapping and value maps, the
+  dry run, the staff-only load, replace on load, the list's age, the notices (must not merge before
+  step 10).
+
+- **Step 5** — not built — needs: step 4 — Admin screens and the Person panel.
+
+- **Step 6** — not built — needs: step 3 — Members: `memberOf`, members' prices, the `member` scope and
+  Programs' `members` kind, Your membership (prices wait for stage 34's spine, Your membership for
+  stage 48).
+
+- **Step 7** — not built — needs: step 3 — Outside classes in Bookings' blocks and the coach's client
+  list.
+
+- **Step 8** — not built — needs: step 4, step 5, step 6, step 7 — E2E, the site and `SITE.md`.
+
+- **Step 9** — unclear — the roster is "later" by decision 1 and the owner's change of plan calls step 9
+  moot without amending the spec — The roster (migration 1411).
+
+- **Step 10** — not built — needs: step 3 — Erase, merge, removal (erase is reserved,
+  `docs/parallel-work.md`; must land before step 4).
 
 ## Goal
 

@@ -89,3 +89,7 @@ bundles.
    button config is present.
 7. The spike write-up exists, with numbers and a recommendation.
 8. `docs/architecture.md` is updated if anything in it changed. New decisions get ADRs.
+
+## Status
+
+- **All steps** — built — PR #2 — Scaffold: monorepo, the app and runner Workers, D1, identity adapters, CI and the spike.

@@ -10,6 +10,29 @@ to [26](26-capacity-and-holds.md), the Deals pack as the model for a pack, and i
 Status: **spec agreed** (interview 2026-11-21). Builds on stages 24, 25 and 26. This is the first product that is not a
 CRM. Expect it to send changes back to the stages it builds on.
 
+## Status
+
+- **Step 1** — built — PR #156 — `sellable` in the SDK and the host: the line checks and granting
+  in the paid batch (details in "Step 1, `sellable`, as built" below).
+
+- **Step 2** — built — PR #158 — The pack's objects and tools; the buy, refuse, expire and refund
+  tests (details in "Steps 2 and 3, as built" below).
+
+- **Step 3** — built — PR #158 — Check-in, and the door role.
+
+- **Step 4** — built — PR #158 — Automations, views, the dashboard, the Person tab (details in
+  "Steps 4 and 5, as built" below).
+
+- **Step 5** — built — PR #158 — Hooks, then the web blocks, then the native blocks.
+
+- **Step 6** — not built — needs: the first client's deployment and site — Ghetto: the deployment,
+  the site's event page, the app's tab and scanner, a test-mode sale.
+
+- **Step 7** — not built — needs: step 6, the first client's live sale — The live sale.
+
+- Follow-ups merged after step 5: PR #159 (a client product's host and label named at deploy),
+  PR #164 (ticketing client gaps), PR #205 (tax at checkout for courses and tickets).
+
 ## Goal
 
 Ghetto Movement sells tickets to an event. A visitor opens the event's page on the gym's site,

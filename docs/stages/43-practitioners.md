@@ -22,6 +22,31 @@ decisions 16 to 24). Build step 1, the location hint for new installs, is built
 Builds on stages 22, 23, 24, 41 and stage 31's family link. The first client is a gym; the first
 practice is an outside practice it works with. Nothing here depends on stages 31b, 32b or 33.
 
+## Status
+
+- **Step 1** — built — PR #262 — The location hint for new installs: ADR 0580, no migration; D1 and R2 get
+  the hint on create, Durable Objects not done.
+
+- **Step 2** — not built — Programs' additions: kinds `rehab` and `habits`, `check` and `amount` measures,
+  sets and log fields, `confidential` marks on layout notes (inert until step 5).
+
+- **Step 3** — not built — The principal, audience, accounts, invites and sign-in.
+
+- **Step 4** — not built — needs: step 3 — The care link and consent, sharing, the guard, the consent page,
+  Trash, merge and erase of links.
+
+- **Step 5** — not built — needs: step 4 — The practitioner scope and authored rows, and the isolation suite.
+
+- **Step 6** — not built — needs: step 5 — The Care pack: restriction, nutrition plan, note, tools, `notify`,
+  the Person page's Care tab, `restrictionsFor`.
+
+- **Step 7** — not built — needs: step 6 — Blocks and hooks: practice home and client page, the builder's
+  practitioner mode, the nutrition plan and restrictions editors; consent, my practitioners, Today, my
+  plan.
+
+- **Step 8** — not built — needs: step 7, the first client — The first client: invite the practice, the
+  consent text's additions, a real client's journey.
+
 This is not legal advice. The privacy section says what the platform does and what it does not
 promise; the business and the practice decide, with their own advice, what the law asks of them.
 

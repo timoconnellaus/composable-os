@@ -37,7 +37,7 @@ host's own feeds are written; the host never writes into anyone's calendar in th
 
 ## Status
 
-- **Step 1, the shared feed module, `calendarEntry` and the customer's feed** (branch
+- **Step 1** — built — PR #433 — The shared feed module, `calendarEntry` and the customer's feed (branch
   `feat/stage-62-feed`): built. Migration 1350 (`core_customer_feed`), ADRs 0890 and 0891 (ADR
   0628 amended with a dated note). The staff feed's token code and route are one module
   (`packages/core/src/feeds/token.ts`, `apps/app/src/server/http/calendar-feed.ts`); the staff
@@ -56,6 +56,21 @@ host's own feeds are written; the host never writes into anyone's calendar in th
   place past its first field must be public or signedIn on the related object (checked, and held by
   the read); a child's prefix is their given name and never drops an event; rotate refuses an
   account no longer active.
+
+- **Step 2** — not built — needs: step 1 — Bookings and Ticketing declare `calendarEntry`; the "Your
+  calendar" section (web and native) and the names setting.
+
+- **Step 3** — not built — Busy times: `core_staff_busy` (1351), the `busy` purpose and pass, adapters,
+  `staffing.busy.*`; the Google and Microsoft free/busy bindings.
+
+- **Step 4** — not built — needs: step 3 — Rostering's busy tools and the My calendar blocks gain the
+  connection and the switch.
+
+- **Step 5** — not built — needs: step 3, stage 49 step 4 — The seam: `busy_elsewhere` in checks and
+  writes, offers and candidates; `staffing.free` and the customer's check.
+
+- **Step 6** — not built — needs: step 1, step 2, step 3, step 4, step 5 — Leaving, isolation suite, e2e
+  journeys, the site and `SITE.md`.
 
 ## Goal
 

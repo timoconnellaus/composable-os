@@ -23,9 +23,15 @@ decided, not asked; the owner may override any of them). A new stage, 53, in the
 Steps 1 to 3 may start now. The sending step (step 4) waits for stage 30's routine messages,
 preferences, one-tap stop and promotional consent (below, "What this stage needs from stage 30").
 
-Built so far:
+## Status
 
-- **Step 2, journey signals** (2026-11-24, [ADR 0802](../adr/0802-journey-signals-declared-by-shipped-packs-recorded-in-the-write.md),
+- **Step 1** — not built — needs: stage 30 step 1, stage 30 step 5 — (Stage 30's) routine messages
+  with sources, preferences with the journey kind, the stop, promotional consent: built by stage
+  30; this stage only checks it holds what "What this stage needs from stage 30" lists
+
+- **Step 2** — built — PR #371 — `journeySignals` in the SDK and check; recording signals in the
+  batch: migration 1175, ADR 0802
+  (2026-11-24, [ADR 0802](../adr/0802-journey-signals-declared-by-shipped-packs-recorded-in-the-write.md),
   migration 1175; the list of ADRs below is renumbered to match). `journeySignals` in the manifest
   (`packages/sdk/src/journey-signals.ts`: `JourneySignalSpec`, the check, `journeySignalFires`),
   refused for a runtime extension at check and install, and a signal no declared move or create can
@@ -41,7 +47,10 @@ Built so far:
   Ticketing `ticketBought` and `checkedIn`. Recorded in the pipeline rather than the transition
   engine and record create (the same writes, with the standing and bulk flag they lack). Nothing
   reads the rows yet: entries and the scan are steps 3 and 4.
-- **Step 3** (`feat/stage-53-journeys-core`, ADR 0800, migration 1170): journeys, versions, entries
+
+- **Step 3** — built — PR #378 — Journeys, versions, publish, preview, entries, the editor's
+  operations, the four starter drafts: migration 1170, ADR 0800
+  (`feat/stage-53-journeys-core`, ADR 0800, migration 1170): journeys, versions, entries
   and the step log (`core_journey*`, with triggers that refuse any change of a version and any
   version not made from the reviewed working copy); `packages/core/src/journeys/` (the working
   copy's shape and publish checks, the plain-words summary, the hash, the preview's rendering, the
@@ -59,7 +68,19 @@ Built so far:
   organisation reply-to address confirmed by a code (it needs a send, step 4); merge moving entries
   (step 4's exits, with step 7's merge rules); a plan's or class type's name as a slot (with step
   2's declarations).
-- **Step 7, birthday** (2026-11-24, [ADR 0803](../adr/0803-a-birthday-as-day-and-month-on-person.md),
+
+- **Step 4** — not built — needs: step 2, step 3, stage 30 step 1, stage 30 step 3, stage 30 step 5
+  — The engine and sending: the tick, the daily scan, exits, the send decision, the journey source
+  of routine messages, the gatekeeper's journey shape
+
+- **Step 5** — not built — needs: step 3 — Screens: list, editor, publish dialog, going live, log,
+  settings, the Person's Journeys tab
+
+- **Step 6** — not built — needs: step 4, stage 30 step 3, stage 30 step 4, stage 30 step 5, stage 30 step 6 — Text and push steps
+
+- **Step 7** — built — PR #431 — Birthday: the fields, `person.setBirthday`, `me.birthday.set`,
+  merge and erase, the entry rule: migration 1171, ADR 0803
+  (2026-11-24, [ADR 0803](../adr/0803-a-birthday-as-day-and-month-on-person.md),
   migration 1171): `core_person.birth_day` and `birth_month` (both or neither, a day the month has,
   in no `rec_*` view) and an index for the entry rule; `person.setBirthday` (staff,
   `records:write`) and `me.birthday.set` with `me.birthday.get` (customer, `hostInternal`, the

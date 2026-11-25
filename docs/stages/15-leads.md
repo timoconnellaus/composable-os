@@ -191,3 +191,7 @@ guarded state write and a retry rather than a subquery in the insert, and the co
 general keys. Criterion 9 waits for stage 14: Leads already declares `owner: "owner"`. Stage 12's
 importer is not on `main` yet: importing through `createRecord` assigns with no change, and it must
 keep passing rows without an owner through that path.
+
+## Status
+
+- **All steps** — built — PR #66 — Leads, lifecycle stage and assignment rules (amended as built, above).

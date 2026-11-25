@@ -6,7 +6,9 @@ risk for the next.
 
 A stage's row gives its state at the time its spec was agreed. Step-by-step progress is in the
 spec's Status section (`docs/stages/NN-*.md`), which each build step updates; build steps do not
-edit the rows here, so parallel PRs do not conflict on them.
+edit the rows here, so parallel PRs do not conflict on them. Current progress is read with
+`pnpm stage:status`, which reads every spec's Status section (`--next` lists the steps ready to
+build).
 
 | # | Stage | Scope | Status |
 | --- | --- | --- | --- |

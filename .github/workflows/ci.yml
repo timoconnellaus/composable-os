@@ -101,6 +101,8 @@ jobs:
           package-manager-cache: false
       # No install: these checks use Node alone.
       - run: node scripts/check-stray-names.mjs
+      # Every stage spec's Status section in the format `pnpm stage:status` reads.
+      - run: node scripts/stage-status.mjs --check
       - run: node scripts/check-skills-version.mjs
       # The docs site's pages made from Markdown alone (guides, overviews, the glossary): current,
       # and their links whole (ADR 0930). Node alone, like the checks above.

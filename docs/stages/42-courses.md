@@ -19,6 +19,36 @@ platform onto its own stack, after tickets and before bookings ([roadmap](../roa
 module is built"). Subscriptions are stage 32's; this stage sells single courses and fixed
 bundles.
 
+## Status
+
+The build sessions numbered the steps before tax at checkout was put first, so the "as built"
+sections below call the spine "steps 1 to 3" (here 2 to 4) and the pack "4, 6, 7" (here 5 to 7).
+
+- **Step 1** — built — PR #205 — Tax at checkout (see "Build step 1, tax at checkout, as built")
+
+- **Step 2** — built — PR #204 — Video media in Stream: direct upload, the ready state, the
+  `video` field, captions; the `file` kind (migration 0510, ADRs 0475 to 0477)
+
+- **Step 3** — built — PR #204 — Signed playback (`media.play`)
+
+- **Step 4** — built — PR #204 — The access scope at the seam, enrolments and bundles as its
+  sources, the holders' node flag
+
+- **Step 5** — built — PR #206 — The pack's objects, the outline schema, `buy`, `lesson`,
+  `progress`, `myCourses` (ADR 0478; the precondition, two real programs read against the
+  outline, was not met: the checklist is under the pack's "as built" section)
+
+- **Step 6** — built — PR #206 — Session lessons on Programs
+
+- **Step 7** — built — PR #206 — The dashboard, views, the Person tab; hooks; web and native
+  blocks; the course builder
+
+- **Step 8** — built — PRs #206, #216 — The assistant's draft (PR #206); `cos courses import` with
+  access, completions and progress (PR #216, ADR 0495)
+
+- **Step 9** — not built — needs: step 8, the first client — The first client: its courses,
+  students, access and progress imported; the new site opens
+
 Where this spec still guesses, it says **(guess)**; the build confirms or corrects each one.
 
 ## Goal
