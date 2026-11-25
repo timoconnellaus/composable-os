@@ -16,7 +16,6 @@ export default {
     deals: { stage: 4 },
     leads: { stage: 15 },
     lifecycle: { stage: 15 },
-    memberships: { stage: 32 },
     programs: { stage: 41 },
     ticketing: { stage: 27 },
   },

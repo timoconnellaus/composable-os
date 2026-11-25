@@ -198,7 +198,7 @@ are generated from the code, with overviews and guides written beside it.
   ```
 
 - CI's lint job fails when a generated page is stale, when a pack, block, core operation or
-  gatekeeper has no reference page, when a pack has no overview (nine packs are on the pending list
+  gatekeeper has no reference page, when a pack has no overview (eight packs are on the pending list
   in `apps/docs/docs.config.mjs` until theirs are written), when an overview lacks a section, or
   when an internal link is broken; the typecheck job builds the site and checks its links again.
   A change to documents only runs `--check --markdown-only`, which needs no install.

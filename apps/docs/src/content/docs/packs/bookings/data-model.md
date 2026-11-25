@@ -820,6 +820,411 @@ One person's place in one class.
 
 </details>
 
+## Service (`bookings.service`)
+
+A kind of one-to-one session the business offers (personal training, 60 minutes): its length, buffers, the rooms it may use and its booking rules. Who gives it is a qualification, not a list here.
+
+|  |  |
+| --- | --- |
+| Plural | Services |
+| Title field | `title` |
+| Listed in | settings |
+| Indexes | `active` |
+
+### Fields
+
+| Field | Type | Label | Required | Details | Description |
+| --- | --- | --- | --- | --- | --- |
+| `title` | `text` | Title | yes |   |   |
+| `description` | `longText` | Description |   |   |   |
+| `length` | `number` | Length (minutes) | yes | min 5; max 480 |   |
+| `bufferBefore` | `number` | Buffer before (minutes) |   | min 0; max 240 | Minutes kept free before each session, for the coach and the room. |
+| `bufferAfter` | `number` | Buffer after (minutes) |   | min 0; max 240 | Minutes kept free after each session, for the coach and the room. |
+| `price` | `currency` | Price per session |   | a person's to change | What one session costs when paid for on its own. Empty: not sold per session. |
+| `rooms` | `relation` | Rooms it may use |   | to `bookings.room`, many | In the order they are offered: an appointment takes the first one free. Empty: it needs no room. |
+| `step` | `number` | Start times every (minutes) |   | min 15; max 60 | 15, 30 or 60: start times on the hour and every this many minutes. Empty: 30. |
+| `opensDays` | `number` | Booking opens (days before) |   | min 0; max 365; a person's to change | Clients may book this many days ahead. Empty: the organisation's setting. |
+| `closesMinutes` | `number` | Booking closes (minutes before) |   | min 0; max 10080; a person's to change | Clients may book until this many minutes before a session. Empty: the organisation's setting. |
+| `lateMinutes` | `number` | Late cancel from (minutes before) |   | min 0; max 10080; a person's to change | A cancel this close to the start or closer is late and keeps the session it used. Empty: the organisation's setting. |
+| `whoBooks` | `select` | Who books it |   | one of `members_visitors`, `members`, `staff`; default `"members_visitors"`; a person's to change |   |
+| `active` | `boolean` | Offered |   | default `true` |   |
+| `staffOnly` | `formula` | Booked by staff only |   |   |   |
+| `closed` | `formula` | Not offered |   |   |   |
+
+### Relations
+
+- `rooms` → `bookings.room` (many)
+
+## Appointment (`bookings.appointment`)
+
+One booked one-to-one session: a client, a coach, a service, a start and an end, and the room it takes.
+
+|  |  |
+| --- | --- |
+| Plural | Appointments |
+| Title field | `title` |
+| Listed in | main |
+| Behaviours | [`states`](/reference/behaviours/#states), [`staffed`](/reference/behaviours/#staffed), [`occupies`](/reference/behaviours/#occupies), [`allowance`](/reference/behaviours/#allowance), [`agreements`](/reference/behaviours/#agreements) |
+| Indexes | `startsAt`; `coach, startsAt`; `person, startsAt`; `state, startsAt`; `service`; `endsAt` |
+
+### Fields
+
+| Field | Type | Label | Required | Details | Description |
+| --- | --- | --- | --- | --- | --- |
+| `title` | `text` | Title |   |   |   |
+| `service` | `relation` | Service | yes | to `bookings.service` |   |
+| `person` | `relation` | Client | yes | to `person` |   |
+| `coach` | `relation` | Coach |   | to `bookings.coach` |   |
+| `room` | `relation` | Room |   | to `bookings.room` | Left empty, the host gives it the first of the service's rooms free then. |
+| `startsAt` | `datetime` | Starts | yes |   |   |
+| `endsAt` | `datetime` | Ends | yes |   |   |
+| `timezone` | `timezone` | Time zone | yes |   |   |
+| `state` | `select` | State |   | one of `booked`, `pending`, `unpaid`, `cancelled`, `late_cancelled`, `excused`, `attended`, `no_show`, `cancelled_by_us`, `moved`, `expired` |   |
+| `holder` | `text` | Paid from |   |   | The pass or membership the appointment spent a session of (its id). Left empty, the host chooses the one whose session would lapse first. |
+| `serviceId` | `text` | Service (for passes) |   | read-only | The service, copied by the host: what a pass's services are compared with. |
+| `weekday` | `number` | Weekday |   | read-only | The local weekday (1 Monday to 7 Sunday), set by the host. |
+| `minute` | `number` | Local minute |   | read-only | The local start, in minutes after midnight, set by the host. |
+| `paidOtherwise` | `boolean` | Paid at the desk |   | read-only | Paid at the desk or another way: it spends no session. Set when it is made. |
+| `bookedBy` | `user` | Booked by |   | read-only | The staff account that booked it. |
+| `movedFrom` | `relation` | Moved from |   | to `bookings.appointment`; read-only | The appointment this one replaced when it was moved to another time. |
+| `note` | `longText` | Staff note |   |   |   |
+| `markedAt` | `datetime` | Attendance marked |   | read-only | When it was marked attended or not come. |
+| `markedBy` | `user` | Marked by |   | read-only | The staff account that marked it. Empty when the host marked it attended. |
+| `markedByName` | `text` | Marked by (name) |   | read-only | That staff member's name as it was then. |
+| `cancelledReason` | `longText` | Why it was cancelled or given back |   | read-only |   |
+
+### Relations
+
+- `service` → `bookings.service`
+- `person` → `person`
+- `coach` → `bookings.coach`
+- `room` → `bookings.room`
+- `movedFrom` → `bookings.appointment`
+
+### Behaviour declarations
+
+<details>
+<summary>The declarations as the manifest gives them</summary>
+
+```json
+{
+  "states": {
+    "field": "state",
+    "initial": "booked",
+    "create": {
+      "in": {
+        "pending": [
+          "host"
+        ],
+        "unpaid": [
+          "host"
+        ]
+      },
+      "window": {
+        "from": {
+          "at": "startsAt",
+          "daysBefore": {
+            "field": "service.opensDays",
+            "setting": "appointmentOpensDays"
+          },
+          "zone": "timezone"
+        },
+        "until": {
+          "at": "startsAt",
+          "minutesBefore": {
+            "field": "service.closesMinutes",
+            "setting": "appointmentClosesMinutes"
+          }
+        }
+      },
+      "staffOnly": "service.staffOnly",
+      "closed": "service.closed"
+    },
+    "requests": {
+      "cancel": [
+        "cancelled",
+        "late_cancelled"
+      ]
+    },
+    "moves": [
+      {
+        "from": "pending",
+        "to": "booked",
+        "by": [
+          "host"
+        ]
+      },
+      {
+        "from": "pending",
+        "to": "expired",
+        "by": [
+          "host"
+        ],
+        "final": true
+      },
+      {
+        "from": "unpaid",
+        "to": "booked",
+        "by": [
+          "staff"
+        ]
+      },
+      {
+        "from": "booked",
+        "to": "cancelled",
+        "by": [
+          "staff",
+          "customer"
+        ],
+        "final": true,
+        "window": {
+          "until": {
+            "at": "startsAt",
+            "minutesBefore": {
+              "field": "service.lateMinutes",
+              "setting": "appointmentLateMinutes"
+            }
+          }
+        },
+        "bindsStaff": true
+      },
+      {
+        "from": "booked",
+        "to": "late_cancelled",
+        "by": [
+          "staff",
+          "customer"
+        ],
+        "window": {
+          "from": {
+            "at": "startsAt",
+            "minutesBefore": {
+              "field": "service.lateMinutes",
+              "setting": "appointmentLateMinutes"
+            }
+          },
+          "until": "startsAt"
+        }
+      },
+      {
+        "from": "booked",
+        "to": "moved",
+        "by": [
+          "staff"
+        ],
+        "final": true,
+        "window": {
+          "until": "startsAt"
+        },
+        "bindsStaff": true
+      },
+      {
+        "from": "booked",
+        "to": "attended",
+        "by": [
+          "staff",
+          "host"
+        ],
+        "window": {
+          "from": "startsAt"
+        },
+        "bindsStaff": true
+      },
+      {
+        "from": "booked",
+        "to": "no_show",
+        "by": [
+          "staff",
+          "host"
+        ],
+        "window": {
+          "from": "startsAt"
+        },
+        "bindsStaff": true
+      },
+      {
+        "from": "attended",
+        "to": "no_show",
+        "by": [
+          "staff"
+        ],
+        "window": {
+          "until": {
+            "at": "endsAt",
+            "minutesBefore": -10080
+          }
+        },
+        "bindsStaff": true
+      },
+      {
+        "from": "no_show",
+        "to": "attended",
+        "by": [
+          "staff"
+        ],
+        "window": {
+          "until": {
+            "at": "endsAt",
+            "minutesBefore": -10080
+          }
+        },
+        "bindsStaff": true
+      },
+      {
+        "from": [
+          "late_cancelled",
+          "no_show"
+        ],
+        "to": "excused",
+        "by": [
+          "host"
+        ],
+        "tools": [
+          "excuseAppointment"
+        ],
+        "final": true
+      },
+      {
+        "from": [
+          "pending",
+          "unpaid",
+          "booked"
+        ],
+        "to": "cancelled_by_us",
+        "by": [
+          "host"
+        ],
+        "tools": [
+          "cancelAppointmentByUs"
+        ],
+        "final": true
+      }
+    ],
+    "after": [
+      {
+        "from": "booked",
+        "to": "attended",
+        "at": "endsAt",
+        "minutesAfter": 30
+      }
+    ]
+  },
+  "staffed": {
+    "who": {
+      "field": "coach",
+      "account": "user"
+    },
+    "starts": "startsAt",
+    "ends": "endsAt",
+    "zone": "timezone",
+    "kind": "service",
+    "live": [
+      "pending",
+      "unpaid",
+      "booked",
+      "attended",
+      "no_show"
+    ],
+    "place": "room.name",
+    "claimBefore": {
+      "field": "service.bufferBefore"
+    },
+    "claimAfter": {
+      "field": "service.bufferAfter"
+    },
+    "account": "required",
+    "private": true,
+    "open": {
+      "length": {
+        "field": "service.length"
+      },
+      "step": {
+        "field": "service.step"
+      },
+      "rooms": {
+        "field": "service.rooms"
+      },
+      "client": "person",
+      "closedBy": {
+        "object": "closure",
+        "from": "fromDate",
+        "until": "untilDate"
+      },
+      "customer": true
+    }
+  },
+  "occupies": {
+    "thing": "room",
+    "starts": "startsAt",
+    "ends": "endsAt",
+    "live": [
+      "pending",
+      "unpaid",
+      "booked",
+      "attended",
+      "no_show"
+    ],
+    "before": {
+      "field": "service.bufferBefore"
+    },
+    "after": {
+      "field": "service.bufferAfter"
+    },
+    "only": "exclusive"
+  },
+  "allowance": {
+    "spends": {
+      "person": "person",
+      "holder": "holder",
+      "spendIn": [
+        "booked"
+      ],
+      "returnIn": [
+        "cancelled",
+        "excused",
+        "cancelled_by_us",
+        "moved"
+      ],
+      "at": "startsAt",
+      "copy": {
+        "serviceId": "service.id"
+      },
+      "local": {
+        "weekday": "weekday",
+        "minute": "minute",
+        "zone": "timezone"
+      },
+      "movedFrom": {
+        "field": "movedFrom",
+        "state": "moved"
+      },
+      "paidBy": [
+        "memberships.membership",
+        "memberships.pass"
+      ],
+      "waived": "paidOtherwise",
+      "released": "cancelled_by_us"
+    }
+  },
+  "agreements": {
+    "point": "appointment",
+    "label": "Before an appointment",
+    "suggests": [
+      "waiver",
+      "health",
+      "guardian"
+    ],
+    "enter": [
+      "booked"
+    ],
+    "person": "person",
+    "inlineStep": true
+  }
+}
+```
+
+</details>
+
 ## Fields on other objects
 
 ### On `programs.classtype`
@@ -856,3 +1261,5 @@ One person's place in one class.
 | tab | `classBookings` | `` | Bookings |
 | tab | `seriesClasses` | `` | Classes |
 | tab | `personBookings` | `` | Bookings |
+| tab | `personAppointments` | `` | Appointments |
+| tab | `serviceAppointments` | `` | Appointments |

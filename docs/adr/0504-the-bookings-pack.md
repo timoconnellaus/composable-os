@@ -187,3 +187,9 @@ time, given back or cancelled by the gym owes its money back, which a person app
 ## Note, 2026-11-23 (ADR 0600)
 The desk's tools now name `bookings:desk` (grantable), `returnUse` included (it was
 `bookings:returns`); staff hold them as before, and an admin may grant them to a coach.
+
+## Amended 2026-11-25 (stage 49 step 5, ADR 0764)
+Bookings gains `service` and `appointment`: one-to-one sessions booked by staff, a coach's shift
+that occupies its room and spends a pass or membership that pays for sessions, with a late cancel
+and a no-show kept until a person excuses them. See
+[ADR 0764](0764-appointments-in-the-bookings-pack.md).
