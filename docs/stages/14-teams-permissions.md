@@ -31,23 +31,23 @@ and [0155](../adr/0155-hybrid-search-similar-records-and-retrieval.md); stages
 
 ## Status
 
-**Spec proposed (re-specced 2026-11-25).** The first spec (2026-11-05) was written for the CRM
-alone, before the project became a platform with packs, customers and audiences (ADR 0400). The
-owner decided on 2026-11-25 to re-spec it for what is on `main` now. This is that re-spec. It is not
-built until the owner has answered the questions at the end and `docs/roadmap.md` says "spec
-agreed". Nothing is built yet.
+**Spec agreed (re-specced 2026-11-25, the owner's answers 2026-11-26).** The first spec
+(2026-11-05) was written for the CRM alone, before the project became a platform with packs,
+customers and audiences (ADR 0400). The owner decided on 2026-11-25 to re-spec it for what is on
+`main` now, and answered its questions on 2026-11-26 (see The owner's answers at the end). Nothing
+is built yet.
 
 Numbers: block **CC** in [`parallel-work.md`](../parallel-work.md), migrations 1470 to 1489 and ADRs
 0950 to 0959. Block I (0300 to 0309), claimed by the first spec, is released: a migration numbered
 there would sort before the tables it changes (see Migrations and numbers).
 
-- **Step 1** — not built — needs: the owner's agreement on the spec — The staff scope type; the `part` and `later` reads onto the seam; the registry-wide staff test (alone in the seam)
+- **Step 1** — not built — needs: a build window alone in the seam — The staff scope type; the `part` and `later` reads onto the seam; the registry-wide staff test (alone in the seam)
 
 - **Step 2** — not built — needs: step 1 — Door 2: the SQL rewrite, the CTE name refusal, dashboards' cache key; the `sql` reads moved
 
 - **Step 3** — not built — needs: step 1 — Door 3 and stored output: over-fetch, `record.similar`'s source check, summaries' `scope_key`, duplicates' pairs
 
-- **Step 4** — not built — needs: the owner's agreement on the spec — Roles and teams: `staff_role`, Manager and Read-only, `teams:manage`, teams, invites with teams, the Settings screens
+- **Step 4** — not built — needs: a build window clear of stage 64 step 5 — Roles and teams: `staff_role`, Manager and Read-only, the Manager's money permissions by role, `teams:manage`, teams, invites with teams, the Settings screens
 
 - **Step 5** — not built — needs: step 1, step 2, step 3, step 4, a business that asks for it — Policies: `core_visibility_policy`, owner and inherited predicates in all three doors, Settings → Visibility
 
@@ -522,34 +522,22 @@ Decided as the familiar, conventional design, without asking:
 - **Surprise:** a business that sets People to Own will find its desk and coaches see fewer members.
   The Visibility screen says so before the change is saved.
 
-## Questions for the owner
+## The owner's answers (2026-11-26)
 
-Four questions. Everything else above is decided; each answer has a default the build can start
-with.
+Asked in an interview; the first three were answered there, the fourth was not asked and keeps its
+default, open to override.
 
-1. **Which business needs this first, and for what?**
-   - A. A gym or studio with several locations, whose site manager should see only their site.
-   - B. A sales team on the CRM, whose people should see only their own deals and leads.
-   - C. Both, or a business you are talking to now that needs something else (tell me).
-   - D. No one yet.
-   - **Default: D.** Build steps 1 to 4 (closing the reads that bypass the seam, Manager, Read-only,
-     teams), which every answer needs, and build step 5 (owner policies) or step 6 (locations) when
-     a business asks. Building rules nobody uses yet costs review and testing on every later stage.
-2. **What may a Manager do beyond a Member, without being granted it one by one?**
-   - A. Only see their teams' records. Refunds, discounts, finance reports and the rest stay granted
-     person by person, as today.
-   - B. Also refund, discount, end or keep a membership going, and read the finance reports, by
-     role.
-   - **Default: A.** Grants already take a minute per person in Settings → Users. Making them part
-     of the role hands money powers to everyone called Manager, including someone promoted for
-     another reason.
-3. **May a Manager invite staff and put them in teams?**
-   - A. No. Only admins invite, change roles and manage teams (as today).
-   - B. Yes, but only as Members or Read-only users, and only into the Manager's own teams.
-   - **Default: A.** Who can sign in to the business's system is the most sensitive setting it has.
-     Option B is common in larger teams and can be added later without changing anything else.
-4. **Do you need "everyone can see it, only its owner can change it" now?**
-   - A. Not now. Whoever can see a record and has a role that writes may change it.
-   - B. Yes, as a second setting per object beside who can see it.
-   - **Default: A.** It is a familiar option in sales CRMs, but no business on the platform has asked
-     for it, and it adds a second rule to every write. It can be added on the same seam later.
+1. **Which business needs this first?** No one yet. Steps 1 to 4 are built (closing the reads that
+   bypass the seam, Manager, Read-only, teams). Step 5 (owner policies) and step 6 (locations for
+   full roles) wait until a business asks.
+2. **What may a Manager do beyond a Member?** By role, without a grant per person, a Manager may
+   also refund, give a discount, end or extend a membership, and read the finance reports. This was
+   not the spec's default. Step 4 names the exact permissions from the registry (the restricted
+   money permissions of ADRs 0625 and 0832 and the packs' own, and the finance reports' read
+   permission), records them in ADR 0953, and tests that a Member does not hold them and a Manager
+   does. A person promoted to Manager gains them at once, so Settings → Users says so where the role
+   is changed. Decision 8 above stands: no role holds the notes permissions.
+3. **May a Manager invite staff and put them in teams?** No. Only admins invite, change roles and
+   manage teams, as today.
+4. **Owner-only writes** ("everyone can see it, only its owner can change it"): not now. Whoever can
+   see a record and has a role that writes may change it.
