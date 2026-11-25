@@ -96,3 +96,31 @@ its own code, and ending the old session before the code is checked (as `endPrev
 sign the member out on a mistyped code. Tests: `packages/auth/test/customer-auth.test.ts`,
 `apps/app/test/company-web.test.ts`, `apps/app/test/native-sign-in.test.ts`,
 `packages/client/test/client.test.ts`.
+
+## Amended 2026-11-26: the rest of the review of PR #467
+
+- **A shell draws only the base sections it has a part for.** `portalSections` takes `base`, the
+  keys a shell draws; both shells pass theirs. A base section a newer host lists that an older
+  copy has no part for (as Contact preferences and Delete my account were added after the first
+  shells were copied) is left out, not shown as a heading with nothing under it. Without `base`
+  every listed base section is kept, so a shell copied before this keeps working as it did.
+- **A deletion forgets at once.** `useDeleteAccount` removes every query from the app's cache once
+  the host answers that the account is deleted, when the app made the hooks with its
+  `useQueryClient`. The native block calls its `endSession` prop (the app's `session.signOut`:
+  it forgets the stored tokens) as soon as the deletion is done (`confirmDelete`), so a relaunch
+  before "Leave" finds no session. `onDeleted` stays where the app goes after.
+- **Money owed on an order leads to paying it.** `balance_due` and `finish_paying` lead to the
+  order itself in Orders (`attentionTarget`'s `order`). On the web the order's row pays it with
+  the existing `order.checkout` for the customer's own order (`useCheckoutOrder`, coming back to
+  the shell's `returnUrl`); no operation is added. In the app the item and the row's "Pay on the
+  website" open the website (ADR 0714); the block lint refuses `useCheckoutOrder` in a native
+  block.
+- **Only `https:` is followed.** An address the host gave (a provider's page to confirm a
+  payment, a checkout) is followed only when it is `https:` or a path on the site
+  (`followableUrl`).
+- **The template mobile app's Account tab is the native shell** (criterion 12): `cos create
+  --with-mobile` copies `native-account` with its sections and writes its
+  `account-sections.gen.ts`.
+
+Tests: `packages/client/test/account-acts.test.ts`, `blocks/test/account.test.tsx`,
+`apps/app/e2e/my-account.spec.ts` (paying from an attention item).

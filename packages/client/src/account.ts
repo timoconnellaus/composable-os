@@ -707,13 +707,16 @@ export const PAY_ON_WEBSITE_WORDS = "Pay on the website";
 
 /**
  * Whether an address the host gave (a provider's page to confirm a payment, a checkout) may be
- * followed: an `https:` address, or a path on this site. Anything else (`javascript:`, `data:`,
- * plain `http:`, `//elsewhere`) is not followed.
+ * followed: an `https:` address, a path on this site, or a loopback `http:` one (a local
+ * development host). Anything else (`javascript:`, `data:`, another `http:`, `//elsewhere`) is
+ * not followed.
  */
 export function followableUrl(url: string | null | undefined): boolean {
   if (!url) return false;
   if (/\s/.test(url)) return false;
-  return /^\/(?![/\\])/.test(url) || /^https:\/\/[^/\\?#@]/i.test(url);
+  // A loopback `http:` address is a local development host's (its fake provider's page).
+  const loopback = /^http:\/\/(?:localhost|127\.0\.0\.1|\[::1\])(?::\d+)?(?:[/?#]|$)/i;
+  return /^\/(?![/\\])/.test(url) || /^https:\/\/[^/\\?#@]/i.test(url) || loopback.test(url);
 }
 
 /** What a paid order's row says about its receipt until the host has a receipt document. */

@@ -3016,10 +3016,21 @@ name, and Bookings' blocks read `me.family` (the `family` tool stays for the API
 staff customer card on a Person's page shows an open address change (masked) and erase request
 and has the admins' buttons: disable, enable, sign out everywhere, start or cancel an address
 change. A `form_to_fill` item opens the form through the shell's `onFillForm` (the Forms pack's
-page, where the app has it). In the app, money opens the website ([ADR 0714](adr/0714-the-app-shows-money-and-opens-the-website.md)):
+`LinkedFormBlock` with the link's id, where the app has Forms; the development `/blocks` page does
+so). In the app, money opens the website ([ADR 0714](adr/0714-the-app-shows-money-and-opens-the-website.md)):
 the native shell shows orders and subscriptions, and "Manage on the website" opens the business's
-website account page; no native block calls a billing operation. The template's `/account` route
-and the mobile Account tab are plain pages over the same entry.
+website account page; no native block calls a billing operation. Money owed on an order
+(`balance_due`, `finish_paying`) leads to that order in Orders: on the web its row pays it with the
+customer's own `order.checkout` (`useCheckoutOrder`), in the app it says "Pay on the website". A
+shell draws only the base sections it has a part for (`portalSections`' `base`), so one added to
+the platform later is left out of an older copy rather than shown empty. Once the account is
+deleted the hooks forget the app's query cache (given its `useQueryClient`) and the native block
+ends the device's session at once (`endSession`). Only an `https:` address (or a path on the site)
+the host gave is followed (`followableUrl`). The template's `/account` route is a plain page over
+the same entry; the template mobile app's Account tab is the native shell, which `cos create
+--with-mobile` copies with its sections. `cos upgrade` wires a pack's section only when the
+client's copy of its block exports what the release declares, says which copy is out of date
+(`cos diff <block>`), and lists every copied block whose upstream files changed.
 
 | Pack | Built from | Status |
 | --- | --- | --- |

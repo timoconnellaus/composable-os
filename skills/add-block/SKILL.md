@@ -67,10 +67,15 @@ buttons, fields, lists, sheets, or a pack's screens. Blocks ship inside the plat
    and the template's `agreementPdfRoute` serves a person's signed PDF on the app's hostname.
    My account (`web-account`, `native-account`, and their sections `*-account-details`,
    `-devices`, `-family`, `-orders`, `-payment`, `-subscriptions`) takes `account`:
-   `createAccountHooks({ useQuery, useMutation }, api)` from `@composable-os/client`, beside the
-   same `agreements`. Pass the web shell `returnUrl` (the account page) and `onSignOut` (post to
-   `/auth/sign-out`), and the native one `websiteUrl` (the website's account page: money is
-   managed there, ADR 0714) and `onSignOut` (`session.signOut`). Once the shell is copied, `cos
+   `createAccountHooks({ useQuery, useMutation, useQueryClient }, api)` from
+   `@composable-os/client` (`useQueryClient` lets a deletion forget the cache at once), beside the
+   same `agreements`. Pass the web shell `returnUrl` (the account page: the provider's pages for
+   the card and for paying an order come back to it), `onSignOut` (post to `/auth/sign-out`) and
+   `onDeleted` (leave for the home page), and the native one `websiteUrl` (the website's account
+   page: money is managed there, ADR 0714), `onSignOut` (`session.signOut`, then sign-in),
+   `endSession` (`session.signOut`: a deletion forgets the device's tokens with it at once) and
+   `onDeleted` (back to sign-in). The template mobile app's Account tab (`src/account.tsx`) is
+   wired this way already. Once the shell is copied, `cos
    add` also copies the sections of the packs `product.ts` lists and writes
    `src/blocks/account-sections.gen.ts` (do not edit it: `cos add` and `cos upgrade` write it
    again). Pass the shell `sections={usePackSections(ACCOUNT_SECTIONS, react, api, returnUrl)}`
@@ -127,6 +132,11 @@ buttons, fields, lists, sheets, or a pack's screens. Blocks ship inside the plat
    `pnpm cos diff <name> --accept` shows the changes once more and records the block as merged up
    to the version the repo is on (in `blocks.lock.json`), so the next `cos diff` shows only what
    changes after it. It refuses `--version` of another release: upgrade first. Commit the lock.
+   `cos upgrade` lists every copied block whose upstream files changed since it was copied (and a
+   block it now depends on: `cos add <that block>`). A pack's section of My account whose copied
+   block lacks the export the new release's section names is left out of
+   `account-sections.gen.ts`, so the app still compiles, and named: bring the copy up to date with
+   `cos diff <block>`, then run `cos add web-account` (or `native-account`) to wire it again.
 
 **Staff screens are not added to a client app.** A company's web app never serves staff (ADR
 0421). A pack's staff blocks (the front desk, a class's list, the roster, pay) are shown in the

@@ -266,6 +266,9 @@ describe("an address the host gave is followed only when it is https: or this si
   it("follows https: and a path here, nothing else", () => {
     expect(followableUrl("https://pay.example/3ds?x=1")).toBe(true);
     expect(followableUrl("/account#orders")).toBe(true);
+    // A local development host's fake provider page.
+    expect(followableUrl("http://localhost:5179/fake/pay")).toBe(true);
+    expect(followableUrl("http://localhost.evil.example/x")).toBe(false);
     for (const url of [
       "",
       null,
