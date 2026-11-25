@@ -9,6 +9,7 @@
 // pool), 5 (abandoned), 6 (refund), 6a (deposit), 6b (the door role over the whole registry), 7
 // (check-in) and 8 (isolation). Criterion 9 (public reads) needs a host rule that does not exist
 // yet: see the stage's build notes.
+import { introspectWorkflow } from "cloudflare:test";
 import { env, exports } from "cloudflare:workers";
 import {
   type ActingUser,
@@ -20,7 +21,6 @@ import {
   extensionDashboardId,
   getObject,
   type InvocationContext,
-  invokeByName,
   linkCustomer,
   loadExtensionOperations,
   memoryWidgetCache,
@@ -44,20 +44,11 @@ import { listedPacks } from "../src/extensions/shipped-list.ts";
 import { fakeProviderStub } from "../src/integrations/fake.ts";
 import { blobStore, integrationRuntime } from "../src/integrations/runtime.ts";
 import { runWorkflows, setPreset } from "./automation-fixture.ts";
-import { createAdmin, db, host, unique } from "./helpers.ts";
+import { connectFake } from "./fake-connection.ts";
+import { createAdmin, db, host, newCustomer, run, unique } from "./helpers.ts";
+import { packFiles } from "./pack-files.ts";
 
-const files = Object.fromEntries(
-  Object.entries(
-    import.meta.glob<string>("../../../packs/ticketing/*.ts", {
-      query: "?raw",
-      import: "default",
-      eager: true,
-    }),
-  )
-    .map(([path, text]) => [path.split("/").pop() as string, text] as const)
-    // The pack's extension files, as a release carries them (not its config or tests).
-    .filter(([name]) => name !== "vitest.config.ts"),
-);
+const files = packFiles("ticketing");
 
 /** The extension host of a deployment whose product lists Ticketing. */
 const shippedHost: ExtensionHost = {
@@ -111,14 +102,6 @@ const as = (principal: CustomerPrincipal): OutsideInvocationContext => ({
   integrations,
   extensionHost: shippedHost,
 });
-
-function run<T = Record<string, unknown>>(
-  name: string,
-  input: unknown,
-  ctx: InvocationContext | OutsideInvocationContext,
-): Promise<T> {
-  return invokeByName(name, input, ctx) as Promise<T>;
-}
 
 /** What a call was refused with: its code and the host's details (unwrapped from a tool's). */
 async function refusal(call: Promise<unknown>) {
@@ -224,25 +207,8 @@ async function counter(object: string, id: string) {
     .first<{ held: number; taken: number }>();
 }
 
-async function createCustomer(
-  label: string,
-): Promise<{ principal: CustomerPrincipal; email: string }> {
-  const tag = unique(label).toLowerCase();
-  const email = `${tag}@buyers.test`;
-  const person = await run<{ id: string }>(
-    "person.create",
-    { givenName: `Given-${tag}`, emails: [{ email }] },
-    staff(admin),
-  );
-  const customerId = `cus_${tag}`;
-  const now = new Date().toISOString();
-  await env.DB.prepare(
-    "INSERT INTO core_customer (id, person_id, email, email_verified, created_at, updated_at) VALUES (?, ?, ?, 1, ?, ?)",
-  )
-    .bind(customerId, person.id, email, now, now)
-    .run();
-  return { principal: { kind: "customer", customerId, personId: person.id }, email };
-}
+const createCustomer = (label: string) =>
+  newCustomer(staff(admin), label, { domain: "buyers.test" });
 
 async function createStaff(role: "member" | "viewer", name: string): Promise<ActingUser> {
   const id = `usr_${unique("staff")}`;
@@ -258,28 +224,13 @@ async function createStaff(role: "member" | "viewer", name: string): Promise<Act
 
 /** The fake provider's consent page and handoff, for the org (as customer-mail.test.ts). */
 async function connectFakeMail(address: string): Promise<string> {
-  const created = await run<{
-    connection: { id: string };
-    connect: { url: string; nonce: string };
-  }>("connection.create", { vendor: "fake", scope: "org", sharingLevel: "full" }, staff(admin));
-  const url = `http://crm.test${created.connect.url}`;
-  await runner.gatekeeperFetch("fake", new Request(url));
-  const done = await runner.gatekeeperFetch(
-    "fake",
-    new Request(url, { method: "POST", body: new URLSearchParams({ address }) }),
-  );
-  const ticket = /var ticket = "([^"]+)"/.exec(await done.text())?.[1] ?? "";
-  await run(
-    "connection.completeConnect",
-    { connectionId: created.connection.id, ticket, nonce: created.connect.nonce },
-    staff(admin),
-  );
+  const id = await connectFake((name, input) => run(name, input, staff(admin)), address);
   await run(
     "connection.bindResource",
-    { id: created.connection.id, url: `fake://outbox/${encodeURIComponent(address)}` },
+    { id, url: `fake://outbox/${encodeURIComponent(address)}` },
     staff(admin),
   );
-  return created.connection.id;
+  return id;
 }
 
 async function emailsTo(address: string) {
@@ -1049,6 +1000,16 @@ describe("paying by deposit (criterion 6a)", () => {
       currency: "AUD",
       dueAt: expect.stringContaining(NEXT_YEAR),
     });
+    // The ticket granted and its check-in are the holder's journey signals (stage 53, ADR 0802).
+    const { results: signals } = await env.DB.prepare(
+      "SELECT signal, record_id FROM core_person_signal WHERE person_id = ? ORDER BY signal",
+    )
+      .bind(buyer.principal.personId)
+      .all();
+    expect(signals).toEqual([
+      { signal: "ticketing.checkedIn", record_id: ticket?.id },
+      { signal: "ticketing.ticketBought", record_id: ticket?.id },
+    ]);
 
     // The rest in two parts.
     await checkoutAndPay(now, as(buyer.principal), 30000);
@@ -1453,6 +1414,16 @@ describe("the door role (criterion 6b, ADR 0436)", () => {
     "x.ticketing.undoCheckIn",
     "record.get",
     "record.list",
+    // The screens of the admin it may open (stage 47, ADR 0660): the one core read every pack
+    // role reaches; a door account has none.
+    "screens.mine",
+    // Every pack role's own read-and-understood list and confirmations (ADR 0702).
+    "ack.confirm",
+    "ack.mine",
+    // The published versions every staff account reads (ADR 0701), on a staff-read object only.
+    "content.search",
+    "content.staffGet",
+    "content.staffList",
   ]);
 
   it("can check in and list an event's tickets", async () => {
@@ -1850,7 +1821,7 @@ describe("tax at checkout on tickets (stage 42 criteria 12a, 12b and 12c)", () =
 // --- Issue #257: the day-before reminder reaches the holder -----------------------------------------
 
 describe("the event reminder (issue #257)", () => {
-  it("queues an email to the holder's primary address the day before", async () => {
+  it("emails the holder's primary address the day before, as routine email (ADR 0590)", async () => {
     const { event, tickets } = await paidTickets(2);
     // Tomorrow, in UTC: the reminder is due today.
     const tomorrow = new Date(Date.now() + DAY);
@@ -1879,6 +1850,8 @@ describe("the event reminder (issue #257)", () => {
       },
       staff(admin),
     );
+    // Routine email turned on by a human admin (ADR 0590, D1).
+    await run("routineMail.settings.update", { packs: { ticketing: true } }, staff(admin));
     await run(
       "automation.bindConnection",
       { id: "ticketing.eventReminder", slot: "mail", connectionId: sender.connection.id },
@@ -1889,22 +1862,147 @@ describe("the event reminder (issue #257)", () => {
     const now = new Date();
     now.setUTCHours(Math.max(now.getUTCHours(), 1), 10, 0, 0);
     await runZonedDateRelative(env, now);
-    // Under Balanced the send waits for a person (the run waits for the decision): it is queued,
-    // to the holder's own address.
+    // Routine email (ADR 0590): under Balanced it goes on its own, to the holder's own address,
+    // once however many tickets they hold.
     const to = (
       await run<{ emails: { email: string }[] }>("person.get", { id: holder }, staff(admin))
     ).emails[0]?.email as string;
     expect(to).toBeTruthy();
     await vi.waitFor(
       async () => {
-        const pending = await env.DB.prepare(
-          "SELECT input FROM core_pending_action WHERE operation = 'integration.outbound' AND action_kind = 'email.send' AND input LIKE ?",
+        const sent = await env.DB.prepare(
+          "SELECT status, routine, recipient_rule FROM core_routine_mail WHERE kind = 'ticketing.eventReminder' AND recipient = ?",
         )
-          .bind(`%${to}%`)
-          .all<{ input: string }>();
-        expect(pending.results.some((r) => r.input.includes("Tomorrow:"))).toBe(true);
+          .bind(to.toLowerCase())
+          .all<{ status: string; routine: number; recipient_rule: string }>();
+        expect(sent.results).toEqual([{ status: "sent", routine: 1, recipient_rule: "person" }]);
       },
       { timeout: 30_000, interval: 250 },
     );
+    const mail = (
+      (await env.TEST_EMAIL_OUTBOX.list()) as { to: string[]; subject: string }[]
+    ).filter((m) => m.to.includes(to.toLowerCase()));
+    expect(mail.map((m) => m.subject)).toEqual([expect.stringMatching(/^Tomorrow: /)]);
   });
+});
+
+// --- The fourth security review of PR #267 (ADR 0590): R4-T -----------------------------------
+
+describe("a ticket re-pointed at another buyer's order (the fourth review, R4-T)", () => {
+  /** SHA-256 of a value's normal form, as the host's marks keep it (a plain string: trimmed). */
+  const hash = async (value: string) =>
+    [
+      ...new Uint8Array(
+        await crypto.subtle.digest("SHA-256", new TextEncoder().encode(value.trim())),
+      ),
+    ]
+      .map((b) => b.toString(16).padStart(2, "0"))
+      .join("");
+
+  it("a caller cannot write a ticket's order; one re-pointed outside the rules holds the buyer's email", async () => {
+    await using introspector = await introspectWorkflow(env.AUTOMATION_WORKFLOW);
+    await introspector.modifyAll(async (m) => {
+      await m.disableSleeps();
+      await m.disableRetryDelays();
+    });
+    await run("integration.setVendor", { vendor: "email-send", enabled: true }, staff(admin));
+    const conn = await run<{ connection: { id: string } }>(
+      "connection.create",
+      { vendor: "email-send", scope: "org" },
+      staff(admin),
+    );
+    await run(
+      "connection.bindResource",
+      {
+        id: conn.connection.id,
+        url: `email-send://sender/${encodeURIComponent("box@example.com")}`,
+      },
+      staff(admin),
+    );
+    await run(
+      "automation.bindConnection",
+      { id: "ticketing.ticketsByEmail", slot: "mail", connectionId: conn.connection.id },
+      staff(admin),
+    );
+    await run(
+      "routineMail.settings.update",
+      { siteOrigin: "https://gym.test", packs: { ticketing: true } },
+      staff(admin),
+    );
+    const { types } = await eventWith([{ price: 45 }]);
+    // The victim buys and is sent their ticket.
+    const vOrder = await run<Order>(
+      "x.ticketing.orderStart",
+      { lines: [{ ticketTypeId: types[0], quantity: 1 }], email: buyerEmail() },
+      guest,
+    );
+    await checkoutAndPay(vOrder, guest);
+    await waitForState(vOrder.id, "paid");
+    const [victimTicket] = await ticketsOf(vOrder.id);
+    const code = String(victimTicket?.values.code);
+    // The attacker starts an order; an MCP client tries to re-point the victim's ticket at it.
+    const attacker = buyerEmail();
+    const aOrder = await run<Order>(
+      "x.ticketing.orderStart",
+      { lines: [{ ticketTypeId: types[0], quantity: 1 }], email: attacker },
+      guest,
+    );
+    await expect(
+      run(
+        "record.update",
+        { object: TICKET, id: victimTicket?.id, values: { order: aOrder.id } },
+        staff(admin, {
+          actor: "mcp",
+          origin: { surface: "mcp", sessionId: unique("s"), clientName: "Bot" },
+        }),
+      ),
+    ).rejects.toThrow(/order is set automatically/);
+    // Were it re-pointed anyway (a write outside the field's rule, an AI's), the buyer's email
+    // that lists the order's tickets holds: which tickets are the lines is shown too.
+    const table = (
+      await env.DB.prepare(
+        "SELECT name FROM sqlite_master WHERE type = 'table' AND name LIKE 'x_ticketing_ticket%'",
+      ).all<{ name: string }>()
+    ).results.map((r) => r.name);
+    let moved = false;
+    for (const name of table) {
+      const cols = (await env.DB.prepare(`PRAGMA table_info("${name}")`).all<{ name: string }>())
+        .results;
+      // A reserved word's column is `<word>_` (naming.ts).
+      const col = cols.find((c) => c.name === "order_")?.name;
+      if (!col) continue;
+      await env.DB.prepare(`UPDATE "${name}" SET "${col}" = ? WHERE id = ?`)
+        .bind(aOrder.id, victimTicket?.id)
+        .run();
+      moved = true;
+    }
+    expect(moved).toBe(true);
+    await env.DB.prepare(
+      "INSERT INTO core_value_mark (object_type, record_id, field, value_hash, standing, by_id, at) VALUES (?, ?, 'order', ?, 'ai', NULL, ?) ON CONFLICT (object_type, record_id, field) DO UPDATE SET value_hash = excluded.value_hash, standing = 'ai'",
+    )
+      .bind(TICKET, victimTicket?.id, await hash(aOrder.id), new Date().toISOString())
+      .run();
+    await checkoutAndPay(aOrder, guest);
+    await waitForState(aOrder.id, "paid");
+    let rows: { status: string; routine: number; held_reason: string | null }[] = [];
+    await vi.waitFor(
+      async () => {
+        rows = (
+          await env.DB.prepare(
+            "SELECT status, routine, held_reason FROM core_routine_mail WHERE record_id = ?",
+          )
+            .bind(aOrder.id)
+            .all<(typeof rows)[number]>()
+        ).results;
+        expect(rows.filter((r) => r.status !== "ready" && r.status !== "sending").length).toBe(1);
+      },
+      { timeout: 30_000, interval: 200 },
+    );
+    expect(rows[0]).toMatchObject({ status: "waiting", routine: 0 });
+    expect(rows[0]?.held_reason).toContain(`${TICKET} ${victimTicket?.id}'s order (ai)`);
+    const all = (await env.TEST_EMAIL_OUTBOX.list()) as { to: string[]; text?: string }[];
+    expect(all.filter((m) => m.to.includes(attacker)).some((m) => m.text?.includes(code))).toBe(
+      false,
+    );
+  }, 90_000);
 });

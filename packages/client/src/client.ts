@@ -85,7 +85,7 @@ const defaultSleep = (ms: number) =>
 function globalFetch(): FetchLike {
   const f = (globalThis as { fetch?: FetchLike }).fetch;
   if (!f) throw new Error("No fetch: pass one to the client");
-  return f.bind(globalThis) as FetchLike;
+  return f.bind(globalThis);
 }
 
 /** Reads one response as the surface's envelope: the data, or the error it describes. */
@@ -93,9 +93,14 @@ async function readEnvelope(response: {
   status: number;
   text(): Promise<string>;
 }): Promise<unknown> {
-  let body: { data?: unknown; error?: { code?: string; message?: string; details?: unknown } };
+  let body: {
+    data?: unknown;
+    error?: { code?: string; message?: string; details?: unknown };
+  } | null;
   try {
-    body = JSON.parse(await response.text()) as typeof body;
+    const parsed: unknown = JSON.parse(await response.text());
+    // A JSON value that is not an object (a string a proxy sent, say) is no envelope.
+    body = parsed !== null && typeof parsed === "object" ? (parsed as typeof body) : null;
   } catch {
     throw new ApiError(
       "internal",
@@ -170,7 +175,6 @@ export function createClient<T extends OperationTypes>(
 
   /** `mutationOptions` for a write: one idempotency key per mutation, kept across its retries. */
   function mutation<N extends MutationName<T>>(name: N) {
-    const spec = specs[name];
     return {
       mutationKey: [name] as readonly [N],
       mutationFn: (input: T[N]["input"]): Promise<T[N]["output"]> => {
@@ -182,7 +186,7 @@ export function createClient<T extends OperationTypes>(
         }
         return call(name, input, { idempotencyKey: key });
       },
-      meta: { invalidates: (spec?.invalidates ?? []).map((q) => [q] as const) },
+      meta: { invalidates: invalidates(name) },
     };
   }
 
@@ -193,7 +197,9 @@ export function createClient<T extends OperationTypes>(
 
   // `operations`: which operations this client holds, so a pack's hooks can offer exactly the
   // ones it can back (ADR 0453).
-  return { call, query, mutation, invalidates, operations: specs };
+  // `baseUrl`: the host this client talks to, for a screen that shows an address on it (a calendar
+  // feed's, stage 45): taken from the client, never from the page's own address or query.
+  return { call, query, mutation, invalidates, operations: specs, baseUrl: base };
 }
 
 export type Client<T extends OperationTypes> = ReturnType<typeof createClient<T>>;

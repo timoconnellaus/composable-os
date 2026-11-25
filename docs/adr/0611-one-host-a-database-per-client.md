@@ -4,7 +4,7 @@ Status: accepted, 2026-11-23 (the owner's answer to "One host for the standard p
 the checks of stage 46's step 1 and the spike on `spike/one-host`). Amends
 [ADR 0610](0610-three-homes-for-a-client-hosted-by-default.md) and
 [ADR 0001](0001-self-hosted-single-org.md). Designed in
-[stage 47](../stages/47-one-host-many-clients.md); nothing here is built yet.
+[stage 66](../stages/66-one-host-many-clients.md); nothing here is built yet.
 
 ## Context
 ADR 0610 hosted client products in our account, in a Workers for Platforms dispatch namespace,
@@ -49,20 +49,20 @@ database for each client. It can open a different Durable Object for each.
 
 ## Consequences
 - **One deploy reaches every client.** A bad release does too. Updates go to a staging deployment
-  first, and no client is held on an older release (stage 47's decision 7).
+  first, and no client is held on an older release (stage 66's decision 7).
 - **Separation of clients' files, search, queues and key-value data is the host's work,** not
   Cloudflare's: prefixes, namespaces and stamps added by wrappers at one seam. A client's
   database is separate by construction.
 - **Anything cached at module level can leak between clients.** Each such cache is keyed by
   client, and the suite is run with two clients in one isolate.
 - **ADRs 0008, 0151 and 0428 are amended** for a many-client deployment (the owner's answer of
-  2026-11-23, stage 47's decision 8): auth secrets are derived per client from one secret in the
+  2026-11-23, stage 66's decision 8): auth secrets are derived per client from one secret in the
   environment, and a client's given secrets are stored encrypted in the registry, written only by
   the operator.
 - **A client's database holds 10 GB at most** and handles one query at a time.
 - **The deploy engine's database steps change:** bookmark, migrate and restore are done for each
   client through the host, where today they are done over D1's REST API.
-- **Stage 46 is replaced in large part** by stage 47. Its decisions 13 to 22 stand. Its step 1
+- **Stage 46 is replaced in large part** by stage 66. Its decisions 13 to 22 stand. Its step 1
   results are the record of why the namespace was not used.
 - **Not yet proved:** the result on Cloudflare itself, the app's and the runner's suites, and the
-  time a request takes when each query crosses to a Durable Object. Stage 47's first build step.
+  time a request takes when each query crosses to a Durable Object. Stage 66's first build step.

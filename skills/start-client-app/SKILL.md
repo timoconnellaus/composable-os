@@ -92,7 +92,20 @@ a live host side by side in one account, `environments` in `product.ts`): each i
    answers the emailed code with a device session's tokens, kept in the secure store, never a
    cookie), `api` and `signOut`. `random` is the app's secure random source
    (`src/secure-random.ts`, expo-crypto): React Native has no `crypto`, and the module refuses to
-   start without it. The host's address is `expo.extra.hostUrl` in `app.json`.
+   start without it. The host's address is `expo.extra.hostUrl`, which the template's
+   `app.config.ts` takes from `product.ts` (the environment's `hostname`, chosen by `COS_ENV`).
+   - **The app's identity in the stores** (stage 63) is `mobile.app` in `product.ts`: its name,
+     `version`, store `ids` (iOS bundle id, Android package; never changed once published), `icon`
+     (1024 by 1024, opaque), `splash`, three `colours` (the text readable on the background),
+     `listing` (`apps/mobile/store/<locale>/` with `name.txt`, `subtitle.txt`, `description.txt`,
+     `keywords.txt`, `release-notes.txt`, `support-url.txt`, `privacy-url.txt`) and
+     `purchases: "none"`. A staging app gets its own name, ids and scheme under
+     `environments.staging.mobile`. `app.config.ts` and `src/blocks/brand.ts` (the colours the
+     native base theme reads; `cos client generate` writes it) are made from it: never write a
+     host address, an id or a colour in the app by hand. `pnpm cos app check` says what a store
+     build still needs. The builds go through the template's `.github/workflows/app.yml`, whose
+     secrets a person sets (`pnpm cos app credentials` lists them); you never set, see or hold a
+     key, approve a run, submit for review or release to the public.
    - **Staff with a pack role** (a coach at the door): list the role in `product.ts`
      (`mobile: { dir, roles: ["ticketing.door"] }`) and run `pnpm cos client generate`: it writes
      `src/client/roles/ticketing.door.ts`, with only that role's operations. Never put the staff

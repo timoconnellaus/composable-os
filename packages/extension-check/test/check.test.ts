@@ -62,6 +62,27 @@ describe("what cos ext check reads of a pack", () => {
   });
 });
 
+describe("cos ext check on a pack's sections of My account (stage 48, ADR 0710)", () => {
+  it("reads each section's block.json: its pack, its skin, what it calls and its export", async () => {
+    const result = await checkExtensionDir(fixture("portalblocks"));
+    expect(result.issues.map((i) => `${i.path}: ${i.message}`)).toEqual([
+      'portal.good.native.block: "portalblocks-native-skin" is a web block, named for the native section',
+      'portal.staff.web.block: "portalblocks-desk" calls x.portalblocks.day, which no customer may call: a section of My account calls only customer or public operations',
+      'portal.foreign.web.block: "portalblocks-other" is not this pack\'s block: its block.json names pack "deals"',
+      'portal.gone.web.block: "portalblocks-gone" is not a block of this pack: no blocks/portalblocks-gone/block.json',
+      'portal.noExport.web.export: "portalblocks-mine" exports no component Nowhere',
+    ]);
+  });
+
+  for (const name of ["bookings", "memberships", "courses", "ticketing", "programs"]) {
+    it(`${name}'s section names its own blocks, which call only what a customer may`, async () => {
+      const result = await checkExtensionDir(shipped(name));
+      expect(result.issues.filter((i) => i.path.startsWith("portal"))).toEqual([]);
+      expect(Object.keys(result.manifest?.portal ?? {})).toHaveLength(1);
+    });
+  }
+});
+
 describe("cos ext check on the shipped extensions", () => {
   for (const name of ["deals", "leads", "lifecycle"]) {
     it(`${name} passes unchanged`, async () => {
@@ -74,6 +95,12 @@ describe("cos ext check on the shipped extensions", () => {
       expect(await untested(shipped(name))).toEqual([]);
     });
   }
+
+  it("installs the extension an automation runs only with first, and checks against it (ADR 0812)", async () => {
+    const result = await checkExtensionDir(fixture("onlywith/owuser"));
+    expect(result.issues.map((i) => i.path)).toEqual(["automations.afterVisit.trigger.object"]);
+    expect(result.issues[0]?.message).toContain('Unknown object "owbase.visits"');
+  });
 
   it("reconciles the extension another one builds on first (Leads relates to deals.deal)", async () => {
     const result = await checkExtensionDir(shipped("leads"));
@@ -138,6 +165,47 @@ describe("the staff roles an extension declares (stage 27, ADR 0436)", () => {
     ).toEqual([
       "This extension declares staff roles. An account given one may do this and nothing else:",
       "  role ticketing.door (Door): tools with ticketing:checkin; reads ticketing.ticket",
+    ]);
+  });
+
+  it("says which objects a role reaches only for the people its holder looks after (ADR 0889)", () => {
+    expect(
+      rolesSummary({
+        id: "programs",
+        roles: {
+          coach: {
+            label: "Coach",
+            permissions: ["programs:coach"],
+            read: ["programs.session"],
+            looksAfter: { "programs.session": "person", "programs.log": "person" },
+          },
+        },
+      }),
+    ).toEqual([
+      "This extension declares staff roles. An account given one may do this and nothing else:",
+      "  role programs.coach (Coach): tools with programs:coach; reads programs.session; only the people its holder looks after on programs.session, programs.log",
+    ]);
+  });
+
+  it("says which objects a role reaches only through the records naming its holder (ADR 0755)", () => {
+    expect(
+      rolesSummary({
+        id: "jobs",
+        roles: {
+          crew: {
+            label: "Crew",
+            permissions: ["jobs:crew"],
+            read: [],
+            mine: {
+              "jobs.job": { through: "jobs.assignment" },
+              "jobs.visit": { through: "jobs.assignment" },
+            },
+          },
+        },
+      }),
+    ).toEqual([
+      "This extension declares staff roles. An account given one may do this and nothing else:",
+      "  role jobs.crew (Crew): tools with jobs:crew; reads nothing; only through the jobs.assignment records naming its holder on jobs.job, jobs.visit",
     ]);
   });
 

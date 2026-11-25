@@ -328,6 +328,18 @@ describe("expiry and late payment (criterion 6)", () => {
     expect(late.items.map((i) => i.orderId)).not.toContain(order.id);
   });
 
+  it("honouring a late payment gives the guest's link its time from being paid, not from expiry", async () => {
+    const order = await expired();
+    await providerPays(order.id);
+    // It expired long ago: the link its expiry gave stopped ten days ago.
+    await env.DB.prepare("UPDATE core_order SET access_until = ? WHERE id = ?")
+      .bind(new Date(Date.now() - 10 * 86_400_000).toISOString(), order.id)
+      .run();
+    await run("order.honourLate", { id: order.id }, staff());
+    const seen = await run<OrderOut>("order.view", { id: order.id, token: order.token }, guest());
+    expect(seen.state).toBe("paid");
+  });
+
   it("a refund clears it too", async () => {
     const order = await expired();
     await providerPays(order.id);

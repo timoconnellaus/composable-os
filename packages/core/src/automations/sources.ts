@@ -48,6 +48,8 @@ export const recordTriggerSource: TriggerSource<RecordEventMessage> = {
         if (trigger.object !== change.object) continue;
         // One import must not start thousands of runs (cost audit U3).
         if (message.origin.bulk && !trigger.includeBulk) continue;
+        // What the import door brings in was done before, elsewhere: it starts nothing (ADR 0470).
+        if (message.origin.imported) continue;
         const base = {
           automation,
           idempotencyKey: `${message.id}:${change.id}`,

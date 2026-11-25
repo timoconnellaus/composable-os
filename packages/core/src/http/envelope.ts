@@ -19,6 +19,8 @@ const STATUS: Record<OperationErrorCode, number> = {
   denied: 403,
   pending_approval: 202,
   second_step_required: 403,
+  // Not 401: the session is good for everything else, and a client must not drop it.
+  sign_in_again: 403,
   rate_limited: 429,
   plan_limit: 402,
   not_found: 404,

@@ -19,6 +19,8 @@
 // No extension code runs, and nothing here moves money: an owed refund is asked of the payments
 // gatekeeper by the minute cron (`order.refundDue`), as the outbound action `payments.refund`,
 // which only a person with `orders:refund` approves (ADR 0429).
+
+import { type GuestAcceptance, guestMinorNotice } from "../agreements/enforce.ts";
 import { normaliseCustomerEmail, sameEmailPeople } from "../customers/accounts.ts";
 import {
   ConfigError,
@@ -33,7 +35,7 @@ import { newId } from "../ids.ts";
 import { notifyStatements } from "../notifications/send.ts";
 import { type HandlerContext, type RecordChange, recordHostChange } from "../operation.ts";
 import { createRecord, updateRecord } from "../operations/record.ts";
-import type { Principal } from "../principals.ts";
+import { type Principal, placedAs } from "../principals.ts";
 import { viewColumnOf } from "../records/columns.ts";
 import { type MoveHook, onEveryRecordMove, onRecordMove } from "../records/lifecycle.ts";
 import { assertCreateRules } from "../records/states.ts";
@@ -41,7 +43,7 @@ import { boundMoment, pathReader, UNREADABLE } from "../records/windows.ts";
 import { guardStatement } from "../recurring/bookkeeping.ts";
 import { erasedAddresses } from "../sync/ingest.ts";
 import { isLiveDependant, linkGuardStatement } from "../visibility/guardians.ts";
-import { type AnyRow, orgReader, visibleSource } from "../visibility/index.ts";
+import { orgReader, visibleSource } from "../visibility/index.ts";
 import { hashOrderToken, newOrderToken, resolveBuyer } from "./guests.ts";
 import {
   changeOrder,
@@ -50,6 +52,7 @@ import {
   type OrderRow,
   type PricedLine,
 } from "./orders.ts";
+import { viewRow } from "./sellable.ts";
 import { loadOrderCurrency, toMinorUnits } from "./settings.ts";
 
 /** An object whose records an order moves, with its declaration. */
@@ -66,6 +69,8 @@ export interface StartHeldInput {
   forPersonId?: string | undefined;
   /** The buyer's address: a guest's, or staff's for whom they start it. */
   email?: string | undefined;
+  /** A visitor's acceptances, carried in the buying call (stage 44 step 3). */
+  agreements?: readonly GuestAcceptance[] | undefined;
 }
 
 export interface StartedHeld {
@@ -89,8 +94,7 @@ async function buyerSees(
   id: string,
 ): Promise<boolean> {
   try {
-    // biome-ignore lint/suspicious/noExplicitAny: the source is a registry-driven view, not a key of the typed schema.
-    const row = await (ctx.db as any)
+    const row = await ctx.db
       .selectFrom(visibleSource({ principal }, target))
       .select("id")
       .where("id", "=", id)
@@ -366,6 +370,7 @@ export async function startHeld(ctx: HandlerContext, input: StartHeldInput): Pro
     quantity: 1,
     unitPrice,
     total: unitPrice,
+    discount: 0,
     deposit: null,
   };
   const started = await createOrder(ctx, {
@@ -373,10 +378,13 @@ export async function startHeld(ctx: HandlerContext, input: StartHeldInput): Pro
     priced: [line],
     lines: [{ object: object.name, id: recordId, quantity: 1 }],
     personId: payer,
+    // Who it is for: the booking's Person (a child a guardian buys for), not only who pays.
+    participantId: holder,
     email,
-    placedAs: caller.kind,
+    placedAs: placedAs(caller),
     pay: "full",
     accessHash: token ? await hashOrderToken(token) : null,
+    agreements: input.agreements,
   });
   return { row: started.row, lines: started.lines, recordId, token };
 }
@@ -414,12 +422,7 @@ async function storedValues(
   object: ObjectDefinition,
   id: string,
 ): Promise<Record<string, unknown> | null> {
-  // biome-ignore lint/suspicious/noExplicitAny: the source is a registry-driven view, not a key of the typed schema.
-  const row = (await (ctx.db as any)
-    .selectFrom(visibleSource(orgReader(ctx.db), object))
-    .selectAll()
-    .where("id", "=", id)
-    .executeTakeFirst()) as AnyRow | undefined;
+  const row = await viewRow(ctx.db, visibleSource(orgReader(ctx.db), object), id);
   if (!row) return null;
   const values: Record<string, unknown> = {};
   for (const field of object.fields) {
@@ -737,6 +740,9 @@ const orderMoves: MoveHook = async (outer, move) => {
   const to = move.to.id;
   const paid = to === "paid" || to === "part_paid";
   if (!paid && to !== "expired" && to !== "cancelled") return;
+  // A reversed payment (ADR 0694) leaves a paid order part paid: what it moved stays moved.
+  if (from === "paid") return;
+  const later = from === "part_paid";
   const lines = await ctx.db
     .selectFrom("core_order_line")
     .select(["object_type", "record_id", "title"])
@@ -759,6 +765,9 @@ const orderMoves: MoveHook = async (outer, move) => {
           { order: move.id, rule: "held_gone" },
         );
       }
+      // A later payment of an order whose record moved at an earlier one (review of PR #426):
+      // settled then, not released now.
+      if (later && state === moves.paid) continue;
       if (state === moves.held && values) {
         const ownerField = object.customer?.field;
         let personId: string | null = null;
@@ -787,6 +796,8 @@ const orderMoves: MoveHook = async (outer, move) => {
             }
             personId = buyer.personId;
             made = buyer.created;
+            // A guest's drop-in landing on a minor tells staff (ADR 0644).
+            if (personId && !made) await guestMinorNotice(ctx, { orderId: move.id }, personId);
             if (personId) {
               ctx.write(
                 ctx.db
@@ -831,6 +842,36 @@ const orderMoves: MoveHook = async (outer, move) => {
     }
   }
 };
+
+/**
+ * The lines of an order that move a record (`sellable.moves`, ADR 0560: a drop-in), each with
+ * whether its record is in its paid state now. Such an order is paid in full or not at all: its
+ * record moves once, at the first payment, and there is no move back from paid (ADR 0694).
+ */
+export async function movedRecords(
+  ctx: HandlerContext,
+  orderId: string,
+): Promise<{ object: string; recordId: string; paid: boolean }[]> {
+  const lines = await ctx.db
+    .selectFrom("core_order_line")
+    .select(["object_type", "record_id"])
+    .where("order_id", "=", orderId)
+    .execute();
+  const out: { object: string; recordId: string; paid: boolean }[] = [];
+  for (const line of lines) {
+    const object = getObject(line.object_type);
+    const moves = movesOf(object);
+    const field = object?.states?.field;
+    if (!object || !moves || !field) continue;
+    const values = await storedValues(ctx, object, line.record_id);
+    out.push({
+      object: line.object_type,
+      recordId: line.record_id,
+      paid: values?.[field] === moves.paid,
+    });
+  }
+  return out;
+}
 
 /**
  * An order that belonged to no one has its Person now (`order.setPerson`, staff, after merging the

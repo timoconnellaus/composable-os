@@ -29,7 +29,17 @@ family link's guard) and 0670 (`core_write_guard`), and `packs/bookings/index.ts
 declarations).
 
 Status: **spec agreed** (owner interviewed 2026-11-23; the eight questions answered the same day,
-decisions 15 to 22; step 1 built on `feat/stage-44-documents`, ADRs 0640 and 0641).
+decisions 15 to 22; step 1 built on `feat/stage-44-documents`, ADRs 0640 and 0641; step 2 built on
+`feat/stage-44-acceptances`, ADRs 0642 and 0643; step 3, enforcement, built on
+`feat/stage-44-enforcement`, ADR 0644; step 4, the copy and the signed PDF, built on
+`feat/stage-44-copy`, ADR 0645; step 5, the blocks, built on `feat/stage-44-blocks`, ADR 0644
+amended; step 7, cooling off, built on `feat/stage-44-cooling-off`, ADR 0647; step 8, erase,
+merge and retention, built on `feat/stage-44-erase`, ADR 0646; step 6, signing at the desk, built
+on `feat/stage-44-desk-signing` together with stage 51's step 1 (the enrolled device), ADRs 0649
+and 0780; staff-given enrolments and hand-made tickets asked (issue #281), built on
+`fix/issue-281-agreements-staff-given`, ADR 0644 amended; the inline step in the Ticketing and
+Courses checkouts (issue #292), built on `feat/issue-292-agreement-step-checkouts`, ADR 0644
+amended; build notes at the end).
 Builds on stages 25, 31a and 32. The first client is a gym moving from another system. It must be in
 place before members pay or train on the new system (decision 13).
 
@@ -661,6 +671,13 @@ Weighed and rejected:
 | **A code alone on a public page** (the first draft of this design) | Nothing bound the session to the business's device: anyone who saw the code or the QR could claim it on their own phone, see the names and the due documents and sign as the member, while the record said "on the business's device" (the review of PR #266) |
 | **The member's own phone only** (the spec's first recommendation) | Kept (staff still send a link), but the owner wants the desk too: a visitor without their phone, or a parent with a child |
 
+> **Dated note, 2026-11-24 (step 6 built):** the tablet is stage 51's **enrolled device**
+> ([The enrolled device](51-kiosk-check-in.md#the-enrolled-device-the-shared-piece), ADR 0780):
+> `core_device` (`dev_…`, use `signing`) with `device.enrol`, `device.claim`, `device.setUse` and
+> `device.revoke`, and Settings → Devices, instead of `core_agreement_desk_device` and
+> `agreement.desk.enrol`/`revoke` below. Everything this section says of the desk tablet holds for
+> it. The sessions, codes, tokens, limits and the five desk calls are as below (ADR 0649).
+
 **Enrolling a tablet** (`core_agreement_desk_device`, `adv_…`):
 
 - **Enrolment is an admin's act**, separate from starting sessions: `agreement.desk.enrol { name }`
@@ -1116,8 +1133,8 @@ no-delete and draft triggers, `core_agreement_point`, `core_agreement_rev`) and 
 4. Health answers and their isolation.
 5. The copy and the signed PDF: host mail for agreements, and the gatekeeper's second attachment
    (amending ADR 0571).
-6. Cooling off.
-7. Keeping acceptances after erase.
+6. Cooling off (**ADR 0647**, step 7).
+7. Keeping acceptances after erase (**ADR 0646**, step 8).
 8. Signing at the desk: a session a person starts, a tablet with no sign-in.
 
 ADRs 0428 (a guest's acceptances settle with the order), 0435 (`sellable` and points), 0491 (a
@@ -1131,12 +1148,12 @@ with dated notes.
 | --- | --- | --- | --- |
 | 1 | **Documents and versions** (**built**, `feat/stage-44-documents`): tables, the working copy, `agreement.publish` (human only, against the reviewed working copy's hash), scheduling by the minute cron, attach, detach, retire, `core_agreement_rev` (bumped by each), the permission `agreements:manage`; the `agreements` declaration in the SDK and contract (inert); the admin's document list and editor | migration 0850; `packages/core/src/agreements/` (new); `operations/agreement.ts` (new); `packages/sdk` (`agreements.ts`, the declaration and contract checks); the runner's minute tick; the admin settings routes; the registry | Done |
 | 2 | **Acceptances and the one question**: `agreementsDue` and the guard kind (reading step 1's counter); `me.agreements.*`, `recordPaper`, the guardian path, the minor mark (`agreement.setMinor`); signatures; health answers and their isolation (audit redaction, no views), the coach's "health note"; the Person tab, the acceptances and due lists | `agreements/`; a migration remaking `core_write_guard`; `visibility/` (read only: `guardians.ts`'s live link and guard); audit redaction; `open-operations.json`; the admin Person page | **Yes, now** (step 1 is built). The `core_write_guard` remake **collides with any build adding a guard kind** at the same time: agree the order of the two migrations in `parallel-work.md` |
-| 3 | **Enforcement**: `createOrder` and `order.startHeld` (guest acceptances in the batch, settlement in the verified payment's batch and `order.setPerson`, deletion on expiry); `startSubscription`; the transition engine's create and move checks; the points on Memberships and Bookings, then Ticketing and Courses | `orders/orders.ts`, `orders/events.ts`, `orders/guests.ts`, `subscriptions/subscriptions.ts`, `records/states.ts` (create checks), `packs/memberships`, `packs/bookings` (index and `buy`), `packs/ticketing`, `packs/courses` | **Not beside other work in `orders/` or the engine's create checks** (31a step 10, 31b, 32b step 8 if it touches `startSubscription`). Its own window; reviewed as stage 25 was |
+| 3 | **Enforcement** (**built**, `feat/stage-44-enforcement`, ADR 0644): `createOrder` and `order.startHeld` (guest acceptances in the batch, settlement in the verified payment's batch and `order.setPerson`, deletion on expiry); `startSubscription`; the transition engine's create and move checks; the points on Memberships and Bookings, then Ticketing and Courses | `orders/orders.ts`, `orders/events.ts`, `orders/guests.ts`, `subscriptions/subscriptions.ts`, `records/states.ts` (create checks), `packs/memberships`, `packs/bookings` (index and `buy`), `packs/ticketing`, `packs/courses` | **Not beside other work in `orders/` or the engine's create checks** (31a step 10, 31b, 32b step 8 if it touches `startSubscription`). Its own window; reviewed as stage 25 was |
 | 4 | **The copy and the PDF**: the PDF writer module (vendored or our own, noted in `UPSTREAMS.md` if vendored), the gatekeeper's `agreement` part, `callAsHost` purpose `agreements` with the copy's idempotency key, the download routes, the blank PDF | `packages/gatekeeper-email-send` (`validate.ts`, `worker.ts`, a new `agreement.ts`), the fake outbox, `integrations/runtime.ts` (the purpose), `apps/app/src/server/http/` (downloads) | Yes, after step 2 (PR #256 is merged); beside anything but other email-gatekeeper work (issue #259, and `feat/routine-mail` while it is open) |
 | 5 | **Blocks and hooks**: Agree, Before you go on, My agreements, a child's, the checkout and booking steps; the web signature pad (pointer events) and the native one | base-layer blocks, a headless `agreements` entry in `packages/client`, the client template's routes, the Bookings and Memberships web blocks (the inline step) | Yes, once step 2's operations are merged; coordinate with whoever owns the drop-in and timetable blocks |
 | 6 | **Signing at the desk** (decision 22): `core_agreement_desk_device` (admin enrolment announced to every admin, browser and network recorded, rotation idempotent for 60 seconds, a clone revokes) and `core_agreement_desk_session` (bound to the device staff chose, idle and total limits and the bounded heartbeat held on the server); `agreement.desk.enrol` and `revoke` (admins, a person) and `start` and `end` (`agreements:desk`, made grantable to fixed-role accounts, ADR 0600 amended); `desk.claim`, `desk.documents`, `desk.accept`, `desk.heartbeat`, `desk.finish` (public, needing the device credential and the session token); the desk origin (its own hostname, set up by `cos deploy`), its cookies (`HttpOnly`, `Secure`, `SameSite=Strict`), the `Origin` check; HMAC of codes and tokens under an env secret; the lock-out; the staff side's Sign at the desk (with the claiming device) and Desk tablets; the address marks on the Acceptances list, by mailbox, over every path that changes an address; the copy's wording; the desk page at tablet width from the Agree block's web skin. No native work | `agreements/` (a new `desk.ts`), `operations/agreement-desk.ts`, `open-operations.json`, `principals.ts` (the fixed-role grantable list), `apps/app/src/server/identity.ts` and the Worker's routing (the desk origin), `packages/release` and `cos deploy` (the hostname), a new desk route, the admin Person page | After step 2 (it records acceptances) and step 4 (every desk acceptance sends its copy); its page after step 5's Agree block. Beside anything but other work on public paths in `identity.ts` |
-| 7 | **Cooling off**: the setting, `subscription.coolOff`, refunds owed per period | `subscriptions/` (a new `cooling-off.ts`), `orders/refund-due.ts`, `packs/memberships` (the setting, the member's button) | Yes, beside 31 work; **not beside other `subscriptions/` work** (issue #254's hardening) |
-| 8 | **Erase, merge, the Trash and retention**: erase keeps acceptances detached, deletes answers, the minor mark and open desk sessions; merge re-points; the purge after the retention period | `records/erase.ts`, `records/erase-stores.ts`, `person.merge`, `purge.ts` | **Not beside other erase or merge work** (the "erase completeness" reserved area, stage 43 step 4) |
+| 7 | **Cooling off** (**built**, `feat/stage-44-cooling-off`, ADR 0647): the setting, `subscription.coolOff`, refunds owed per period | `subscriptions/` (a new `cooling-off.ts`), `orders/refund-due.ts`, `packs/memberships` (the setting, the member's button) | Yes, beside 31 work; **not beside other `subscriptions/` work** (issue #254's hardening) |
+| 8 | **Erase, merge, the Trash and retention** (**built**, `feat/stage-44-erase`, ADR 0646): erase keeps acceptances detached, deletes answers, the minor mark and open desk sessions; merge re-points; the purge after the retention period (copy rows with it); a copy that was waiting for a person: its pending approval cancelled, and the email gatekeeper's storage scrubbed of an erased person's copies (the sent history's recipient and subject, and the journal records with the whole message; left here by step 4's reviews) | `records/erase.ts`, `records/erase-stores.ts`, `person.merge`, `purge.ts` | **Not beside other erase or merge work** (the "erase completeness" reserved area, stage 43 step 4) |
 | 9 | **Stage 43's consent** as a `care` acceptance (when stage 43 step 4 is built) | `agreements/`, stage 43's `care.ts` | With stage 43 step 4 |
 | 10 | **The first client**: the business writes and publishes its four documents, attaches them; a moved member's first sign-in in test mode; a visitor's drop-in; a parent for a child; a member at the desk | The first client's own repository and deployment | After 3 to 6; before members pay or train on the new system |
 
@@ -1282,3 +1299,976 @@ bundle; how standard PDF fonts handle every character a business types (a publis
 the PDF cannot draw); that the native app's touch handling draws a signature smoothly without a new
 module; and how a membership ended at once treats bookings ahead (stage 32b's behaviour, which
 cooling off follows).
+
+## Step 2: build notes (`feat/stage-44-acceptances`, 2026-11-23)
+
+Built: migration 0851 (`core_agreement_acceptance`, `core_agreement_signature`,
+`core_agreement_answer`, `core_agreement_minor`, and `core_write_guard` made again with the kind
+`agreements`, every earlier kind carried forward), ADRs 0642 (acceptances, who may agree for whom,
+signatures, the minor mark) and 0643 (health answers), ADR 0641 amended (`agreementsDue` and its
+guard), ADRs 0540, 0449 and 0436 amended with dated notes. The permissions `agreements:paper` and
+`agreements:health` (admins by default, grantable). `agreements/due.ts` (`agreementsDue`,
+`requireNothingDue`, `agreementsGuard`), `agreements/accept.ts` (every acceptance),
+`agreements/capture.ts` (typed name, strokes, answers), `agreements/people.ts` (erase, purge and
+merge), `operations/agreement-acceptance.ts`. The Person page's Agreements tab; Settings →
+Agreements → Acceptances (the due list and the acceptances); the editor's "asks N people" on
+agree again and each version's count; "Health note" on Bookings' class list (web and native).
+
+Operations (every one with its audience, actors, permission and risk class):
+
+| Operation | Audience | Actors | Permission | Risk |
+| --- | --- | --- | --- | --- |
+| `me.agreements.due` | customer (hostInternal) | the customer | records:read | read |
+| `me.agreements.list` | customer (hostInternal) | the customer | records:read | read |
+| `me.agreements.get` | customer (hostInternal) | the customer | records:read | read |
+| `me.agreements.accept` | customer (hostInternal) | the customer | records:write | write |
+| `agreement.person` | staff | every actor (no mark, no capability for an AI) | records:read | read |
+| `agreement.acceptances` | staff | every actor | records:read | read |
+| `agreement.due.list` | staff | every actor | records:read | read |
+| `agreement.healthNotes` | staff | human | agreements:health | read, every read audited |
+| `agreement.listHealthNotes` | staff | extension, inside a tool a person called themselves, for a declared list | records:read | read, every call audited |
+| `agreement.healthReviews` | staff | human | agreements:health | read, every read audited |
+| `agreement.acceptance.get` | staff | human | records:read | read |
+| `agreement.answers.get` | staff | human | agreements:health | read, every read audited |
+| `agreement.recordPaper` | staff | human | agreements:paper | write |
+| `agreement.setMinor` | staff | human | people:link | write |
+
+Deviations from the text above, and why:
+
+- **`agreement.recordPaper` has no `forPersonId`.** `personId` is whom the form is for (for a
+  child, the child), and `signedBy` names who signed it. A second id would have made two people
+  for one paper row with no rule for which counts. It also takes `typedName`, the name as written
+  on the form, which the record's `typed_name` holds (the spec's input list omitted it).
+- **The notice of a health "yes" names nobody.** Its title is "A member's health form needs a
+  look" and it links to the Person, because an in-app notice may also go out by email or Slack;
+  the spec's in-host wording "[name] answered yes" would have carried a name and a health fact
+  into those.
+- **`agreement.healthNotes` is a new core read** (the spec said the coach role "gains that one
+  read"): a pack's tool asks the host, which gives the mark only inside a tool a person called.
+  Bookings declares it; `roster` and `classList` carry `healthNote` (null when the host gives
+  none, as for the assistant).
+- **A new pipeline option, `auditReads`**, writes an audit row for every successful read of an
+  operation that sets it (a person's reads are otherwise not audited, ADR 0090). Only
+  `agreement.answers.get` uses it.
+- **`me.agreements.due` asks every point**, not one: the first sign-in's "before you go on" shows
+  everything attached anywhere for the caller and each live dependant.
+- **The due list's people** are those with a sign-in, a subscription as holder, a live family
+  link as a dependant, or the minor mark (2,000 at most), those with a live subscription first.
+  "Members with a booking ahead first" needs pack knowledge the core does not have; step 3, which
+  declares Bookings' point, can add it.
+- **The channel** is `app` for a native app's device session and `web` otherwise, from the
+  session, never from the input.
+- **Erase, the Trash purge and merge** were touched as far as these tables need to be safe:
+  erase and the purge delete health answers and the minor mark and keep acceptances detached
+  (`erased_at`); merge moves acceptances (and those made as a guardian) to the survivor and keeps
+  the mark. Left for step 8: the retention purge after `keepAcceptancesYears`, the setting, the
+  erase screen's words, finding a kept acceptance by name or address, the merge preview's count.
+- **`context` must be null** until step 9 (the care consent) remakes the insert trigger.
+- **Not built here** (later steps, as the build order says): enforcement at checkout,
+  subscription start and booking (step 3; `requireNothingDue` is ready for it), the copy, its
+  `core_agreement_copy` row and the PDF (step 4: the acceptance already stores the address), the
+  Agree, Before you go on and My agreements blocks (step 5), "send a link", the desk (step 6),
+  cooling off (step 7). No practitioner principal exists yet (stage 43); when it does it holds no
+  `agreements:health`.
+
+What step 3 needs from here: call `requireNothingDue(db, { point, participant, payer, now })`
+before planning the batch (it refuses with `rule: "agreements_due"` and the documents) and put the
+guard it returns in the batch; for a guest, insert `by: "guest"` rows with the order (the table
+and its triggers already allow a Person-less guest row, its settlement and its deletion) through
+an `accept.ts` path for guests; the guard's conflict is `rule: "agreements_changed"`.
+
+### Step 2: after the security review of PR #274 (2026-11-23)
+
+Fixed in the same PR (ADRs 0642 and 0643 amended): the health notice names no Person and sends
+staff to Settings → Agreements → Health forms (`agreement.healthReviews`); `agreement.healthNotes`
+needs `agreements:health` and is audited, and pack code asks `agreement.listHealthNotes` for its
+own list, only when a person called the tool themselves (not an approval of an AI's call), never
+from a runtime extension; the counter moves on a minor mark, a family link, the Trash, a merge and
+an erase; a detach needs the Person gone and never enables a delete; a guest's row needs a real
+order and attaches only to its Person; a merge that moves agreements is a person's with
+`agreements:manage`; a minor never agrees as a guardian; a document attached nowhere is refused
+and a repeat of the same version records nothing; paper counts from its date for "ask again"; one
+rule for what applies (a payer document never for a child).
+
+**Decision (coordinator, 2026-11-23, owner to confirm): erasing a guardian.** Erasing a person
+treats the acceptances they made as a guardian as their own: the record that a guardian agreed,
+the version and the time stay for the retention period; the guardian's typed name and drawn
+signature are cleared, the address stays (as decision 15 keeps it), `erased_at` is set so step 8's
+purge covers the row, and it no longer counts for the child. Migration 0851 was edited in place
+(it was not on `main`).
+
+### Step 2: after the second review of PR #274 (2026-11-23)
+
+Fixed in the same PR (ADRs 0642 and 0643 amended): health notices are for the person only
+(`human_only`: no AI actor lists, counts or marks them); `audit.list` shows no audited-read row to
+an AI; `me.agreements.get` shows a guardian's typed name and signature only to that guardian; the
+health-note list is declared in the manifest (`healthNotes: { list, person }`), its `value` must
+be a live record of the list's object, every call is audited, and a coach's today-only limit holds
+on it; a minor mark is never rewritten and a Person is never inserted over one. Migration 0851
+was edited in place again.
+
+## Step 3: build notes (`feat/stage-44-enforcement`, 2026-11-23)
+
+Built: `agreements/enforce.ts` (`enforcePurchase`, `enforceEntry`, the guest acceptances' schema),
+`guestDue` and `agreementsDueAt` in `agreements/due.ts`, a guest's path through `accept.ts`;
+migration 0853 (settlement and deletion of a guest's acceptances, by trigger); ADR 0644; ADRs 0428,
+0435, 0491, 0503, 0540, 0560, 0641 and 0642 amended with dated notes. The points on Memberships
+(`memberships.plan`, `memberships.passtype`, `memberships.pass`), Bookings (`bookings.booking`),
+Ticketing (`ticketing.tickettype`) and Courses (`courses.course`, `courses.bundle`,
+`courses.plan`); the packs' buying tools pass a guest's `agreements` on.
+
+Every path that makes an order, a subscription, a booking or a ticket, and whether it asks:
+
+| Path | Asks? | Why |
+| --- | --- | --- |
+| `order.start` (customer, guest, staff, the assistant, MCP; `x.memberships.buy`, `x.ticketing.orderStart`, `x.courses.buy`) | Yes, `createOrder` | Every order is priced there |
+| `order.startHeld` (`x.bookings.buy`: a member, a guardian for a child, a visitor) | Yes, `createOrder`, at the booking's point, for the booking's Person and the payer | The drop-in is made `held` by the host, so the engine does not ask it again |
+| `subscription.start` (customer, guest, staff naming a holder) | Yes, before the provider's page is opened or an open one handed out again | Every subscription starts there |
+| A continuation offer (`subscription.start` with `offerId`) | Yes | It is a start (decision 8) |
+| `record.create`, `record.update`, `my.create`, `my.update`, the record import, a bulk update, automations, extension code | Yes, the engine | Every caller's write runs `applyTransition` |
+| `x.bookings.book`, `bookFor`, `move` (a new booking), joining a waitlist, a waiter taking a free place | Yes, the engine | Each makes a booking booked or waiting |
+| `x.memberships.givePass` (a pass by hand) | Yes, the engine (`memberships.pass` declares `membership` with `enter: ["active"]`) | Starting a pass, as buying one (decision 6) |
+| `order.honourLate` | Yes, for the order's Person | Keeping the payment makes the purchase; a guest's acceptances went at expiry |
+| A coach unticking (attended to booked), a no-show ticked | No | Between two states that hold the place: the same booking |
+| Promotion from a waitlist, a paid drop-in booked, timed moves, a series' records | No | The host's own moves: "agree again" is not retroactive |
+| What a paid line or a subscription grants (a pass, a ticket, an enrolment, a membership), renewals and period orders | No | The host's, after a purchase that was asked |
+| `order.checkout` of an order already started, a part-paid balance, cancelling, leaving a waitlist | No | Nothing new is bought or booked |
+| A plan change or a pause of a running subscription | No | An existing membership (open to review) |
+| `x.courses.enrol` (staff give access), an enrolment made by hand | Yes, the engine, since issue #281 (`courses.enrolment` declares `course` with `enter: ["active"]`) | Giving access starts it as buying it does; first built as No |
+| The courses import (`record.import`) | No (`importMovesOver`) | Imported students are moving over |
+| A ticket made by hand | Yes, the engine, since issue #281 (`ticketing.ticket` declares `event` with `enter: ["valid"]`, `keeps: ["valid", "used"]`) | First built as No: tickets are what a paid line grants, but staff can make one |
+
+Deviations from the text above, and why:
+
+- **`memberships.pass` declares the `membership` point too** (`enter: ["active"]`): the spec names
+  only the plan and the pass type, but a pass staff give by hand (`givePass`) is a record made by a
+  caller, not an order, and would otherwise start a pass with nothing agreed. A granted pass is the
+  host's and is not asked.
+- **The engine's rule for a move** is "into a listed state from any other, except between two
+  states that both hold the place" (an object with `claims`): the spec named the cases (a booking
+  made, a waiter taking a free place); a coach unticking a name must not ask (not retroactive).
+- **A change of a record's Person while it is in a listed state asks** (staff giving a booking to
+  someone else): it is that Person's booking from then.
+- **A staff move to another class asks**: it makes a new booking (`movedFrom`).
+- **Settlement and deletion are triggers** (migration 0853), not host code in the payment and
+  expiry paths, so they hold for every writer whatever the batch's order.
+- **A subscription checkout never confirmed** has no expiry the host sees: its guest acceptances
+  are deleted by the minute cron's `agreement.takeEffect` three days on.
+- **A pack tool's refusal** reaches its caller as the tool's error (`extension_error`) with the
+  host's `agreements_due` and documents inside; the Bookings tools' refusal reasons are unchanged
+  (the inline step is step 5's).
+- **`agreements` is redacted from every extension tool's audit**, not only the core operations'.
+- **Not built here**: the reconciler naming an attached document whose point an upgrade would drop
+  ("A point that goes away", above: the attachment is kept and simply asked by no object until it
+  is re-attached; the plan, the review's words and the "point no longer declared" mark are left for
+  the reconciler's own change); "members with a booking ahead first" on the due list; the blocks
+  that show what is due before "Pay" and "Book" (step 5). No e2e journey is in this step: each
+  journey of criterion 16 needs step 5's screens.
+
+### Step 3: after the review of PR #280 (2026-11-23)
+
+Fixed in the same PR (ADR 0644 amended): a minor who would pay where the payer must agree is
+refused (`minor_payer`; a parent or guardian buys it). **The owner's decisions of 2026-11-24**
+(first made by the coordinator, the owner since confirmed them): a guest's acceptance counts only for its own purchase, never at a later point; a
+guest's purchase with a minor's address stands, the child stays due for a guardian, and staff
+with `agreements:manage` are told. `order.setPerson` takes only a Person with the order's
+address, and a minor only once nothing is due. Left as a follow-up (an issue): staff-given
+enrolments and hand-made tickets are not asked while `givePass` is.
+
+### Issue #281: staff-given enrolments and hand-made tickets are asked (`fix/issue-281-agreements-staff-given`, 2026-11-24)
+
+Built: `courses.enrolment` declares the `course` point (`enter: ["active"]`, `person: "holder"`,
+`importMovesOver: true`) and `ticketing.ticket` the `event` point (`enter: ["valid"]`,
+`keeps: ["valid", "used"]`, `person: "holder"`), so `x.courses.enrol`, an enrolment or a ticket
+made with `record.create`, an ended enrolment made active again and a ticket given to another
+holder ask as `givePass` does, for every actor. What a paid line grants stays the host's and is not
+asked. Two optional fields on the declaration (SDK and contract, only with `enter`):
+
+- **`keeps`**: for an object without `claims`, the states a record keeps its entry in. A record
+  created in one is asked (a ticket made straight into "used"), and a move between two of them is
+  the same entry (staff undoing a check-in after "agree again" asks nobody). It is `claims`'
+  "held or confirmed" for an object that holds no place; an object with `claims` may not declare it.
+- **`importMovesOver`**: a record `record.import` makes (the courses import's door, a person
+  only, not on MCP) is someone moving over and is not asked; a later import giving it to another
+  Person or making it active again is asked (the review of PR #357). The CSV record import
+  (`import.records.commit`) is still asked: it is open to the assistant, so leaving it out would be
+  a way round for an AI actor. A `source: "import"` value written by any other path is asked.
+
+Not built: a ticket made by hand with no holder names no Person and is not asked until it is given
+one (as a booking with no Person is not); nothing is asked of the payer on a hand-made record
+(`payer: null`, as `givePass`); a record restored from the Trash is not asked (the same entry);
+any person with `records:write` can make an enrolment through `record.import` unasked, whatever
+its `source` (the import is a person's door for moving over; open to the owner's review). Proof: `apps/runner/test/agreements-enforcement.test.ts` ("staff-given enrolments and
+hand-made tickets") and the contract checks in `packages/core/test/agreements.test.ts`.
+
+## Step 4: build notes (`feat/stage-44-copy`, 2026-11-23)
+
+Built: migration 0854 (`core_agreement_copy` and its triggers), ADR 0645; ADRs 0571, 0642 and
+0643 amended with dated notes. `agreements/copy.ts` (what the PDF says for each viewer, the copy's
+message, `sendAgreementCopies`), `operations/agreement-copy.ts`, the email gatekeeper's
+`agreement.ts` (the rule) and `agreement-pdf.ts` (the writer), its `validate.ts` and `worker.ts`,
+`callAsHost`'s purpose `agreements` in cos-runner's integration host and queue, the fake outbox,
+the minute cron's "agreement copies" step, and the download routes
+(`apps/app/src/server/http/agreement-pdf.ts`, mounted in `server.ts` and the client-app binding).
+
+Operations:
+
+| Operation | Audience | Actors | Permission | Risk |
+| --- | --- | --- | --- | --- |
+| `me.agreements.pdf` | customer (hostInternal) | the customer | records:read | read |
+| `agreement.acceptance.pdf` | staff | human | records:read (answers only with agreements:health; a kept or unsettled one with agreements:manage) | read, every download audited |
+| `agreement.version.pdf` | staff | human | records:read | read |
+| `agreement.copy.preview` | staff | human | agreements:paper | read |
+| `agreement.copy.send` | staff | human | agreements:paper | write |
+
+`agreement.acceptance.get` also says whether the copy went (`copy`).
+
+Every path, and its copy:
+
+| Path | Copy |
+| --- | --- |
+| A customer for themselves (`me.agreements.accept`) | At once after the commit, to their sign-in address |
+| A guardian for a child | At once, to the guardian's sign-in address; the PDF names the guardian and shows their name typed and strokes only to them |
+| A guest with their purchase | When it settles to the purchase's Person (the verified payment, `order.setPerson`, a confirmed subscription), by the minute cron, to the address it was bought with; none if the order closes unpaid |
+| Paper | Only when a person with `agreements:paper` presses "Email a copy": shown the address first (`agreement.copy.preview`), and confirming it (`confirmTo`, refused if it is not the host's address now), to the Person's sign-in address or primary email; refused when there is none. For a child's form (changed 2026-11-24, ADR 0648): never to the child, but to the linked parent or guardian staff pick from those the preview lists, at the host's address for them; refused, and staff give the guardian the PDF, only when no linked guardian has an address |
+| The desk (step 6) | Made by the same trigger (`self` or `guardian` with an address); step 6 adds the previous address and its words |
+
+Deviations and decisions, and why:
+
+- **A PDF writer of our own**, not a vendored library: about 800 lines with no imports, the
+  standard fonts only, every text a hex string. A library would have added hundreds of KiB and
+  font embedding and parsing this needs none of; nothing is added to `UPSTREAMS.md`. It is its
+  own package (`@composable-os/agreement-pdf`, no dependencies), imported by the email gatekeeper
+  and the download route; core asks only its page estimate at publish (never fewer pages than the
+  writer draws), so cos-runner carries no writer: its main module is 7,578 KiB after merging
+  `main` at fb452202 (budget 7,680).
+- **The gatekeeper's `agreement` part has no field for answers** (only `answers: "in-app"`), where
+  the spec allowed answers "only where the host asked": the copy never asks, and a part that
+  cannot hold them cannot leak them.
+- **The approval card names no one**: "Signed agreement: [title], version [n], agreed by the
+  person / by a parent or guardian / by a buyer without an account, [UTC time]". The spec's
+  "[who]" would have put a name where an AI acting for an approver can read it.
+- **The copy's text names no one either** and has no link: it says what was agreed, when, how,
+  and that it is under My agreements in the app or on the website. A guardian's copy says the
+  attached file names whom it is for.
+- **Who sees a name typed and strokes in a download** follows `me.agreements.get`: only whoever
+  agreed. The copy is built as the recipient's own download is, so for anything but a health form
+  the attachment and the person's download are the same bytes; a health form's download adds the
+  answers. A paper form's signer and note are in staff's file only; its name on the form is in a
+  person's download only for an adult's own form (for a minor's the host cannot tell which parent
+  signed). A guest's copy names the buyer as typed, never the Person matched to the address.
+- **Downloads are operations that return what the PDF says**; the route draws it. Two prefixes, as
+  the media route: `/api/agreements/…`
+  (staff, behind Access) and `/api/v1/agreements/…` (a customer on the host's hostname or over the
+  client-app binding; staff by session too).
+- **A paper form's copy goes to the Person it is for, an adult**, and is refused when they have
+  none. For a child (a marked minor or a live dependant) it was refused at first (coordinator's
+  decision after the review of PR #283, the owner being asked): staff gave the guardian the PDF
+  download. `paperCopyRecipient` is the one place that decides it. **Changed 2026-11-24 (the
+  owner's decision, ADR 0648, `feat/stage-44-paper-copy-guardian`):** see "After the owner's
+  decision on a child's paper copy" below.
+- **The copy is not routine mail** (ADR 0590): that is a pack automation's mail held per run, not a
+  general host template path, so the copy uses `callAsHost` as the spec first said.
+- **A deployment with no email channel** keeps copies queued until one is set, reads none of them
+  meanwhile, and tells admins once.
+- **When a copy waits for a person:** under today's gate, never in practice: the host's own message
+  applies at once unless the deploy-time floor denies it (then `failed`). `waiting` covers a send
+  the host could not see decided (a submission cut off before it was applied, which email-send
+  submits again on the retry) and any later rule that holds host mail: a waiting copy is asked
+  about again (15 minutes, doubling, at most a day) until it is `sent` or turned down (`failed`).
+- **Idempotency keys are kept apart by who is sending** (the review of PR #283, ADR 0645 as
+  amended): per class of queue (not per kind, the second review: a retry may be decided another
+  kind), each class pruned by its own volume, the copy's keys refused to every other queue, keys
+  remembered before still read on a miss for one release; `listSent()` shows the host's
+  agreements, sign-in and orders mail only to that same queue; and callers' waiting sends (500)
+  never block the host's copies and sign-in codes (their own 100). A copy refused for a full queue
+  waits, uncounted, and admins are told once. What went wrong is kept as a category, never the
+  provider's words.
+- **The minute cron's copy step pauses with the automation kill switch**, as every minute step.
+
+Not built here: the "Email a copy" button and the download links on screen (steps 5 and the admin
+Person tab), the desk's copy wording and previous address (step 6), the retention purge of copy
+rows (step 8). Left for step 8 by the reviews of PR #283: on erase, cancelling a person's pending
+approval of a copy that was waiting, and scrubbing the email gatekeeper's storage. Until then it
+keeps, for an erased person: the sent history's recipient and subject for each of its last 200
+sends (`listSent`, shown only to the same class of queue); and every pending, failed or
+not-yet-forgotten journal record of their copies, with the whole message (the address, the
+record lines, the name typed and the strokes). Erase already clears the copy row's address, its
+error category and its pending approval's id, and cancels any copy not yet sent.
+
+ Not verified: the PDF in Email Service itself (it is passed as bytes, which the
+binding's types allow) and in mail clients; the copy through the real email-send gatekeeper and
+the real integration host together (each is tested with the other's double: the runner with the
+fake outbox, the gatekeeper with a fake queue).
+
+### Step 4: after the owner's decision on a child's paper copy (`feat/stage-44-paper-copy-guardian`, 2026-11-24)
+
+The owner decided that a child's paper form copy goes to the linked parent or guardian staff pick
+(ADR 0648, amending ADR 0645; migration 0857). Built:
+
+- `agreement.copy.preview` returns, for a child's paper form, `guardians`: each live guardian of
+  the child (as the seam reads a live link) with an address the host may send to (their linked,
+  active sign-in address, else their primary address), with their Person id, name and that
+  address, and only those the member of staff may see. `refused: "minor"` now means no such
+  guardian.
+- `agreement.copy.send` takes `guardianId` and `confirmTo` (the host's current address for that
+  guardian, else `agreement_copy_address_changed`). Refused: no choice when one is needed
+  (`agreement_copy_guardian_required`), anyone not a live guardian of the child at the send, or a
+  guardian given for an adult's form (`agreement_copy_not_guardian`), a guardian with no address
+  (`agreement_copy_no_address`), and no guardian with an address (`agreement_copy_minor`).
+- Migration 0857: the copy row's `guardian_id` and `guardian_erased_at`; the insert trigger allows,
+  for a paper acceptance only, a live guardian's own address and nothing wider; the update
+  trigger lets the guardian change only to a merge's survivor, or to nothing once their Person is
+  gone, recorded with the address cleared, and lets a scrub be owed then.
+- The copy is drawn as the guardian's own download of a child's paper form (no name on the form,
+  no signer, no note) and says it is for someone linked to them as their parent or guardian.
+- Erase: the guardian's address on the child's copy is theirs (`agreementAddresses`, the approval
+  turned down, the address and id cleared, the scrub owed); erasing the child clears it with the
+  acceptance and never takes the guardian's address. Merge moves `guardian_id` to the survivor.
+- The staff screen: the Person page's Agreements tab gets "Email a copy" on a paper acceptance (the
+  button step 4 left for later), which shows the adult's address, or lists the child's guardians
+  with their addresses to pick from, then confirms.
+
+After the privacy review of PR #301 (ADR 0648 amended): a guardian copy not yet gone is cancelled
+the moment the link stops being live (ended, deleted, or either Person in the Trash), its pending
+approval turned down and redacted, the scrub owed if it reached the gatekeeper; the sender checks
+again before every send or re-ask. A second ask for another recipient is refused
+(`agreement_copy_already`); a guardian copy cancelled before any try reached the gatekeeper may go
+to a guardian linked now (the same row and first key, `core_agreement_copy_reopen`). The guardian's
+email never says they agreed. A paper copy with no guardian is refused for a minor in the database.
+
+One e2e journey (`apps/app/e2e/agreement-acceptances.spec.ts`): staff email a copy of a child's
+paper form to the parent they pick.
+
+### Step 4: idempotency keys per caller (issue #286, `fix/issue-286-idempotency-classes`, 2026-11-24)
+
+- The email gatekeeper keeps an ordinary caller's idempotency keys apart per caller, not in one
+  space for every caller: the integration host's queue names who is calling (`callerKeySpace`: a
+  person, the assistant or an agent job by actor and person; an MCP app by person and connected
+  app; an automation by its id; extension code by its extension) and the gatekeeper keeps that
+  caller's keys under a hash of it (`keySpaceOf` in `queue-class.ts`, the fake outbox too), each
+  space pruned by its own volume. A queue that names no caller keeps its callers together, as
+  before. ADR 0574 and ADR 0645 amended.
+- The read of keys from before keys were kept per class (`idem:<key>`) is gone. No release carried
+  them: the keys (ADR 0574) and the fallback both came after v0.1.0-beta.11, the last release.
+
+## Step 5: build notes (`feat/stage-44-blocks`, 2026-11-24)
+
+Built: the headless entry `packages/client/src/agreements.ts` (exported by `@composable-os/client`):
+`createAgreementsHooks`, `agreementRefusal` and `withAgreements` (read a buying or booking call's
+refusal, and try once more on `agreements_changed`), `dueForRefusal` and `dueSteps`, the form's
+checks and input (`agreeProblems`, `agreeInput`: the version id shown, only what that version asks
+for), `StrokeRecorder` and `boxPoint` (a drawn signature in the host's format: integer points in
+the 1000 by 400 box, never NaN or Infinity, stopping at 30 strokes, 5,000 points and 32 KB rather
+than sending more), the words a screen shows (`dueReasonWords`, `agreedByWords`, `copyWords`,
+`agreeErrorWords`) and `agreementPdfPath`. Base-layer blocks over it:
+
+| Block | Skin | What |
+| --- | --- | --- |
+| `web-agree` | web | `Agree` (the words in a region that scrolls by itself and by keyboard, a health form's questions, the tick label and box, the typed name, the signature pad for `drawn`; problems tied to their fields; cleared after agreeing), `SignaturePad` (pointer events: mouse, touch, pen; coalesced points; `touch-action: none`; a clear control), `MemberAgreementStep` and `GuestAgreementStep` (the inline step) |
+| `web-agreements-due` | web | `BeforeYouGoOn`: each due document in turn, the member's own then each child's; "Not now" |
+| `web-my-agreements` | web | `MyAgreements`: per person, what is due (with "agree again" notices) and every acceptance (version, when, by whom in words, in effect or replaced), the PDF, a health form's answers to update; `personId` for one child's |
+| `native-agree` | native | The same `Agree` and `MemberAgreementStep`; the pad on React Native's touch responder (PanResponder), drawn with plain Views, no new native module |
+| `native-agreements-due` | native | `BeforeYouGoOnScreen` (holds its scroll still while a signature is drawn) |
+| `native-my-agreements` | native | `MyAgreementsScreen`; the PDF through the app's own `onDownload` |
+
+The inline step, with an optional `agreements` prop (without it, the refusal is only named):
+`bookings-drop-in` (a member's step or a visitor's), `bookings-timetable` (book and pay),
+`bookings-native-timetable` (book), `memberships-passes` and `memberships-plans` (a member's step
+or a visitor's). The client template: `/before-you-go-on` (sign-in goes there; nothing due goes
+straight to the account) and `/agreements` (plain pages, as its sign-in page is), `agreementPdfRoute`
+in `src/host.ts` (a person's own PDF on the app's hostname), the agreement operations in
+`BROWSER_OPERATIONS`, the generated clients regenerated; the mobile template's Account names what
+is due. The `/blocks` development page mounts the base layer's `web-*` blocks and gives every
+block the agreements hooks.
+
+Every answer from the host has a designed state:
+
+| The host says | What the person sees |
+| --- | --- |
+| Nothing due | Before you go on goes straight on; the purchase or booking goes through |
+| Due, their own | The documents in turn, then the call again ("Agree and book", "Agree and pay") |
+| Due, a child's (a parent booking for them) | The same, for the child, "for [name]", recorded as the parent's |
+| `reason: "guardian"` (`canAgree: false`) | "A parent or guardian agrees to this for you", with how (their parent's own account, or a paper form); no form |
+| `reason: "minor_payer"` | "A parent or guardian needs to buy this for you." |
+| `reason: "agree_again"` / `"ask_again"` | The new version, "This has changed since you agreed: please read it and agree again" / "It is time to answer these again" |
+| `agreements_changed` | Asked again and tried once more; a second time, the call's own error |
+| A visitor's agreements for an older version (`agreement_not_asked`), or a version replaced while reading (`agreement_version_replaced`) | Asked again with none: the documents due now; "This changed while you were reading it" |
+| A visitor | The words from `agreement.guestVersions`, every document agreed in turn, then the buying call carries them |
+| Offline or the host unreachable | "We could not reach the business just now… what you entered is still here"; nothing is lost from the form |
+
+Operations: `agreement.guestVersions` (customer and public, `hostInternal`, `records:read`, read)
+is new; `me.agreements.accept` answers `copyTo` (the address the copy goes to; null for a repeat
+that records nothing).
+
+Deviations and decisions, and why:
+
+- **The inline step follows the host's refusal** (ADR 0644 amended): the block makes the call,
+  and shows what is due when the host refuses it, then makes it again. The spec's "what is due at
+  this point, inline, before Pay or Book" would need a block to know the point, or a second
+  question beside the one that holds; the refusal is made before any batch is planned, so nothing
+  is held or charged by it, and it cannot disagree with the check.
+- **A public operation, `agreement.guestVersions`**, so a visitor can read the words before
+  agreeing: only what `guestDue` asks (a live, attached document for everyone, its version in
+  effect; never one scheduled for later). A reviewed change (ADR 0402); it reads no Person.
+- **Bookings' `book` and `buy` pass the host's agreements refusal through**, `agreements_changed`
+  included (it was told as "it changed while you were booking").
+- **For a document agreed to by drawing there is no typed alternative in the block**: how is the
+  business's choice per document (decision 2). The pad says to ask the business for a paper form,
+  which staff record (`agreement.recordPaper`); a keyboard or screen reader user is told the same.
+- **The block's checks only say what is missing** (the box, the name, each answer, some ink): the
+  host checks all of it again. A tap is refused here as it is by the host (the same least ink).
+- **Nothing a person gives is kept**: the form's state is the component's, cleared after agreeing;
+  a visitor's are handed once to the buying call; `me.agreements.accept`, `me.agreements.get` and
+  the buying calls that carry a visitor's agreements keep nothing in the app's cache after them
+  (`gcTime: 0`). No URL, storage, log or analytics; the e2e checks the visitor's typed name is in
+  neither the address nor the browser's storage.
+- **Native never buys**, so the app has no visitor's step; the PDF download in the app is the app's
+  own `onDownload` (opening a link cannot send the session's token).
+- **The template's pages are plain**, as its sign-in page is; the blocks are what `cos add` copies.
+
+Tests: `packages/client/test/agreements.test.ts` (the refusals, the retry, matching what is due,
+the form's input, the recorder's limits and mapping, the hooks a client can back);
+`packages/core/test/agreement-signature-pad.test.ts` (what the pads record passes the host's
+`signatureSchema`, cut to the limits); `agreement-enforcement.test.ts` ("what the agreement blocks
+read": `agreement.guestVersions` and `copyTo`); the template's PDF route in
+`apps/app/test/company-web-media.test.ts`. E2E, one test per journey
+(`apps/app/e2e/agreement-blocks.spec.ts`): a member agrees on Before you go on and books; a visitor
+pays for a class with a drawn waiver and a health form inline (`@phone`: the pad fits the width);
+a parent agrees for their child on My agreements and books them; a new version is asked inline at
+the next booking, the earlier booking kept; a member marked a minor is told a parent or guardian
+buys their pass.
+
+Not verified: any of it on a real phone. The native blocks are type-checked only; whether a
+ScrollView takes a stroke away on iOS or Android inside the timetable (which cannot hold its scroll
+still), and how smooth the View-drawn line is, need a device. The web pad was driven by mouse
+events in desktop Chromium and at phone width; touch and pen input on a real device were not.
+
+### Step 5: after the review of PR #291 (2026-11-24)
+
+Fixed in the same PR (ADR 0644's amendment corrected):
+
+- **Nothing a person gave stays in the app's cache.** `gcTime: 0` removes a mutation only once no
+  screen uses it, so every call that carries a name typed, a signature or answers
+  (`me.agreements.accept`, a visitor's buying call) goes through `forgetAfter`, which resets the
+  mutation whether it succeeded or failed (tested against TanStack Query's own observer). A
+  visitor's agreements are held in the buying block's state only: kept when the purchase fails for
+  another reason (network, card) so nothing is typed twice, forgotten once it starts, on Back, and
+  when the page is left or brought back from the back-forward cache (`useForgetOnLeave`).
+- **`agreement.guestVersions` returns only the version in effect**, never one scheduled for later.
+- **The native step is on a screen of its own** (`AgreementStepModal`, a modal over the list),
+  whose scroll holds still while a signature is drawn; the native pad redraws at most once a frame
+  and only the run of lines being drawn, and a second finger draws nothing.
+- **One pointer draws on the web pad** (`isPrimary`, and `StrokeRecorder` follows one pointer id).
+- **Purchases**: a second refusal on the retry, and a network failure, each have their words
+  (`purchaseErrorWords`); the "copy is on its way" line is shown in the drop-in, plans, passes and
+  both timetables; a visitor is told the copy follows the payment.
+- **A point declares whether its pack's screens let a person agree** (`inlineStep` on the
+  `agreements` declaration; Memberships and Bookings set it). The document page warns when a
+  document is attached to a point without it (Ticketing's `event`, Courses' `course`), and those
+  packs' checkouts say "This needs an agreement that can't be given here yet" for the host's
+  refusal. The real steps there are an issue.
+- **The template's routes** answer a bad percent-encoding with 400, and the PDF route keeps the
+  session; the mobile Account names whose document is due.
+- **The e2e spec** is skipped against a reused server unless `E2E_AGREEMENTS_REUSED=1`, puts the
+  customer and order settings back after each test, and draws the `@phone` signature with touch
+  events. Its retiring of every live document happens at the start and end of its own tests only;
+  specs run one at a time, and the step 8 spec (`agreements-kept.spec.ts`) makes its own document
+  inside its test, so nothing of it is retired while it runs.
+
+What a device test must check (not verified here): on an iPhone and an Android phone, in the
+native timetable's agreement step (the modal) and on Before you go on and My agreements: a
+signature drawn top to bottom and fast is not cut off or turned into a scroll; the line follows the
+finger without lag; a second finger on the pad draws nothing; Clear empties it; the keyboard does
+not cover the name field; VoiceOver and TalkBack read the tick label, the questions and the pad's
+state; the modal closes with the system back gesture; and a booking goes through after agreeing.
+
+### Issue #292: the agreement step in the Ticketing and Courses checkouts (2026-11-24)
+
+Built: the inline step in `ticketing-checkout` (`TicketPicker`, "Agree and pay"), `courses-course`
+(`CoursePage`, "Agree and buy") and `courses-subscribe` (`Subscribe`, "Agree and subscribe"), each
+with an optional `agreements` prop, as the Memberships blocks have it: the buying call goes through
+`withAgreements` and `forgetAfter`; on `agreements_due` a signed-in member gets
+`MemberAgreementStep` (each acceptance recorded at once) and a visitor `GuestAgreementStep` (held in
+the block's state, carried in `x.ticketing.orderStart`'s, `x.courses.buy`'s or
+`subscription.start`'s `agreements`, kept when the purchase fails for another reason, forgotten once
+it starts, on Back and on leaving the page); a minor is told a parent or guardian buys it. The
+packs' hooks make those calls with no cache kept after them (`gcTime: 0`, and `reset` through
+`forgetAfter`). `ticketing.tickettype` and `courses.course`, `courses.bundle` and `courses.plan`
+declare `inlineStep: true`, so the document page no longer warns at `event` or `course`. The buying
+tools already passed a visitor's `agreements` through (step 3).
+
+Decisions and deviations:
+
+- **No native step.** The issue says web and native blocks, but Ticketing's and Courses' native
+  blocks never buy (`noPurchase`, the owner's decision that buying is on the web), and the `event`
+  and `course` points are asked only at a purchase, so there is nothing in the app to put a step in.
+- **`courses-subscribe` is type-checked now** (it was missing from the blocks' `tsconfig.web.json`):
+  its two type errors are fixed without a change in behaviour (`refetch` on the pack's `UseQuery`,
+  and the no-trial reason narrowed as the Memberships plans block does).
+- **The "can't be given here yet" words stay** in `@composable-os/client` (`agreementBlockedWords`)
+  for a client app's own screen that buys without a step; no shipped block uses them now.
+
+Tests: `apps/runner/test/agreements-enforcement.test.ts` (every shipped point has its inline step;
+terms on `course` refuse a visitor's `x.courses.buy` until it carries them, recorded with the order
+as a guest's). E2E (`apps/app/e2e/agreement-blocks.spec.ts`), one journey: a signed-in member buys a
+course, agrees to its terms inline on the course page, pays, and holds the course.
+
+Not verified: the ticket checkout's step in a browser (the block takes an `onStarted` callback the
+`/blocks` page cannot pass, so no e2e mounts it; it is type-checked and is the same code as the
+course page's), and a visitor's step on the course page and on Subscribe (the drop-in's e2e covers
+the same `GuestAgreementStep`).
+
+## Step 7: build notes (`feat/stage-44-cooling-off`, 2026-11-24)
+
+Built: migration 0856 (`core_subscription_checkout.cooling_off_days`, `core_subscription_cool_off`
+and its once-per-member and final-state triggers), ADR 0647. The SDK's
+`sellable.recurring.coolingOff: { setting }` and its contract check; `subscriptions/cooling-off.ts`
+(`coolingOffStatuses`, `coolOff`, `followCoolOff`, `coolingOffWindow`); `startSubscription` keeps the
+days in force on the checkout; `applySubscriptionEvent` owes the refunds once the provider shows
+the subscription ended; the person merge moves cooling offs to the survivor; `refund-due.ts` words
+its notices by why the refund is owed. The Memberships pack's `coolingOffDays` setting (0 to 30,
+default 0, a person's) and `recurring.coolingOff`; its headless entry's `useCoolingOff`,
+`useCoolOff` and words; the web block's "Cancel for a full refund"; the app's block saying until
+when (on the website); staff's Cooling off card on the subscription's page; the block lint counting
+`subscription.coolOff` and `useCoolOff` as billing. The generated clients, the API contract,
+`open-operations.json` and the golden manifest regenerated.
+
+Operations:
+
+| Operation | Audience | Actors | Permission | Risk |
+| --- | --- | --- | --- | --- |
+| `subscription.coolingOff` | staff, customer (their own as payer; hostInternal) | every actor | records:read | read |
+| `subscription.coolOff` | staff, customer (their own as payer; hostInternal) | human (not on MCP) | subscriptions:manage (a customer: their own) | write |
+
+The rule for each case of money (every figure in minor units; each refund owed in full on its
+order, `payment_ref` null, and approved by a person with `orders:refund`):
+
+| Case | What is owed |
+| --- | --- |
+| Paid periods before it ended | Each, in full |
+| A period the provider charged as it ended, reported after | That one too, if its period started in the window or between the ask and the end |
+| An upgrade inside the window | Its prorated charge too (an order of the subscription); the window does not move |
+| A downgrade inside the window | Nothing more (it moves no money); the window does not move |
+| A pause inside the window | What was paid before it; the window does not move |
+| A free trial (nothing paid) | Not offered: the ordinary cancel ends it at no charge (the spec's "the button says cancel") |
+| A trial shorter than the window, then a charge | That charge |
+| A continuation offer's free period (moving over) | Never covered (decision 17) |
+| A guardian paying for a child | The guardian, as payer, cools off; their orders are owed back; the child's membership ends |
+| A guest's subscription | A new member's: staff end it for them, or the guest signed in as the paying address |
+| Staff already refunded part of an order | What is left of it |
+
+Deviations and decisions, and why:
+
+- **Once per member, ever** (the owner's decision of 2026-11-24, below; the spec was silent on
+  cycling): a holder who cooled off one membership here cannot cool off another,
+  held by the database on insert (so a merge or an erase is never refused). Per holder, not per
+  payer: a parent with two children may cool off each child's once.
+- **The days are those at the start, for good** (as amended after the review, below): kept on the
+  checkout, so a later change, shorter or longer, applies only to later starts. The spec says the
+  terms state the period; they are the business's text, so the host keeps the number it held when
+  they agreed.
+- **The window ends at the end of the last local day** (the start's day being day 0), not at the
+  same time of day: "within 14 days" read generously, and a clock change moves nothing. Day 13 is
+  inside and day 15 outside, as criterion 12 says; day 14 is inside.
+- **Nothing paid is not offered** (a trial, or before the first payment), rather than ending the
+  free time early with nothing to refund: the ordinary cancel does what the member wants.
+- **A provider that refuses because it already ended it** is read first and counted as sent, so a
+  second ask racing the first can never mark a real cooling off refused and lose its refunds.
+- **The app shows, the web acts** (ADR 0490): the native block says until when and that it is
+  done on the website, with no amounts (it is `noPurchase`); only the web block has the button.
+- **Bookings ahead are cancelled as the business's** (as amended after the review, below).
+- **A refused cooling off owes nothing**, even if the subscription ends later another way.
+
+Not built here: signing at the desk (step 6), stage 43's consent (step 9). Not verified: the real
+payments gatekeeper's `cancelSubscription { when: "now" }` against Stripe in test mode (the host
+is tested with the payments double, the e2e with the fake provider); the closing instant in the
+e2e (the host's clock cannot be moved from a browser: both sides of it, across a clock change,
+are in `packages/core/test/subscription-cooling-off.test.ts`); the native block on a phone.
+
+### Step 7: after the review of PR #299 (2026-11-24)
+
+Fixed in the same PR (ADR 0647 rewritten to match; migration 0856 edited in place, as it was not
+on `main`):
+
+1. **A cooling off that did not end the subscription owed back months of use** (the blocker). Now:
+   what is owed is only the orders for periods up to the window's end, plus any paid between the
+   latest ask and the end it caused; a member asks again only inside the window, after it only
+   staff with `subscriptions:manage` finish one asked in time; only an end within two days of the
+   latest ask is the cooling off's, and any other (an ordinary cancel, failed payments, months
+   later) makes it `lapsed`: nothing owed as cooled off, admins told once. The ordinary cancel is
+   shown again once one has lapsed or been refused past the window. The member's "a full refund
+   of X" is exactly that rule.
+2. **A crash between the commit and the call** wrote no notice and left billing running. The
+   minute cron's sweep (`subscription.coolOffSweep`, a host step, bounded, one read when idle)
+   reads the provider first, asks again while the window is open, else tells admins once. The
+   screens treat null like unknown and say admins were told only when they were.
+3. **Asking again after the holder cooled off another membership** is refused as `used` (the
+   trigger's message is a conflict too), never an internal error.
+4. **Raising the setting reopened closed windows**: the days are those at the start, for good
+   (the owner's decision, below).
+5. **Bookings ahead** (the owner's decision, below): the end the cooling off
+   caused cancels the member's bookings ahead that the membership paid for, as the business's
+   (`cancelled_by_us`), freeing places for the waiting list and giving uses back; attended and
+   late-cancelled ones stand. Platform: `allowance.spends.released` on the spender (checked by the
+   contract), declared by Bookings; at most 60 a batch (measured about 11 statements a booking on
+   36 for the end), staff told of any left.
+6. Tests for a partly refunded order (only the rest owed), the crash and the sweep (resolve,
+   re-ask once, tell once after the window), the after-window staff finish, the lapse, `used` on
+   the existing row, the raise, and the bookings released and kept.
+7. The e2e puts the setting back to what it was; ADR 0647 records the window's start (the host's
+   processing of the first event), the fixed idempotency key, the missing dispute model, and that
+   any pack may declare `coolingOff`.
+8. The site's copy says "once" and excludes members moving over.
+
+Statements, measured: `subscription.coolingOff` 8, `subscription.coolOff` 13, the provider's end
+36 plus about 11 for each booking released. cos-runner's main module after these fixes is given in
+the PR.
+
+### Step 7: after the second review of PR #299 (2026-11-24)
+
+Fixed in the same PR (ADR 0647 rewritten to match; migration 0856 edited in place):
+
+1. **An end the provider made at the first ask, reported after an ask again, lapsed.** Whose end
+   it is (`causedBy`) now runs from the first ask: inside the window, within two days of the
+   latest ask, or (while the ask waits at the gatekeeper) whenever it is approved. Every ask again
+   reads the provider first, and one it already ended is recorded as sent.
+2. **A refused cooling off whose subscription then ended anyway was dropped.** A refused one is
+   judged by the same rule: the cooling off's, or lapsed with admins told. A `retryable` failure
+   (pending again at the gatekeeper) is recorded as pending, never refused.
+3. **Waiting at the gatekeeper was a dead end.** The sweep takes one waiting over an hour (the
+   provider read; admins told once), staff may ask again, and an approval given late is the
+   cooling off's (the ask was in time), owing what was paid in the window and since the ask.
+4. **Once per member, ever**: a lapsed one, or one refused that never ended the membership, does
+   not count until staff finish it (a lapsed one can be finished: the window's payments owed, and
+   it counts). The lapsed notice says to finish it there, not to refund by hand.
+5. Tests: a booking paid by another holder, or for a class already started, is not released; 61
+   ahead.
+6. **Bookings past the cap**: 20 in the end's batch, the rest by follow-ups
+   (`subscription.coolOffRelease`, 30 a time) until none is left; the member's own waiting places
+   it would pay for go too; one summary email to the member through the host's mail; a failed
+   batch is applied again with the end and the refunds. Tested on the real Bookings pack
+   (`apps/runner/test/cooling-off-bookings.test.ts`): the waiter moves in, the largest batch well
+   under D1's limit.
+7. **What is owed is by when it was paid**: every payment on or before the window's end (one taken
+   in the window for a later period included), plus those between the ask that ended it and the
+   end.
+8. **Each ask is a new request** (`askKey`, the gatekeeper's key `cos-cancel-<id>-now-cool-off-<n>`);
+   the sweep's retry keeps its ask's key; staff's "end it now" keeps the subscription's own.
+9. `subscription.cancel` is refused while a cooling off is under way; the database refuses an
+   `INSERT OR REPLACE` over a cooling off; an idle minute writes no audit row; the site's copy
+   says "what they paid in that period".
+
+Statements, measured: `subscription.coolingOff` 8, `subscription.coolOff` 13, the provider's end
+37 plus about 11 for each booking released (20 in the batch); a follow-up of 30 about 360.
+
+### Step 7: after the third review of PR #299 (2026-11-24)
+
+The coordinator replaced the "whose end is it" logic with one rule (ADR 0647, "The rule", A to G,
+recorded there as replacing the earlier wording); migration 0856 edited in place:
+
+- **A.** A valid ask is made inside the window and fixes a deadline at `asked_at` + 7 days
+  (`COOL_OFF_OPEN_DAYS = DEFAULT_APPROVAL_EXPIRY_DAYS`); asking again never moves either.
+- **B.** While open and before the deadline any end is the cooling off's, whatever the reason; the
+  only allowance is a five-minute clock tolerance before the ask.
+- **C.** Owed: every order paid on or before the window's end, plus those paid after the ask and
+  on or before the end. The figure shown is the same function over the same bounds.
+- **D.** At the deadline the sweep lapses an open one, rejects its cancel waiting at the
+  gatekeeper (its id kept on the row), and tells admins once; one whose waiting cancel is rejected
+  or expires lapses at once. A lapsed row never becomes the cooling off's.
+- **E.** Staff finish a lapsed one: it ends the membership now, owes the window's payments only,
+  releases bookings ahead and sends the summary; stored as finished with its bounds.
+- **F.** Once per member, checked before writing; nothing in the path fails an end's recording
+  (a holder who used theirs: the end is recorded, the row lapses as `used`, admins told; probe P8).
+  The end's batch releases no bookings; the steps after it do.
+- **G.** Each state's exit is in ADR 0647's table, each tested.
+
+Also: stored payment events failing five times tell admins once and keep being tried with backoff;
+waiting places are read in full, future only, ordered by class start (one naming the membership,
+or naming nothing when nothing else is live); the uses are paged so what cannot be released never
+hides those after, and only what can be released counts toward what is left, so the steps end;
+the summary email is claimed before it is sent with an idempotency key, a held one is `pending`
+(not sent), a crash after the claim is tried once more, one that cannot go tells admins once, and
+it never claims more cancelled than were. The e2e flake in `agreement-acceptances.spec.ts` (a class
+at now + 30 minutes that fell on the next UTC day) is fixed. The probes P1 to P8 are tests with
+exact amounts in `packages/core/test/subscription-cooling-off.test.ts`.
+
+Statements, measured: `subscription.coolingOff` 8, `subscription.coolOff` 13, the provider's end
+35 whatever is booked ahead; a release step about 40 plus 6 a booking (30 a step).
+
+**The owner's answers (interview of 2026-11-24)**, confirming what is built, recorded in ADR 0647:
+(1) when a member cools off, classes booked for later are cancelled and the places freed, waiting
+lists moving people in; (2) once per member, ever; (3) the ceiling for the setting is 30 days;
+(4) the clock starts when the payment provider confirms the membership started; (5) a longer period
+set later applies only to people who join after the change.
+
+### Step 7: after the fourth review of PR #299 (2026-11-24)
+
+Fixed in the same PR (ADR 0647 amended to match; migration 0856 edited in place, schema version
+still 857):
+
+1. **Waiting cancels.** While a cancel of a cooling off waits for a person at the gatekeeper, a new
+   ask (the member's or staff's) and a finish are refused (`reason: "waiting"`, said to the caller).
+   Every cancel the row ever waited on is kept (`core_subscription_cool_off_action`, by its ask), so
+   a `retryable` answer loses none; the row lapses "for the action" only when none waits and the
+   latest ask's was turned down or expired; at the deadline every one still waiting is rejected.
+2. **Staff finishing a lapsed one** records the request (`finish_state`) and stays `lapsed` until
+   the provider's verified event shows the membership ended; that event's batch finishes it (owes
+   the window's payments, releases the bookings ahead, makes the summary due). The sweep retries
+   the request with the same key (`cool-off-finish-<n>`) at most hourly, waits while its approval
+   waits, and marks it `stuck` with admins told once when it is refused, turned down, or not
+   confirmed a day on. No failure is swallowed. Staff's ordinary end finishes it the same way.
+3. **The minute tick** runs at most one release step (the longest waiting), of 15 bookings (30
+   before), then the bounded sweep. Measured over every tick: five members with 31 ahead each on
+   the host's fixture, 172 statements at most (1,568 before); the runner's whole `minuteTick` on
+   the shipped packs, four members with 31 ahead each, 499 at most
+   (`apps/runner/test/cooling-off-bookings.test.ts`; a step of 30 measured 799).
+4. **An end the provider shows but never sends** lapses a day after the deadline at most, admins
+   told once, and the sweep stops visiting it (past-deadline rows are looked at every five
+   minutes, not every minute).
+5. **"Paid" is when the provider took the money**: a period's order keeps its verified event's
+   time (`core_order.provider_paid_at`), and the rule compares with that; `paid_at` (the host's
+   processing) is unchanged for everything else.
+6. **A holder who has since used theirs** on another membership: the open ask stops being open at
+   once (the ordinary cancel works), and the next tick lapses it as `used`, rejecting any waiting
+   cancel, admins told once.
+7. A release step that succeeds resets `release_failures`. The five-minute clock tolerance and the
+   trigger race stay as documented in ADR 0647.
+
+Also: the sweep's hourly re-ask of a lost answer now times itself by `last_asked_at` (it was timed by
+`updated_at`, which each visit touched, so it never asked twice).
+
+Statements, measured: `subscription.coolingOff` 9, `subscription.coolOff` 14, the provider's end
+35 whatever is booked ahead.
+
+### Step 7: after the fifth review of PR #299 (2026-11-24)
+
+1. **A `retryable` answer is `unknown`, not `pending`**: it sent nothing and leaves no approval,
+   so the sweep reads the provider and asks again with the same key hourly (it used to wait for an
+   approval that did not exist and lapse with nothing owed).
+2. **A stuck finish is not finished by a later end**: only a finish under way (at most a day, or
+   until its approval is given or expires) is finished by the provider's end; staff finish a
+   stuck one again.
+3. **Release speed** (information): one step of 15 a minute for the host; recorded in ADR 0647.
+
+## Step 8: build notes (`feat/stage-44-erase`, 2026-11-23)
+
+Built: migration 0855 (`core_agreement_hold`; the acceptance's update trigger made again with one
+more erasure, a buyer's paid purchase nobody settled; the delete triggers of the acceptance, its
+signature and answers made again to allow the purge; `core_agreement_copy`'s `scrub_due_at` and
+`scrubbed_at`, its erase and update triggers made again and a delete trigger), ADR 0646; ADRs 0320,
+0642 and 0645 amended with dated notes. `agreements/people.ts` (erase, merge counts),
+`agreements/retention.ts` (the setting, the purge's selection, `runAgreementRetention`),
+`agreements/copy.ts` (`scrubErasedCopies`, and the sender marking a scrub owed when its claim was
+taken by an erase), `operations/agreement-retention.ts`; email-send's `scrubAgreementCopy`; the
+integration host's `callAsHost` allows it for purpose `agreements`; the fake outbox does the same;
+the daily maintenance runs the purge; Settings → Agreements → Kept after erase; the merge preview's
+agreement lines.
+
+Operations:
+
+| Operation | Audience | Actors | Permission | Risk |
+| --- | --- | --- | --- | --- |
+| `agreement.retention` | staff | every actor | records:read | read |
+| `agreement.setRetention` | staff | human | policy:manage | destructive |
+| `agreement.kept.find` | staff | human | agreements:manage | read, every search audited (input redacted) |
+| `agreement.kept.hold` | staff | human | agreements:manage | write |
+| `agreement.purgeKept` | staff | automation, system origin only (`hostStep`) | records:erase | write |
+| `agreement.mergePlan` | staff | every actor (says `person` to an AI) | records:read | read |
+
+`person.erase` returns `agreementsKept { count, until, deleted }`. `agreement.acceptance.get` now
+refuses a kept acceptance (or a buyer's not yet settled) without `agreements:manage`, and reads a
+Person's through the visibility seam, as `agreement.acceptance.pdf` does.
+
+What erase does to each store, and where it is tested (`packages/core/test/agreement-erase.test.ts`,
+`packages/gatekeeper-email-send/test/scrub.test.ts`):
+
+| Store | On erase |
+| --- | --- |
+| Their acceptances | Kept detached: Person and account cleared, `erased_at` set; version, time, how, name typed, address and signature kept |
+| Acceptances they made as a guardian | Kept on the child's record without the guardian, account, name typed or strokes; address kept; the child is due again |
+| A buyer's acceptances with their address or Person: unpaid order, unconfirmed checkout | Deleted with signature and answers |
+| A buyer's acceptances on a paid order nobody settled | Kept detached (the order's address is cleared, so it can never settle) |
+| Health answers | Deleted (a child's on a guardian's acceptance stay with it until the purge) |
+| The minor mark | Deleted |
+| "A health form needs a look" notices of their acceptances | Deleted |
+| `core_agreement_copy` | Address, error and pending action cleared; not sent if not gone; scrub owed if it ever reached the gatekeeper |
+| The host's pending approval of a waiting copy | Turned down; input, reason, preview and simulation redacted |
+| Email-send's journal records of their copies | Dropped; a later send under the key refused |
+| Email-send's history lines of their copies | Recipients and subject blanked (`[erased]`) |
+| Audit, approvals and orders mentioning the addresses their acceptances hold | Redacted by erase's terms (the addresses are added to them) |
+| Their PDFs | Downloadable only by staff with `agreements:manage` (the person has none: their sign-in is gone) |
+
+Deviations and decisions, and why:
+
+- **A legal hold** (`agreement.kept.hold`) is new: the coordinator asked that the purge never take
+  what a hold keeps, and no hold existed. It holds who and when, no reason (free text would be
+  personal data of its own); the audit says who held what.
+- **The retention setting is an admin's** (`policy:manage`, as `audit.setRetention`), not a pack
+  setting with `personApproves`: it is core's, and shortening it deletes evidence. 1 to 50 years;
+  an unreadable value purges nothing.
+- **A buyer's acceptance on a paid order nobody settled** (an address several People share, staff
+  not yet having said whose) is kept detached when an erase clears the order's address: the spec
+  named only unpaid ones. It is evidence of a purchase that can no longer settle to anyone.
+- **An unconfirmed subscription checkout's** buyer acceptances are deleted like an unpaid order's.
+- **The health notice** of an erased person's acceptance is deleted: it names nobody, but beside a
+  kept acceptance it would say that this person answered yes.
+- **The addresses an erased person's acceptances hold** join erase's terms and addresses (an
+  earlier sign-in address, a purchase's address), so the audit, approvals and orders are redacted
+  for them too.
+- **A copy whose send was in flight when the erase landed** reads `cancelled` though it was
+  delivered; the gatekeeper's record of it is scrubbed after. The person got their own copy before
+  they were erased.
+- **The scrub is asked right after the erase and by the minute cron's copy step**, not before the
+  erase commits: a gatekeeper that cannot be reached must not block an erasure, and the copy row
+  keeps the scrub owed (the database clears it only with `scrubbed_at`) until it is done.
+- **The open desk session** (decision 22) has no table yet: step 6 must end a Person's open session
+  on erase and keep a closed one detached with the acceptances it made.
+
+cos-runner's main module is 5,625 KiB as shipped after the second review's fixes, on `main` at 42fe315b (budget 7,168).
+
+A Person purged from the Trash owes the same scrub of their copies (the same trigger). Left for later (an issue to file): a live subscription whose payer is erased keeps billing at
+the provider and the holder keeps what it grants; erase has never ended a subscription, and what
+it should do (cancel at the provider, tell staff, refund) is stage 32's decision. Not built
+here: a download link on the kept page (no screen downloads a PDF yet, as
+step 4 said). Not verified: the scrub against the real email-send and integration host together
+(each is tested with the other's double), and the purge against D1 at a scale of thousands of kept
+acceptances (it is bounded to 100 per round, ten rounds a day, index-ordered).
+
+### Step 8: after the privacy review of PR #288 (2026-11-23)
+
+Fixed in the same PR (ADR 0646 amended; migration 0855 edited in place, as it was not on `main`):
+
+1. **Erasing a child reached the guardian** (a blocker this step introduced): the addresses erase
+   took from agreements included the guardian's on their acceptance for the child. Now only the
+   erased Person's own (`self`, and `guardian` as the agent); more than 50 is refused.
+2. **The scrub goes to the gatekeeper the copy reached** (`via` on the copy row), not the current
+   channel; a gone one is `unreachable`, admins are told once; after 30 days owed the purge goes
+   ahead and audits it. The gatekeeper answers `found` apart from `done`.
+3. **Paper free text** is `agreements:manage`'s only, and a guardian's erase clears it on their
+   dependants' paper forms (coordinator decision, owner to confirm).
+4. **`agreement.acceptance.get` is audited** (the id and whether kept); `kept.find` records the ids
+   it showed.
+5. **Open purchases close on erase**: unpaid orders cancelled by the host; unconfirmed
+   subscription checkouts closed (`core_subscription_checkout.erased_at`, address cleared), so a
+   later confirmation makes nothing (staff are told to cancel and refund it with the provider). A
+   drop-in's late payment is owed back automatically (`oweLateRefund`); another order's is on the
+   paid-late list for staff.
+6. **The retention setting is read one way** in host and database.
+7. A runner test for the integration host's `scrubAgreementCopy`; an e2e journey for Kept after
+   erase (find, open, hold, release); `agreement.erasePreview` on the Erase requests list (the app
+   has no erase button of its own); a typed confirmation of how many records a shorter period makes
+   due; no silent caps in erase's reads.
+
+### Step 8: after the second privacy review of PR #288 (2026-11-24)
+
+Fixed in the same PR (ADR 0646 amended; migration 0855 edited in place): the scrub asks every
+gatekeeper each time and records which finished (`scrub_done`); the purge's 30 days count only
+while every gatekeeper left is gone (`scrub_gone_since`), and its audit names them; a connection
+that needs re-authorising is `inactive`, never gone, with its own notice per connection; erase
+touches only purchases that are the erased Person's or nobody's with their own address (narrowing
+ADR 0320); a guardian's erase clears only paper forms whose text names them; a late payment on an
+order an erase detached (cancelled, or part-paid) is refunded, never honoured; `erasePreview` is a
+person's, reads the Trash and merged records, and counts buyers' acceptances; addresses are read in
+batches and the erased-address list written 20 rows a statement, so nobody is un-erasable.
+
+## Step 6: build notes (`feat/stage-44-desk-signing`, 2026-11-24)
+
+Built with stage 51's step 1 (the enrolled device), as stage 51's spec says the two fit: migration
+0858 (`core_agreement_desk_session`, its triggers, and the acceptance's desk check), migration 1130
+(block BM: `core_device`), ADR 0649 (signing at the desk) and ADR 0780 (the enrolled device); ADRs
+0402, 0600 and 0660 amended with dated notes. `agreements/desk.ts` (the session's rules),
+`agreements/desk-marks.ts`, `devices/` (the device, its credential, rotation, clones and lapsing;
+the HMACs), `operations/agreement-desk.ts`, `operations/device.ts`; the desk origin's handler
+(`apps/app/src/server/http/desk.ts`, `server/desk.ts`) and its two pages (`/desk`, `/enrol`); the
+admin's Settings → Devices, Sign at the desk (on the Person page and as a core screen) and the
+desk filters and marks on the Acceptances list; `cos deploy`'s desk hostname and `DESK_SECRET`.
+
+Operations:
+
+| Operation | Audience | Actors | Permission | Risk |
+| --- | --- | --- | --- | --- |
+| `device.enrol`, `device.setUse` | staff | human | users:manage | write (every admin told) |
+| `device.revoke` | staff | human | users:manage | destructive (every admin told) |
+| `device.list` | staff | every actor | users:manage | read |
+| `agreement.desk.find`, `.prepare`, `.devices`, `.get` | staff | human | agreements:desk | read |
+| `agreement.desk.start`, `.end` | staff | human | agreements:desk | write |
+| `device.claim`, `desk.claim`, `desk.documents`, `desk.accept`, `desk.heartbeat`, `desk.finish` | public, `deskOnly` | the desk origin's handler | (the credential and the token) | write |
+| `desk.status` | public, `deskOnly` | the desk origin's handler | (the credential) | read |
+
+`agreement.person` answers `can.signAtDesk` and each desk acceptance's `desk` (its words, the
+device, who started it, its marks); `agreement.acceptances` filters by `channel`, `deviceId`,
+`startedBy` and `mark`. The permission `agreements:desk` (admins by default, grantable, and the one
+core permission grantable to a fixed-role account).
+
+Deviations and decisions, and why:
+
+- **The device is `core_device`** (stage 51's), not `core_agreement_desk_device`; enrolment and
+  revocation are `device.enrol`/`device.revoke` with users:manage, not `agreement.desk.enrol`.
+- **The desk calls are `deskOnly`**: a new operation option (ADR 0402 amended). The spec's "public
+  audience, on the desk origin only" needed a way to keep them off the HTTP surface and the
+  client-app binding; the desk origin's handler is the only caller that can give them the
+  request's cookies.
+- **`desk.status`** is a sixth desk call that reads only whether this browser is an enrolled device
+  and its name, so the page shows Enter code or Enrol. It reads no token.
+- **Staff find the Person by name** on the core screen (`agreement.desk.find`, `agreements:desk`):
+  a coach with a fixed role cannot open the Person page. It answers names and ids, nothing else;
+  `agreement.desk.prepare` answers the titles due, the children and the masked address.
+- **A wrong code on the chosen device ends a waiting session** (`failed_claim`): the spec's "a
+  failed claim on the expected device". A used, ended or run-out code counts as a wrong code.
+- **Every admin is told in the host**; by email only as each admin's notification preferences
+  route "Messages" (the notice is a `system.message`). Forcing email past a person's preferences
+  is a change to notification delivery, not made here.
+- **Not built**: the copy to the **previous address** (ADR 0649 says why: the copy machinery is
+  one recipient per acceptance, and a second send needs its own row, key and scrub; the "address
+  changed recently" mark shows the change meanwhile) and a QR code on the staff screen (the code
+  is typed). Both are follow-ups, named in the PR.
+- **The marks' "changed recently"** reads the audit's `emails` changes of the Person (a staff
+  edit, a merge, an import: any path that records one), not the customer account's own change of
+  its sign-in address, which no operation makes today.
+- **Erase** ends an open session and detaches every one (none is deleted: an acceptance points at
+  it), as step 8 asked.
+
+Tests: `packages/core/test/agreement-desk.test.ts` (enrolment and who may; the claim, rotation and
+its grace, clones, lapsing, lock-outs, the wrong device; the limits and the heartbeat's bound; the
+record and its words; a parent for a child over a live link; the copy's words; erase; the marks;
+a statement count for a family of ten), `packages/core/test/screens.test.ts` (the core screen for a
+coach granted `agreements:desk`), `apps/app/test/desk.test.ts` (the desk origin: only its pages and
+calls, the cookies' attributes, `Origin`, a staff session refused, nothing on the HTTP surface),
+`packages/release/test/basics.test.ts` (the desk hostname on a custom domain only). E2E, one per
+journey (`apps/app/e2e/desk-signing.spec.ts`): an admin enrols a tablet and revokes it; a member
+signs at the desk on a tablet-width page.
+
+Not verified: a real tablet's browser keeping the desk origin's cookie for weeks, touch and pen on
+the signature pad on a real device, the desk hostname's custom domain on a live deployment (`cos
+deploy` adds it; not yet tried on a live host), and Cloudflare Access deployments (the desk
+hostname must not be behind the Access application, `docs/deploying.md`).
+
+### Step 6: after the review of PR #390 (2026-11-24)
+
+Fixed in the same PR (ADRs 0649 and 0780 amended; migrations 0858 and 1130 edited in place, as
+they were not on `main`), each with a test that fails without the fix
+(`agreement-desk.test.ts`, "after the review of PR #390"):
+
+1. Wrong codes sent at once each count (one statement reads the row's own count); twelve together
+   lock the device.
+2. `agreement.desk.find` matches a full name or an email address exactly, at most 5, audited; no
+   partial search, so a fixed-role coach gets no directory. `prepare` names children by given name
+   only, audited.
+3. The copy to the previous address is still not built (the owner to decide whether step 6 ships
+   without it); meanwhile a session started for someone whose address changed in the 30 days
+   before tells every admin.
+4. A claim, or an enrolment claim, that loses a race is refused (guard rows in the claim's batch),
+   never answered with a token or a credential that matches nothing.
+5. A device unused for 30 days is not enrolled to `desk.status`, not offered or accepted for a
+   session, and `lapsed` on Settings → Devices.
+6. A session is read and ended only by whoever started it, or an admin.
+7. Rotation is confirmed by use: the current credential stays good until the device presents the
+   next, so a lost answer never makes a healthy tablet look copied.
+8. The Acceptances list's mark filter reads past a page of unmarked acceptances (up to 1,000 a
+   call); the marks read each Person's 20 newest email changes in the window (not a cap across the
+   page); `device.list` is a person's; `/desk/` with a trailing slash is not found on the staff
+   origin.
+
+Not changed: the staff origin's bundle holds the desk's two route components (one admin build);
+on the staff origin their calls are not found, and the server answers the paths as not found.

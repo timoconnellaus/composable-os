@@ -315,3 +315,13 @@ Gaps the gym's own repository ran into, fixed on the platform:
   already named its lines (a line keeps its title).
 - **Events have a time zone:** a required `timezone` field (the deployment's zone by default), in
   `eventsOnSale` and `myTickets`, the emails, and the reminder and "ended" days (ADR 0460).
+
+## Simpler code, same behaviour (2026-11-24, `chore/simplify-ticketing`)
+- **Built:** the pack's tools, automations, headless entry and blocks simplified without a change
+  of behaviour: the tools and the automations share the object names, the host's record shapes
+  and the conflict check (`tools.ts`), the blocks share one money formatter and one ticket state
+  label (the headless entry), independent host calls are made together, and the blocks ask for
+  only the hooks they call. The pack's shipped files are the same five.
+  Two bugs fixed, each with a test: a check-in's balance owing was written with two decimals
+  whatever the currency, and `salesSummary` failed for an event of 100 or more ticket types
+  (over `query.sql`'s 100 bound values).

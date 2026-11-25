@@ -14,3 +14,13 @@ Status: accepted, 2026-11-04 (stage 0 architecture interview).
 ## Consequences
 - D1 has no read-only users, so the parser and the views are the boundary. They need thorough tests.
 - `crm.*` views are also where record-level permission filters will go.
+
+## Amendment, 2026-11-24 (stage 47, ADR 0660)
+Dashboards stay specs. A shipped pack's staff screens are its blocks, built into the admin, not
+specs (a runtime extension still ships none): [ADR 0660](0660-pack-screens-in-the-admin.md).
+
+## Amendment, 2026-11-24 (stage 60 step 2, [ADR 0870](0870-todays-items-and-the-today-items-declaration.md))
+A shipped pack may also declare **Today items** (`todayItems`): read-only SQL under the same
+guards, checked by the host at install, each returning one `value` (and rows returning only the
+columns they declare). They are not widgets: no spec, no chart, a gate of the pack's own tools. A
+runtime extension declares none.

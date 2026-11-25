@@ -118,7 +118,8 @@ describe("prices are the host's (criterion 3)", () => {
     const schema = z.toJSONSchema(orderStartInput, { io: "input" }) as {
       properties: Record<string, { items?: { properties: Record<string, unknown> } }>;
     };
-    expect(Object.keys(schema.properties).sort()).toEqual(["email", "lines", "pay"]);
+    // `agreements` is a visitor's acceptances (stage 44 step 3): no amount anywhere in it.
+    expect(Object.keys(schema.properties).sort()).toEqual(["agreements", "email", "lines", "pay"]);
     expect(Object.keys(schema.properties.lines?.items?.properties ?? {}).sort()).toEqual([
       "id",
       "object",
@@ -744,6 +745,25 @@ describe("buying without an account (criterion 7)", () => {
     expect(await notFound({ id: order.id, token }, outside(PUBLIC, { clock: at(31) }))).toBe(
       "not_found",
     );
+  });
+
+  it("a later change to a closed order does not open its link again", async () => {
+    const email = `${unique("guest")}@guests.example`;
+    const order = await start(outside(PUBLIC), [{ id: general }], { email });
+    await pay(order.id, 12_000);
+    // Closed long ago (its link stopped yesterday), and no one's yet, as when several People had
+    // its address.
+    const personId = (await orderRow(order.id)).person_id as string;
+    const stopped = new Date(Date.now() - 86_400_000).toISOString();
+    await env.DB.prepare("UPDATE core_order SET access_until = ?, person_id = NULL WHERE id = ?")
+      .bind(stopped, order.id)
+      .run();
+    await run("order.setPerson", { id: order.id, personId }, staff());
+    expect(await orderRow(order.id)).toMatchObject({ person_id: personId, access_until: stopped });
+    expect(
+      (await refusal(run("order.view", { id: order.id, token: order.token }, outside(PUBLIC))))
+        .code,
+    ).toBe("not_found");
   });
 
   it("a part-paid guest order keeps its link for as long as it is open", async () => {

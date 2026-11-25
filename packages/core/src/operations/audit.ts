@@ -4,10 +4,11 @@ import { sql } from "kysely";
 import { z } from "zod";
 import { VERDICT_OPERATION } from "../adjudicator/review.ts";
 import { decodeCursor, encodeCursor, pageSchema } from "../list.ts";
-import { defineOperation } from "../operation.ts";
+import { AUDITED_READS, defineOperation, PEOPLE_ONLY_AUDIT } from "../operation.ts";
 import { ALL_ACTORS } from "../principals.ts";
 import { jsonList } from "../records/common.ts";
 import { recordRefSchema } from "../records/links.ts";
+import { hiddenNoteIds, type NoteViewer } from "../visibility/index.ts";
 
 const isoDateTime = z.iso.datetime({ offset: true }).transform((v) => new Date(v).toISOString());
 
@@ -97,6 +98,30 @@ export const auditList = defineOperation({
     // Policy adjudicator verdicts are for people only (ADR 0204): an admin's MCP client or the
     // assistant never reads them, so the actor whose work was judged cannot learn the verdicts.
     if (ctx.actor !== "human") query = query.where("a.operation", "<>", VERDICT_OPERATION);
+    // The rows of reads audited one by one (`auditReads`: who read whose health answers or
+    // marks) are for people only too (stage 44, ADR 0643): together they would list who
+    // answered yes.
+    if (ctx.actor !== "human" && AUDITED_READS.size) {
+      query = query.where("a.operation", "not in", [...AUDITED_READS]);
+    }
+    // A person's own acts are a person's to read (stage 45 step 4b, ADR 0650): the rows of a
+    // checklist's ticks, and of every extension tool only a person may call (`humanOnly`: ticking
+    // a checklist, taking a shift, saying one is away, pay), are never listed to an AI actor.
+    if (ctx.actor !== "human") {
+      if (PEOPLE_ONLY_AUDIT.size) {
+        query = query.where("a.operation", "not in", [...PEOPLE_ONLY_AUDIT]);
+      }
+      // A tool's row is listed only while an installed pack still has the tool and it is not a
+      // person's only: a pack since removed, or upgraded without the tool, keeps its rows hidden.
+      query = query.where(
+        sql<boolean>`(a.operation NOT LIKE 'x.%' OR a.operation IN (SELECT 'x.' || e.id || '.' || t.key FROM core_extensions e, json_each(e.manifest, '$.tools') t WHERE coalesce(json_extract(t.value, '$.humanOnly'), 0) != 1))`,
+      );
+    }
+    // A change to a note kept from the caller says it exists (stage 56, ADR 0830): no AI actor
+    // lists its rows, whatever the account holds, nor a person who may not read the note.
+    query = query.where(
+      sql<boolean>`NOT EXISTS (SELECT 1 FROM core_audit_changes kc WHERE kc.audit_id = a.id AND kc.object_type = 'activity' AND kc.record_id IN ${hiddenNoteIds(ctx as NoteViewer)})`,
+    );
     if (input.userId) query = query.where("a.user_id", "=", input.userId);
     if (input.actor) query = query.where("a.actor", "=", input.actor);
     if (input.outcome) query = query.where("a.outcome", "=", input.outcome);
@@ -212,6 +237,16 @@ export const auditListForRecord = defineOperation({
   risk: "read",
   mcp: { idempotent: true },
   async handler(input, ctx) {
+    // A note's history is for those who may read the note (stage 56, ADR 0830): to anyone else a
+    // note kept from them has none, as it has no row.
+    if (input.object === "activity") {
+      const hidden = await ctx.db
+        .selectFrom(sql<{ id: string }>`${hiddenNoteIds(ctx as NoteViewer)}`.as("h"))
+        .select("h.id")
+        .where("h.id", "=", input.recordId)
+        .executeTakeFirst();
+      if (hidden) return { items: [], nextCursor: null };
+    }
     let query = ctx.db
       .selectFrom("core_audit_changes as c")
       .innerJoin("core_audit as a", "a.id", "c.audit_id")

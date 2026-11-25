@@ -37,6 +37,8 @@ export function notificationHref(link: NotificationLink | null): string | null {
       if (link.object === "organisation") return `/organisations/${enc(link.id)}`;
       if (link.object === "task") return "/tasks";
       if (link.object === "activity") return "/activity";
+      // A conversation in the shared inbox (stage 36).
+      if (link.object === "conversation") return `/inbox/${enc(link.id)}`;
       // An order (stage 25): its page, or one of the orders lists (`overdue`, `paid-late`).
       if (link.object === "order") {
         return link.id.startsWith("ord_")
@@ -102,10 +104,16 @@ function toItem(row: NotificationRow): NotificationItem {
 }
 
 /** The user's unread count, capped; reads only core_notifications_unread_idx. */
-export async function unreadCount(db: Kysely<CoreDatabase>, userId: string): Promise<number> {
+export async function unreadCount(
+  db: Kysely<CoreDatabase>,
+  userId: string,
+  person = true,
+): Promise<number> {
+  // An AI acting for the user never sees, or counts, a notice meant for the person only.
   const result = await sql<{ n: number }>`SELECT count(*) AS n FROM (
       SELECT 1 FROM core_notifications INDEXED BY core_notifications_unread_idx
-      WHERE user_id = ${userId} AND read_at IS NULL LIMIT ${UNREAD_COUNT_CAP})`.execute(db);
+      WHERE user_id = ${userId} AND read_at IS NULL ${person ? sql`` : sql`AND human_only = 0`}
+      LIMIT ${UNREAD_COUNT_CAP})`.execute(db);
   return Number(result.rows[0]?.n ?? 0);
 }
 
@@ -183,6 +191,8 @@ export const notificationList = defineOperation({
       .selectFrom("core_notifications")
       .select(["id", "type", "title", "body", "link", "source", "read_at", "created_at"])
       .where("user_id", "=", ctx.user.id);
+    // A notice for the person only (a health form's) is not listed to an AI acting for them.
+    if (ctx.actor !== "human") query = query.where("human_only", "=", 0);
     if (input.unreadOnly) query = query.where("read_at", "is", null);
     if (input.cursor) {
       const { at, id } = decodeCursor(input.cursor);
@@ -199,7 +209,7 @@ export const notificationList = defineOperation({
     const last = page.at(-1);
     return {
       items: page.map(toItem),
-      unread: await unreadCount(ctx.db, ctx.user.id),
+      unread: await unreadCount(ctx.db, ctx.user.id, ctx.actor === "human"),
       nextCursor: rows.length > input.limit && last ? encodeCursor(last) : null,
     };
   },
@@ -216,7 +226,7 @@ export const notificationUnreadCount = defineOperation({
   risk: "read",
   mcp: { expose: false },
   async handler(_input, ctx) {
-    return { unread: await unreadCount(ctx.db, ctx.user.id) };
+    return { unread: await unreadCount(ctx.db, ctx.user.id, ctx.actor === "human") };
   },
 });
 
@@ -244,6 +254,10 @@ export const notificationMarkRead = defineOperation({
       .set({ read_at: ctx.now })
       .where("user_id", "=", ctx.user.id)
       .where("read_at", "is", null);
+    if (ctx.actor !== "human") {
+      count = count.where("human_only", "=", 0);
+      update = update.where("human_only", "=", 0);
+    }
     if (input.ids) {
       const ids = [...new Set(input.ids)];
       count = count.where("id", "in", jsonList(ids));

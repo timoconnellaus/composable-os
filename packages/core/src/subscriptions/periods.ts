@@ -23,6 +23,7 @@ import { hashOrderToken, newOrderToken } from "../orders/guests.ts";
 import { changeOrder, formatMoney, type OrderRow, orderSnapshot } from "../orders/orders.ts";
 import { applyTransition } from "../records/lifecycle.ts";
 import type { SubscriptionRow } from "./events.ts";
+import { readableInstant } from "./trial.ts";
 
 type SubscriptionEvent = Extract<PaymentsEvent, { kind: "subscription" }>;
 
@@ -124,11 +125,14 @@ export async function recordPaidPeriod(
     invoice_ref: invoice.ref,
     period_flag: flag,
     paid_at: null,
+    // The provider's own time for the payment (its verified event's), for cooling off (ADR 0647).
+    provider_paid_at: readableInstant(event.occurredAt),
     cancelled_at: null,
     refunded_at: null,
     created_at: ctx.now,
     updated_at: ctx.now,
     version: 0,
+    discount: 0,
   };
   const order = getObject("order") ?? orderObject;
   // Created as the host, then paid as the host: two history rows, one batch.

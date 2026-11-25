@@ -10,7 +10,9 @@ import { grantableScopes, MCP_SCOPES, type McpScope, resolveActingUser } from "@
 import { createCrmDb } from "@composable-os/db";
 import { productName } from "@composable-os/product";
 import { product } from "@composable-os/products/active";
+import { escapeHtml } from "../html.ts";
 import { type OperationsEnv, runOperation } from "../operations.ts";
+import { staffCookieAllowed } from "../staff-origin.ts";
 
 export const CONSENT_PATH = "/oauth/consent";
 
@@ -19,12 +21,6 @@ export interface McpProps {
   connectionId: string;
   userId: string;
 }
-
-const escapeHtml = (value: unknown) =>
-  String(value ?? "").replace(
-    /[&<>"']/g,
-    (c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c] ?? c,
-  );
 
 const SCOPE_LABEL: Record<McpScope, string> = {
   read: "Read",
@@ -107,7 +103,7 @@ async function page(
   return new Response(
     `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><meta name="color-scheme" content="light dark"><title>${escapeHtml(title)} · ${escapeHtml(productName(product))}</title>
 <script>${THEME_SCRIPT}</script><style>${STYLE}</style></head>
-<body><main><div class="brand">${productName(product)}</div>${body}</main></body></html>`,
+<body><main><div class="brand">${escapeHtml(productName(product))}</div>${body}</main></body></html>`,
     { status, headers: h },
   );
 }
@@ -126,7 +122,14 @@ async function signedIn(
 ): Promise<{ principal: Principal } | { response: Response }> {
   const provider = createIdentityProvider(env);
   const principal = await provider.resolve(request);
-  if (principal) return { principal };
+  if (principal) {
+    // A staff cookie is used only from the host's own pages (staff-origin.ts, stage 47): the
+    // consent page is opened from the app connecting; its form is sent only from here.
+    if (!staffCookieAllowed(request)) {
+      return { response: await errorPage(`Connect from ${productName(product)} itself.`, 403) };
+    }
+    return { principal };
+  }
   const url = new URL(request.url);
   if (provider.signInPath) {
     const target = new URL(provider.signInPath, url);
@@ -173,7 +176,7 @@ async function showConsent(
   return page(
     `Connect ${consent.clientName}`,
     `<div class="card">
-<div style="display:grid;gap:6px"><h1>Connect ${escapeHtml(consent.clientName)} to ${productName(product)}?</h1>
+<div style="display:grid;gap:6px"><h1>Connect ${escapeHtml(consent.clientName)} to ${escapeHtml(productName(product))}?</h1>
 <p class="muted">Signed in as <strong style="color:var(--fg)">${escapeHtml(user.name || user.email)}</strong>${user.name ? ` (${escapeHtml(user.email)})` : ""} · ${escapeHtml(user.role)}. The app will act as you.</p></div>
 <div class="box"><div><strong>${escapeHtml(consent.clientName)}</strong> · ${verified}</div>
 <div class="small muted">Sends you back to <code>${escapeHtml(consent.redirectHost)}</code></div></div>

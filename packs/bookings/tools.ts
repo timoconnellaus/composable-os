@@ -57,10 +57,10 @@ const classOutput = z.object({
 });
 type ClassOut = z.infer<typeof classOutput>;
 
-/** Records of `object` by id, through a read operation the caller may use (public or my). */
+/** Records of `object` by id, through a read operation the caller may use (public, my or staff's). */
 async function byIds(
   ctx: Ctx,
-  operation: "public.list" | "my.list",
+  operation: "public.list" | "my.list" | "record.list",
   object: string,
   ids: (string | null)[],
 ): Promise<Map<string, Record<string, unknown>>> {
@@ -176,6 +176,25 @@ const refused = z.object({
 });
 type Refused = z.infer<typeof refused>;
 
+/** What a host refusal says of itself (its rule, reason…); nothing for any other error. */
+function detailsOf(error: unknown): Record<string, unknown> {
+  if (!(error instanceof OpsCallError)) return {};
+  const { details } = error;
+  return typeof details === "object" && details !== null
+    ? (details as Record<string, unknown>)
+    : {};
+}
+
+/** A refusal answered with no booking times (a refusal the host gave times for is refusalOf's). */
+const refuse = <R extends string>(reason: R, message: string) => ({
+  result: "refused" as const,
+  reason,
+  message,
+  detail: null,
+  opensAt: null,
+  closesAt: null,
+});
+
 /** A host refusal as a member can be told it, or the error itself when it is not one. */
 function refusalOf(
   error: unknown,
@@ -183,8 +202,13 @@ function refusalOf(
   expect?: "cancelled" | "late_cancelled",
 ): Refused {
   if (!(error instanceof OpsCallError)) throw error;
-  const details = (error.details ?? {}) as Record<string, unknown>;
+  const details = detailsOf(error);
   const rule = typeof details.rule === "string" ? details.rule : "";
+  // Something must be agreed to first, or what is due changed while booking (stage 44, ADR
+  // 0644): the host's own refusal goes back as it is, with its documents, so the block shows
+  // what is due inline (the agreements entry in @composable-os/client reads it) and, for a
+  // change, asks again and tries once more. Never dressed up as "changed".
+  if (rule === "agreements_due" || rule === "agreements_changed") throw error;
   const times = {
     opensAt: text(details.opensAt),
     closesAt: text(details.closesAt),
@@ -199,7 +223,7 @@ function refusalOf(
   if (error.code === "not_found") {
     // A Person they may not book for (not a child linked to them, or a link that has ended) is
     // answered as one that does not exist (ADR 0540).
-    if ((details as { object?: unknown }).object === "person") {
+    if (details.object === "person") {
       return out("not_found", "You cannot book for that person.");
     }
     return out("not_found", what === "book" ? "That class cannot be booked." : "No such booking.");
@@ -426,10 +450,6 @@ async function bookOrWait(
 ): Promise<{ made: RecordShape; waiting: boolean }> {
   // For a member's dependant (ADR 0540): the host checks the link in the write.
   const whose = operation === "my.create" && forPersonId ? { forPersonId } : {};
-  const ruleOf = (error: unknown) =>
-    error instanceof OpsCallError
-      ? ((error.details ?? {}) as Record<string, unknown>)
-      : ({} as Record<string, unknown>);
   for (let attempt = 0; ; attempt++) {
     let refusal: unknown;
     try {
@@ -440,7 +460,7 @@ async function bookOrWait(
       });
       return { made, waiting: false };
     } catch (error) {
-      const rule = ruleOf(error).rule;
+      const rule = detailsOf(error).rule;
       if (!wait || (rule !== "capacity" && rule !== "allowance")) throw error;
       refusal = error;
     }
@@ -452,14 +472,15 @@ async function bookOrWait(
       });
       return { made, waiting: true };
     } catch (error) {
-      const join = ruleOf(error);
+      const join = detailsOf(error);
+      const first = detailsOf(refusal).rule;
       // Full a moment ago, and a place came free: book it (once).
-      if (join.reason === "not_full" && ruleOf(refusal).rule === "capacity" && attempt === 0) {
+      if (join.reason === "not_full" && first === "capacity" && attempt === 0) {
         continue;
       }
       // Nothing to pay with, and no waitlist to join (it is not full, or has closed): that is the
       // answer. Any other refusal of the join (already booked or waiting…) is the true reason.
-      if (ruleOf(refusal).rule === "allowance" && join.rule === "waitlist") throw refusal;
+      if (first === "allowance" && join.rule === "waitlist") throw refusal;
       throw error;
     }
   }
@@ -475,11 +496,7 @@ async function takeFreePlace(
   ctx: Ctx,
   classId: string,
   personId: string,
-): Promise<
-  | { result: "booked"; bookingId: string; classId: string; holderId: string | null }
-  | z.infer<typeof waiting>
-  | null
-> {
+): Promise<z.infer<typeof booked> | z.infer<typeof waiting> | null> {
   const mine = await ctx.ops.call<ListShape>("my.list", {
     object: BOOKING,
     filter: {
@@ -507,8 +524,7 @@ async function takeFreePlace(
       holderId: text(after.values.holder),
     };
   } catch (error) {
-    const rule = error instanceof OpsCallError ? (error.details as { rule?: unknown })?.rule : null;
-    if (rule !== "capacity") throw error;
+    if (detailsOf(error).rule !== "capacity") throw error;
     const at = await positionOf(ctx, queued.id);
     return {
       result: "waiting",
@@ -524,6 +540,30 @@ const waitingMessage = (position: number | null) =>
   position === null
     ? "The class is full: you are on its waitlist."
     : `The class is full: you are number ${position} on its waitlist. If a place frees in time, you are moved in and it is paid from your membership or pass then.`;
+
+/** What bookOrWait made, as book and bookFor answer it: booked, or waiting with where they stand. */
+async function answerOf(
+  ctx: Ctx,
+  classId: string,
+  { made, waiting: queued }: { made: RecordShape; waiting: boolean },
+): Promise<z.infer<typeof booked> | z.infer<typeof waiting>> {
+  if (!queued) {
+    return {
+      result: "booked",
+      bookingId: made.id,
+      classId,
+      holderId: text(made.values.holder),
+    };
+  }
+  const at = await positionOf(ctx, made.id);
+  return {
+    result: "waiting",
+    bookingId: made.id,
+    classId,
+    ...at,
+    message: waitingMessage(at.position),
+  };
+}
 
 export const book = defineTool({
   description:
@@ -561,7 +601,7 @@ export const book = defineTool({
       // The host sets whose it is (the caller), checks the class is one they may see, and holds
       // the windows, the staff-only rule, the place, the one-per-class rule, the spend and when
       // a waitlist may be joined.
-      const { made, waiting: queued } = await bookOrWait(
+      const made = await bookOrWait(
         ctx,
         "my.create",
         {
@@ -571,27 +611,9 @@ export const book = defineTool({
         input.waitlist,
         input.forPersonId,
       );
-      if (queued) {
-        const at = await positionOf(ctx, made.id);
-        return {
-          result: "waiting" as const,
-          bookingId: made.id,
-          classId: input.classId,
-          ...at,
-          message: waitingMessage(at.position),
-        };
-      }
-      return {
-        result: "booked" as const,
-        bookingId: made.id,
-        classId: input.classId,
-        holderId: text(made.values.holder),
-      };
+      return await answerOf(ctx, input.classId, made);
     } catch (error) {
-      const unique =
-        error instanceof OpsCallError &&
-        (error.details as { rule?: unknown } | undefined)?.rule === "unique";
-      if (unique) {
+      if (detailsOf(error).rule === "unique") {
         // Already waiting on it: take a free place if there is one (finding 5, ADR 0520).
         try {
           const whose = input.forPersonId ?? (await familyOf(ctx)).self.personId;
@@ -626,6 +648,15 @@ export const buy = defineTool({
     classId: z.string().min(1).max(64),
     forPersonId: forPerson,
     email: z.string().trim().max(320).optional().describe("A guest's email address"),
+    agreements: z
+      .array(z.record(z.string(), z.unknown()))
+      .max(20)
+      .optional()
+      .describe(
+        "A guest only: their acceptances of what is due, passed on to the host as they are (each " +
+          "{ versionId, typedName, signature?, answers? }); the host checks and records them. A " +
+          "signed-in member agrees first.",
+      ),
   }),
   output: z.union([
     z.object({
@@ -658,6 +689,7 @@ export const buy = defineTool({
         values: { class: input.classId },
         ...(input.forPersonId ? { forPersonId: input.forPersonId } : {}),
         ...(input.email === undefined ? {} : { email: input.email }),
+        ...(input.agreements === undefined ? {} : { agreements: input.agreements }),
       });
       return {
         result: "pending" as const,
@@ -671,33 +703,23 @@ export const buy = defineTool({
       };
     } catch (error) {
       if (error instanceof OpsCallError) {
-        const rule = (error.details as { rule?: unknown } | undefined)?.rule;
-        const out = (reason: Refused["reason"], message: string) => ({
-          result: "refused" as const,
-          reason,
-          message,
-          detail: null,
-          opensAt: null,
-          closesAt: null,
-        });
-        if (rule === "no_price" || rule === "not_for_sale") {
-          return out("no_drop_in", "This class cannot be paid for online. Ask at the desk.");
+        const details = detailsOf(error);
+        if (details.rule === "no_price" || details.rule === "not_for_sale") {
+          return refuse("no_drop_in", "This class cannot be paid for online. Ask at the desk.");
         }
-        if (rule === "try_later" || error.code === "rate_limited") {
-          return out(
+        if (details.rule === "try_later" || error.code === "rate_limited") {
+          return refuse(
             "try_later",
             "Too many places are being held for payment just now: try again shortly.",
           );
         }
-        if (rule === "buyer_unclear") {
-          return out(
+        if (details.rule === "buyer_unclear") {
+          return refuse(
             "ask_desk",
             "We could not tell who you are from that address. Ask at the desk.",
           );
         }
-        if ((error.details as { field?: unknown } | undefined)?.field === "email") {
-          return out("ask_desk", error.message);
-        }
+        if (details.field === "email") return refuse("ask_desk", error.message);
       }
       return refusalOf(error, "book");
     }
@@ -725,15 +747,10 @@ export const leaveWaitlist = defineTool({
       return { result: "left" as const, bookingId: input.bookingId };
     } catch (error) {
       if (error instanceof OpsCallError && error.code === "conflict") {
-        return {
-          result: "refused" as const,
-          reason: "changed" as const,
-          message:
-            "This booking is no longer waiting: look at it again (you may have been moved in).",
-          detail: null,
-          opensAt: null,
-          closesAt: null,
-        };
+        return refuse(
+          "changed",
+          "This booking is no longer waiting: look at it again (you may have been moved in).",
+        );
       }
       return refusalOf(error, "cancel");
     }
@@ -902,25 +919,24 @@ export const mine = defineTool({
       CLASS,
       page.items.map((b) => text(b.values.class)),
     );
-    const coaches = await byIds(
-      ctx,
-      "public.list",
-      COACH,
-      [...classes.values()].map((c) => text(c.coach)),
-    );
-    const rooms = await byIds(
-      ctx,
-      "public.list",
-      ROOM,
-      [...classes.values()].map((c) => text(c.room)),
-    );
+    const waitingIds = page.items.filter((b) => b.values.state === "waiting").map((b) => b.id);
+    const [coaches, rooms, waitingAt] = await Promise.all([
+      byIds(
+        ctx,
+        "public.list",
+        COACH,
+        [...classes.values()].map((c) => text(c.coach)),
+      ),
+      byIds(
+        ctx,
+        "public.list",
+        ROOM,
+        [...classes.values()].map((c) => text(c.room)),
+      ),
+      Promise.all(waitingIds.map((id) => positionOf(ctx, id))),
+    ]);
     const now = Date.now();
-    const positions = new Map<string, number | null>();
-    for (const booking of page.items) {
-      if (booking.values.state === "waiting") {
-        positions.set(booking.id, (await positionOf(ctx, booking.id)).position);
-      }
-    }
+    const positions = new Map(waitingIds.map((id, i) => [id, waitingAt[i]?.position ?? null]));
     const bookings = page.items
       .map((booking) => {
         const classId = text(booking.values.class);
@@ -1049,30 +1065,13 @@ export const bookFor = defineTool({
     };
     try {
       if (input.personId) {
-        const { made, waiting: queued } = await bookOrWait(
+        const made = await bookOrWait(
           ctx,
           "record.create",
           { ...values, person: input.personId },
           input.waitlist,
         );
-        if (queued) {
-          const at = await positionOf(ctx, made.id);
-          return {
-            result: "waiting" as const,
-            bookingId: made.id,
-            classId: input.classId,
-            personId: input.personId,
-            ...at,
-            message: waitingMessage(at.position),
-          };
-        }
-        return {
-          result: "booked" as const,
-          bookingId: made.id,
-          classId: input.classId,
-          personId: input.personId,
-          holderId: text(made.values.holder),
-        };
+        return { ...(await answerOf(ctx, input.classId, made)), personId: input.personId };
       }
       const walkIn = input.newPerson as NonNullable<typeof input.newPerson>;
       // The person and the booking in one batch, after the duplicate check (ADR 0507).
@@ -1230,28 +1229,18 @@ const staffClass = z.object({
 });
 
 async function staffClasses(ctx: Ctx, classes: RecordShape[]) {
-  const types = new Map<string, Record<string, unknown>>();
-  const typeIds = [...new Set(classes.map((c) => text(c.values.classType)).filter(Boolean))];
-  if (typeIds.length) {
-    const found = await ctx.ops.call<ListShape>("record.list", {
-      object: CLASS_TYPE,
-      filter: { field: "id", op: "in", value: typeIds },
-      limit: typeIds.length,
-    });
-    for (const item of found.items) types.set(item.id, item.values);
-  }
-  const names = async (object: string, field: string) => {
-    const ids = [...new Set(classes.map((c) => text(c.values[field])).filter(Boolean))];
-    if (!ids.length) return new Map<string, string | null>();
-    const found = await ctx.ops.call<ListShape>("record.list", {
+  const of = (object: string, field: string) =>
+    byIds(
+      ctx,
+      "record.list",
       object,
-      filter: { field: "id", op: "in", value: ids },
-      limit: ids.length,
-    });
-    return new Map(found.items.map((item) => [item.id, text(item.values.name)]));
-  };
-  const coaches = await names(COACH, "coach");
-  const rooms = await names(ROOM, "room");
+      classes.map((c) => text(c.values[field])),
+    );
+  const types = await of(CLASS_TYPE, "classType");
+  const coaches = await of(COACH, "coach");
+  const rooms = await of(ROOM, "room");
+  const name = (found: Map<string, Record<string, unknown>>, id: unknown) =>
+    text(found.get(text(id) ?? "")?.name);
   return classes.map((klass) => {
     const v = klass.values;
     const typeId = text(v.classType);
@@ -1263,8 +1252,8 @@ async function staffClasses(ctx: Ctx, classes: RecordShape[]) {
       startsAt: text(v.startsAt),
       endsAt: text(v.endsAt),
       timeZone: text(v.timezone),
-      coach: coaches.get(text(v.coach) ?? "") ?? null,
-      room: rooms.get(text(v.room) ?? "") ?? null,
+      coach: name(coaches, v.coach),
+      room: name(rooms, v.room),
       places: num(v.places),
       booked: num(v.taken) ?? 0,
       held: num(v.held) ?? 0,
@@ -1319,6 +1308,14 @@ export const day = defineTool({
   },
 });
 
+const healthNote = z
+  .boolean()
+  .nullable()
+  .describe(
+    "A yes on their current health form: a mark only (staff who may read health answers open " +
+      "it from the Person page). Null when not shown.",
+  );
+
 export const classList = defineTool({
   description:
     "A class's list for staff and coaches: the class (as on the day view) and every booking of " +
@@ -1338,6 +1335,7 @@ export const classList = defineTool({
         holderId: z.string().nullable(),
         bookedBy: z.string().nullable(),
         promotedAt: z.string().nullable().describe("When they were moved in from the waitlist"),
+        healthNote,
         passedOver: z
           .string()
           .nullable()
@@ -1350,6 +1348,7 @@ export const classList = defineTool({
   permission: "bookings:desk",
   async handler(input, ctx) {
     const { klass, bookings, names } = await listOf(ctx, input.classId);
+    const notes = await healthNotesOf(ctx, klass.id, names);
     return {
       class: klass,
       bookings: bookings.map((booking) => {
@@ -1358,6 +1357,7 @@ export const classList = defineTool({
           id: booking.id,
           person: personId ? { id: personId, name: names.get(personId) ?? null } : null,
           state: text(booking.values.state),
+          healthNote: notes && personId ? notes.has(personId) : null,
           paidAtDesk: flag(booking.values.paidOtherwise),
           holderId: text(booking.values.holder),
           bookedBy: text(booking.values.bookedBy),
@@ -1476,7 +1476,7 @@ async function markBooking(
     await ctx.ops.call("record.update", { object: BOOKING, id: bookingId, from: state, values });
   } catch (error) {
     if (!(error instanceof OpsCallError)) throw error;
-    const details = (error.details ?? {}) as Record<string, unknown>;
+    const details = detailsOf(error);
     if (details.rule === "state_window_not_open") {
       return no(
         "not_started",
@@ -1618,6 +1618,25 @@ async function listOf(ctx: Ctx, classId: string) {
   return { klass: klass as z.infer<typeof staffClass>, bookings: page.items, names };
 }
 
+/**
+ * Who on a class's list answered yes on their current health form (stage 44, decision 18): a
+ * mark, no content. The host reads the People from the class's bookings itself (never ids from
+ * here). Null when the host gives none: a list the assistant reads, or an approved AI's call.
+ */
+async function healthNotesOf(ctx: Ctx, classId: string, names: Map<string, string | null>) {
+  if (!names.size) return null;
+  try {
+    const { notes } = await ctx.ops.call<{ notes: { personId: string; healthNote: boolean }[] }>(
+      "agreement.listHealthNotes",
+      { records: BOOKING, value: classId },
+    );
+    return new Set(notes.filter((n) => n.healthNote).map((n) => n.personId));
+  } catch (error) {
+    if (error instanceof OpsCallError && error.code === "forbidden") return null;
+    throw error;
+  }
+}
+
 export const roster = defineTool({
   description:
     "A class's list for its coach: the class (as on the day view) and every booking of it with " +
@@ -1634,6 +1653,7 @@ export const roster = defineTool({
         markedAt: z.string().nullable(),
         markedBy: z.string().nullable().describe("The name of who marked it"),
         promotedAt: z.string().nullable().describe("When they were moved in from the waitlist"),
+        healthNote,
       }),
     ),
   }),
@@ -1641,6 +1661,7 @@ export const roster = defineTool({
   permission: "bookings:coach",
   async handler(input, ctx) {
     const { klass, bookings, names } = await listOf(ctx, input.classId);
+    const notes = await healthNotesOf(ctx, klass.id, names);
     return {
       class: klass,
       bookings: bookings.map((booking) => {
@@ -1652,6 +1673,7 @@ export const roster = defineTool({
           markedAt: text(booking.values.markedAt),
           markedBy: text(booking.values.markedByName),
           promotedAt: text(booking.values.promotedAt),
+          healthNote: notes && personId ? notes.has(personId) : null,
         };
       }),
     };
@@ -1697,14 +1719,7 @@ export const move = defineTool({
   // The front desk (ADR 0600): any staff member holds it as any tool; a coach is granted it.
   permission: "bookings:desk",
   async handler(input, ctx) {
-    const no = (reason: z.infer<typeof moveRefusal>, message: string) => ({
-      result: "refused" as const,
-      reason,
-      message,
-      detail: null,
-      opensAt: null,
-      closesAt: null,
-    });
+    const no = (reason: z.infer<typeof moveRefusal>, message: string) => refuse(reason, message);
     let old: RecordShape;
     try {
       old = await ctx.ops.call<RecordShape>("record.get", { object: BOOKING, id: input.bookingId });
@@ -1743,20 +1758,10 @@ export const move = defineTool({
         holderId: text(made.values.holder),
       };
     } catch (error) {
-      const rule =
-        error instanceof OpsCallError
-          ? (error.details as { rule?: unknown } | undefined)?.rule
-          : undefined;
+      const { rule } = detailsOf(error);
       // The old booking moved to a final state meanwhile (the member cancelled it): a race.
       if (rule === "state_final") {
-        return {
-          result: "refused" as const,
-          reason: "changed" as const,
-          message: "It changed meanwhile: it is no longer booked. Look again.",
-          detail: null,
-          opensAt: null,
-          closesAt: null,
-        };
+        return refuse("changed", "It changed meanwhile: it is no longer booked. Look again.");
       }
       // The old booking's own move has a window: until its class starts.
       if (rule === "state_window_closed") {
@@ -1814,7 +1819,7 @@ export const cancelClass = defineTool({
       } catch (error) {
         if (!(error instanceof OpsCallError)) throw error;
         if (error.code === "not_found") fail("not_found", "not_found", "No such class.");
-        const details = (error.details ?? {}) as Record<string, unknown>;
+        const details = detailsOf(error);
         if (details.reason === "not_in_position") {
           fail(
             "conflict",

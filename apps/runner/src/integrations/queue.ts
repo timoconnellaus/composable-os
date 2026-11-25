@@ -32,8 +32,19 @@ export type QueueCaller =
   | {
       kind: "system";
       // `payments`: verified payment events (stage 25). `orders`: the host's own calls for an
-      // order, a checkout and its confirmation email (`callAsHost`, ADR 0429).
-      purpose: "sync" | "webhook" | "payments" | "orders" | "probe";
+      // order, a checkout and its confirmation email (`callAsHost`, ADR 0429). `agreements`: the
+      // copy of a signed agreement (`callAsHost`, ADR 0645), the only queue that may attach one.
+      // `accounting`: the sync's reads and entries on the connected books (`callAsHost`, ADR
+      // 0881), the only queue a connection whose gatekeeper implements accounting opens.
+      purpose: "sync" | "webhook" | "payments" | "orders" | "probe" | "agreements" | "accounting";
+      user: ActingUser;
+    }
+  | {
+      kind: "system";
+      // Texts (ADR 0672): `phone-check`, a code sent to or checked for a member's own number
+      // (only `callAsHost` opens it); `text-events`, the text gatekeeper's verified receipts and
+      // replies (the hook the host binds when the sender number is bound).
+      purpose: "phone-check" | "text-events";
       user: ActingUser;
     }
   | {
@@ -42,6 +53,29 @@ export type QueueCaller =
       purpose: "sign-in";
       origin: SignInMailOrigin;
       user: ActingUser;
+    }
+  | {
+      kind: "system";
+      // Routine mail (ADR 0590): only the integration host's `sendRoutineMail` opens it, for one
+      // row of core_routine_mail it read itself. `routine` is the host's decision; the run it
+      // belongs to is where a held one waits.
+      purpose: "routine-mail";
+      user: ActingUser;
+      routine: {
+        id: string;
+        kind: string;
+        routine: boolean;
+        /** The pack's routine email not turned on yet: an ordinary send (D1). */
+        ordinary: boolean;
+        heldReason: string | null;
+        /** Null for a host kind's row (ADR 0670): host code asked for it, not an automation. */
+        automationId: string | null;
+        runId: string | null;
+        extensionId: string;
+        siteOrigin: string | null;
+        /** The row's channel: an email, or a text (ADR 0672). Absent: an email. */
+        channel?: "email" | "text";
+      };
     };
 
 export interface ObservationRecord {
@@ -74,7 +108,7 @@ export interface QueueHost {
   enableHook(
     id: string,
     facetKey: string,
-    purpose: "sync" | "webhook" | "payments",
+    purpose: "sync" | "webhook" | "payments" | "text-events",
     description: { title: string; description: string },
   ): Promise<void>;
   recordAgentHook(
@@ -102,6 +136,8 @@ export class HostQueue extends RpcTarget {
     outcome: ApplyOutcome;
     message: string;
   }[] = [];
+  /** Actions the gate denied (the deploy floor), rejected on the facet. */
+  readonly denied: number[] = [];
   /** Work that must finish before the call returns (auto-applies, hook enables). */
   readonly deferred: Promise<unknown>[] = [];
 
@@ -165,6 +201,62 @@ export class HostQueue extends RpcTarget {
   }
 
   /**
+   * Whether this session is the host's own routine mail, decided routine (ADR 0590), and the
+   * business's site its links may point to. Email-send gives a send its routine kind only when
+   * this answers, and only for a message of routine shape: a held one answers null and is an
+   * ordinary send. The answer comes from how the host opened the queue, never from the caller.
+   */
+  async hostRoutineMail(): Promise<{ siteOrigin: string | null } | null> {
+    if (this.#caller.kind !== "system" || this.#caller.purpose !== "routine-mail") return null;
+    return this.#caller.routine.routine ? { siteOrigin: this.#caller.routine.siteOrigin } : null;
+  }
+
+  /**
+   * Which of the host's own purposes opened this queue, or null for a caller's (ADR 0645, after
+   * the review of PR #283). A gatekeeper keeps the host's mail apart by it (idempotency keys,
+   * `listSent`); the answer comes from how the host opened the queue, never from the caller.
+   */
+  async hostPurpose(): Promise<string | null> {
+    return this.#caller.kind === "system" ? this.#caller.purpose : null;
+  }
+
+  /**
+   * Who is calling, as a name for a gatekeeper to keep this caller's idempotency keys apart by
+   * (ADR 0574, issue #286): a person, the assistant or an agent job for one person; an MCP app for
+   * one person and one connected app; an automation by its id; extension code by its extension;
+   * the host's own purposes each as one. Stable across a caller's retries (an automation's runs
+   * and their retries share it). The answer comes from how the host opened the queue, never from
+   * the caller.
+   */
+  async callerKeySpace(): Promise<string> {
+    if (this.#caller.kind === "system") return `system:${this.#caller.purpose}`;
+    const { actor, userId, origin } = this.#caller.caller;
+    // JSON, so no id can run into the next.
+    if (actor === "automation") {
+      return JSON.stringify([
+        actor,
+        origin.automationId ?? null,
+        origin.extensionId ?? null,
+        userId,
+      ]);
+    }
+    if (actor === "extension") return JSON.stringify([actor, origin.extensionId ?? null, userId]);
+    if (actor === "mcp") {
+      return JSON.stringify([actor, userId, origin.sessionId ?? origin.clientId ?? null]);
+    }
+    return JSON.stringify([actor, userId]);
+  }
+
+  /**
+   * Whether this session is the host's own agreements mail (ADR 0645): the copy of a signed
+   * agreement. Email-send attaches the signed PDF only for such a session; the answer comes from
+   * how the host opened the queue, never from anything the caller sent.
+   */
+  async isHostAgreementMail(): Promise<boolean> {
+    return this.#caller.kind === "system" && this.#caller.purpose === "agreements";
+  }
+
+  /**
    * Whether this session is the host's own orders call (`callAsHost`, purpose `orders`): an
    * order's checkout, a subscription's, its portal (ADR 0485). The payments gatekeeper opens a
    * customer's billing portal only for such a session; the answer comes from how the host opened
@@ -176,22 +268,94 @@ export class HostQueue extends RpcTarget {
 
   async submitAction(action: number, description: OutboundDescription): Promise<void> {
     const host = this.#host;
+    // An agreement's copy submitted again (ADR 0645: a retry of one whose first submission was cut
+    // off): if a person's approval already waits for it, that is the answer, never a second one.
+    if (this.#caller.kind === "system" && this.#caller.purpose === "agreements") {
+      const waiting = await createCrmDb(host.env.DB)
+        .query.selectFrom("core_pending_action")
+        .select(["id", "change_set_id", "expires_at"])
+        .where("connection_id", "=", host.connectionId)
+        .where("facet_key", "=", host.facetKey)
+        .where("gk_action", "=", action)
+        .where("status", "=", "pending")
+        .executeTakeFirst();
+      if (waiting) {
+        this.pending.push({
+          status: "pending_approval",
+          changeSetId: waiting.change_set_id,
+          actionId: waiting.id,
+          operation: "integration.outbound",
+          provisionalIds: [],
+          dependsOn: [],
+          expiresAt: waiting.expires_at,
+          simulated: null,
+          message: "Waiting for a person's approval.",
+        });
+        return;
+      }
+    }
+    const routine =
+      this.#caller.kind === "system" && this.#caller.purpose === "routine-mail"
+        ? this.#caller.routine
+        : null;
     const caller =
       this.#caller.kind === "actor"
         ? this.#caller.caller
-        : {
-            actor: "automation" as const,
-            userId: this.#caller.user.id,
-            userName: this.#caller.user.name,
-            role: this.#caller.user.role,
-            origin:
-              this.#caller.purpose === "sign-in"
-                ? { surface: "system" as const, automationId: this.#caller.origin }
-                : {
-                    surface: "automation" as const,
-                    automationId: `${this.#caller.purpose}:${host.connectionId}`,
-                  },
-          };
+        : routine
+          ? {
+              // A routine email is its automation run's: a held one waits in the run's change set.
+              // A host kind's (ADR 0670) has no run: it waits in the host's own set for the kind.
+              actor: "automation" as const,
+              userId: this.#caller.user.id,
+              userName: this.#caller.user.name,
+              role: this.#caller.user.role,
+              origin:
+                routine.automationId && routine.runId
+                  ? {
+                      surface: "automation" as const,
+                      automationId: routine.automationId,
+                      runId: routine.runId,
+                      extensionId: routine.extensionId,
+                    }
+                  : {
+                      surface: "automation" as const,
+                      automationId: `routine-message:${routine.kind}`,
+                    },
+              reason:
+                routine.channel === "text"
+                  ? routine.routine
+                    ? `Routine text ${routine.kind} (${routine.id})`
+                    : `Routine text ${routine.kind}, held for a person: ${routine.heldReason ?? "not routine"}. ` +
+                      "Approving it sends this text to the member's number."
+                  : routine.routine
+                    ? `Routine email ${routine.kind} (${routine.id})`
+                    : routine.ordinary
+                      ? `Routine email ${routine.kind}: routine email is not turned on, so it waits as before`
+                      : `Routine email ${routine.kind}, held for a person: ${routine.heldReason ?? "not routine"}. ` +
+                        "Approving it sends this email, and means you stand behind the values it shows: " +
+                        "later routine email about this record goes out on its own while they stay as they are.",
+            }
+          : {
+              actor: "automation" as const,
+              userId: this.#caller.user.id,
+              userName: this.#caller.user.name,
+              role: this.#caller.user.role,
+              // The host's own mail no AI wrote or reads (sign-in codes, an agreement's copy) is
+              // the system's: the outbound check never reads it (ADR 0645).
+              origin:
+                this.#caller.purpose === "sign-in"
+                  ? { surface: "system" as const, automationId: this.#caller.origin }
+                  : this.#caller.purpose === "agreements"
+                    ? { surface: "system" as const, automationId: "system.agreements" }
+                    : this.#caller.purpose === "accounting"
+                      ? // The sync's entries are composed by host code from host records: no AI
+                        // wrote them, so the outbound check never reads them (ADR 0881).
+                        { surface: "system" as const, automationId: "system.accounting" }
+                      : {
+                          surface: "automation" as const,
+                          automationId: `${this.#caller.purpose}:${host.connectionId}`,
+                        },
+            };
     const submission: OutboundSubmission = {
       connectionId: host.connectionId,
       connectionTitle: host.connectionTitle,
@@ -207,10 +371,19 @@ export class HostQueue extends RpcTarget {
       floor: parseFloor(host.env.APPROVAL_FLOOR),
       // outbound.message (ADR 0238): a message an AI actor wrote is checked before it leaves.
       judge: runnerJudge(host.env),
-      // The host's own message (ADR 0429): only `callAsHost` opens a queue with this purpose.
-      ...(this.#caller.kind === "system" && this.#caller.purpose === "orders"
+      // The host's own message (ADR 0429): only `callAsHost` opens a queue with these purposes
+      // (an agreement's copy, ADR 0645, as an order's confirmation; an entry for the books, ADR
+      // 0881, whose void the always-reviewed kinds still hold for a person).
+      ...(this.#caller.kind === "system" &&
+      (this.#caller.purpose === "orders" ||
+        this.#caller.purpose === "agreements" ||
+        this.#caller.purpose === "accounting")
         ? { hostMessage: true }
         : {}),
+
+      // Routine mail (ADR 0590): the host's decision, which the gate applies only with the
+      // gatekeeper's routine kind; anything else from this queue waits for a person.
+      ...(routine ? { routineMail: { routine: routine.routine, ordinary: routine.ordinary } } : {}),
       ...(this.#caller.kind === "actor" && this.#caller.caller.request
         ? { asked: this.#caller.caller.request }
         : {}),
@@ -225,6 +398,7 @@ export class HostQueue extends RpcTarget {
     // that submitted it.
     const later = new Promise<void>((resolve) => setTimeout(resolve, 0)).then(async () => {
       if (decision.decision === "deny") {
+        this.denied.push(action);
         await host.reject(host.facetKey, action);
         return;
       }
@@ -237,16 +411,27 @@ export class HostQueue extends RpcTarget {
         });
         await auditOutboundApplied(db, submission, { ok: true }, decision.judgeUsage);
       } catch (error) {
+        const outcome = parseApplyOutcome(error instanceof Error ? error.message : String(error));
+        // An agreement's copy: the provider's words may name the recipient, and an admin's MCP
+        // client reads the audit, so its row keeps the outcome only (ADR 0645).
+        const agreements = this.#caller.kind === "system" && this.#caller.purpose === "agreements";
         this.failed.push({
           action,
           actionKind: description.actionKind?.tag ?? null,
           title: description.title,
-          ...parseApplyOutcome(error instanceof Error ? error.message : String(error)),
+          ...(agreements ? { ...outcome, message: `Not sent (${outcome.outcome})` } : outcome),
         });
         await auditOutboundApplied(
           db,
           submission,
-          { ok: false, message: error instanceof Error ? error.message : String(error) },
+          {
+            ok: false,
+            message: agreements
+              ? `Not sent (${outcome.outcome})`
+              : error instanceof Error
+                ? error.message
+                : String(error),
+          },
           decision.judgeUsage,
         );
       }
@@ -270,7 +455,8 @@ export class HostQueue extends RpcTarget {
       this.#caller.kind === "system" &&
       (this.#caller.purpose === "sync" ||
         this.#caller.purpose === "webhook" ||
-        this.#caller.purpose === "payments")
+        this.#caller.purpose === "payments" ||
+        this.#caller.purpose === "text-events")
     ) {
       const purpose = this.#caller.purpose;
       // Enable it once bindHook has returned to the gatekeeper.

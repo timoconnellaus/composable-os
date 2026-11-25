@@ -4,7 +4,9 @@ How releases are built (ADR 0053, ADR 0160, ADR 0161). Deploying them is `packag
 `packages/create-composable-os`.
 
 - `build-release.ts --version X.Y.Z [--out release-out]` runs `pnpm build`, bundles every Worker
-  exactly as `wrangler deploy` would (`--dry-run --outdir`, the pinned wrangler), collects cos-app's
+  exactly as `wrangler deploy` would (`--dry-run --outdir`, the pinned wrangler; cos-runner's main
+  module then minified for whitespace only by `apps/runner/scripts/build.mjs`, ADR 0043 as
+  amended 2026-11-23), collects cos-app's
   assets and the core migrations, generates the manifest and writes `composable-os-<product>-<v>.tar.gz`,
   `composable-os-<product>-<v>.manifest.json` and `SHA256SUMS`. Two builds of one commit are byte-identical; the release
   workflow builds twice and compares.
@@ -17,6 +19,9 @@ How releases are built (ADR 0053, ADR 0160, ADR 0161). Deploying them is `packag
 - **Golden file:** `test/testdata/golden-manifest.json`. Any change to a Worker's config, a
   `deploy-inputs.json` or the migrations changes it. Review the diff, then regenerate:
   `UPDATE_GOLDEN=1 pnpm --filter @composable-os/release-scripts test`.
+- **Completeness:** `test/release-completeness.test.ts` fails when a pack under `packs/` or a block
+  under `blocks/` or `packs/*/blocks/` is not in what a release publishes (the bundle, its client
+  kit, the npm packages). Something left out on purpose goes in its allow-list, with why.
 - `changelog.ts --tag vX.Y.Z` writes the release notes from PR titles (`--all` for a whole changelog).
 - `inspect-bundle.ts <bundle>` opens a bundle the way deployers do and prints what it holds.
 

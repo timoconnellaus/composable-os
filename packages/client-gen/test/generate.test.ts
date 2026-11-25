@@ -16,7 +16,13 @@ import { build } from "esbuild";
 import ts from "typescript";
 import { afterAll, describe, expect, it } from "vitest";
 import { z } from "zod";
-import { operationsFor, productContract, renderClient, renderRoleClient } from "../src/index.ts";
+import {
+  operationsFor,
+  productContract,
+  renderClient,
+  renderOwnerClient,
+  renderRoleClient,
+} from "../src/index.ts";
 import { runClient } from "../src/node/cli.ts";
 import greeter from "./fixtures/greeter/index.ts";
 
@@ -51,6 +57,9 @@ function typecheck(dir: string, files: Record<string, string>): string[] {
         ],
         "@composable-os/pack-ticketing/client": [
           join(here, "..", "..", "..", "packs", "ticketing", "client", "index.ts"),
+        ],
+        "@composable-os/pack-rostering/client": [
+          join(here, "..", "..", "..", "packs", "rostering", "client", "index.ts"),
         ],
       },
     },
@@ -309,5 +318,152 @@ describe("a pack role's client (ADR 0451)", () => {
     });
     // No error in the wiring: no cast, and each @ts-expect-error is used (an unused one is an error).
     expect(errors.filter((e) => e.startsWith("wire.ts"))).toEqual([]);
+  });
+});
+
+describe("a pack role's client with grants (stage 45 step 7, ADR 0600)", () => {
+  const api = join(here, "..", "..", "core", "api", "v1");
+  const staff = JSON.parse(readFileSync(join(api, "staff.json"), "utf8")) as ApiContract;
+  const roles = JSON.parse(readFileSync(join(api, "roles.json"), "utf8")) as PackRolesFile;
+  const coach = roles.roles.find((r) => r.name === "bookings.coach") as PackRolesFile["roles"][0];
+  const roster = roles.grants?.find((g) => g.permission === "rostering:roster");
+  const withGrant = {
+    ...coach,
+    operations: [...new Set([...coach.operations, ...(roster?.operations ?? [])])].sort(),
+  };
+
+  it("the release lists each grantable permission with the tools a grant of it opens", () => {
+    expect(roster?.operations).toEqual(
+      expect.arrayContaining(["x.rostering.week", "x.rostering.take", "x.rostering.me"]),
+    );
+    expect(roster?.operations).not.toContain("x.rostering.assign");
+    expect(roles.grants?.find((g) => g.permission === "rostering:pay")).toMatchObject({
+      restricted: true,
+    });
+  });
+
+  it("a coach's client with rostering:roster wires the native rostering blocks with no cast; the rosterers' hooks do not compile", () => {
+    const dir = scratch();
+    const repo = join(here, "..", "..", "..");
+    const host = join(repo, "templates", "client", "apps", "mobile", "src", "host.ts");
+    const blocks = join(repo, "packs", "rostering", "blocks");
+    const errors = typecheck(dir, {
+      "coach.ts": renderRoleClient(staff, withGrant, {
+        product: "gym",
+        grants: ["rostering:roster"],
+      }),
+      "plain.ts": renderRoleClient(staff, coach, { product: "gym" }).replaceAll(
+        "createBookingsCoachClient",
+        "createPlainCoachClient",
+      ),
+      "wire.ts": [
+        'import { createRosteringHooks, type UseMutation, type UseQuery } from "@composable-os/pack-rostering/client";',
+        `import type { MyShiftsScreen } from ${JSON.stringify(join(blocks, "rostering-native-my-shifts", "my-shifts-screen.tsx"))};`,
+        `import type { OffersScreen } from ${JSON.stringify(join(blocks, "rostering-native-offers", "offers-screen.tsx"))};`,
+        `import type { RosterScreen } from ${JSON.stringify(join(blocks, "rostering-native-roster", "roster-screen.tsx"))};`,
+        `import type { MyAvailabilityScreen } from ${JSON.stringify(join(blocks, "rostering-native-my-availability", "my-availability-screen.tsx"))};`,
+        `import type { MyCalendarScreen } from ${JSON.stringify(join(blocks, "rostering-native-my-calendar", "my-calendar-screen.tsx"))};`,
+        `import { staffSession } from ${JSON.stringify(host)};`,
+        'import { createBookingsCoachClient } from "./coach.ts";',
+        'import { createPlainCoachClient } from "./plain.ts";',
+        "declare const react: { useQuery: UseQuery; useMutation: UseMutation };",
+        "declare const staff: ReturnType<typeof staffSession>;",
+        "const rostering = createRosteringHooks(react, staff.client(createBookingsCoachClient));",
+        'export const mine: Parameters<typeof MyShiftsScreen>[0]["rostering"] = rostering;',
+        'export const offers: Parameters<typeof OffersScreen>[0]["rostering"] = rostering;',
+        'export const week: Parameters<typeof RosterScreen>[0]["rostering"] = rostering;',
+        'export const away: Parameters<typeof MyAvailabilityScreen>[0]["rostering"] = rostering;',
+        'export const calendar: Parameters<typeof MyCalendarScreen>[0]["rostering"] = rostering;',
+        "// @ts-expect-error: the grant opens the team's tools, never the rosterers'.",
+        "export const assign = rostering.useAssign();",
+        "// @ts-expect-error: nor pay.",
+        "export const pay = rostering.usePeriodTotals(null);",
+        "const plain = createRosteringHooks(react, staff.client(createPlainCoachClient));",
+        "// @ts-expect-error: without the grant, a coach's client holds no roster.",
+        "export const none = plain.useWeek({ from: '2026-06-01', to: '2026-06-07' });",
+      ].join("\n"),
+    });
+    expect(errors.filter((e) => e.startsWith("wire.ts"))).toEqual([]);
+    // The header says why it holds more than the role.
+    expect(
+      renderRoleClient(staff, withGrant, { product: "gym", grants: ["rostering:roster"] }),
+    ).toContain("With the grants rostering:roster");
+  });
+});
+
+describe("the owner's client (stage 60, ADR 0872)", () => {
+  const api = join(here, "..", "..", "core", "api", "v1");
+  const staff = JSON.parse(readFileSync(join(api, "staff.json"), "utf8")) as ApiContract;
+  const roles = JSON.parse(readFileSync(join(api, "roles.json"), "utf8")) as PackRolesFile;
+  const owner = roles.owner as NonNullable<PackRolesFile["owner"]>;
+
+  it("an app with the owner's client names no other staff operation", async () => {
+    const dir = scratch();
+    writeFileSync(join(dir, "owner.ts"), renderOwnerClient(staff, owner, { product: "gym" }));
+    writeFileSync(
+      join(dir, "app.ts"),
+      'import { createOwnerClient } from "./owner.ts";\nexport const owner = (fetch: never) => createOwnerClient({ baseUrl: "https://admin.gym.example", fetch });\n',
+    );
+    const outfile = join(dir, "app.bundle.js");
+    await build({
+      entryPoints: [join(dir, "app.ts")],
+      outfile,
+      bundle: true,
+      format: "esm",
+      platform: "neutral",
+      minify: true,
+      alias: { "@composable-os/client": runtime },
+      logLevel: "error",
+    });
+    const built = readFileSync(outfile, "utf8");
+    const others = staff.operations
+      .map((op) => op.name)
+      .filter((n) => !owner.operations.includes(n));
+    expect(others.filter((n) => built.includes(`"${n}"`) || built.includes(`'${n}'`))).toEqual([]);
+    for (const name of owner.operations) expect(built).toContain(name);
+  });
+
+  it("types its calls; record.list and any other staff operation are type errors", () => {
+    const dir = scratch();
+    const errors = typecheck(dir, {
+      "owner.ts": renderOwnerClient(staff, owner, { product: "gym" }),
+      "use.ts": [
+        'import { createOwnerClient } from "./owner.ts";',
+        'const owner = createOwnerClient({ baseUrl: "https://admin.gym.example" });',
+        'export const waiting = () => owner.call("approval.list", { status: "awaiting_review" });',
+        'export const records = () => owner.call("record.list", { object: "person" });',
+        'export const other = () => owner.call("person.list", {});',
+      ].join("\n"),
+    });
+    expect(errors.some((e) => e.startsWith("use.ts:4"))).toBe(true);
+    expect(errors.some((e) => e.startsWith("use.ts:5"))).toBe(true);
+    expect(errors.filter((e) => /use\.ts:3/.test(e))).toEqual([]);
+  });
+
+  it("drives the owner's hooks through the staff session with no cast (ADR 0453)", () => {
+    const dir = scratch();
+    const host = join(here, "..", "..", "..", "templates", "client", "apps", "mobile", "src");
+    const errors = typecheck(dir, {
+      "owner.ts": renderOwnerClient(staff, owner, { product: "gym" }),
+      "wire.ts": [
+        'import { createOwnerHooks, type OwnerHooks, type OwnerUseMutation, type OwnerUseQuery } from "@composable-os/client";',
+        `import { staffSession } from ${JSON.stringify(join(host, "host.ts"))};`,
+        'import { createOwnerClient } from "./owner.ts";',
+        "declare const react: { useQuery: OwnerUseQuery; useMutation: OwnerUseMutation };",
+        "declare const staff: ReturnType<typeof staffSession>;",
+        "const today = createOwnerHooks(react, staff.client(createOwnerClient));",
+        'type Approvals = Pick<OwnerHooks, "useWaiting" | "useChangeSet" | "useApprove" | "useReject">;',
+        'type Inbox = Pick<OwnerHooks, "useNotices" | "useUnreadCount" | "useMarkRead" | "useMe">;',
+        "export const approvals: Approvals = today;",
+        "export const inbox: Inbox = today;",
+      ].join("\n"),
+    });
+    expect(errors.filter((e) => e.startsWith("wire.ts"))).toEqual([]);
+  });
+
+  it("refuses an operation the staff contract does not have", () => {
+    expect(() =>
+      renderOwnerClient(staff, { operations: ["today.nothing"] }, { product: "gym" }),
+    ).toThrow(/today\.nothing/);
   });
 });

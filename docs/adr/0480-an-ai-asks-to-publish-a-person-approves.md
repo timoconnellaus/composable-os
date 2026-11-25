@@ -103,3 +103,10 @@ Each security-relevant check was removed, its tests seen to fail, and restored
 - Under the cautious preset an AI's edit of the working copy waits too, and the publish request is
   refused until that edit is decided.
 - Opening an operation to `customer` or `public`: none. The four operations stay `staff`.
+
+## Amendment, 2026-11-24 (stage 38 step 3, ADR 0702)
+On an object staff confirm they have read (`publishable.acknowledge`), a publish after the first
+says whether it asks everyone again (`readAgain`). An AI's request must carry it; its diff shows it
+as the request's suggestion, the inbox shows it as a choice, and the approver's choice
+(`approval.approve` and `approval.decide` take `readAgain` by action id) is what goes live. See
+[ADR 0702](0702-acknowledgements-read-again-and-a-confirmation-nobody-changes.md).

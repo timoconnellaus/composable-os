@@ -25,6 +25,7 @@ import { resolveChannelTarget } from "../notifications/channels.ts";
 import { loadDeliverySettings } from "../notifications/preferences.ts";
 import { notifyStatements } from "../notifications/send.ts";
 import type { HandlerContext } from "../operation.ts";
+import { jsonList } from "../records/common.ts";
 import { applySubscriptionEvent } from "../subscriptions/events.ts";
 import { SYSTEM_USER } from "../users.ts";
 import { type PaymentsEvent, sendHostEmail } from "./gateway.ts";
@@ -40,13 +41,14 @@ const currency = z
   .transform((c) => c.toUpperCase());
 const provider = z.enum(["stripe", "fake"]);
 const minor = z.number().int().min(0).max(Number.MAX_SAFE_INTEGER);
+const country = z
+  .string()
+  .regex(/^[A-Z]{2}$/)
+  .nullable();
 /** The provider's tax on a payment (ADR 0479), as it said it. */
 const taxReport = z.object({
   amount: minor,
-  country: z
-    .string()
-    .regex(/^[A-Z]{2}$/)
-    .nullable(),
+  country,
   lines: z.array(z.object({ ref: id, amount: minor })).max(100),
 });
 
@@ -100,15 +102,7 @@ const invoiceRead = z.object({
     .url({ protocol: /^https$/ })
     .max(2000)
     .nullable(),
-  tax: z
-    .object({
-      amount: minor,
-      country: z
-        .string()
-        .regex(/^[A-Z]{2}$/)
-        .nullable(),
-    })
-    .optional(),
+  tax: z.object({ amount: minor, country }).optional(),
 });
 
 /** The event as the gatekeeper's hook delivers it, checked before it is stored. */
@@ -160,7 +154,7 @@ export const paymentsEventSchema: z.ZodType<PaymentsEvent> = z.discriminatedUnio
     invoice: invoiceRead.optional(),
     occurredAt: z.string().max(40),
   }),
-]) as z.ZodType<PaymentsEvent>;
+]);
 
 export interface PaymentEventKey {
   provider: string;
@@ -574,15 +568,13 @@ async function resolveRefundedLatePayment(
   const back = Number(before?.total ?? 0) + event.amount;
   const paidIn = late.reduce((sum, p) => sum + p.amount, 0);
   if (back < paidIn) return;
-  for (const payment of late) {
-    ctx.write(
-      ctx.db
-        .updateTable("core_order_payment")
-        .set({ resolved: "refunded", resolved_at: ctx.now })
-        .where("provider", "=", event.provider)
-        .where("event_id", "=", payment.event_id),
-    );
-  }
+  ctx.write(
+    ctx.db
+      .updateTable("core_order_payment")
+      .set({ resolved: "refunded", resolved_at: ctx.now })
+      .where("provider", "=", event.provider)
+      .where("event_id", "in", jsonList(late.map((p) => p.event_id))),
+  );
 }
 
 // --- The host's adapter --------------------------------------------------------------------------
@@ -599,7 +591,7 @@ export interface PaymentEventDeps {
 }
 
 /** How many times an event is applied again after the order changed under it. */
-export const PAYMENT_EVENT_RETRIES = 5;
+const PAYMENT_EVENT_RETRIES = 5;
 const RETRIED_REASONS = new Set([
   "order_stale",
   "subscription_stale",
@@ -609,8 +601,9 @@ const RETRIED_REASONS = new Set([
 ]);
 
 /**
- * Applies one stored event through `order.applyPaymentEvent`, again on `order_stale`, then sends
- * the confirmation email once the payment has committed. Returns the outcome.
+ * Applies one stored event through `order.applyPaymentEvent`, again (up to PAYMENT_EVENT_RETRIES
+ * times) when another event for the same order or subscription committed first, then sends the
+ * confirmation email once the payment has committed. Returns the outcome.
  */
 export async function applyStoredPaymentEvent(
   deps: PaymentEventDeps,
@@ -658,21 +651,46 @@ export async function applyStoredPaymentEvent(
 
 /** How many unapplied events one cron tick picks up. */
 export const PAYMENT_EVENT_SWEEP = 50;
+/** After this many failed applications admins are told (once per event), and it backs off. */
+export const PAYMENT_EVENT_TELL_AFTER = 5;
+
+/**
+ * Whether a stored event that has failed `attempts` times is tried again at `now`: every tick for
+ * the first `PAYMENT_EVENT_TELL_AFTER`, then backing off from when it arrived (an hour, two, four
+ * and so on, at most a day apart), so one that keeps failing never stops being tried and never
+ * crowds out the others.
+ */
+function paymentEventDue(attempts: number, receivedAt: string, now: string): boolean {
+  if (attempts < PAYMENT_EVENT_TELL_AFTER) return true;
+  const n = attempts - PAYMENT_EVENT_TELL_AFTER;
+  // The cumulative wait after the first few tries: 1h, then +2h, +4h… each step at most a day.
+  let wait = 0;
+  for (let i = 0; i <= n; i += 1) wait += Math.min(2 ** i, 24) * 3_600_000;
+  return Date.parse(now) - Date.parse(receivedAt) >= wait;
+}
 
 /**
  * The minute cron's catch-up: applies stored events their first delivery did not (the adapter
- * crashed, or kept conflicting). One indexed read when there are none.
+ * crashed, or kept conflicting), the least-tried first. One that keeps failing is tried with
+ * backoff for good, and admins are told once when it has failed `PAYMENT_EVENT_TELL_AFTER` times.
+ * One indexed read when there are none.
  */
 export async function applyPendingPaymentEvents(
   deps: PaymentEventDeps,
 ): Promise<{ applied: number; failed: number }> {
-  const rows = await deps.crm.query
-    .selectFrom("core_payment_event")
-    .select(["provider", "event_id"])
-    .where("applied_at", "is", null)
-    .orderBy("received_at")
-    .limit(PAYMENT_EVENT_SWEEP)
-    .execute();
+  const now = (deps.clock?.() ?? new Date()).toISOString();
+  const rows = (
+    await deps.crm.query
+      .selectFrom("core_payment_event")
+      .select(["provider", "event_id", "attempts", "received_at"])
+      .where("applied_at", "is", null)
+      .orderBy("attempts")
+      .orderBy("received_at")
+      .limit(PAYMENT_EVENT_SWEEP * 4)
+      .execute()
+  )
+    .filter((r) => paymentEventDue(Number(r.attempts ?? 0), r.received_at, now))
+    .slice(0, PAYMENT_EVENT_SWEEP);
   let applied = 0;
   let failed = 0;
   for (const row of rows) {
@@ -688,6 +706,25 @@ export async function applyPendingPaymentEvents(
         .where("provider", "=", row.provider)
         .where("event_id", "=", row.event_id)
         .execute();
+      if (Number(row.attempts ?? 0) + 1 === PAYMENT_EVENT_TELL_AFTER) {
+        const plan = await notifyStatements(
+          deps.crm.query,
+          {
+            to: [{ role: "admin" }],
+            type: "system.message",
+            title: "A payment event keeps failing to apply",
+            body:
+              `The ${row.provider} event ${row.event_id} has failed to apply ` +
+              `${PAYMENT_EVENT_TELL_AFTER} times. The host keeps trying it, less often. Until ` +
+              "it applies, what it says (a payment, a subscription's change or end) is not " +
+              "recorded here: check it with the provider.",
+            dedupeKey: `payment-event.failing:${row.provider}:${row.event_id}`,
+            source: { actor: "system" },
+          },
+          now,
+        );
+        await deps.crm.batch(plan.statements);
+      }
     }
   }
   return { applied, failed };

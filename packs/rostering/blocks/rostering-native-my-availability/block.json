@@ -1,0 +1,18 @@
+{
+  "name": "rostering-native-my-availability",
+  "pack": "rostering",
+  "skin": "native",
+  "operations": [
+    "x.rostering.me",
+    "x.rostering.myAway",
+    "x.rostering.away",
+    "x.rostering.back",
+    "x.rostering.offer"
+  ],
+  "files": ["my-availability-screen.tsx", "LICENSE"],
+  "dependsOn": ["native-base"],
+  "packages": {
+    "@composable-os/pack-rostering": "*"
+  },
+  "noPurchase": true
+}

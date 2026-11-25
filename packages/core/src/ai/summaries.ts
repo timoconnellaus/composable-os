@@ -12,6 +12,7 @@ import type { CoreDatabase } from "@composable-os/db";
 import { type Kysely, sql } from "kysely";
 import { NotFoundError, ValidationError } from "../errors.ts";
 import { getObject } from "../fields/index.ts";
+import { notInPrivateConversation } from "../inbox/index.ts";
 import type { BlobStore } from "../integrations/runtime.ts";
 import { jsonList } from "../records/common.ts";
 import type { ModelMessage, ModelRunner } from "./client.ts";
@@ -341,12 +342,25 @@ export async function activitySummaryInput(
   activityId: string,
   blobs?: BlobStore,
 ): Promise<SummaryInput | null> {
+  // A private conversation's messages are summarised for nobody (stage 36, ADR 0740).
   const a = await db
-    .selectFrom("core_activity")
-    .select(["id", "type", "subject", "body", "body_ref", "private_to", "disclosure", "deleted_at"])
-    .where("id", "=", activityId)
+    .selectFrom("core_activity as a")
+    .select([
+      "a.id",
+      "a.type",
+      "a.subject",
+      "a.body",
+      "a.body_ref",
+      "a.private_to",
+      "a.disclosure",
+      "a.deleted_at",
+      "a.level",
+    ])
+    .where("a.id", "=", activityId)
+    .where(notInPrivateConversation("a"))
     .executeTakeFirst();
-  if (!a || a.deleted_at || a.private_to) return null;
+  // A note kept from the whole staff is never a model's input (stage 56, ADR 0830).
+  if (!a || a.deleted_at || a.private_to || a.level !== "staff") return null;
   if (a.disclosure === "metadata" || a.type === "system") return null;
   let body = a.body ?? "";
   if (a.body_ref && blobs) {
@@ -515,6 +529,22 @@ export async function storeSummaryStatement(
 }
 
 /** Erase (ADR 0019): every summary about, or built from, one of `ids`. */
+/**
+ * Deletes every summary of, or built from, an activity of the conversation `conversationId`, in
+ * one statement however many it has (stage 36, ADR 0740): marking it private takes its words out
+ * of summaries already made, which `summary.get` would otherwise serve stale.
+ */
+export function deleteConversationSummariesStatement(
+  db: Kysely<CoreDatabase>,
+  conversationId: string,
+) {
+  const ids = sql`(SELECT a.id FROM core_activity a WHERE a.conversation_id = ${conversationId})`;
+  return db.deleteFrom("core_ai_summary").where(
+    sql<boolean>`subject_id IN ${ids}
+        OR EXISTS (SELECT 1 FROM json_each(core_ai_summary.sources) s WHERE s.value IN ${ids})`,
+  );
+}
+
 export function deleteSummariesStatement(db: Kysely<CoreDatabase>, ids: readonly string[]) {
   const json = JSON.stringify([...new Set(ids)]);
   return db.deleteFrom("core_ai_summary").where(

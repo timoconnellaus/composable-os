@@ -7,7 +7,6 @@ import { env } from "cloudflare:workers";
 import type { Principal } from "@composable-os/auth";
 import {
   type AssistantEvent,
-  type AssistantThreadState,
   type CoreOutput,
   devJudge,
   EMPTY_GRANT_USAGE,
@@ -20,15 +19,10 @@ import {
 } from "@composable-os/core";
 import { createCrmDb } from "@composable-os/db";
 import { afterEach, describe, expect, it, vi } from "vitest";
-import {
-  type AssistantHttpEnv,
-  handleState,
-  handleTurn,
-  threadStub,
-} from "../src/server/assistant/http.ts";
+import { type AssistantHttpEnv, threadStub } from "../src/server/assistant/http.ts";
 import { agentJobsFor, type OperationsEnv } from "../src/server/operations.ts";
+import { threadState as state, turn } from "./assistant-helpers.ts";
 
-const ORIGIN = "https://crm.test";
 const appEnv = env as unknown as AssistantHttpEnv;
 const opsEnv = env as unknown as OperationsEnv;
 const db = createCrmDb(env.DB);
@@ -58,34 +52,6 @@ const human = (user: Member["user"]) => {
     ...(agentJobs ? { agentJobs } : {}),
   };
 };
-
-async function turn(principal: Principal, body: Record<string, unknown>) {
-  const response = await handleTurn(
-    new Request(`${ORIGIN}/api/assistant/turn`, {
-      method: "POST",
-      headers: { "content-type": "application/json", origin: ORIGIN },
-      body: JSON.stringify(body),
-    }),
-    appEnv,
-    principal,
-  );
-  expect(response.status).toBe(200);
-  const text = await response.text();
-  return text
-    .split("\n\n")
-    .map((frame) => frame.split("\n").find((l) => l.startsWith("data: ")))
-    .filter((l): l is string => Boolean(l))
-    .map((l) => JSON.parse(l.slice(6)) as AssistantEvent);
-}
-
-async function state(principal: Principal): Promise<AssistantThreadState> {
-  const response = await handleState(
-    new Request(`${ORIGIN}/api/assistant/thread`),
-    appEnv,
-    principal,
-  );
-  return (await response.json()) as AssistantThreadState;
-}
 
 const decision = (events: AssistantEvent[]) => {
   const result = events.find((e) => e.type === "tool-result" && e.tool === "decide_approval");

@@ -281,11 +281,16 @@ export interface CustomerIdentity {
   resolve(request: Request): Promise<CustomerRequestPrincipal>;
   /**
    * As `resolve`, with the session the cookie names (its id), for the HTTP surface: it records
-   * which session a call came from, and exchanges a session for a native app's tokens.
+   * which session a call came from, and exchanges a session for a native app's tokens. And when
+   * that session was signed in (its row's `createdAt`, written once at the code sign-in): a
+   * native app's session exchanged from it starts then, so the exchange never makes an old
+   * sign-in recent (stage 48, ADR 0712).
    */
-  resolveSession(
-    request: Request,
-  ): Promise<{ principal: CustomerRequestPrincipal; sessionId: string | null }>;
+  resolveSession(request: Request): Promise<{
+    principal: CustomerRequestPrincipal;
+    sessionId: string | null;
+    signedInAt?: Date | undefined;
+  }>;
   /**
    * Serves the customer sign-in routes under CUSTOMER_AUTH_BASE_PATH. Returns null when the
    * request is not for one. A route outside the customer list answers 404.
@@ -334,6 +339,7 @@ export function customerIdentity(auth: CustomerAuthInstance, d1: D1Database): Cu
           personId: account.personId,
         }),
         sessionId: session.session.id,
+        signedInAt: new Date(session.session.createdAt),
       };
     },
     async handle(request) {

@@ -1,4 +1,5 @@
-// Person record page, layout B: header with actions, tabs (Overview, Timeline, Tasks, History),
+// Person record page, layout B: header with actions, tabs (Overview, Timeline, Tasks, History,
+// Agreements),
 // composer + timeline in the main column, and details, organisations and tasks in the side
 // panel. Deleted people stay viewable here with a Restore banner.
 import { personObject } from "@composable-os/core/client";
@@ -23,6 +24,7 @@ import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { EllipsisIcon, PlusIcon, RotateCcwIcon, Trash2Icon, UserXIcon } from "lucide-react";
 import { useState } from "react";
 import { toast } from "sonner";
+import { PersonAgreements } from "#/components/agreements/person-agreements";
 import { SimilarRecordsCard } from "#/components/ai/similar-records";
 import { RecordSummaryCard } from "#/components/ai/summary";
 import { useAppCommands } from "#/components/app-commands";
@@ -55,6 +57,7 @@ import {
   EndAffiliationDialog,
 } from "#/components/record/affiliation-dialogs";
 import { AffiliationsCard } from "#/components/record/affiliations-card";
+import { CarersCard } from "#/components/record/carers-card";
 import { FamilyCard } from "#/components/record/family-card";
 import { HistoryList } from "#/components/record/history";
 import { RecordLayout, RecordLayoutSkeleton } from "#/components/record/record-layout";
@@ -66,7 +69,7 @@ import { formatDate } from "#/lib/format";
 import { callOp, OperationCallError } from "#/lib/operations";
 import { errorMessage, opKey, useOp, useOpMutation } from "#/lib/query";
 
-const TABS = ["overview", "timeline", "tasks", "history"] as const;
+const TABS = ["overview", "timeline", "tasks", "history", "agreements"] as const;
 type Tab = (typeof TABS)[number] | `x:${string}`;
 
 export const Route = createFileRoute("/_app/people/$id")({
@@ -148,7 +151,7 @@ function PersonRecord({
   const taskActions = useTaskActions("person", person.id);
   const affiliations = useAffiliations("person", person.id);
   const history = useRecordHistory("person", person.id);
-  const restore = useOpMutation("person.restore");
+  const restore = useOpMutation("person.restore", { invalidates: ["affiliation."] });
   const { create } = useAppCommands();
   const [dialog, setDialog] = useState<"add" | "changeJob" | null>(null);
   const [ending, setEnding] = useState<AffiliationItem | null>(null);
@@ -296,6 +299,17 @@ function PersonRecord({
               />
             ),
           },
+          {
+            value: "agreements",
+            label: "Agreements",
+            content: (
+              <PersonAgreements
+                personId={person.id}
+                personName={person.displayName}
+                readOnly={deleted}
+              />
+            ),
+          },
           ...recordViews.tabs,
         ]}
         side={
@@ -304,6 +318,7 @@ function PersonRecord({
             {isAdmin && <CustomerAccountCard personId={person.id} />}
             <PersonSubscriptionsCard personId={person.id} />
             <FamilyCard personId={person.id} personName={person.displayName} readOnly={deleted} />
+            <CarersCard personId={person.id} personName={person.displayName} readOnly={deleted} />
 
             <RecordSummaryCard object="person" id={person.id} />
             {recordViews.panels}
@@ -353,7 +368,7 @@ function PersonRecord({
 function DeleteAction({ id, name }: { id: string; name: string }) {
   const [open, setOpen] = useState(false);
   const remove = useOpMutation("person.delete");
-  const restore = useOpMutation("person.restore");
+  const restore = useOpMutation("person.restore", { invalidates: ["affiliation."] });
   const merge = useMergeAction("person", id);
   const enrich = useEnrichAction("person", id);
 

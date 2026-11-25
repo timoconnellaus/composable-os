@@ -15,45 +15,11 @@ import {
 } from "../src/index.ts";
 import { testRunner } from "./ai-helpers.ts";
 import { createUser } from "./helpers.ts";
+import { meterRowsRead } from "./rows-read-meter.ts";
 
 const PEOPLE = 3000;
-let rowsRead = 0;
-
-/** env.DB, counting meta.rows_read for every statement Kysely runs. */
-const metered = new Proxy(env.DB, {
-  get(target, prop) {
-    if (prop === "prepare") {
-      return (query: string) => {
-        const wrap = (stmt: D1PreparedStatement): D1PreparedStatement =>
-          new Proxy(stmt, {
-            get(s, p) {
-              if (p === "bind") return (...args: unknown[]) => wrap(s.bind(...args));
-              if (p === "all" || p === "run") {
-                return async () => {
-                  const result = await (s[p] as () => Promise<D1Result>)();
-                  rowsRead += result.meta.rows_read;
-                  return result;
-                };
-              }
-              const value = Reflect.get(s, p);
-              return typeof value === "function" ? value.bind(s) : value;
-            },
-          });
-        return wrap(target.prepare(query));
-      };
-    }
-    if (prop === "batch") {
-      return async (statements: D1PreparedStatement[]) => {
-        const results = await target.batch(statements);
-        for (const r of results) rowsRead += r.meta.rows_read;
-        return results;
-      };
-    }
-    const value = Reflect.get(target, prop);
-    return typeof value === "function" ? value.bind(target) : value;
-  },
-});
-const db = createCrmDb(metered);
+const meter = meterRowsRead(env.DB);
+const db = createCrmDb(meter.db);
 const { models } = testRunner();
 const vectors = memoryVectorStore();
 
@@ -66,10 +32,12 @@ function ctx(): InvocationContext {
   return { actor: "human", user: member, origin: { surface: "ui" }, db, models, vectors };
 }
 
+/** The rows a call reads itself. A cold call may scan sqlite_master once (the schema cache). */
 async function measure(name: string, input: unknown): Promise<number> {
-  rowsRead = 0;
+  meter.reset();
   await invokeByName(name, input, ctx());
-  return rowsRead;
+  expect(meter.schemaScans, name).toBeLessThanOrEqual(1);
+  return meter.rows;
 }
 
 beforeAll(async () => {
@@ -95,19 +63,10 @@ beforeAll(async () => {
 
 describe("rows read on the AI paths", () => {
   it("summary.get reads the record, its links and the cache row by key", async () => {
-    // The budget includes one read of sqlite_master, which grows by a row per table and index:
-    // migration 0401 (customer accounts) added 13 and took this from 389 to 402 rows; stages 23,
-    // 25 and 26 (migrations 0410 to 0441) took it to about 454; stage 28's four content tables
-    // and their indexes (migration 0460) to about 480; stage 42's media tables (migration 0510)
-    // to about 501; stage 32a's offers (migration 0532) to about 524; stage 32b's allowances
-    // (migration 0533) and stage 31's recurring bookkeeping and write guard (migration 0560:
-    // three tables, two indexes, a trigger) to about 544; stage 32b's plan changes (migration 0630)
-    // and stage 31a's family link (migration 0650: two tables, two indexes, three triggers) to
-    // about 565; stage 44's agreement documents (migration 0850: four tables, two indexes, ten
-    // triggers, an autoindex for the version's unique key) to about 588.
+    // About 20 rows of its own; the cold call's one scan of sqlite_master is counted apart.
     expect(
       await measure("summary.get", { subject: { kind: "record", object: "person", id: personId } }),
-    ).toBeLessThan(600);
+    ).toBeLessThan(60);
     expect(
       await measure("summary.get", {
         subject: { kind: "record", object: "organisation", id: orgId },
@@ -130,12 +89,11 @@ describe("rows read on the AI paths", () => {
   });
 
   it("a write adds one queue row, and a drain round reads its batch by key", async () => {
-    rowsRead = 0;
-    await invokeByName("person.update", { id: personId, location: "Lisbon" }, ctx());
-    expect(rowsRead).toBeLessThan(400);
-    rowsRead = 0;
+    expect(await measure("person.update", { id: personId, location: "Lisbon" })).toBeLessThan(400);
+    meter.reset();
     const out = await drainEmbeddingQueue({ db, models, vectors });
     expect(out.embedded).toBe(1);
-    expect(rowsRead).toBeLessThan(200);
+    expect(meter.schemaScans).toBe(0);
+    expect(meter.rows).toBeLessThan(200);
   });
 });

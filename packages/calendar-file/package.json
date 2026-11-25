@@ -1,0 +1,21 @@
+{
+  "name": "@composable-os/calendar-file",
+  "version": "0.0.0",
+  "license": "FSL-1.1-ALv2",
+  "private": true,
+  "type": "module",
+  "description": "The iCalendar (RFC 5545) writer the email gatekeeper's \"add to calendar\" file (ADR 0571) and the host's staff calendar feed (ADR 0628) share. No dependencies.",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "devDependencies": {
+    "@composable-os/config": "workspace:*",
+    "@types/node": "24.19.2",
+    "typescript": "6.0.3",
+    "vitest": "5.1.0"
+  }
+}

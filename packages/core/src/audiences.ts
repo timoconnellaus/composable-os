@@ -5,9 +5,14 @@
 // Opening an operation to customers or the public is a reviewed change: it must be a `read` or a
 // `write`, and it appears in packages/core/open-operations.json, which a test keeps equal to the
 // registry.
+//
+// `device` (stage 51, ADR 0781): an enrolled device holding a device role, on the desk origin
+// only. An operation open to it is open to nobody else, and is reached only through the desk
+// origin's handler, where the pipeline resolves the device from its credential and lets it call
+// its role's tools and `device.heartbeat`, nothing else. It is listed in open-operations.json too.
 import type { Principal, RiskClass } from "./principals.ts";
 
-export const AUDIENCES = ["staff", "customer", "public"] as const;
+export const AUDIENCES = ["staff", "customer", "public", "device"] as const;
 export type Audience = (typeof AUDIENCES)[number];
 
 /** What an operation is when it declares no audiences. */
@@ -26,6 +31,7 @@ export interface AudienceDeclaration {
   readonly audiences?: readonly Audience[] | undefined;
   readonly hostInternal?: boolean | undefined;
   readonly toolOnly?: boolean | undefined;
+  readonly deskOnly?: boolean | undefined;
 }
 
 export function audiencesOf(op: Pick<AudienceDeclaration, "audiences">): readonly Audience[] {
@@ -38,13 +44,18 @@ export function isOpenOutside(op: Pick<AudienceDeclaration, "audiences">): boole
 }
 
 /** The audience a caller belongs to. A caller has exactly one. */
-export function audienceOf(principal: Principal): Audience {
+export function audienceOf(principal: Pick<Principal, "kind">): Audience {
   return principal.kind;
+}
+
+/** Whether only an enrolled device may call it (ADR 0781). */
+export function isDeviceOperation(op: Pick<AudienceDeclaration, "audiences">): boolean {
+  return audiencesOf(op).includes("device");
 }
 
 export function allowsAudience(
   op: Pick<AudienceDeclaration, "audiences">,
-  principal: Principal,
+  principal: Pick<Principal, "kind">,
 ): boolean {
   return audiencesOf(op).includes(audienceOf(principal));
 }
@@ -55,14 +66,21 @@ export function audienceProblems(op: AudienceDeclaration): string[] {
   const declared = op.audiences;
   if (declared !== undefined) {
     if (!Array.isArray(declared) || declared.length === 0) {
-      problems.push("audiences must list at least one of staff, customer, public");
+      problems.push("audiences must list at least one of staff, customer, public, device");
       return problems;
     }
     if (declared.some((a) => !AUDIENCES.includes(a))) {
-      problems.push("audiences must be a subset of staff, customer, public");
+      problems.push("audiences must be a subset of staff, customer, public, device");
       return problems;
     }
     if (new Set(declared).size !== declared.length) problems.push("audiences lists one twice");
+    // A device's operations are its own (ADR 0781): never also a person's or the public's.
+    if (declared.includes("device") && declared.length !== 1) {
+      problems.push("an operation open to device is open to nobody else");
+    }
+    if (declared.includes("device") && (op.deskOnly || op.toolOnly)) {
+      problems.push("an operation open to device is neither deskOnly nor toolOnly");
+    }
   }
   if (isOpenOutside(op) && !OUTSIDE_RISK_CLASSES.includes(op.risk)) {
     const who = audiencesOf(op).filter((a) => a !== "staff");
@@ -83,6 +101,8 @@ export interface OpenOperation {
   hostInternal?: true;
   /** Present and true when customers reach it only from inside a pack's tool (ADR 0414). */
   toolOnly?: true;
+  /** Present and true when only the desk origin's own handler reaches it (ADR 0649). */
+  deskOnly?: true;
   /** The pack whose tool it is (`x.<pack>.<tool>`); absent for a core operation. */
   pack?: string;
 }
@@ -94,11 +114,12 @@ export interface OpenOperationsFile {
 }
 
 export const OPEN_OPERATIONS_COMMENT =
-  "Generated. Every operation customers or the public may call, with its risk class " +
-  "(ADR 0402, ADR 0411). Do not edit: run `pnpm --filter @composable-os/core open-operations`. " +
+  "Generated. Every operation customers, the public or an enrolled device may call, with its " +
+  "risk class (ADR 0402, ADR 0411, ADR 0781). Do not edit: run " +
+  "`pnpm --filter @composable-os/core open-operations`. " +
   "A new line here opens the host to people outside the org, so review it as such.";
 
-/** Every operation in `operations` open to customers or the public, by name. */
+/** Every operation in `operations` open to customers, the public or a device, by name. */
 export function openOperations(operations: readonly AudienceDeclaration[]): OpenOperationsFile {
   return {
     $comment: OPEN_OPERATIONS_COMMENT,
@@ -110,6 +131,7 @@ export function openOperations(operations: readonly AudienceDeclaration[]): Open
         risk: op.risk,
         ...(op.hostInternal ? { hostInternal: true as const } : {}),
         ...(op.toolOnly ? { toolOnly: true as const } : {}),
+        ...(op.deskOnly ? { deskOnly: true as const } : {}),
       }))
       .sort((a, b) => a.name.localeCompare(b.name)),
   };

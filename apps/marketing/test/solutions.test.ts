@@ -61,6 +61,8 @@ describe("solutions", () => {
     // Stage 32b step 6: plans, memberships and passes are merged; the rest is in progress.
     expect(status("Memberships and passes")).toBe("building");
     expect(status("Moving from your booking system")).toBe("planned");
+    // Stage 44 steps 1 to 5: agreeing on the web and in the app; the desk and cooling off to come.
+    expect(status("Waivers and agreements")).toBe("building");
     // Stage 32a: the subscription (step 3) and moving the current subscribers (step 4) are built.
     expect(status("Course subscriptions")).toBe("built");
     expect(status("Moving your course subscribers")).toBe("built");

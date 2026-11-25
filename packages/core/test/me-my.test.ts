@@ -43,10 +43,37 @@ beforeAll(async () => {
 // capacity.get (stage 26) and the order.* operations (stage 25) are open too; their own tests
 // list them (customer-pipeline.test.ts).
 const OPENED = [
+  // Stage 44 step 2 (ADR 0642): the caller's own agreements and their live dependants'.
+  "me.agreements.accept",
+  "me.agreements.due",
+  "me.agreements.get",
+  "me.agreements.list",
+  "me.agreements.pdf",
+  // Stage 48 step 4 (ADR 0711): what needs the caller's attention.
+  "me.attention",
+  // Stage 53 step 7 (ADR 0803): the caller's own birthday.
+  "me.birthday.get",
+  "me.birthday.set",
+  // Stage 62 step 1 (ADR 0890): the caller's own calendar link.
+  "me.calendarFeed.revoke",
+  "me.calendarFeed.rotate",
+  "me.calendarFeed.status",
+  // Stage 51 step 3 (ADR 0783): the caller's own check-in code and PIN.
+  "me.code",
   "me.deleteAccount",
+  // Stage 48 (ADR 0712): changing the sign-in address.
+  "me.email.change",
+  "me.email.confirm",
   // Stage 31a step 6 (ADR 0540): the caller's own family links.
   "me.family",
   "me.get",
+  // Stage 30 step 3 (ADR 0673): checking one of the caller's own numbers by code.
+  "me.phone.check",
+  "me.phone.startCheck",
+  "me.pin.clear",
+  "me.pin.set",
+  // Stage 48 step 5 (ADR 0710): which sections of My account the caller has.
+  "me.portal",
   "me.sessions.list",
   "me.sessions.revoke",
   "me.signOut",
@@ -71,9 +98,31 @@ describe("what this step opens", () => {
     );
     for (const entry of direct as { name: string; hostInternal?: boolean }[]) {
       expect(entry.hostInternal === true, entry.name).toBe(
-        ["me.deleteAccount", "me.sessions.list", "me.sessions.revoke", "me.signOut"].includes(
-          entry.name,
-        ),
+        [
+          "me.agreements.accept",
+          "me.agreements.due",
+          "me.agreements.get",
+          "me.agreements.list",
+          "me.agreements.pdf",
+          "me.attention",
+          "me.birthday.get",
+          "me.birthday.set",
+          "me.calendarFeed.revoke",
+          "me.calendarFeed.rotate",
+          "me.calendarFeed.status",
+          "me.code",
+          "me.deleteAccount",
+          "me.email.change",
+          "me.email.confirm",
+          "me.phone.check",
+          "me.phone.startCheck",
+          "me.pin.clear",
+          "me.pin.set",
+          "me.portal",
+          "me.sessions.list",
+          "me.sessions.revoke",
+          "me.signOut",
+        ].includes(entry.name),
       );
     }
   });

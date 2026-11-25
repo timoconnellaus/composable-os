@@ -24,7 +24,7 @@ import { createFileRoute } from "@tanstack/react-router";
 import { CopyIcon, PlugIcon, UnplugIcon } from "lucide-react";
 import { useEffect, useState } from "react";
 import { toast } from "sonner";
-import { EmptyState } from "#/components/empty-state";
+import { EmptyState, ErrorState } from "#/components/empty-state";
 import { PageLayout } from "#/components/layout/page-layout";
 import { formatDate, formatDateTime, formatRelative } from "#/lib/format";
 import { errorMessage, useOp, useOpMutation } from "#/lib/query";
@@ -142,7 +142,13 @@ function AppList({
 }) {
   if (query.isPending) return <Skeleton className="h-24" />;
   if (query.isError) {
-    return <EmptyState title="Could not load apps" description={errorMessage(query.error)} />;
+    return (
+      <ErrorState
+        title="Could not load apps"
+        error={query.error}
+        onRetry={() => void query.refetch()}
+      />
+    );
   }
   if (!query.data.items.length) {
     return <EmptyState icon={PlugIcon} title="No connected apps" description={empty} />;

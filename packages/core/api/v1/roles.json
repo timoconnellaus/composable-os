@@ -8,14 +8,90 @@
       "description": "Sees the day's classes and each class's list, and ticks who came (or marks who did not). Nothing else: no money, no other people, no booking or cancelling, no settings.",
       "read": ["bookings.class"],
       "operations": [
+        "ack.confirm",
+        "ack.mine",
+        "content.search",
+        "content.staffGet",
+        "content.staffList",
         "record.get",
         "record.list",
+        "screens.mine",
         "x.bookings.day",
         "x.bookings.markAll",
         "x.bookings.markAttended",
         "x.bookings.markNoShow",
         "x.bookings.roster",
-        "x.bookings.undoAttended"
+        "x.bookings.undoAttended",
+        "x.dailychecks.day",
+        "x.dailychecks.done",
+        "x.dailychecks.tick",
+        "x.dailychecks.today"
+      ]
+    },
+    {
+      "name": "programs.coach",
+      "pack": "programs",
+      "label": "Coach",
+      "description": "Sees the clients they coach (an active program naming them their coach): their sessions, sets, history and progress, and logs sets and marks sessions for them. Nothing else: no other clients, no class sessions, no programs, no assigning, no people.",
+      "read": ["programs.assignment", "programs.session"],
+      "operations": [
+        "ack.confirm",
+        "ack.mine",
+        "content.search",
+        "content.staffGet",
+        "content.staffList",
+        "record.get",
+        "record.list",
+        "screens.mine",
+        "x.dailychecks.day",
+        "x.dailychecks.done",
+        "x.dailychecks.tick",
+        "x.dailychecks.today",
+        "x.programs.history",
+        "x.programs.logAdd",
+        "x.programs.logRemove",
+        "x.programs.logUpdate",
+        "x.programs.progress",
+        "x.programs.sessionComplete",
+        "x.programs.sessionGet",
+        "x.programs.today"
+      ]
+    },
+    {
+      "name": "rostering.team",
+      "pack": "rostering",
+      "label": "Rostered team",
+      "description": "Sees the roster and their own shifts, offers and takes shifts, says when they are away, has their own calendar feed and sees their own hours for each pay period. Nothing else: no records, no people, no settings.",
+      "read": [],
+      "operations": [
+        "ack.confirm",
+        "ack.mine",
+        "content.search",
+        "content.staffGet",
+        "content.staffList",
+        "screens.mine",
+        "x.dailychecks.day",
+        "x.dailychecks.done",
+        "x.dailychecks.tick",
+        "x.dailychecks.today",
+        "x.rostering.away",
+        "x.rostering.back",
+        "x.rostering.checklist",
+        "x.rostering.checklistDone",
+        "x.rostering.feed",
+        "x.rostering.feedRevoke",
+        "x.rostering.feedRotate",
+        "x.rostering.me",
+        "x.rostering.mine",
+        "x.rostering.myAway",
+        "x.rostering.myPay",
+        "x.rostering.myPayPeriods",
+        "x.rostering.offer",
+        "x.rostering.offers",
+        "x.rostering.take",
+        "x.rostering.tick",
+        "x.rostering.week",
+        "x.rostering.withdraw"
       ]
     },
     {
@@ -24,7 +100,222 @@
       "label": "Door",
       "description": "Checks tickets in at the door and sees events, ticket types and tickets. Nothing else: no people, orders, leads or settings.",
       "read": ["ticketing.event", "ticketing.ticket", "ticketing.tickettype"],
-      "operations": ["record.get", "record.list", "x.ticketing.checkIn", "x.ticketing.undoCheckIn"]
+      "operations": [
+        "ack.confirm",
+        "ack.mine",
+        "content.search",
+        "content.staffGet",
+        "content.staffList",
+        "record.get",
+        "record.list",
+        "screens.mine",
+        "x.dailychecks.day",
+        "x.dailychecks.done",
+        "x.dailychecks.tick",
+        "x.dailychecks.today",
+        "x.ticketing.checkIn",
+        "x.ticketing.undoCheckIn"
+      ]
     }
-  ]
+  ],
+  "grants": [
+    {
+      "permission": "bookings:desk",
+      "pack": "bookings",
+      "label": "Front desk: find people, book anyone (walk-ins too) into any class, cancel or move their bookings, give a use back, and see any day's classes and full lists. For a coach who also works the desk.",
+      "restricted": false,
+      "operations": [
+        "x.bookings.bookFor",
+        "x.bookings.cancelFor",
+        "x.bookings.classList",
+        "x.bookings.day",
+        "x.bookings.findPeople",
+        "x.bookings.move",
+        "x.bookings.returnUse"
+      ]
+    },
+    {
+      "permission": "courses:enrol",
+      "pack": "courses",
+      "label": "courses:enrol",
+      "restricted": false,
+      "operations": ["x.courses.endEnrolment", "x.courses.enrol"]
+    },
+    {
+      "permission": "memberships:passes",
+      "pack": "memberships",
+      "label": "memberships:passes",
+      "restricted": false,
+      "operations": ["x.memberships.givePass", "x.memberships.voidPass"]
+    },
+    {
+      "permission": "rostering:manage",
+      "pack": "rostering",
+      "label": "Rostering, rosters others: put people on shifts, say who may do which work, record others' time off and see everyone's, see shifts with nobody on them, mark a shift not worked, and see how everyone's checklists went and tick one for someone. Admins hold it.",
+      "restricted": true,
+      "operations": [
+        "x.rostering.assign",
+        "x.rostering.awayFor",
+        "x.rostering.awayList",
+        "x.rostering.candidates",
+        "x.rostering.check",
+        "x.rostering.checklistCorrect",
+        "x.rostering.checklistRuns",
+        "x.rostering.follow",
+        "x.rostering.markNotWorked",
+        "x.rostering.patterns",
+        "x.rostering.people",
+        "x.rostering.planCheck",
+        "x.rostering.qualifications",
+        "x.rostering.qualify",
+        "x.rostering.setPattern",
+        "x.rostering.uncovered"
+      ]
+    },
+    {
+      "permission": "rostering:pay",
+      "pack": "rostering",
+      "label": "Rostering, pay: say who is counted for pay, see each pay period's hours and shifts, lock, reopen and export them for payroll. No rates or money are held. Admins hold it.",
+      "restricted": true,
+      "operations": [
+        "x.rostering.export",
+        "x.rostering.lock",
+        "x.rostering.payBases",
+        "x.rostering.payBasis",
+        "x.rostering.periodTotals",
+        "x.rostering.periods",
+        "x.rostering.reopen"
+      ]
+    },
+    {
+      "permission": "rostering:roster",
+      "pack": "rostering",
+      "label": "Rostering: see the roster and their own shifts, offer and take shifts, say when they are away, have their own calendar feed and see their own hours for each pay period. For a coach or anyone with another role who is rostered.",
+      "restricted": false,
+      "operations": [
+        "x.rostering.away",
+        "x.rostering.back",
+        "x.rostering.checklist",
+        "x.rostering.checklistDone",
+        "x.rostering.feed",
+        "x.rostering.feedRevoke",
+        "x.rostering.feedRotate",
+        "x.rostering.me",
+        "x.rostering.mine",
+        "x.rostering.myAway",
+        "x.rostering.myPay",
+        "x.rostering.myPayPeriods",
+        "x.rostering.offer",
+        "x.rostering.offers",
+        "x.rostering.take",
+        "x.rostering.tick",
+        "x.rostering.week",
+        "x.rostering.withdraw"
+      ]
+    }
+  ],
+  "requires": {
+    "bookings": ["programs"],
+    "courses": ["programs", "content"],
+    "memberships": ["programs"]
+  },
+  "owner": {
+    "operations": [
+      "approval.approve",
+      "approval.get",
+      "approval.list",
+      "approval.reject",
+      "notification.list",
+      "notification.markRead",
+      "notification.unreadCount",
+      "user.me"
+    ]
+  },
+  "portal": {
+    "bookings": {
+      "hooks": "createBookingsHooks",
+      "sections": {
+        "bookings": {
+          "label": "Bookings",
+          "order": 10,
+          "web": {
+            "block": "bookings-timetable",
+            "export": "Timetable"
+          },
+          "native": {
+            "block": "bookings-native-timetable",
+            "export": "TimetableScreen"
+          }
+        }
+      }
+    },
+    "courses": {
+      "hooks": "createCoursesHooks",
+      "sections": {
+        "courses": {
+          "label": "My courses",
+          "order": 30,
+          "web": {
+            "block": "courses-my-courses",
+            "export": "MyCourses"
+          },
+          "native": {
+            "block": "courses-native-my-courses",
+            "export": "MyCoursesScreen"
+          }
+        }
+      }
+    },
+    "memberships": {
+      "hooks": "createMembershipsHooks",
+      "sections": {
+        "memberships": {
+          "label": "Memberships and passes",
+          "order": 20,
+          "web": {
+            "block": "memberships-mine",
+            "export": "MyMemberships"
+          },
+          "native": {
+            "block": "memberships-native-mine",
+            "export": "MyMembershipsScreen"
+          }
+        }
+      }
+    },
+    "programs": {
+      "hooks": "createProgramsHooks",
+      "sections": {
+        "training": {
+          "label": "Training",
+          "order": 50,
+          "web": {
+            "block": "programs-progress",
+            "export": "Progress"
+          },
+          "native": {
+            "block": "programs-native-progress",
+            "export": "ProgressScreen"
+          }
+        }
+      }
+    },
+    "ticketing": {
+      "hooks": "createTicketingHooks",
+      "sections": {
+        "tickets": {
+          "label": "My tickets",
+          "order": 40,
+          "web": {
+            "block": "ticketing-my-tickets",
+            "export": "MyTickets"
+          },
+          "native": {
+            "block": "ticketing-native-my-tickets",
+            "export": "MyTicketsScreen"
+          }
+        }
+      }
+    }
+  }
 }

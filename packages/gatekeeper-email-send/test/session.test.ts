@@ -9,7 +9,13 @@ const SENDER_URL = "email-send://sender/crm%40example.com";
 let seq = 0;
 
 /** A fresh host with a facet for SENDER_URL, so no test inherits another's durable state. */
-async function host(options: { autoApply?: boolean; hostSignIn?: boolean } = {}) {
+async function host(
+  options: {
+    autoApply?: boolean;
+    hostSignIn?: boolean;
+    hostRoutine?: { siteOrigin: string | null };
+  } = {},
+) {
   seq += 1;
   const stub = env.TEST_HOST.getByName(`host-${seq}-${crypto.randomUUID()}`);
   await stub.open(SENDER_URL, options);
@@ -261,6 +267,56 @@ describe("the host's sign-in mail (ADR 0456)", () => {
       { ...code, text: code.text.replace("482913", "abcdef") },
       { ...code, text: `${code.text}\n\nClick https://evil.test` },
       { ...code, text: code.text.replace("ignore this email", "reply with your password") },
+    ];
+    for (const message of variants) {
+      resetFakes();
+      const h = await host({ hostSignIn: true });
+      await send(h, message);
+      expect(submissions[0]?.[1].actionKind?.tag, JSON.stringify(message)).not.toBe("email.signin");
+    }
+  });
+
+  // Changing a sign-in address (stage 48, ADR 0712): the code to the new address, the notice to
+  // the old one. The same kind, under the same rules.
+  const changeCode = {
+    to: ["new@customer.test"],
+    subject: "Confirm your new Gym sign-in address",
+    text:
+      "Your code to make this your sign-in address for Gym is 482913.\n\nIt works once and " +
+      "expires in 15 minutes. If you did not ask for this, ignore this email: nothing changes.",
+  };
+  const changed = {
+    to: ["old@customer.test"],
+    subject: "Your Gym sign-in address was changed",
+    text:
+      "The address you sign in to Gym with was changed to n•••@customer.test.\n\nYou can no " +
+      "longer sign in with this address. If you did not ask for this, contact us at once.",
+  };
+
+  it("gives the address change's code and notice the sign-in kind, from the host's queue only", async () => {
+    for (const message of [changeCode, changed]) {
+      resetFakes();
+      const h = await host({ hostSignIn: true });
+      await send(h, message);
+      expect(submissions[0]?.[1].actionKind?.tag, message.subject).toBe("email.signin");
+      resetFakes();
+      const other = await host();
+      await send(other, message);
+      expect(submissions[0]?.[1].actionKind?.tag, message.subject).toBe("email.send");
+    }
+  });
+
+  it("is an ordinary send when an address change's message is not exactly its template", async () => {
+    const variants = [
+      { ...changeCode, subject: "Confirm your new Other sign-in address" },
+      { ...changeCode, text: changeCode.text.replace("482913", "48291") },
+      { ...changeCode, text: `${changeCode.text} Visit https://evil.test` },
+      { ...changed, subject: "Your Other sign-in address was changed" },
+      // The new address in full, or with more than its first character, is not the template.
+      { ...changed, text: changed.text.replace("n•••@", "new@") },
+      { ...changed, text: changed.text.replace("n•••@", "ne•••@") },
+      { ...changed, text: changed.text.replace("customer.test.", "customer.test/x.") },
+      { ...changed, to: ["old@customer.test", "b@customer.test"] },
     ];
     for (const message of variants) {
       resetFakes();

@@ -4,12 +4,20 @@
 import { toolPermissions } from "@composable-os/sdk";
 import { sql } from "kysely";
 import { z } from "zod";
-import { ConflictError, NotFoundError, ValidationError } from "../errors.ts";
+import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from "../errors.ts";
 import { defineObject } from "../fields/types.ts";
 import { listInputSchema, pageQuery, pageSchema, selectFields } from "../list.ts";
 import { defineOperation } from "../operation.ts";
 import { availablePackRoles, PACK_ROLE_NAME_RE, parseGrants } from "../pack-roles.ts";
-import { GRANTABLE_PERMISSIONS, holdsPermission, PERMISSIONS, ROLES } from "../principals.ts";
+import {
+  FIXED_ROLE_CORE_GRANTS,
+  GRANTABLE_PERMISSIONS,
+  holdsPermission,
+  PERMISSIONS,
+  RESTRICTED_CORE_PERMISSIONS,
+  ROLES,
+} from "../principals.ts";
+import { feedRevocations } from "../staffing/feed.ts";
 
 /** Users are not a record object (no tags, links or timeline); this only drives user.list. */
 export const userObject = defineObject({
@@ -169,6 +177,8 @@ export const userUpdateRole = defineOperation({
       : input.role;
     ctx.write(
       ctx.db.updateTable("core_user").set({ role, updated_at: ctx.now }).where("id", "=", input.id),
+      // A calendar feed the new role no longer lets them have is revoked with it (ADR 0628).
+      ...(await feedRevocations(ctx.db, input.id, { role: input.role })),
     );
     ctx.recordChange({
       object: "user",
@@ -248,7 +258,8 @@ export async function checkPackRole(
  * Refuses permissions that cannot be granted (ADR 0449); returns the list sorted, once each. An
  * account holding a pack role (`packRole`) may be granted pack permissions only, never a core one
  * (ADR 0600): a core permission opens a core operation over every record, which is not what a
- * fixed role's account is for, and it would count for nothing beside the role.
+ * fixed role's account is for, and it would count for nothing beside the role. The exceptions are
+ * FIXED_ROLE_CORE_GRANTS (ADR 0783): `people:cards`, for a desk account issuing members' cards.
  */
 export async function checkGrants(
   ctx: Pick<Parameters<typeof userPackRoles.handler>[1], "db">,
@@ -258,7 +269,7 @@ export async function checkGrants(
 ): Promise<string[]> {
   const choices = await grantable(ctx);
   const available = new Set(
-    choices.filter((g) => packRole === null || g.from !== "core").map((g) => g.permission),
+    choices.filter((g) => packRole === null || g.forFixedRole).map((g) => g.permission),
   );
   const unknown = permissions.filter((p) => !available.has(p));
   if (unknown.length) {
@@ -305,8 +316,10 @@ export const userSetPackRole = defineOperation({
       await checkPackRole(ctx, input.role, before.role, "role");
       // Its grants must be ones a fixed role's account may hold (ADR 0600): a core grant would
       // count for nothing beside the role, so it is taken away by a person first, not silently.
-      const core = parseGrants(before.granted_permissions).filter((p) =>
-        (GRANTABLE_PERMISSIONS as readonly string[]).includes(p),
+      const core = parseGrants(before.granted_permissions).filter(
+        (p) =>
+          (GRANTABLE_PERMISSIONS as readonly string[]).includes(p) &&
+          !(FIXED_ROLE_CORE_GRANTS as readonly string[]).includes(p),
       );
       if (core.length) {
         throw new ConflictError(
@@ -322,7 +335,11 @@ export const userSetPackRole = defineOperation({
       .where("id", "=", input.id);
     // Never an admin row: an admin cannot hold a pack role, even if promoted meanwhile.
     if (input.role !== null) update = update.where("role", "<>", "admin");
-    ctx.write(update);
+    ctx.write(
+      update,
+      // A calendar feed the new pack role no longer lets them have is revoked with it (ADR 0628).
+      ...(await feedRevocations(ctx.db, input.id, { role, packRole: input.role })),
+    );
     ctx.recordChange({
       object: "user",
       id: input.id,
@@ -340,7 +357,9 @@ export const userSetPackRole = defineOperation({
 /** What an admin may grant now: the core list and the grantable permissions of installed packs. */
 export async function grantable(
   ctx: Pick<Parameters<typeof userPackRoles.handler>[1], "db">,
-): Promise<{ permission: string; label: string; from: string; forFixedRole: boolean }[]> {
+): Promise<
+  { permission: string; label: string; from: string; forFixedRole: boolean; restricted: boolean }[]
+> {
   const rows = await ctx.db
     .selectFrom("core_extensions")
     .select(["id", "manifest"])
@@ -353,6 +372,7 @@ export async function grantable(
       label?: string;
       grantable?: string[];
       grantableLabels?: Record<string, string>;
+      restricted?: string[];
       tools?: Record<string, { permission?: string | string[]; description?: string }>;
     };
     return (manifest.grantable ?? []).map((permission) => {
@@ -366,6 +386,8 @@ export async function grantable(
         from: row.id,
         // A pack permission opens that pack's named tools only (ADR 0600).
         forFixedRole: true,
+        // Held by admins and by grant only (ADR 0625): never self-granted.
+        restricted: (manifest.restricted ?? []).includes(permission),
       };
     });
   });
@@ -375,13 +397,39 @@ export async function grantable(
     "subscriptions:manage": "End or keep going customers' subscriptions",
     "people:link": "Link a parent or guardian to a child, and end the link",
     "agreements:manage": "Write agreement documents, and publish, attach and retire them",
+    "agreements:paper": "Record that someone signed an agreement on paper",
+    "agreements:health": "Read members' health form answers (every read is logged)",
+    "agreements:desk": "Start a desk signing session for a member on an enrolled tablet",
+    "checklists:write": "Write the checklists staff tick off (their steps, and which are in use)",
+    "invoices:write": "Draft quotes, invoices and credit notes",
+    "invoices:send": "Send quotes, and issue and send invoices",
+    "invoices:credit": "Issue credit notes and void invoices",
+    "invoices:payments":
+      "Record payments taken another way (transfer, cash, card machine), and read the invoice log",
+    "accounting:manage":
+      "Run the accounting sync: map the books' accounts, approve days, fix what is held",
+    "notes:clients": "Read every client's notes kept to their coaches (every read is logged)",
+    "notes:sensitive": "Read sensitive notes (every opening is logged)",
+    "notes:manage": "Change and delete others' notes, and lower a note's level",
+    "journeys:manage": "Write journeys, set them live, pause them and add people to them",
+    "journeys:publish": "Approve a journey's wording by publishing it",
+    "orders:discount": "Give money off an order at the desk, with a reason (up to the set limit)",
+    "orders:payments": "Record a payment taken another way (transfer, cash), and reverse one",
+    "people:cards": "Issue and revoke members' check-in cards",
+    "stock:adjust": "Record opening stock and correct how many are on hand",
+    "finance:read": "See the finance reports and download their files",
+    "finance:close": "Close and reopen a month's finance figures",
+    "bookingSystem:manage": "Load the booking system's lists and link its people and coaches",
   };
   return [
     ...GRANTABLE_PERMISSIONS.map((permission) => ({
       permission,
       label: labels[permission],
       from: "core",
-      forFixedRole: false,
+      // A few core permissions open person-scoped operations a desk account needs (ADR 0783).
+      forFixedRole: FIXED_ROLE_CORE_GRANTS.includes(permission),
+      // The notes permissions (stage 56, ADR 0832) are restricted as a pack's may be (ADR 0625).
+      restricted: RESTRICTED_CORE_PERMISSIONS.includes(permission),
     })),
     ...packs,
   ];
@@ -404,6 +452,11 @@ export const userGrantablePermissions = defineOperation({
         forFixedRole: z
           .boolean()
           .describe("Whether an account with a pack's fixed role may be granted it (ADR 0600)"),
+        restricted: z
+          .boolean()
+          .describe(
+            "Held by admins and by grant only: no member holds it otherwise, and nobody grants it to themselves (ADR 0625)",
+          ),
       }),
     ),
   }),
@@ -422,7 +475,8 @@ export const userSetPermissions = defineOperation({
     "(user.grantablePermissions lists them; an empty list takes them all away). A member granted " +
     "records:publish publishes programs; one granted orders:refund approves refunds. A grant never " +
     "lets an AI assistant or MCP client do what only a person may. An account with a pack's " +
-    "fixed role may be granted the packs' permissions only (a coach given the Bookings desk), " +
+    "fixed role may be granted the packs' permissions (a coach given the Bookings desk) and " +
+    "agreements:desk only, " +
     "which add up with the role. Admins only, and only a human can call it. Returns the user.",
   input: z.object({
     id: z.string().min(1).max(64).describe("User id (usr_…)"),
@@ -442,6 +496,20 @@ export const userSetPermissions = defineOperation({
     if (!before) throw new NotFoundError("user", input.id);
     const permissions = await checkGrants(ctx, input.permissions, "permissions", before.pack_role);
     const previous = parseGrants(before.granted_permissions);
+    // A restricted permission (ADR 0625) is never granted to oneself: an admin who granted it to
+    // their own account would keep it after being made a member.
+    if (input.id === ctx.user.id) {
+      const restricted = new Set(
+        (await grantable(ctx)).filter((g) => g.restricted).map((g) => g.permission),
+      );
+      const added = permissions.filter((p) => restricted.has(p) && !previous.includes(p));
+      if (added.length) {
+        throw new ForbiddenError(
+          `${added.join(", ")} cannot be granted to your own account: another admin grants it.`,
+          { field: "permissions", rule: "self_grant", permissions: added },
+        );
+      }
+    }
     ctx.write(
       ctx.db
         .updateTable("core_user")
@@ -450,6 +518,8 @@ export const userSetPermissions = defineOperation({
           updated_at: ctx.now,
         })
         .where("id", "=", input.id),
+      // A calendar feed the grants no longer let them have is revoked with them (ADR 0628).
+      ...(await feedRevocations(ctx.db, input.id, { grants: permissions })),
     );
     ctx.recordChange({
       object: "user",

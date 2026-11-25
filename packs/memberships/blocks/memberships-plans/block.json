@@ -2,10 +2,17 @@
   "name": "memberships-plans",
   "pack": "memberships",
   "skin": "web",
-  "operations": ["x.memberships.plans", "subscription.start"],
+  "operations": [
+    "x.memberships.plans",
+    "subscription.start",
+    "me.agreements.due",
+    "me.agreements.accept",
+    "agreement.guestVersions"
+  ],
   "files": ["plans.tsx", "LICENSE"],
-  "dependsOn": ["ui-button", "ui-card", "ui-input", "ui-label"],
+  "dependsOn": ["ui-button", "ui-card", "ui-input", "ui-label", "web-agree"],
   "packages": {
+    "@composable-os/client": "*",
     "@composable-os/pack-memberships": "*"
   }
 }

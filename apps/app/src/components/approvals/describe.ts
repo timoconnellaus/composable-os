@@ -1,7 +1,13 @@
 // Turns a pending action (operation + diff preview) into words a reviewer reads in the Approvals
 // inbox: a title ("Update 38 people"), and per group of records the field changes as added,
 // removed and changed lines, with labels from the field registry. Pure, so it is unit tested.
-import { getObject, noun, type PreviewEntry } from "@composable-os/core/client";
+import {
+  actionTitle,
+  getObject,
+  noun,
+  outboundTitle,
+  type PreviewEntry,
+} from "@composable-os/core/client";
 import { diffValue } from "#/lib/format";
 
 export {
@@ -14,6 +20,19 @@ export {
   verbOf,
 } from "@composable-os/core/client";
 export type { PreviewEntry };
+
+/** A pending action's title, as every review screen gives it: its outbound item's, or its own. */
+export function pendingActionTitle(action: {
+  operation: string;
+  preview: readonly PreviewEntry[];
+  input?: unknown;
+  bulkSize?: number;
+  outbound?: Parameters<typeof outboundTitle>[0] | null;
+}): string {
+  return action.outbound
+    ? outboundTitle(action.outbound)
+    : actionTitle(action.operation, action.preview, action.input, action.bulkSize);
+}
 
 export type LineKind = "add" | "remove" | "change" | "note";
 
@@ -57,6 +76,8 @@ export function diffLines(entry: PreviewEntry): DiffLine[] {
     if (field === "id" || field === "updatedAt" || field === "createdAt") continue;
     // A publish request's working-copy fingerprint (ADR 0480): checked on approval, not read.
     if (field === "draftFingerprint") continue;
+    // Its read-again suggestion (ADR 0702) is the approver's choice, shown as its own control.
+    if (field === "readAgain") continue;
     if (Array.isArray(before) || Array.isArray(after)) {
       const was = asList(before);
       const now = asList(after);
@@ -202,4 +223,16 @@ export function summariseDecision(
   if (count("failed")) parts.push(`${count("failed")} failed`);
   if (count("skipped")) parts.push(`${count("skipped")} skipped`);
   return { headline: `${parts.join(", ")}.`, cascaded: 0, problems };
+}
+
+/**
+ * A publish request's read-again suggestion (ADR 0702): true asks everyone who must read it to
+ * confirm again, false is a small fix; null when the publish asks nobody.
+ */
+export function readAgainSuggestion(preview: readonly PreviewEntry[]): boolean | null {
+  for (const entry of preview) {
+    const after = entry.diff.readAgain?.after;
+    if (typeof after === "boolean") return after;
+  }
+  return null;
 }

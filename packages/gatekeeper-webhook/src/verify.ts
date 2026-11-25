@@ -1,6 +1,7 @@
 // Signature verification for each scheme, with WebCrypto. `crypto.subtle.verify("HMAC", …)`
 // compares in constant time, so a provided signature is never compared byte by byte here.
 
+import { hexEncode } from "@composable-os/gatekeeper-kit/connect-nonce";
 import type { WebhookScheme } from "./types.js";
 
 /** How far a signed timestamp may be from now, in seconds (as Stripe and Slack recommend). */
@@ -177,9 +178,9 @@ export async function signForScheme(
 ): Promise<Record<string, string>> {
   const key = await hmacKey(secret);
   const hex = async (data: string) =>
-    [...new Uint8Array(await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(data)))]
-      .map((byte) => byte.toString(16).padStart(2, "0"))
-      .join("");
+    hexEncode(
+      new Uint8Array(await crypto.subtle.sign("HMAC", key, new TextEncoder().encode(data))),
+    );
   switch (scheme) {
     case "hmac-sha256":
       return {

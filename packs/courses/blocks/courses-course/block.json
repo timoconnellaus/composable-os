@@ -2,10 +2,19 @@
   "name": "courses-course",
   "pack": "courses",
   "skin": "web",
-  "operations": ["x.courses.course", "x.courses.buy", "order.checkout", "media.play"],
+  "operations": [
+    "x.courses.course",
+    "x.courses.buy",
+    "order.checkout",
+    "media.play",
+    "me.agreements.due",
+    "me.agreements.accept",
+    "agreement.guestVersions"
+  ],
   "files": ["course-page.tsx", "LICENSE"],
-  "dependsOn": ["ui-button", "ui-input", "ui-label"],
+  "dependsOn": ["ui-button", "ui-input", "ui-label", "web-agree"],
   "packages": {
+    "@composable-os/client": "*",
     "@composable-os/pack-courses": "*"
   }
 }

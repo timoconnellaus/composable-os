@@ -3,6 +3,8 @@
 import type { CoreDatabase } from "@composable-os/db";
 import { type Kysely, type SqlBool, sql } from "kysely";
 import { z } from "zod";
+import { scrubErasedCopies } from "../agreements/copy.ts";
+import { type AgreementsErased, queueEraseAgreements } from "../agreements/people.ts";
 import { enqueueEmbeddings } from "../ai/embedding.ts";
 import { deleteSummariesStatement } from "../ai/summaries.ts";
 import { queueEraseAllowances } from "../allowance/people.ts";
@@ -11,7 +13,12 @@ import { queueScrubConversations } from "../assistant/erase.ts";
 import { queueEraseMemory } from "../assistant/memory.ts";
 import { queueEraseRoutines } from "../assistant/routines.ts";
 import { emailRef } from "../assistant/scrub.ts";
+import { queueEraseFinance } from "../finance/erase.ts";
+import { conversationsOf, eraseConversationStatements } from "../inbox/index.ts";
+import { eraseJourneyStatements } from "../journeys/entries.ts";
+import { queueEraseSignals } from "../journeys/signals.ts";
 import type { HandlerContext } from "../operation.ts";
+import { queueErasePersonCodes } from "../people-codes/people.ts";
 import { chunk, jsonList } from "./common.ts";
 import { drainAllBlobDeletions, writeEraseLog } from "./erase-log.ts";
 import {
@@ -23,6 +30,7 @@ import {
   queueEraseSync,
 } from "./erase-stores.ts";
 import {
+  addressesHeldByOthers,
   ERASED,
   MIN_TERM_LENGTH,
   mentionsSql,
@@ -69,6 +77,8 @@ export interface EraseCounts {
   memoryLines: number;
   /** Open erase requests closed (and deleted with the person's customer account). */
   eraseRequests: number;
+  /** A person's agreements: what is kept, until when, and what went (ADR 0646). */
+  agreements: AgreementsErased | null;
 }
 
 /** The counts person.erase and organisation.erase report beyond the audit and conversations. */
@@ -83,6 +93,23 @@ export const eraseCountsOutput = {
   eraseRequestsClosed: z
     .number()
     .describe("Open erase requests the erase closed (a person's customer account goes with them)"),
+  agreementsKept: z
+    .object({
+      count: z.number().describe("Acceptances kept, no longer theirs, as the business's evidence"),
+      until: z
+        .string()
+        .nullable()
+        .describe(
+          "When the retention purge deletes them (agreement.retention); null: none kept, or the setting keeps them",
+        ),
+      deleted: z
+        .number()
+        .describe("A buyer's acceptances on an unpaid order or unconfirmed checkout, deleted"),
+    })
+    .optional()
+    .describe(
+      "A person's agreements (ADR 0646): health answers and the minor mark are deleted; each acceptance is kept, detached, until the retention period ends",
+    ),
   bodiesDeleted: z
     .number()
     .describe("Synced email bodies deleted from blob storage now (the rest are retried)"),
@@ -104,6 +131,7 @@ export async function afterErase(
   memoryLinesDeleted: number;
   eraseRequestsClosed: number;
   bodiesDeleted: number;
+  agreementsKept?: { count: number; until: string | null; deleted: number };
 }> {
   let bodiesDeleted = 0;
   if (ctx.blobs && !ctx.simulation) {
@@ -113,7 +141,25 @@ export async function afterErase(
       // Left queued for the cron.
     }
   }
+  // What the email gatekeeper holds of their copies, scrubbed now (ADR 0646); what is not done
+  // here stays owed for the minute cron's copy step.
+  if (counts.agreements && ctx.integrations && !ctx.simulation) {
+    try {
+      await scrubErasedCopies({ db: ctx.db, integrations: ctx.integrations });
+    } catch {
+      // Owed: the minute cron asks again.
+    }
+  }
   return {
+    ...(counts.agreements
+      ? {
+          agreementsKept: {
+            count: counts.agreements.kept,
+            until: counts.agreements.keptUntil,
+            deleted: counts.agreements.deleted,
+          },
+        }
+      : {}),
     suggestionsRemoved: counts.suggestions,
     extensionRowsErased: counts.extensionRows,
     runsRedacted: counts.runs,
@@ -132,7 +178,10 @@ export async function afterErase(
 export async function queueErase(ctx: HandlerContext, request: EraseRequest): Promise<EraseCounts> {
   const { object, recordId, recordIds } = request;
   // A person's customer sign-in addresses are theirs too (stage 22): redacted, and listed as erased.
-  const accountEmails = object === "person" ? await customerAddresses(ctx, recordIds) : [];
+  // Not one another identified Person holds now (#302, ADR 0712): staff may have moved it to them.
+  const signInEmails = object === "person" ? await customerAddresses(ctx, recordIds) : [];
+  const heldByOthers = await addressesHeldByOthers(ctx.db, signInEmails, recordIds);
+  const accountEmails = signInEmails.filter((email) => !heldByOthers.has(email));
   const terms = [
     ...new Set(
       [...recordIds, ...request.terms, ...accountEmails].map((t) => t.trim().toLowerCase()),
@@ -216,11 +265,20 @@ export async function queueErase(ctx: HandlerContext, request: EraseRequest): Pr
   // (they could no longer apply), with everything depending on them.
   await queueRedactPending(ctx, object, recordIds, terms);
 
-  // 3. Activities and tasks that are about only these records.
-  const { activityIds, taskIds } = await findOwnedActivitiesAndTasks(ctx, object, recordIds);
-  for (const ids of chunk(activityIds)) {
+  // 3. Activities and tasks that are about only these records. A Person's conversations go
+  // whole (stage 36, ADR 0740): every message and note in them, whatever else they are linked
+  // to, and their bodies in R2 by trigger.
+  const owned = await findOwnedActivitiesAndTasks(ctx, object, recordIds);
+  const inbox =
+    object === "person"
+      ? await conversationsOf(ctx.db, recordIds, [...(request.addresses ?? []), ...accountEmails])
+      : { conversationIds: [], activityIds: [] };
+  const activityIds = [...new Set([...owned.activityIds, ...inbox.activityIds])];
+  const { taskIds } = owned;
+  for (const ids of chunk(owned.activityIds)) {
     ctx.write(ctx.db.deleteFrom("core_activity").where("id", "in", ids));
   }
+  ctx.write(...eraseConversationStatements(ctx.db, inbox));
   for (const ids of chunk(taskIds)) {
     ctx.write(ctx.db.deleteFrom("core_task").where("id", "in", ids));
   }
@@ -313,6 +371,7 @@ export async function queueErase(ctx: HandlerContext, request: EraseRequest): Pr
   // notifications, integration events and the outbox. All in this batch.
   const subject = {
     object,
+    recordId,
     recordIds,
     terms,
     names: request.names ?? [],
@@ -337,8 +396,19 @@ export async function queueErase(ctx: HandlerContext, request: EraseRequest): Pr
 
   // Their records' lifecycle history, and what ties an order to them (stage 25, ADR 0426).
   await queueEraseOrders(ctx, subject);
+  // A reopened month's reason naming them, and closed finance rows about them (stage 52).
+  await queueEraseFinance(ctx, subject);
   // Their passes' and memberships' uses, and the uses they spent (stage 32b, ADR 0494).
   if (subject.object === "person") queueEraseAllowances(ctx, [...recordIds]);
+  // Their journey entries and step log (stage 53, ADR 0800).
+  if (subject.object === "person") {
+    const journeys = eraseJourneyStatements(ctx.db, [...recordIds]);
+    if (journeys.length) ctx.write(...journeys);
+  }
+  // Their journey signals: when they last did each thing (stage 53, ADR 0802).
+  if (subject.object === "person") queueEraseSignals(ctx, [...recordIds]);
+  // Their check-in codes, cards and PIN, and the dependants' codes on their app (stage 51, ADR 0783).
+  if (subject.object === "person") queueErasePersonCodes(ctx, [...recordIds]);
 
   // 3f. The erase log outside D1 (R2), so an erasure can be re-applied after a restore. Written
   // before the commit: if it cannot be written the erase fails and can be retried.
@@ -354,6 +424,15 @@ export async function queueErase(ctx: HandlerContext, request: EraseRequest): Pr
     ),
   );
 
+  // 3h. What imports last wrote (ADR 0470): a key or its stored values naming the subject (an
+  // imported set's person, its notes) go. A re-run then finds no person for those rows.
+  ctx.write(
+    ctx.db.deleteFrom("core_import_key").where(
+      // One search over both columns: the terms are bound once (at most 100 values a statement).
+      sql<SqlBool>`record_id IN ${subjectIds} OR ${mentionsSql(terms, sql`import_key || ' ' || coalesce(written, '')`)}`,
+    ),
+  );
+
   // 4. The records. Merged-away records first: they point at the survivor.
   const ordered = [...recordIds.filter((id) => id !== recordId), recordId];
   for (const ids of chunk(ordered)) {
@@ -363,6 +442,14 @@ export async function queueErase(ctx: HandlerContext, request: EraseRequest): Pr
         : ctx.db.deleteFrom("core_organisation").where("id", "in", ids),
     );
   }
+  // Their health answers and minor mark go now; their acceptances stay, detached, for the
+  // retention period (ADRs 0642 and 0646); a buyer's unpaid ones go; a copy's waiting approval is
+  // turned down. After the Person's row and their orders' addresses are deleted: the acceptance
+  // triggers allow a detach only then.
+  const agreements =
+    subject.object === "person"
+      ? await queueEraseAgreements(ctx, [...recordIds], subject.addresses)
+      : null;
 
   // 5. FTS5 keeps deleted terms in older index segments until they are merged. Merge now, after
   // every delete above, so the erased values leave the search index's storage, not just its
@@ -379,6 +466,7 @@ export async function queueErase(ctx: HandlerContext, request: EraseRequest): Pr
     notifications,
     memoryLines,
     eraseRequests,
+    agreements,
   };
 }
 
@@ -396,13 +484,15 @@ async function queueScrubShared(
 
   const activities = await ctx.db
     .selectFrom("core_activity as a")
-    .select(["a.id", "a.subject", "a.body", "a.payload", "a.body_ref"])
+    .select(["a.id", "a.subject", "a.body", "a.payload", "a.body_ref", "a.sections"])
     .where("a.id", "not in", jsonList(removed.activityIds))
     .where((eb) =>
       eb.or([
         sql<SqlBool>`a.id IN (SELECT l.activity_id FROM core_activity_links l
           WHERE l.object_type = ${object} AND l.record_id IN ${jsonList(recordIds)})`,
-        mentions(sql`coalesce(a.subject, '') || ' ' || coalesce(a.body, '') || ' ' || a.payload`),
+        mentions(
+          sql`coalesce(a.subject, '') || ' ' || coalesce(a.body, '') || ' ' || a.payload || ' ' || coalesce(a.sections, '')`,
+        ),
       ]),
     )
     .execute();
@@ -414,6 +504,16 @@ async function queueScrubShared(
     const subject = m.text(a.subject);
     const body = m.text(a.body);
     const payload = JSON.stringify(scrubJson(JSON.parse(a.payload), m).value);
+    // A note from a template keeps its text twice: the body made from it, and its sections
+    // (stage 56, ADR 0833). Both are scrubbed.
+    const sections =
+      a.sections === null
+        ? null
+        : JSON.stringify(
+            (JSON.parse(a.sections) as { key: string; label: string; text: string }[]).map(
+              (section) => ({ ...section, text: m.text(section.text) ?? "" }),
+            ),
+          );
     // A person erase drops the full email body in R2 rather than rewriting it: a body is mostly
     // about its sender and recipients (greetings, signatures, quoted replies) and names are not
     // matched in shared text, so a rewrite would leave them. So does an organisation erase when
@@ -428,6 +528,7 @@ async function queueScrubShared(
       subject === a.subject &&
       body === a.body &&
       payload === a.payload &&
+      sections === a.sections &&
       bodyRef === a.body_ref
     ) {
       continue;
@@ -435,7 +536,7 @@ async function queueScrubShared(
     ctx.write(
       ctx.db
         .updateTable("core_activity")
-        .set({ subject, body, payload, body_ref: bodyRef, updated_at: ctx.now })
+        .set({ subject, body, payload, sections, body_ref: bodyRef, updated_at: ctx.now })
         .where("id", "=", a.id),
     );
   }

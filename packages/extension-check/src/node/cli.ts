@@ -62,7 +62,82 @@ async function check(dir: string, json: boolean, io: ExtIo): Promise<number> {
   for (const line of outsideSummary(result.manifest)) io.out(line);
   // So is what its staff roles let an account do (ADR 0436).
   for (const line of rolesSummary(result.manifest)) io.out(line);
+  // And what it emails members without a person's approval (ADR 0590).
+  for (const line of routineMailSummary(result.manifest)) io.out(line);
+  // And the moments about a Person it lets a journey start or stop on (stage 53, ADR 0802).
+  for (const line of journeySignalsSummary(result.manifest)) io.out(line);
   return 0;
+}
+
+/**
+ * One line for each journey signal the manifest declares (stage 53, ADR 0802): what the host
+ * records about a Person on every write. Empty when it declares none.
+ */
+export function journeySignalsSummary(
+  manifest:
+    | {
+        id: string;
+        journeySignals?: Record<
+          string,
+          { label: string; object: string; enters?: string[]; from?: string[] }
+        >;
+      }
+    | null
+    | undefined,
+): string[] {
+  const signals = Object.entries(manifest?.journeySignals ?? {});
+  if (!manifest || !signals.length) return [];
+  return [
+    "This extension declares journey signals, recorded by the host for the Person on every write:",
+    ...signals.map(
+      ([name, signal]) =>
+        `  ${manifest.id}.${name} (${signal.label}): ${signal.object} ` +
+        (signal.enters
+          ? `enters ${signal.enters.join(" or ")}${signal.from ? ` from ${signal.from.join(" or ")}` : ""}`
+          : "created"),
+    ),
+  ];
+}
+
+/**
+ * One line for each kind of routine mail the manifest declares (ADR 0590): email the host sends
+ * without a person's approval, about which record, and its messages. Empty when it declares none.
+ */
+export function routineMailSummary(
+  manifest:
+    | {
+        id: string;
+        routineMail?: Record<
+          string,
+          {
+            label: string;
+            about: string;
+            on?: boolean;
+            channels?: readonly string[];
+            essential?: boolean;
+            purpose?: string;
+            urgent?: boolean;
+            messages: Record<string, unknown>;
+          }
+        >;
+      }
+    | null
+    | undefined,
+): string[] {
+  const kinds = Object.entries(manifest?.routineMail ?? {});
+  if (!manifest || !kinds.length) return [];
+  return [
+    "This extension declares routine email, sent without a person's approval to whoever the " +
+      "record belongs to. Review its words:",
+    ...kinds.map(
+      ([name, kind]) =>
+        `  ${manifest.id}.${name} (${kind.label}): about ${kind.about}; messages ` +
+        `${Object.keys(kind.messages).join(", ")}; by ${(kind.channels ?? ["email"]).join(", ")}` +
+        // A person may turn an optional kind's email off; an urgent one may go in quiet hours (ADR 0670).
+        `${(kind.essential ?? (kind.purpose ?? "account") === "account") ? "" : "; optional"}` +
+        `${kind.urgent ? "; urgent" : ""}${kind.on === false ? "; off until an admin turns it on" : ""}`,
+    ),
+  ];
 }
 
 /**
@@ -73,8 +148,18 @@ export function rolesSummary(
   manifest:
     | {
         id: string;
-        roles?: Record<string, { label: string; permissions: string[]; read: string[] }>;
+        roles?: Record<
+          string,
+          {
+            label: string;
+            permissions: string[];
+            read: string[];
+            looksAfter?: Record<string, string>;
+            mine?: Record<string, { through: string }>;
+          }
+        >;
         grantable?: string[];
+        restricted?: string[];
         tools?: Record<string, { permission?: string | string[] }>;
       }
     | null
@@ -82,7 +167,8 @@ export function rolesSummary(
 ): string[] {
   const roles = Object.entries(manifest?.roles ?? {});
   const grantable = manifest?.grantable ?? [];
-  if (!manifest || (!roles.length && !grantable.length)) return [];
+  const restricted = manifest?.restricted ?? [];
+  if (!manifest || (!roles.length && !grantable.length && !restricted.length)) return [];
   const opens = (permission: string) =>
     Object.entries(manifest.tools ?? {})
       .filter(([, tool]) =>
@@ -101,7 +187,15 @@ export function rolesSummary(
           ...roles.map(
             ([name, role]) =>
               `  role ${manifest.id}.${name} (${role.label}): tools with ${role.permissions.join(", ") || "no permission"}; ` +
-              `reads ${role.read.join(", ") || "nothing"}`,
+              `reads ${role.read.join(", ") || "nothing"}` +
+              // Limited to the People its holder looks after (ADR 0889).
+              (role.looksAfter && Object.keys(role.looksAfter).length
+                ? `; only the people its holder looks after on ${Object.keys(role.looksAfter).join(", ")}`
+                : "") +
+              // Reaching only the records that name its holder (ADR 0755).
+              (role.mine && Object.keys(role.mine).length
+                ? `; only through the ${[...new Set(Object.values(role.mine).map((m) => m.through))].join(", ")} records naming its holder on ${Object.keys(role.mine).join(", ")}`
+                : ""),
           ),
         ]
       : []),
@@ -110,8 +204,15 @@ export function rolesSummary(
       ? [
           "Permissions an admin may grant one by one (to an account with a role too):",
           ...grantable.map(
-            (permission) => `  ${permission}: tools ${opens(permission).join(", ") || "none"}`,
+            (permission) =>
+              `  ${permission}: tools ${opens(permission).join(", ") || "none"}${restricted.includes(permission) ? " (restricted)" : ""}`,
           ),
+        ]
+      : []),
+    // Held by admins and by grant only (ADR 0625): a member does not hold these tools.
+    ...(restricted.length
+      ? [
+          `Restricted (admins, and accounts an admin granted it; never a member otherwise): ${restricted.join(", ")}`,
         ]
       : []),
   ];
@@ -128,6 +229,7 @@ interface OpensOutside {
         read: string[];
         write: string[];
         guardians?: { write?: boolean; madeBy?: string };
+        delete?: boolean;
       };
       public?: { read: string[]; when?: { via?: string; field: string; in: string[] } };
       signedIn?: { read: string[]; when?: { via?: string; field: string; in: string[] } };
@@ -211,7 +313,9 @@ export function outsideSummary(manifest: OpensOutside | null | undefined): strin
       : "is them";
     lines.push(
       `  customers see ${manifest.id}.${name} where ${c.field} ${whose}: ` +
-        `read ${c.read.join(", ") || "nothing"}; write ${c.write.join(", ") || "nothing"}`,
+        `read ${c.read.join(", ") || "nothing"}; write ${c.write.join(", ") || "nothing"}` +
+        // A customer's own records they may put in the Trash (ADR 0414, amended).
+        (c.delete ? "; may put their own in the Trash (my.delete)" : ""),
     );
   }
   for (const [name, tool] of Object.entries(manifest.tools)) {

@@ -143,3 +143,27 @@ and `apps/app/e2e/bookings.spec.ts` ("a coach ticks who came on a class's list",
   only on a call the role allows (`roleLimitsFor`), never on one a grant allows, so it never blocks
   the desk and a grant never lifts it off the roster or a tick. See
   [ADR 0600](0600-a-pack-role-and-its-grants-add-up.md).
+
+## Amendment, 2026-11-23 (stage 45 step 4, ADR 0626)
+A coach granted Rostering's `rostering:roster` reads the whole future roster (every class and duty
+shift, who is on it, its time, kind and place) and offers and takes shifts, through Rostering's
+tools; the coach role itself still reaches class lists, bookings and names only today. The roster
+read returns nothing of a class's bookings, places or list, nor any Person. And a class's and a
+series' coach are now `personApproves`: an assistant's swap waits for a person.
+
+## Amendment, 2026-11-24 (issue #290)
+- **A run is held to the day of the call that started it**: the pipeline carries the moment of
+  that call (`roleTodayAt`, next to `roleToday`, in the tool caller, the run's state and each
+  invocation the run makes), and every call of the run, and of the tools it calls, is held to
+  that moment's local day. Before, each nested call read the clock again: a coach's roster
+  started at 23:59:59 could find its class and then lose it, or the reverse, partway through,
+  and a call's clock (`InvocationContext.clock`) never reached the run's calls, so the
+  attendance and coach-desk tests could not pin it and failed when a run crossed the business's
+  midnight. A top-level call still holds to its own clock.
+
+## Amendment, 2026-11-24 (stage 39 step 3, ADR 0755)
+A third limit sits beside today's: a role's `mine` reach, through the records of its pack that
+name its holder within a window (Jobs' crew on the jobs it has a crew place on, a week either side
+of the visit). An object takes one limit: the contract check refuses `mine` on an object already
+limited to today. Unlike today's, its list predicate is a subquery with the account bound once,
+not a list of ids. See [ADR 0755](0755-the-mine-reach-for-pack-roles.md).

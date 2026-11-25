@@ -16,6 +16,7 @@
 import { defineExtension } from "@composable-os/sdk";
 import { ticketingAutomations } from "./automations.ts";
 import { ticketingDashboards } from "./dashboards.ts";
+import { ticketingRoutineMail } from "./routine-mail.ts";
 import {
   checkIn,
   eventsOnSale,
@@ -39,7 +40,9 @@ export default defineExtension({
     // sales summary. person.get (read person): the holder's name a check-in reports.
     read: ["person"],
     // public.list and capacity.get: the events on sale and their places, for the public.
-    // extensionSettings.list: the pages the buyer's emails link to. email-send: the buyer's mail.
+    // extensionSettings.list: the pages the blocks link to. routine-mail: the buyer's and the
+    // holder's email (routine-mail.ts, ADR 0590), sent by the host from the email-send
+    // connection an admin binds to each automation.
     // order.settings.get: the currency the sales summary's amounts are in (staff).
     operations: [
       "order.start",
@@ -50,7 +53,7 @@ export default defineExtension({
       "extensionSettings.list",
       "order.settings.get",
     ],
-    modules: ["ops", "email-send"],
+    modules: ["ops", "routine-mail", "email-send"],
   },
   objects: {
     event: {
@@ -169,6 +172,16 @@ export default defineExtension({
         balanceDue: { type: "date", label: "Balance due" },
       },
       capacity: { places: "places", pool: "event", show: "low", lowAt: 10 },
+      // Where agreement may be needed (stage 44, ADR 0641): nothing is attached by default, so a
+      // ticket sells as before until the business attaches a document (a waiver) to "event". The
+      // buyer agrees for themselves (ADR 0644). The checkout block shows what is due and lets the
+      // buyer agree on the way (issue #292).
+      agreements: {
+        point: "event",
+        label: "Buying a ticket",
+        suggests: ["waiver"],
+        inlineStep: true,
+      },
       sellable: {
         price: "price",
         saleWindow: { from: "onSaleFrom", until: "onSaleUntil" },
@@ -200,6 +213,12 @@ export default defineExtension({
             city: "taxCity",
             line1: "taxAddress",
           },
+        },
+        // In the finance reports (ADR 0792): earned when the event starts.
+        finance: {
+          category: { key: "tickets", label: "Tickets" },
+          earned: "at_date",
+          at: "event.startsAt",
         },
       },
       // A ticket type is public while its event is on sale; its places are capacity.get's.
@@ -249,7 +268,14 @@ export default defineExtension({
         },
         event: { type: "relation", label: "Event", to: "ticketing.event", required: true },
         holder: { type: "relation", label: "Holder", to: "person" },
-        order: { type: "text", label: "Order" },
+        // Which order granted it, set by the host's grant (ADR 0590, the fourth review): never
+        // written by a caller, or a ticket could be moved to another buyer's order and mailed.
+        order: {
+          type: "text",
+          label: "Order",
+          readOnly: true,
+          description: "The order that granted this ticket, set by the host.",
+        },
         state: {
           type: "select",
           label: "State",
@@ -276,6 +302,20 @@ export default defineExtension({
           { from: "used", to: "valid", by: ["staff"] },
           { from: ["valid", "used"], to: "void", by: ["staff", "host"], final: true },
         ],
+      },
+      // A ticket made by hand starts a ticket as buying one does: the same point, asked by the
+      // engine for its holder when a caller makes one or gives it to another holder (stage 44,
+      // issue #281). Valid and used are the same ticket, so undoing a check-in asks nobody. One a
+      // paid order grants is the host's, asked when the order started.
+      agreements: {
+        point: "event",
+        label: "Buying a ticket",
+        suggests: ["waiver"],
+        enter: ["valid"],
+        keeps: ["valid", "used"],
+        person: "holder",
+        // The same point as buying one, so the checkout's step answers it too (issue #292).
+        inlineStep: true,
       },
       // The holder reads their ticket's event, type, code and state, and changes nothing.
       customer: { field: "holder", read: ["event", "tickettype", "code", "state"], write: [] },
@@ -334,14 +374,35 @@ export default defineExtension({
       label: "Where buyers see their tickets",
       description:
         "The page on your site or app where a signed-in buyer sees their tickets. Linked from the " +
-        "tickets email, with ?order=<id>.",
+        "tickets email, with ?order=<id>, when it is on your site (Settings → Routine email).",
+      // The link in every buyer's email: a person's to change.
+      personApproves: true,
     },
     payUrl: {
       type: "text",
       label: "Where buyers pay a balance",
       description:
         "The page where a signed-in buyer pays what is owed on an order. Linked from the balance " +
-        "reminders, with ?order=<id>.",
+        "reminders, with ?order=<id>, when it is on your site (Settings → Routine email).",
+      personApproves: true,
+    },
+  },
+  // The buyer's and the holder's email (ADR 0590): routine mail the host sends on its own.
+  routineMail: ticketingRoutineMail,
+  // What a journey can start or stop on (stage 53, ADR 0802), about a ticket's holder: the host
+  // records the last time each had each, in the write's batch.
+  journeySignals: {
+    ticketBought: {
+      label: "Ticket bought",
+      description: "A ticket is granted to its holder when its order is paid.",
+      object: "ticket",
+    },
+    checkedIn: {
+      label: "Checked in at an event",
+      description: "A ticket is checked in at the door.",
+      object: "ticket",
+      enters: ["used"],
+      from: ["valid"],
     },
   },
   automations: ticketingAutomations,
@@ -356,4 +417,15 @@ export default defineExtension({
     },
   },
   tools: { eventsOnSale, orderStart, myTickets, salesSummary, checkIn, undoCheckIn },
+  // Its section of My account (stage 48, ADR 0710): the tickets a buyer holds, shown once they hold
+  // one. A child's ticket stays the child's: a ticket does not open to guardians.
+  portal: {
+    tickets: {
+      label: "My tickets",
+      web: { block: "ticketing-my-tickets", export: "MyTickets" },
+      native: { block: "ticketing-native-my-tickets", export: "MyTicketsScreen" },
+      order: 40,
+      has: ["ticketing.ticket"],
+    },
+  },
 });

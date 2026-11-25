@@ -45,6 +45,12 @@ pnpm --filter @composable-os/app exec playwright test people.spec.ts       # one
 pnpm --filter @composable-os/app exec playwright test deals --project=desktop
 ```
 
+- **The run starts its own dev server** (`e2e/dev-server.mjs`, on `E2E_PORT`, 5179 by default) and
+  refuses to start if that port is taken, so two checkouts never share a database. Set
+  `E2E_REUSE_SERVER=1` to run against your own `pnpm dev` instead. The shipped packs the specs use
+  are installed once in global setup. If workerd crashes under the run, the output says
+  `THE DEV SERVER BROKE`, and a failure at that moment is named as the dev server's, not the
+  product's.
 - **Desktop runs every spec; the phone project runs only tests tagged `@phone`**:
   `test("…", { tag: "@phone" }, async ({ page }) => …)`, on each test (Biome's Playwright rule
   refuses the option on a `test.describe`). Tag a test when its layout really differs at phone width: the nav drawer, a sheet in place of
@@ -118,6 +124,61 @@ node scripts/ci-unit-shards.mjs --check              # every package's tests in 
 
 If one shard grows much slower than the others, move packages or change a split count in that
 file, using the times in the CI logs (each package's vitest `Duration`).
+
+## Working in parallel
+
+Many pull requests are open at once, so a pull request must not edit a line every other one
+edits. Do not edit:
+
+- `CORE_SCHEMA_VERSION`. It is generated from the migration files
+  (`packages/db/scripts/schema-version.mjs`, run on install and before `@composable-os/db`'s
+  typecheck, test and build). Adding a migration is adding its file (and `src/schema.ts`).
+- The migrations in the release golden manifest. The golden leaves them out and the test checks
+  them against `packages/db/migrations`. Regenerate the golden only when a Worker's config changes.
+- A stage's row in `docs/roadmap.md`, or a block's row in `docs/parallel-work.md`, per build
+  step. A roadmap row gives the stage's state when its spec was agreed; a block's row is written
+  once, when the block is claimed.
+- A rows-read budget, to make room for a migration's tables. A cold call scans `sqlite_master`
+  once (the schema cache; query.sql's guard and erase read it too). It has no index, so the scan
+  reads a row for every table, index and trigger in the database, and every migration makes it
+  longer. Budgets leave that scan out: measure with `packages/core/test/rows-read-meter.ts`
+  (`rows` is the path's own rows, `schemaScans` counts the scans apart, and a test bounds it),
+  warm the cache unmetered first (`refreshSchemaRegistry`), or derive the bound from
+  `SELECT count(*) FROM sqlite_master` (`deals.test.ts`, the runner's `stage6b-rows-read.test.ts`).
+  A budget that fails after you add a migration is measuring the schema: fix the test, don't
+  raise the number.
+
+Progress is recorded in the stage spec (`docs/stages/NN-*.md`), in its Status section: each build
+step adds a bullet of its own under it, saying what it built (the branch or PR, the migrations and
+ADRs it used, what is left), and does not rewrite another step's. A spec without a Status section
+gets one at its first build step.
+
+## The docs site
+
+The technical docs (`apps/docs`, docs.composableos.dev, [ADR 0930](docs/adr/0930-the-docs-site-generated-from-the-code.md))
+are generated from the code, with overviews and guides written beside it.
+
+- **A pull request that adds or changes a pack, a block or an operation updates its overview in the
+  same pull request**: `packs/<id>/docs/overview.md`, a capability's `docs/overview.md`
+  (Agreements: `packages/core/src/agreements/docs/overview.md`), or the guide in `docs/guides/`.
+- **Reference pages are never edited by hand.** Run the generator and commit what it writes:
+
+  ```sh
+  pnpm --filter @composable-os/docs generate   # write the pages, the sidebar and llms.txt
+  pnpm --filter @composable-os/docs check      # what CI's lint job runs
+  pnpm --filter @composable-os/docs dev        # http://localhost:4322
+  ```
+
+- CI's lint job fails when a generated page is stale, when a pack, block, core operation or
+  gatekeeper has no reference page, when a pack has no overview (nine packs are on the pending list
+  in `apps/docs/docs.config.mjs` until theirs are written), when an overview lacks a section, or
+  when an internal link is broken; the typecheck job builds the site and checks its links again.
+  A change to documents only runs `--check --markdown-only`, which needs no install.
+- On a conflict in `apps/docs/src/content/docs/`, `src/sidebar.json` or `public/llms.txt`, take
+  either side and run the generator again. **When pull requests are combined** (a batch branch,
+  or merging `main` into yours), run the generator again after the merge even when git reports no
+  conflict: two changes can merge cleanly into pages that match neither, and the check on `main`
+  would then fail for the next pull request.
 
 ## Pull requests
 

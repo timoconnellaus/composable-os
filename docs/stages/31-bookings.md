@@ -234,7 +234,7 @@ host; the pack declares it.
 | A paid line moves a record that exists (a drop-in booking held while its order is unpaid) | **Platform** (extends `sellable`) | Today a paid line can only grant new records |
 | The family link: a guardian acts for a dependant | **Platform** (a core record, the seam, merge and erase) | Who may act for whom is identity; staff set it, a person only |
 | The allowance spend, give-back and the class's time as the period | **Platform** (32b, amended below) | Built in 32b; this stage states what it needs |
-| A time-range claim: no two appointments of one coach overlap (31b) | **Platform** (a new kind of capacity) | Places are a count; a coach's time is a range |
+| A time-range claim: no two appointments of one coach overlap (31b) | **Platform** (built as stage 45's `staffed` behaviour and its time claim, [ADR 0621](../adr/0621-the-staffed-behaviour-and-the-time-claim.md): an appointment declares `staffed`) | Places are a count; a coach's time is a range |
 | `dateRelative` in hours and minutes; the "add to calendar" file | **Platform** (small) | Reminders hours before a class; the booking email's attachment |
 | A wall-clock-to-instant helper, exported | **Platform** (small; `paidUpMoment`'s private one moved and shared) | Generation, closures, reminders and imports all need it |
 | Objects, fields, views, the roster, tools, automations (emails), dashboards, hooks and blocks | **Pack** | Composition |
@@ -547,6 +547,11 @@ never queued).
 - **A time-range claim** (platform): an appointment claims a coach's time from start to end (plus
   the gap); the database refuses two that overlap for one coach, and an appointment over a class
   the coach teaches, as capacity refuses places, so two staff booking the same slot at once get one.
+  **Amended 2026-11-23**: this is stage 45's `staffed` behaviour, built in its step 2 ([ADR
+  0621](../adr/0621-the-staffed-behaviour-and-the-time-claim.md)): the appointment declares
+  `staffed` and gets the same claim (`core_staff_time`) as a class and a duty shift. The claim is
+  the shift's own time; a gap between appointments is 31b's to add (a longer `ends`, or a field of
+  its own the claim reads).
 - Appointments spend a use or are paid as a drop-in is (an order started by staff, or settled at
   the desk); booked, cancelled, late cancelled, attended and no-show as classes are. Members see
   their appointments on the web and in the app, get the same emails, and a guardian sees a
@@ -1032,6 +1037,9 @@ it left open:
 - **Approval**: under Balanced each email waits for a person (an automation's outbound action),
   as Ticketing's do; nothing here loosens that. A reviewed kind for a pack's transactional mail
   (as ADR 0456 did for sign-in codes) is the platform's to add, with the owner.
+  *Resolved 2026-11-23 ([ADR 0590](../adr/0590-routine-mail.md), the owner's decision): the
+  members' emails are routine mail, declared by the pack and sent by the host without approval
+  under Balanced (each kind an admin can turn off, a held one waiting for a person as before).*
 - **The dashboard** (criterion 16): the spec's reports over the classes in the dates, a cancelled
   class counting for none. Uses spent by plan stay on the Memberships dashboard (Bookings does not
   require Memberships). Saved views: no-shows and late cancels this month; "Classes under half
@@ -1057,6 +1065,11 @@ it left open:
   reminder reads the primary address (issue #257). The site says staff approve what is sent:
   under Balanced every member email waits for a person until the owner decides how routine
   emails send.
+- **Routine mail** (2026-11-23, `feat/routine-mail`, [ADR 0590](../adr/0590-routine-mail.md)): the
+  owner decided; the open question above is resolved. Bookings declares its member emails
+  (`packs/bookings/routine-mail.ts`) and its automations ask the host for them; the host chooses
+  the recipients, fills the words, and sends them on their own under Balanced. The site now says
+  members are emailed when they book, when a class changes or is cancelled, and with a reminder.
 
 ## Questions for the interview
 All were answered on 2026-11-22; each keeps its text and the decision.

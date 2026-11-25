@@ -5,6 +5,14 @@ import { type ClientOptions, createClient } from "@composable-os/client";
 /** Every operation's input, output and kind. */
 export type Operations = {
   /**
+   * The words a visitor buying without an account is asked to agree to: each version named (by the versionId of an agreements_due refusal from a buying call), as it will be recorded: its title, body, tick label, health questions and how it is agreed to. Only the version in effect of a live document attached somewhere and asked of everyone; any other id (an older version, one scheduled for later) is left out. The business's text, never anyone's personal data. Read-only.
+   */
+  "agreement.guestVersions": {
+    kind: "query";
+    input: { versionIds: string[] };
+    output: { versions: ({ id: string; documentId: string; number: number; kind: string; title: string; body: unknown; tickLabel: string; questions: ({ key: string; text: string; noteOnYes: boolean }[]) | (null); how: ("typed") | ("drawn"); effectiveFrom: string; hash: string })[] };
+  };
+  /**
    * How many uses a pass, membership or other allowance holder has spent and has left, in the period containing `at` (default now): this week or month (from Monday, or the 1st, in its time zone), or in all for a pass of N. Staff also get its uses per period (null is unlimited), whether it can be spent (live), and the dates it is valid between; a signed-in customer reads their own only, with the terms their own record shows them. Anyone else's is not found. Read-only: uses are spent by booking.
    */
   "allowance.get": {
@@ -53,12 +61,132 @@ export type Operations = {
     output: { object: string; id: string; values: Record<string, unknown>; kind: "preview" };
   };
   /**
-   * Delete your customer account and ask for your personal data to be erased. You are signed out everywhere at once and can no longer sign in. Staff then erase your data, or tell you by email why some of it must be kept, by the due date returned. Asking again changes nothing.
+   * Search the published records of a content object (help pages, blog posts) by the words the public reads in them: their published versions only, never a draft or a working copy. Staff searching an object they read as published (procedures) search all its published words. Every word of two letters or more must match the start of a word, so partial input works. Best matches first, one result per record, each with its slug, title, the section the best match is in (its heading and anchor, to link to) and a highlighted snippet as plain and matching parts. Pass nextCursor back as cursor. Read-only.
+   */
+  "content.search": {
+    kind: "query";
+    input: { object: string; q: string; cursor?: string; limit?: number };
+    output: { items: ({ object: string; id: string; slug: string; title: (string) | (null); titleHighlight: { text: string; match: boolean }[]; version: number; section: { field: string; anchor: (string) | (null); heading: string; headingHighlight: { text: string; match: boolean }[] }; snippet: ({ text: string; match: boolean }[]) | (null) })[]; nextCursor: (string) | (null) };
+  };
+  /**
+   * Agree to a version of a document, as a signed-in customer: for yourself, or with forPersonId for a child linked to you. Give the name you type, a signature for a document agreed to by drawing, and every answer for a health form. Recorded for good and never changed. Refused for yourself when a parent or guardian agrees for you.
+   */
+  "me.agreements.accept": {
+    kind: "mutation";
+    input: { versionId: string; forPersonId?: string; typedName: string; signature?: { width: 1000; height: 400; strokes: [number, number][][] }; answers?: { key: string; yes: boolean; note?: string }[] };
+    output: { id: string; documentId: string; versionNumber: number; acceptedAt: string; copyTo: (string) | (null) };
+  };
+  /**
+   * What you, as a signed-in customer, and each child linked to you still have to agree to: each due document's version in effect, to read and agree to with me.agreements.accept. canAgree is false for someone a parent or guardian agrees for. Read-only.
+   */
+  "me.agreements.due": {
+    kind: "query";
+    input: Record<string, unknown>;
+    output: { people: ({ personId: string; name: string; self: boolean; canAgree: boolean; due: ({ documentId: string; kind: string; title: string; reason: ("never") | ("agree_again") | ("ask_again") | ("guardian"); version: { id: string; documentId: string; number: number; kind: string; title: string; body: unknown; tickLabel: string; questions: ({ key: string; text: string; noteOnYes: boolean }[]) | (null); how: ("typed") | ("drawn"); effectiveFrom: string; hash: string } })[] })[] };
+  };
+  /**
+   * One of your acceptances, or a linked child's, as a signed-in customer: the version as you were shown it, a health form's answers, and the name typed and the signature drawn when you are the one who agreed (another guardian's are not shown). Read-only.
+   */
+  "me.agreements.get": {
+    kind: "query";
+    input: { id: string };
+    output: { id: string; documentId: string; title: string; kind: string; versionId: string; versionNumber: number; personId: (string) | (null); by: ("self") | ("guardian") | ("guest") | ("paper"); how: ("typed") | ("drawn") | ("paper"); channel: ("web") | ("app") | ("paper") | ("desk"); acceptedAt: string; agentPersonId: (string) | (null); recordedBy: (string) | (null); signedOn: (string) | (null); counts: boolean; version: { id: string; documentId: string; number: number; kind: string; title: string; body: unknown; tickLabel: string; questions: ({ key: string; text: string; noteOnYes: boolean }[]) | (null); how: ("typed") | ("drawn"); effectiveFrom: string; hash: string }; typedName: (string) | (null); signature: ({ width: number; height: number; strokes: number[][][] }) | (null); answers: ({ key: string; yes: boolean; note?: string }[]) | (null) };
+  };
+  /**
+   * Your agreements, as a signed-in customer, and those of each child linked to you: every acceptance, newest first, with the document, the version, who agreed and how, and whether it is the one that counts now. me.agreements.get reads one. Read-only.
+   */
+  "me.agreements.list": {
+    kind: "query";
+    input: Record<string, unknown>;
+    output: { items: ({ id: string; documentId: string; title: string; kind: string; versionId: string; versionNumber: number; personId: (string) | (null); by: ("self") | ("guardian") | ("guest") | ("paper"); how: ("typed") | ("drawn") | ("paper"); channel: ("web") | ("app") | ("paper") | ("desk"); acceptedAt: string; agentPersonId: (string) | (null); recordedBy: (string) | (null); signedOn: (string) | (null); counts: boolean })[] };
+  };
+  /**
+   * The signed PDF of one of your acceptances, as a signed-in customer, or a linked child's: the version as you were shown it and the record of who agreed, how and when, with a health form's answers. The name typed and the signature drawn are in it when you are the one who agreed. Built when asked, never stored. Read-only.
+   */
+  "me.agreements.pdf": {
+    kind: "query";
+    input: { acceptanceId: string };
+    output: { filename: string; document: { business: string; title: string; versionNumber: number; versionHash: string; body: { blocks: unknown[] }; tickLabel: string; questions?: { key: string; text: string }[]; answers?: ({ key: string; yes: boolean; note?: string }[]) | ("in-app") | ("withheld"); record?: { label: string; value: string }[]; signature?: { width: number; height: number; strokes: number[][][] }; acceptanceId?: string; blank?: boolean } };
+  };
+  /**
+   * What needs your attention, as a signed-in customer, soonest first: a document to agree to (for you or a child linked to you), a card payment that failed, a payment waiting for you to confirm with your bank, the rest of a deposit to pay, an order you started paying for and did not finish, a pass about to expire with uses left or with none left (yours or a child's), and a free trial about to end. `days` is how far ahead it looks for a pass or a trial ending. An item goes once its cause is fixed. Read-only.
+   */
+  "me.attention": {
+    kind: "query";
+    input: Record<string, unknown>;
+    output: { days: number; items: ({ key: string; kind: ("agree") | ("card_failing") | ("confirm_payment") | ("balance_due") | ("finish_paying") | ("pass_expiring") | ("pass_used_up") | ("trial_ending"); person: { id: string; name: string; self: boolean }; record: { object: string; id: string; title: string }; at: (string) | (null); amount: (number) | (null); currency: (string) | (null); usesLeft: (number) | (null) })[] };
+  };
+  /**
+   * Your birthday as the business has it, as a signed-in customer: day and month only, or null when none is recorded. Read-only.
+   */
+  "me.birthday.get": {
+    kind: "query";
+    input: Record<string, never>;
+    output: { birthday: ({ day: number; month: number }) | (null) };
+  };
+  /**
+   * Give your birthday, as a signed-in customer: day and month only, never a year; null removes it. The business may send you a message on the day. Returns your birthday.
+   */
+  "me.birthday.set": {
+    kind: "mutation";
+    input: { birthday: ({ day: number; month: number }) | (null) };
+    output: { birthday: ({ day: number; month: number }) | (null) };
+  };
+  /**
+   * Turn off your private calendar link, as a signed-in customer: it then answers as if it never existed (a calendar app subscribed to it keeps what it last fetched, and gets no more). Make a new one with me.calendarFeed.rotate.
+   */
+  "me.calendarFeed.revoke": {
+    kind: "mutation";
+    input: Record<string, unknown>;
+    output: { revoked: boolean };
+  };
+  /**
+   * A new private link for your calendar, as a signed-in customer: your bookings and your children's, from two weeks ago to four months ahead, for a calendar app to subscribe to. It replaces any old link, which stops working at once. The link is shown this once and never again: anyone who has it sees your bookings, so do not share it. Your own act.
+   */
+  "me.calendarFeed.rotate": {
+    kind: "mutation";
+    input: Record<string, unknown>;
+    output: { path: string; createdAt: string };
+  };
+  /**
+   * Whether you have a private calendar link (your bookings, and your children's, for a calendar app to subscribe to), and when it was made, as a signed-in customer. Never the link itself: it is shown once, when made. Read-only.
+   */
+  "me.calendarFeed.status": {
+    kind: "query";
+    input: Record<string, unknown>;
+    output: { active: boolean; createdAt: (string) | (null) };
+  };
+  /**
+   * Your check-in code, as a signed-in customer: the code to hold up at the gym's check-in tablet, and one for each child linked to you (by their given name), each changing every 30 seconds. It works only while this sign-in lasts. In the native app it also carries the secret the app makes the code from offline. Made the first time it is asked for on a sign-in.
+   */
+  "me.code": {
+    kind: "mutation";
+    input: Record<string, never>;
+    output: { codes: ({ givenName: (string) | (null); own: boolean; payload: string; secret: (string) | (null) })[]; refreshAt: string; algorithm: { kind: "totp"; hash: "SHA-1"; periodSeconds: number; digits: number } };
+  };
+  /**
+   * Delete your customer account and ask for your personal data to be erased, signed in within the last 15 minutes (else sign_in_again, for the preview too). Without `confirm` it changes nothing and says what will happen: each subscription you pay ends when the period already paid for ends (nothing refunded, nothing more charged), or with a cooling off you asked for; one that cannot be ended that way (an end date set later, or waiting for payment, unpaid or paused) is left for staff and may charge until they end it. Your unpaid orders are cancelled, and your bookings, tickets and other records stay for staff to decide when they erase your data. With `confirm: true` and the preview's `expect` it does that: you are signed out everywhere at once and can no longer sign in, and staff erase your data, or tell you by email why some of it must be kept, by the due date returned. A preview that changed meanwhile is a conflict: ask for it again.
    */
   "me.deleteAccount": {
     kind: "mutation";
-    input: Record<string, never>;
-    output: { disabled: true; sessionsEnded: number; eraseRequest: { requestedAt: string; dueAt: string } };
+    input: { confirm?: boolean; expect?: string };
+    output: ({ subscriptions: ({ id: string; title: string; amount: number; currency: string; interval: string; endsAt: (string) | (null); ending: ("period_end") | ("already") | ("cooling_off") })[]; orders: { id: string; total: number; currency: string; createdAt: string; lines: string[] }[]; leftForStaff: { records: { object: string; label: string; count: number }[]; partPaidOrders: number; moreUnpaidOrders: number; subscriptions: ({ id: string; title: string; state: string; why: ("end_date_later") | ("state") | ("more") })[]; dependantsWithoutGuardian: number }; eraseDueAt: string; expect: string; deleted: false }) | ({ deleted: true; disabled: true; sessionsEnded: number; subscriptionsEnding: number; ordersCancelled: number; eraseRequest: { requestedAt: string; dueAt: string } });
+  };
+  /**
+   * Ask to change the address you sign in with, as a signed-in customer who signed in within the last 15 minutes (else sign_in_again). A code is emailed to the new address; enter it with me.email.confirm within 15 minutes. Nothing changes until then. Asking again replaces the earlier request. The answer is the same whatever the address: whether it can be used is said only when the code is entered.
+   */
+  "me.email.change": {
+    kind: "mutation";
+    input: { email: string };
+    output: { newEmail: string; expiresAt: string };
+  };
+  /**
+   * Finish changing your sign-in address with the code emailed to the new address, as the signed-in customer it was asked for (by you, or by staff for you), signed in within the last 15 minutes (else sign_in_again; the code keeps working). From then on you sign in with the new address, which is also your primary email; the old one is removed from your details and told of the change; every other place you are signed in is signed out. A wrong code five times ends the request. Refused, changing nothing, when the new address is already in use at the business.
+   */
+  "me.email.confirm": {
+    kind: "mutation";
+    input: { code: string };
+    output: { signInEmail: string; sessionsEnded: number };
   };
   /**
    * Your family, as a signed-in customer: yourself, the dependants (children) the gym has linked to you, whom you may book for, and the guardians linked to you, each with their name and id. Only live links; the gym's staff make and end them. Read-only.
@@ -75,6 +203,46 @@ export type Operations = {
     kind: "query";
     input: Record<string, unknown>;
     output: { id: string; displayName: string; givenName: (string) | (null); familyName: (string) | (null); primaryEmail: (string) | (null); primaryPhone: (string) | (null); signInEmail: string; signInEmailVerified: boolean };
+  };
+  /**
+   * Checks the code a text sent to one of your own numbers (me.phone.startCheck). A match marks the number as checked: your routine texts may go to it.
+   */
+  "me.phone.check": {
+    kind: "mutation";
+    input: { number: string; code: string };
+    output: { checked: boolean };
+  };
+  /**
+   * Sends a code by text to one of your own mobile numbers, to check it is yours. Type it back with me.phone.check within 10 minutes. At most three codes a day.
+   */
+  "me.phone.startCheck": {
+    kind: "mutation";
+    input: { number: string };
+    output: { started: true; number: string; minutes: number };
+  };
+  /**
+   * Remove your PIN, as a signed-in customer: nobody can then check in as you by name and PIN. Your check-in code and cards still work. Clearing when there is none changes nothing.
+   */
+  "me.pin.clear": {
+    kind: "mutation";
+    input: Record<string, never>;
+    output: { cleared: boolean };
+  };
+  /**
+   * Choose your 4-digit PIN, as a signed-in customer, to check in at the gym's tablet by typing your full name and the PIN when you do not have your phone. The most common PINs (1234, 0000 and the like) are refused. Setting it again replaces it, and turns it back on after too many wrong tries turned it off.
+   */
+  "me.pin.set": {
+    kind: "mutation";
+    input: { pin: string };
+    output: { set: true };
+  };
+  /**
+   * The sections of your account, as a signed-in customer, in the order they show: your orders, agreements, family, payment method (only when you pay a subscription), details and where you are signed in, and each installed pack's section (bookings, memberships and passes, courses, tickets, training) when you, or a child linked to you, have something there. `paysSubscription` says whether you pay a subscription. Read-only.
+   */
+  "me.portal": {
+    kind: "query";
+    input: Record<string, unknown>;
+    output: { sections: ({ key: string; pack: (string) | (null); label: string; order: number; web: ({ block: string; export: string }) | (null); native: ({ block: string; export: string }) | (null) })[]; paysSubscription: boolean };
   };
   /**
    * The places you are signed in, as a signed-in customer: each session's id, whether it is a browser or an app on a device (with the device's name), when it began, when it was last used and when it expires, and which one is this one. Read-only.
@@ -101,7 +269,7 @@ export type Operations = {
     output: { signedOut: boolean };
   };
   /**
-   * Change your own name or primary phone, as a signed-in customer. Only the fields you pass change; pass null to clear one. Your email cannot be changed here. Returns your Person.
+   * Change your own name or primary phone, as a signed-in customer. Only the fields you pass change; pass null to clear one. Your email cannot be changed here: change your sign-in address with me.email.change and me.email.confirm. Returns your Person.
    */
   "me.update": {
     kind: "mutation";
@@ -146,7 +314,7 @@ export type Operations = {
   "order.cancel": {
     kind: "mutation";
     input: { id: string };
-    output: { id: string; state: ("pending") | ("part_paid") | ("paid") | ("cancelled") | ("expired") | ("refunded"); currency: string; total: number; paid: number; balance: number; refunded: number; pay: ("full") | ("deposit"); deposit: (number) | (null); balanceDueAt: (string) | (null); expiresAt: (string) | (null); paidAt: (string) | (null); createdAt: string; taxAmount: number; taxRefunded: number; taxCountry: (string) | (null); lines: { id: string; position: number; object: string; recordId: string; title: string; quantity: number; unitPrice: number; total: number; taxAmount: number }[]; personId?: (string) | (null); email?: (string) | (null); placedAs?: ("customer") | ("public") | ("staff") };
+    output: { id: string; state: ("pending") | ("part_paid") | ("paid") | ("cancelled") | ("expired") | ("refunded"); currency: string; total: number; paid: number; balance: number; refunded: number; pay: ("full") | ("deposit"); deposit: (number) | (null); balanceDueAt: (string) | (null); expiresAt: (string) | (null); paidAt: (string) | (null); createdAt: string; taxAmount: number; taxRefunded: number; taxCountry: (string) | (null); discount: number; lines: { id: string; position: number; object: string; recordId: string; title: string; quantity: number; unitPrice: number; total: number; taxAmount: number; discount: number }[]; adjustments?: ({ id: string; lineId: (string) | (null); kind: ("code") | ("automatic") | ("staff") | ("referral"); amount: number; percent: (number) | (null); reason: (string) | (null); givenBy: (string) | (null); approval: (string) | (null); createdAt: string })[]; personId?: (string) | (null); email?: (string) | (null); placedAs?: ("customer") | ("public") | ("staff") };
   };
   /**
    * Open the payment provider's own page to pay for an order, and get its address to send the buyer to. The host says what is charged: the whole price or the deposit for an order with nothing paid (no amount may be given), or, for a part-paid order, the balance or a part of it of at least the set minimum (`amount`, in the currency's minor unit). The buyer comes back to `returnUrl`, which must be on one of the deployment's listed sites; coming back does not mark anything paid. Only the provider's confirmation does. A guest passes the order's token; a signed-in customer pays their own orders.
@@ -162,15 +330,15 @@ export type Operations = {
   "order.get": {
     kind: "query";
     input: { id: string };
-    output: { id: string; state: ("pending") | ("part_paid") | ("paid") | ("cancelled") | ("expired") | ("refunded"); currency: string; total: number; paid: number; balance: number; refunded: number; pay: ("full") | ("deposit"); deposit: (number) | (null); balanceDueAt: (string) | (null); expiresAt: (string) | (null); paidAt: (string) | (null); createdAt: string; taxAmount: number; taxRefunded: number; taxCountry: (string) | (null); lines: { id: string; position: number; object: string; recordId: string; title: string; quantity: number; unitPrice: number; total: number; taxAmount: number }[]; personId?: (string) | (null); email?: (string) | (null); placedAs?: ("customer") | ("public") | ("staff") };
+    output: { id: string; state: ("pending") | ("part_paid") | ("paid") | ("cancelled") | ("expired") | ("refunded"); currency: string; total: number; paid: number; balance: number; refunded: number; pay: ("full") | ("deposit"); deposit: (number) | (null); balanceDueAt: (string) | (null); expiresAt: (string) | (null); paidAt: (string) | (null); createdAt: string; taxAmount: number; taxRefunded: number; taxCountry: (string) | (null); discount: number; lines: { id: string; position: number; object: string; recordId: string; title: string; quantity: number; unitPrice: number; total: number; taxAmount: number; discount: number }[]; adjustments?: ({ id: string; lineId: (string) | (null); kind: ("code") | ("automatic") | ("staff") | ("referral"); amount: number; percent: (number) | (null); reason: (string) | (null); givenBy: (string) | (null); approval: (string) | (null); createdAt: string })[]; personId?: (string) | (null); email?: (string) | (null); placedAs?: ("customer") | ("public") | ("staff") };
   };
   /**
-   * Start an order for one or more records that are for sale, as a signed-in customer, a guest (with an email address) or staff. The host prices it from the records: a caller never sends a price or a total. The order starts pending and is not paid: paying happens on the payment provider's page (order.checkout), and only the provider's confirmation marks it paid. An unpaid order expires after a few minutes. Returns the order with its lines and amounts in the currency's minor unit; a guest also gets `token`, shown once, which is the only way back to the order (order.view).
+   * Start an order for one or more records that are for sale, as a signed-in customer, a guest (with an email address) or staff. The host prices it from the records: a caller never sends a price or a total. The order starts pending and is not paid: paying happens on the payment provider's page (order.checkout), and only the provider's confirmation marks it paid. An unpaid order expires after a few minutes. Nobody buys without the agreements the business needs for what is bought: refused with rule agreements_due and the documents while any is due (a guest passes their acceptances in `agreements`; a signed-in customer agrees first; staff send a link, sign at the desk or record paper). Returns the order with its lines and amounts in the currency's minor unit; a guest also gets `token`, shown once, which is the only way back to the order (order.view).
    */
   "order.start": {
     kind: "mutation";
-    input: { lines: { object: string; id: string; quantity?: number }[]; pay?: ("full") | ("deposit"); email?: string };
-    output: { id: string; state: ("pending") | ("part_paid") | ("paid") | ("cancelled") | ("expired") | ("refunded"); currency: string; total: number; paid: number; balance: number; refunded: number; pay: ("full") | ("deposit"); deposit: (number) | (null); balanceDueAt: (string) | (null); expiresAt: (string) | (null); paidAt: (string) | (null); createdAt: string; taxAmount: number; taxRefunded: number; taxCountry: (string) | (null); lines: { id: string; position: number; object: string; recordId: string; title: string; quantity: number; unitPrice: number; total: number; taxAmount: number }[]; personId?: (string) | (null); email?: (string) | (null); placedAs?: ("customer") | ("public") | ("staff"); token: (string) | (null) };
+    input: { lines: { object: string; id: string; quantity?: number }[]; pay?: ("full") | ("deposit"); email?: string; agreements?: { versionId: string; typedName: string; signature?: { width: 1000; height: 400; strokes: [number, number][][] }; answers?: { key: string; yes: boolean; note?: string }[] }[] };
+    output: { id: string; state: ("pending") | ("part_paid") | ("paid") | ("cancelled") | ("expired") | ("refunded"); currency: string; total: number; paid: number; balance: number; refunded: number; pay: ("full") | ("deposit"); deposit: (number) | (null); balanceDueAt: (string) | (null); expiresAt: (string) | (null); paidAt: (string) | (null); createdAt: string; taxAmount: number; taxRefunded: number; taxCountry: (string) | (null); discount: number; lines: { id: string; position: number; object: string; recordId: string; title: string; quantity: number; unitPrice: number; total: number; taxAmount: number; discount: number }[]; adjustments?: ({ id: string; lineId: (string) | (null); kind: ("code") | ("automatic") | ("staff") | ("referral"); amount: number; percent: (number) | (null); reason: (string) | (null); givenBy: (string) | (null); approval: (string) | (null); createdAt: string })[]; personId?: (string) | (null); email?: (string) | (null); placedAs?: ("customer") | ("public") | ("staff"); token: (string) | (null) };
   };
   /**
    * See one order with the token it was started with (a guest's link from order.start or the confirmation email). The token opens that order only, while it is open and for 30 days after it closes. A wrong id, a wrong token and an old link are all not found. Read-only.
@@ -178,7 +346,15 @@ export type Operations = {
   "order.view": {
     kind: "query";
     input: { id: string; token: string };
-    output: { id: string; state: ("pending") | ("part_paid") | ("paid") | ("cancelled") | ("expired") | ("refunded"); currency: string; total: number; paid: number; balance: number; refunded: number; pay: ("full") | ("deposit"); deposit: (number) | (null); balanceDueAt: (string) | (null); expiresAt: (string) | (null); paidAt: (string) | (null); createdAt: string; taxAmount: number; taxRefunded: number; taxCountry: (string) | (null); lines: { id: string; position: number; object: string; recordId: string; title: string; quantity: number; unitPrice: number; total: number; taxAmount: number }[]; personId?: (string) | (null); email?: (string) | (null); placedAs?: ("customer") | ("public") | ("staff") };
+    output: { id: string; state: ("pending") | ("part_paid") | ("paid") | ("cancelled") | ("expired") | ("refunded"); currency: string; total: number; paid: number; balance: number; refunded: number; pay: ("full") | ("deposit"); deposit: (number) | (null); balanceDueAt: (string) | (null); expiresAt: (string) | (null); paidAt: (string) | (null); createdAt: string; taxAmount: number; taxRefunded: number; taxCountry: (string) | (null); discount: number; lines: { id: string; position: number; object: string; recordId: string; title: string; quantity: number; unitPrice: number; total: number; taxAmount: number; discount: number }[]; adjustments?: ({ id: string; lineId: (string) | (null); kind: ("code") | ("automatic") | ("staff") | ("referral"); amount: number; percent: (number) | (null); reason: (string) | (null); givenBy: (string) | (null); approval: (string) | (null); createdAt: string })[]; personId?: (string) | (null); email?: (string) | (null); placedAs?: ("customer") | ("public") | ("staff") };
+  };
+  /**
+   * How many of a thing in stock there are (a variant of an item in a shop). Staff get on hand (sold ones gone), held (by orders being paid for), available (on hand less held) and the reorder level, and the last five movements. Customers and the public get only what the object shows: in stock or sold out, a low-stock warning, or the number available. Read-only; holds nothing.
+   */
+  "stock.get": {
+    kind: "query";
+    input: { object: string; id: string };
+    output: { object: string; id: string; status: ("in_stock") | ("low") | ("sold_out"); available?: number; onHand?: number; held?: number; reorderAt?: (number) | (null); reorderQty?: (number) | (null); atReorderLevel?: boolean; show?: ("exact") | ("low") | ("availability"); lowAt?: (number) | (null); recent?: ({ id: string; kind: string; quantity: number; place: string; at: string; note: (string) | (null) })[] };
   };
   /**
    * End a subscription when its current paid period (or trial) ends: nothing more is charged, and what it gives lasts until then. A signed-in customer cancels their own; staff any, with the subscriptions:manage permission. Nothing is refunded (a period's refund is order.refund). It can be undone until the period ends (subscription.resume). Asked of the payment provider: the subscription shows it once the provider confirms. Staff can instead end it at once (`now: true`): nothing more is charged, nothing is refunded and what it gives stops when the provider confirms; a customer cannot. A person decides, not an AI assistant.
@@ -195,6 +371,22 @@ export type Operations = {
     kind: "mutation";
     input: { id: string; planId: string; reason?: string };
     output: { id: string; changeId: string; kind: ("upgrade") | ("downgrade"); effectiveAt: (string) | (null); amount: number; currency: string; asked: ("sent") | ("pending") | ("unknown") | ("not_needed"); requested: true };
+  };
+  /**
+   * End a subscription in its cooling-off period, for a full refund of what was paid in it (subscription.coolingOff says whether it may be, and what it owes). Ended at the payment provider now: nothing more is charged, and what it gives stops once the provider confirms. Then each order paid up to the end of the period, and between the ask and the end, is owed back in full, whatever was used; each waits for a person with orders:refund to approve it. The bookings ahead the membership paid for are cancelled as the business's. Refused for a plan with no cooling off, a membership moved over with a continuation offer, a member who has cooled off before, while nothing has been paid (a free trial: cancel instead), and after the period unless one was asked in it. An ask inside the period opens it for 7 days; any end in that time is the cooling off's, and at its deadline it lapses (the ordinary cancel works again). A signed-in customer ends their own (the one they pay for, a child's included) and asks again only inside the period; staff any, with subscriptions:manage, ask again until the deadline, and finish a lapsed one (only what was paid in the period is owed, once the provider confirms the membership ended). Each ask reads the provider first and is a new request to it; nothing is done twice. Refused while a cancel of it waits for a person at the payments gatekeeper. A person decides, never an AI assistant.
+   */
+  "subscription.coolOff": {
+    kind: "mutation";
+    input: { id: string };
+    output: { id: string; state: ("asked") | ("ended") | ("lapsed"); asked: (("sent") | ("pending") | ("unknown")) | (null); refund: number; currency: string };
+  };
+  /**
+   * Whether each subscription may be ended in its cooling-off period for a full refund: the business's setting (whole days, 0 off), counted from when the payment provider confirmed it to the end of the last day in the business's time zone, for a new member's membership only (not a pass, not one moved over with a continuation offer), once per member. Also says how far a cooling off asked for has got and where its refunds are. The host decides; an app shows the button only when `offered`. A signed-in customer asks about the subscriptions they pay for only; another's is not found. Read-only.
+   */
+  "subscription.coolingOff": {
+    kind: "query";
+    input: { ids: string[] };
+    output: { items: ({ subscriptionId: string; offered: boolean; why: (("not_covered") | ("off") | ("continuation") | ("ended") | ("window_passed") | ("used") | ("nothing_paid")) | (null); days: number; until: (string) | (null); endsAt: (string) | (null); refund: number; currency: string; coolOff: ({ state: ("asked") | ("ended") | ("lapsed"); asked: (("sent") | ("pending") | ("unknown") | ("refused")) | (null); askedBy: ("payer") | ("staff"); askedAt: string; deadline: string; endedAt: (string) | (null); finished: boolean; finishing: (("asked") | ("sent") | ("pending") | ("unknown") | ("stuck")) | (null); waiting: boolean; lapsedBecause: (("deadline") | ("action") | ("end_time") | ("used")) | (null); askAgain: boolean; open: boolean; staffTold: boolean; paid: number; refunded: number; refunds: (("waiting") | ("refunded") | ("held")) | (null) }) | (null) })[] };
   };
   /**
    * Get one subscription: its plan, price per period, state (trial, active, past due, ended…), the current period and whether it ends when that period does. A signed-in customer gets the subscriptions they pay for only; anyone else's is not found. Read-only.
@@ -237,11 +429,11 @@ export type Operations = {
     output: { id: string; requested: true };
   };
   /**
-   * Start a subscription to a plan (a record of an object sold every week, month or year), as a signed-in customer, a guest (with an email address) or staff for someone. Opens the payment provider's own page, which takes the card; the provider charges each period on its own schedule, after the plan's free trial when it has one. A trial is one per person per plan, and only for a signed-in customer (or staff with subscriptions:manage starting it for a person): a guest is charged from the start, and `noTrial` says why no trial was given. Starting again while the page you opened with a trial is still open gives that page. A signed-in customer with a continuation offer (moving their subscription from another platform) takes it with `offerId`: free until their paid-up date, then charged, with no trial on top; with under 48 hours left it is charged at once. The host prices it from the plan: no price is sent. Coming back to `returnUrl` changes nothing: the subscription exists once the provider confirms it. Returns the page's address and what will be charged, in minor units.
+   * Start a subscription to a plan (a record of an object sold every week, month or year), as a signed-in customer, a guest (with an email address) or staff for someone. Opens the payment provider's own page, which takes the card; the provider charges each period on its own schedule, after the plan's free trial when it has one. A trial is one per person per plan, and only for a signed-in customer (or staff with subscriptions:manage starting it for a person): a guest is charged from the start, and `noTrial` says why no trial was given. Starting again while the page you opened with a trial is still open gives that page. A signed-in customer with a continuation offer (moving their subscription from another platform) takes it with `offerId`: free until their paid-up date, then charged, with no trial on top; with under 48 hours left it is charged at once. Nobody starts one without the agreements the business needs for the plan (its terms, a waiver): refused with rule agreements_due and the documents while any is due, a continuation offer included (a guest passes their acceptances in `agreements`; a signed-in customer agrees first; staff send a link or record paper). The host prices it from the plan: no price is sent. Coming back to `returnUrl` changes nothing: the subscription exists once the provider confirms it. Returns the page's address and what will be charged, in minor units.
    */
   "subscription.start": {
     kind: "mutation";
-    input: { plan: { object: string; id: string }; returnUrl: string; email?: string; offerId?: string; holderPersonId?: string };
+    input: { plan: { object: string; id: string }; returnUrl: string; email?: string; offerId?: string; holderPersonId?: string; agreements?: { versionId: string; typedName: string; signature?: { width: 1000; height: 400; strokes: [number, number][][] }; answers?: { key: string; yes: boolean; note?: string }[] }[] };
     output: { subscriptionId: string; url: string; amount: number; currency: string; interval: ("week") | ("month") | ("year"); trialDays: (number) | (null); freeUntil: (string) | (null); noTrial: (("sign_in") | ("used") | ("permission") | ("held") | ("unconfirmed") | ("continuation")) | (null); expiresAt: (string) | (null) };
   };
   /**
@@ -256,19 +448,40 @@ export type Operations = {
 
 /** What the runtime needs: each operation's kind, and what a mutation makes stale. */
 export const operations = {
+  "agreement.guestVersions": { kind: "query", invalidates: [] },
   "allowance.get": { kind: "query", invalidates: [] },
   "allowance.list": { kind: "query", invalidates: [] },
   "capacity.get": { kind: "query", invalidates: [] },
   "content.get": { kind: "query", invalidates: [] },
   "content.list": { kind: "query", invalidates: [] },
   "content.preview": { kind: "query", invalidates: [] },
-  "me.deleteAccount": { kind: "mutation", invalidates: ["me.family","me.get","me.sessions.list","my.get","my.list"] },
+  "content.search": { kind: "query", invalidates: [] },
+  "me.agreements.accept": { kind: "mutation", invalidates: ["me.agreements.due","me.agreements.get","me.agreements.list","me.agreements.pdf","me.attention","me.birthday.get","me.calendarFeed.status","me.family","me.get","me.portal","me.sessions.list","my.get","my.list"] },
+  "me.agreements.due": { kind: "query", invalidates: [] },
+  "me.agreements.get": { kind: "query", invalidates: [] },
+  "me.agreements.list": { kind: "query", invalidates: [] },
+  "me.agreements.pdf": { kind: "query", invalidates: [] },
+  "me.attention": { kind: "query", invalidates: [] },
+  "me.birthday.get": { kind: "query", invalidates: [] },
+  "me.birthday.set": { kind: "mutation", invalidates: ["me.agreements.due","me.agreements.get","me.agreements.list","me.agreements.pdf","me.attention","me.birthday.get","me.calendarFeed.status","me.family","me.get","me.portal","me.sessions.list","my.get","my.list"] },
+  "me.calendarFeed.revoke": { kind: "mutation", invalidates: ["me.agreements.due","me.agreements.get","me.agreements.list","me.agreements.pdf","me.attention","me.birthday.get","me.calendarFeed.status","me.family","me.get","me.portal","me.sessions.list","my.get","my.list"] },
+  "me.calendarFeed.rotate": { kind: "mutation", invalidates: ["me.agreements.due","me.agreements.get","me.agreements.list","me.agreements.pdf","me.attention","me.birthday.get","me.calendarFeed.status","me.family","me.get","me.portal","me.sessions.list","my.get","my.list"] },
+  "me.calendarFeed.status": { kind: "query", invalidates: [] },
+  "me.code": { kind: "mutation", invalidates: ["me.agreements.due","me.agreements.get","me.agreements.list","me.agreements.pdf","me.attention","me.birthday.get","me.calendarFeed.status","me.family","me.get","me.portal","me.sessions.list","my.get","my.list"] },
+  "me.deleteAccount": { kind: "mutation", invalidates: ["me.agreements.due","me.agreements.get","me.agreements.list","me.agreements.pdf","me.attention","me.birthday.get","me.calendarFeed.status","me.family","me.get","me.portal","me.sessions.list","my.get","my.list"] },
+  "me.email.change": { kind: "mutation", invalidates: ["me.agreements.due","me.agreements.get","me.agreements.list","me.agreements.pdf","me.attention","me.birthday.get","me.calendarFeed.status","me.family","me.get","me.portal","me.sessions.list","my.get","my.list"] },
+  "me.email.confirm": { kind: "mutation", invalidates: ["me.agreements.due","me.agreements.get","me.agreements.list","me.agreements.pdf","me.attention","me.birthday.get","me.calendarFeed.status","me.family","me.get","me.portal","me.sessions.list","my.get","my.list"] },
   "me.family": { kind: "query", invalidates: [] },
   "me.get": { kind: "query", invalidates: [] },
+  "me.phone.check": { kind: "mutation", invalidates: ["me.agreements.due","me.agreements.get","me.agreements.list","me.agreements.pdf","me.attention","me.birthday.get","me.calendarFeed.status","me.family","me.get","me.portal","me.sessions.list","my.get","my.list"] },
+  "me.phone.startCheck": { kind: "mutation", invalidates: ["me.agreements.due","me.agreements.get","me.agreements.list","me.agreements.pdf","me.attention","me.birthday.get","me.calendarFeed.status","me.family","me.get","me.portal","me.sessions.list","my.get","my.list"] },
+  "me.pin.clear": { kind: "mutation", invalidates: ["me.agreements.due","me.agreements.get","me.agreements.list","me.agreements.pdf","me.attention","me.birthday.get","me.calendarFeed.status","me.family","me.get","me.portal","me.sessions.list","my.get","my.list"] },
+  "me.pin.set": { kind: "mutation", invalidates: ["me.agreements.due","me.agreements.get","me.agreements.list","me.agreements.pdf","me.attention","me.birthday.get","me.calendarFeed.status","me.family","me.get","me.portal","me.sessions.list","my.get","my.list"] },
+  "me.portal": { kind: "query", invalidates: [] },
   "me.sessions.list": { kind: "query", invalidates: [] },
-  "me.sessions.revoke": { kind: "mutation", invalidates: ["me.family","me.get","me.sessions.list","my.get","my.list"] },
-  "me.signOut": { kind: "mutation", invalidates: ["me.family","me.get","me.sessions.list","my.get","my.list"] },
-  "me.update": { kind: "mutation", invalidates: ["me.family","me.get","me.sessions.list","my.get","my.list"] },
+  "me.sessions.revoke": { kind: "mutation", invalidates: ["me.agreements.due","me.agreements.get","me.agreements.list","me.agreements.pdf","me.attention","me.birthday.get","me.calendarFeed.status","me.family","me.get","me.portal","me.sessions.list","my.get","my.list"] },
+  "me.signOut": { kind: "mutation", invalidates: ["me.agreements.due","me.agreements.get","me.agreements.list","me.agreements.pdf","me.attention","me.birthday.get","me.calendarFeed.status","me.family","me.get","me.portal","me.sessions.list","my.get","my.list"] },
+  "me.update": { kind: "mutation", invalidates: ["me.agreements.due","me.agreements.get","me.agreements.list","me.agreements.pdf","me.attention","me.birthday.get","me.calendarFeed.status","me.family","me.get","me.portal","me.sessions.list","my.get","my.list"] },
   "media.play": { kind: "query", invalidates: [] },
   "media.serve": { kind: "query", invalidates: [] },
   "my.get": { kind: "query", invalidates: [] },
@@ -278,14 +491,17 @@ export const operations = {
   "order.get": { kind: "query", invalidates: [] },
   "order.start": { kind: "mutation", invalidates: ["order.get","order.view"] },
   "order.view": { kind: "query", invalidates: [] },
-  "subscription.cancel": { kind: "mutation", invalidates: ["subscription.get","subscription.list","subscription.offer.mine","subscription.portal"] },
-  "subscription.change": { kind: "mutation", invalidates: ["subscription.get","subscription.list","subscription.offer.mine","subscription.portal"] },
+  "stock.get": { kind: "query", invalidates: [] },
+  "subscription.cancel": { kind: "mutation", invalidates: ["subscription.coolingOff","subscription.get","subscription.list","subscription.offer.mine","subscription.portal"] },
+  "subscription.change": { kind: "mutation", invalidates: ["subscription.coolingOff","subscription.get","subscription.list","subscription.offer.mine","subscription.portal"] },
+  "subscription.coolOff": { kind: "mutation", invalidates: ["subscription.coolingOff","subscription.get","subscription.list","subscription.offer.mine","subscription.portal"] },
+  "subscription.coolingOff": { kind: "query", invalidates: [] },
   "subscription.get": { kind: "query", invalidates: [] },
   "subscription.list": { kind: "query", invalidates: [] },
   "subscription.offer.mine": { kind: "query", invalidates: [] },
   "subscription.portal": { kind: "query", invalidates: [] },
-  "subscription.resume": { kind: "mutation", invalidates: ["subscription.get","subscription.list","subscription.offer.mine","subscription.portal"] },
-  "subscription.start": { kind: "mutation", invalidates: ["subscription.get","subscription.list","subscription.offer.mine","subscription.portal"] },
+  "subscription.resume": { kind: "mutation", invalidates: ["subscription.coolingOff","subscription.get","subscription.list","subscription.offer.mine","subscription.portal"] },
+  "subscription.start": { kind: "mutation", invalidates: ["subscription.coolingOff","subscription.get","subscription.list","subscription.offer.mine","subscription.portal"] },
   "waitlist.position": { kind: "query", invalidates: [] },
 } as const;
 

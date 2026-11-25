@@ -128,3 +128,20 @@ passes the check (`BASE_AUTOMATION_FIELDS` in `packages/sdk/src/automation-check
 the extension lists `order.get` in `permissions.operations`, since the run reads the order. Only
 the trigger: no other part of a manifest may name `order`. Ticketing's "tickets by email" is the
 first (from `pending` or `expired` to `paid` or `part_paid`: the first payment, once).
+
+## Amendment, 2026-11-24 (stage 34 step 1, ADR 0690): the total is after adjustments
+An order's `total` is now what is owed after its adjustments (money off, `core_order_adjustment`),
+and each line keeps its price beside its share of them. The host still prices every order from the
+records; the only amount a caller names is a staff discount's (`order.adjust`, ADR 0691), given by
+a person with `orders:discount` within a limit a human admin set, or approved by one. The
+amount-match rule is unchanged: it compares against the total, which is the net.
+
+## Amendment, 2026-11-24 (stage 34 step 3, ADR 0694): a second door into paid
+"Paid only by a verified payment" no longer holds alone. A second function, `applyOtherPayment`
+(`orders/payments.ts`), applies a payment the host makes itself through the same settle path:
+today only a payment a person with the restricted `orders:payments` permission records
+(`order.recordPayment`, human only: a transfer, cash, a cheque, a card machine), later value the
+host holds (vouchers, stored value). Every payment row has a `method`; the host's are provider
+`host`, and a database guard refuses the ones that do not name what they must. A reversal of a
+recorded payment is a new host move, `paid → part_paid`. No operation passes its input through,
+and nothing a caller sends makes an order paid without a person's recorded payment. See ADR 0694.

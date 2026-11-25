@@ -127,7 +127,7 @@ describe("a send with a calendar file", () => {
       filename: "invite.ics",
       type: "text/calendar; charset=utf-8; method=PUBLISH",
     });
-    expect(lines(attachment?.content ?? "")).toContain("UID:bkg_01ABC@example.com");
+    expect(lines(String(attachment?.content ?? ""))).toContain("UID:bkg_01ABC@example.com");
   });
 
   const bad: [string, Record<string, unknown>, RegExp][] = [

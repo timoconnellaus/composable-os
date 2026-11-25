@@ -1,0 +1,850 @@
+[
+  {
+    "label": "Start",
+    "items": [
+      {
+        "slug": "index"
+      },
+      {
+        "slug": "versions"
+      },
+      {
+        "slug": "planned"
+      }
+    ]
+  },
+  {
+    "label": "Guides",
+    "items": [
+      {
+        "autogenerate": {
+          "directory": "guides"
+        }
+      }
+    ]
+  },
+  {
+    "label": "Packs",
+    "items": [
+      {
+        "slug": "packs"
+      },
+      {
+        "label": "Bookings",
+        "collapsed": true,
+        "items": [
+          {
+            "slug": "packs/bookings"
+          },
+          {
+            "slug": "packs/bookings/data-model"
+          },
+          {
+            "slug": "packs/bookings/tools"
+          },
+          {
+            "slug": "packs/bookings/permissions"
+          },
+          {
+            "slug": "packs/bookings/screens"
+          },
+          {
+            "slug": "packs/bookings/messages"
+          },
+          {
+            "slug": "packs/bookings/settings"
+          },
+          {
+            "slug": "packs/bookings/decisions"
+          }
+        ]
+      },
+      {
+        "label": "Content",
+        "collapsed": true,
+        "items": [
+          {
+            "slug": "packs/content"
+          },
+          {
+            "slug": "packs/content/data-model"
+          },
+          {
+            "slug": "packs/content/tools"
+          },
+          {
+            "slug": "packs/content/permissions"
+          },
+          {
+            "slug": "packs/content/screens"
+          },
+          {
+            "slug": "packs/content/messages"
+          },
+          {
+            "slug": "packs/content/settings"
+          },
+          {
+            "slug": "packs/content/decisions"
+          }
+        ]
+      },
+      {
+        "label": "Courses",
+        "collapsed": true,
+        "items": [
+          {
+            "slug": "packs/courses"
+          },
+          {
+            "slug": "packs/courses/data-model"
+          },
+          {
+            "slug": "packs/courses/tools"
+          },
+          {
+            "slug": "packs/courses/permissions"
+          },
+          {
+            "slug": "packs/courses/screens"
+          },
+          {
+            "slug": "packs/courses/messages"
+          },
+          {
+            "slug": "packs/courses/settings"
+          },
+          {
+            "slug": "packs/courses/decisions"
+          }
+        ]
+      },
+      {
+        "label": "Daily checklists",
+        "collapsed": true,
+        "items": [
+          {
+            "slug": "packs/dailychecks"
+          },
+          {
+            "slug": "packs/dailychecks/data-model"
+          },
+          {
+            "slug": "packs/dailychecks/tools"
+          },
+          {
+            "slug": "packs/dailychecks/permissions"
+          },
+          {
+            "slug": "packs/dailychecks/screens"
+          },
+          {
+            "slug": "packs/dailychecks/messages"
+          },
+          {
+            "slug": "packs/dailychecks/settings"
+          },
+          {
+            "slug": "packs/dailychecks/decisions"
+          }
+        ]
+      },
+      {
+        "label": "Deals",
+        "collapsed": true,
+        "items": [
+          {
+            "slug": "packs/deals"
+          },
+          {
+            "slug": "packs/deals/data-model"
+          },
+          {
+            "slug": "packs/deals/tools"
+          },
+          {
+            "slug": "packs/deals/permissions"
+          },
+          {
+            "slug": "packs/deals/screens"
+          },
+          {
+            "slug": "packs/deals/messages"
+          },
+          {
+            "slug": "packs/deals/settings"
+          },
+          {
+            "slug": "packs/deals/decisions"
+          }
+        ]
+      },
+      {
+        "label": "Forms",
+        "collapsed": true,
+        "items": [
+          {
+            "slug": "packs/forms"
+          },
+          {
+            "slug": "packs/forms/data-model"
+          },
+          {
+            "slug": "packs/forms/tools"
+          },
+          {
+            "slug": "packs/forms/permissions"
+          },
+          {
+            "slug": "packs/forms/screens"
+          },
+          {
+            "slug": "packs/forms/messages"
+          },
+          {
+            "slug": "packs/forms/settings"
+          },
+          {
+            "slug": "packs/forms/decisions"
+          }
+        ]
+      },
+      {
+        "label": "Leads",
+        "collapsed": true,
+        "items": [
+          {
+            "slug": "packs/leads"
+          },
+          {
+            "slug": "packs/leads/data-model"
+          },
+          {
+            "slug": "packs/leads/tools"
+          },
+          {
+            "slug": "packs/leads/permissions"
+          },
+          {
+            "slug": "packs/leads/screens"
+          },
+          {
+            "slug": "packs/leads/messages"
+          },
+          {
+            "slug": "packs/leads/settings"
+          },
+          {
+            "slug": "packs/leads/decisions"
+          }
+        ]
+      },
+      {
+        "label": "Lifecycle stage",
+        "collapsed": true,
+        "items": [
+          {
+            "slug": "packs/lifecycle"
+          },
+          {
+            "slug": "packs/lifecycle/data-model"
+          },
+          {
+            "slug": "packs/lifecycle/tools"
+          },
+          {
+            "slug": "packs/lifecycle/permissions"
+          },
+          {
+            "slug": "packs/lifecycle/screens"
+          },
+          {
+            "slug": "packs/lifecycle/messages"
+          },
+          {
+            "slug": "packs/lifecycle/settings"
+          },
+          {
+            "slug": "packs/lifecycle/decisions"
+          }
+        ]
+      },
+      {
+        "label": "Memberships",
+        "collapsed": true,
+        "items": [
+          {
+            "slug": "packs/memberships"
+          },
+          {
+            "slug": "packs/memberships/data-model"
+          },
+          {
+            "slug": "packs/memberships/tools"
+          },
+          {
+            "slug": "packs/memberships/permissions"
+          },
+          {
+            "slug": "packs/memberships/screens"
+          },
+          {
+            "slug": "packs/memberships/messages"
+          },
+          {
+            "slug": "packs/memberships/settings"
+          },
+          {
+            "slug": "packs/memberships/decisions"
+          }
+        ]
+      },
+      {
+        "label": "Programs",
+        "collapsed": true,
+        "items": [
+          {
+            "slug": "packs/programs"
+          },
+          {
+            "slug": "packs/programs/data-model"
+          },
+          {
+            "slug": "packs/programs/tools"
+          },
+          {
+            "slug": "packs/programs/permissions"
+          },
+          {
+            "slug": "packs/programs/screens"
+          },
+          {
+            "slug": "packs/programs/messages"
+          },
+          {
+            "slug": "packs/programs/settings"
+          },
+          {
+            "slug": "packs/programs/decisions"
+          }
+        ]
+      },
+      {
+        "label": "Rostering",
+        "collapsed": true,
+        "items": [
+          {
+            "slug": "packs/rostering"
+          },
+          {
+            "slug": "packs/rostering/data-model"
+          },
+          {
+            "slug": "packs/rostering/tools"
+          },
+          {
+            "slug": "packs/rostering/permissions"
+          },
+          {
+            "slug": "packs/rostering/screens"
+          },
+          {
+            "slug": "packs/rostering/messages"
+          },
+          {
+            "slug": "packs/rostering/settings"
+          },
+          {
+            "slug": "packs/rostering/decisions"
+          }
+        ]
+      },
+      {
+        "label": "Ticketing",
+        "collapsed": true,
+        "items": [
+          {
+            "slug": "packs/ticketing"
+          },
+          {
+            "slug": "packs/ticketing/data-model"
+          },
+          {
+            "slug": "packs/ticketing/tools"
+          },
+          {
+            "slug": "packs/ticketing/permissions"
+          },
+          {
+            "slug": "packs/ticketing/screens"
+          },
+          {
+            "slug": "packs/ticketing/messages"
+          },
+          {
+            "slug": "packs/ticketing/settings"
+          },
+          {
+            "slug": "packs/ticketing/decisions"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "label": "Capabilities",
+    "items": [
+      {
+        "slug": "capabilities"
+      },
+      {
+        "label": "Agreements",
+        "collapsed": true,
+        "items": [
+          {
+            "slug": "capabilities/agreements"
+          },
+          {
+            "slug": "capabilities/agreements/operations"
+          },
+          {
+            "slug": "capabilities/agreements/permissions"
+          },
+          {
+            "slug": "capabilities/agreements/behaviours"
+          },
+          {
+            "slug": "capabilities/agreements/screens"
+          },
+          {
+            "slug": "capabilities/agreements/decisions"
+          }
+        ]
+      },
+      {
+        "label": "Finance",
+        "collapsed": true,
+        "items": [
+          {
+            "slug": "capabilities/finance"
+          },
+          {
+            "slug": "capabilities/finance/operations"
+          },
+          {
+            "slug": "capabilities/finance/permissions"
+          },
+          {
+            "slug": "capabilities/finance/behaviours"
+          },
+          {
+            "slug": "capabilities/finance/screens"
+          },
+          {
+            "slug": "capabilities/finance/decisions"
+          }
+        ]
+      },
+      {
+        "label": "Client notes",
+        "collapsed": true,
+        "items": [
+          {
+            "slug": "capabilities/notes"
+          },
+          {
+            "slug": "capabilities/notes/operations"
+          },
+          {
+            "slug": "capabilities/notes/permissions"
+          },
+          {
+            "slug": "capabilities/notes/behaviours"
+          },
+          {
+            "slug": "capabilities/notes/screens"
+          },
+          {
+            "slug": "capabilities/notes/decisions"
+          }
+        ]
+      },
+      {
+        "label": "Booking system copy",
+        "collapsed": true,
+        "items": [
+          {
+            "slug": "capabilities/outside"
+          },
+          {
+            "slug": "capabilities/outside/operations"
+          },
+          {
+            "slug": "capabilities/outside/permissions"
+          },
+          {
+            "slug": "capabilities/outside/behaviours"
+          },
+          {
+            "slug": "capabilities/outside/screens"
+          },
+          {
+            "slug": "capabilities/outside/decisions"
+          }
+        ]
+      }
+    ]
+  },
+  {
+    "label": "Solutions",
+    "items": [
+      {
+        "autogenerate": {
+          "directory": "solutions"
+        }
+      }
+    ]
+  },
+  {
+    "label": "Reference",
+    "items": [
+      {
+        "label": "Core operations",
+        "collapsed": true,
+        "items": [
+          {
+            "slug": "reference/operations"
+          },
+          {
+            "slug": "reference/operations/a2ui"
+          },
+          {
+            "slug": "reference/operations/access"
+          },
+          {
+            "slug": "reference/operations/accounting"
+          },
+          {
+            "slug": "reference/operations/ack"
+          },
+          {
+            "slug": "reference/operations/activity"
+          },
+          {
+            "slug": "reference/operations/adjudicator"
+          },
+          {
+            "slug": "reference/operations/affiliation"
+          },
+          {
+            "slug": "reference/operations/agent"
+          },
+          {
+            "slug": "reference/operations/agentprofile"
+          },
+          {
+            "slug": "reference/operations/agreement"
+          },
+          {
+            "slug": "reference/operations/ai"
+          },
+          {
+            "slug": "reference/operations/allowance"
+          },
+          {
+            "slug": "reference/operations/approval"
+          },
+          {
+            "slug": "reference/operations/assignment"
+          },
+          {
+            "slug": "reference/operations/audit"
+          },
+          {
+            "slug": "reference/operations/automation"
+          },
+          {
+            "slug": "reference/operations/capacity"
+          },
+          {
+            "slug": "reference/operations/carer"
+          },
+          {
+            "slug": "reference/operations/changeset"
+          },
+          {
+            "slug": "reference/operations/checklist"
+          },
+          {
+            "slug": "reference/operations/code"
+          },
+          {
+            "slug": "reference/operations/connectedapp"
+          },
+          {
+            "slug": "reference/operations/connection"
+          },
+          {
+            "slug": "reference/operations/content"
+          },
+          {
+            "slug": "reference/operations/conversation"
+          },
+          {
+            "slug": "reference/operations/customer"
+          },
+          {
+            "slug": "reference/operations/dashboard"
+          },
+          {
+            "slug": "reference/operations/desk"
+          },
+          {
+            "slug": "reference/operations/device"
+          },
+          {
+            "slug": "reference/operations/devicesession"
+          },
+          {
+            "slug": "reference/operations/dictation"
+          },
+          {
+            "slug": "reference/operations/duplicate"
+          },
+          {
+            "slug": "reference/operations/enrichment"
+          },
+          {
+            "slug": "reference/operations/eraserequest"
+          },
+          {
+            "slug": "reference/operations/erasure"
+          },
+          {
+            "slug": "reference/operations/export"
+          },
+          {
+            "slug": "reference/operations/extension"
+          },
+          {
+            "slug": "reference/operations/extensionsettings"
+          },
+          {
+            "slug": "reference/operations/fieldoptions"
+          },
+          {
+            "slug": "reference/operations/finance"
+          },
+          {
+            "slug": "reference/operations/import"
+          },
+          {
+            "slug": "reference/operations/inbox"
+          },
+          {
+            "slug": "reference/operations/intake"
+          },
+          {
+            "slug": "reference/operations/integration"
+          },
+          {
+            "slug": "reference/operations/integrationevent"
+          },
+          {
+            "slug": "reference/operations/invoice"
+          },
+          {
+            "slug": "reference/operations/jobchange"
+          },
+          {
+            "slug": "reference/operations/journey"
+          },
+          {
+            "slug": "reference/operations/judge"
+          },
+          {
+            "slug": "reference/operations/location"
+          },
+          {
+            "slug": "reference/operations/me"
+          },
+          {
+            "slug": "reference/operations/media"
+          },
+          {
+            "slug": "reference/operations/memory"
+          },
+          {
+            "slug": "reference/operations/message"
+          },
+          {
+            "slug": "reference/operations/messages"
+          },
+          {
+            "slug": "reference/operations/my"
+          },
+          {
+            "slug": "reference/operations/note"
+          },
+          {
+            "slug": "reference/operations/notification"
+          },
+          {
+            "slug": "reference/operations/order"
+          },
+          {
+            "slug": "reference/operations/organisation"
+          },
+          {
+            "slug": "reference/operations/outbound"
+          },
+          {
+            "slug": "reference/operations/outside"
+          },
+          {
+            "slug": "reference/operations/person"
+          },
+          {
+            "slug": "reference/operations/personcode"
+          },
+          {
+            "slug": "reference/operations/plan"
+          },
+          {
+            "slug": "reference/operations/policy"
+          },
+          {
+            "slug": "reference/operations/public"
+          },
+          {
+            "slug": "reference/operations/query"
+          },
+          {
+            "slug": "reference/operations/quote"
+          },
+          {
+            "slug": "reference/operations/record"
+          },
+          {
+            "slug": "reference/operations/recurring"
+          },
+          {
+            "slug": "reference/operations/rooms"
+          },
+          {
+            "slug": "reference/operations/routine"
+          },
+          {
+            "slug": "reference/operations/routinemail"
+          },
+          {
+            "slug": "reference/operations/sample"
+          },
+          {
+            "slug": "reference/operations/schema"
+          },
+          {
+            "slug": "reference/operations/screens"
+          },
+          {
+            "slug": "reference/operations/search"
+          },
+          {
+            "slug": "reference/operations/settings"
+          },
+          {
+            "slug": "reference/operations/setup"
+          },
+          {
+            "slug": "reference/operations/staffing"
+          },
+          {
+            "slug": "reference/operations/state"
+          },
+          {
+            "slug": "reference/operations/stock"
+          },
+          {
+            "slug": "reference/operations/storage"
+          },
+          {
+            "slug": "reference/operations/subscription"
+          },
+          {
+            "slug": "reference/operations/suggestedcontact"
+          },
+          {
+            "slug": "reference/operations/summary"
+          },
+          {
+            "slug": "reference/operations/support"
+          },
+          {
+            "slug": "reference/operations/sync"
+          },
+          {
+            "slug": "reference/operations/task"
+          },
+          {
+            "slug": "reference/operations/teammemory"
+          },
+          {
+            "slug": "reference/operations/thread"
+          },
+          {
+            "slug": "reference/operations/trash"
+          },
+          {
+            "slug": "reference/operations/update"
+          },
+          {
+            "slug": "reference/operations/user"
+          },
+          {
+            "slug": "reference/operations/view"
+          },
+          {
+            "slug": "reference/operations/voice"
+          },
+          {
+            "slug": "reference/operations/waitlist"
+          },
+          {
+            "slug": "reference/operations/widget"
+          }
+        ]
+      },
+      {
+        "slug": "reference/behaviours"
+      },
+      {
+        "label": "Blocks",
+        "collapsed": true,
+        "items": [
+          {
+            "autogenerate": {
+              "directory": "reference/blocks"
+            }
+          }
+        ]
+      },
+      {
+        "label": "Gatekeepers",
+        "collapsed": true,
+        "items": [
+          {
+            "autogenerate": {
+              "directory": "reference/gatekeepers"
+            }
+          }
+        ]
+      },
+      {
+        "slug": "reference/cli"
+      },
+      {
+        "slug": "reference/glossary"
+      }
+    ]
+  }
+]

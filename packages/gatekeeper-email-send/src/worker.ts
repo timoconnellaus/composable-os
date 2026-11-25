@@ -32,7 +32,15 @@ import {
   defineActions,
   type TaggedAction,
 } from "@composable-os/gatekeeper-kit/actions";
+import { agreementPdf } from "@composable-os/pdf";
 import { domainOf, parseDomainList } from "./address";
+import {
+  AGREEMENT_FILENAME,
+  AGREEMENT_KIND,
+  agreementSummary,
+  isAgreementShaped,
+  isHostAgreementMail,
+} from "./agreement";
 import {
   CALENDAR_FILENAME,
   CANCEL_FILENAME,
@@ -42,13 +50,22 @@ import {
 } from "./calendar";
 
 /** A message's calendar events, as a list (one or two). */
-function calendarsOf(message: EmailSendMessage): EmailCalendarEvent[] {
+function calendarsOf(message: ParsedMessage): EmailCalendarEvent[] {
   const c = message.calendar;
   return (c ? (Array.isArray(c) ? c : [c]) : []) as EmailCalendarEvent[];
 }
 
 import type { SenderConfiguratorRpc } from "./configurator/sender-configurator-types";
+import {
+  AGREEMENT_KEY_PREFIX,
+  HOST_PRIVATE_CLASSES,
+  keySpaceOf,
+  type QueueClass,
+  queueClassOf,
+} from "./queue-class";
+import { hostRoutineMail, isRoutineShaped, ROUTINE_KIND } from "./routine";
 import { assertSenderAllowed, SENDER_URL_PATTERN, senderFromUrl, senderUrl } from "./sender";
+
 import { isHostSignInMail, isSignInCodeMessage, SIGN_IN_KIND } from "./sign-in";
 import {
   type EmailTransport,
@@ -63,7 +80,7 @@ import type {
   EmailSendSession,
 } from "./types";
 import TYPES_CODE from "./types.txt";
-import { parseMessage, recipientsOf } from "./validate";
+import { type ParsedMessage, parseMessage, recipientsOf } from "./validate";
 
 const MAIL_ICON = {
   url:
@@ -91,19 +108,57 @@ const SENDER_RESOURCE: SupportedResource = {
 const SEND_KIND: ActionKind = { tag: "email.send", label: "Send email" };
 const INTERNAL_KIND: ActionKind = { tag: "email.internal", label: "Send email to colleagues" };
 
-/** Sends that may wait for approval at once, per sender (the journal's default is 50). */
+/**
+ * Sends that may wait for approval at once, per sender (the journal's default is 50): callers'
+ * (and the host's routine and orders mail) together, and the host's own independent mail (an
+ * agreement's copy, a sign-in code) apart, so callers' sends can never crowd those out (the second
+ * review of PR #283). The journal holds both.
+ */
 const MAX_PENDING_SENDS = 500;
+const MAX_PENDING_HOST_SENDS = 100;
+/** The host's mail that never waits behind, nor counts against, anyone else's. */
+const INDEPENDENT_CLASSES: ReadonlySet<QueueClass> = new Set(["agreements", "sign-in"]);
+const TOO_MANY_PENDING =
+  "Too many pending actions; approve or reject some in the approval queue first.";
 
 /** How many sent and rejected emails the facet remembers for `listSent()`. */
 const HISTORY_LIMIT = 200;
 /** How many rows `listSent()` returns. */
 const LIST_LIMIT = 100;
 const HISTORY_PREFIX = "history:";
-/** Idempotency keys (ADR 0574): key → the send's id, and the order they were seen in. */
-const IDEMPOTENCY_PREFIX = "idem:";
-const IDEMPOTENCY_ORDER = "idemorder:";
+/**
+ * Idempotency keys (ADR 0574, ADR 0645, issue #286): `idemc:<space>:<key>` → the send's id, and
+ * per space the order they were seen in, each space pruned by its own volume (the agreements
+ * mail's slots are bounded by acceptances, and kept longer). A space is one of the host's classes,
+ * or one ordinary caller's (`keySpaceOf`).
+ */
+const IDEMPOTENCY_PREFIX = "idemc:";
+const IDEMPOTENCY_ORDER = "idemcorder:";
 const IDEMPOTENCY_LIMIT = 2_000;
+const IDEMPOTENCY_LIMITS: Partial<Record<string, number>> = { agreements: 20_000 };
 const IDEMPOTENCY_KEY = /^[A-Za-z0-9_.:-]{1,200}$/;
+
+/**
+ * Copies the host scrubbed (ADR 0646): `scrubbed:<copy key>` → when. Kept per copy, bounded by
+ * acceptances like the agreements mail's keys, so a send under the key stays refused.
+ */
+const SCRUBBED_PREFIX = "scrubbed:";
+const SCRUBBED_ORDER = "scrubbedorder:";
+const SCRUBBED_LIMIT = 20_000;
+/** A copy's own key: `agreement-copy:<acceptance id>`. */
+const COPY_KEY = /^agreement-copy:[A-Za-z0-9_]{1,80}$/;
+/** What a scrubbed send's history line says instead of its recipients and subject. */
+const SCRUBBED_SUBJECT = "[erased]";
+/** The journal's own records (namespace `email`), read back through `ActionJournal.get`. */
+const JOURNAL_RECORDS = "email:action:";
+
+/** The copy's own key of an agreement send's key (a retry's `:<n>` suffix dropped). */
+function copyKeyOf(key: string): string | null {
+  if (!key.startsWith(AGREEMENT_KEY_PREFIX)) return null;
+  const [prefix, id] = key.split(":");
+  const base = `${prefix}:${id}`;
+  return COPY_KEY.test(base) ? base : null;
+}
 
 /** A send's idempotency key, checked, and the message without it. */
 function splitIdempotencyKey(input: unknown): { key: string | null; rest: unknown } {
@@ -121,10 +176,28 @@ function splitIdempotencyKey(input: unknown): { key: string | null; rest: unknow
 
 // ── Actions ─────────────────────────────────────────────────────────
 
-/** What the journal stores for one send: the sender at submit time and the validated message. */
-type StoredEmail = { from: string; message: EmailSendMessage };
+/**
+ * What the journal stores for one send: the sender at submit time, the validated message, and the
+ * class of queue that sent it (ADR 0645; absent on sends from before it: a caller's).
+ */
+type StoredEmail = {
+  from: string;
+  message: ParsedMessage;
+  queue?: QueueClass;
+  /**
+   * An agreement's copy: the copy's own key (`agreement-copy:<acceptance id>`, without a retry's
+   * suffix), by which the host scrubs it once the acceptance is erased (ADR 0646).
+   */
+  copy?: string;
+};
 
-type Actions = { send: StoredEmail; sendInternal: StoredEmail; sendSignIn: StoredEmail };
+type Actions = {
+  send: StoredEmail;
+  sendInternal: StoredEmail;
+  sendSignIn: StoredEmail;
+  sendRoutine: StoredEmail;
+  sendAgreement: StoredEmail;
+};
 type SendKind = keyof Actions;
 
 /** A settled send, as `listSent()` reports it. */
@@ -132,6 +205,8 @@ type HistoryEntry = {
   id: number;
   to: string[];
   subject: string;
+  /** The class of queue that sent it (ADR 0645); absent: a caller's. */
+  queue?: QueueClass;
   status: "sent" | "rejected";
   sentAt?: string;
   messageId?: string;
@@ -169,6 +244,9 @@ function describeSend(email: StoredEmail, internal: boolean) {
     if (event.url) builder.inline("Calendar link", event.url);
     if (event.description) builder.verbatim("Calendar description", event.description);
   }
+  // The signed agreement's file, in one line: what, which version, how and when; no name typed,
+  // no signature, no answer (ADR 0645).
+  if (message.agreement) builder.inline("Attachment", agreementSummary(message.agreement));
   return {
     title: sanitizeTitle(`Send email: ${message.subject}`),
     ...builder.finish(),
@@ -176,9 +254,9 @@ function describeSend(email: StoredEmail, internal: boolean) {
   };
 }
 
-const sendDefinition = (internal: boolean, kind?: ActionKind) => ({
+const sendDefinition = (internal: boolean, kind?: ActionKind, autoApprovable?: boolean) => ({
   kind: kind ?? (internal ? INTERNAL_KIND : SEND_KIND),
-  autoApprovable: internal || kind !== undefined,
+  autoApprovable: autoApprovable ?? (internal || kind !== undefined),
   delivery: "continue-with-simulation" as const,
   // A crash between handing the email to Email Service and recording it must not send it twice.
   claimBeforeApply: true,
@@ -191,13 +269,21 @@ const sendDefinition = (internal: boolean, kind?: ActionKind) => ({
   },
 });
 
+const SEND_DEFINITIONS = {
+  send: sendDefinition(false),
+  sendInternal: sendDefinition(true),
+  // The host's sign-in code (ADR 0456): an independent send, so it never waits behind another.
+  sendSignIn: sendDefinition(false, SIGN_IN_KIND),
+  // Routine mail (ADR 0590): the host's own decision, not an admin's switch, lets it apply,
+  // so it is not auto-approvable; an independent send, so it never waits behind another.
+  sendRoutine: sendDefinition(false, ROUTINE_KIND, false),
+  // The copy of a signed agreement (ADR 0645): the host's own mail, applied by the host's
+  // decision (its `callAsHost`), never by an admin's switch; an independent send.
+  sendAgreement: sendDefinition(false, AGREEMENT_KIND, false),
+} satisfies Record<SendKind, ReturnType<typeof sendDefinition>>;
+
 const actions = defineActions<EmailHost, Actions>(
-  {
-    send: sendDefinition(false),
-    sendInternal: sendDefinition(true),
-    // The host's sign-in code (ADR 0456): an independent send, so it never waits behind another.
-    sendSignIn: sendDefinition(false, SIGN_IN_KIND),
-  },
+  SEND_DEFINITIONS,
   // Email Service has no per-user authority to pin: the Worker's own binding sends every email,
   // and apply re-checks the sender domain against the current configuration instead.
   { fence: "none", vendorId: "email-send" },
@@ -223,10 +309,25 @@ type SessionBackend = {
   sender: string;
   submit(queue: RpcStub<ApprovalQueue>, email: StoredEmail, kind: SendKind): Promise<number>;
   wasSent(id: number): boolean;
-  /** The send an idempotency key already made (ADR 0574), "busy" while it is being made. */
-  recall(key: string): number | "busy" | null;
-  remember(key: string, id: number | "busy" | null): void;
-  listSent(): EmailSendRecord[];
+  /**
+   * Submits a journalled send that is still waiting to its queue again, as it was described
+   * (ADR 0645: a copy whose first submission was cut off before the host applied it). False when
+   * it is no longer waiting (applied, rejected or failed).
+   */
+  resubmit(queue: RpcStub<ApprovalQueue>, id: number): Promise<boolean>;
+  /**
+   * The send an idempotency key already made (ADR 0574), "busy" while it is being made. Keys are
+   * kept per space (`keySpaceOf`): one class's, or one caller's, key never answers another's send.
+   */
+  recall(space: string, key: string): number | "busy" | null;
+  remember(space: string, key: string, id: number | "busy" | null): void;
+  /** How many sends wait in the same pool as `queueClass`'s (independent host mail, or the rest). */
+  pendingIn(queueClass: QueueClass): number;
+  listSent(viewer: QueueClass): EmailSendRecord[];
+  /** Whether the host scrubbed this copy key (its acceptance was erased): never sent again. */
+  isScrubbed(copy: string): boolean;
+  /** Scrubs one copy (ADR 0646): see `scrubAgreementCopy`. */
+  scrub(copy: string): Promise<{ found: boolean; dropped: number; redacted: number }>;
   internalDomains(): string | undefined;
   allowedDomains(): string | undefined;
 };
@@ -243,42 +344,105 @@ class EmailSendSessionImpl extends RpcTarget implements EmailSendSession {
 
   /** Validates the message and queues it for approval. */
   async send(message: EmailSendMessage): Promise<EmailSendReceipt> {
-    // A caller retrying a step passes the same key: the send it already made is answered again,
-    // never queued twice (ADR 0574).
     const { key, rest } = splitIdempotencyKey(message);
-    if (key) {
-      const known = this.#backend.recall(key);
-      if (known === "busy") throw new Error("A send with this idempotency key is in progress.");
-      if (known !== null) {
-        return { status: this.#backend.wasSent(known) ? "sent" : "pending", id: known };
-      }
+    // Who is sending, from how the host opened the queue (ADR 0645, after the review of PR #283).
+    const queueClass = await queueClassOf(this.#queue);
+    // The copy's keys are the host's agreements mail's alone: no other caller may take one first.
+    if (key?.startsWith(AGREEMENT_KEY_PREFIX) && queueClass !== "agreements") {
+      throw new TypeError(
+        `Invalid email: idempotencyKey ${AGREEMENT_KEY_PREFIX}… is the host's own agreements mail's.`,
+      );
     }
     const parsed = parseMessage(rest);
     const sender = this.#backend.sender;
     assertSenderAllowed(sender, this.#backend.allowedDomains());
-    // The host's sign-in mail only from the host's own queue, and only the fixed template.
-    const kind: SendKind =
-      isSignInCodeMessage(parsed) && (await isHostSignInMail(this.#queue))
+    // The host's sign-in mail only from the host's own queue, and only the fixed template; its
+    // routine mail only from the host's own queue, and only of routine shape (ADR 0590).
+    // A signed agreement only from the host's own agreements mail, and only in the copy's shape:
+    // nothing else may attach a file (ADR 0645).
+    if (parsed.agreement) {
+      if (!isAgreementShaped(parsed) || !(await isHostAgreementMail(this.#queue))) {
+        throw new TypeError(
+          "Invalid email: agreement is attached only by the host, to its copy of a signed agreement.",
+        );
+      }
+    }
+    const routine = parsed.agreement ? null : await hostRoutineMail(this.#queue);
+    const kind: SendKind = parsed.agreement
+      ? "sendAgreement"
+      : isSignInCodeMessage(parsed) && (await isHostSignInMail(this.#queue))
         ? "sendSignIn"
-        : isInternal(parsed, this.#backend.internalDomains())
-          ? "sendInternal"
-          : "send";
-    if (key) this.#backend.remember(key, "busy");
+        : routine && isRoutineShaped(parsed, routine.siteOrigin)
+          ? "sendRoutine"
+          : isInternal(parsed, this.#backend.internalDomains())
+            ? "sendInternal"
+            : "send";
+    // An agreement's copy is known by its own key, without a retry's suffix: once the host scrubbed
+    // it (the acceptance was erased, ADR 0646), nothing under it is queued or sent again.
+    const copy = parsed.agreement && key ? copyKeyOf(key) : null;
+    if (copy && this.#backend.isScrubbed(copy)) {
+      throw new Error("Refused: this copy's agreement was erased, and it is not sent.");
+    }
+    // A caller retrying a step passes the same key: the send it already made is answered again,
+    // never queued twice (ADR 0574). Keys are remembered per queue class, and an ordinary
+    // caller's per caller (issue #286), never per kind (the host may decide a routine email held
+    // on its retry, or a caller's recipients make it internal on one try and not the next), so a
+    // key only ever answers a send from the same caller.
+    const space = key ? await keySpaceOf(this.#queue, queueClass) : null;
+    if (key && space) {
+      const known = this.#backend.recall(space, key);
+      if (known === "busy") throw new Error("A send with this idempotency key is in progress.");
+      if (known !== null) return this.#again(known, queueClass);
+    }
+    // Each pool's own limit: callers' sends never crowd out the host's independent mail.
+    const independent = INDEPENDENT_CLASSES.has(queueClass);
+    if (
+      this.#backend.pendingIn(queueClass) >=
+      (independent ? MAX_PENDING_HOST_SENDS : MAX_PENDING_SENDS)
+    ) {
+      throw new Error(TOO_MANY_PENDING);
+    }
+    if (key && space) this.#backend.remember(space, key, "busy");
     let id: number;
     try {
-      id = await this.#backend.submit(this.#queue, { from: sender, message: parsed }, kind);
+      id = await this.#backend.submit(
+        this.#queue,
+        { from: sender, message: parsed, queue: queueClass, ...(copy ? { copy } : {}) },
+        kind,
+      );
     } catch (error) {
-      if (key) this.#backend.remember(key, null);
+      if (key && space) this.#backend.remember(space, key, null);
       throw error;
     }
-    if (key) this.#backend.remember(key, id);
+    if (key && space) this.#backend.remember(space, key, id);
     // An auto-approved send may already have been applied while the submission was in flight.
     return { status: this.#backend.wasSent(id) ? "sent" : "pending", id };
   }
 
-  /** Lists recent sends, pending ones included, after recording the read. */
+  /**
+   * The answer to a send its key already made. The host's agreements mail re-drives one that is
+   * still waiting (its first submission may have been cut off before the host applied it: the
+   * queue decides it again, and finds a person's pending approval if there is one), and is told
+   * plainly when it was turned down, so it is never left waiting for nothing.
+   */
+  async #again(id: number, queueClass: QueueClass): Promise<EmailSendReceipt> {
+    if (this.#backend.wasSent(id)) return { status: "sent", id };
+    if (queueClass === "agreements") {
+      if (!(await this.#backend.resubmit(this.#queue, id))) {
+        throw new Error("Refused: this email was turned down or failed, and is not sent again.");
+      }
+      return { status: this.#backend.wasSent(id) ? "sent" : "pending", id };
+    }
+    return { status: "pending", id };
+  }
+
+  /**
+   * Lists recent sends, pending ones included, after recording the read. The host's own
+   * agreements, sign-in and orders mail is listed only to that same queue (ADR 0645): a caller
+   * never reads who agreed to what, who signed in or who bought.
+   */
   async listSent(): Promise<EmailSendRecord[]> {
-    const rows = this.#backend.listSent();
+    const rows = this.#backend.listSent(await queueClassOf(this.#queue));
     const observation: ObservationDescription = {
       title: "List sent email",
       description: `Listed ${rows.length} recent ${rows.length === 1 ? "email" : "emails"} from the sender address.`,
@@ -286,6 +450,31 @@ class EmailSendSessionImpl extends RpcTarget implements EmailSendSession {
     };
     await this.#queue.authorizeObservation(observation);
     return rows;
+  }
+
+  /**
+   * The host's own agreements mail only (ADR 0646): scrubs what this sender holds of one copy of
+   * a signed agreement whose acceptance was erased, by the copy's key (`agreement-copy:<id>`). A
+   * send of it still waiting is dropped (never sent), a later send under the key is refused, and
+   * its recipients and subject leave the sent history. It returns counts only: nothing of any
+   * message is read back. Every other caller (a person, an extension, an automation, the
+   * assistant, MCP) is refused; the class comes from how the host opened the queue, never from
+   * the input. Not in the agent-facing types.
+   */
+  async scrubAgreementCopy(input: {
+    key?: unknown;
+  }): Promise<{ done: true; found: boolean; dropped: number; redacted: number }> {
+    if ((await queueClassOf(this.#queue)) !== "agreements") {
+      throw new Error("Refused: only the host's own agreements mail scrubs a copy.");
+    }
+    const key = input && typeof input === "object" ? input.key : undefined;
+    if (typeof key !== "string" || !COPY_KEY.test(key)) {
+      throw new TypeError("Invalid scrub: key must be agreement-copy:<acceptance id>.");
+    }
+    // `found`: whether this sender held anything for the key (a send, a history line). `done`
+    // either way: the key is scrubbed, so nothing under it is sent from now on.
+    const { found, dropped, redacted } = await this.#backend.scrub(key);
+    return { done: true, found, dropped, redacted };
   }
 
   /** The sender address; resource configuration, not provider data, so no observation. */
@@ -306,7 +495,8 @@ export class EmailSendGatekeeper
   // worth of them before new sends are refused (as back-pressure, ADR 0573).
   readonly #journal = new ActionJournal<TaggedAction<Actions>>(this.ctx.storage.kv, {
     namespace: "email",
-    maxPending: MAX_PENDING_SENDS,
+    // Both pools' limits; `send` holds each pool to its own.
+    maxPending: MAX_PENDING_SENDS + MAX_PENDING_HOST_SENDS,
   });
 
   readonly #host: EmailHost = {
@@ -331,6 +521,10 @@ export class EmailSendGatekeeper
       // Checked before anything is sent, so the email is known not to have gone out.
       throw new ActionApplyError(error instanceof Error ? error.message : String(error));
     }
+    // A copy the host scrubbed while it waited (its acceptance was erased, ADR 0646): never sent.
+    if (email.copy && this.#isScrubbed(email.copy)) {
+      throw new ActionApplyError("Refused: this copy's agreement was erased, and it is not sent.");
+    }
     const { message } = email;
     let messageId: string;
     try {
@@ -345,14 +539,27 @@ export class EmailSendGatekeeper
         ...(message.text !== undefined ? { text: message.text } : {}),
         ...(message.html !== undefined ? { html: message.html } : {}),
         ...(message.replyTo ? { replyTo: message.replyTo } : {}),
-        ...(calendarsOf(message).length
+        ...(calendarsOf(message).length || message.agreement
           ? {
-              attachments: calendarsOf(message).map((event) => ({
-                disposition: "attachment" as const,
-                filename: event.cancelled ? CANCEL_FILENAME : CALENDAR_FILENAME,
-                type: `text/calendar; charset=utf-8; method=${event.cancelled ? "CANCEL" : "PUBLISH"}`,
-                content: calendarFile(event, { address: email.from, to: message.to }, new Date()),
-              })),
+              attachments: [
+                ...calendarsOf(message).map((event) => ({
+                  disposition: "attachment" as const,
+                  filename: event.cancelled ? CANCEL_FILENAME : CALENDAR_FILENAME,
+                  type: `text/calendar; charset=utf-8; method=${event.cancelled ? "CANCEL" : "PUBLISH"}`,
+                  content: calendarFile(event, { address: email.from, to: message.to }, new Date()),
+                })),
+                // The signed agreement, made here from the checked values (ADR 0645).
+                ...(message.agreement
+                  ? [
+                      {
+                        disposition: "attachment" as const,
+                        filename: AGREEMENT_FILENAME,
+                        type: "application/pdf",
+                        content: agreementPdf(message.agreement),
+                      },
+                    ]
+                  : []),
+              ],
             }
           : {}),
       }));
@@ -370,30 +577,99 @@ export class EmailSendGatekeeper
     this.#record(id, email, { status: "sent", sentAt: new Date().toISOString(), messageId });
   }
 
-  #recall(key: string): number | "busy" | null {
-    const value = this.ctx.storage.kv.get<number | string>(IDEMPOTENCY_PREFIX + key);
+  #recall(space: string, key: string): number | "busy" | null {
+    const value = this.ctx.storage.kv.get<number | string>(`${IDEMPOTENCY_PREFIX}${space}:${key}`);
     if (value === undefined) return null;
     if (typeof value === "number") return value;
     // A send being made, unless it was left so by a crash long enough ago to try again.
     return Date.now() - Number(value.slice(5)) < 300_000 ? "busy" : null;
   }
 
-  /** Keeps the most recent IDEMPOTENCY_LIMIT keys; older ones are forgotten (a week of retries). */
-  #remember(key: string, id: number | "busy" | null): void {
+  /**
+   * Keeps each space's most recent keys (IDEMPOTENCY_LIMIT, more for the agreements mail); older
+   * ones are forgotten (a week of retries). One space's volume never evicts another's keys.
+   */
+  #remember(space: string, key: string, id: number | "busy" | null): void {
     const kv = this.ctx.storage.kv;
+    const slot = `${IDEMPOTENCY_PREFIX}${space}:${key}`;
     if (id === null) {
-      kv.delete(IDEMPOTENCY_PREFIX + key);
+      kv.delete(slot);
       return;
     }
-    const known = kv.get(IDEMPOTENCY_PREFIX + key) !== undefined;
-    kv.put(IDEMPOTENCY_PREFIX + key, id === "busy" ? `busy:${Date.now()}` : id);
+    const known = kv.get(slot) !== undefined;
+    kv.put(slot, id === "busy" ? `busy:${Date.now()}` : id);
     if (known) return;
-    kv.put(`${IDEMPOTENCY_ORDER}${String(Date.now()).padStart(15, "0")}:${key}`, key);
-    const order = [...kv.list<string>({ prefix: IDEMPOTENCY_ORDER })];
-    for (const [entry, old] of order.slice(0, Math.max(0, order.length - IDEMPOTENCY_LIMIT))) {
+    const order = `${IDEMPOTENCY_ORDER}${space}:`;
+    kv.put(`${order}${String(Date.now()).padStart(15, "0")}:${key}`, key);
+    const entries = [...kv.list<string>({ prefix: order })];
+    const limit = IDEMPOTENCY_LIMITS[space] ?? IDEMPOTENCY_LIMIT;
+    for (const [entry, old] of entries.slice(0, Math.max(0, entries.length - limit))) {
       kv.delete(entry);
-      kv.delete(IDEMPOTENCY_PREFIX + old);
+      kv.delete(`${IDEMPOTENCY_PREFIX}${space}:${old}`);
     }
+  }
+
+  #isScrubbed(copy: string): boolean {
+    return this.ctx.storage.kv.get(SCRUBBED_PREFIX + copy) !== undefined;
+  }
+
+  /**
+   * Scrubs one copy of a signed agreement (ADR 0646), serialized with apply and reject so no send
+   * of it is mid-delivery: marks the key scrubbed (a later send or apply of it is refused), drops
+   * every send of it the journal still holds (waiting, failed, or one whose submission is in
+   * flight), and blanks the recipients and subject of its history lines.
+   */
+  #scrub(copy: string): Promise<{ found: boolean; dropped: number; redacted: number }> {
+    return this.#actions().runExclusive(() => {
+      const kv = this.ctx.storage.kv;
+      if (!this.#isScrubbed(copy)) {
+        kv.put(SCRUBBED_PREFIX + copy, Date.now());
+        kv.put(`${SCRUBBED_ORDER}${String(Date.now()).padStart(15, "0")}:${copy}`, copy);
+        const entries = [...kv.list<string>({ prefix: SCRUBBED_ORDER })];
+        for (const [entry, old] of entries.slice(0, Math.max(0, entries.length - SCRUBBED_LIMIT))) {
+          kv.delete(entry);
+          kv.delete(SCRUBBED_PREFIX + old);
+        }
+      }
+      const ids = new Set<number>();
+      // Sends made under the copy's key or a retry's (`<key>:<n>`), as the agreements mail's.
+      const slot = `${IDEMPOTENCY_PREFIX}agreements:${copy}`;
+      for (const [key, value] of kv.list<number | string>({ prefix: slot })) {
+        const rest = key.slice(slot.length);
+        if ((rest === "" || /^:\d+$/.test(rest)) && typeof value === "number") ids.add(value);
+      }
+      // And any the journal holds for it, remembered under a key or not yet.
+      for (const [key] of kv.list({ prefix: JOURNAL_RECORDS })) {
+        const id = Number(key.slice(JOURNAL_RECORDS.length));
+        if (Number.isSafeInteger(id) && this.#journal.get(id)?.action.payload.copy === copy) {
+          ids.add(id);
+        }
+      }
+      let dropped = 0;
+      let redacted = 0;
+      for (const id of ids) {
+        if (this.#journal.get(id)) {
+          this.#journal.remove(id);
+          dropped += 1;
+        }
+        const entry = kv.get<HistoryEntry>(historyKey(id));
+        if (entry && (entry.to.length || entry.subject !== SCRUBBED_SUBJECT)) {
+          kv.put(historyKey(id), { ...entry, to: [], subject: SCRUBBED_SUBJECT });
+          redacted += 1;
+        }
+      }
+      return { found: ids.size > 0, dropped, redacted };
+    });
+  }
+
+  /** Sends waiting in `queueClass`'s pool: the host's independent mail, or everyone else's. */
+  #pendingIn(queueClass: QueueClass): number {
+    const independent = INDEPENDENT_CLASSES.has(queueClass);
+    return this.#journal
+      .listPending()
+      .filter(
+        ({ action }) => INDEPENDENT_CLASSES.has(action.payload.queue ?? "caller") === independent,
+      ).length;
   }
 
   #record(
@@ -402,10 +678,13 @@ export class EmailSendGatekeeper
     outcome: Pick<HistoryEntry, "status" | "sentAt" | "messageId">,
   ): void {
     const kv = this.ctx.storage.kv;
+    // A scrubbed copy's line keeps that it was sent or turned down, never to whom or what.
+    const scrubbed = email.copy !== undefined && this.#isScrubbed(email.copy);
     const entry: HistoryEntry = {
       id,
-      to: recipientsOf(email.message),
-      subject: email.message.subject,
+      to: scrubbed ? [] : recipientsOf(email.message),
+      subject: scrubbed ? SCRUBBED_SUBJECT : email.message.subject,
+      ...(email.queue && email.queue !== "caller" ? { queue: email.queue } : {}),
       ...outcome,
     };
     kv.put(historyKey(id), entry);
@@ -414,27 +693,34 @@ export class EmailSendGatekeeper
     for (const key of keys.slice(0, Math.max(0, keys.length - HISTORY_LIMIT))) kv.delete(key);
   }
 
-  /** History plus the sends still awaiting approval, newest first. */
-  #listSent(): EmailSendRecord[] {
+  /** History plus the sends still awaiting approval, newest first, as `viewer` may see them. */
+  #listSent(viewer: QueueClass): EmailSendRecord[] {
+    const visible = (queue: QueueClass | undefined) =>
+      !queue || !HOST_PRIVATE_CLASSES.has(queue) || queue === viewer;
     const settled = [
       ...this.ctx.storage.kv.list<HistoryEntry>({ prefix: HISTORY_PREFIX, reverse: true }),
-    ].map(
-      ([, entry]): EmailSendRecord => ({
-        id: entry.id,
-        to: entry.to,
-        subject: entry.subject,
-        status: entry.status,
-        ...(entry.sentAt ? { sentAt: entry.sentAt } : {}),
-      }),
-    );
-    const pending = this.#journal.listPending().map(
-      ({ id, action }): EmailSendRecord => ({
-        id,
-        to: recipientsOf(action.payload.message),
-        subject: action.payload.message.subject,
-        status: "pending",
-      }),
-    );
+    ]
+      .filter(([, entry]) => visible(entry.queue))
+      .map(
+        ([, entry]): EmailSendRecord => ({
+          id: entry.id,
+          to: entry.to,
+          subject: entry.subject,
+          status: entry.status,
+          ...(entry.sentAt ? { sentAt: entry.sentAt } : {}),
+        }),
+      );
+    const pending = this.#journal
+      .listPending()
+      .filter(({ action }) => visible(action.payload.queue))
+      .map(
+        ({ id, action }): EmailSendRecord => ({
+          id,
+          to: recipientsOf(action.payload.message),
+          subject: action.payload.message.subject,
+          status: "pending",
+        }),
+      );
     return [...pending, ...settled].sort((a, b) => b.id - a.id).slice(0, LIST_LIMIT);
   }
 
@@ -465,10 +751,28 @@ export class EmailSendGatekeeper
     const backend: SessionBackend = {
       sender: this.#sender(),
       submit: (queue, email, kind) => this.#actions().submit(queue, kind, email),
-      wasSent: (id) => this.#journal.wasApplied(id),
-      recall: (key) => this.#recall(key),
-      remember: (key, id) => this.#remember(key, id),
-      listSent: () => this.#listSent(),
+      // The journal's record, or (once the journal has forgotten it) the sent history's.
+      wasSent: (id) =>
+        this.#journal.wasApplied(id) ||
+        this.ctx.storage.kv.get<HistoryEntry>(historyKey(id))?.status === "sent",
+      resubmit: async (queue, id) => {
+        const waiting = this.#journal.listPending().find((p) => p.id === id);
+        if (!waiting) return false;
+        const definition = SEND_DEFINITIONS[waiting.action.kind];
+        await queue.submitAction(id, {
+          ...definition.describe(waiting.action.payload),
+          autoApprovable: definition.autoApprovable === true,
+          actionKind: definition.kind,
+        });
+        return true;
+      },
+      recall: (space, key) => this.#recall(space, key),
+      remember: (space, key, id) => this.#remember(space, key, id),
+      pendingIn: (queueClass) => this.#pendingIn(queueClass),
+
+      listSent: (viewer) => this.#listSent(viewer),
+      isScrubbed: (copy) => this.#isScrubbed(copy),
+      scrub: (copy) => this.#scrub(copy),
       internalDomains: () => this.env.INTERNAL_DOMAINS,
       allowedDomains: () => this.env.ALLOWED_SENDER_DOMAINS,
     };

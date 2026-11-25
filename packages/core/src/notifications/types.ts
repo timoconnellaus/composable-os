@@ -23,6 +23,16 @@ export const NOTIFICATION_TYPES = {
    * email preference (`digest`), so it is never routed to a channel per type.
    */
   digest: { label: "Daily digest", category: "digest" },
+  // The shared inbox (stage 36, ADR 0740), written by the host. The title names the conversation
+  // and who did what; it never copies a message's words.
+  /** A conversation was given to you. */
+  "inbox.assigned": { label: "Conversations given to you", category: "inbox" },
+  /** Someone replied on a conversation you have. */
+  "inbox.reply": { label: "Replies on your conversations", category: "inbox" },
+  /** A staff note on a conversation mentions you. */
+  "inbox.mention": { label: "Mentions in notes", category: "inbox" },
+  /** A reply target is near on a conversation you have (or nobody has it: the admins). */
+  "inbox.due": { label: "Replies due", category: "inbox" },
 } as const;
 export type NotificationType = keyof typeof NOTIFICATION_TYPES;
 export const NOTIFICATION_TYPE_NAMES = Object.keys(NOTIFICATION_TYPES) as [

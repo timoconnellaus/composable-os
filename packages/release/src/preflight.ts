@@ -39,7 +39,8 @@ export interface PreflightIssue {
     | "extension_incompatible"
     | "database_newer"
     | "missing_secret"
-    | "unknown_current";
+    | "unknown_current"
+    | "gatekeeper_removed";
   message: string;
 }
 
@@ -135,7 +136,7 @@ export function preflight(input: PreflightInput): PreflightResult {
   for (const name of changedGatekeepers.removed) {
     if (installed.has(name)) {
       warnings.push({
-        code: "unknown_current",
+        code: "gatekeeper_removed",
         message: `Gatekeeper ${name} is installed but no longer ships in ${target.version}; it stays deployed as it is.`,
       });
     }

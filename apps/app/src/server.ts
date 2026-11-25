@@ -1,4 +1,5 @@
-// cos-app's Worker entry. /support/enter and /support/exit (hosted support access,
+// cos-app's Worker entry. The desk origin (its own hostname, src/server/http/desk.ts) is answered
+// first and serves nothing else; then /support/enter and /support/exit (hosted support access,
 // src/server/support.ts) come first; the HTTP surface for client apps (/api/v1/*,
 // src/server/http/api.ts) next; OAuth 2.1 and /mcp (src/server/mcp/handler.ts) wrap TanStack
 // Start, which handles every other request; the cron trigger in wrangler.jsonc runs the scheduled
@@ -42,7 +43,9 @@ export { ClientApp } from "./server/http/bound.ts";
 import { type AssistantHttpEnv, handleSocket, SOCKET_PATH } from "./server/assistant/http.ts";
 import { runAgentJobCron } from "./server/assistant/job-cron.ts";
 import { handleRoutineDeliveries } from "./server/assistant/routines.ts";
+import { isDeskRequest } from "./server/desk.ts";
 import { staffCodesFor } from "./server/host-mail.ts";
+import { handleAgreementPdf, isAgreementPdfPath } from "./server/http/agreement-pdf.ts";
 import {
   type ApiEnv,
   apiContext,
@@ -50,7 +53,18 @@ import {
   handleCustomerAuth,
   isCustomerAuthPath,
 } from "./server/http/api.ts";
+import {
+  type CustomerFeedEnv,
+  handleCustomerFeed,
+  isCustomerFeedPath,
+} from "./server/http/customer-feed.ts";
+import { type DeskHandlerEnv, handleDesk, isDeskPath } from "./server/http/desk.ts";
 import { handleNativeStaffSignIn, NATIVE_STAFF_SIGN_IN_PATH } from "./server/http/native.ts";
+import {
+  handleStaffFeed,
+  isStaffFeedPath,
+  type StaffFeedEnv,
+} from "./server/http/staffing-feed.ts";
 import { authorize } from "./server/identity.ts";
 import { createAppHandler } from "./server/mcp/handler.ts";
 import {
@@ -85,12 +99,27 @@ export default {
   fetch(request, env, ctx) {
     // Staff sign-in codes go out as the host's own mail (ADR 0455), for whichever route asks.
     provideStaffCodes(env, staffCodesFor(env as unknown as ApiEnv));
+    // The desk origin (stage 44 step 6, ADR 0649): its own hostname for this Worker, serving its
+    // two pages and its calls and nothing else. The staff origin serves none of the desk's paths.
+    if (isDeskRequest(request, env)) {
+      // Its pages go straight to TanStack Start: never through MCP's OAuth wrapper (`app`).
+      return handleDesk(request, env as unknown as DeskHandlerEnv, async (page) =>
+        handler.fetch(page),
+      );
+    }
     // Hosted support access (ADR 0212): a 404 unless COS_SUPPORT_PUBLIC_KEY is set.
     const pathname = new URL(request.url).pathname;
+    if (isDeskPath(pathname)) return new Response("Not found", { status: 404 });
     if (isSupportRoute(pathname)) return handleSupportRoute(request, env);
     // The assistant thread's WebSocket (ADR 0340) goes straight to the person's object: TanStack
     // Start does not pass a 101 response through. Identity is enforced here the same way.
     if (pathname === SOCKET_PATH) return assistantSocket(request, env);
+    // A signed agreement's PDF and a version's blank form (stage 44 step 4, ADR 0645): the
+    // operations decide who may have one; the route draws it. Before the surface, as media is.
+    if (isAgreementPdfPath(pathname)) {
+      const api = env as unknown as ApiEnv;
+      return handleAgreementPdf(request, { context: (req) => apiContext(req, api) });
+    }
     // The media library's pictures (stage 28, ADR 0444): staff upload, and whoever may see a
     // picture is served it, as media.serve decides. Before the surface: /api/v1/media/<id> is the
     // outside world's address for one (issue #181).
@@ -105,6 +134,15 @@ export default {
         // `cos content import` (ADR 0470): a person's staff device token, beside the surface.
         tokenUploads: true,
       });
+    }
+    // A staff member's private calendar feed (stage 45 step 5, ADR 0628): a calendar app polls
+    // it with no sign-in, by the secret token in its address. Before the surface, which never
+    // sees these paths: everything under /api/v1/staffing/feed/ is answered there.
+    if (isStaffFeedPath(pathname)) return handleStaffFeed(request, env as unknown as StaffFeedEnv);
+    // A customer's private calendar feed (stage 62 step 1, ADR 0890): the same, through the shared
+    // feed module, by its own token table. Everything under /api/v1/me/feed/ is answered there.
+    if (isCustomerFeedPath(pathname)) {
+      return handleCustomerFeed(request, env as unknown as CustomerFeedEnv);
     }
     // The HTTP surface for client apps (stage 23, ADR 0403): /api/v1/*. It resolves its own
     // caller (staff, customer or public) from the request's session, so it is not behind the

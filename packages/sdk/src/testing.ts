@@ -28,12 +28,14 @@ import {
   type NotificationSendInput,
   notificationInput,
 } from "./automation.ts";
+import { DEFAULT_WAIT_TIMEOUT, NOTIFY_OPERATION } from "./automation-check.ts";
 import { type AiModule, type Extension, GATEKEEPER_MODULES, type StartedBy } from "./contract.ts";
 import { validateDocument } from "./document.ts";
 import type { ExtensionManifest, ManifestIssue, ValidateOptions } from "./manifest.ts";
 import { CORE_OBJECT_NAMES, toManifest, validateManifest } from "./manifest.ts";
 import { checkGrant } from "./permissions.ts";
 import { documentMaxBytesOf, documentSchemaOf } from "./rich-text.ts";
+import type { RoutineSendInput, RoutineSendResult } from "./routine-mail.ts";
 import { buildContext, type RawHostModules, runExtension } from "./runtime.ts";
 
 type Values = Record<string, unknown> & { id: string };
@@ -63,6 +65,18 @@ export interface TestHostOptions {
     string,
     (call: { connectionId: string; resource: string; method: string; args: unknown[] }) => unknown
   >;
+  /**
+   * What `ctx.routineMail.send` answers (ADR 0590). Every call is recorded in `routineSends`;
+   * with no fake each answers one email sent. The host decides who it goes to and what it says,
+   * so a pack's test checks which kind, record, message and values it asked for.
+   */
+  routineMail?: (send: RoutineSendInput) => RoutineSendResult | Promise<RoutineSendResult>;
+}
+
+/** A routine email an automation asked the host to send (`ctx.routineMail.send`). */
+export interface RoutineSend extends RoutineSendInput {
+  /** The step it was asked in. */
+  step: string | null;
 }
 
 /** A call a tool or automation made through `ctx.gatekeeper(name).call(...)`. */
@@ -159,6 +173,8 @@ export interface TestHost {
   notifications: SentNotification[];
   /** Every call through a gatekeeper module, in order. */
   gatekeeperCalls: GatekeeperCall[];
+  /** Every routine email asked for, in order (ADR 0590). */
+  routineSends: RoutineSend[];
   /**
    * Runs automation `name` in memory, start to finish: conditions checked on the trigger
    * record, waits skipped (and recorded), steps held to the declarations.
@@ -167,7 +183,7 @@ export interface TestHost {
   /**
    * Publishes a record of a publishable object as a person would (`record.publish`, which no
    * tool may call): its content fields become the next version, which `record.version` reads.
-   * Returns the version's number.
+   * Refused outside the object's `publishable.publishIn` states. Returns the version's number.
    */
   publish(object: string, id: string): number;
 }
@@ -228,6 +244,16 @@ export function createTestHost(extension: Extension, options: TestHostOptions = 
     if (!content) throw new ExtensionToolError("invalid_input", `${object} is not publishable`);
     const row = table(object).get(id);
     if (!row) throw new ExtensionToolError("not_found", `No ${object} with id ${id}`);
+    // Only in the states the object lists (ADR 0810), as the host refuses.
+    const spec = manifest.objects[local];
+    const stateField = spec?.states?.field;
+    const publishIn = spec?.publishable?.publishIn;
+    if (publishIn && stateField && !publishIn.includes(String(row[stateField] ?? ""))) {
+      throw new ExtensionToolError(
+        "invalid_input",
+        `${object} ${id} is ${String(row[stateField] ?? "in no state")}: it is published only when ${publishIn.join(" or ")}`,
+      );
+    }
     const list = versions.get(`${object}|${id}`) ?? [];
     const version = list.length + 1;
     list.push({
@@ -490,7 +516,7 @@ export function createTestHost(extension: Extension, options: TestHostOptions = 
   let observer:
     | ((operation: string, input: Record<string, unknown>, value: unknown) => void)
     | null = null;
-  builtIn["notification.send"] = (input) => {
+  builtIn[NOTIFY_OPERATION] = (input) => {
     const notes: string[] = [];
     const admins = users.filter((u) => u.role === "admin").map((u) => u.id);
     const ids: string[] = [];
@@ -623,6 +649,27 @@ export function createTestHost(extension: Extension, options: TestHostOptions = 
       types: async () => "",
     };
   }
+  const routineSends: RoutineSend[] = [];
+  if (has("routine-mail")) {
+    raw["routine-mail"] = {
+      send: async (input) => {
+        const send = structuredClone(input) as RoutineSendInput;
+        routineSends.push({ ...send, step: currentStep });
+        try {
+          const value = options.routineMail
+            ? await options.routineMail(send)
+            : { sent: 1, held: 0, off: false, none: false };
+          return { ok: true, value };
+        } catch (error) {
+          const e = error as { code?: string; message?: string };
+          return {
+            ok: false,
+            error: { code: e.code ?? "internal", message: e.message ?? String(error) },
+          };
+        }
+      },
+    };
+  }
   if (has("ai")) {
     const ai: AiModule = {
       summarise: async (text) => String(text).slice(0, 100),
@@ -720,7 +767,7 @@ export function createTestHost(extension: Extension, options: TestHostOptions = 
       stepName ? `step ${stepName}` : "run (outside a step)";
     const notificationsBefore = notifications.length;
     observer = (operation, input, value) => {
-      if (operation === "notification.send") {
+      if (operation === NOTIFY_OPERATION) {
         if (!declaresNotify(currentStep)) {
           result.undeclared.push(`${where(currentStep)} sent a notification (not in its notifies)`);
         }
@@ -750,7 +797,7 @@ export function createTestHost(extension: Extension, options: TestHostOptions = 
         const n = (notifyCounts.get(key) ?? 0) + 1;
         notifyCounts.set(key, n);
         const input = notificationInput(event, to, message, `${key}:${n}`);
-        const sent = await base.ops.call<{ sent: number }>("notification.send", input);
+        const sent = await base.ops.call<{ sent: number }>(NOTIFY_OPERATION, input);
         return { sent: sent.sent };
       },
     };
@@ -808,7 +855,7 @@ export function createTestHost(extension: Extension, options: TestHostOptions = 
           name: stepName,
           kind: "waitForEvent",
           value,
-          skippedMs: durationMs((step.timeout ?? "7 days") as never),
+          skippedMs: durationMs((step.timeout ?? DEFAULT_WAIT_TIMEOUT) as never),
           calls: [],
         });
         return value;
@@ -841,6 +888,7 @@ export function createTestHost(extension: Extension, options: TestHostOptions = 
     records,
     notifications,
     gatekeeperCalls,
+    routineSends,
     runAutomation,
     publish,
     async runTool<T>(

@@ -17,3 +17,10 @@ Configuration through code and libraries is more flexible than JSON metadata, an
 ## Consequences
 - Customisations never touch the fork, so upgrades stay clean.
 - The SDK contract is versioned. The host supports the current and previous contract version.
+
+## Amendment, 2026-11-24 (stage 47, ADR 0660)
+"The host renders all UI from specs" holds for runtime extensions, which still never ship UI: a
+runtime extension declaring `screens` fails `cos ext check` and install. A **shipped pack** may
+declare staff screens: its own web blocks, code in this repository, built into the admin at build
+time and loaded lazily, shown to whoever the host lets open them (`screens.mine`). Nothing is
+loaded at run time from an extension's files. See [ADR 0660](0660-pack-screens-in-the-admin.md).

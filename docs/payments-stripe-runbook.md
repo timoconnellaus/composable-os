@@ -38,7 +38,10 @@ which starts from this one's part 3: [`subscriptions-stripe-runbook.md`](subscri
 1. Stripe → Developers → Webhooks → Add endpoint:
    `https://<crm-origin>/gatekeeper/payments/in/stripe`.
 2. Events: `checkout.session.completed`, `checkout.session.async_payment_succeeded`,
-   `refund.created`, `refund.updated`.
+   `refund.created`, `refund.updated`. For card readers at the desk (stage 50, ADR 0774) also
+   `payment_intent.succeeded` and `terminal.reader.action_failed`, and the restricted key needs
+   write access to Terminal readers and locations and to Payment Intents (the reader run itself
+   is the till's step 10: not yet tried against Stripe).
 3. Copy the signing secret (`whsec_…`) and set it:
    `wrangler secret put STRIPE_WEBHOOK_SECRET` (in `packages/gatekeeper-payments`).
 

@@ -158,3 +158,17 @@ and blocks take the currency from the data: the web blocks no longer take a `cur
 places. Tests: `packages/core/test/isolation-suite.ts` ("a sellable object's records come with
 the currency"), `apps/runner/test/ticketing.test.ts` (criterion 9 and the sales summary),
 `packs/ticketing/test/client.test.ts`.
+
+## Amended 2026-11-23: a sellable object's agreement point is asked when it is bought (stage 44 step 3, [ADR 0644](0644-enforcement-nobody-pays-or-books-without-what-is-due.md))
+A `sellable` object that declares an agreement point (`agreements`, ADR 0641) is asked at it by
+`createOrder` (every order) and `startSubscription` (a plan): what is due for whom it is for and for
+who pays refuses the purchase (`agreements_due`), and the batch carries the `agreements` guard.
+Nothing is attached by default, so a sellable with a point sells as before until a business
+attaches a document. What a paid line grants is the host's and is not asked again.
+
+## Amended 2026-11-24: `sellable.finance` (stage 52 step 2, [ADR 0792](0792-sellable-finance-categories-and-how-a-sale-is-earned.md))
+A sellable object may say what kind of sale it is in the finance reports and when its money is
+earned: `finance: { category?: { key, label }, earned?: "at_sale" | "over_period" | "per_use" |
+"at_date", at? }`, checked by `checkObjectSellable` and carried by the field registry with its
+defaults filled (`other`, `at_sale`). It labels the object's sales only: nothing about buying,
+granting or moving changes.

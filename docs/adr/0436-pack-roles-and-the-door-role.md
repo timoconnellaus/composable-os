@@ -144,3 +144,70 @@ holds); each opens only the tools naming it. Each call is allowed by one authori
 travel only on calls the role allows. A tool may name several permissions, any one of which opens
 it (Bookings' `day`: the coach's and the desk's). The account still holds one pack role. See
 [ADR 0600](0600-a-pack-role-and-its-grants-add-up.md).
+
+Amended 2026-11-23 (stage 44 step 2, ADR 0643): the coach's class list gains one read, a yes or
+no per Person on it ("health note": a yes on their current health form), which Bookings' tools
+ask of the host (`agreement.healthNotes`) and the host gives only inside a tool a person called.
+Nothing of the form reaches the role.
+
+## Amendment, 2026-11-23 (stage 45 step 4, ADR 0625)
+"Declaring a permission never takes anything away from anyone" now has one exception: a pack may
+declare a tool permission **restricted**. A tool naming only restricted permissions is held by
+admins and by a grant of it, not by a member's or viewer's own role, and never by a pack role (the
+contract refuses a role holding one); it is never called by an automation or another extension's
+code. Stage 45's Rostering declares `rostering.team` (its team's tools, no record read) and the
+restricted `rostering:manage` (rostering other people). See
+[ADR 0625](0625-restricted-pack-permissions.md). Tools also learn the account they were called
+for on the run (`ctx.extension.tool.calledBy`), for the host's operations about "me".
+
+## Amendment, 2026-11-24 (stage 47, ADR 0660)
+"A door account that signs in to the admin sees a viewer's screens and is refused every call" no
+longer holds: an account with a pack role gets the admin's small shell (its screens, its account,
+sign out), which makes no call the role is refused, and every other page is "not found". Every pack
+role reaches one core read beside its tools and reads, `screens.mine` (the screens it may open);
+nothing else is opened to pack roles. See [ADR 0660](0660-pack-screens-in-the-admin.md).
+
+## Amendment, 2026-11-24 (stage 38 step 3, ADR 0702)
+Every pack role also reaches two core operations about the account itself: `ack.mine` (what it
+must read and has confirmed) and `ack.confirm` (confirming it read the current version of a record
+it is asked to read). Each acts only for the calling person, so they open nothing of anyone else's.
+`PACK_ROLE_OWN` in `pack-roles.ts`; the API contract's `roles.json` lists them for each role. See
+[ADR 0702](0702-acknowledgements-read-again-and-a-confirmation-nobody-changes.md).
+
+## Amendment, 2026-11-24 (stage 41, ADR 0889)
+A role may also declare `looksAfter: { <object>: <relation to person> }`: its holder reaches those
+objects' records only for the People it looks after, through a `team` its pack declares on an
+object (the staff named on a live record about a Person), on the role's reads and inside its tools.
+Programs declares the third pack role, `programs.coach`, which does. See
+[ADR 0889](0889-a-pack-role-limited-to-the-people-its-holder-looks-after.md).
+
+## Amendment, 2026-11-24 (checklists on their own, ADR 0652)
+A pack role also reaches a shipped pack's tools declared `anyStaff` (any pack's, wherever it is
+installed): Daily checklists' `today`, `day`, `tick` and `done`, whose host operations answer with
+only the checklists the account may do (ADR 0651). Nothing else is opened: the registry walk in
+`packages/core/test/screens.test.ts` lists exactly these beside each role's own tools, its reads
+and `screens.mine`, and `api/v1/roles.json` lists them for each role's client.
+
+## Amendment, 2026-11-24 (stage 38 step 2, ADR 0701)
+Every pack role also reaches three reads of published versions: `content.staffGet`,
+`content.staffList` and `content.search`, allowed only when the input names an object that
+declares `publishable.staffRead` (a procedure). They read the current published version's content
+and slug, never a working copy, and through them a role reaches no other object.
+`PACK_ROLE_STAFF_READS` in `pack-roles.ts`; `roles.json` lists them for each role. See
+[ADR 0701](0701-staff-read-of-published-versions-and-its-reach-for-pack-roles.md).
+
+## Amendment, 2026-11-24 (stage 51 step 2, ADR 0781)
+A pack may also declare **device roles** (`deviceRoles`), held by an enrolled device rather than a
+staff account: the role's tools (each open to the new `device` audience only) and
+`device.heartbeat` are all the device may do, decided by the pipeline from the device's row and
+the pack's manifest as this ADR decides a pack role's (`loadDeviceRole`, `deviceRoleReaches` in
+`pack-roles.ts`). `ctx.caller` gains `{ kind: "device", deviceId, name }`; the tool's own calls run
+as the extension. See [ADR 0781](0781-a-device-as-a-caller-the-device-audience-and-device-roles.md).
+
+## Amendment, 2026-11-24 (stage 39 step 3, ADR 0755)
+A role may also declare `mine: { <object>: { through, who, path?, live?, within? } }`: its holder
+reaches those objects' records only through a live record of its pack naming it (`who` on
+`through`), within a window around that record's datetimes, along a path of relations to the
+object (a crew place to its visit to its job), on the role's reads and inside its tools. Jobs'
+crew role will declare it (stage 39 step 5). See
+[ADR 0755](0755-the-mine-reach-for-pack-roles.md).

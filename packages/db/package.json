@@ -9,8 +9,10 @@
     "./seed": "./src/seed.ts"
   },
   "scripts": {
-    "typecheck": "tsc --noEmit",
-    "test": "vitest run",
+    "postinstall": "node scripts/schema-version.mjs",
+    "build": "node scripts/schema-version.mjs",
+    "typecheck": "node scripts/schema-version.mjs && tsc --noEmit",
+    "test": "node scripts/schema-version.mjs && vitest run",
     "seed": "node scripts/seed.ts"
   },
   "dependencies": {

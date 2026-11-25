@@ -16,6 +16,8 @@
 //
 // Every call goes through `coreInvoker`, which is `invoke()`. A customer's or the public's call
 // gets an outside context: a principal and the database for the pipeline, never a staff user.
+// The screens this build holds, for screens.mine (stage 47).
+import "../built-screens.ts";
 import {
   addressKey,
   CUSTOMER_AUTH_BASE_PATH,
@@ -68,6 +70,8 @@ import {
   type OperationsEnv,
   staffContext,
 } from "../operations.ts";
+import { personCodeKeysEntry } from "../person-codes.ts";
+import { staffCookieAllowed, staffCrossOrigin } from "../staff-origin.ts";
 import { type SupportEnv, supportPrincipal } from "../support.ts";
 
 export interface ApiEnv extends OperationsEnv, IdentityEnv, CustomerIdentityEnv {
@@ -92,11 +96,17 @@ export function customers(env: ApiEnv): CustomerIdentity | null {
   );
 }
 
-/** The staff session a request carries, if any. */
+/**
+ * The staff session a request carries, if any. Refused (`staff_cross_origin`) when the request
+ * does not come from the host's own pages (`staffCookieAllowed`): every staff call here, the
+ * token exchange included, reads its session through this.
+ */
 async function staffSession(request: Request, env: ApiEnv): Promise<Principal | null> {
-  const support = await supportPrincipal(request, env as SupportEnv);
-  if (support) return support;
-  return createIdentityProvider(env).resolve(request);
+  const staff =
+    (await supportPrincipal(request, env as SupportEnv)) ??
+    (await createIdentityProvider(env).resolve(request));
+  if (staff && !staffCookieAllowed(request)) throw staffCrossOrigin();
+  return staff;
 }
 
 function hasCustomerCookie(request: Request): boolean {
@@ -138,6 +148,8 @@ export async function outsideContext(
     ...(extensionHost ? { extensionHost } : {}),
     // Only a hostInternal core operation's handler gets it: order.checkout (stage 25, ADR 0429).
     ...(integrations ? { integrations } : {}),
+    // Likewise: me.code and me.pin.set (stage 51, ADR 0783).
+    ...personCodeKeysEntry(env),
   };
 }
 
@@ -169,7 +181,8 @@ async function deviceContext(env: ApiEnv, db: CrmDb, token: string, url: URL) {
     env,
     // A device session is its user's; roles come from core_user, as for any staff call.
     { userId: user.id, email: user.email, name: user.name, roles: [] },
-    { surface: "client" },
+    // A device session, not a browser (ADR 0872): no setup change is made or approved from it.
+    { surface: "client", staffDevice: true },
     url.origin,
   );
 }
@@ -186,6 +199,8 @@ export async function apiContext(request: Request, env: ApiEnv): Promise<AnyInvo
         "This request carries a staff session and a customer session. Sign out of one.",
       );
     }
+    // `staffSession` refused a staff cookie from anywhere but the host's own pages (stage 47,
+    // ADR 0660). A native app's bearer token above, and customer cookies, are unchanged.
     return staffContext(env, staff, { surface: "client" }, new URL(request.url).origin);
   }
   const identity = customers(env);
@@ -400,6 +415,12 @@ async function authRoutes(route: string, request: Request, env: ApiEnv): Promise
     if (request.headers.get("authorization")) {
       throw new ValidationError("Exchange a sign-in, not a token: send the session cookie");
     }
+    // A body a cross-site form or a simple fetch cannot send: a browser asks first (stage 47).
+    if (!/^application\/json\b/i.test(request.headers.get("content-type") ?? "")) {
+      throw new ValidationError("Send the body as JSON (content-type: application/json)", {
+        httpStatus: 415,
+      });
+    }
     const deviceName = deviceNameSchema(input.deviceName);
     const staff = await staffSession(request, env);
     if (staff) {
@@ -422,6 +443,8 @@ async function authRoutes(route: string, request: Request, env: ApiEnv): Promise
           { audience: "customer", subjectId: resolved.principal.customerId },
           deviceName,
           now,
+          // The app's session is as recent as the browser sign-in it came from (ADR 0712).
+          resolved.signedInAt,
         ),
       );
     }

@@ -5,15 +5,21 @@
 // grant following its subscription, the pass's uses and expiry, one intro offer per person, the
 // spend refused past the limit) are tested against the real host in
 // apps/runner/test/memberships.test.ts and packages/core/test/memberships-platform.test.ts.
+import { checkGrant } from "@composable-os/sdk";
 import { createTestHost, type TestHost } from "@composable-os/sdk/testing";
 import { describe, expect, it } from "vitest";
 import {
   allowsWords,
+  type CoolingOffStatus,
   canChangePlan,
   changeRefusalWords,
   changeWords,
+  coolingOffWords,
+  coolOffProgressWords,
+  coolOffRefusalWords,
   type Holding,
   leftWords,
+  localDay,
   type MembershipSubscription,
   refusalWords,
   subscriptionStatus,
@@ -215,6 +221,21 @@ describe("the manifest", () => {
     ]);
     // A plan names its period: empty is not "in all" (review 5).
     expect(plan.fields.per.required).toBe(true);
+  });
+
+  it("grants record and my operations by object only: its own objects, never another's", () => {
+    const { permissions } = createTestHost(memberships).manifest;
+    expect(permissions.operations).toEqual([
+      "public.list",
+      "allowance.list",
+      "order.start",
+      "me.family",
+    ]);
+    const write = (object: string) =>
+      checkGrant("memberships", permissions, { operation: "record.create", risk: "write", object });
+    expect(write("memberships.pass").ok).toBe(true);
+    expect(write("bookings.booking").ok).toBe(false);
+    expect(write("person").ok).toBe(false);
   });
 });
 
@@ -473,5 +494,91 @@ describe("plan changes, pauses and the dashboard (stage 32b, ADRs 0530 to 0532)"
       ),
     ).toContain("Paused until");
     expect(changeRefusalWords({ rule: "change_open" })).toContain("already waiting");
+  });
+
+  it("declares cooling off: the business's days, off until a person sets them (ADR 0647)", () => {
+    const host = createTestHost(memberships, { validate: KNOWN });
+    expect(host.issues).toEqual([]);
+    // biome-ignore lint/suspicious/noExplicitAny: reading the declaration's shape in a test.
+    const objects = host.manifest.objects as Record<string, any>;
+    expect(objects.plan.sellable.recurring.coolingOff).toEqual({ setting: "coolingOffDays" });
+    expect(host.manifest.settings.coolingOffDays).toMatchObject({
+      type: "number",
+      default: 0,
+      min: 0,
+      max: 30,
+      personApproves: true,
+    });
+    // A pass is never covered (decision 17): only the plan declares it.
+    expect(objects.passtype.sellable.recurring).toBeUndefined();
+  });
+
+  it("says what the host answered about cooling off, in words, never working the window out", () => {
+    const base: CoolingOffStatus = {
+      subscriptionId: "sbs_1",
+      offered: true,
+      why: null,
+      days: 14,
+      until: "2026-10-12",
+      endsAt: "2026-10-12T13:00:00.000Z",
+      refund: 4450,
+      currency: "AUD",
+      coolOff: null,
+    };
+    // A local day is shown as the host gave it, in any reader's zone.
+    expect(localDay("2026-10-12")).toMatch(/12/);
+    expect(coolingOffWords(base)).toMatch(/^You can cancel for a full refund until the end of /);
+    expect(coolingOffWords({ ...base, offered: false, why: "window_passed" })).toBeNull();
+    const ended: CoolingOffStatus = {
+      ...base,
+      offered: false,
+      coolOff: {
+        state: "ended",
+        asked: "sent",
+        askedBy: "payer",
+        askedAt: "2026-10-11T00:00:00.000Z",
+        deadline: "2026-10-18T00:00:00.000Z",
+        endedAt: "2026-10-11T00:01:00.000Z",
+        finished: false,
+        finishing: null,
+        waiting: false,
+        lapsedBecause: null,
+        askAgain: false,
+        open: false,
+        staffTold: false,
+        paid: 4450,
+        refunded: 0,
+        refunds: "waiting",
+      },
+    };
+    const own = ended.coolOff as NonNullable<CoolingOffStatus["coolOff"]>;
+    expect(coolOffProgressWords(ended)).toContain("A full refund of");
+    expect(coolOffProgressWords(ended, { amounts: false })).not.toMatch(/[0-9]/);
+    expect(
+      coolOffProgressWords({ ...ended, coolOff: { ...own, refunds: "refunded", refunded: 4450 } }),
+    ).toContain("refunded");
+    expect(
+      coolOffProgressWords({ ...ended, coolOff: { ...own, state: "asked", asked: "unknown" } }),
+    ).toContain("not heard back");
+    // Never says the business was told unless the host says a notice was written.
+    expect(
+      coolOffProgressWords({ ...ended, coolOff: { ...own, state: "asked", asked: null } }),
+    ).not.toContain("has been told");
+    expect(
+      coolOffProgressWords({
+        ...ended,
+        coolOff: { ...own, state: "asked", asked: "unknown", staffTold: true },
+      }),
+    ).toContain("has been told");
+    expect(coolOffProgressWords({ ...ended, coolOff: { ...own, state: "lapsed" } })).toContain(
+      "cancel it as usual",
+    );
+    expect(coolOffRefusalWords({ rule: "cooling_off", reason: "window_passed" })).toContain(
+      "has ended",
+    );
+    expect(coolOffRefusalWords({ rule: "cooling_off", reason: "used" })).toContain(
+      "once per member",
+    );
+    expect(coolOffRefusalWords({ rule: "provider_refused" })).toContain("nothing changed");
   });
 });

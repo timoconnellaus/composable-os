@@ -76,7 +76,9 @@ Read these before writing. They are the source of truth; this skill only gives t
    gym's booking rules) is `personApproves: true`: anyone else's write of it waits for a person's
    approval (not a tool's `humanOnly`, which refuses everyone else). A
    customer field set only when the record is made (a booking's class) goes in
-   `customer.createOnly` (ADR 0507).
+   `customer.createOnly` (ADR 0507). A record its customer may take back (a logged set ticked by
+   mistake) declares `customer.delete: true`, and the tool puts it in the Trash with `my.delete`
+   (ADR 0414, amended); without it a customer deletes nothing.
 7. **Add indexes and seeds.** One index for each field a list filters or sorts by. `seed` for
    set-up records people will then edit (Deals: `objects.pipeline.seed`, `objects.stage.seed`).
 8. **Show it.** `navigation` (`main`, `settings` for set-up records, `none`), `navigationOrder`,
@@ -132,6 +134,28 @@ extension declares it; it never implements it. Each behaviour the platform has i
   `on` cannot change (a move to another class is a new record) and it cannot go to Trash. Never
   count places or claim them in a tool. See `ClaimsSpec` in `packages/sdk/src/capacity.ts` and
   ADR 0501.
+- **`stock`** on a sellable object: its records are things counted on a shelf (a variant of an
+  item), and the host keeps how many there are from a ledger nobody edits. Declare
+  `stock: { reorderAt?: "<number field>", reorderQty?: "<number field>", show?, lowAt? }`; not
+  beside a `capacity`, and with no `sellable.deposit`, `recurring` or `moves`. Records get
+  read-only `onHand`, `held` and `available`, so don't declare fields with those names, and never
+  write a count field of your own: an order's line holds and sells in its batch, and staff record
+  opening stock and corrections with `stock.opening` and `stock.adjust`. A shipped pack only. See
+  `StockSpec` in `packages/sdk/src/stock.ts` and ADR 0680. `stock.notify: "<ext>:<word>"` (a
+  permission of one of your tools, with `reorderAt`) names who the host tells when a record falls
+  to its reorder level, once per crossing; without it the admins are told. Never send that notice
+  from a tool or an automation. The object must be sellable, or moved by a `stockMoves`.
+- **`stockMoves`** on an object whose records move stock (a receipt, a write-off, a count line):
+  `stockMoves: { move: "add" | "remove" | "set", on: "<relation to a stock object>", quantity:
+  "<number field>", when: "<state>", through?: "<relation to the record whose state it is>",
+  kind?, unitCost?, note? }`. Entering `when` (a state no move leaves) writes the movement in that
+  write's batch; with `through`, a count's `applied` moves all its lines at once (`set`: on hand
+  becomes the number counted). Declare every move into `when` as `by: ["host"], tools: [...]`
+  with the pack's `humanOnly` or `personApproves` tools carrying its stock permission, and never
+  `create.in` the state (make the record, then move it through the tool): moving stock is a
+  person's act, and an AI's waits for one. Never change stock from a tool otherwise: move the
+  record. What moved stock cannot be edited afterwards. A shipped pack only. See
+  `StockMovesSpec` and ADR 0681.
 - **`unique`** on an object: `unique: [{ fields: [<up to 4 fields>], states?: [<states>] }]`, no
   two live records in those states share the fields (one active booking per Person per class).
   The database refuses the second, however many write at once (`conflict`, `rule: "unique"`).
@@ -156,23 +180,109 @@ extension declares it; it never implements it. Each behaviour the platform has i
   creates in any other). `states.create.closed: "<boolean path>"` closes creates to everyone but
   the host (a class that is cancelled). `states.follows: { relation, when: { <parent state>:
   <state> }, from }` moves your live records when the record they point to moves (a class
-  cancelled cancels its bookings, in its batch; ADR 0507). A request is resolved by the clock for
+  cancelled cancels its bookings, in its batch; ADR 0507). The parent may be an object of an
+  extension you `requires`, named in full; an object drawing places from a pool cannot follow it,
+  and one call moves at most 80 records (ADR 0841). A request is resolved by the clock for
   every caller but a person. Never decide "late" or
   "too early" in a tool. See `StateMove` and `StatesSpec` in `packages/sdk/src/states.ts`, ADRs
   0503 and 0505, and Bookings: `packs/bookings/index.ts`.
-- **`recurring`** on a series object: a weekly rule in local time that makes records of another
+- **`recurring`** on a series object: a rule in local time that makes records of another
   of your objects ahead (a timetable line makes its classes). Declare the rule's fields (a
   `multiSelect` of `mon`…`sun`, an `HH:MM` text field, a length in minutes, from and until
   dates, a `timezone`), then `recurring: { generates: "<object>", link: "<read-only relation on
-  it back to the series>", rule: { weekdays, time, length?, from, until?, zone? }, into: {
+  it back to the series>", rule: { weekdays?, time, length?, from, until?, zone?, unit?, every?,
+  day?, month?, lengthDays? }, into: {
   starts, ends?, zone?, changed? }, copy?: { <generated field>: "<series field>" }, cancel:
   "<a state of the generated object with a host move into it>", ended?: { field, in },
-  closures?: { object, from, until }, horizonDays?, horizonAtLeast?: { object, field } }`
-  (`horizonAtLeast`: a number field in days, a booking window, the horizon never falls short of). The host makes the records from the minute
+  closures?: { object, from, until }, horizonDays?, horizonAtLeast?: { object, field },
+  horizonSetting? }`
+  (`horizonAtLeast`: a number field in days, a booking window, the horizon never falls short of;
+  `horizonSetting`: your number setting, in days, that sets the horizon when it holds a value,
+  Rostering's duty horizon). Without `unit` the rule is weekly. For every N weeks, months or
+  years (a quarterly service, a yearly test) add the interval rule (ADR 0860): `unit` (a
+  `select` whose options are some of `week`, `month`, `year`), `every` (a number, empty is 1),
+  `day` (day of the month, 1 to 31: a shorter month uses its last day) and `month` (1 to 12, for
+  years), both empty meaning the `from` date's, and `lengthDays` (a number of days) instead of
+  `length` for a window that stays open for days. Dates are fixed on the calendar from `from`,
+  never counted from when the last one was done. The host makes the records from the minute
   cron, keeps 06:00 at 06:00 across a clock change, never overwrites one staff edited, applies a
   series change to the rest, and cancels what a closure covers. Never create the dated records
   in a tool or an automation. See `RecurringScheduleSpec` in `packages/sdk/src/recurring.ts` and
   ADR 0500.
+- **`staffed`** on an object whose records are shifts someone works (a class its coach teaches, a
+  duty shift): `staffed: { who: { field: "<user field>" } | { field: "<relation to another of
+  your objects>", account: "<its user field>" }, starts, ends, zone?, kind: "<relation: what
+  qualifications are for>", live: [<states in which it is a shift>], place?, pattern?: { link,
+  who }, claimBefore?, claimAfter?, account?: "required", private?, timesFrom?, open? }`. `claimBefore`/`claimAfter`
+  (`{ field: "<kind>.<number field>" }`, minutes; the kind one of your objects) are a buffer the
+  claim keeps free around the shift (ADR 0760); `account: "required"` refuses a shift whose profile
+  holds no account; `private: true` when the title can name a client: the roster shows the kind
+  instead to other staff, and it is never offered (ADR 0761); `timesFrom: "<required relation to
+  another of your objects>"` when the shift's time is that record's (a crew member's place on a
+  visit): the record has the shift's `starts`, `ends`, `zone` and `kind` fields under the same
+  names, the shift's own copies are `readOnly`, and the host copies them whenever the record
+  changes, refusing a move that double-books anyone (ADR 0751). Never copy them in a tool. `open: { length: { field:
+  "<kind>.<minutes>" }, step?, rooms?: { field: "<kind>.<rooms relation, many>" }, client?:
+  "<relation to person>", closedBy?: { object, from, until }, customer?: true }` when the shift is
+  booked at free times (an appointment): the host answers its free times (`staffing.free`, through
+  your tool) and, with `customer: true`, refuses a customer's or visitor's booking off one; staff
+  are warned `outside_hours` and `client_busy` (ADRs 0762 and 0763). Never work out free times, or
+  check a booking's time, in a tool. The host refuses one staff account on two overlapping shifts in the database, across
+  every staffed object, for every writer (`conflict`, `rule: "double_booked"`), and answers each
+  write with its warnings (away, not qualified, nobody on it). Shipped packs and the org's own
+  extensions only. Never check for a clash, or work out who may take a shift, in a tool. See
+  `StaffedSpec` in `packages/sdk/src/staffed.ts` and ADRs 0621 and 0622. The roster's tools are
+  Rostering's (`packs/rostering`): they call the host's tool-only `staffing.*` operations, which act
+  for the tool's verified caller; the pack declaring `staffing: { rosters, settings? }` (a
+  restricted permission, and its number settings for the offer cut-off and the uncovered window)
+  sets who rosters and the numbers (ADR 0626), each number setting `personApproves`. With such
+  a pack installed, only a rosterer writes who works a shift (its person, a series' regular person,
+  a profile's account), by any path; never set one in a tool or an automation.
+- **`occupies`** on an object whose records take a room, chair or hall for their time (a class in
+  a private room): `occupies: { thing: "<relation to another of your objects, one or many>",
+  starts, ends (both required datetime fields), live: [<states in which it takes it>], before?: { field }, after?: { field },
+  only?: "<a boolean field of the thing>" }`. The host refuses, in the database, two live records
+  on one thing at an overlapping time, across every object that declares it, for every writer
+  (`conflict`, `rule: "room_taken"`, naming no other record). `before` and `after` are minutes
+  kept free (a number field, or `relation.field`: a service's buffer). With `only`, just the
+  things with that flag set are claimed (a room marked "one booking at a time"; a shared floor
+  never). Never check whether a room is free in a tool. For the room calendar (`rooms.week`,
+  `rooms.check`, read by a shipped pack's tool), `provisional: [<live states shown as held>]` and
+  `title: "<a text or select field, or relation.field of one of your objects>"` (never the
+  client's name; left out, the object's label). See `OccupiesSpec` in
+  `packages/sdk/src/occupies.ts` and ADRs 0765 and 0844.
+- **`calendarEntry`** (shipped packs only) on an object with a `customer` whose records are a
+  customer's appointments (a booking, a ticket): `calendarEntry: { starts, ends: "<datetime
+  paths>", title, place?: "<text paths>", live: [<states in which it shows>] }`. A path is a
+  field, or up to two relations and a field (`klass.startsAt`, `klass.room.name`). Its first field
+  and the states field must be in `customer.read`. Further on, a `title` or `place` field must be
+  one that object makes `public` or `signedIn` (never a class's own title, which may name a
+  member); a `starts` or `ends` field may also be, one relation away, its `customerVia` from this
+  object. The host then shows the records, read as the customer, in their private calendar feed
+  (and a live dependant's in their guardian's). Never put a name, note or price there that the
+  customer cannot already read. See `CalendarEntrySpec` in `packages/sdk/src/calendar-entry.ts`
+  and ADR 0891.
+- **`intake`** when the public or customers send answers (a form, its submissions, a record a
+  form may also make): `intake: { role: "form", questions: "<document field with
+  QUESTIONS_SCHEMA, in publishable.content>", answeredBy: "<select: public, customers, links,
+  staff>", openIn: [<states>], anonymous?, destination?, opensAt?, closesAt?, dailyCap?, notify?,
+  hourlyCap?: "<a number setting of yours, personApproves>" }`
+  on a publishable form object, with `answeredBy`, `anonymous` and `destination` in its
+  `publishable.content` (they are read from the version answered), and `publishable.slug` for a
+  form a link names by its address (`intake.open { object, slug }`); `{ role: "submission", form: "<relation to it>", version,
+  answers: "<document field with ANSWERS_SCHEMA>", person, certainty: "<select: account, link,
+  staff, address>", spam: "<a state the host creates it in>", via?, rating?, marketing?: "<a
+  boolean the host sets when a marketing consent line was ticked>" }` on its submission
+  (never with `customer`, `public` or `signedIn`); `{ role: "destination", person, fields: [<what
+  a form may fill>], source? }` on a record another pack's form may make. The host's one door,
+  `intake.submit` (tool-only: your tool calls it for your own form, with `intake.open` first for
+  the public's shown-time token), checks the form is open to the caller, Turnstile, the honeypot,
+  the fill time, the caps and the answers, and makes the submission, the Person (empty fields
+  only) and any destination record itself. Never create a submission or check spam in a tool: only the door creates one, and a
+  submission's form, version, answers, certainty, via, rating and marketing are the host's on
+  every path. Give a form no `public` scope: the public reads it through `intake.open` only. Shipped
+  packs and the org's own extensions only. See `IntakeSpec` in `packages/sdk/src/intake.ts`, ADRs
+  0720 to 0722, 0725 and 0726, and Forms: `packs/forms/index.ts`.
 - **`sellable`** on an object: its records can be bought (ticket types, passes, products). Only
   an object that declares it can go on an order, and the host reads its price and rules from the
   record: `sellable: { price: "<currency field>", saleWindow?: { from?, until? }, maxPerOrder?,
@@ -189,7 +299,10 @@ extension declares it; it never implements it. Each behaviour the platform has i
   declares `onePerPerson: "<boolean field>"`: while true on a record, one per Person across the
   object's records with it on, bought signed in, held from the order's start (ADR 0512). A line
   that grants holds at most the record's `maxPerOrder` (10 when unset) and an order at most 100
-  grants. Only a pack or
+  grants. Say what kind of sale it is in the finance reports with `finance: { category: { key,
+  label }, earned }` (ADR 0792): `earned` is `at_sale` (the default), `over_period` (a plan's
+  paid period, only with `recurring`), `per_use` (a grant that holds uses, a pass) or `at_date`
+  with `at: "<date field or relation.field>"` (an event's start). One key, one label. Only a pack or
   the org's own extension (its client repo) may declare `sellable`: one written in the workspace
   is refused, since selling to the public is a reviewed change. Never create tickets or check a
   sale window in a tool or an automation. See `SellableSpec` in `packages/sdk/src/sellable.ts`
@@ -218,6 +331,26 @@ extension declares it; it never implements it. Each behaviour the platform has i
   nothing, and the mark cannot change while it is in a spend state (ADR 0506).
   Never count uses or pick a holder in a tool: the host spends in the write that moves the record.
   See `AllowanceSpec` in `packages/sdk/src/allowance.ts` and ADRs 0493 and 0494.
+
+- **`healthNotes`** on an object: its records make a list staff read (a class's bookings), on
+  which the host may mark "health note" beside a Person whose current health form has a yes (stage
+  44, ADR 0643). `healthNotes: { list, person }`: `list` is a relation (one record) to the list's
+  own object (the class), `person` a relation to `person`. A tool a person calls asks
+  `agreement.listHealthNotes { records, value }` (add it to `permissions.operations`) with the
+  list's record id; the host reads the People itself and answers a yes or no each, never the form.
+  Only a shipped or repository extension may declare the operation. See Bookings:
+  `objects.booking.healthNotes`.
+
+- **`restricted`** on a field: words only some staff may read (a review's private feedback; stage
+  54, ADR 0811). `restricted: "<id>:<word>"` on a `text` or `longText` field of an object that
+  declares a `customer` who reads and writes it, naming one of the pack's restricted permissions
+  (below). The host keeps the value apart from the record: no view, list, filter, search, export,
+  dashboard, formula or timeline has it, and nothing else of the object may name it (title,
+  indexes, `unique`, `public`, `publishable`, seeds). The customer writes it with `my.create` /
+  `my.update` and reads their own; staff read it only from a `humanOnly` tool of yours that names
+  the permission and no other, calling `record.readRestricted { object, field, ids }` (up to 50; every read
+  audited). A tool whose input takes it (by its name, at any depth, or any other) lists that key in `redact`. Shipped and repository
+  extensions only.
 
 - **`public`** on an object: what the public may read (ADR 0438), `public: { read: [fields],
   when?: { field, in } | { via, field, in } }`: the fields, of the records whose state (a select
@@ -305,8 +438,11 @@ extension declares it; it never implements it. Each behaviour the platform has i
   the host makes it when the provider first reports the subscription running and moves it with
   every verified event, its `until` when it stops giving. It is not the `recurring` behaviour
   above. See Memberships' `plan` (ADR 0510).
-- **An extension built on another** declares `requires: ["<id>"]` (Courses requires Programs): the
-  host refuses to install it until that one is installed and on.
+- **An extension built on another** declares `requires: ["<id>"]` (Courses requires Programs and
+  Content): the host refuses to install it until that one is installed and on, and `cos deploy`
+  installs a required pack the product does not list. Require a pack whose blocks yours need too
+  (Courses' player draws text lessons with Content's rich text, and its block.json `dependsOn`
+  names that block).
 
 ### Roles
 
@@ -319,6 +455,14 @@ it to a staff account; while it is held it, and the pack permissions granted to 
 all that account may do, on every operation. Use a role only for that; ordinary staff need none. Only a pack or the org's own extension may declare
 one. See Ticketing: `roles` in `packs/ticketing/index.ts`.
 
+A shipped pack may also declare **device roles** (`deviceRoles`, `DeviceRoleSpec` in
+`contract.ts`, ADR 0781) for the business's own enrolled device, signed in as nobody (a check-in
+tablet by the door): `{ label, description, permissions, screen: { block, export } }`. Its
+permissions are those of tools declared `audiences: ["device"]` and nothing else's (no staff
+role, grant or restriction names them); the tool reads as the extension, returns only what its
+output declares (never a Person id or a reason for the room), and records who ticked from
+`ctx.caller` (`{ kind: "device", deviceId, name }`). The screen is a web block of the pack.
+
 To let some staff call one tool their role does not reach (a viewer at the door), declare its
 permission **grantable** instead (`grantable: ["<id>:<word>"]`, ADR 0449): a human admin grants it
 to an account with `user.setPermissions`, on top of its role, a pack role included: they add up
@@ -326,9 +470,79 @@ to an account with `user.setPermissions`, on top of its role, a pack role includ
 for the admin's tick (`grantableLabels: { "<id>:<word>": "..." }`). A permission a role holds cannot
 be grantable: name another permission on the tools a grant should open, and when one tool is both
 the role's and the grant's, give it both (`permission: ["<id>:coach", "<id>:desk"]`, any one opens
-it; Bookings' `day`). See Bookings: `grantable` and `bookings:desk`. The platform's own grantable
+it; Bookings' `day`). See Bookings: `grantable` and `bookings:desk`.
+
+Every member holds every tool unless its permission is **restricted** (`restricted: ["<id>:<word>"]`,
+ADR 0625): then admins hold it, and anyone a human admin grants it (declare it `grantable` too), and
+nobody else; no role may hold it, a tool naming it names only restricted ones, and it is never
+called by an automation or another extension's code. For what only some staff should do over
+other people (rostering others, pay). See Rostering: `restricted` and `rostering:manage`. The platform's own grantable
 permissions are `records:publish` (a coach who is a member publishing programs) and
 `orders:refund`; they are never granted to an account with a pack role.
+
+### Staff screens (shipped packs only)
+
+A **shipped pack** (in `packs/<id>/`, never one written in the app) may show its staff web blocks
+in the product's admin by declaring **screens** (`screens`, `ScreenSpec` in `contract.ts`, ADR
+0660): `screens: { desk: { label: "Front desk", block: "<id>-desk", export: "FrontDesk", nav:
+{ group: "Bookings", order: 10 }, opens: ["findPeople", "bookFor"] } }`. `block` is a web
+block of the same pack and `export` a component one of its files exports; the admin's build fails
+if either is missing. `opens` names the pack's own tools that decide who may open it, its main read and the write its
+main action makes (at least one for staff only), not every tool it calls: the host lists the screen
+for exactly the people who could call every one of them, and refuses the rest of what the screen
+calls, so the block shows its own state for that. A screen that saves through the host's record
+writes rather than a tool (a course builder) is gated by `writes: ["<id>.<object>"]` instead: the
+viewer must be able to write that object. A record screen adds `record: { object: "person", as: "personId" }` (one of the
+pack's objects, `person` or `organisation`) and is a tab on that record page, given the record's id
+as that prop; with `nav` too it is also in the navigation, opened without a record. The block gets
+the pack's hooks as the prop named for the pack and nothing else, so a screen whose block needs
+other props gets a small wrapper export that works them out (Bookings' `FrontDesk` around `Desk`).
+A runtime extension declaring `screens` is refused. See Bookings and Rostering: `screens`.
+
+### Numbers on Today (shipped packs only)
+
+A **shipped pack** may add up to 8 numbers to the owner's Today by declaring **Today items**
+(`todayItems`, `TodayItemSpec` in `contract.ts`, ADR 0870): `todayItems: { cameToday: { label:
+"Came today", order: 20, format: "count", sql: "SELECT count(*) AS value FROM rec_x_<id>_booking
+WHERE ... >= :today_from AND ... < :today_to", compare: "yesterday", attention: { above: 0 },
+rows: { sql: "SELECT p.name AS member, p.id AS person_id FROM ...", label: "member", record: {
+object: "person", id: "person_id" } }, opens: ["roster"] } }`. The SQL follows the widget rules
+(one `SELECT`/`WITH` over `rec_*` views) with only `:today_from`, `:today_to` (the business's local
+day) and `:now`, and returns exactly one column, `value`; `rows` returns exactly its `label`,
+optional `detail` and `record.id` columns (names and ids, never notes, health answers, pay or
+leave). `format` is `count` or `percent`: a pack declares no money number (money on Today is the
+host's, from Finance reports). `opens` is the gate, as a screen's (this pack's tools, at least one
+for staff only); `web: { screen }` names one of the pack's screens for the web card. A runtime
+extension declaring `todayItems` is refused.
+
+### Sections of My account (shipped packs only)
+
+A **shipped pack** whose customers have records of their own (bookings, passes, tickets) may add a
+section to My account, the customer's own area on the business's website and in its app, by
+declaring **portal** (`portal`, `PortalSectionSpec` in `contract.ts`, ADR 0710): `portal: {
+memberships: { label: "Memberships and passes", web: { block: "<id>-mine", export:
+"MyMemberships" }, native: { block: "<id>-native-mine", export: "MyMembershipsScreen" }, order:
+20, has: ["<id>.membership", "<id>.pass"] } }`. `web` is a web block of the same pack, `native` a
+native one (`<id>-native-<name>`), at least one of the two; `order` is 1 to 59 (the base sections
+come after); `has` names this pack's objects that declare a `customer`, never empty: the host lists
+the section to a customer only when they, or a child linked to them where the object opens to
+guardians, hold one of those records (`me.portal`). Each block calls only customer or public
+operations (`cos ext check` reads its `block.json`), and its component renders with the pack's
+hooks under the pack's id and `returnUrl` alone: make any other prop optional. A runtime extension
+declaring `portal` is refused. See Bookings, Memberships and Ticketing: `portal`.
+
+### Journey signals (shipped packs only)
+
+A **shipped pack** may name the moments about a Person that a journey can start or stop on
+(`journeySignals`, `JourneySignalSpec` in `journey-signals.ts`, ADR 0802): `journeySignals: {
+attended: { label: "Class attended", object: "booking", enters: ["attended"] } }`. A signal is a
+record of one of the pack's objects created (no `enters`), or entering one of its states;
+`from: [...]` counts only a move out of those states, and `created: false` leaves out a record
+created straight into one. `person` is the relation to one person it is about, by default the
+object's customer field. Declare what a business would follow up on ("membership ended", "trial
+ended", "class attended"), not every state. Never record one in a tool or a hook: the host records
+the last time each Person had each, in the write's batch, for every writer. A runtime extension
+declaring `journeySignals` is refused. See Memberships, Bookings and Ticketing: `journeySignals`.
 
 ## The rules
 
@@ -354,6 +568,13 @@ gatekeeper, a core operation, an ADR where `AGENTS.md` asks for one, and this sk
 match. Never fake it in extension code with a shortcut or a workaround (a rule enforced in a tool,
 a write past an operation, a call past a gatekeeper). If the change is too large for the request,
 say so and stop; do not ship the workaround.
+
+**A shipped pack has an overview.** In `packs/<id>/`, write `docs/overview.md` in the same pull
+request: front matter (`title`, `summary`, `stage`, `spec`, `adrs`) and the sections "What it is
+for", "Concepts", "How the pieces fit", "Main flows" and "What is built", describing only what the
+code does (Bookings' and Rostering's are the pattern). Then run
+`pnpm --filter @composable-os/docs generate`: the docs site's reference pages are generated from
+the manifest and never edited by hand, and CI fails while they are stale (ADR 0930).
 <!-- /platform-repo -->
 <!-- client-repo
 **When something is missing.** In a client repo you cannot change the platform. When the work

@@ -5,6 +5,7 @@
 //
 // Billing follows the payer (ADR 0487): the payer starts it, cancels or resumes it, and opens the
 // portal for the card; what it grants follows the holder, who is the payer in 32a.
+import { enforcePurchase, type GuestAcceptance, pointsOfObjects } from "../agreements/enforce.ts";
 import { ConfigError, ConflictError, NotFoundError, ValidationError } from "../errors.ts";
 import { getObject } from "../fields/index.ts";
 import type { SubscriptionState } from "../fields/subscription.ts";
@@ -25,8 +26,10 @@ import {
 } from "../orders/settings.ts";
 import { subscriptionSetup } from "../orders/subscription-setup.ts";
 import { taxCodeOf } from "../orders/tax.ts";
-import { holdsPermission } from "../principals.ts";
+import { holdsPermission, placedAs } from "../principals.ts";
 import { callerOf } from "../records/transitions.ts";
+import { coolingOffDaysNow, coolOffOpen } from "./cooling-off.ts";
+import { refuseWithoutBoth } from "./erase.ts";
 import { loadSubscriptionRow, type SubscriptionRow } from "./events.ts";
 import { holdOfferStatements, prepareOfferTake } from "./offers.ts";
 import {
@@ -77,6 +80,8 @@ export async function startSubscription(
     email?: string | undefined;
     offerId?: string | undefined;
     holderPersonId?: string | undefined;
+    /** A visitor's acceptances, carried in the buying call (stage 44 step 3). */
+    agreements?: readonly GuestAcceptance[] | undefined;
   },
 ): Promise<StartedSubscription> {
   // The same setup "a plan is on sale" reads (ADR 0459), so the two cannot drift.
@@ -146,6 +151,21 @@ export async function startSubscription(
       rule: "total",
     });
   }
+  // Nobody starts a membership without the agreements they need (stage 44 step 3, ADR 0644): a
+  // continuation offer is a start too (ADR 0491), so a moved member agrees before their first
+  // charge here. Asked before the provider's page is opened or handed out again (an open page
+  // with its trial, an offer's page), with the guard in this batch; participant documents for the
+  // holder, payer documents for the payer. A visitor's acceptances in the call are recorded after
+  // the checkout row (below), Person-less until the provider confirms the subscription.
+  const id = newId("subscription");
+  const agreed = await enforcePurchase(
+    ctx,
+    pointsOfObjects([plan.object]),
+    { guest: caller.kind === "public", participant: holderPersonId, payer: personId },
+    input.agreements,
+  );
+  const guestRows = await agreed.guestRows({ subscriptionCheckout: id, email });
+  if (agreed.guards.length) ctx.write(...agreed.guards);
   // The payer's provider customer, when they have one already: one card and one portal for them.
   // Only for a caller who has proved who they are: a signed-in customer starting their own, or
   // staff. A guest only typed an address; reusing that address's customer would attach the
@@ -230,8 +250,10 @@ export async function startSubscription(
     };
   }
   const trialDays = decision.give ? plan.recurring.trialDays : null;
+  // The cooling-off days in force now (stage 44 step 7, ADR 0647), kept with the checkout: a
+  // setting shortened later never shortens this member's window. Null: the plan has none.
+  const coolingOffDays = await coolingOffDaysNow(ctx, plan.object);
   const trialEnd = offer && "offerId" in offer ? offer.trialEnd : null;
-  const id = newId("subscription");
   const request: SubscriptionCheckoutRequest = {
     subscriptionId: id,
     amount: plan.unitPrice,
@@ -272,7 +294,7 @@ export async function startSubscription(
       payer_person_id: personId,
       holder_person_id: holderPersonId,
       email,
-      placed_as: caller.kind,
+      placed_as: placedAs(caller),
       plan_object: plan.object,
       plan_id: plan.recordId,
       plan_title: plan.title,
@@ -283,8 +305,11 @@ export async function startSubscription(
       trial_end: trialEnd,
       tax_code: taxCode,
       offer_id: offer && "offerId" in offer ? offer.offerId : null,
+      cooling_off_days: coolingOffDays,
       created_at: ctx.now,
     }),
+    // After the row: a guest's acceptance names a checkout that must exist (migration 0851).
+    ...guestRows,
   );
   // Read defensively: a moment that is not one is reported as none, never thrown on after the
   // page was opened (the gatekeeper validates it too).
@@ -372,6 +397,22 @@ export async function subscriptionForChange(
 }
 
 /**
+ * A cooling off under way is finished as one (ADR 0647): an ordinary cancel would end it without
+ * its refunds, or as an end that is not the cooling off's. In the host's own cancel functions, so
+ * every path that ends a subscription (subscription.cancel, me.deleteAccount) keeps it.
+ */
+async function refuseWhileCoolingOff(ctx: HandlerContext, row: SubscriptionRow): Promise<void> {
+  if (await coolOffOpen(ctx.db, row.id, ctx.now)) {
+    throw new ConflictError(
+      "A cooling off is under way on this membership: it ends with a full refund of what was " +
+        "paid in the period. Wait for it, or finish it from Cooling off; it cannot also be " +
+        "cancelled now.",
+      { subscription: row.id, rule: "cooling_off_open" },
+    );
+  }
+}
+
+/**
  * Asks the provider to end `row` when its paid period ends. The host's own call: the gatekeeper's
  * cancel action is applied at once. The record shows it once the provider's event arrives.
  */
@@ -380,6 +421,7 @@ export async function cancelAtPeriodEnd(
   row: SubscriptionRow,
   reason: string,
 ): Promise<void> {
+  await refuseWhileCoolingOff(ctx, row);
   if (!RUNNING.has(row.state)) {
     throw new ConflictError(`A subscription that is ${row.state} cannot be cancelled`, {
       subscription: row.id,
@@ -426,6 +468,7 @@ export async function cancelNow(
   row: SubscriptionRow,
   reason: string,
 ): Promise<void> {
+  await refuseWhileCoolingOff(ctx, row);
   if (ctx.principal.kind !== "staff") {
     throw new ValidationError("Only staff end a subscription at once; yours ends with its period", {
       field: "now",
@@ -447,6 +490,7 @@ export async function cancelNow(
 
 /** Asks the provider to keep `row` going: undoes its end at the period's end, before it comes. */
 export async function resumeSubscription(ctx: HandlerContext, row: SubscriptionRow): Promise<void> {
+  refuseWithoutBoth(row);
   // An end date set at the provider another way (its dashboard) is not undone by setting
   // cancel_at_period_end back, which is all resume asks (Stripe's documented way to stop a
   // pending cancellation); taking a date away changes the period and prorates, which is staff's

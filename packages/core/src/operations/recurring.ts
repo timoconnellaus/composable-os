@@ -3,10 +3,13 @@
 import type { CrmDb } from "@composable-os/db";
 import { z } from "zod";
 import type { EventSink } from "../automations/types.ts";
+import { NotFoundError } from "../errors.ts";
 import type { GateFloor } from "../gate.ts";
 import { invoke } from "../invoke.ts";
 import { defineOperation } from "../operation.ts";
 import {
+  exceptionsOf,
+  followSeries,
   generateSeries,
   RECURRING_MAX_PER_RUN,
   RECURRING_MAX_PER_TICK,
@@ -14,7 +17,7 @@ import {
   requireSeriesObject,
 } from "../recurring/index.ts";
 import { SYSTEM_USER } from "../users.ts";
-import { createRecord, loadRecord, updateRecord } from "./record.ts";
+import { createRecord, loadRecord, requireExtensionObject, updateRecord } from "./record.ts";
 
 const objectName = z.string().min(1).max(81);
 const recordId = z.string().min(1).max(64);
@@ -34,6 +37,8 @@ export const recurringGenerate = defineOperation({
   permission: "records:write",
   risk: "write",
   actors: ["automation"],
+  // The host's own step: never queued for review under an approval floor on automation writes.
+  hostStep: true,
   mcp: { expose: false },
   auditSummary: (output) => ({ made: output.made }),
   async handler(input, ctx) {
@@ -119,7 +124,75 @@ export const recurringClose = defineOperation({
   },
 });
 
-export const recurringOperations = [recurringGenerate, recurringChange, recurringClose];
+export const recurringExceptions = defineOperation({
+  name: "recurring.exceptions",
+  description:
+    "Read what a record made by a recurring schedule (a class from its timetable line) keeps as " +
+    "its own instead of following its series: the fields changed by hand on it (a coach swapped " +
+    "for that date), with who changed each and when, and whether it is detached from its series " +
+    "whole (its time or state was changed by hand). A later change to the series still reaches " +
+    "every other field of it. A one-off record answers generated false.",
+  input: z.object({ object: objectName, id: recordId }),
+  output: z.object({
+    generated: z.boolean(),
+    series: z.object({ object: z.string(), id: z.string(), date: z.string() }).nullable(),
+    detached: z.boolean(),
+    fields: z.array(z.object({ field: z.string(), setBy: z.string(), setAt: z.string() })),
+  }),
+  permission: "records:read",
+  risk: "read",
+  async handler(input, ctx) {
+    const object = requireExtensionObject(input.object);
+    const record = await loadRecord(ctx, object, input.id);
+    if (!record) throw new NotFoundError(input.object, input.id);
+    return exceptionsOf(ctx, object, input.id);
+  },
+});
+
+export const recurringFollow = defineOperation({
+  name: "recurring.follow",
+  description:
+    "Make fields of a record made by a recurring schedule (a class) follow its series again: " +
+    "each named field (default every field the series sets: its coach, room, places) takes the " +
+    "series' value now and follows later changes to it. A record detached from its series whole " +
+    "follows it again too, provided its time is still the series' for its date (refused with " +
+    "rule recurring_moved otherwise); the fields not named that differ from the series stay its " +
+    "own. Refused for a past, cancelled or finished record. Returns the fields that follow the " +
+    "series and those kept.",
+  input: z.object({
+    object: objectName,
+    id: recordId,
+    fields: z
+      .array(z.string().min(1).max(64))
+      .min(1)
+      .max(50)
+      .optional()
+      .describe(
+        "The fields to follow the series again (at least one); leave it out for every field the series sets.",
+      ),
+  }),
+  output: z.object({
+    followed: z.array(z.string()),
+    kept: z.array(z.string()),
+    reattached: z.boolean(),
+  }),
+  permission: "records:write",
+  risk: "write",
+  async handler(input, ctx) {
+    const object = requireExtensionObject(input.object);
+    const record = await loadRecord(ctx, object, input.id);
+    if (!record) throw new NotFoundError(input.object, input.id);
+    return followSeries(ctx, object, input.id, input.fields);
+  },
+});
+
+export const recurringOperations = [
+  recurringGenerate,
+  recurringChange,
+  recurringClose,
+  recurringExceptions,
+  recurringFollow,
+];
 
 export interface RecurringDueOptions {
   floor?: GateFloor;

@@ -16,6 +16,7 @@ import {
   durationMs,
   notificationInput,
 } from "./automation.ts";
+import { DEFAULT_WAIT_TIMEOUT, NOTIFY_OPERATION } from "./automation-check.ts";
 import type {
   AiModule,
   Extension,
@@ -27,6 +28,7 @@ import type {
   StorageModule,
 } from "./contract.ts";
 import { toManifest } from "./manifest.ts";
+import type { RoutineMailModule, RoutineSendResult } from "./routine-mail.ts";
 
 type HostFn = (...args: unknown[]) => Promise<unknown>;
 
@@ -36,6 +38,8 @@ export interface RawHostModules {
   storage?: { get: HostFn; set: HostFn; del: HostFn; list: HostFn };
   log?: { write: HostFn };
   ai?: { summarise: HostFn; extract: HostFn; classify: HostFn };
+  /** `codemode:routine-mail` (ADR 0590). */
+  "routine-mail"?: { send: HostFn };
   /** `codemode:<gatekeeper>` modules, by gatekeeper name. */
   [gatekeeper: string]: Record<string, HostFn> | undefined;
 }
@@ -56,9 +60,7 @@ export type RunResponse =
   | { ok: false; error: { code: string; message: string; details?: unknown } };
 
 /** What `codemode:ops`'s `call` returns. */
-export type OpsReply =
-  | { ok: true; value: unknown }
-  | { ok: false; error: { code: string; message: string; details?: unknown } };
+export type OpsReply = RunResponse;
 
 /** Thrown by `ctx.ops.call` when the operation fails; `code` is the pipeline's error code. */
 export class OpsCallError extends Error {
@@ -70,6 +72,13 @@ export class OpsCallError extends Error {
   ) {
     super(message);
   }
+}
+
+// The host answers with an envelope so error codes survive the isolate boundary.
+function unwrap(reply: unknown): unknown {
+  const r = reply as OpsReply;
+  if (r.ok) return r.value;
+  throw new OpsCallError(r.error.code, r.error.message, r.error.details);
 }
 
 function missing(name: string): never {
@@ -97,10 +106,7 @@ export function buildContext(
   const ops: OpsModule = raw.ops
     ? {
         call: async (operation, input) => {
-          // The host answers with an envelope so error codes survive the isolate boundary.
-          const reply = (await raw.ops?.call(operation, input ?? {})) as OpsReply;
-          if (reply.ok) return reply.value as never;
-          throw new OpsCallError(reply.error.code, reply.error.message, reply.error.details);
+          return unwrap(await raw.ops?.call(operation, input ?? {})) as never;
         },
       }
     : absent("ops");
@@ -130,15 +136,21 @@ export function buildContext(
         classify: (text, labels) => raw.ai?.classify(text, labels) as Promise<never>,
       }
     : absent("ai");
+  const routine = raw["routine-mail"];
+  const routineMail: RoutineMailModule = routine?.send
+    ? {
+        send: async (input) => {
+          return unwrap(await routine.send?.(input)) as RoutineSendResult;
+        },
+      }
+    : absent("routine-mail");
   const gatekeeper = (name: string): GatekeeperModule => {
     const mod = raw[name] as Record<string, HostFn> | undefined;
     if (!mod?.call) return absent<GatekeeperModule>(name);
     return {
       connections: () => mod.connections?.() as Promise<never>,
       call: async (connectionId, resource, method, ...args) => {
-        const reply = (await mod.call?.(connectionId, resource, method, args)) as OpsReply;
-        if (reply.ok) return reply.value as never;
-        throw new OpsCallError(reply.error.code, reply.error.message, reply.error.details);
+        return unwrap(await mod.call?.(connectionId, resource, method, args)) as never;
       },
       types: (connectionId, resource) => mod.types?.(connectionId, resource) as Promise<string>,
     };
@@ -150,6 +162,7 @@ export function buildContext(
     log,
     ai,
     gatekeeper: gatekeeper as ExtensionContext["gatekeeper"],
+    routineMail,
     ...(caller ? { caller: Object.freeze({ ...caller }) as StartedBy } : {}),
   };
 }
@@ -262,7 +275,7 @@ export function buildAutomationContext(
       const n = (counts.get(step) ?? 0) + 1;
       counts.set(step, n);
       const input = notificationInput(event, to, message, `${step}:${n}`);
-      const out = (await base.ops.call("notification.send" as never, input as never)) as {
+      const out = (await base.ops.call(NOTIFY_OPERATION as never, input as never)) as {
         sent?: number;
       } | null;
       return { sent: typeof out?.sent === "number" ? out.sent : 0 };
@@ -380,7 +393,7 @@ export async function runAutomation(
       };
       const r = replayed(name, "waitForEvent");
       if (r) return r.value ?? null;
-      const timeoutMs = durationMs(declaredWait.timeout ?? "7 days");
+      const timeoutMs = durationMs(declaredWait.timeout ?? DEFAULT_WAIT_TIMEOUT);
       if (test) {
         testSteps.push({ name, kind: "waitForEvent", skippedMs: timeoutMs });
         return null;

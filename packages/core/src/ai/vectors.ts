@@ -3,6 +3,8 @@
 // hash when that would pass Vectorize's 64-byte id limit; metadata carries the object type (a
 // Vectorize metadata index, so queries can filter by object) and the record id.
 
+import { sha256Hex } from "../digest.ts";
+
 export interface VectorMetadata {
   object: string;
   id: string;
@@ -45,11 +47,7 @@ const encoder = new TextEncoder();
 export async function vectorId(object: string, id: string): Promise<string> {
   const plain = `${object}:${id}`;
   if (encoder.encode(plain).length <= 64) return plain;
-  const digest = await crypto.subtle.digest("SHA-256", encoder.encode(plain));
-  return `h:${[...new Uint8Array(digest)]
-    .slice(0, 24)
-    .map((b) => b.toString(16).padStart(2, "0"))
-    .join("")}`;
+  return `h:${(await sha256Hex(plain)).slice(0, 48)}`;
 }
 
 const UPSERT_BATCH = 1000; // Vectorize's per-call limit from Workers

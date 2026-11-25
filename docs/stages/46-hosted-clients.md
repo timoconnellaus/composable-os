@@ -16,7 +16,7 @@ deployment, Control plane, Release), ADRs [0001](../adr/0001-self-hosted-single-
 `products/crm/apps/control/src/` (`dispatch/`, `instances.ts`, `rollout.ts`, `lifecycle.ts`,
 `metering.ts`).
 
-Status: **replaced in large part by [stage 47](47-one-host-many-clients.md)** (2026-11-23,
+Status: **replaced in large part by [stage 66](66-one-host-many-clients.md)** (2026-11-23,
 [ADR 0611](../adr/0611-one-host-a-database-per-client.md)). The owner chose one host with a
 database per client, after step 1's checks below. What stands from this spec: decisions 13 to 22,
 and the step 1 results as the record of why the namespace was not used. The design sections
@@ -438,7 +438,7 @@ and another in a client's own account.
 
 Neither. The owner expects dozens of gyms on one standard product, and a test showed the
 platform's database code runs unchanged on a Durable Object per client. The layout is one host
-with a database per client: [stage 47](47-one-host-many-clients.md),
+with a database per client: [stage 66](66-one-host-many-clients.md),
 [ADR 0611](../adr/0611-one-host-a-database-per-client.md).
 
 ## Decided by this spec, open to override

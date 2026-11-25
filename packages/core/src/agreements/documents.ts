@@ -9,6 +9,7 @@ import { AGREEMENT_KINDS, RICH_TEXT_SCHEMA, validateDocument } from "@composable
 import type { Kysely } from "kysely";
 import { sql } from "kysely";
 import { z } from "zod";
+import { sha256Hex } from "../digest.ts";
 import { listObjects } from "../fields/index.ts";
 
 export { AGREEMENT_KINDS };
@@ -36,10 +37,10 @@ const BODY_BLOCKS_REFUSED = new Set(["embed", "button", "image"]);
 const INVISIBLE =
   /[\u200b-\u200f]|[\u2060-\u2064]|[\ufeff]|[\u061c]|[\u00ad]|[\u034f]|[\u180e]|[\u3164]|[\u115f]|[\u1160]|[\uffa0]|[\u2800]|[\ufe00-\ufe0f]|[\u{e0100}-\u{e01ef}]/gu;
 /** Bidirectional overrides and isolates: they make a text read differently from what it holds. */
-const BIDI_CONTROLS = /[\u202a-\u202e\u2066-\u2069]/;
+export const BIDI_CONTROLS = /[\u202a-\u202e\u2066-\u2069]/;
 /** C0 and C1 control characters, and DEL. */
 // biome-ignore lint/suspicious/noControlCharactersInRegex: refusing control characters is the point.
-const CONTROLS = /[\u0000-\u001f\u007f-\u009f]/;
+export const CONTROLS = /[\u0000-\u001f\u007f-\u009f]/;
 /** The same in body text, which may hold tabs and line ends. */
 // biome-ignore lint/suspicious/noControlCharactersInRegex: refusing control characters is the point.
 const BODY_CONTROLS = /[\u0000-\u0008\u000b\u000c\u000e-\u001f\u007f-\u009f]/;
@@ -191,7 +192,7 @@ export interface VersionContent {
 
 /** SHA-256 (hex) of the canonical JSON of a version's whole content. */
 export async function versionHash(content: VersionContent): Promise<string> {
-  const bytes = new TextEncoder().encode(
+  return sha256Hex(
     canonicalJson({
       kind: content.kind,
       title: content.title,
@@ -204,8 +205,48 @@ export async function versionHash(content: VersionContent): Promise<string> {
       askAgainMonths: content.askAgainMonths ?? null,
     }),
   );
-  const digest = new Uint8Array(await crypto.subtle.digest("SHA-256", bytes));
-  return [...digest].map((b) => b.toString(16).padStart(2, "0")).join("");
+}
+
+/** A stored version row, as migration 0850 holds it. */
+export interface StoredVersion {
+  title: string;
+  body: string;
+  tick_label: string;
+  questions: string | null;
+  how: string;
+  who: string;
+  for_whom: string;
+  ask_again_months: number | null;
+  hash: string;
+}
+
+/**
+ * Whether a stored version's hash matches its own content (ADR 0640): SQLite cannot hash, so a raw
+ * writer could give a row a made-up hash. Every read that matters recomputes it; an acceptance
+ * refuses a version that is not intact (ADR 0642).
+ */
+export async function versionIntact(v: StoredVersion, kind: string): Promise<boolean> {
+  let body: unknown;
+  let questions: Question[] | null;
+  try {
+    body = JSON.parse(v.body);
+    questions = v.questions === null ? null : (JSON.parse(v.questions) as Question[]);
+  } catch {
+    return false;
+  }
+  return (
+    (await versionHash({
+      kind,
+      title: v.title,
+      body,
+      tickLabel: v.tick_label,
+      questions,
+      how: v.how,
+      who: v.who,
+      forWhom: v.for_whom,
+      askAgainMonths: v.ask_again_months,
+    })) === v.hash
+  );
 }
 
 /** A version's number, change and effective moment: enough to work out what is in effect. */
@@ -257,6 +298,12 @@ export interface AgreementPoint {
   label: string;
   suggests: string[];
   objects: string[];
+  /**
+   * Whether the screens of every object declaring the point let a person agree on the way
+   * (`inlineStep`, stage 44 step 5). False: attaching a document there refuses purchases or
+   * bookings on those screens until the person agrees elsewhere.
+   */
+  inlineStep: boolean;
 }
 
 /** Every point installed objects declare, each once (objects may share one). */
@@ -268,6 +315,7 @@ export function agreementPoints(): AgreementPoint[] {
     const point = points.get(declared.point);
     if (point) {
       point.objects.push(object.name);
+      if (declared.inlineStep !== true) point.inlineStep = false;
       for (const kind of declared.suggests ?? []) {
         if (!point.suggests.includes(kind)) point.suggests.push(kind);
       }
@@ -277,6 +325,7 @@ export function agreementPoints(): AgreementPoint[] {
         label: declared.label,
         suggests: [...(declared.suggests ?? [])],
         objects: [object.name],
+        inlineStep: declared.inlineStep === true,
       });
     }
   }

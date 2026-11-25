@@ -135,3 +135,12 @@ and never changed by a later deploy ([ADR 0450](0450-client-environments.md)).
   `binding_takes_cookies_only`. `packages/core/test/me-my.test.ts`: the address is the account's,
   unchanged when staff change the Person's contact email, reports an unverified account as such,
   and is not found for a principal with no account.
+
+## Amended 2026-11-24 (stage 48: changing the sign-in address)
+The sign-in address can now change, and only when the new mailbox is proved
+([ADR 0712](0712-changing-the-sign-in-address-and-a-recent-sign-in.md)): `me.email.change` (after a
+sign-in within 15 minutes) emails a code to the new address, and `me.email.confirm` with that code
+moves the account's address and makes it the Person's primary email, removing the old sign-in
+address from the Person. Staff may start a change (`customer.changeEmail`) but never finish one.
+`signInEmail` stays the one address to link by; a client that linked its records by the old one
+re-reads `me.get`.

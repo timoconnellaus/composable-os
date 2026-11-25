@@ -15,8 +15,8 @@ import {
 } from "@composable-os/ui/components/select";
 import { Textarea } from "@composable-os/ui/components/textarea";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@composable-os/ui/components/tooltip";
-import { Link } from "@tanstack/react-router";
 import { SigmaIcon } from "lucide-react";
+import { HrefLink } from "#/components/href-link";
 import { RecordPicker } from "#/components/record-picker";
 import { formatDate, formatDateTime } from "#/lib/format";
 import { useOp } from "#/lib/query";
@@ -67,29 +67,64 @@ function CurrencyValue({ field, value }: { field: FieldInfo; value: number }) {
   return <>{formatCurrency(value, (field.options?.currency as string | undefined) ?? base)}</>;
 }
 
-function formatNumber(_field: FieldInfo, value: number, kind: string): string {
+function formatNumber(value: number, kind: string): string {
   if (kind === "percent") return `${new Intl.NumberFormat("en").format(value)}%`;
   return new Intl.NumberFormat("en").format(value);
 }
 
 function RecordLink({ object, id }: { object: string; id: string }) {
   const query = useOp("record.get", { object, id }, { staleTime: 60_000, retry: false });
-  const href = recordHref(object, id);
-  const label = query.data?.title ?? id;
-  return href.startsWith("/x/") ? (
-    <Link to="/x/$object/$id" params={{ object, id }} className="hover:underline">
-      {label}
-    </Link>
-  ) : (
-    <a href={href} className="hover:underline">
-      {label}
-    </a>
+  return (
+    <HrefLink href={recordHref(object, id)} className="hover:underline">
+      {query.data?.title ?? id}
+    </HrefLink>
   );
 }
 
 function UserName({ id }: { id: string }) {
   const label = useUserLabel();
   return <>{label(id)}</>;
+}
+
+/** A checklist template's name (stage 45 step 4b, ADR 0650), from one cached list. */
+function ChecklistName({ id }: { id: string }) {
+  const list = useOp("checklist.list", {}, { staleTime: 60_000 });
+  return <>{list.data?.items.find((c) => c.id === id)?.name ?? id}</>;
+}
+
+/** Picks one of the checklists in use, or none. */
+function ChecklistEditor({
+  value,
+  onChange,
+  id,
+}: {
+  value: unknown;
+  onChange: (value: unknown) => void;
+  id?: string;
+}) {
+  const list = useOp("checklist.list", { active: true }, { staleTime: 60_000 });
+  const current = typeof value === "string" ? value : null;
+  const items = list.data?.items ?? [];
+  return (
+    <Select value={current ?? NONE} onValueChange={(v) => onChange(v === NONE ? null : v)}>
+      <SelectTrigger id={id} className="w-full">
+        <SelectValue placeholder="None" />
+      </SelectTrigger>
+      <SelectContent>
+        <SelectItem value={NONE}>None</SelectItem>
+        {current && !items.some((c) => c.id === current) ? (
+          <SelectItem value={current}>
+            <ChecklistName id={current} />
+          </SelectItem>
+        ) : null}
+        {items.map((c) => (
+          <SelectItem key={c.id} value={c.id}>
+            {c.name}
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
 }
 
 /** Read-only rendering of a field value. */
@@ -113,7 +148,7 @@ export function FieldDisplay({ field, value }: { field: FieldInfo; value: unknow
       );
     case "number":
     case "percent":
-      return <>{typeof value === "number" ? formatNumber(field, value, kind) : String(value)}</>;
+      return <>{typeof value === "number" ? formatNumber(value, kind) : String(value)}</>;
     case "date":
       return <time dateTime={String(value)}>{formatDate(String(value))}</time>;
     case "datetime":
@@ -147,6 +182,8 @@ export function FieldDisplay({ field, value }: { field: FieldInfo; value: unknow
     }
     case "user":
       return <UserName id={String(value)} />;
+    case "checklist":
+      return <ChecklistName id={String(value)} />;
     case "email":
       return (
         <a href={`mailto:${String(value)}`} className="hover:underline">
@@ -212,7 +249,7 @@ function FormulaValue({ field, value }: { field: FieldInfo; value: unknown }) {
   let text: string;
   if (value === null || value === undefined || value === "") text = "—";
   else if (resultType === "number" && typeof value === "number")
-    text = formatNumber(field, value, "number");
+    text = formatNumber(value, "number");
   else if (resultType === "boolean") text = value ? "Yes" : "No";
   else if (resultType === "date") text = formatDate(String(value));
   else if (resultType === "datetime") text = formatDateTime(String(value));
@@ -496,6 +533,8 @@ export function FieldEditor({
       );
     case "user":
       return <UserEditor value={value} onChange={onChange} {...(id ? { id } : {})} />;
+    case "checklist":
+      return <ChecklistEditor value={value} onChange={onChange} {...(id ? { id } : {})} />;
     case "email":
       return (
         <Input

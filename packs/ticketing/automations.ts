@@ -1,93 +1,35 @@
-// The Ticketing automations (stage 27, step 4). They send the buyer's mail through the email-send
-// gatekeeper (a connection an admin binds when the pack is installed, so a person approves what
-// the pack may send), move an event to ended, and add no rule of their own: what is paid, what is
-// owed and when is the host's. Each declares its steps, so the host renders the summary from them.
-import { defineAutomation, type ExtensionContext } from "@composable-os/sdk";
+// The Ticketing automations (stage 27, step 4). The buyer's and the holder's emails are routine
+// mail (ADR 0590): fixed emails this pack declares (routine-mail.ts), which the host composes and
+// sends to the order's own address or the ticket's holder without a person's approval, unless an
+// admin turned the kind off or the host holds one for a person. They go out from the email-send
+// connection an admin binds when the pack is installed. One automation moves an event to ended.
+// They add no rule of their own: what is paid, what is owed and when is the host's. Each declares
+// its steps, so the host renders the summary from them.
+import { defineAutomation, formatMoment } from "@composable-os/sdk";
+import { EVENT, type HostPage, isConflict, TICKET, TICKET_TYPE } from "./tools.ts";
 
-const EVENT = "ticketing.event";
-const TICKET = "ticketing.ticket";
-const TICKET_TYPE = "ticketing.tickettype";
 const DAY_MS = 86_400_000;
 /** Most buyers reminded in one run of the daily balance reminders; the rest wait a day. */
 export const BALANCE_BATCH = 200;
 
-/** The email-send connection every mail goes through. */
+/** The email-send connection the host sends from (the binding is a person's consent). */
 const MAIL = {
   id: "mail",
   gatekeeper: "email-send",
   purpose: "Send buyers their tickets and reminders",
 } as const;
 
-interface RecordShape {
-  id: string;
-  title: string | null;
-  values: Record<string, unknown>;
-}
-
 const text = (value: unknown): string | null =>
   value === null || value === undefined || value === "" ? null : String(value);
 
-/** The pack's settings an admin set (Settings → Extensions), by name. */
-async function settings(ctx: ExtensionContext): Promise<Record<string, unknown>> {
-  const { items } = await ctx.ops.call<{
-    items: { id: string; values: Record<string, unknown> }[];
-  }>("extensionSettings.list");
-  return items.find((item) => item.id === "ticketing")?.values ?? {};
-}
-
-/** A link with `?order=<id>`, or the page alone. */
-function withOrder(base: unknown, orderId: string): string | null {
-  const url = text(base);
-  if (!url) return null;
-  return `${url}${url.includes("?") ? "&" : "?"}order=${encodeURIComponent(orderId)}`;
-}
-
-/** Sends one email to one buyer through the bound email-send connection. */
-async function sendMail(
-  ctx: ExtensionContext,
-  message: { to: string; subject: string; text: string; related?: string[] },
-): Promise<unknown> {
-  const gatekeeper = ctx.gatekeeper("email-send");
-  const connections = await gatekeeper.connections();
-  const resource =
-    connections.find((c) => c.id === MAIL.id)?.resources[0]?.bindingName ??
-    connections[0]?.resources[0]?.bindingName ??
-    "SENDER";
-  const result = await gatekeeper.call(MAIL.id, resource, "send", {
-    to: [message.to],
-    subject: message.subject,
-    text: message.text,
-    ...(message.related?.length ? { relatedRecords: message.related.slice(0, 20) } : {}),
-  });
-  return result.value;
-}
-
-const money = (minor: number, currency: string) => `${(minor / 100).toFixed(2)} ${currency}`;
-
 /**
  * When an event starts, as its holders read it: the day and time in the event's own zone, and
- * the zone, so a camp in Bangkok sold from Sydney says Bangkok's time (ADR 0460).
+ * the zone, so a camp in Bangkok sold from Sydney says Bangkok's time (ADR 0460). The emails
+ * write it the same way (the host's `datetime` with the year).
  */
 export function eventTimeText(iso: string | null, zone: string | null): string | null {
   if (!iso) return null;
-  const at = new Date(iso);
-  if (Number.isNaN(at.getTime())) return iso;
-  const timeZone = zone ?? "UTC";
-  try {
-    const local = new Intl.DateTimeFormat("en-GB", {
-      timeZone,
-      weekday: "long",
-      day: "numeric",
-      month: "long",
-      year: "numeric",
-      hour: "2-digit",
-      minute: "2-digit",
-      hourCycle: "h23",
-    }).format(at);
-    return `${local} (${timeZone.replace(/_/g, " ")} time)`;
-  } catch {
-    return iso;
-  }
+  return formatMoment(iso, zone, "datetime", true) ?? iso;
 }
 
 // --- Tickets by email ---------------------------------------------------------------------------
@@ -96,7 +38,8 @@ export const ticketsByEmail = defineAutomation({
   label: "Tickets by email",
   description:
     "When an order is first paid (in full, or its deposit), emails the buyer their tickets: " +
-    "one line per ticket with its code, and the page where they can show them.",
+    "one line per ticket with its code, and the page where they can show them. Routine email: " +
+    "Tickets by email.",
   trigger: {
     type: "fieldChanged",
     object: "order",
@@ -109,8 +52,7 @@ export const ticketsByEmail = defineAutomation({
     {
       name: "findTickets",
       label: "Find the order's tickets",
-      reads: [TICKET, EVENT],
-      calls: ["order.get", "extensionSettings.list"],
+      reads: [TICKET],
     },
     { name: "sendTickets", label: "Email the buyer their tickets" },
   ],
@@ -118,57 +60,22 @@ export const ticketsByEmail = defineAutomation({
     const orderId = event.record?.id;
     if (!orderId) return { skipped: "no order" };
     const found = await step.do("findTickets", async () => {
-      const order = await ctx.ops.call<{ email: string | null; state: string }>("order.get", {
-        id: orderId,
-      });
-      const tickets = await ctx.ops.call<{ items: RecordShape[] }>("record.list", {
+      const tickets = await ctx.ops.call<HostPage>("record.list", {
         object: TICKET,
         filter: { field: "order", op: "eq", value: orderId },
         limit: 100,
       });
-      const { ticketsUrl } = await settings(ctx);
-      // The events the tickets are for, with when each starts in its own zone.
-      const eventIds = [...new Set(tickets.items.map((t) => text(t.values.event)))].filter(
-        (id): id is string => Boolean(id),
-      );
-      const events: string[] = [];
-      for (const id of eventIds) {
-        const ev = await ctx.ops.call<RecordShape>("record.get", { object: EVENT, id });
-        const when = eventTimeText(text(ev.values.startsAt), text(ev.values.timezone));
-        const venue = text(ev.values.venue);
-        events.push(
-          `${text(ev.values.name) ?? "Your event"}${when ? `: ${when}` : ""}${venue ? `, ${venue}` : ""}`,
-        );
-      }
-      return {
-        email: order.email,
-        events,
-        page: withOrder(ticketsUrl, orderId),
-        tickets: tickets.items.map((t) => ({
-          id: t.id,
-          name: text(t.values.name) ?? "Ticket",
-          code: text(t.values.code) ?? "",
-        })),
-      };
+      return { tickets: tickets.items.length };
     });
-    // An order of something else, or with no address: nothing to send.
-    if (!found.tickets.length || !found.email) return { sent: false, tickets: 0 };
+    // An order of something else: nothing to send. The host sends to the order's own address.
+    if (!found.tickets) return { sent: false, tickets: 0 };
     return step.do("sendTickets", async () => {
-      const lines = found.tickets.map((t) => `${t.name}: ${t.code}`);
-      await sendMail(ctx, {
-        to: found.email as string,
-        subject:
-          found.tickets.length === 1 ? "Your ticket" : `Your ${found.tickets.length} tickets`,
-        text: [
-          "Thank you. Your tickets are below: show the code at the door.",
-          ...(found.events.length ? ["", ...found.events] : []),
-          "",
-          ...lines,
-          ...(found.page ? ["", `See them any time: ${found.page}`] : []),
-        ].join("\n"),
-        related: [orderId, ...found.tickets.map((t) => t.id)],
+      const result = await ctx.routineMail.send({
+        kind: "tickets",
+        record: orderId,
+        message: found.tickets === 1 ? "one" : "many",
       });
-      return { sent: true, tickets: found.tickets.length };
+      return { sent: result.sent > 0, held: result.held > 0, tickets: found.tickets };
     });
   },
 });
@@ -179,7 +86,8 @@ export const eventReminder = defineAutomation({
   label: "Event reminder",
   description:
     "The day before an event on sale starts, counted in the event's own time zone, emails each " +
-    "holder of a valid ticket a reminder with the time (in that zone) and the venue.",
+    "holder of a valid ticket a reminder with the time (in that zone) and the venue. Routine " +
+    "email: Event reminders.",
   trigger: {
     type: "dateRelative",
     object: EVENT,
@@ -193,69 +101,53 @@ export const eventReminder = defineAutomation({
     {
       name: "findHolders",
       label: "Find the holders of valid tickets",
-      reads: [TICKET, "person"],
+      reads: [TICKET],
     },
     { name: "sendReminders", label: "Email each holder" },
   ],
   async run(event, step, ctx) {
     const eventId = event.record?.id;
     if (!eventId) return { skipped: "no event" };
-    const data = event.record?.data ?? {};
     const holders = await step.do("findHolders", async () => {
-      const emails = new Map<string, string[]>();
-      let cursor: string | null = null;
+      // One email per holder however many tickets they hold: about their first ticket.
+      const byHolder = new Map<string, { ticket: string; count: number }>();
+      let cursor: string | null | undefined = null;
       do {
-        const page: { items: RecordShape[]; nextCursor: string | null } = await ctx.ops.call(
-          "record.list",
-          {
-            object: TICKET,
-            filter: {
-              and: [
-                { field: "event", op: "eq", value: eventId },
-                { field: "state", op: "eq", value: "valid" },
-              ],
-            },
-            limit: 200,
-            ...(cursor ? { cursor } : {}),
+        const page: HostPage = await ctx.ops.call("record.list", {
+          object: TICKET,
+          filter: {
+            and: [
+              { field: "event", op: "eq", value: eventId },
+              { field: "state", op: "eq", value: "valid" },
+            ],
           },
-        );
+          limit: 200,
+          ...(cursor ? { cursor } : {}),
+        });
         for (const ticket of page.items) {
           const holder = text(ticket.values.holder);
           if (!holder) continue;
-          emails.set(holder, [...(emails.get(holder) ?? []), ticket.id]);
+          const held = byHolder.get(holder);
+          if (held) held.count += 1;
+          else byHolder.set(holder, { ticket: ticket.id, count: 1 });
         }
         cursor = page.nextCursor;
       } while (cursor);
-      const out: { email: string; tickets: string[] }[] = [];
-      for (const [personId, tickets] of emails) {
-        // person.get answers with the person's addresses, the primary one marked (issue #257:
-        // there is no `primaryEmail`, so this once found nobody).
-        const person = await ctx.ops.call<{
-          emails?: { email: string; primary?: boolean | null }[] | null;
-        } | null>("person.get", { id: personId });
-        const emails = person?.emails ?? [];
-        const email = (emails.find((e) => e.primary) ?? emails[0])?.email;
-        if (email) out.push({ email, tickets });
-      }
-      return out;
+      return [...byHolder.values()];
     });
     if (!holders.length) return { sent: 0 };
     return step.do("sendReminders", async () => {
-      const name = text(data.name) ?? "Your event";
-      const when = eventTimeText(text(data.startsAt), text(data.timezone));
-      const venue = text(data.venue);
+      let sent = 0;
       for (const holder of holders) {
-        await sendMail(ctx, {
-          to: holder.email,
-          subject: `Tomorrow: ${name}`,
-          text: [
-            `${name} is tomorrow${when ? `, starting ${when}` : ""}${venue ? ` at ${venue}` : ""}.`,
-            `You have ${holder.tickets.length === 1 ? "a ticket" : `${holder.tickets.length} tickets`}: bring the code.`,
-          ].join("\n"),
-          related: [eventId, ...holder.tickets],
+        const result = await ctx.routineMail.send({
+          kind: "eventReminder",
+          record: holder.ticket,
+          message: holder.count === 1 ? "one" : "many",
+          values: { count: holder.count },
         });
+        sent += result.sent;
       }
-      return { sent: holders.length };
+      return { sent };
     });
   },
 });
@@ -295,7 +187,7 @@ export const eventEnded = defineAutomation({
         });
         return { ended: true };
       } catch (error) {
-        if ((error as { code?: string }).code === "conflict") return { ended: false };
+        if (isConflict(error)) return { ended: false };
         throw error;
       }
     });
@@ -330,48 +222,35 @@ export const balanceReminders = defineAutomation({
   label: "Balance reminders",
   description:
     "Every morning, emails the buyer of a part-paid ticket order whose balance is due in a week " +
-    "or tomorrow: how much is owed, when, and the link to pay.",
+    "or tomorrow: how much is owed, when, and the link to pay. Routine email: Balance reminders.",
   trigger: { type: "schedule", cron: "0 9 * * *" },
   connections: [MAIL],
   steps: [
     {
       name: "findDue",
       label: "Find part-paid orders due in a week or tomorrow",
-      calls: ["query.sql", "extensionSettings.list"],
+      calls: ["query.sql"],
     },
     { name: "sendReminders", label: "Email each buyer the balance and the link to pay" },
   ],
   async run(event, step, ctx) {
     const due = await step.do("findDue", async () => {
       const today = periodMs(event.period);
-      const { rows } = await ctx.ops.call<{
-        rows: { id: string; email: string; balance: number; currency: string; due: string }[];
-      }>("query.sql", {
+      const { rows } = await ctx.ops.call<{ rows: { id: string }[] }>("query.sql", {
         sql: BALANCE_SQL,
         params: [isoDay(today + 7 * DAY_MS), isoDay(today + DAY_MS)],
         maxRows: BALANCE_BATCH,
       });
-      const { payUrl } = await settings(ctx);
-      return rows.map((row) => ({ ...row, link: withOrder(payUrl, row.id) }));
+      return rows.map((row) => row.id);
     });
     if (!due.length) return { sent: 0 };
     return step.do("sendReminders", async () => {
-      for (const order of due) {
-        const day = order.due.slice(0, 10);
-        await sendMail(ctx, {
-          to: order.email,
-          subject: `Balance due ${day}`,
-          text: [
-            `The balance on your tickets, ${money(order.balance, order.currency)}, is due on ${day}.`,
-            order.link
-              ? `Pay it here (sign in with this email address): ${order.link}`
-              : "Reply to this email to pay it.",
-            "You can pay it in one go or in parts.",
-          ].join("\n"),
-          related: [order.id],
-        });
+      let sent = 0;
+      for (const orderId of due) {
+        const result = await ctx.routineMail.send({ kind: "balance", record: orderId });
+        sent += result.sent;
       }
-      return { sent: due.length };
+      return { sent };
     });
   },
 });

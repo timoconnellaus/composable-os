@@ -366,7 +366,7 @@ function OrganisationActions({ id, name }: { id: string; name: string }) {
   const merge = useMergeAction("organisation", id);
   const enrich = useEnrichAction("organisation", id);
   const remove = useOpMutation("organisation.delete");
-  const restore = useOpMutation("organisation.restore");
+  const restore = useOpMutation("organisation.restore", { invalidates: ["affiliation."] });
 
   async function run() {
     try {

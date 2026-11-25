@@ -14,5 +14,10 @@
     "types": [],
     "rootDirs": [".", "../../../blocks"]
   },
-  "include": ["bookings-timetable/*.tsx", "bookings-desk/*.tsx", "bookings-class-list/*.tsx"]
+  "include": [
+    "bookings-timetable/*.tsx",
+    "bookings-desk/*.tsx",
+    "bookings-class-list/*.tsx",
+    "bookings-drop-in/*.tsx"
+  ]
 }

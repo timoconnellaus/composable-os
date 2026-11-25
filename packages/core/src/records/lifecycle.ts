@@ -2,11 +2,14 @@
 // through the one transition engine. record.create, record.update and the record CSV import call
 // `applyTransition` for every write; so does platform code that makes a `host` move.
 
+import { enforceEntry } from "../agreements/enforce.ts";
 import { assertClaimRelationKept, claimantMove } from "../capacity/claimants.ts";
 import { waitlistMove } from "../capacity/waitlist.ts";
 import { ForbiddenError, ValidationError } from "../errors.ts";
 import type { ObjectDefinition } from "../fields/types.ts";
 import type { HandlerContext } from "../operation.ts";
+import { watchLow } from "../stock/low.ts";
+import { assertStockMovesKept, stockMovesOnMove } from "../stock/moves.ts";
 import { type StageCache, stagesLifecycle } from "./stages.ts";
 import { statesLifecycle } from "./states.ts";
 import {
@@ -28,6 +31,8 @@ export interface TransitionOptions {
   by: Mover;
   /** Stage reads shared across one operation (an import touches the same few stages). */
   cache?: StageCache | undefined;
+  /** The record import (`record.import`, a person's door) is writing it: someone moving over. */
+  imported?: boolean | undefined;
 }
 
 /**
@@ -142,6 +147,17 @@ export async function applyTransition(
     assertClaimRelationKept(object, before, written);
     const outcome = await runTransition(lifecycle, ctx, object, id, before, written, options.by);
     assertGuestHeld(object, { ...(before ?? {}), ...written, ...outcome.values });
+    // Nobody books without the agreements they need (stage 44 step 3, ADR 0644): a caller's
+    // record entering a state its agreement point lists, for every actor on every path; never
+    // the host's own moves. The guard rides in this batch.
+    await enforceEntry(
+      ctx,
+      object,
+      before,
+      { ...(before ?? {}), ...written, ...outcome.values },
+      options.by,
+      options.imported === true,
+    );
     // A capacity claimant's states hold and give back its place (ADR 0501), in this batch.
     // Its waitlist (ADR 0520): a promotion's hold given back before its place is claimed; a
     // join checked, a place given back handed on to whoever waits, after.
@@ -150,6 +166,11 @@ export async function applyTransition(
       await waitlistMove(ctx, object, id, before, after, options.by, "before");
       await claimantMove(ctx, object, id, before, after);
       await waitlistMove(ctx, object, id, before, after, options.by, "after");
+    }
+    // A state that moves stock (ADR 0681): its own record's, or its lines', in this batch.
+    if (outcome.moved) {
+      const after = { ...(before ?? {}), ...written, ...outcome.values };
+      await stockMovesOnMove(ctx, object, id, after, outcome.moved.id);
     }
     const hooks = outcome.moved
       ? [...(moveHooks.get(object.name) ?? []), ...everyMoveHooks]
@@ -168,6 +189,19 @@ export async function applyTransition(
     }
     return outcome;
   };
+  // What moved stock stays as it moved (ADR 0681), for an object with a lifecycle or without (a
+  // count's lines).
+  await assertStockMovesKept(ctx, object, before, written);
+  // A changed reorder level may put a record at or below it, or above (ADR 0681).
+  const level = object.stock?.reorderAt;
+  if (
+    level &&
+    before !== null &&
+    Object.hasOwn(written, level) &&
+    (written[level] ?? null) !== (before[level] ?? null)
+  ) {
+    watchLow(ctx, object.name, [id]);
+  }
   if (object.states) return run(statesLifecycle(object, object.states));
   if (object.stages) return run(stagesLifecycle(object, object.stages, options.cache));
   return NO_TRANSITION;

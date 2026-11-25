@@ -15,14 +15,17 @@ import { type Audience, audienceProblems, audiencesOf, isOpenOutside } from "./a
 import type { AutomationHost, EventSink } from "./automations/types.ts";
 import type { CustomerSignIn } from "./customers/accounts.ts";
 import type { WidgetCache } from "./dashboards/cache.ts";
+import type { DeskHost } from "./devices/devices.ts";
 import type { FieldDiff } from "./diff.ts";
 import type { ExtensionHost } from "./extensions/host.ts";
 import type { GateFloor } from "./gate.ts";
+import type { IntakeRuntime } from "./intake/runtime.ts";
 import type { BlobStore, IntegrationRuntime } from "./integrations/runtime.ts";
 import type { HostMail } from "./invites.ts";
 import type { Judge } from "./judge/types.ts";
 import type { ModelRunner } from "./models.ts";
 import type { VoiceRuntime } from "./operations/voice.ts";
+import type { PersonCodeKeys } from "./people-codes/keys.ts";
 import {
   ACTORS,
   type ActingUser,
@@ -40,6 +43,11 @@ import type { RecordAccess } from "./visibility/records.ts";
 
 /** One record touched by an operation, recorded as field diffs in core_audit_changes. */
 export interface RecordChange {
+  /**
+   * What the host filled itself or copied from other records (ADR 0590): their marks are the
+   * host's, or their sources'.
+   */
+  marks?: import("./routine-mail/marks.ts").ChangeMarks | undefined;
   /** Registry object name: `person`, `organisation`, `task`, ... */
   object: string;
   id: string;
@@ -65,6 +73,17 @@ export interface RecordChange {
    * rule's name as `assignedBy`.
    */
   assignment?: { field: string; rule: string } | undefined;
+  /**
+   * A shift's warnings (stage 45, ADR 0622): the write was made with them, not refused. The audit
+   * row's summary records them beside the record.
+   */
+  warnings?: readonly { code: string; account: string | null; message: string }[] | undefined;
+  /**
+   * A change to a row kept from the whole staff (stage 56, ADR 0830: a note at level `coaches` or
+   * `sensitive`, before or after): it is no automation event, and no AI actor lists its audit
+   * rows. Its diff names fields, never their text (the handler redacts it).
+   */
+  restricted?: true | undefined;
 }
 
 /** A link from an activity or task to a record. */
@@ -108,6 +127,11 @@ export function runAfterCommit<T>(value: AfterCommit<T>): Promise<T> {
  * activities, so an operation applies completely or not at all. Queued writes are not visible
  * to reads in the same handler.
  */
+/** How many more records state cascades may move (ADR 0841): drawn down by each cascade. */
+export interface FollowerBudget {
+  left: number;
+}
+
 /** A file a person uploaded (stage 28, ADR 0444): its bytes, as the upload route read them. */
 export interface MediaUpload {
   readonly bytes: Uint8Array;
@@ -153,8 +177,30 @@ export interface HandlerContext {
    * account on this call; absent when it holds no such role. A tool's run carries it on.
    */
   readonly roleToday?: import("./pack-role-today.ts").TodayLimits | undefined;
+  /**
+   * With `roleToday`: the moment whose local day it holds to (issue #290), the call's own or the
+   * one a tool's run carries on from the call that started it.
+   */
+  readonly roleTodayAt?: string | undefined;
+  /**
+   * The staff caller's pack role limit to the People they look after (ADR 0889), with the
+   * account it is for; absent when it holds no such role. A tool's run carries it on.
+   */
+  readonly roleLooksAfter?: import("./pack-role-looks-after.ts").LooksAfterLimit | undefined;
+  /**
+   * The staff caller's pack role reach through the records that name it (ADR 0755), with the
+   * account it is for; absent when it holds no such role. A tool's run carries it on.
+   */
+  readonly roleMine?: import("./pack-role-mine.ts").MineLimit | undefined;
   /** The caller's reason for the change, when it gave one (MCP). */
   readonly reason?: string | undefined;
+  /**
+   * Who stands behind what this call writes, when a tool or automation run made it (ADR 0590):
+   * carried into a tool it calls, so a tool called by an AI's (or a model-using) run stays an AI's.
+   */
+  readonly markStanding?: "person" | "customer" | "public" | "default" | "host" | "ai" | undefined;
+  /** The values the person who started the run gave it (normal forms), carried on likewise. */
+  readonly markGiven?: ReadonlySet<string> | undefined;
   /**
    * Set only while an approved pending action is applied: which action, who approved it (a
    * person's user id, or the adjudicator's principal) and the preview they approved. A publish
@@ -174,8 +220,20 @@ export interface HandlerContext {
    * returns it.
    */
   readonly signIn?: (() => Promise<CustomerSignIn | null>) | undefined;
+  /**
+   * A read that returned text kept from the whole staff (stage 56, ADR 0830: a `coaches` note):
+   * this call writes an audit row, a person's included, holding `summary` (ids, never the text),
+   * as `auditReads` does for every call of an operation. Absent on a call that is not a staff read.
+   */
+  readonly auditRead?: ((summary: Record<string, unknown>) => void) | undefined;
   /** Queues statements (Kysely insert/update/delete builders) for the commit batch, in order. */
   write(...statements: (Compilable | CompiledQuery)[]): void;
+  /**
+   * Runs `fn` once the handler has returned, before the batch commits, to queue writes gathered
+   * over the whole call (stage 45, ADR 0624: one notice per person for a bulk write). Absent on a
+   * simulated call, whose writes are not committed.
+   */
+  readonly beforeCommit?: ((fn: () => Promise<void>) => void) | undefined;
   /**
    * Records a touched record for the audit log. For `update`s, changed fields flagged
    * `track: "timeline"` in the field registry also post a system activity on the record.
@@ -200,6 +258,11 @@ export interface HandlerContext {
    */
   readonly simulation?: SimulationView;
   /**
+   * The records state cascades may still move in this call (ADR 0841), when the caller shares one
+   * across calls (the minute cron's tick). Absent: the call's own (records/follows.ts).
+   */
+  readonly followerBudget?: FollowerBudget;
+  /**
    * Trusted pipeline access for the approval operations, which re-run queued actions through
    * the pipeline on approval. Other handlers never need it.
    */
@@ -210,6 +273,23 @@ export interface HandlerContext {
   readonly extension?: ExtensionCaller;
   /** The integration host, when the adapter provides one (connection.*, integration.*). */
   readonly integrations?: IntegrationRuntime;
+  /**
+   * The public-write door's runtime (stage 29, ADR 0722): the Turnstile check and the shown-time
+   * token, built by the adapter from an env-only secret. On a call from outside the org, given
+   * only to the `intake.*` operations' handlers.
+   */
+  readonly intake?: IntakeRuntime;
+  /**
+   * On a customer's or the public's call to a `hostInternal` core operation: the pack tool whose
+   * run made the call (ADR 0414), from the runner, never from the input.
+   */
+  readonly callingTool?: { extension: string; tool: string } | undefined;
+  /**
+   * On a customer's call to a `hostInternal` core operation: from now on nothing this call writes
+   * names the account (ADR 0725, an anonymous form): its audit row, its records' `created_by`, its
+   * values' marks and its events say only that a customer made it.
+   */
+  readonly anonymise?: (() => void) | undefined;
   /** Blob storage (R2) for email bodies, when the adapter provides it. */
   readonly blobs?: BlobStore;
   /** Where media originals are kept (stage 28, ADR 0444), when the adapter provides it. */
@@ -256,6 +336,18 @@ export interface HandlerContext {
   readonly agentJobs?: AgentJobHost;
   /** The host's own mail for staff (ADR 0455): the invite notice. Absent: not sent. */
   readonly hostMail?: HostMail;
+  /**
+   * Desk signing and enrolled devices (stage 44 step 6, stage 51; ADRs 0649 and 0780): the env
+   * secret codes and credentials are HMACed under and the desk origin, when the deployment has
+   * them; and, on a call the desk origin's own handler makes, that request's cookies. Given to
+   * staff operations and to `hostInternal` ones, never to extension code.
+   */
+  readonly desk?: DeskHost;
+  /**
+   * The keys of people's check-in codes and PINs (stage 51, ADR 0783). Absent: codes, cards and
+   * PINs are refused. On a customer's call only a `hostInternal` core operation gets it.
+   */
+  readonly personCodes?: PersonCodeKeys;
 }
 
 /**
@@ -297,6 +389,16 @@ export interface ExtensionCaller {
     /** One permission, or several (any one opens the tool, ADR 0600). */
     permission: string | readonly string[] | null;
     startedBy?: string;
+    /** `startedBy` approved another actor's call rather than calling it themselves. */
+    startedByApproval?: true;
+    /**
+     * The staff account the tool was called for, and by which actor (stage 45, ADR 0625): the
+     * pipeline's verified caller (a person, or the account an assistant or MCP client acts for;
+     * an automation's or another extension's run is its extension's account). The run's own calls
+     * act as the extension; an operation that is about the caller (the roster's "my shifts", who
+     * may roster) reads this, never the input.
+     */
+    calledBy?: { account: string; actor: string };
   };
 }
 
@@ -415,6 +517,19 @@ export interface OperationDefinition<
    * role, a pack role included (ADR 0600).
    */
   packGrantable?: readonly string[];
+  /**
+   * Every one of `packPermissions` is restricted (ADR 0625): the tool is held by admins and by a
+   * grant of one of `packGrantable`, never through the account's own role (a member's
+   * `records:write`) or a pack role. A runtime extension's tool naming one (refused at install)
+   * has no pack permissions and so is an admin's only.
+   */
+  packRestricted?: boolean;
+  /**
+   * Extension tools only (ADR 0652): every staff account may call the tool, a pack role included
+   * (a cleaner, a coach, the door), with no role or grant naming it. The host operation it calls
+   * holds the rule of who may do what. A shipped pack's or the org's own; a person's own.
+   */
+  packAnyStaff?: boolean;
   risk: RiskClass;
   /**
    * Core operations only, and only ones open to customers or the public: the handler keeps the
@@ -426,9 +541,20 @@ export interface OperationDefinition<
   /**
    * Open to customers only from inside a pack's tool they called (ADR 0414): a direct call gets
    * the unknown-operation answer. For the generic record writes (`my.create`, `my.update`),
-   * which a customer never calls themselves. Shown in open-operations.json.
+   * which a customer never calls themselves. Shown in open-operations.json. A staff operation may
+   * be tool-only too (stage 45, ADR 0621: the host's staffing operations): reached only from an
+   * extension tool's run, never by a person, MCP or the assistant directly, and left out of the
+   * HTTP contract.
    */
   toolOnly?: boolean;
+  /**
+   * Called only by the desk origin's own handler (stage 44 step 6, ADR 0649): a public,
+   * `hostInternal` core operation that reads the enrolled device's credential and the desk
+   * session's token from the request (`ctx.desk.request`), never from its input. Any other caller
+   * (the HTTP surface, the client-app binding) is told no such operation exists, and it is left
+   * out of the HTTP contract. Shown in open-operations.json.
+   */
+  deskOnly?: boolean;
   /**
    * Input keys only staff may pass (stage 32b review): left out of the customer's and the public's
    * contract, and refused from a customer or the public by the pipeline before the handler runs.
@@ -448,6 +574,12 @@ export interface OperationDefinition<
   bulkSize?: (input: z.output<In>) => number;
   /** Extra input keys to redact in the audit log (secrets matching common names always are). */
   redact?: readonly string[];
+  /**
+   * Input keys left out of the audit row's input only, kept in a pending action for its approver
+   * (stage 56): text the change's own diff records where it may (a staff note's), and nowhere
+   * where it may not (a note kept from the whole staff, whose diff names the field only).
+   */
+  auditRedact?: readonly string[];
   /**
    * Keys of the result to redact in the audit log (stage 42): a one-time upload address, a
    * playback token. Set, secret-looking keys of the result are redacted too.
@@ -476,8 +608,38 @@ export interface OperationDefinition<
    * or the actors it applies to.
    */
   alwaysReview?: true | readonly Actor[];
+  /**
+   * A call waits for review when this says so, from the input and what the database
+   * holds now (stage 34, ADR 0691: a staff discount over the limit a human admin set). Asked only
+   * when the gate would apply the call at once and it is not the approved application of a
+   * pending action. Such a review is the operation's own rule, so the adjudicator never
+   * approves it; a `deny` still applies.
+   */
+  reviewWhen?: (input: z.output<In>, db: Kysely<CoreDatabase>) => Promise<boolean>;
+  /**
+   * A read that writes an audit row for every successful call, a person's included (stage 44,
+   * ADR 0643: who read whose health answers). The row holds `auditSummary`'s result, never the
+   * output, so give one that names no value read.
+   */
+  auditReads?: true;
+  /**
+   * Its audit rows are for people only (stage 45 step 4b, ADR 0650): what they say (who ticked
+   * which step of whose checklist) is a person's to read, so no AI actor lists them (audit.list),
+   * as the audited reads' rows.
+   */
+  auditForPeople?: true;
   /** A small JSON summary of the result for the audit log. Default: touched records or id. */
   auditSummary?: (output: z.output<Out>, input: z.output<In>) => unknown;
+  /**
+   * The batch failed at commit (a race the database decided, stage 45, ADR 0623): read again and
+   * answer what happened instead (the take of an offer someone else took a moment before names
+   * who). Return null to keep the error as it is. Reads only; nothing it queues is written.
+   */
+  explainFailure?: (
+    error: import("./errors.ts").OperationError,
+    input: z.output<In>,
+    ctx: HandlerContext,
+  ) => Promise<import("./errors.ts").OperationError | null>;
   mcp?: McpOptions;
   handler: (
     input: z.output<In>,
@@ -516,6 +678,15 @@ export function isHostTool(op: AnyOperation): boolean {
 
 export const OPERATION_NAME_RE = /^[a-z][a-zA-Z0-9]*(\.[a-z][a-zA-Z0-9]*)+$/;
 
+/**
+ * The operations whose every read is audited (`auditReads`): their audit rows say who read
+ * whose health information, so no AI actor lists them (audit.list).
+ */
+export const AUDITED_READS = new Set<string>();
+
+/** The operations whose audit rows no AI actor lists (`auditForPeople`). */
+export const PEOPLE_ONLY_AUDIT = new Set<string>();
+
 /** Defines an operation. Checks the definition is complete; the registry test checks them all. */
 export function defineOperation<
   const Name extends string,
@@ -526,6 +697,8 @@ export function defineOperation<
   if (problems.length) {
     throw new Error(`Operation ${definition.name}: ${problems.join("; ")}`);
   }
+  if (definition.auditReads) AUDITED_READS.add(definition.name);
+  if (definition.auditForPeople) PEOPLE_ONLY_AUDIT.add(definition.name);
   return Object.freeze({ ...definition });
 }
 
@@ -553,11 +726,26 @@ export function operationProblems(op: AnyOperation): string[] {
   } else if (op.packGrantable !== undefined) {
     problems.push("packGrantable needs packPermissions");
   }
+  if (op.packAnyStaff !== undefined) {
+    if (!/^x\.[a-z][a-z0-9]{1,29}\./.test(op.name ?? "")) {
+      problems.push("packAnyStaff is for extension tools only");
+    }
+    if (op.packPermissions !== undefined || op.packRestricted) {
+      problems.push("packAnyStaff names no pack permission");
+    }
+  }
   if (!RISK_CLASSES.includes(op.risk)) problems.push("risk class missing or unknown");
   if (op.actors && (op.actors.length === 0 || op.actors.some((a) => !ACTORS.includes(a)))) {
     problems.push("actors must list known actor types");
   }
   if (typeof op.handler !== "function") problems.push("handler missing");
+  if (op.auditReads !== undefined) {
+    if (op.auditReads !== true) problems.push("auditReads is true or left out");
+    if (op.risk !== "read") problems.push("auditReads is for reads (every write is audited)");
+    if (typeof op.auditSummary !== "function") {
+      problems.push("auditReads needs an auditSummary that names no value read");
+    }
+  }
   problems.push(...audienceProblems(op));
   if (op.hostInternal !== undefined) {
     if (op.hostInternal !== true) problems.push("hostInternal is true or left out");
@@ -566,11 +754,22 @@ export function operationProblems(op: AnyOperation): string[] {
       problems.push("hostInternal is only for an operation open to customer or public callers");
     }
   }
+  if (op.deskOnly !== undefined) {
+    if (op.deskOnly !== true) problems.push("deskOnly is true or left out");
+    if (op.name?.startsWith("x.")) problems.push("an extension tool cannot be deskOnly");
+    const audiences = audiencesOf(op);
+    if (audiences.length !== 1 || audiences[0] !== "public") {
+      problems.push("deskOnly is for an operation open to the public only");
+    }
+    if (op.hostInternal !== true) problems.push("deskOnly needs hostInternal");
+    if (op.toolOnly) problems.push("deskOnly and toolOnly do not go together");
+  }
   if (op.toolOnly !== undefined) {
     if (op.toolOnly !== true) problems.push("toolOnly is true or left out");
     if (op.name?.startsWith("x.")) problems.push("an extension tool cannot be toolOnly");
-    if (!audiencesOf(op).includes("customer")) {
-      problems.push("toolOnly is only for an operation open to customer callers");
+    const audiences = audiencesOf(op);
+    if (!audiences.includes("customer") && !(audiences.length === 1 && audiences[0] === "staff")) {
+      problems.push("toolOnly is for an operation open to customer callers, or to staff only");
     }
   }
   if (isOpenOutside(op) && op.alwaysReview) {

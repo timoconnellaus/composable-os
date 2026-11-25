@@ -2,7 +2,9 @@
 // time or by the gym, or paid for after its place went back, wrote a row in
 // core_sellable_refund_due in that batch (orders/moves.ts, payments.ts). The minute cron asks the
 // payments gatekeeper for each one here, after that batch committed, so a move that fails never
-// leaves a refund waiting for approval.
+// leaves a refund waiting for approval. A membership ended in its cooling-off period (stage 44
+// step 7, ADR 0647) writes one row per paid period order the same way, in the batch of the
+// provider's verified event that shows it ended (subscriptions/cooling-off.ts).
 //
 //   1. claim the row (`due` -> `asking`, the attempt counted) in its own statement: of two ticks
 //      at once one asks;
@@ -37,7 +39,7 @@ import { type RequestedRefund, refundablePayments, requestRefund } from "./refun
 /** How many owed refunds one tick asks for, and how many asked ones it looks at. */
 export const REFUND_DUE_BATCH = 20;
 /** A row left `asking` this long is given up on and staff are told. */
-export const REFUND_DUE_STALE_MINUTES = 15;
+const REFUND_DUE_STALE_MINUTES = 15;
 
 /** The prefix of every refund id one attempt of a row asks for. */
 export const dueRefundPrefix = (rowId: string, attempt: number) =>
@@ -98,9 +100,8 @@ export async function requestDueRefund(
   } catch (error) {
     // Nothing paid on it, or everything paid already refunded or asked for (staff did it by
     // hand, or a refund is waiting for a person): nothing more owed.
-    const conflict = (error as { code?: string }).code === "conflict";
-    if (!conflict) throw error;
-    const note = (error as Error).message;
+    if (!(error instanceof OperationError) || error.code !== "conflict") throw error;
+    const note = error.message;
     mark("skipped", note);
     return { state: "skipped", refunds: [], note };
   }
@@ -111,6 +112,13 @@ export interface RefundsDueOptions {
   floor?: GateFloor | undefined;
   events?: EventSink | undefined;
   clock?: (() => Date) | undefined;
+}
+
+/** Why a refund is owed, in staff's words, from the row's `entered` (ADR 0647 adds cooling off). */
+function owedFor(entered: string): string {
+  return entered === "cooled_off"
+    ? "a membership ended in its cooling-off period"
+    : "a drop-in cancelled or not kept";
 }
 
 async function tell(crm: CrmDb, orderId: string, title: string, body: string, now: string) {
@@ -145,7 +153,7 @@ async function waitingActions(crm: CrmDb, rowId: string, attempt: number, now: s
 /** Tells admins an owed refund was not asked for (or may be waiting), and marks it so. */
 async function giveUp(
   crm: CrmDb,
-  row: { id: string; order_id: string; attempt: number },
+  row: { id: string; order_id: string; attempt: number; entered: string },
   why: string,
   now: string,
 ) {
@@ -159,7 +167,7 @@ async function giveUp(
         crm,
         row.order_id,
         "A refund owed is partly waiting in Approvals",
-        `Order ${row.order_id} is owed a refund (a drop-in cancelled or not kept), and its request ` +
+        `Order ${row.order_id} is owed a refund (${owedFor(row.entered)}), and its request ` +
           `was not recorded (${why}). ${waiting.length} refund(s) of it wait in Approvals ` +
           `(${amounts.map((a) => (a === null ? "an amount" : `${a} in minor units`)).join(", ")}, ` +
           `actions ${waiting.map((w) => w.id).join(", ")}): approve those. Anything else owed on ` +
@@ -170,7 +178,7 @@ async function giveUp(
         crm,
         row.order_id,
         "A refund owed could not be asked for",
-        `Order ${row.order_id} is owed a refund (a drop-in cancelled or not kept), and the host ` +
+        `Order ${row.order_id} is owed a refund (${owedFor(row.entered)}), and the host ` +
           `could not ask for it (${why}). Refund it from the order.`,
         now,
       );
@@ -191,7 +199,7 @@ async function settleAsked(crm: CrmDb, now: string): Promise<{ lapsed: number }>
   let lapsed = 0;
   const asked = await crm.query
     .selectFrom("core_sellable_refund_due")
-    .select(["id", "order_id", "attempt"])
+    .select(["id", "order_id", "attempt", "entered"])
     .where("state", "=", "asked")
     .orderBy("updated_at")
     .limit(REFUND_DUE_BATCH)
@@ -244,7 +252,7 @@ async function settleAsked(crm: CrmDb, now: string): Promise<{ lapsed: number }>
       crm,
       row.order_id,
       "A refund owed was not approved",
-      `Order ${row.order_id} is owed a refund (a drop-in cancelled or not kept); it was asked for ` +
+      `Order ${row.order_id} is owed a refund (${owedFor(row.entered)}); it was asked for ` +
         `and ${why}. The buyer was told it would be refunded: refund it from the order, or ` +
         "tell them why not.",
       now,
@@ -255,7 +263,7 @@ async function settleAsked(crm: CrmDb, now: string): Promise<{ lapsed: number }>
   return { lapsed };
 }
 
-/** The minute cron's step: asks for the refunds owed. With nothing owed it is two indexed reads. */
+/** The minute cron's step: asks for the refunds owed. With nothing owed it is three indexed reads. */
 export async function runRefundsDue(
   crm: CrmDb,
   { integrations, floor, events, clock }: RefundsDueOptions = {},
@@ -265,7 +273,7 @@ export async function runRefundsDue(
   const stale = new Date(Date.parse(now()) - REFUND_DUE_STALE_MINUTES * 60_000).toISOString();
   const left = await crm.query
     .selectFrom("core_sellable_refund_due")
-    .select(["id", "order_id", "attempt"])
+    .select(["id", "order_id", "attempt", "entered"])
     .where("state", "=", "asking")
     .where("updated_at", "<", stale)
     .limit(REFUND_DUE_BATCH)
@@ -276,7 +284,7 @@ export async function runRefundsDue(
   }
   const due = await crm.query
     .selectFrom("core_sellable_refund_due")
-    .select(["id", "order_id", "attempt"])
+    .select(["id", "order_id", "attempt", "entered"])
     .where("state", "=", "due")
     .orderBy("created_at")
     .limit(REFUND_DUE_BATCH)
@@ -310,7 +318,8 @@ export async function runRefundsDue(
     } catch (error) {
       result.failed += 1;
       console.error("refund owed not asked for", row.order_id, errorForLog(error));
-      await giveUp(crm, { ...row, attempt }, (error as Error).message ?? "an error", now());
+      const why = error instanceof Error ? error.message : "an error";
+      await giveUp(crm, { ...row, attempt }, why, now());
     }
   }
   result.lapsed = (await settleAsked(crm, now())).lapsed;

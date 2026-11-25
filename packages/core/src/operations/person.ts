@@ -5,6 +5,11 @@
 import type { CoreDatabase } from "@composable-os/db";
 import type { Kysely, Selectable } from "kysely";
 import { z } from "zod";
+import {
+  agreementAddresses,
+  mergeMovesAgreements,
+  queueMergeAgreements,
+} from "../agreements/people.ts";
 import { queueMergeAllowances } from "../allowance/people.ts";
 import { assignOwner, recordAssignment } from "../assignment/index.ts";
 import { queueMergeCustomers } from "../customers/merge.ts";
@@ -17,9 +22,22 @@ import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from ".
 import { getObject } from "../fields/index.ts";
 import { personObject } from "../fields/person.ts";
 import { newId } from "../ids.ts";
+import {
+  assertMayChangeBirthday,
+  assertMergeKeepsMemberBirthday,
+  BIRTHDAY_FIELD,
+  birthdayGuard,
+  birthdayOf,
+  birthdaySchema,
+  mergedBirthday,
+  queueSetBirthday,
+} from "../journeys/birthday.ts";
+import { queueMergeSignals } from "../journeys/signals.ts";
 import { listInputSchema, pageSchema, runListQuery, selectFields } from "../list.ts";
 import { defineOperation, type HandlerContext } from "../operation.ts";
 import { queueMergeOrders } from "../orders/merge.ts";
+import { matchPersonAddresses } from "../outside/match.ts";
+import { queueMergePersonCodes } from "../people-codes/people.ts";
 import { holdsPermission } from "../principals.ts";
 import { bulkTagListSchema, queueBulkTags } from "../records/bulk-tags.ts";
 import {
@@ -49,6 +67,7 @@ import {
 } from "../records/person-links.ts";
 import { queueRepointRelations } from "../records/relations.ts";
 import { loadTags, queueSetTags, tagsInputSchema } from "../records/tags.ts";
+import { endErasedSubscriptions } from "../subscriptions/erase.ts";
 import { queueMergeSubscriptions } from "../subscriptions/merge.ts";
 import { type Reader, visibleTable } from "../visibility/index.ts";
 import { setCoreWriter } from "../visibility/writes.ts";
@@ -133,6 +152,8 @@ export const personSchema = z.object({
   ownerId: z.string().nullable(),
   description: z.string().nullable(),
   tags: z.array(z.string()),
+  /** Day and month only (stage 53, ADR 0803); null when none is recorded. */
+  birthday: birthdaySchema.nullable(),
   /** Derived from the primary affiliation. */
   jobTitle: z.string().nullable(),
   primaryAffiliation: z
@@ -225,6 +246,7 @@ export async function loadPerson(
     ownerId: row.owner_id,
     description: row.description,
     tags: tags.get(id) ?? [],
+    birthday: birthdayOf(row),
     jobTitle: affiliation?.title ?? null,
     primaryAffiliation: affiliation
       ? {
@@ -343,21 +365,23 @@ async function assertEmailsFree(
   }
 }
 
+/** Email rows per insert: seven bound variables each, under D1's 100 per statement. */
+const EMAIL_ROWS_PER_INSERT = 14;
+
 function queueEmails(ctx: HandlerContext, personId: string, emails: Person["emails"]) {
   ctx.write(ctx.db.deleteFrom("core_person_emails").where("person_id", "=", personId));
-  if (emails.length) {
+  const rows = emails.map((e, position) => ({
+    id: newId("email"),
+    person_id: personId,
+    email: e.email,
+    label: e.label,
+    is_primary: e.primary ? 1 : 0,
+    position,
+    created_at: ctx.now,
+  }));
+  for (let at = 0; at < rows.length; at += EMAIL_ROWS_PER_INSERT) {
     ctx.write(
-      ctx.db.insertInto("core_person_emails").values(
-        emails.map((e, position) => ({
-          id: newId("email"),
-          person_id: personId,
-          email: e.email,
-          label: e.label,
-          is_primary: e.primary ? 1 : 0,
-          position,
-          created_at: ctx.now,
-        })),
-      ),
+      ctx.db.insertInto("core_person_emails").values(rows.slice(at, at + EMAIL_ROWS_PER_INSERT)),
     );
   }
 }
@@ -456,6 +480,12 @@ export const personCreate = defineOperation({
     if (assignment?.ownerId) row.owner_id = assignment.ownerId;
     ctx.write(ctx.db.insertInto("core_person").values(row));
     queueEmails(ctx, id, emails);
+    // An unlinked outside person with one of these addresses is linked now (stage 65, ADR 0922).
+    if (emails.length) {
+      await matchPersonAddresses(ctx, [
+        { personId: id, emails: emails.map((e) => e.email), complete: true },
+      ]);
+    }
     queuePhones(ctx, id, phones);
     const tags = await queueSetTags(ctx, "person", id, input.tags ?? []);
 
@@ -473,6 +503,7 @@ export const personCreate = defineOperation({
       ownerId: row.owner_id,
       description: row.description,
       tags,
+      birthday: null,
       jobTitle: null,
       primaryAffiliation: null,
       createdAt: ctx.now,
@@ -549,10 +580,19 @@ export const personGet = defineOperation({
 
 // --- Updating ---------------------------------------------------------------------------------
 
-const personUpdateInput = z.object({ id: personId, ...personWritableFields });
+const personUpdateInput = z.object({
+  id: personId,
+  ...personWritableFields,
+  // A birthday is set with person.setBirthday (stage 53): refused here, never silently dropped.
+  birthday: z
+    .unknown()
+    .optional()
+    .refine((value) => value === undefined, "Set a birthday with person.setBirthday")
+    .describe("Not set here: use person.setBirthday"),
+});
 
 /** What `updatePerson` changes: person.update's input without the id. */
-export type PersonChanges = Omit<z.output<typeof personUpdateInput>, "id"> & {
+export type PersonChanges = Omit<z.output<typeof personUpdateInput>, "id" | "birthday"> & {
   /**
    * The primary phone number alone (a customer's `me.update`): replaces the primary phone's
    * number, keeping the others; null removes it. Ignored when `phones` is given.
@@ -618,6 +658,9 @@ export async function updatePerson(
       id,
     );
     queueEmails(ctx, id, after.emails);
+    await matchPersonAddresses(ctx, [
+      { personId: id, emails: after.emails.map((e) => e.email), complete: true },
+    ]);
   }
   if (input.phones !== undefined) {
     after.phones = normalisePhones(input.phones);
@@ -683,7 +726,7 @@ export const personUpdate = defineOperation({
   risk: "write",
   mcp: { curated: true },
   async handler(input, ctx) {
-    const { id, ...changes } = input;
+    const { id, birthday: _refused, ...changes } = input;
     await updatePerson(ctx, id, changes);
     return ctx.afterCommit(() => requirePerson(ctx, input.id));
   },
@@ -789,6 +832,10 @@ export const personRestore = defineOperation({
         .set({ deleted_at: null, deleted_by: null, merged_into_id: null, updated_at: ctx.now })
         .where("id", "=", input.id),
     );
+    // Their addresses are live again: an unlinked outside person with one is linked now (ADR 0922).
+    await matchPersonAddresses(ctx, [
+      { personId: input.id, emails: person.emails.map((e) => e.email), complete: true },
+    ]);
     ctx.recordChange({
       object: "person",
       id: input.id,
@@ -1082,7 +1129,8 @@ export const personMerge = defineOperation({
   description:
     "Merge a duplicate person (mergedId) into another (survivorId). The survivor keeps its own " +
     "values unless fields says to take the duplicate's (per field: 'survivor' or 'merged'); " +
-    "empty survivor fields are filled from the duplicate. Emails, phones, social profiles and " +
+    "empty survivor fields are filled from the duplicate (the birthday too: the survivor's is " +
+    "kept unless it has none). Emails, phones, social profiles and " +
     "tags are combined, and the duplicate's affiliations, activity links and task links move " +
     "to the survivor (the survivor keeps its primary affiliation if it has one). The " +
     "duplicate goes to Trash pointing at the survivor, and can be restored from there " +
@@ -1131,6 +1179,15 @@ export const personMerge = defineOperation({
       if (take) (after as Record<PersonMergeField, unknown>)[field] = merged[field];
     }
     if (after.ownerId) await assertUserExists(ctx.db, after.ownerId);
+    // A birthday: the survivor's, unless it has none (stage 53, ADR 0803).
+    await assertMergeKeepsMemberBirthday(ctx, survivor, merged);
+    after.birthday = mergedBirthday(survivor.birthday, merged.birthday);
+    const birthdayMoved = after.birthday !== survivor.birthday;
+    // Both birthdays as read: one set meanwhile fails the merge (a conflict), never lost.
+    ctx.write(
+      birthdayGuard(ctx, survivor.id, survivor.birthday),
+      birthdayGuard(ctx, merged.id, merged.birthday),
+    );
     // Customer accounts move to the survivor; refused while both people have an active one.
     await queueMergeCustomers(ctx, survivor.id, merged.id, [
       ...new Set([...survivor.emails, ...merged.emails].map((e) => e.email)),
@@ -1140,6 +1197,10 @@ export const personMerge = defineOperation({
     await queueMergeSubscriptions(ctx, survivor.id, merged.id);
     // Passes' and memberships' terms and uses follow the Person too (stage 32b, ADR 0494).
     queueMergeAllowances(ctx, survivor.id, merged.id);
+    // Journey signals: the survivor keeps the later of each (stage 53, ADR 0802).
+    queueMergeSignals(ctx, survivor.id, merged.id);
+    // Cards follow the Person; the survivor's PIN is kept (stage 51, ADR 0783).
+    queueMergePersonCodes(ctx, survivor.id, merged.id);
     // Family links follow the Person; one between the two is deleted, a duplicate or one that
     // would become two-way is ended (ADR 0540).
     const plan = await planMergeLinks(ctx.db, survivor.id, merged.id);
@@ -1150,6 +1211,22 @@ export const personMerge = defineOperation({
         `${merged.displayName} has family links (a parent or a child), which a merge would move: merging them needs people:link`,
         { permission: "people:link" },
       );
+    }
+    // Moving what someone agreed to (acceptances, a health form, the minor mark) is a person's act
+    // with agreements:manage, never an AI's or one an AI asks for (stage 44, ADR 0642).
+    if (await mergeMovesAgreements(ctx, merged.id)) {
+      if (ctx.actor !== "human") {
+        throw new ForbiddenError(
+          `${merged.displayName} has agreements, which a merge would move: only a person merges them`,
+          { rule: "agreements_merge" },
+        );
+      }
+      if (!holdsPermission(ctx.user, ctx.permissionGrants, "agreements:manage")) {
+        throw new ForbiddenError(
+          `${merged.displayName} has agreements, which a merge would move: merging them needs agreements:manage`,
+          { permission: "agreements:manage" },
+        );
+      }
     }
     queueMergeLinks(ctx, survivor.id, merged.id, plan);
     const familyLinks = {
@@ -1207,6 +1284,8 @@ export const personMerge = defineOperation({
         .set({ merged_into_id: survivor.id })
         .where("merged_into_id", "=", merged.id),
     );
+    // Acceptances follow the Person, after merged_into_id is set (the trigger checks it, ADR 0642).
+    queueMergeAgreements(ctx, survivor.id, merged.id);
     // One primary affiliation per person: the survivor's wins.
     if (survivor.primaryAffiliation) {
       ctx.write(
@@ -1235,6 +1314,8 @@ export const personMerge = defineOperation({
           owner_id: after.ownerId,
           description: after.description,
           social_profiles: JSON.stringify(after.socialProfiles),
+          birth_day: after.birthday?.day ?? null,
+          birth_month: after.birthday?.month ?? null,
           updated_at: ctx.now,
         })
         .where("id", "=", survivor.id),
@@ -1244,6 +1325,18 @@ export const personMerge = defineOperation({
     after.tags = await queueSetTags(ctx, "person", survivor.id, [...survivor.tags, ...merged.tags]);
     queueClearTags(ctx, "person", merged.id);
     queueMoveLinks(ctx, "person", merged.id, survivor.id);
+    // Their conversations follow the Person (stage 36, ADR 0740); a concurrent inbox write
+    // that read the old version fails, not this.
+    ctx.write(
+      ctx.db
+        .updateTable("core_conversation")
+        .set((eb) => ({
+          person_id: survivor.id,
+          updated_at: ctx.now,
+          version: eb("version", "+", 1),
+        }))
+        .where("person_id", "=", merged.id),
+    );
     await queueRepointRelations(ctx, "person", merged.id, survivor.id);
     queueClosePairs(ctx, "person", survivor.id, merged.id);
 
@@ -1254,11 +1347,44 @@ export const personMerge = defineOperation({
       // Family links (ADR 0540): before, the two People's live links as read; after, what the
       // merge does to them. Shown in the approval card, and an approval is held to the before: a
       // link made or ended after the preview makes applying it a conflict, never a surprise.
-      before: { ...personSnapshot(survivor), familyLinks: plan.live },
+      before: { ...personSnapshot(survivor), familyLinks: plan.live, birthday: survivor.birthday },
       after: {
         ...personSnapshot(after),
+        birthday: after.birthday,
         absorbedId: merged.id,
         familyLinks: `${plan.moved} moved, ${plan.ended} ended, ${plan.deleted} deleted${plan.history ? `, ${plan.history} past moved` : ""}`,
+      },
+      // ADR 0590: the merged addresses and name carry both People's marks, never a fresh one.
+      marks: {
+        copied: {
+          ...Object.fromEntries(
+            (["emails", "displayName", "givenName", "familyName"] as const).map((field) => [
+              field,
+              [
+                {
+                  object: "person",
+                  id: survivor.id,
+                  field,
+                  value: personSnapshot(survivor)[field],
+                },
+                { object: "person", id: merged.id, field, value: personSnapshot(merged)[field] },
+              ],
+            ]),
+          ),
+          // A birthday taken from the duplicate keeps the mark of whoever gave it there.
+          ...(birthdayMoved
+            ? {
+                [BIRTHDAY_FIELD]: [
+                  {
+                    object: "person",
+                    id: merged.id,
+                    field: BIRTHDAY_FIELD,
+                    value: merged.birthday,
+                  },
+                ],
+              }
+            : {}),
+        },
       },
     });
     ctx.recordChange({
@@ -1295,6 +1421,29 @@ export const personMerge = defineOperation({
   },
 });
 
+// --- Birthday ----------------------------------------------------------------------------------
+
+export const personSetBirthday = defineOperation({
+  name: "person.setBirthday",
+  description:
+    "Record a person's birthday: day and month only, never a year (null removes it). A " +
+    "birthday journey starts on it, in the business's time zone. Only a person on the staff may " +
+    "change a birthday the member gave themselves. Returns the person.",
+  input: z.object({
+    id: personId,
+    birthday: birthdaySchema.nullable().describe("Day and month, or null to remove it"),
+  }),
+  output: personSchema,
+  permission: "records:write",
+  risk: "write",
+  async handler(input, ctx) {
+    const person = await requirePerson(ctx, input.id);
+    await assertMayChangeBirthday(ctx, person.id, person.birthday);
+    queueSetBirthday(ctx, (c) => ctx.recordChange(c), person.id, person.birthday, input.birthday);
+    return ctx.afterCommit(() => requirePerson(ctx, input.id));
+  },
+});
+
 // --- Erase -------------------------------------------------------------------------------------
 
 export const personErase = defineOperation({
@@ -1313,8 +1462,14 @@ export const personErase = defineOperation({
     "them are deleted or redacted, and their addresses are added to the erased-address list so " +
     "mail sync does not collect them again. Their customer account, its sessions and sign-in " +
     "codes, invites for their addresses and their erase requests are deleted (an open request " +
-    "is closed as erased). Cannot be undone; use person.delete for a " +
-    "reversible delete.",
+    "is closed as erased). Their birthday, health answers and minor mark are deleted; what they agreed to is " +
+    "kept, no longer theirs, as the business's evidence until the retention period ends " +
+    "(agreement.retention, counted from the erase), then deleted: agreementsKept says how many " +
+    "and until when. Every subscription they pay for or hold that still runs is asked at the " +
+    "payment provider to end when the period already paid for ends (one paused, unpaid or " +
+    "waiting for its first payment ends at once): nothing is refunded and nothing more is " +
+    "charged; admins are told of one that could not be asked, and of one another person is " +
+    "still on. Cannot be undone; use person.delete for a reversible delete.",
   input: z.object({ id: personId }),
   output: z.object({
     id: z.string(),
@@ -1331,6 +1486,19 @@ export const personErase = defineOperation({
         "People this person was the only live guardian of (ADR 0540): they stay, with no guardian " +
           "linked, and a note on their timeline",
       ),
+    subscriptionsEnding: z
+      .object({
+        atPeriodEnd: z.number().describe("Asked to end when the period already paid for ends"),
+        now: z
+          .number()
+          .describe("Asked to end at once (past due, paused, unpaid, or waiting for a payment)"),
+        leftForStaff: z
+          .number()
+          .describe("Could not be asked at the provider: the admins are told to end them"),
+      })
+      .describe(
+        "Their subscriptions, as payer or holder (issue #293, ADR 0533): nothing is refunded",
+      ),
   }),
   permission: "records:erase",
   risk: "destructive",
@@ -1339,6 +1507,13 @@ export const personErase = defineOperation({
     await requirePerson(ctx, input.id, { includeDeleted: true });
     const ids = await withMergedRecords(ctx, "person", input.id);
     const subject = await personSubject(ctx.db, ids);
+    // The addresses their agreements were sent to are theirs too (an earlier sign-in address, the
+    // address a purchase was made with): redacted from the audit and approvals as any of theirs,
+    // and their unsettled purchases' acceptances found by them (ADR 0646).
+    for (const address of await agreementAddresses(ctx, ids)) {
+      if (!subject.addresses.includes(address)) subject.addresses.push(address);
+      if (!subject.terms.includes(address)) subject.terms.push(address);
+    }
     // Their family links go with them; a child left with no guardian stays, and staff are told.
     const leftAlone = await dependantsLeftAlone(ctx, ids);
     queueEraseLinks(ctx, ids, leftAlone);
@@ -1350,17 +1525,26 @@ export const personErase = defineOperation({
       names: subject.names,
       addresses: subject.addresses,
     });
+    // Their subscriptions end as a member's own deletion ends them (ADR 0533): asked at the
+    // provider now, once nothing else of the erase can refuse, and before the commit clears who
+    // is on them; a checkout of theirs confirmed meanwhile is asked after the commit.
+    const subscriptions = await endErasedSubscriptions(ctx, ids);
     for (const id of ids) ctx.recordChange({ object: "person", id, action: "erase", diff: {} });
-    return ctx.afterCommit(async () => ({
-      id: input.id,
-      erased: ids,
-      activitiesDeleted: counts.activities,
-      tasksDeleted: counts.tasks,
-      auditRowsRedacted: await countRedactions(ctx.db, "person", input.id),
-      conversationsScrubbed: counts.conversations,
-      ...(await afterErase(ctx, counts)),
-      dependantsWithoutGuardian: leftAlone,
-    }));
+    return ctx.afterCommit(async () => {
+      // The erase has committed: a failure here must not report it as failed.
+      await subscriptions.afterCommit().catch(() => {});
+      return {
+        id: input.id,
+        erased: ids,
+        activitiesDeleted: counts.activities,
+        tasksDeleted: counts.tasks,
+        auditRowsRedacted: await countRedactions(ctx.db, "person", input.id),
+        conversationsScrubbed: counts.conversations,
+        ...(await afterErase(ctx, counts)),
+        dependantsWithoutGuardian: leftAlone,
+        subscriptionsEnding: subscriptions.counts,
+      };
+    });
   },
 });
 
@@ -1375,5 +1559,6 @@ export const personOperations = [
   personUpdateMany,
   personDeleteMany,
   personMerge,
+  personSetBirthday,
   personErase,
 ] as const;

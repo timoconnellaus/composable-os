@@ -10,7 +10,7 @@ whole thing by hand. Design: [ADR 0007](adr/0007-integrations-are-gatekeepers.md
 
 - **Gatekeepers** are Workers in `packages/gatekeeper-*`. Vendored from Cloudflare OS: `google`,
   `microsoft`, `slack` (read-only), `mcp`, `email` (inbound), `zoominfo`, `websearch`. Ours:
-  `email-send`, `slack-post`, `webhook`, `payments`. Each has a README with its resources, session API, action
+  `email-send`, `slack-post`, `webhook`, `payments`, `text`. Each has a README with its resources, session API, action
   kinds, vars and secrets.
 - **cos-runner** binds each deployed gatekeeper as `GATEKEEPER_<NAME>` (to the Worker's
   `GatekeeperVendor` entrypoint) and runs one **integration host** Durable Object per connection.
@@ -51,6 +51,14 @@ Payments (stage 25, ADR 0429): deploy `cos-gatekeeper-payments`, set `STRIPE_SEC
 by hand is [`payments-stripe-runbook.md`](payments-stripe-runbook.md). Local dev and e2e run the
 gatekeeper with its fake provider (a hosted page at `/gatekeeper/payments/fake/pay/<ref>`).
 
+Text messages (stage 30, ADR 0672): deploy `cos-gatekeeper-text` with `TEXT_PROVIDER` and
+`TEXT_SENDER_NUMBER` (product.ts), set the provider's keys as its secrets, register
+`https://<crm-origin>/gatekeeper/text/in/<provider>` as the provider's webhook for receipts and
+replies, bind `GATEKEEPER_TEXT`, then enable Text messages and bind the sender number
+(`text://sender`). Only the host's routine messages and phone checks send a text. This release has
+the fake provider only (development, tests and staging); a real provider module is added with the
+first business's own account.
+
 ## Automations and connections
 
 - **Webhook and sync triggers.** An automation with `trigger: { type: "webhook", endpoint }` runs
@@ -74,6 +82,17 @@ an outbox, all inside cos-runner. Seed its mailbox with
 `POST /gatekeeper/fake/seed/<address>` `{ "messages": [...], "events": [...] }` and see what its
 outbox really sent with `GET /gatekeeper/fake/sent/<address>`. It is never offered when the var is
 not `"true"`.
+
+The dev server also runs **Fake books (development)** (`cos-gatekeeper-accounting-fake`, stage 61,
+ADR 0880): fake accounting books behind the accounting contract, with invented accounts, tax rates
+and contacts. An admin connects it for the org and binds `accounting-fake://books/<name>`; each name
+is its own set of books. It is bound only in development and cos-runner's tests, never deployed.
+
+It also runs **Fake booking system (development)** (`cos-gatekeeper-booking-system-fake`, stage
+65, ADR 0920): an invented site behind the read-only booking-system contract, with people,
+memberships and passes, a timetable of classes 7 days back and 28 ahead, bookings and staff. An
+admin connects it for the org and binds `booking-system-fake://site/<name>`; each name is its own
+site. It is bound only in development and cos-runner's tests, never deployed.
 
 ## Manual end-to-end check (needs a human)
 

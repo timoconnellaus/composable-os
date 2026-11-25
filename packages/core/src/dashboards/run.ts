@@ -1,6 +1,7 @@
 // Running and validating widgets (ADR 0057). A data widget's SQL is bound (named → positional
 // params), checked by the query.sql validator, and run with row and time limits through
-// `runReadOnlySql`; results are cached for 60 s per query + params + visibility scope.
+// `runReadOnlySql`; results are cached for 60 s per query + params + visibility scope + zone.
+// Date windows and `:today` are the business's day, in the organisation's time zone (ADR 0871).
 import type { CoreDatabase } from "@composable-os/db";
 import type { Kysely } from "kysely";
 import { ValidationError } from "../errors.ts";
@@ -8,6 +9,7 @@ import { getObject } from "../fields/index.ts";
 import type { Filter } from "../filter.ts";
 import type { HandlerContext } from "../operation.ts";
 import { runReadOnlySql, schemaObjectNames, validateReadOnlySql } from "../operations/query.ts";
+import { loadGeneralSettings } from "../settings.ts";
 import { cacheApiWidgetCache, visibilityScope, type WidgetCache, widgetCacheKey } from "./cache.ts";
 import { bindNamedParams, type ParamValues, resolveParams } from "./params.ts";
 import {
@@ -74,12 +76,14 @@ async function runCached(
   bound: { sql: string; params: (string | number | null)[] },
   maxRows: number,
   refresh: boolean,
+  zone: string,
 ) {
   const key = await widgetCacheKey({
     sql: bound.sql,
     params: bound.params,
     maxRows,
     scope: visibilityScope(ctx.user),
+    zone,
   });
   type Stored = Awaited<ReturnType<typeof runReadOnlySql>>;
   if (!refresh) {
@@ -98,7 +102,10 @@ async function runCached(
   return { result, cached: false, cachedAt };
 }
 
-/** Runs one widget with a dashboard's filters set to `values`. */
+/**
+ * Runs one widget with a dashboard's filters set to `values`. `zone` is the organisation's time
+ * zone, read from its settings when the caller has not already.
+ */
 export async function runWidget(
   ctx: Pick<HandlerContext, "db" | "user" | "now" | "widgetCache">,
   options: {
@@ -107,15 +114,18 @@ export async function runWidget(
     values: FilterValues;
     recordId?: string | null;
     refresh?: boolean;
+    zone?: string;
   },
 ): Promise<WidgetResult> {
   const { widget, filters } = options;
+  const zone = options.zone ?? (await loadGeneralSettings(ctx.db)).timezone;
   const resolved = resolveParams({
     filters,
     values: options.values,
     now: new Date(ctx.now),
     userId: ctx.user.id,
     recordId: options.recordId ?? null,
+    zone,
   });
   if (widget.type === "markdown" || !widget.sql) {
     return {
@@ -135,7 +145,7 @@ export async function runWidget(
   const cache = ctx.widgetCache ?? cacheApiWidgetCache();
   const maxRows = maxRowsFor(widget);
   const bound = bindNamedParams(widget.sql, resolved.values, allowed);
-  const current = await runCached(ctx, cache, bound, maxRows, options.refresh ?? false);
+  const current = await runCached(ctx, cache, bound, maxRows, options.refresh ?? false, zone);
 
   let previous: WidgetResult["previous"] = null;
   if (
@@ -145,7 +155,7 @@ export async function runWidget(
     usesDateRange(bound.names, filters)
   ) {
     const prevBound = bindNamedParams(widget.sql, resolved.previous, allowed);
-    const prev = await runCached(ctx, cache, prevBound, maxRows, options.refresh ?? false);
+    const prev = await runCached(ctx, cache, prevBound, maxRows, options.refresh ?? false, zone);
     previous = { rows: prev.result.rows, params: resolved.previous };
   }
   return {

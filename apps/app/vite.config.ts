@@ -11,6 +11,7 @@ import { defineConfig } from "vite";
 import { devSecrets } from "./dev-secrets.ts";
 import { packBlocks } from "./pack-blocks-plugin.ts";
 import pkg from "./package.json" with { type: "json" };
+import { packScreens } from "./screens-plugin.ts";
 import { configuratorSpecs } from "./src/components/integrations/configurator/vite-plugin.ts";
 
 function gitCommit(): string {
@@ -27,6 +28,7 @@ function gitCommit(): string {
 }
 
 const PORT = Number(process.env.PORT ?? 5173);
+const REPO_ROOT = fileURLToPath(new URL("../..", import.meta.url));
 
 /**
  * Local dev's own org extensions (stage 27): the box office fixture, which scripts/dev-setup.mjs
@@ -64,14 +66,23 @@ export default defineConfig(({ command }) => ({
     __APP_COMMIT__: JSON.stringify(gitCommit()),
   },
   plugins: [
-    // Pack web blocks mounted where they sit (development, /blocks and e2e).
-    ...(command === "serve" ? [packBlocks(fileURLToPath(new URL("../..", import.meta.url)))] : []),
+    // Pack web blocks where they sit: the development page (/blocks) and the shipped packs'
+    // staff screens (stage 47), which the production build holds too.
+    packBlocks(REPO_ROOT),
+    // The shipped packs' staff screens, one lazy chunk each (screens-plugin.ts, ADR 0660).
+    packScreens(REPO_ROOT),
     // cos-runner runs in the same local runtime as an auxiliary Worker, so `pnpm dev` starts both
     // and the RUNNER service binding resolves locally.
     cloudflare({
       // scripts/deploy.mjs builds with a generated config that adds the AI bindings (ADR 0150).
       ...(process.env.COS_WRANGLER_CONFIG ? { configPath: process.env.COS_WRANGLER_CONFIG } : {}),
       viteEnvironment: { name: "ssr" },
+      // The e2e suite's dev server (e2e/dev-server.mjs) runs without the inspector. With a session
+      // attached, workerd logs "An RPC result was not disposed properly" with a JS stack trace, and
+      // when that warning fires from a finalizer during garbage collection, building the stack
+      // allocates inside the collection and workerd aborts (a V8 check in GCTracer::StartCycle):
+      // the "Workers runtime crashed unexpectedly" that failed e2e shards in CI.
+      ...(process.env.COS_E2E_DEV_SERVER === "1" ? { inspectorPort: false as const } : {}),
       // Local dev only: declared secrets would otherwise keep optional ones in .dev.vars (provider
       // keys and the like) from reaching the Worker. Builds keep wrangler.jsonc's declaration, so
       // deploys still require BETTER_AUTH_SECRET (dev-secrets.ts, docs/deploying.md).
@@ -94,6 +105,9 @@ export default defineConfig(({ command }) => ({
                   vars: {
                     ...runner.vars,
                     COS_ORG_EXTENSIONS: devOrgExtensions(),
+                    // Local dev delivers some packs as org extensions (dev-setup.mjs); no deploy
+                    // sets this, and the runner ignores it outside a Vite development build.
+                    COS_DEV_ORG_PACKS: "1",
                     // A client-shaped local runner (COS_DEV_PACKS, scripts/dev-setup.mjs).
                     ...(devPacks() ? { COS_PACKS: devPacks() } : {}),
                   },
@@ -108,6 +122,18 @@ export default defineConfig(({ command }) => ({
                     {
                       binding: "GATEKEEPER_PAYMENTS",
                       service: "cos-gatekeeper-payments",
+                      entrypoint: "GatekeeperVendor",
+                    },
+                    // Stage 61: the fake accounting books (packages/gatekeeper-accounting).
+                    {
+                      binding: "GATEKEEPER_ACCOUNTING_FAKE",
+                      service: "cos-gatekeeper-accounting-fake",
+                      entrypoint: "GatekeeperVendor",
+                    },
+                    // Stage 65: the fake booking system (packages/gatekeeper-booking-system).
+                    {
+                      binding: "GATEKEEPER_BOOKING_SYSTEM_FAKE",
+                      service: "cos-gatekeeper-booking-system-fake",
                       entrypoint: "GatekeeperVendor",
                     },
                   ],
@@ -150,6 +176,40 @@ export default defineConfig(({ command }) => ({
                       // Reached only as a facet in production; declared so the local runtime
                       // registers the class.
                       { name: "PAYMENTS_GATEKEEPER", class_name: "PaymentsGatekeeper" },
+                    ],
+                  },
+                }),
+              },
+              {
+                // Development only, never released (its config is wrangler.fake.jsonc).
+                configPath: "../../packages/gatekeeper-accounting/wrangler.fake.jsonc",
+                devOnly: true,
+                config: (books) => ({
+                  durable_objects: {
+                    bindings: [
+                      ...(books.durable_objects?.bindings ?? []),
+                      // Reached only as a facet; declared so the local runtime registers the class.
+                      {
+                        name: "FAKE_ACCOUNTING_GATEKEEPER",
+                        class_name: "FakeAccountingGatekeeper",
+                      },
+                    ],
+                  },
+                }),
+              },
+              {
+                // Development only, never released (its config is wrangler.fake.jsonc).
+                configPath: "../../packages/gatekeeper-booking-system/wrangler.fake.jsonc",
+                devOnly: true,
+                config: (site) => ({
+                  durable_objects: {
+                    bindings: [
+                      ...(site.durable_objects?.bindings ?? []),
+                      // Reached only as a facet; declared so the local runtime registers the class.
+                      {
+                        name: "FAKE_BOOKING_SYSTEM_GATEKEEPER",
+                        class_name: "FakeBookingSystemGatekeeper",
+                      },
                     ],
                   },
                 }),

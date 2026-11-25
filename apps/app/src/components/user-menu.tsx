@@ -17,28 +17,26 @@ import {
 import { LogOut, MailCheck, SunMoon } from "lucide-react";
 import { useState } from "react";
 import { authClient } from "../lib/auth-client.ts";
+import { initials } from "../lib/format.ts";
 import { ConfirmEmailDialog, useEmailStatus } from "./confirm-email.tsx";
 import { type Theme, useTheme } from "./theme.tsx";
-
-function initials(name: string) {
-  return name
-    .split(/\s+/)
-    .filter(Boolean)
-    .slice(0, 2)
-    .map((part) => part[0]?.toUpperCase())
-    .join("");
-}
 
 export function UserMenu({
   principal,
   signOutUrl,
+  confirmEmail = true,
 }: {
   principal: Principal;
   /** Set when sign-out is a plain URL (Cloudflare Access); otherwise Better Auth's API is used. */
   signOutUrl: string | null;
+  /**
+   * Offers confirming the account's email (`user.emailStatus`). False in a fixed-role account's
+   * shell (stage 47), which makes no call its role is refused.
+   */
+  confirmEmail?: boolean;
 }) {
   const { theme, setTheme } = useTheme();
-  const emailStatus = useEmailStatus();
+  const emailStatus = useEmailStatus(confirmEmail);
   const [confirming, setConfirming] = useState(false);
 
   async function signOut() {
@@ -55,7 +53,7 @@ export function UserMenu({
       <DropdownMenuTrigger asChild>
         <Button variant="ghost" className="gap-2 px-2" data-testid="user-menu">
           <Avatar className="size-7">
-            <AvatarFallback>{initials(principal.name) || "?"}</AvatarFallback>
+            <AvatarFallback>{initials(principal.name)}</AvatarFallback>
           </Avatar>
           <span className="hidden text-sm @lg:inline">{principal.name}</span>
         </Button>
@@ -91,7 +89,9 @@ export function UserMenu({
           Sign out
         </DropdownMenuItem>
       </DropdownMenuContent>
-      <ConfirmEmailDialog open={confirming} onClose={() => setConfirming(false)} />
+      {confirmEmail ? (
+        <ConfirmEmailDialog open={confirming} onClose={() => setConfirming(false)} />
+      ) : null}
     </DropdownMenu>
   );
 }

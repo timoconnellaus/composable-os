@@ -1,0 +1,11 @@
+{
+  "name": "native-agreements-due",
+  "pack": null,
+  "skin": "native",
+  "operations": ["me.agreements.due", "me.agreements.accept"],
+  "files": ["before-you-go-on-screen.tsx", "LICENSE"],
+  "dependsOn": ["native-agree", "native-base"],
+  "packages": {
+    "@composable-os/client": "*"
+  }
+}

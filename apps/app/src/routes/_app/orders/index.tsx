@@ -20,7 +20,6 @@ import {
   TableRow,
 } from "@composable-os/ui/components/table";
 import { Tabs, TabsList, TabsTrigger } from "@composable-os/ui/components/tabs";
-import { useInfiniteQuery } from "@tanstack/react-query";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { ShoppingBagIcon } from "lucide-react";
 import { useMemo, useState } from "react";
@@ -29,10 +28,9 @@ import { EmptyState, ErrorState } from "#/components/empty-state";
 import { PageLayout } from "#/components/layout/page-layout";
 import { OrderStateBadge } from "#/components/orders/order-state-badge";
 import { RefundDialog } from "#/components/orders/refund-dialog";
-import { formatDate, formatDateTime } from "#/lib/format";
+import { formatDateTime, formatDueDay } from "#/lib/format";
 import { formatMoney, ORDER_STATE_LABELS, type OrderStateName } from "#/lib/money";
-import { callOp } from "#/lib/operations";
-import { errorMessage, opKey, useOp, useOpMutation } from "#/lib/query";
+import { errorMessage, useInfiniteOp, useOp, useOpMutation } from "#/lib/query";
 
 type OrdersView = "all" | "overdue" | "paid-late";
 const VIEWS: readonly OrdersView[] = ["all", "overdue", "paid-late"];
@@ -127,13 +125,7 @@ function AllOrders({ state }: { state: OrderStateName | null }) {
     sort: { field: "createdAt", direction: "desc" as const },
     limit: 50,
   };
-  const orders = useInfiniteQuery({
-    queryKey: opKey("order.list", input),
-    queryFn: ({ pageParam }) =>
-      callOp("order.list", { ...input, ...(pageParam ? { cursor: pageParam } : {}) }),
-    initialPageParam: undefined as string | undefined,
-    getNextPageParam: (page) => page.nextCursor ?? undefined,
-  });
+  const orders = useInfiniteOp("order.list", input);
   const items = useMemo(() => orders.data?.pages.flatMap((p) => p.items) ?? [], [orders.data]);
 
   if (orders.isPending) return <Loading />;
@@ -249,7 +241,7 @@ function OverdueOrders() {
               </TableCell>
               <TableCell>
                 {order.balanceDueAt ? (
-                  <time dateTime={order.balanceDueAt}>{formatDate(order.balanceDueAt)}</time>
+                  <time dateTime={order.balanceDueAt}>{formatDueDay(order.balanceDueAt)}</time>
                 ) : (
                   ""
                 )}

@@ -6,10 +6,10 @@
 // says what the host reports.
 import type { CoursesHooks } from "@composable-os/pack-courses/client";
 import { day, isLive, PLAN, subscriptionStatus } from "@composable-os/pack-courses/client";
-import { Text } from "react-native";
 import { List } from "../native-base/list.tsx";
 import { Row } from "../native-base/row.tsx";
 import { Screen } from "../native-base/screen.tsx";
+import { Text } from "../native-base/text.tsx";
 
 export function SubscriptionScreen({
   courses,
@@ -22,7 +22,11 @@ export function SubscriptionScreen({
   const offer = offers.data?.offers.find((o) => o.planObject === PLAN);
   return (
     <Screen title="My subscription">
-      {isPending ? <Text accessibilityRole="progressbar">Loading your subscription…</Text> : null}
+      {isPending ? (
+        <Text tone="muted" accessibilityRole="progressbar">
+          Loading your subscription…
+        </Text>
+      ) : null}
       {error ? <Text accessibilityRole="alert">We could not load your subscription.</Text> : null}
       {data ? (
         <List empty="You have no course subscription.">

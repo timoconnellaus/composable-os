@@ -13,6 +13,7 @@
 // fingerprint under DRAFT_KEY, which the pipeline compares on approval).
 import { documentBytes } from "@composable-os/sdk";
 import { CompiledQuery, sql } from "kysely";
+import { clearPublishedTextWrite, publishedTextWrites } from "../content/published-text.ts";
 import { type FieldDiff, valuesEqual } from "../diff.ts";
 import { ConflictError, ValidationError } from "../errors.ts";
 import type { ObjectDefinition, PublishableDefinition } from "../fields/types.ts";
@@ -198,6 +199,7 @@ export function snapshotOf(
   at: string,
 ): { content: Record<string, unknown>; bytes: number; fill: Record<string, unknown> } {
   const { content: fields, slug, date } = object.publishable;
+  assertPublishableState(object, record.values);
   if (slug && empty(record.values[slug])) {
     throw new ValidationError(`${object.label} needs an address (${slug}) to be published`, {
       field: slug,
@@ -223,6 +225,78 @@ export function snapshotOf(
   return { content, bytes, fill };
 }
 
+/**
+ * The state a record is in, when its object publishes only in some (`publishIn`, ADR 0810): null
+ * when it may be published in any.
+ */
+function stateOf(object: ObjectDefinition, values: Record<string, unknown>): string | null {
+  const field = object.states?.field;
+  const value = field ? values[field] : undefined;
+  return typeof value === "string" ? value : null;
+}
+
+/** Whether a record with `values` may be published: in one of the object's `publishIn` states. */
+export function inPublishableState(
+  object: ObjectDefinition,
+  values: Record<string, unknown>,
+): boolean {
+  const states = object.publishable?.publishIn;
+  if (!states) return true;
+  const state = stateOf(object, values);
+  return state !== null && states.includes(state);
+}
+
+/** Refuses a publish of a record outside the object's `publishIn` states (ADR 0810). */
+export function assertPublishableState(
+  object: ObjectDefinition,
+  values: Record<string, unknown>,
+): void {
+  if (inPublishableState(object, values)) return;
+  const states = object.publishable?.publishIn ?? [];
+  throw new ValidationError(
+    `This ${object.label.toLowerCase()} is ${stateOf(object, values) ?? "in no state"}: it can be published only when it is ${states.join(" or ")}`,
+    { field: object.states?.field ?? null, reason: "not_publishable_state", states },
+  );
+}
+
+/**
+ * The statements that unpublish a record its write moves out of the object's `publishIn` states
+ * (ADR 0810), in the write's batch: a withdrawn review leaves the public's reads at once. None
+ * when the write sets no state, or one it may be published in. Idempotent on a record that is not
+ * published, so the write need not read whether it is.
+ */
+export function leavingPublishWrites(
+  object: ObjectDefinition,
+  id: string,
+  written: Record<string, unknown>,
+): CompiledQuery[] {
+  const field = object.states?.field;
+  if (!object.publishable?.publishIn || !field || !Object.hasOwn(written, field)) return [];
+  return inPublishableState(object, written) ? [] : unpublishWrites(object.name, id);
+}
+
+/**
+ * The statement that fails a publish's batch at commit when the record is no longer in one of
+ * the object's `publishIn` states (ADR 0810): the state was read when the publish was planned,
+ * and a withdrawal or consent taken back committed in between would otherwise leave a version
+ * current outside them, which its unpublish never saw (the review of #367). It inserts an
+ * `unmoved` guard that can never hold (a history count is never -1), only when the record's
+ * state is not one of them, so the batch fails as migration 0670's guards do
+ * (`moved_meanwhile`, a conflict: look again). None when the object publishes in any state.
+ */
+export function stillPublishableGuard(
+  ctx: Pick<HandlerContext, "db">,
+  object: ObjectDefinition,
+  id: string,
+): CompiledQuery | null {
+  const states = object.publishable?.publishIn;
+  const column = object.fields.find((f) => f.name === object.states?.field)?.column;
+  if (!states?.length || !column) return null;
+  return sql`INSERT INTO core_write_guard (kind, object_type, record_id, expected) SELECT 'unmoved', ${object.name}, ${id}, -1 WHERE NOT EXISTS (SELECT 1 FROM ${sql.table(object.source)} WHERE id = ${id} AND ${sql.ref(column)} IN (${sql.join(states)}))`.compile(
+    ctx.db,
+  );
+}
+
 /** The number the record's next version takes. */
 export async function nextVersion(ctx: HandlerContext, object: string, id: string) {
   const latest = await sql<{ version: number | null }>`
@@ -234,8 +308,11 @@ export async function nextVersion(ctx: HandlerContext, object: string, id: strin
 
 /**
  * The statements that make `content` the record's current version, numbered `version`, and drop
- * any scheduled publish of it. Racing publishes take the same number: the second batch fails on
- * the key, as a conflict (`published_meanwhile`).
+ * any scheduled publish of it: its media (ADR 0444) and its words in the published-text index
+ * (ADR 0700) follow it in the same batch. `readAgain` is an acknowledged object's choice (ADR
+ * 0702): whether the version asks everyone who must read it to confirm again; null elsewhere.
+ * Racing publishes take the same number: the second batch fails on the key, as a conflict
+ * (`published_meanwhile`).
  */
 export function publishWrites(
   definition: ObjectDefinition,
@@ -248,6 +325,7 @@ export function publishWrites(
     note: string | null;
     requestedBy?: string | null;
     requestedVia?: string | null;
+    readAgain?: boolean | null;
   },
 ): CompiledQuery[] {
   const object = definition.name;
@@ -265,7 +343,7 @@ export function publishWrites(
       [object, id],
     ),
     CompiledQuery.raw(
-      "INSERT INTO core_publish_version (object_type, record_id, version, content, bytes, current, published_at, published_by, note, requested_by, requested_via) VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?)",
+      "INSERT INTO core_publish_version (object_type, record_id, version, content, bytes, current, published_at, published_by, note, requested_by, requested_via, read_again) VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?, ?, ?, ?)",
       [
         object,
         id,
@@ -277,11 +355,16 @@ export function publishWrites(
         by.note,
         by.requestedBy ?? null,
         by.requestedVia ?? null,
+        readAgainColumn(by.readAgain),
       ],
     ),
+    ...publishedTextWrites(definition, id, version, values),
     clearScheduleWrite(object, id),
   ];
 }
+
+const readAgainColumn = (value: boolean | null | undefined) =>
+  value === true ? 1 : value === false ? 0 : null;
 
 /** No version is current: the public reads none of it. The versions are kept. */
 export function unpublishWrites(object: string, id: string): CompiledQuery[] {
@@ -291,6 +374,7 @@ export function unpublishWrites(object: string, id: string): CompiledQuery[] {
       "UPDATE core_publish_version SET current = 0 WHERE object_type = ? AND record_id = ? AND current = 1",
       [object, id],
     ),
+    clearPublishedTextWrite(object, id),
     clearScheduleWrite(object, id),
   ];
 }
@@ -323,10 +407,11 @@ export function scheduleWrite(
     note: string | null;
     requestedBy: string | null;
     requestedVia: string | null;
+    readAgain?: boolean | null;
   },
 ): CompiledQuery {
   return CompiledQuery.raw(
-    "INSERT INTO core_publish_schedule (object_type, record_id, publish_at, content, bytes, note, scheduled_by, scheduled_at, requested_by, requested_via) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (object_type, record_id) DO UPDATE SET publish_at = excluded.publish_at, content = excluded.content, bytes = excluded.bytes, note = excluded.note, scheduled_by = excluded.scheduled_by, scheduled_at = excluded.scheduled_at, requested_by = excluded.requested_by, requested_via = excluded.requested_via",
+    "INSERT INTO core_publish_schedule (object_type, record_id, publish_at, content, bytes, note, scheduled_by, scheduled_at, requested_by, requested_via, read_again) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?) ON CONFLICT (object_type, record_id) DO UPDATE SET publish_at = excluded.publish_at, content = excluded.content, bytes = excluded.bytes, note = excluded.note, scheduled_by = excluded.scheduled_by, scheduled_at = excluded.scheduled_at, requested_by = excluded.requested_by, requested_via = excluded.requested_via, read_again = excluded.read_again",
     [
       object,
       id,
@@ -338,6 +423,7 @@ export function scheduleWrite(
       by.now,
       by.requestedBy,
       by.requestedVia,
+      readAgainColumn(by.readAgain),
     ],
   );
 }
@@ -362,6 +448,7 @@ export async function scheduleOf(ctx: HandlerContext, object: string, id: string
         "content",
         "requested_by",
         "requested_via",
+        "read_again",
       ])
       .where("object_type", "=", object)
       .where("record_id", "=", id)
@@ -379,6 +466,17 @@ export async function currentVersion(ctx: HandlerContext, object: string, id: st
     .where("current", "=", 1)
     .executeTakeFirst();
   return row ? Number(row.version) : null;
+}
+
+/** Whether any scheduled publish is due at `now`: one row of core_publish_schedule's index at most. */
+export async function publishScheduleDue(db: HandlerContext["db"], now: string): Promise<boolean> {
+  const row = await db
+    .selectFrom("core_publish_schedule")
+    .select("record_id")
+    .where("publish_at", "<=", now)
+    .limit(1)
+    .executeTakeFirst();
+  return row !== undefined;
 }
 
 /** Scheduled publishes due at `now`, oldest first. */

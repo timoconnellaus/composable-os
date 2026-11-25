@@ -1,0 +1,16 @@
+{
+  "name": "rostering-patterns",
+  "pack": "rostering",
+  "skin": "web",
+  "operations": [
+    "x.rostering.me",
+    "x.rostering.patterns",
+    "x.rostering.people",
+    "x.rostering.setPattern"
+  ],
+  "files": ["patterns.tsx", "LICENSE"],
+  "dependsOn": ["ui-button"],
+  "packages": {
+    "@composable-os/pack-rostering": "*"
+  }
+}

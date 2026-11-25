@@ -1,5 +1,5 @@
 // The Stripe provider: Checkout Sessions for payment, Refunds for refunds, and the Stripe webhook
-// for confirmation. Plain fetch against the REST API with form-encoded bodies. No Stripe-Version is
+// for confirmation; Terminal's server-driven readers for payments in person (stage 50, ADR 0774). Plain fetch against the REST API with form-encoded bodies. No Stripe-Version is
 // pinned: the account's default API version applies (see README.md).
 //
 // Nothing here logs: request bodies carry order details and emails, responses carry customer data,
@@ -19,11 +19,17 @@ import { SUBSCRIPTION_STATUSES, subscriptionEvent } from "./subscription-shape.j
 import type {
   PaymentsCancelSubscriptionInput,
   PaymentsChangeSubscriptionInput,
+  PaymentsCustomerEmailInput,
   PaymentsEvent,
   PaymentsInvoice,
   PaymentsPauseSubscriptionInput,
   PaymentsPayment,
   PaymentsPortalInput,
+  PaymentsPresentInput,
+  PaymentsReader,
+  PaymentsReaderAddress,
+  PaymentsRegisterReaderInput,
+  PaymentsRemoveReaderInput,
   PaymentsResumeSubscriptionInput,
   PaymentsSubscription,
   PaymentsSubscriptionStatus,
@@ -377,7 +383,11 @@ export class StripeProvider implements PaymentProvider {
 
   async cancelSubscription(input: PaymentsCancelSubscriptionInput): Promise<void> {
     const path = `/v1/subscriptions/${encodeURIComponent(input.subscriptionRef)}`;
-    const key = `cos-cancel-${input.subscriptionId}-${input.when}`;
+    // One key per subscription and `when` (staff's "end it now"), or per ask when the caller
+    // gives one (a cooling off's: a member trying again is a new request, not a replay).
+    const key = input.askKey
+      ? `cos-cancel-${input.subscriptionId}-${input.when}-${input.askKey}`
+      : `cos-cancel-${input.subscriptionId}-${input.when}`;
     if (input.when === "now") {
       // Nothing is invoiced or credited for the rest of the period: a refund is its own step.
       const form = new URLSearchParams();
@@ -738,6 +748,21 @@ export class StripeProvider implements PaymentProvider {
   }
 
   /**
+   * The customer's new email (stage 48, ADR 0712): Stripe sends its receipts and its own emails
+   * there from now on. One request per address change (the idempotency key is the change's id).
+   */
+  async updateCustomerEmail(input: PaymentsCustomerEmailInput): Promise<void> {
+    const form = new URLSearchParams();
+    form.set("email", input.email);
+    await this.#change(
+      "POST",
+      `/v1/customers/${encodeURIComponent(input.customerRef)}`,
+      form,
+      `cos-email-${input.changeId}-${input.customerRef}`,
+    );
+  }
+
+  /**
    * The current subscription (and invoice) a verified event names, read now (ADR 0485). Null when
    * the subscription cannot be read in a shape this understands.
    */
@@ -870,6 +895,197 @@ export class StripeProvider implements PaymentProvider {
       lines.push({ ref, amount });
     }
     return lines;
+  }
+
+  // --- In-person payments (stage 50, ADR 0774) ------------------------------------------------
+  // Terminal's server-driven integration (docs.stripe.com/terminal/payments/setup-integration,
+  // server-driven; read 2026-11-24): a reader registered to a Location, a PaymentIntent of type
+  // `card_present` handed to it with `process_payment_intent`, the outcome by webhook. No
+  // Stripe-Version is pinned here: the account's default applies, as for checkouts. To verify in
+  // test mode with a simulated reader before a real one (the stage's step 10).
+
+  /**
+   * Registers a reader at the business's address: a Terminal Location made once per address,
+   * then the reader with the code it shows. A refusal (a wrong or used code, an address Stripe
+   * will not take) registered nothing. Any other failure is retryable: both calls carry
+   * idempotency keys, so applying again makes no second location or reader.
+   */
+  async registerReader(input: PaymentsRegisterReaderInput): Promise<PaymentsReader> {
+    const location = await this.#terminal(
+      () => this.#terminalLocation(input.locationName, input.address),
+      "register the reader",
+    );
+    const form = new URLSearchParams();
+    form.set("registration_code", input.registrationCode);
+    form.set("label", input.label);
+    form.set("location", location);
+    form.set("metadata[cos_reader]", input.readerId);
+    const key = await readerKey(input);
+    const { body } = await this.#terminal(
+      () => this.#call("POST", "/v1/terminal/readers", form, key),
+      "register the reader",
+    );
+    const reader = stripeReaderRead(body);
+    if (!reader) throw new Error("Stripe answered the reader without an id.");
+    return reader;
+  }
+
+  async listReaders(): Promise<PaymentsReader[]> {
+    const { body } = await this.#call(
+      "GET",
+      "/v1/terminal/readers?limit=100",
+      undefined,
+      undefined,
+    );
+    const data = Array.isArray(body.data) ? body.data : [];
+    return data.flatMap((row) => {
+      const reader = stripeReaderRead(metadataOf(row));
+      return reader ? [reader] : [];
+    });
+  }
+
+  /**
+   * Deletes the reader, once it is read to be the host's reader of that id (the approver was shown
+   * both ids). One Stripe no longer has (`resource_missing`) is already removed.
+   */
+  async removeReader(input: PaymentsRemoveReaderInput): Promise<void> {
+    const path = `/v1/terminal/readers/${encodeURIComponent(input.readerRef)}`;
+    try {
+      const { body } = await this.#terminal(
+        () => this.#call("GET", path, undefined, undefined),
+        "read the reader",
+      );
+      if (body.deleted === true) return;
+      if (stringOrNull(metadataOf(body.metadata).cos_reader) !== input.readerId) {
+        throw new ActionApplyError(
+          `Stripe's reader ${input.readerRef} is not reader ${input.readerId}, so nothing was removed.`,
+        );
+      }
+      await this.#terminal(
+        () => this.#call("DELETE", path, undefined, undefined),
+        "remove the reader",
+      );
+    } catch (error) {
+      if (error instanceof ActionApplyError && error.message.includes("resource_missing")) return;
+      throw error;
+    }
+  }
+
+  /**
+   * A `card_present` PaymentIntent for the amount, then handed to the reader. The intent's
+   * idempotency key is the presentation's, so a retry within Stripe's 24 hours finds the same
+   * intent (Stripe replays the first answer, so it reads as unpaid). Handing it to the reader again
+   * is then refused if it was paid, and the intent read now says so: answered `paid`. One intent is
+   * paid at most once, so a retry never charges twice. The reader's call carries no key: a decline
+   * leaves the intent unpaid and the same presentation may be tried again.
+   */
+  async presentPayment(
+    input: PaymentsPresentInput,
+  ): Promise<{ ref: string; readerRef: string; status: "presented" | "paid" }> {
+    const form = new URLSearchParams();
+    form.set("amount", String(input.amount));
+    form.set("currency", input.currency.toLowerCase());
+    form.set("payment_method_types[0]", "card_present");
+    form.set("capture_method", "automatic");
+    form.set("description", input.description);
+    form.set("metadata[order_id]", input.orderId);
+    form.set("metadata[cos_reader]", input.readerRef);
+    const { body: intent } = await this.#call(
+      "POST",
+      "/v1/payment_intents",
+      form,
+      `${input.idempotencyKey}:intent`,
+    );
+    const ref = stringOrNull(intent.id);
+    if (ref === null) throw new Error("Stripe answered the payment without an id.");
+    const answer = (status: "presented" | "paid") => ({ ref, readerRef: input.readerRef, status });
+    const process = new URLSearchParams();
+    process.set("payment_intent", ref);
+    try {
+      await this.#call(
+        "POST",
+        `/v1/terminal/readers/${encodeURIComponent(input.readerRef)}/process_payment_intent`,
+        process,
+        undefined,
+      );
+      return answer("presented");
+    } catch (error) {
+      if (!(error instanceof StripeCallError) || error.outcome !== "refused") throw error;
+      // A retry after a timeout: the reader may already show this payment, or it may have been paid.
+      const { body: reader } = await this.#call(
+        "GET",
+        `/v1/terminal/readers/${encodeURIComponent(input.readerRef)}`,
+        undefined,
+        undefined,
+      );
+      const action = metadataOf(reader.action);
+      const onReader = idOf(metadataOf(action.process_payment_intent).payment_intent);
+      if (onReader === ref && action.status === "in_progress") return answer("presented");
+      const { body: again } = await this.#call(
+        "GET",
+        `/v1/payment_intents/${encodeURIComponent(ref)}`,
+        undefined,
+        undefined,
+      );
+      if (again.status === "succeeded") return answer("paid");
+      if (error.code === "terminal_reader_busy") {
+        throw new Error("The reader is busy with another payment: cancel it on the reader first.");
+      }
+      throw new Error(`Stripe refused the payment on the reader: ${error.message}`);
+    }
+  }
+
+  async cancelPresented(readerRef: string): Promise<void> {
+    await this.#call(
+      "POST",
+      `/v1/terminal/readers/${encodeURIComponent(readerRef)}/cancel_action`,
+      new URLSearchParams(),
+      undefined,
+    );
+  }
+
+  /** The Terminal Location of an address, made once and then reused from the facet's store. */
+  async #terminalLocation(name: string, address: PaymentsReaderAddress): Promise<string> {
+    const key = `terminal-location:${JSON.stringify([name, address.country, address.line1, address.city, address.postcode, address.region ?? ""])}`;
+    const cached = this.#options.store?.get(key);
+    if (cached) return cached;
+    const form = new URLSearchParams();
+    form.set("display_name", name);
+    form.set("address[country]", address.country);
+    form.set("address[line1]", address.line1);
+    form.set("address[city]", address.city);
+    form.set("address[postal_code]", address.postcode);
+    if (address.region) form.set("address[state]", address.region);
+    const { body } = await this.#call(
+      "POST",
+      "/v1/terminal/locations",
+      form,
+      await idempotencyOf(key),
+    );
+    const id = stringOrNull(body.id);
+    if (id === null) throw new Error("Stripe answered the location without an id.");
+    this.#options.store?.put(key, id);
+    return id;
+  }
+
+  /**
+   * A reader action's call: a refusal changed nothing (`ActionApplyError`); anything else may be
+   * applied again, since its calls are idempotent or say what they found.
+   */
+  async #terminal<T>(call: () => Promise<T>, what: string): Promise<T> {
+    try {
+      return await call();
+    } catch (error) {
+      if (error instanceof StripeCallError && error.outcome === "refused") {
+        throw new ActionApplyError(
+          `Stripe refused to ${what}, so nothing changed: ${error.message}${error.code ? ` (${error.code})` : ""}`,
+        );
+      }
+      throw new Error(
+        `Stripe did not answer when asked to ${what}; applying it again is safe` +
+          (error instanceof Error ? ` (${error.message})` : "."),
+      );
+    }
   }
 
   /** The tax location (type `performance`) of an event's address, made once and then reused. */
@@ -1011,6 +1227,39 @@ export function sessionToPayment(session: Record<string, unknown>, ref: string):
     paymentRef: idOf(session.payment_intent),
   };
 }
+
+/**
+ * The idempotency key of a reader's registration: one per host id and pairing code. Applying the
+ * same registration again is the same request; a new code for the same id (a mistyped one, or a
+ * reader removed and registered again) is a new one, which Stripe would otherwise refuse as a key
+ * reused with other parameters. Only a hash of the code is sent in the key.
+ */
+async function readerKey(input: PaymentsRegisterReaderInput): Promise<string> {
+  return `cos-reader-${input.readerId}-${(await idempotencyOf(input.registrationCode)).slice(0, 16)}`;
+}
+
+/** A Terminal Reader as a PaymentsReader, or null without an id. */
+export function stripeReaderRead(body: Record<string, unknown>): PaymentsReader | null {
+  const ref = stringOrNull(body.id);
+  if (ref === null) return null;
+  const status = body.status;
+  const readerId = stringOrNull(metadataOf(body.metadata).cos_reader);
+  return {
+    provider: "stripe",
+    ref,
+    readerId: readerId && /^[A-Za-z0-9_-]{1,64}$/.test(readerId) ? readerId : null,
+    label: (stringOrNull(body.label) ?? ref).slice(0, 64),
+    locationRef: idOf(body.location),
+    status: status === "online" || status === "offline" ? status : null,
+    deviceType: stringOrNull(body.device_type)?.slice(0, 60) ?? null,
+  };
+}
+
+/**
+ * Reader action failure codes that mean the action was cancelled (by the buyer on the reader, or
+ * by `cancel_action`) rather than failed. To verify in test mode against a simulated reader.
+ */
+const READER_CANCEL_CODES = new Set(["customer_canceled", "canceled"]);
 
 /** A taxed payment whose tax Stripe did not report: answered 500, so Stripe delivers it again. */
 export class StripeTaxReportError extends Error {}
@@ -1253,6 +1502,47 @@ export function mapStripeEvent(
       amount,
       currency,
       paymentRef: idOf(object.payment_intent),
+      occurredAt,
+    };
+  }
+
+  // A card-present payment on a reader (stage 50, ADR 0774). A web checkout's PaymentIntent
+  // succeeds too, and is reported by its session above, so only a `card_present` one is read here.
+  // Its own id is both the reference the host stored when it presented and the payment's.
+  const methods = Array.isArray(object.payment_method_types) ? object.payment_method_types : [];
+  if (type === "payment_intent.succeeded" && methods.includes("card_present")) {
+    const orderId = stringOrNull(metadata.order_id);
+    const ref = stringOrNull(object.id);
+    const amount = nonNegativeInteger(object.amount_received);
+    const currency = currencyOf(object.currency);
+    if (orderId === null || ref === null || amount === null || currency === null) return null;
+    return {
+      kind: "payment",
+      provider: "stripe",
+      eventId,
+      orderId,
+      checkoutRef: ref,
+      amount,
+      currency,
+      paymentRef: ref,
+      occurredAt,
+    };
+  }
+
+  if (type === "terminal.reader.action_failed") {
+    const readerRef = stringOrNull(object.id);
+    const action = metadataOf(object.action);
+    if (readerRef === null || action.type !== "process_payment_intent") return null;
+    const code = stringOrNull(action.failure_code);
+    const failureCode = code && /^[a-z_]{1,60}$/.test(code) ? code : null;
+    return {
+      kind: "reader",
+      provider: "stripe",
+      eventId,
+      readerRef,
+      checkoutRef: idOf(metadataOf(action.process_payment_intent).payment_intent),
+      outcome: failureCode && READER_CANCEL_CODES.has(failureCode) ? "cancelled" : "failed",
+      failureCode,
       occurredAt,
     };
   }

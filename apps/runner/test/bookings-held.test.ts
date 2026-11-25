@@ -2,11 +2,11 @@
 // #256's second round). With 500 sends waiting for a person at the email-send sender (its most),
 // a class the gym cancels starts its run: the gatekeeper refuses the send as back-pressure
 // (`rate_limited`), the run waits (held, the admins told) rather than failing, and once the queue
-// has room its emails are queued, each member's once. Its own file: it fills a sender's queue.
+// has room its emails are sent, each member's once (routine email, ADR 0590). Its own file: it fills
+// a sender's queue.
 import { env } from "cloudflare:workers";
 import {
   type ActingUser,
-  type ExtensionHost,
   type InvocationContext,
   invokeByName,
   refreshSchemaRegistry,
@@ -15,56 +15,8 @@ import { beforeAll, describe, expect, it, vi } from "vitest";
 import { HELD_REASON } from "../src/automations/run.ts";
 import { integrationRuntime } from "../src/integrations/runtime.ts";
 import { setPreset } from "./automation-fixture.ts";
-import { createAdmin, db, host, unique } from "./helpers.ts";
-
-const packFiles = (glob: Record<string, string>) =>
-  Object.fromEntries(
-    Object.entries(glob)
-      .map(([path, text]) => [path.split("/").pop() as string, text] as const)
-      .filter(([name]) => name !== "vitest.config.ts"),
-  );
-const files: Record<string, Record<string, string>> = {
-  programs: packFiles(
-    import.meta.glob<string>("../../../packs/programs/*.ts", {
-      query: "?raw",
-      import: "default",
-      eager: true,
-    }),
-  ),
-  bookings: packFiles(
-    import.meta.glob<string>("../../../packs/bookings/*.ts", {
-      query: "?raw",
-      import: "default",
-      eager: true,
-    }),
-  ),
-  memberships: packFiles(
-    import.meta.glob<string>("../../../packs/memberships/*.ts", {
-      query: "?raw",
-      import: "default",
-      eager: true,
-    }),
-  ),
-};
-const OURS = new Set(Object.keys(files));
-const shippedHost: ExtensionHost = {
-  ...host,
-  shipped: async () => [
-    ...(await host.shipped()).filter((s) => !OURS.has(s.id)),
-    { id: "bookings", version: "0.1.0" },
-    { id: "memberships", version: "0.1.0" },
-    { id: "programs", version: "0.1.0" },
-  ],
-  commitShipped: (id) =>
-    files[id]
-      ? host.commit({
-          id,
-          files: files[id] as Record<string, string>,
-          message: `Shipped ${id} 0.1.0`,
-          author: { name: "Composable OS", email: "release@composableos.dev" },
-        })
-      : host.commitShipped(id),
-};
+import { createAdmin, db, unique } from "./helpers.ts";
+import { gymHost as shippedHost } from "./pack-files.ts";
 
 const integrations = integrationRuntime(env);
 const HOUR = 3_600_000;
@@ -109,6 +61,8 @@ beforeAll(async () => {
     id: connectionId,
     url: `email-send://sender/${encodeURIComponent("held@example.com")}`,
   });
+  // Routine email turned on by a human admin (ADR 0590, D1).
+  await run("routineMail.settings.update", { packs: { bookings: true } });
   await run("automation.bindConnection", {
     id: "bookings.classCancelled",
     slot: "mail",
@@ -188,14 +142,21 @@ describe("a full approval queue (ADR 0573)", () => {
     for (let i = 0; i < filler.length; i += 100) {
       await run("approval.reject", { actionIds: filler.slice(i, i + 100) });
     }
-    // On its next try (30 seconds on) the run queues each member's email, once.
+    // On its next try (30 seconds on) the run sends each member's email, once: routine email
+    // (ADR 0590) goes on its own once the sender has room.
     await vi.waitFor(
       async () => {
         for (const email of emails) {
-          expect(await pendingIds("input LIKE ?", `%${email}%`)).toHaveLength(1);
+          const rows = await env.DB.prepare(
+            "SELECT status FROM core_routine_mail WHERE kind = 'bookings.cancellation' AND recipient = ?",
+          )
+            .bind(email)
+            .all<{ status: string }>();
+          expect(rows.results).toEqual([{ status: "sent" }]);
         }
       },
       { timeout: 120_000, interval: 1_000 },
     );
+    for (const email of emails) expect(await pendingIds("input LIKE ?", `%${email}%`)).toEqual([]);
   }, 600_000);
 });

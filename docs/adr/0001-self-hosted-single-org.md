@@ -22,3 +22,8 @@ kept: one organisation's data is one database, the isolation boundary is that da
 table has a tenant id. A self-hosted install, and a client in its own Cloudflare account, is still
 one deployment for one organisation, as described here.
 
+## Amended 2026-11-24: locations inside the one organisation
+Stage 64 ([ADR 0910](0910-locations-a-base-record-inside-the-one-organisation.md)) adds
+**locations**: the places one organisation works from (a gym's second studio), as a base record
+inside it. A location is never a tenant: nothing is keyed by it, and the deployment stays the
+isolation boundary. Separately owned businesses that share a brand are still separate deployments.

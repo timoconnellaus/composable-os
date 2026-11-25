@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
+  appBuild,
   type ClientProductDefinition,
   clientLocation,
   clientNames,
   clientWeb,
+  contrastRatio,
   defineClientProduct,
   defineProduct,
   deployedName,
@@ -11,6 +13,7 @@ import {
   environmentNames,
   LOCAL_PREFIX,
   LOCATION_HINTS,
+  mobileRole,
   type ProductDefinition,
 } from "../src/index.ts";
 import { loadProduct, productAlias, productFile } from "../src/node.ts";
@@ -156,6 +159,20 @@ describe("a client product's environments (ADR 0450)", () => {
     expect(() =>
       defineClientProduct({ ...gym, environments: undefined, gatekeepers: fake }),
     ).toThrow(/the product is live/);
+    // The fake text provider likewise (ADR 0672): a live host texts through a real account only.
+    const fakeText = { text: { TEXT_PROVIDER: "fake", TEXT_SENDER_NUMBER: "+61400000999" } };
+    expect(() =>
+      defineClientProduct({
+        ...gym,
+        environments: { staging: { gatekeepers: fakeText }, live: {} },
+      }),
+    ).toThrow(/environment staging is live and turns on the fake text provider/);
+    expect(
+      defineClientProduct({
+        ...gym,
+        environments: { staging: { live: false, gatekeepers: fakeText }, live: {} },
+      }),
+    ).toBeTruthy();
     expect(() => defineClientProduct({ ...gym, environments: { live: { live: false } } })).toThrow(
       /cannot be marked live: false/,
     );
@@ -186,5 +203,159 @@ describe("a client product's environments (ADR 0450)", () => {
         environments: { staging: { location: "au" }, live: {} },
       }),
     ).toThrow(/environments\.staging\.location/);
+  });
+});
+
+describe("the mobile app's pack roles (ADRs 0451 and 0600)", () => {
+  const gym: ClientProductDefinition = {
+    id: "gym",
+    label: "Gym",
+    platform: { version: "1.0.0", release: "crm", repository: "example/platform" },
+    packs: ["programs", "bookings", "rostering"],
+    mobile: { dir: "apps/mobile" },
+  };
+  const withRoles = (roles: NonNullable<ClientProductDefinition["mobile"]>["roles"]) => ({
+    ...gym,
+    mobile: { dir: "apps/mobile", roles },
+  });
+
+  it("takes a role by name, or with the grants its staff are given (stage 45 step 7)", () => {
+    expect(mobileRole("rostering.team")).toEqual({ role: "rostering.team", grants: [] });
+    expect(mobileRole({ role: "bookings.coach", grants: ["rostering:roster"] })).toEqual({
+      role: "bookings.coach",
+      grants: ["rostering:roster"],
+    });
+    const ok = withRoles([
+      "rostering.team",
+      { role: "bookings.coach", grants: ["rostering:roster"] },
+    ]);
+    expect(defineClientProduct(ok)).toBe(ok);
+  });
+
+  it("refuses a grant that is not <pack>:<name>, one of a pack it does not list, and a role twice", () => {
+    expect(() =>
+      defineClientProduct(withRoles([{ role: "bookings.coach", grants: ["roster"] }])),
+    ).toThrow(/is not <pack>:<permission>/);
+    expect(() =>
+      defineClientProduct(withRoles([{ role: "bookings.coach", grants: ["ticketing:door"] }])),
+    ).toThrow(/which packs does not list/);
+    expect(() =>
+      defineClientProduct(
+        withRoles(["bookings.coach", { role: "bookings.coach", grants: ["rostering:roster"] }]),
+      ),
+    ).toThrow(/listed twice/);
+  });
+});
+
+describe("the mobile app's identity in the stores (stage 63, ADR 0900)", () => {
+  const app = {
+    name: "Example Gym",
+    version: "1.0.0",
+    ids: { ios: "com.example.gym", android: "com.example.gym" },
+    icon: "apps/mobile/assets/icon.png",
+    splash: { image: "apps/mobile/assets/splash.png", background: "#101010" },
+    colours: { primary: "#e11d48", background: "#ffffff", text: "#18181b" },
+    listing: "apps/mobile/store",
+    purchases: "none" as const,
+  };
+  const gym: ClientProductDefinition = {
+    id: "gym",
+    label: "Gym",
+    platform: { version: "1.0.0", release: "crm", repository: "example/platform" },
+    packs: [],
+    web: { dir: "apps/web", worker: "gym-web" },
+    mobile: { dir: "apps/mobile", app },
+    environments: {
+      staging: {
+        live: false,
+        hostname: "admin.staging.gym.example",
+        web: { hostname: "staging.gym.example" },
+        mobile: {
+          scheme: "gym-staging",
+          app: {
+            name: "Gym (staging)",
+            ids: { ios: "com.example.gym.staging", android: "com.example.gym.staging" },
+          },
+        },
+      },
+      live: { hostname: "admin.gym.example", web: { hostname: "gym.example" } },
+    },
+  };
+  const change = (edit: (p: ClientProductDefinition) => void): ClientProductDefinition => {
+    const copy = structuredClone(gym);
+    edit(copy);
+    return copy;
+  };
+
+  it("gives staging and live their own name, ids, scheme and host from product.ts (criterion 1)", () => {
+    expect(defineClientProduct(gym)).toBe(gym);
+    const staging = appBuild(gym, "staging");
+    const live = appBuild(gym, "live");
+    expect(staging).toMatchObject({
+      environment: "staging",
+      name: "Gym (staging)",
+      slug: "gym-staging",
+      scheme: "gym-staging",
+      version: "1.0.0",
+      hostUrl: "https://admin.staging.gym.example",
+      websiteUrl: "https://staging.gym.example/account",
+      store: { ids: { ios: "com.example.gym.staging" }, icon: app.icon, purchases: "none" },
+    });
+    expect(live).toMatchObject({
+      environment: "live",
+      name: "Example Gym",
+      slug: "gym",
+      scheme: "gym",
+      hostUrl: "https://admin.gym.example",
+      websiteUrl: "https://gym.example/account",
+      store: { ids: app.ids, colours: app.colours },
+    });
+  });
+
+  it("asks which environment when there are several, and has no host address without a hostname", () => {
+    expect(() => appBuild(gym)).toThrow(/name the app's environment \(live, staging\)/);
+    expect(() => appBuild(gym, "test")).toThrow(/it has no test/);
+    const single = defineClientProduct({ ...gym, environments: undefined });
+    expect(appBuild(single)).toMatchObject({ environment: "live", hostUrl: null, slug: "gym" });
+    expect(() => appBuild(single, "staging")).toThrow(/declares no environments/);
+    // Before mobile.app is given: the product's label and scheme, and no store identity.
+    const plain = defineClientProduct({ ...single, mobile: { dir: "apps/mobile" } });
+    expect(appBuild(plain)).toMatchObject({ name: "Gym", scheme: "gym", store: null });
+  });
+
+  it("refuses ids or schemes two environments share, bad ids, colours, names and purchases (criterion 2)", () => {
+    const refused: [(p: ClientProductDefinition) => void, RegExp][] = [
+      [
+        (p) => delete p.environments?.staging?.mobile?.app?.ids,
+        /have the same ios id com.example.gym/,
+      ],
+      [(p) => delete p.environments?.staging?.mobile?.scheme, /have the same scheme gym/],
+      [(p) => ((p.mobile as { app: typeof app }).app.ids.ios = "gym"), /not reverse-domain/],
+      [
+        (p) => ((p.mobile as { app: typeof app }).app.ids.android = "com.example.my-gym"),
+        /Android app's id "com.example.my-gym"/,
+      ],
+      [(p) => ((p.mobile as { app: typeof app }).app.colours.text = "#eeeeee"), /not readable/],
+      [(p) => ((p.mobile as { app: typeof app }).app.colours.primary = "red"), /#rrggbb/],
+      [(p) => ((p.mobile as { app: typeof app }).app.name = "A".repeat(31)), /1 to 30/],
+      [(p) => ((p.mobile as { app: typeof app }).app.version = "1.0"), /x.y.z/],
+      [
+        (p) => (((p.mobile as { app: unknown }).app as { purchases: string }).purchases = "store"),
+        /purchases must be "none"/,
+      ],
+      [
+        (p) => delete (p.mobile as { app?: unknown }).app,
+        /environments.staging.mobile.app changes mobile.app/,
+      ],
+    ];
+    for (const [edit, message] of refused) {
+      expect(() => defineClientProduct(change(edit))).toThrow(message);
+    }
+  });
+
+  it("measures contrast as WCAG does", () => {
+    expect(contrastRatio("#000000", "#ffffff")).toBeCloseTo(21, 5);
+    expect(contrastRatio("#ffffff", "#ffffff")).toBe(1);
+    expect(contrastRatio("#767676", "#ffffff")).toBeGreaterThan(4.5);
   });
 });

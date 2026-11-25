@@ -1,0 +1,11 @@
+{
+  "name": "rostering-checklists",
+  "pack": "rostering",
+  "skin": "web",
+  "operations": ["x.rostering.me", "x.rostering.checklistRuns", "x.rostering.checklistCorrect"],
+  "files": ["checklists.tsx", "LICENSE"],
+  "dependsOn": ["ui-button"],
+  "packages": {
+    "@composable-os/pack-rostering": "*"
+  }
+}

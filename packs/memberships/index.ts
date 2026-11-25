@@ -21,10 +21,13 @@
 //     (`recurring.pause`): the host's `subscription.change` and `subscription.pause`, asked of the
 //     provider, followed from its verified events (ADRs 0530, 0531). The membership's terms follow
 //     the plan when the change takes effect; while paused it gives and spends nothing;
+//   - a new member may end their membership in the business's cooling-off period
+//     (`recurring.coolingOff`, the `coolingOffDays` setting, ADR 0647): the host's
+//     `subscription.coolOff`, every paid period owed back, each refund approved by a person;
 //   - every term of a membership or a pass is read-only: only the host (and this pack's own staff
 //     tools, which a person calls) writes it, never a caller of the generic record operations.
 // The tools in tools.ts compose the host's operations and hold no rule of their own.
-import { defineExtension } from "@composable-os/sdk";
+import { type AgreementsSpec, defineExtension } from "@composable-os/sdk";
 import { membershipsDashboards } from "./dashboards.ts";
 import { buy, givePass, holdings, mine, passTypes, plans, voidPass } from "./tools.ts";
 
@@ -38,6 +41,29 @@ const WEEKDAYS = [
   { value: "6", label: "Saturday" },
   { value: "7", label: "Sunday" },
 ];
+
+const PER = [
+  { value: "week", label: "A week" },
+  { value: "month", label: "A month" },
+];
+
+/**
+ * Gym dues (the provider's "Fitness Centers - Dues and Membership Fees"): taxed only once a human
+ * admin turns tax on (ADR 0479). Whether the provider needs the gym's address as the place is an
+ * open check of the test-mode runbook.
+ */
+const GYM_DUES = { code: "txcd_50021001" };
+
+/**
+ * Where agreement may be needed (stage 44, ADR 0641): the business attaches its documents (its
+ * terms, a waiver) to "membership"; nothing is needed until it does. The plans and passes blocks
+ * show what is due and let a person agree (stage 44 step 5).
+ */
+const BUYING = {
+  point: "membership",
+  label: "Buying a membership or a pass",
+  suggests: ["terms", "waiver", "health", "guardian"],
+} satisfies AgreementsSpec;
 
 const ON_SALE = [
   { value: "draft", label: "Draft" },
@@ -125,16 +151,10 @@ export default defineExtension({
   requires: ["programs"],
   permissions: {
     read: ["person", "programs.classtype"],
+    // record.* and my.* are not listed: they are granted by object (Memberships' own, and the
+    // read list above), and a listed one would reach every object.
     operations: [
       "public.list",
-      "public.get",
-      "my.list",
-      "my.get",
-      "record.create",
-      "record.update",
-      "record.get",
-      "record.list",
-      "allowance.get",
       "allowance.list",
       "order.start",
       // The member's own id and the children staff linked to them (ADR 0540).
@@ -175,10 +195,7 @@ export default defineExtension({
           label: "Per",
           required: true,
           default: "week",
-          options: [
-            { value: "week", label: "A week" },
-            { value: "month", label: "A month" },
-          ],
+          options: PER,
         },
         ...limits(false),
         trialDays: {
@@ -225,16 +242,18 @@ export default defineExtension({
       },
       sellable: {
         price: "price",
-        // Gym dues (the provider's "Fitness Centers - Dues and Membership Fees"): taxed only once
-        // a human admin turns tax on (ADR 0479). Whether the provider needs the gym's address as
-        // the place is an open check of the test-mode runbook.
-        tax: { code: "txcd_50021001" },
+        tax: GYM_DUES,
+        // In the finance reports (ADR 0792): a paid period is earned day by day over it.
+        finance: { category: { key: "memberships", label: "Memberships" }, earned: "over_period" },
         recurring: {
           interval: "month",
           trialDays: "trialDays",
           // Staff pause a membership for a set time (decision 10, ADR 0531): nothing charged, no
           // classes, until the provider resumes it on its date.
           pause: { minDays: "pauseMinDays", maxDays: "pauseMaxDays" },
+          // A new member may end it within the business's cooling-off days for a full refund,
+          // each refund approved by a person (stage 44 step 7, decision 11, ADR 0647).
+          coolingOff: { setting: "coolingOffDays" },
           // What a subscription to it gives its holder, kept in step by the host (ADR 0510).
           grants: {
             object: "membership",
@@ -264,6 +283,8 @@ export default defineExtension({
           },
         },
       },
+      // The host asks when a subscription to a plan or an order for a pass type starts (ADR 0644).
+      agreements: { ...BUYING, inlineStep: true },
     },
     membership: {
       label: "Membership",
@@ -293,10 +314,7 @@ export default defineExtension({
           type: "select",
           label: "Per",
           readOnly: true,
-          options: [
-            { value: "week", label: "A week" },
-            { value: "month", label: "A month" },
-          ],
+          options: PER,
         },
         ...limits(true),
         from: { type: "datetime", label: "From", readOnly: true },
@@ -417,7 +435,7 @@ export default defineExtension({
       },
       sellable: {
         price: "price",
-        tax: { code: "txcd_50021001" },
+        tax: GYM_DUES,
         grants: {
           object: "pass",
           set: {
@@ -435,7 +453,11 @@ export default defineExtension({
           valid: { from: "from", until: "until", days: "item.validDays" },
         },
         onePerPerson: "onePerPerson",
+        // In the finance reports (ADR 0792, decision 4): earned class by class as the pass is
+        // used, the rest when it expires.
+        finance: { category: { key: "passes", label: "Class passes" }, earned: "per_use" },
       },
+      agreements: { ...BUYING, inlineStep: true },
     },
     pass: {
       label: "Pass",
@@ -491,6 +513,10 @@ export default defineExtension({
           { from: "active", to: "void", by: ["host"], tools: ["voidPass"], final: true },
         ],
       },
+      // A pass given by staff by hand (givePass) starts a pass as buying one does: the same point,
+      // asked by the engine when a caller makes one (stage 44, ADR 0644). A pass a paid order
+      // grants is the host's, asked when the order started.
+      agreements: { ...BUYING, enter: ["active"], person: "person", inlineStep: true },
       // As a membership: their own, and a linked child's for a guardian, read only (ADR 0540).
       customer: {
         field: "person",
@@ -623,6 +649,85 @@ export default defineExtension({
   // Giving or voiding a pass by hand: a person on the staff, with this permission, which admins
   // and members hold and a human admin may grant to anyone else (ADR 0449).
   grantable: ["memberships:passes"],
+  // What a journey can start or stop on (stage 53, ADR 0802): the host records the last time each
+  // member had each, in the write's batch. A trial that turns into a paid membership is not a
+  // trial ended: that is the member joining. A payment caught up, or a pause ended, is neither.
+  journeySignals: {
+    started: {
+      label: "Membership started",
+      description: "A membership begins, on trial or paid.",
+      object: "membership",
+    },
+    joined: {
+      label: "Joined after a trial",
+      description: "A trial becomes a paid membership.",
+      object: "membership",
+      enters: ["active"],
+      from: ["trialing"],
+      created: false,
+    },
+    ended: {
+      label: "Membership ended",
+      description: "A membership ends.",
+      object: "membership",
+      enters: ["ended"],
+    },
+    trialEnded: {
+      label: "Trial ended without joining",
+      description: "A trial stops without becoming a paid membership.",
+      object: "membership",
+      enters: ["past_due", "unpaid", "paused", "ended"],
+      from: ["trialing"],
+      created: false,
+    },
+    passStarted: {
+      label: "Pass started",
+      description: "A member gets a pass: bought, or given by staff.",
+      object: "pass",
+    },
+  },
+  // Cooling off (stage 44 step 7, decision 11, ADR 0647): the business's own number, for every
+  // plan. Off until a person sets it; what any law requires is the business's to confirm.
+  settings: {
+    coolingOffDays: {
+      type: "number",
+      label: "Cooling-off period (days)",
+      description:
+        "A new member may end their membership within this many days of joining, counted to " +
+        "the end of the last day, for a full refund of what they paid; each refund is approved " +
+        "by a person who may refund. Not for passes, or for members moving over with a " +
+        "continuation offer; once per member. 0: none. Say it in your membership terms; " +
+        "whether a law asks for one, and how long, is for your lawyer. Shortening it never " +
+        "shortens the period of someone who joined before.",
+      default: 0,
+      min: 0,
+      max: 30,
+      personApproves: true,
+    },
+  },
   tools: { plans, passTypes, buy, mine, holdings, givePass, voidPass },
   dashboards: membershipsDashboards,
+  // Staff screens in the product's admin (stage 47, ADR 0660): a person's memberships and passes,
+  // a tab on the Person, for whoever may read them and give and void a pass by hand (any member
+  // of staff; a viewer reads no further than the record page).
+  screens: {
+    holdings: {
+      label: "Memberships",
+      block: "memberships-staff-holdings",
+      export: "PersonMemberships",
+      opens: ["holdings", "givePass"],
+      record: { object: "person", as: "personId" },
+    },
+  },
+  // Its section of My account (stage 48, ADR 0710): a member's memberships and passes, and a linked
+  // child's (both open to guardians), shown once they or the child hold one.
+  portal: {
+    memberships: {
+      label: "Memberships and passes",
+      web: { block: "memberships-mine", export: "MyMemberships" },
+      native: { block: "memberships-native-mine", export: "MyMembershipsScreen" },
+      order: 20,
+      has: ["memberships.membership", "memberships.pass"],
+    },
+  },
 });

@@ -71,7 +71,7 @@ written to D1, where `query.sql`, backups, Time Travel and the audit log would a
 > `custom-<slug>` (BYOK only). Keys still never reach D1.
 
 ## Amended 2026-11-23: a deployment that serves many clients
-[ADR 0611](0611-one-host-a-database-per-client.md) and stage 47's decision 8 (the owner's answer
+[ADR 0611](0611-one-host-a-database-per-client.md) and stage 66's decision 8 (the owner's answer
 of 2026-11-23). On a deployment that serves many clients there is no Worker per client to hold a
 client's secrets. There, auth secrets are derived per client from one secret in the host's
 environment and are stored nowhere; a secret a client gives (payment keys, its own sign-in

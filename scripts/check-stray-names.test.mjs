@@ -44,3 +44,31 @@ test("the repository's rules are well formed", () => {
   }
   for (const pattern of ALLOW) assert.ok(pattern instanceof RegExp);
 });
+
+// The booking system's name, put together so that no tracked file spells it (ADR 0921).
+const booking = (space = "") => `Mind${space}body`;
+
+test("the booking system's name is allowed in no file but this check, stage 65's spec included", () => {
+  const files = [
+    [
+      "docs/stages/65-booking-system-connection.md",
+      `The first source is ${booking().toUpperCase()}.`,
+    ],
+    ["docs/adr/0921-no-named-connector-and-a-file-source.md", booking(" ").toLowerCase()],
+    ["packages/gatekeeper-booking-system/src/file.ts", booking()],
+    ["scripts/check-stray-names.test.mjs", booking()],
+  ];
+  const problems = checkStrayNames(files);
+  assert.equal(problems.length, 3);
+  assert.ok(problems[0].startsWith("docs/stages/65-booking-system-connection.md:1:"));
+  assert.ok(problems[1].startsWith("docs/adr/0921-no-named-connector-and-a-file-source.md:1:"));
+  assert.ok(problems[2].startsWith("packages/gatekeeper-booking-system/src/file.ts:1:"));
+});
+
+test("the supplier rules are allowed only in this check and its tests", () => {
+  for (const rule of RULES.filter((r) => r.allow)) {
+    assert.equal(rule.allow.length, 1, rule.name);
+    assert.ok(rule.allow[0].test("scripts/check-stray-names.mjs"), rule.name);
+    assert.ok(rule.allow[0].test("scripts/check-stray-names.test.mjs"), rule.name);
+  }
+});

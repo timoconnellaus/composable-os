@@ -14,8 +14,10 @@
 // nothing of them is ever queued (decision 12: an AI drafts, never publishes). Every one of them,
 // and every version the cron makes current, bumps core_agreement_rev in its own batch. Staff
 // audience only: nothing here is open to customers or the public.
-import { sql } from "kysely";
+import type { CoreDatabase } from "@composable-os/db";
+import { type Kysely, sql } from "kysely";
 import { z } from "zod";
+import { AGREEMENT_PDF_MAX_PAGES, fitsSignedPdf } from "../agreements/copy.ts";
 import {
   AGREEMENT_CHANGES,
   AGREEMENT_FOR,
@@ -33,10 +35,12 @@ import {
   titleSchema,
   type VersionTiming,
   versionHash,
+  versionIntact,
 } from "../agreements/documents.ts";
 import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from "../errors.ts";
 import { newId } from "../ids.ts";
 import { defineOperation, type HandlerContext } from "../operation.ts";
+import { jsonList } from "../records/common.ts";
 
 const documentId = z.string().min(1).max(64).describe("The document's id (agd_…)");
 
@@ -174,7 +178,7 @@ async function pointsOf(ctx: HandlerContext, ids: string[]): Promise<Map<string,
   const rows = await ctx.db
     .selectFrom("core_agreement_point")
     .select(["document_id", "point"])
-    .where("document_id", "in", ids)
+    .where("document_id", "in", jsonList(ids))
     .orderBy("point")
     .execute();
   for (const row of rows)
@@ -246,23 +250,6 @@ async function draftOf(
   };
 }
 
-/** Recomputes a stored version's hash from its own content (ADR 0640: reads that matter check). */
-async function intact(v: VersionRow, kind: string): Promise<boolean> {
-  return (
-    (await versionHash({
-      kind,
-      title: v.title,
-      body: JSON.parse(v.body),
-      tickLabel: v.tick_label,
-      questions: parse<Question[]>(v.questions),
-      how: v.how,
-      who: v.who,
-      forWhom: v.for_whom,
-      askAgainMonths: v.ask_again_months,
-    })) === v.hash
-  );
-}
-
 function statusOf(
   v: VersionRow,
   doc: DocumentRow,
@@ -308,7 +295,35 @@ function publishProblems(doc: DocumentRow): string[] {
   if (!bodyHasText(parse(doc.draft_body))) problems.push("The body has no text");
   if (!doc.draft_tick_label) problems.push("The tick label (the words beside the box) is empty");
   if (doc.kind === "health" && !doc.draft_questions) problems.push("A health form needs questions");
+  // The signed PDF must be able to hold it, with the longest record and answers it may carry
+  // (stage 44 step 4, ADR 0645): measured by the PDF writer itself.
+  if (
+    !problems.length &&
+    !fitsSignedPdf({
+      title: doc.draft_title,
+      body: parse(doc.draft_body),
+      tickLabel: doc.draft_tick_label ?? "",
+      questions: parse<Question[]>(doc.draft_questions),
+    })
+  ) {
+    problems.push(`The signed PDF would be longer than ${AGREEMENT_PDF_MAX_PAGES} pages`);
+  }
   return problems;
+}
+
+/**
+ * How many People have an acceptance of the document that counts by its number now (stage 44 step
+ * 2): those "agree again" would ask. Out of the Trash; a count, never who.
+ */
+async function currentAcceptors(ctx: HandlerContext, documentId: string): Promise<number> {
+  const { rows } = await sql<{ n: number }>`SELECT count(DISTINCT a.person_id) AS n
+    FROM core_agreement_acceptance a
+    JOIN core_agreement_version v ON v.id = a.version_id
+    JOIN core_agreement_document d ON d.id = a.document_id
+    JOIN core_person p ON p.id = a.person_id AND p.deleted_at IS NULL
+    WHERE a.document_id = ${documentId} AND v.number >= d.agree_from
+      AND v.effective_from <= ${ctx.now}`.execute(ctx.db);
+  return Number(rows[0]?.n ?? 0);
 }
 
 const draftChanged = () =>
@@ -346,7 +361,8 @@ export const agreementList = defineOperation({
       ? ((await ctx.db
           .selectFrom("core_agreement_version")
           .selectAll()
-          .where("document_id", "in", ids)
+          // Up to 500 documents: one bound parameter, D1 binds at most 100 a statement.
+          .where("document_id", "in", jsonList(ids))
           .orderBy("number")
           .execute()) as VersionRow[])
       : [];
@@ -374,9 +390,10 @@ export const agreementGet = defineOperation({
   output: documentSummary.extend({
     draft: draftSchema,
     versions: z.array(
-      versionSchema
-        .omit({ body: true, questions: true })
-        .extend({ status: z.enum(VERSION_STATUSES) }),
+      versionSchema.omit({ body: true, questions: true }).extend({
+        status: z.enum(VERSION_STATUSES),
+        acceptances: z.number().describe("How many acceptances of this version there are"),
+      }),
     ),
   }),
   permission: "records:read",
@@ -386,6 +403,16 @@ export const agreementGet = defineOperation({
     const doc = await loadDocument(ctx, input.id);
     const versions = await versionsOf(ctx, doc.id);
     const points = (await pointsOf(ctx, [doc.id])).get(doc.id) ?? [];
+    const counts = new Map(
+      (
+        await ctx.db
+          .selectFrom("core_agreement_acceptance")
+          .select(["version_id", (eb) => eb.fn.countAll<number>().as("n")])
+          .where("document_id", "=", doc.id)
+          .groupBy("version_id")
+          .execute()
+      ).map((r) => [r.version_id, Number(r.n)]),
+    );
     return {
       ...summarise(doc, versions, points, ctx.now),
       draft: await draftOf(doc, await nameOf(ctx, doc.draft_updated_by)),
@@ -396,8 +423,12 @@ export const agreementGet = defineOperation({
               body: _body,
               questions: _questions,
               ...rest
-            } = toVersion(v, await intact(v, doc.kind));
-            return { ...rest, status: statusOf(v, doc, versions, ctx.now) };
+            } = toVersion(v, await versionIntact(v, doc.kind));
+            return {
+              ...rest,
+              status: statusOf(v, doc, versions, ctx.now),
+              acceptances: counts.get(v.id) ?? 0,
+            };
           }),
         )
       ).reverse(),
@@ -424,7 +455,7 @@ export const agreementVersionGet = defineOperation({
       .executeTakeFirst();
     if (!row) throw new NotFoundError("agreement version", input.id);
     const doc = await loadDocument(ctx, row.document_id);
-    return toVersion(row as VersionRow, await intact(row as VersionRow, doc.kind));
+    return toVersion(row as VersionRow, await versionIntact(row as VersionRow, doc.kind));
   },
 });
 
@@ -442,6 +473,12 @@ export const agreementPointsList = defineOperation({
         label: z.string(),
         suggests: z.array(z.string()),
         objects: z.array(z.string()),
+        inlineStep: z
+          .boolean()
+          .describe(
+            "Whether the pack's screens let a person agree on the way: false means a document " +
+              "attached here refuses purchases or bookings there until they agree elsewhere",
+          ),
       }),
     ),
   }),
@@ -593,6 +630,9 @@ export const agreementPublishPreview = defineOperation({
     draftRev: z.number(),
     latest: versionSchema.nullable(),
     problems: z.array(z.string()),
+    asksAgain: z
+      .number()
+      .describe('How many people "agree again" would ask: those whose acceptance counts now'),
   }),
   permission: "records:read",
   risk: "read",
@@ -601,7 +641,9 @@ export const agreementPublishPreview = defineOperation({
     const doc = await loadDocument(ctx, input.id);
     const draft = await draftOf(doc, await nameOf(ctx, doc.draft_updated_by));
     const latestRow = (await versionsOf(ctx, doc.id)).at(-1);
-    const latest = latestRow ? toVersion(latestRow, await intact(latestRow, doc.kind)) : null;
+    const latest = latestRow
+      ? toVersion(latestRow, await versionIntact(latestRow, doc.kind))
+      : null;
     const changed = latest
       ? COMPARED.filter(
           (field) => JSON.stringify(draft[field] ?? null) !== JSON.stringify(latest[field] ?? null),
@@ -616,6 +658,7 @@ export const agreementPublishPreview = defineOperation({
       draftRev: doc.draft_rev,
       latest,
       problems: publishProblems(doc),
+      asksAgain: await currentAcceptors(ctx, doc.id),
     };
   },
 });
@@ -881,6 +924,49 @@ export const agreementRetire = defineOperation({
   },
 });
 
+/** How long a visitor's acceptances wait for the provider to confirm their subscription checkout. */
+const STALE_CHECKOUT_MS = 3 * 86_400_000;
+
+/** Live documents with a version that has taken effect and is newer than the current one. */
+function dueDocuments(now: string) {
+  // No alias: a query plan names the table itself (apps/runner/test/idle-minute-cost.test.ts).
+  return sql`SELECT core_agreement_document.* FROM core_agreement_document
+    WHERE core_agreement_document.state = 'live' AND EXISTS (
+      SELECT 1 FROM core_agreement_version v
+      WHERE v.document_id = core_agreement_document.id AND v.effective_from <= ${now}
+        AND v.number > COALESCE(
+          (SELECT c.number FROM core_agreement_version c
+           WHERE c.id = core_agreement_document.current_version_id), 0)
+    )`;
+}
+
+/** A visitor's acceptances whose subscription checkout the provider has not confirmed in time. */
+function unconfirmedAcceptances(now: string) {
+  const stale = new Date(Date.parse(now) - STALE_CHECKOUT_MS).toISOString();
+  return sql`SELECT a.id FROM core_agreement_acceptance a
+    JOIN core_subscription_checkout c ON c.id = a.subscription_checkout
+    WHERE a.by = 'guest' AND a.person_id IS NULL AND a.erased_at IS NULL
+      AND c.subscription_ref IS NULL AND c.created_at < ${stale}`;
+}
+
+/**
+ * Whether `agreement.takeEffect` has anything to do now, read outside any operation so the minute
+ * cron's quiet minute writes nothing, not even an audit row. Versions taking effect: one indexed
+ * read. A visitor's unconfirmed acceptances (`stale`): no index holds that read (it walks every
+ * acceptance with no person, guests' and erased ones alike), so the cron asks it once an hour.
+ */
+export async function agreementWorkDue(
+  db: Kysely<CoreDatabase>,
+  now: string,
+  { stale = true }: { stale?: boolean } = {},
+): Promise<boolean> {
+  const due = await sql`SELECT 1 FROM (${dueDocuments(now)} LIMIT 1)`.execute(db);
+  if (due.rows.length) return true;
+  if (!stale) return false;
+  const unconfirmed = await sql`${unconfirmedAcceptances(now)} LIMIT 1`.execute(db);
+  return unconfirmed.rows.length > 0;
+}
+
 export const agreementTakeEffect = defineOperation({
   name: "agreement.takeEffect",
   description:
@@ -898,18 +984,7 @@ export const agreementTakeEffect = defineOperation({
     if (ctx.origin.surface !== "system") {
       throw new ForbiddenError("Only the host's own cron makes scheduled versions current");
     }
-    // Live documents with a version that has taken effect and is newer than the current one.
-    const due = (
-      await sql<DocumentRow>`
-        SELECT d.* FROM core_agreement_document d
-        WHERE d.state = 'live' AND EXISTS (
-          SELECT 1 FROM core_agreement_version v
-          WHERE v.document_id = d.id AND v.effective_from <= ${ctx.now}
-            AND v.number > COALESCE(
-              (SELECT c.number FROM core_agreement_version c WHERE c.id = d.current_version_id), 0)
-        )
-        LIMIT 50`.execute(ctx.db)
-    ).rows;
+    const due = (await sql<DocumentRow>`${dueDocuments(ctx.now)} LIMIT 50`.execute(ctx.db)).rows;
     for (const doc of due) {
       const effect = inEffect(await versionsOf(ctx, doc.id), ctx.now);
       let update = ctx.db
@@ -923,6 +998,20 @@ export const agreementTakeEffect = defineOperation({
       ctx.write(update);
     }
     if (due.length) ctx.write(bumpRev(ctx.db));
+    // A visitor's acceptances taken with a subscription checkout the provider never confirmed
+    // (stage 44 step 3, ADR 0644): the page has long expired, no contract was made, and they are
+    // nobody's to keep. An order's go when it closes unpaid (migration 0853); a checkout has no
+    // such moment, so they go three days on (a provider's page lasts a day at most).
+    const unconfirmed = unconfirmedAcceptances(ctx.now);
+    ctx.write(
+      sql`DELETE FROM core_agreement_answer WHERE acceptance_id IN (${unconfirmed})`.compile(
+        ctx.db,
+      ),
+      sql`DELETE FROM core_agreement_signature WHERE acceptance_id IN (${unconfirmed})`.compile(
+        ctx.db,
+      ),
+      sql`DELETE FROM core_agreement_acceptance WHERE id IN (${unconfirmed})`.compile(ctx.db),
+    );
     return { documents: due.map((d) => d.id) };
   },
 });

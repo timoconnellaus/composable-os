@@ -21,6 +21,7 @@ import {
   type RunToolInput,
   type RunToolResult,
   type SourceIssue,
+  toolRunStanding,
 } from "@composable-os/core";
 import { createCrmDb } from "@composable-os/db";
 import {
@@ -290,6 +291,7 @@ export class Executor {
       .innerJoin("core_user as u", "u.id", "e.user_id")
       .select([
         "e.status",
+        "e.source",
         "e.manifest",
         "e.failure_count",
         "e.last_good_commit",
@@ -343,6 +345,13 @@ export class Executor {
         : {}),
       // The caller's pack role limit to today, from the pipeline (ADR 0553).
       ...(input.caller.roleToday ? { roleToday: input.caller.roleToday } : {}),
+      ...(input.caller.roleToday && input.caller.roleTodayAt
+        ? { roleTodayAt: input.caller.roleTodayAt }
+        : {}),
+      // And its limit to the People it looks after (ADR 0889).
+      ...(input.caller.roleLooksAfter ? { roleLooksAfter: input.caller.roleLooksAfter } : {}),
+      // And its reach through the records that name it (ADR 0755).
+      ...(input.caller.roleMine ? { roleMine: input.caller.roleMine } : {}),
       // Which tool this run is, from the installed manifest (ADR 0513): a move only named tools
       // may make, and a holder's terms, read it from the run's calls.
       tool: {
@@ -350,17 +359,35 @@ export class Executor {
         humanOnly: manifest.tools?.[input.tool]?.humanOnly === true,
         personApproves: manifest.tools?.[input.tool]?.personApproves === true,
         permission: manifest.tools?.[input.tool]?.permission ?? null,
+        // The staff account it was called for, from the pipeline's verified caller (ADR 0625):
+        // what an operation about "me" reads (the roster's own shifts, who may roster).
+        // An enrolled device (ADR 0781) is no account: nothing in its run is about "me".
+        ...(input.caller.principal || input.caller.device
+          ? {}
+          : { calledBy: { account: input.caller.userId, actor: input.caller.actor } }),
         // The person who called it, when a person did (the pipeline refused anyone else for a
         // humanOnly tool), or the person who approved another actor's call of a tool a person
         // approves (ADR 0552): who gave what a person's tool gives.
-        ...(input.caller.principal
+        ...(input.caller.principal || input.caller.device
           ? {}
           : input.caller.actor === "human"
             ? { startedBy: input.caller.userId }
             : input.caller.approvedBy
-              ? { startedBy: input.caller.approvedBy }
+              ? // Started by a person's approval of another actor's call: still that person's
+                // say-so, but not a person at the screen (stage 44: no health mark).
+                { startedBy: input.caller.approvedBy, startedByApproval: true }
               : {}),
       },
+      // Who stands behind what the tool writes (ADR 0590, the third review), from the pipeline's
+      // verified caller. The tool's code chooses what it writes, so its writes are the host's,
+      // except a value equal to one the person who ran it (or approved an AI's call of it, never
+      // the adjudicator) gave it, which is theirs (`given`). An AI's call is an AI's; a model used
+      // in the run makes the rest of it an AI's (host.ts). A customer's call is theirs anyway.
+      // Only a shipped pack's own tool writes as the host (the fourth review): a runtime
+      // extension's code was authored in the app, perhaps by an AI, so it writes as an AI, the
+      // person's own given values still theirs. A tool called by another run writes no better
+      // than that run (its standing and given values carried in `caller`).
+      ...toolRunStanding(input.caller, row.source, input.input),
       ...(input.cascade ? { cascade: input.cascade } : {}),
       ...(input.readOnly || input.dryRun
         ? { readOnly: { dryRun: Boolean(input.dryRun), tool: input.tool } }
@@ -383,11 +410,18 @@ export class Executor {
             // pipeline's verified caller, never from the input.
             // An automation's or another extension's call has no person who started it (stage
             // 42: Courses' automation assigning a program): no caller, as in an automation.
+            // An enrolled device holding a device role (ADR 0781): its id and its name.
             caller: input.caller.principal
               ? { kind: input.caller.principal.kind }
-              : input.caller.actor === "automation" || input.caller.actor === "extension"
-                ? (undefined as unknown as StartedBy)
-                : { kind: "staff", userId: input.caller.userId, name: input.caller.name ?? "" },
+              : input.caller.device
+                ? {
+                    kind: "device",
+                    deviceId: input.caller.device.deviceId,
+                    name: input.caller.device.name,
+                  }
+                : input.caller.actor === "automation" || input.caller.actor === "extension"
+                  ? (undefined as unknown as StartedBy)
+                  : { kind: "staff", userId: input.caller.userId, name: input.caller.name ?? "" },
           },
           host,
         ),
@@ -489,6 +523,7 @@ export class Executor {
       ? {
           // The principal installExtension creates (it may not exist yet; nothing is written).
           status: "active" as const,
+          source: "runtime" as const,
           manifest: JSON.stringify(draft.manifest),
           failure_count: 0,
           user_id: extensionPrincipalId(input.extensionId),
@@ -500,6 +535,7 @@ export class Executor {
           .innerJoin("core_user as u", "u.id", "e.user_id")
           .select([
             "e.status",
+            "e.source",
             "e.manifest",
             "e.failure_count",
             "u.id as user_id",
@@ -546,6 +582,15 @@ export class Executor {
       runId: input.automation.runId,
       extensionId: input.extensionId,
       automation: input.automation,
+      // Who stands behind what an automation writes (ADR 0590, the third review): the host only
+      // for an automation shipped in an installed pack's own code; one authored in the app (by an
+      // AI, or in a runtime extension) writes as an AI, so mail it causes is held for a person.
+      standing:
+        !draft &&
+        row.source === "shipped" &&
+        Object.hasOwn(manifest.automations ?? {}, input.request.automation)
+          ? "host"
+          : "ai",
       modules: new Set(modules),
       user: { id: row.user_id, email: row.email, name: row.name, role: "member" },
       permissions: manifest.permissions,

@@ -1,6 +1,16 @@
 // Timeline of activities (newest first), its type filter, and the composer that logs a note,
 // call, meeting or email with that type's payload. Used by record pages (one record's timeline)
 // and the Activity page (the feed across records, with links shown).
+
+import {
+  blankDraft,
+  draftForKind,
+  levelWords,
+  missingFromDraft,
+  type NoteDraft,
+  type NoteLevel,
+  noteInput,
+} from "@composable-os/client";
 import { Badge } from "@composable-os/ui/components/badge";
 import { Button } from "@composable-os/ui/components/button";
 import { Card, CardContent } from "@composable-os/ui/components/card";
@@ -33,15 +43,17 @@ import {
   type LucideIcon,
   MailIcon,
   MessageSquareTextIcon,
+  MessagesSquareIcon,
   PhoneIcon,
   RefreshCwIcon,
   SparklesIcon,
+  UsersIcon,
 } from "lucide-react";
 import { type FormEvent, type ReactNode, useState } from "react";
 import { toast } from "sonner";
 import { formatDateTime, formatValue } from "#/lib/format";
 import { callOp } from "#/lib/operations";
-import { errorMessage, useOpMutation } from "#/lib/query";
+import { errorMessage, useOp, useOpMutation } from "#/lib/query";
 import { ActivityLine, MeetingPrepButton, useActivityLines } from "../ai/timeline-ai.tsx";
 import { EmptyState, ErrorState } from "../empty-state.tsx";
 import { LoadMoreSentinel } from "../layout/infinite.tsx";
@@ -61,6 +73,7 @@ const TYPE_ICON: Record<ActivityType, LucideIcon> = {
   call: PhoneIcon,
   meeting: CalendarIcon,
   system: SparklesIcon,
+  chat: MessagesSquareIcon,
 };
 
 const str = (value: unknown): string | null => (typeof value === "string" && value ? value : null);
@@ -284,6 +297,7 @@ export function TimelineEntry({
           <span className="text-xs text-muted-foreground">by {item.authorName}</span>
         )}
         {item.synced && <SyncedMarkers item={item} />}
+        {item.type === "note" && <NoteMarkers item={item} />}
       </div>
       {aiLine && <ActivityLine text={aiLine} />}
       {summary && <p className="mt-0.5 text-xs text-muted-foreground">{summary}</p>}
@@ -301,6 +315,8 @@ export function TimelineEntry({
       ) : null}
       {item.synced ? (
         <SyncedBody item={item} />
+      ) : item.locked ? (
+        <LockedNote item={item} />
       ) : (
         item.body && <Markdown className="mt-1">{item.body}</Markdown>
       )}
@@ -318,6 +334,79 @@ export function TimelineEntry({
         </p>
       )}
     </>
+  );
+}
+
+// --- Notes' kinds and levels (stage 56, ADRs 0830 and 0833) ------------------------------------
+
+/** A note's kind (unless it is a plain Note) and, when it is kept from the staff, who reads it. */
+function NoteMarkers({ item }: { item: TimelineItem }) {
+  return (
+    <span className="inline-flex flex-wrap items-center gap-1" data-testid="note-markers">
+      {item.kind && item.kind.id !== "nkd_note" && (
+        <Badge variant="outline" className={cn(MARKER, "text-muted-foreground")}>
+          {item.kind.name}
+        </Badge>
+      )}
+      {item.level !== "staff" && (
+        <Badge
+          variant="secondary"
+          className={MARKER}
+          title={levelWords(item.level).hint}
+          data-testid="note-level"
+        >
+          {item.level === "sensitive" ? <LockIcon aria-hidden /> : <UsersIcon aria-hidden />}
+          {levelWords(item.level).label}
+        </Badge>
+      )}
+    </span>
+  );
+}
+
+/**
+ * A sensitive note, listed without its text: "Open" reads it (note.open), and the host records
+ * every opening. The text is held only while this entry is on screen.
+ */
+function LockedNote({ item }: { item: TimelineItem }) {
+  const [text, setText] = useState<string | null>(null);
+  const [loading, setLoading] = useState(false);
+
+  async function open() {
+    setLoading(true);
+    try {
+      const note = await callOp("note.open", { id: item.id });
+      setText(note.body ?? "");
+    } catch (error) {
+      toast.error(errorMessage(error));
+    } finally {
+      setLoading(false);
+    }
+  }
+
+  if (text !== null) {
+    return (
+      <div className="mt-1" data-testid="opened-note">
+        <Markdown>{text}</Markdown>
+        <Button variant="link" size="xs" className="h-auto px-0" onClick={() => setText(null)}>
+          Close
+        </Button>
+      </div>
+    );
+  }
+  return (
+    <p className="mt-1 flex items-center gap-2 text-sm text-muted-foreground">
+      <LockIcon className="size-3.5" aria-hidden />
+      Sensitive: opening it is recorded.
+      <Button
+        variant="link"
+        size="xs"
+        className="h-auto px-0"
+        disabled={loading}
+        onClick={() => void open()}
+      >
+        {loading ? "Opening…" : "Open"}
+      </Button>
+    </p>
   );
 }
 
@@ -616,14 +705,31 @@ export function ActivityComposer({ onSubmit, isPending, alsoOn }: ActivityCompos
     setDraft((d) => ({ ...d, [key]: value }));
   const disabled = !onSubmit;
   const note = type === "note";
+  // A note's kind, its template and who reads it (stage 56, ADR 0833): what the host lists, with
+  // the same draft logic as the note composer block (@composable-os/client). The body of a kind
+  // with no template is the composer's own text box.
+  const kinds = useOp("note.kinds.list", {}, { enabled: !disabled });
+  const kindList = kinds.data?.items ?? [];
+  const [chosen, setChosen] = useState<NoteDraft | null>(null);
+  const kind = kindList.find((k) => k.id === chosen?.kindId) ?? kindList[0] ?? null;
+  const noteDraft: NoteDraft | null = kind
+    ? { ...(chosen?.kindId === kind.id ? chosen : blankDraft(kind)), body: draft.body }
+    : null;
   const canSubmit = note
-    ? Boolean(draft.body.trim())
+    ? kind && noteDraft
+      ? missingFromDraft(kind, noteDraft).length === 0
+      : Boolean(draft.body.trim())
     : Boolean(draft.body.trim() || draft.subject.trim());
 
   async function submit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     if (!onSubmit) return;
-    const activity = draftToActivity(type, draft);
+    let activity = draftToActivity(type, draft);
+    if (note && kind && noteDraft) {
+      const { links: _links, ...input } = noteInput(kind, noteDraft, []);
+      const occurredAt = localToIso(draft.when);
+      activity = { ...input, payload: {}, ...(occurredAt ? { occurredAt } : {}) };
+    }
     if ("error" in activity) {
       toast.error(activity.error);
       return;
@@ -634,14 +740,21 @@ export function ActivityComposer({ onSubmit, isPending, alsoOn }: ActivityCompos
         alsoOn && linkAlso ? [{ object: alsoOn.object, id: alsoOn.id }] : [],
       );
       setDraft(EMPTY_DRAFT);
+      if (kind) setChosen(blankDraft(kind));
       toast.success(`${ACTIVITY_TYPE_LABELS[type]} logged`);
     } catch (error) {
       toast.error(errorMessage(error));
     }
   }
 
-  const field = (id: string, label: string, control: ReactNode, className?: string) => (
-    <div className={cn("grid gap-1", className)}>
+  const field = (
+    id: string,
+    label: string,
+    control: ReactNode,
+    className?: string,
+    key?: string,
+  ) => (
+    <div key={key} className={cn("grid gap-1", className)}>
       <Label htmlFor={id} className="text-xs text-muted-foreground">
         {label}
       </Label>
@@ -665,21 +778,101 @@ export function ActivityComposer({ onSubmit, isPending, alsoOn }: ActivityCompos
                 disabled={disabled}
               />,
             )}
-          <Textarea
-            value={draft.body}
-            onChange={(event) => set("body", event.target.value)}
-            placeholder={
-              note ? "Add a note… (Markdown)" : type === "email" ? "Email text" : "Notes (optional)"
-            }
-            aria-label="Activity text"
-            disabled={disabled}
-            className="min-h-16 resize-y"
-            onKeyDown={(event) => {
-              if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
-                event.currentTarget.form?.requestSubmit();
+          {note && kind && noteDraft && kindList.length > 1 && (
+            <div className="grid gap-2 sm:grid-cols-2">
+              {field(
+                "composer-kind",
+                "Kind",
+                <Select
+                  value={kind.id}
+                  onValueChange={(id) => {
+                    const next = kindList.find((k) => k.id === id);
+                    if (next) setChosen(draftForKind(noteDraft, next));
+                  }}
+                  disabled={disabled}
+                >
+                  <SelectTrigger id="composer-kind" size="sm" className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {kindList.map((k) => (
+                      <SelectItem key={k.id} value={k.id}>
+                        {k.name}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>,
+              )}
+              {field(
+                "composer-level",
+                "Who can read it",
+                <Select
+                  value={noteDraft.level}
+                  onValueChange={(level) => setChosen({ ...noteDraft, level: level as NoteLevel })}
+                  disabled={disabled}
+                >
+                  <SelectTrigger id="composer-level" size="sm" className="w-full">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {kind.levels.map((level) => (
+                      <SelectItem key={level} value={level}>
+                        {levelWords(level).label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>,
+              )}
+              {noteDraft.level !== "staff" && (
+                <p className="text-xs text-muted-foreground sm:col-span-2">
+                  {levelWords(noteDraft.level).hint}
+                </p>
+              )}
+            </div>
+          )}
+          {note && kind?.sections.length && noteDraft ? (
+            kind.sections.map((section) =>
+              field(
+                `composer-section-${section.key}`,
+                section.required ? `${section.label} *` : section.label,
+                <Textarea
+                  id={`composer-section-${section.key}`}
+                  value={noteDraft.sections[section.key] ?? ""}
+                  onChange={(event) =>
+                    setChosen({
+                      ...noteDraft,
+                      sections: { ...noteDraft.sections, [section.key]: event.target.value },
+                    })
+                  }
+                  placeholder={section.hint ?? undefined}
+                  disabled={disabled}
+                  className="min-h-12 resize-y"
+                />,
+                undefined,
+                section.key,
+              ),
+            )
+          ) : (
+            <Textarea
+              value={draft.body}
+              onChange={(event) => set("body", event.target.value)}
+              placeholder={
+                note
+                  ? "Add a note… (Markdown)"
+                  : type === "email"
+                    ? "Email text"
+                    : "Notes (optional)"
               }
-            }}
-          />
+              aria-label="Activity text"
+              disabled={disabled}
+              className="min-h-16 resize-y"
+              onKeyDown={(event) => {
+                if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) {
+                  event.currentTarget.form?.requestSubmit();
+                }
+              }}
+            />
+          )}
           {!note && (
             <div className="grid gap-2 sm:grid-cols-2">
               {(type === "email" || type === "call") &&

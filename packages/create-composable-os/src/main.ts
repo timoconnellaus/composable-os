@@ -104,7 +104,22 @@ A client repo (stage 24)
                                          copy a block from the release; show its upstream changes
                                          (--accept: record them as merged by hand)
                                          (cos add with no block lists them, with their skins)
-  cos client generate                    in a client repo: each app's typed client, again
+  cos client generate                    in a client repo: each app's typed client, again (and
+                                         the mobile app's brand.ts from product.ts)
+  cos app check                          the mobile app before a store build: ids, icon, listing,
+                                         nothing bought in the app, "Delete my account", no key
+                                         file in the repo (stage 63, docs/app-publishing.md)
+  cos app credentials [--check --for ios|android|record]
+                                         the app workflow's secrets and how a person sets each;
+                                         never a value (--check: fail on any one missing)
+  cos app build-info [--env <name>] [--json]
+                                         the next build number (the host's records) and the API
+                                         version of the app's generated client
+  cos app record [--env <name>] --platform ios,android --build <n> [--commit <sha>]
+                                         record the builds a run sent to the testing tracks
+  cos app upload --platform android [--env <name>] --file <app.aab> [--listing] [--draft]
+                                         the Android build to the store's internal testing track;
+                                         nothing is released to the public
   cos content import <folder> --host <url> [--email <you>] [--dry-run] [--publish] [--yes]
                                          load posts and their pictures into the host as you,
                                          signed in for the run (by code with --email, else in the
@@ -130,6 +145,17 @@ A client repo (stage 24)
   cos subscriptions offers report --host <url> [--status taken] [--out <file.csv>]
                                          who has taken their offer and when they are charged from,
                                          so you end exactly those old subscriptions
+  cos programs import <folder> --host <url> [--email <you>] [--dry-run]
+                                         load exercises, class types, programs in the pack's
+                                         shorthand and past training (sessions and their sets), as
+                                         you; checks everything first, a re-run makes nothing
+                                         twice, an edit since is kept; what it brings in starts no
+                                         automation and sends no message (docs/importing.md)
+  cos rostering import <roster.csv> --host <url> [--email <you>] [--apply]
+                                         duties and who works them (weekly patterns, one-off
+                                         shifts); the host checks every date for someone on two
+                                         shifts at once and names it; a dry run unless --apply;
+                                         staff are invited first, never made (docs/importing.md)
 
 Installing a product with no client repo
   cos install [options]                  install, or repair an existing install (idempotent)
@@ -235,6 +261,10 @@ export function parseArgs(argv: string[]): { command: string; flags: Flags } {
       "publish",
       "invite",
       "reissue",
+      "apply",
+      "check",
+      "listing",
+      "draft",
     ].includes(key);
     let value: string | boolean = true;
     if (takesValue) {
@@ -284,6 +314,8 @@ export class CliError extends Error {}
 export const PACKS_VAR = "COS_PACKS";
 /** The customer sessions' signing secret (ADR 0421): generated once per deployment by cos deploy. */
 export const CUSTOMER_SECRET = "CUSTOMER_AUTH_SECRET";
+/** The desk origin's own secret (stage 44 step 6, ADR 0649), made once on a custom domain. */
+export const DESK_SECRET = "DESK_SECRET";
 export const ORG_EXTENSIONS_VAR = "COS_ORG_EXTENSIONS";
 
 export function str(flags: Flags, key: string): string | undefined {
@@ -529,9 +561,14 @@ function randomSecret(): string {
 const FAKE_PROVIDER_VAR = "PAYMENTS_FAKE_PROVIDER";
 const FAKE_SECRET = "FAKE_WEBHOOK_SECRET";
 
+/** Whether a gatekeeper's vars turn on its fake provider: payments' switch, or texts' (ADR 0672). */
+function fakeProviderOn(vars: Record<string, string> | undefined): boolean {
+  return vars?.[FAKE_PROVIDER_VAR] === "true" || vars?.TEXT_PROVIDER === "fake";
+}
+
 /**
- * Gives a gatekeeper that turns the fake payment provider on its own signing secret: generated
- * once, when none is stored on the Worker and none is supplied (`--secret`), never printed (the
+ * Gives a gatekeeper that turns a fake provider on (payments', or texts', ADR 0672) its own
+ * signing secret: generated once, when none is stored on the Worker and none is supplied (`--secret`), never printed (the
  * redactor hides it) and never written anywhere but the Worker. Later deploys keep the stored one
  * (`keep_bindings`). The default secret is public, so without this the fake runs on localhost
  * only. Which environments may turn the fake on is cos deploy's check (a live one may not).
@@ -552,7 +589,7 @@ export function generateFakePaymentsSecrets(
       const { [FAKE_SECRET]: _plain, ...rest } = vars[name];
       vars[name] = rest;
     }
-    if (vars[name]?.[FAKE_PROVIDER_VAR] !== "true") continue;
+    if (!fakeProviderOn(vars[name])) continue;
     if (stored.get(name)?.includes(FAKE_SECRET) || secrets[name]?.[FAKE_SECRET]) continue;
     const secret = randomSecret();
     redactor.add(secret);
@@ -762,6 +799,15 @@ export async function install(flags: Flags, deps: Deps): Promise<number> {
     deps.redactor.add(appSecrets.BETTER_AUTH_SECRET);
   }
   appSecrets.BETTER_AUTH_URL ??= `https://${hostname}`;
+  // Signing at the desk (stage 44 step 6, ADR 0649): the desk origin is `desk.` before a custom
+  // domain (deploy.ts adds it and sets DESK_HOSTNAME); its codes, device credentials and session
+  // tokens are kept under their own secret, made once per deployment, never another's.
+  if (hostnameMode === "custom" && !appSet.includes(DESK_SECRET) && !appSecrets[DESK_SECRET]) {
+    let secret = randomSecret();
+    while (secret === appSecrets.BETTER_AUTH_SECRET) secret = randomSecret();
+    appSecrets[DESK_SECRET] = secret;
+    deps.redactor.add(secret);
+  }
   // Customer sign-in on the company's web app (ADR 0421), set by `cos deploy` for a product with
   // a web app (ADR 0450): CUSTOMER_AUTH_URL is the web app's origin; CUSTOMER_AUTH_SECRET is
   // generated once per deployment, never printed or written anywhere but the Worker, and never
@@ -1464,6 +1510,73 @@ async function courses(argv: string[], deps: Deps): Promise<number> {
   }
 }
 
+/** `cos programs import <folder>` (stage 41): exercises, class types, programs, past training. */
+async function programsCommand(argv: string[], deps: Deps): Promise<number> {
+  const { PROGRAMS_USAGE, programsImport } = await import("./programs-import/run.ts");
+  if (argv[0] !== "import") {
+    deps.io.err(PROGRAMS_USAGE);
+    return 2;
+  }
+  const rest = argv.slice(1);
+  const positional = rest[0] && !rest[0].startsWith("-") ? [rest[0]] : [];
+  let parsed: ReturnType<typeof parseArgs>;
+  try {
+    parsed = parseArgs(["import", ...rest.slice(positional.length)]);
+  } catch (error) {
+    deps.io.err((error as Error).message);
+    return 2;
+  }
+  try {
+    return await programsImport(
+      positional,
+      {
+        ...(str(parsed.flags, "host") ? { host: str(parsed.flags, "host") } : {}),
+        ...(str(parsed.flags, "email") ? { email: str(parsed.flags, "email") } : {}),
+        dryRun: Boolean(parsed.flags["dry-run"]),
+      },
+      deps.io,
+    );
+  } catch (error) {
+    deps.io.err(`Error: ${(error as Error).message}`);
+    return 1;
+  }
+}
+
+/**
+ * `cos rostering import <roster.csv>` (stage 45 step 7): duties and who works them, as weekly
+ * patterns and one-off shifts, checked by the host's own dry run; a dry run unless --apply.
+ */
+async function rostering(argv: string[], deps: Deps): Promise<number> {
+  const { ROSTER_USAGE, rosteringImport } = await import("./rostering-import/run.ts");
+  if (argv[0] !== "import") {
+    deps.io.err(ROSTER_USAGE);
+    return 2;
+  }
+  const rest = argv.slice(1);
+  const positional = rest[0] && !rest[0].startsWith("-") ? [rest[0]] : [];
+  let parsed: ReturnType<typeof parseArgs>;
+  try {
+    parsed = parseArgs(["import", ...rest.slice(positional.length)]);
+  } catch (error) {
+    deps.io.err((error as Error).message);
+    return 2;
+  }
+  try {
+    return await rosteringImport(
+      positional,
+      {
+        ...(str(parsed.flags, "host") ? { host: str(parsed.flags, "host") } : {}),
+        ...(str(parsed.flags, "email") ? { email: str(parsed.flags, "email") } : {}),
+        apply: Boolean(parsed.flags.apply),
+      },
+      deps.io,
+    );
+  } catch (error) {
+    deps.io.err(`Error: ${(error as Error).message}`);
+    return 1;
+  }
+}
+
 /**
  * `cos subscriptions offers import <offers.csv>` and `cos subscriptions offers report` (stage 32a,
  * ADRs 0491 and 0492): continuation offers for subscribers moving from another platform.
@@ -1517,8 +1630,11 @@ export async function runCli(argv: string[], input: Deps): Promise<number> {
   if (argv[0] === "content") return content(argv.slice(1), deps);
   if (argv[0] === "courses") return courses(argv.slice(1), deps);
   if (argv[0] === "subscriptions") return subscriptions(argv.slice(1), deps);
+  if (argv[0] === "rostering") return rostering(argv.slice(1), deps);
+  if (argv[0] === "programs") return programsCommand(argv.slice(1), deps);
   if (argv[0] === "ext") return ext(argv.slice(1), deps);
   if (argv[0] === "client") return client(argv.slice(1), deps);
+  if (argv[0] === "app") return (await import("./app.ts")).runApp(argv.slice(1), deps);
   // Commands that take one argument before their flags (stage 24).
   const positional =
     ["create", "add", "diff"].includes(argv[0] ?? "") && argv[1] && !argv[1].startsWith("-")

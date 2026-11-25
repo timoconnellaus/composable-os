@@ -1,13 +1,12 @@
-// Bookings (stage 31a, build steps 3 to 5 and 7: the spine, spending, the waitlist, and
-// attendance, moves and cancelling a class; ADRs 0504, 0520 and 0553): a gym's or studio's
-// timetable and the
+// Bookings (stage 31a; ADRs 0504, 0520 and 0553): a gym's or studio's timetable and the
 // bookings members make on it. Staff set a weekly timetable once (series), the host makes each
 // week's classes from it, and members book and cancel them on the web and in the app.
 //
 // Everything that is a rule is the host's, declared here as behaviours (ADR 0404):
 //   - a series makes its classes ahead in local time across clock changes (`recurring`, ADR 0500),
 //     never less far ahead than the longest booking window a class type sets (`horizonAtLeast`),
-//     never on a closure's dates, and never over a class staff changed by hand;
+//     never on a closure's dates, and never over what staff changed by hand on a class (a coach
+//     swapped stays swapped while the series' new room or time still reaches it, ADR 0620);
 //   - a class has places (`capacity`), and a booking holds one by its state (`claims`, ADR 0501),
 //     refused by the database past the places, for every actor;
 //   - one live booking per Person per class (`unique`, ADR 0502);
@@ -39,7 +38,13 @@
 //     whole when the new class is full or the use cannot be spent (ADRs 0493 and 0551);
 //   - staff cancel a class (a person's act, or a person approves an AI's request, ADR 0552), and
 //     every booked, waiting and held booking of it is cancelled in the same batch (ADR 0507);
-//   - the coach role (`roles`, ADR 0436): the day's classes, their lists, and ticking names.
+//   - the coach role (`roles`, ADR 0436): the day's classes, their lists, and ticking names;
+//   - a class is its coach's shift (`staffed`, stage 45, ADR 0621): one staff account is never
+//     on two overlapping shifts, refused by the database for every writer, and a write of a
+//     class answers its warnings (the coach away or not qualified, a class with no coach).
+//   - a class takes its room while it is on, when the room takes one booking at a time
+//     (`occupies`, stage 49, ADR 0765): a second class in it at an overlapping time is refused by
+//     the database for every writer; a series' date that would clash is made with no room.
 // The tools in tools.ts compose the host's operations and add no rules of their own. The messages
 // in automations.ts (step 9, ADR 0572) email members and their guardians through the email-send
 // gatekeeper on what the host did: booked, moved in, passed over, a place free after the cut-off,
@@ -49,6 +54,7 @@
 import { defineExtension } from "@composable-os/sdk";
 import { bookingsAutomations } from "./automations.ts";
 import { bookingsDashboards } from "./dashboards.ts";
+import { bookingsRoutineMail } from "./routine-mail.ts";
 import {
   book,
   bookFor,
@@ -84,7 +90,7 @@ const WEEKDAYS = [
   { value: "sun", label: "Sunday" },
 ];
 
-/** A booking's states (spec 31, "Booking states"). Only some are reachable at this step. */
+/** A booking's states (spec 31, "Booking states"). */
 const BOOKING_STATES = [
   { value: "booked", label: "Booked" },
   { value: "pending", label: "Held while paying" },
@@ -100,10 +106,10 @@ const BOOKING_STATES = [
   { value: "expired", label: "Expired" },
 ];
 
-/** What a class the gym cancels cancels with it: every booking holding a place or a use. */
+/** Cancelled with a class the gym cancels: each booking holding a place or a use, or waiting. */
 const FOLLOW_CANCEL = ["booked", "waiting", "pending", "attended", "no_show", "late_cancelled"];
 
-/** A booking that holds or takes a place, and so counts as the Person's one for its class. */
+/** A booking that holds or waits for a place, and so counts as the Person's one for its class. */
 const ACTIVE = ["pending", "booked", "waiting", "attended", "no_show"];
 
 /** When a customer may book, and when a cancel is late, from the class type or the org. */
@@ -122,6 +128,19 @@ const lateFrom = {
 };
 /** A class's list opens for ticking an hour before it starts (guess: people arrive early). */
 const listOpens = { at: "class.startsAt", minutesBefore: 60 };
+
+/** What a customer reads of a class: on the public timetable, and of a class they booked. */
+const CLASS_READ = [
+  "title",
+  "classType",
+  "startsAt",
+  "endsAt",
+  "timezone",
+  "room",
+  "coach",
+  "notes",
+  "state",
+];
 
 // A booking rule is a person's to change (spec 31: "Change the booking rules: a person only"):
 // set by the assistant, an MCP client, an automation or extension code, it waits for a person's
@@ -147,7 +166,7 @@ export default defineExtension({
   // The class type is Programs' (spec 31): the host installs Bookings only beside Programs.
   requires: ["programs"],
   permissions: {
-    // person.get / person.create: a booking's person on a class list, and a walk-in staff book.
+    // person.get / person.createWith: a booking's person on a class list, and a walk-in staff book.
     // programs.classtype: a class type's name and booking rules on staff's day view.
     read: ["person", "programs.classtype"],
     write: ["person"],
@@ -157,11 +176,15 @@ export default defineExtension({
     // waitlist.position: where a waiter stands in the queue (a member: their own only).
     // me.family: the member's own id, and the children staff linked to them (ADR 0540).
     // order.startHeld: a drop-in, the booking made with its order by the host (ADR 0560).
-    // The messages (automations.ts): person.link.list (a child's live guardians, who are written
-    // to), order.get (whether a drop-in was paid, and who paid), extensionSettings.list (the link
-    // in each email and the waiting list's cut-off), notification.send (staff told of a class
-    // whose list was not taken); email-send, the members' mail; storage, which class changes are
-    // still to be told (several edits within two minutes make one email).
+    // The messages (automations.ts): order.get (whether a drop-in was paid), extensionSettings.list
+    // (the waiting list's cut-off), notification.send (staff told of a class whose list was not
+    // taken); person.link.list, a child's live guardians on staff's screens. routine-mail, the
+    // members' email (routine-mail.ts, ADR 0590: the host decides who it goes to and what it
+    // says), sent from the email-send connection a person binds to each automation; storage,
+    // which class changes are still to be told (several edits within two minutes make one email).
+    // agreement.listHealthNotes: the "health note" mark beside a name on a class list (stage 44,
+    // decision 18), a yes or no per Person on the class's bookings (the host reads them) and
+    // nothing of the form; the host gives it only when a person called the tool themselves.
     operations: [
       "order.startHeld",
       "public.list",
@@ -174,8 +197,9 @@ export default defineExtension({
       "order.get",
       "extensionSettings.list",
       "notification.send",
+      "agreement.listHealthNotes",
     ],
-    modules: ["ops", "email-send", "storage"],
+    modules: ["ops", "routine-mail", "email-send", "storage"],
   },
   // Bookings' fields on Programs' class type: how it shows, and its booking rules when they
   // differ from the organisation's (Settings → Extensions → Bookings). Empty: the organisation's.
@@ -238,6 +262,30 @@ export default defineExtension({
         description: "Members cannot book its classes themselves; staff book them in.",
         personApproves: true,
       },
+      // Preparation and pack-down (stage 45 decision 19, ADR 0627): minutes added to the coach's
+      // pay hours for each class of this type. Pay only: they never make two classes clash.
+      rosterBeforeMinutes: {
+        type: "number",
+        label: "Set-up minutes (pay)",
+        description:
+          "Minutes before each class counted in its coach's pay hours (set-up). Empty: none. " +
+          "They never stop a coach taking the class before.",
+        min: 0,
+        max: 240,
+        step: 1,
+        personApproves: true,
+      },
+      rosterAfterMinutes: {
+        type: "number",
+        label: "Pack-down minutes (pay)",
+        description:
+          "Minutes after each class counted in its coach's pay hours (pack-down). Empty: none. " +
+          "They never stop a coach taking the class after.",
+        min: 0,
+        max: 240,
+        step: 1,
+        personApproves: true,
+      },
     },
   },
   objects: {
@@ -256,6 +304,16 @@ export default defineExtension({
           description: "The most the room holds: a guide for staff, not a limit on a class.",
           min: 0,
           step: 1,
+        },
+        // A private room (stage 49, ADR 0765): one class at a time in it, refused by the host for
+        // every writer. Off for a shared floor many classes use at once.
+        exclusive: {
+          type: "boolean",
+          label: "One booking at a time",
+          description:
+            "Nothing else can be booked in this room while a class is in it. Turning it on is " +
+            "refused while two classes still to come overlap in it.",
+          default: false,
         },
         notes: { type: "longText", label: "Notes" },
       },
@@ -279,6 +337,9 @@ export default defineExtension({
         },
         active: { type: "boolean", label: "Active", default: true },
       },
+      // One coach profile per staff account (stage 45, ADR 0621): the host writes the right
+      // profile when a shift changes hands, and an account's classes are its profile's.
+      unique: [{ fields: ["user"] }],
       public: { read: ["name", "photo", "bio"] },
     },
     series: {
@@ -316,7 +377,9 @@ export default defineExtension({
           step: 1,
         },
         room: { type: "relation", label: "Room", to: "bookings.room" },
-        coach: { type: "relation", label: "Coach", to: "bookings.coach" },
+        // Who coaches is a person's to change (stage 45 step 4, ADR 0626): the assistant, an MCP
+        // client or code may ask, and a person applies it. It changes someone's working week.
+        coach: { type: "relation", label: "Coach", to: "bookings.coach", personApproves: true },
         places: { type: "number", label: "Places", required: true, min: 0, step: 1 },
         firstDate: { type: "date", label: "First date", required: true },
         lastDate: { type: "date", label: "Last date", description: "Empty: ongoing." },
@@ -398,7 +461,8 @@ export default defineExtension({
         // Left empty, the organisation's zone (ADR 0460): a class always has one.
         timezone: { type: "timezone", label: "Time zone", required: true },
         room: { type: "relation", label: "Room", to: "bookings.room" },
-        coach: { type: "relation", label: "Coach", to: "bookings.coach" },
+        // A person's to change (ADR 0626), as the series' coach: an AI's swap waits for a person.
+        coach: { type: "relation", label: "Coach", to: "bookings.coach", personApproves: true },
         // Required: a class is never unlimited by leaving its places empty.
         places: { type: "number", label: "Places", required: true, min: 0, step: 1 },
         notes: { type: "longText", label: "Notes for members" },
@@ -416,7 +480,10 @@ export default defineExtension({
           type: "boolean",
           label: "Changed from its series",
           readOnly: true,
-          description: "Edited by hand: its series no longer changes it.",
+          description:
+            "Moved, or its state changed, by hand: its series no longer changes it. A field " +
+            "changed by hand alone (another coach that day) stays this class's own, and later " +
+            "changes to its series still reach the rest.",
         },
         cancelledReason: {
           type: "longText",
@@ -454,35 +521,47 @@ export default defineExtension({
       },
       // Members see how many places are left (decision 13), never who has them.
       capacity: { places: "places", show: "exact" },
+      // A class is a shift its coach works (stage 45, ADR 0621): the host refuses one staff
+      // account on two overlapping shifts (two classes, a class and a duty), for every writer, and
+      // answers a write with its warnings (the coach away or not qualified, a class with no
+      // coach). A coach profile with no account (a visiting coach) covers the class for members
+      // and claims nobody's time. A class done still counts (pay reads it); a cancelled one not.
+      staffed: {
+        who: { field: "coach", account: "user" },
+        starts: "startsAt",
+        ends: "endsAt",
+        zone: "timezone",
+        kind: "classType",
+        live: ["scheduled", "done"],
+        place: "room.name",
+        pattern: { link: "series", who: "coach" },
+        // Pay only (ADR 0627): the class type's set-up and pack-down minutes, and the evidence a
+        // class was run: its bookings, ticked by whoever took the list.
+        payBefore: { field: "classType.rosterBeforeMinutes" },
+        payAfter: { field: "classType.rosterAfterMinutes" },
+        evidence: { object: "booking", link: "class", by: "markedBy" },
+      },
+      // A class takes its room while it is on, when the room takes one booking at a time (stage
+      // 49, ADR 0765): the host refuses a second class (or, later, an appointment) in it at an
+      // overlapping time, for every writer. A shared room is never claimed. The room calendar
+      // shows it by its title (stage 57, ADR 0844).
+      occupies: {
+        thing: "room",
+        starts: "startsAt",
+        ends: "endsAt",
+        live: ["scheduled", "done"],
+        only: "exclusive",
+        title: "title",
+      },
       public: {
-        read: [
-          "title",
-          "classType",
-          "startsAt",
-          "endsAt",
-          "timezone",
-          "room",
-          "coach",
-          "notes",
-          "state",
-        ],
+        read: CLASS_READ,
         when: { field: "state", in: ["scheduled"] },
       },
       // A booking's member reads their class whatever its state (a cancelled one says so).
       customerVia: {
         from: "bookings.booking",
         field: "class",
-        read: [
-          "title",
-          "classType",
-          "startsAt",
-          "endsAt",
-          "timezone",
-          "room",
-          "coach",
-          "notes",
-          "state",
-        ],
+        read: CLASS_READ,
       },
       indexes: [
         ["startsAt"],
@@ -736,6 +815,21 @@ export default defineExtension({
           },
         ],
       },
+      // A class's bookings are the list its coach reads (stage 44, ADR 0643): the host may mark a
+      // health note beside each Person on it, asked for by the class's id only.
+      healthNotes: { list: "class", person: "person" },
+      // Before a booking (stage 44, ADRs 0641 and 0644): checked when a caller makes one booked
+      // or waiting, or a waiter takes a free place, for the booking's Person; a drop-in at its
+      // order. The host's own moves (promotion, a paid drop-in) are not.
+      agreements: {
+        point: "booking",
+        label: "Before a booking",
+        suggests: ["waiver", "health", "guardian"],
+        enter: ["booked", "waiting"],
+        person: "person",
+        // The timetable and drop-in blocks show what is due and let a person agree (step 5).
+        inlineStep: true,
+      },
       // A place on the class while held, booked, attended or a no-show (ADR 0501).
       // Its waitlist (ADR 0520): a place given back before the class type's "waitlist stops"
       // time (else the organisation's) goes to the first waiter, whom the host moves in.
@@ -784,6 +878,12 @@ export default defineExtension({
           // How much of a class unpaid guest holds may take at once.
           holdCap: { setting: "dropInHoldPercent" },
         },
+        // In the finance reports (ADR 0792): earned when the class starts.
+        finance: {
+          category: { key: "drop_ins", label: "Drop-ins" },
+          earned: "at_date",
+          at: "class.startsAt",
+        },
       },
       // A spender of the Memberships pack's holders (stage 32b's ids, spec 32): booked spends,
       // an in-time cancel, a class the gym cancels and a move give back; a late cancel and a
@@ -801,6 +901,10 @@ export default defineExtension({
           movedFrom: { field: "movedFrom", state: "moved" },
           paidBy: ["memberships.membership", "memberships.pass"],
           waived: "paidOtherwise",
+          // A membership ended by its payer's cooling off (stage 44 step 7, ADR 0647): its
+          // bookings for classes not yet started are cancelled as the gym's, their places freed
+          // for the waiting list and their uses given back.
+          released: "cancelled_by_us",
         },
       },
       // A member reads and changes only their own bookings, and a parent or guardian staff linked
@@ -955,6 +1059,26 @@ export default defineExtension({
       order: 35,
     },
   },
+  // The members' email (ADR 0590): routine mail the host sends without a person's approval.
+  routineMail: bookingsRoutineMail,
+  // What a journey can start or stop on (stage 53, ADR 0802): the host records the last time each
+  // person had each, in the write's batch. "Not seen for two weeks" is no `attended` for 14 days.
+  // A tick taken back (attended to booked) is not a new booking.
+  journeySignals: {
+    booked: {
+      label: "Class booked",
+      description: "A place in a class is booked: made, taken from the waitlist, or paid for.",
+      object: "booking",
+      enters: ["booked"],
+      from: ["pending", "waiting"],
+    },
+    attended: {
+      label: "Class attended",
+      description: "A coach ticks the person's name on a class's list.",
+      object: "booking",
+      enters: ["attended"],
+    },
+  },
   // The organisation's booking rules, which a class type's own values override. Changed by a
   // person with the extensions permission (Settings → Extensions → Bookings).
   settings: {
@@ -1035,7 +1159,8 @@ export default defineExtension({
       label: "Where members see their bookings",
       description:
         "The page on your site where a signed-in member sees their bookings (https), linked from " +
-        "every booking email. Empty: the emails say to sign in.",
+        "every booking email, when it is on your site (Settings → Routine email). Empty: the emails " +
+        "say to sign in.",
       // The link every member email carries: a person's to change, as the booking rules are.
       personApproves: true,
     },
@@ -1097,4 +1222,37 @@ export default defineExtension({
   },
   automations: bookingsAutomations,
   dashboards: bookingsDashboards,
+  // Staff screens in the product's admin (stage 47, ADR 0660): the front desk, and a class's list
+  // (a tab on the class, and in the navigation for a coach, who opens today's classes there). Each
+  // is gated by the tools that decide who may work it (its main read and the write it is for; the
+  // host refuses the rest): the desk, any member of staff or a coach granted `bookings:desk`; the
+  // list, the coach role or any member (a viewer cannot tick). Never a customer's tool.
+  screens: {
+    desk: {
+      label: "Front desk",
+      block: "bookings-desk",
+      export: "FrontDesk",
+      nav: { group: "Bookings", order: 10 },
+      opens: ["findPeople", "bookFor"],
+    },
+    classList: {
+      label: "Class list",
+      block: "bookings-class-list",
+      export: "TodayClassList",
+      nav: { group: "Bookings", order: 20 },
+      opens: ["roster", "markAttended"],
+      record: { object: "bookings.class", as: "classId" },
+    },
+  },
+  // Its section of My account (stage 48, ADR 0710): shown to a member with a booking, or whose child
+  // linked to them has one (a booking opens to guardians), the timetable with their bookings.
+  portal: {
+    bookings: {
+      label: "Bookings",
+      web: { block: "bookings-timetable", export: "Timetable" },
+      native: { block: "bookings-native-timetable", export: "TimetableScreen" },
+      order: 10,
+      has: ["bookings.booking"],
+    },
+  },
 });

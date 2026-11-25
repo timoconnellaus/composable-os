@@ -19,6 +19,13 @@ common work are in `skills/` (start with `start-client-app` and `add-block`).
   no direct database access, no outside calls past a gatekeeper, no rule enforced in a screen.
 - **The org's own extensions** live in `extensions/` and are checked with `cos ext check` and
   tested with `cos ext test`. `cos deploy` installs them.
+- **The mobile app's identity is product.ts's** (`mobile.app`, stage 63): its name, store ids,
+  icon, colours and listing. `apps/mobile/app.config.ts` and `src/blocks/brand.ts` are made from
+  it; never write a host address or a store id in the app. Run `cos app check` before a store
+  build. Nothing is bought in the app: buying and billing stay on the website.
+- **Signing and store keys are a person's.** Never create, see, hold or set a signing key, a store
+  key or the deploy credential, never approve the app workflow's run, submit for review or release
+  to the public. `cos app credentials` names what a person sets.
 - **Before opening the web app to the public,** add the rate limiting rule for public calls on the
   web app's zone (`cos create` and `cos init` print it).
 <!-- /composable-os: client repo rules -->

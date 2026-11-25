@@ -49,7 +49,15 @@ Each kind has its own file, wired into `defineExtension` (Deals: the last keys o
    declares `permission: "<id>:<word>"` (or a list, any one of which opens it, ADR 0600); the role
    lists it. Admins and members call it as they call any tool. A tool that only a person on the staff may call (giving something free by hand)
    declares `humanOnly: true`: the host refuses the assistant, MCP clients, automations and other
-   extensions' code (Memberships: `givePass`, ADR 0512). `ctx.caller` says who started a tool (`{ kind: "staff", userId, name }`, a
+   extensions' code (Memberships: `givePass`, ADR 0512). A tool whose input carries something the
+   audit log must never keep (a note about someone's leave) lists those fields in `redact`
+   (Rostering: `away`). A tool only admins and accounts granted it should call names a
+   **restricted** permission (see `write-extension`, Roles; Rostering's `rostering:manage`).
+   In a shipped pack only (ADR 0652): a `humanOnly` tool every staff account should reach, pack
+   roles included, because its host operation decides who may (Daily checklists' `tick`), declares
+   `anyStaff: true` and no permission; a tool only holders of a grantable core permission should
+   call declares `corePermission` (Daily checklists' `history`: `"checklists:write"`).
+   `ctx.caller` says who started a tool (`{ kind: "staff", userId, name }`, a
    customer or the public), from the host and never from the input: record who did something
    with it (Ticketing: `checkIn` sets `usedBy`). Extensions cannot read users (`user.*` is never
    granted), so keep a name you need to show later on the record.
@@ -84,7 +92,14 @@ Each kind has its own file, wired into `defineExtension` (Deals: the last keys o
    event abroad), add `zoneField: "<a timezone field>"`: days are then counted in each record's
    zone, and the run starts in the first hour of that local day (ADR 0460; Ticketing:
    `eventReminder`, `eventEnded`). An automation the request itself asks for
-   ships on; one you added as an extra ships off with `enabled: false` (Leads).
+   ships on; one you added as an extra ships off with `enabled: false` (Leads). An automation
+   that needs another pack the rest of the extension does not (a review ask after the Nth
+   attended booking) says `onlyWith: ["bookings"]`: the extension installs without it, the
+   automation is listed as waiting and starts no run until that pack is installed and on, and
+   its trigger, steps and `permissions` may name that pack's objects (ADR 0812). Spell them
+   exactly: without the pack the host cannot check them, and a wrong one shows the automation
+   as broken once the pack is installed. Run `cos ext check` with the pack beside yours. When the
+   whole extension needs the pack, use `requires` instead.
 5. **Declare every step and its intents.** A camelCase `name` each. A `do` step lists `reads`
    (objects), `writes` (`WriteIntent`: object, action, count, titles, assignee), `notifies`
    (recipient and the message as written) and `calls` (other operations, such as `query.sql`).
@@ -123,6 +138,20 @@ Each kind has its own file, wired into `defineExtension` (Deals: the last keys o
    (ADR 0571); nothing else can be attached (Bookings: `bookingConfirmed`). Give each email an
    `idempotencyKey` stable across retries (`${event.runId}:${n}`), so a step retried after a
    failure part way sends nothing twice (ADR 0574).
+   **Routine mail** (ADR 0590) is the exception, and only for a shipped pack (a pack in this
+   repository's `packs/`, or an org's own repository): a fixed email to the person a record belongs
+   to (a booking's confirmation, a reminder) that the host sends without approval. Declare it in
+   the manifest's `routineMail` (a kind about one of your objects or an `order`, its messages'
+   subject and text with `{slot}`s and optional parts `[...]`, a `guardian` version naming
+   `{member}`, and calendar events), each slot a field the host reads (`class.title`, a time in
+   `class.timezone`), one line per pointing record (`each`), a link to a text setting, or a
+   `choice`, `at`, `count` or `flag` the automation passes; add `"routine-mail"` to `modules`; and
+   in a step call `ctx.routineMail.send({ kind, record, message, values })`. Never an address and
+   never words: the host decides who it goes to and fills the rest, holds anything unusual for a
+   person, and keys each email so a retried step sends nothing twice. Keep the `email-send`
+   connection declared: a person binds it, which is their consent. An extension written in the
+   app cannot declare it (the check refuses it). See Bookings: `routine-mail.ts` and
+   `bookingConfirmed`; Ticketing: `ticketsByEmail` (about an order, one line per ticket).
    A `record` trigger's updates of one record within 30 seconds coalesce into one run, whose
    `event.change` is the first: an automation that reads the change sets `rails: {
    debounceSeconds: 0 }`.
@@ -142,7 +171,9 @@ Each kind has its own file, wired into `defineExtension` (Deals: the last keys o
    `run.undeclared` is empty, then `run.steps`, `run.writes` and `run.notifications`. Test the
    case where the conditions do not hold too. A gatekeeper the extension declares is faked in
    memory: pass `gatekeepers: { "email-send": (call) => ... }` for its answers, and assert
-   `host.gatekeeperCalls` (each with its step). The test host does not evaluate the trigger: assert
+   `host.gatekeeperCalls` (each with its step). Routine mail is recorded in `host.routineSends`
+   (the kind, record, message and values asked for; `routineMail: (send) => ...` for answers);
+   render a message's words with `renderTemplate` to test them (Bookings' test). The test host does not evaluate the trigger: assert
    its declared shape (the sign of `offsetDays`), and pass `period` for `schedule` and
    `dateRelative` runs and assert the dates taken from it. See Deals: `test/automations.test.ts`.
 10. **A headless entry, for client apps (optional, stage 23, ADR 0418).** A pack whose tools a

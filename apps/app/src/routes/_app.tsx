@@ -11,7 +11,13 @@ import {
   SidebarTrigger,
 } from "@composable-os/ui/components/sidebar";
 import { cn } from "@composable-os/ui/lib/utils";
-import { createFileRoute, Outlet, redirect, useRouterState } from "@tanstack/react-router";
+import {
+  createFileRoute,
+  notFound,
+  Outlet,
+  redirect,
+  useRouterState,
+} from "@tanstack/react-router";
 import { SearchIcon, SparklesIcon } from "lucide-react";
 import { useEffect, useRef } from "react";
 import {
@@ -32,9 +38,11 @@ import { SHELL_HEADER_HEIGHT } from "../components/assistant/dock-state.ts";
 import { ThreadProvider, useThreadUnread } from "../components/assistant/thread-provider.tsx";
 import { VoiceProvider } from "../components/assistant/voice.tsx";
 import { CommandPalette } from "../components/command-palette.tsx";
+import { NotFoundPage } from "../components/not-found.tsx";
 import { NotificationBell } from "../components/notifications/notification-bell.tsx";
 import { CreateOrganisationDialog } from "../components/organisations/create-organisation-dialog.tsx";
 import { CreatePersonDialog } from "../components/people/create-person-dialog.tsx";
+import { FixedRoleLayout } from "../components/screens/fixed-role-shell.tsx";
 import { ShortcutSheet } from "../components/shortcut-sheet.tsx";
 import { CreateTaskDialog } from "../components/tasks/create-task-dialog.tsx";
 import { UserMenu } from "../components/user-menu.tsx";
@@ -44,10 +52,16 @@ import { getSession } from "../server/session.public.ts";
 
 export const Route = createFileRoute("/_app")({
   beforeLoad: async ({ location }) => {
-    const { principal, user, signOutUrl, setupOpen, identityProvider, support } =
+    const { principal, user, packRole, signOutUrl, setupOpen, identityProvider, support } =
       await getSession();
     if (!principal || !user) {
       throw redirect({ to: "/sign-in", search: { redirect: location.href } });
+    }
+    // A fixed-role account (a coach, the door, a rostered cleaner; ADR 0436) has the small shell
+    // and its screens only (stage 47, ADR 0660): every other page is "not found", before any of
+    // its loaders asks the host for anything the role is refused.
+    if (packRole && location.pathname !== "/" && !location.pathname.startsWith("/s/")) {
+      throw notFound();
     }
     // First visit after install: the admin finishes setting up first (skippable, ADR 0167).
     if (setupOpen && location.pathname !== "/setup" && !support) {
@@ -56,6 +70,7 @@ export const Route = createFileRoute("/_app")({
     return {
       principal,
       user,
+      packRole,
       signOutUrl,
       identityProvider,
       support,
@@ -63,9 +78,16 @@ export const Route = createFileRoute("/_app")({
     };
   },
   component: AppLayout,
+  notFoundComponent: () => <NotFoundPage />,
 });
 
 function AppLayout() {
+  const { packRole } = Route.useRouteContext();
+  if (packRole) return <FixedRoleLayout />;
+  return <FullLayout />;
+}
+
+function FullLayout() {
   const { user } = Route.useRouteContext();
   useFocusOnNavigate();
   return (

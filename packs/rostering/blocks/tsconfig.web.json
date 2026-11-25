@@ -1,0 +1,30 @@
+{
+  "compilerOptions": {
+    "target": "ES2023",
+    "lib": ["ES2023", "DOM", "DOM.Iterable"],
+    "module": "ESNext",
+    "moduleResolution": "bundler",
+    "jsx": "react-jsx",
+    "allowImportingTsExtensions": true,
+    "isolatedModules": true,
+    "noEmit": true,
+    "skipLibCheck": true,
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "types": [],
+    "rootDirs": [".", "../../../blocks"]
+  },
+  "include": [
+    "rostering-week/*.tsx",
+    "rostering-patterns/*.tsx",
+    "rostering-qualifications/*.tsx",
+    "rostering-away/*.tsx",
+    "rostering-pay/*.tsx",
+    "rostering-my-shifts/*.tsx",
+    "rostering-offers/*.tsx",
+    "rostering-my-availability/*.tsx",
+    "rostering-my-calendar/*.tsx",
+    "rostering-checklist/*.tsx",
+    "rostering-checklists/*.tsx"
+  ]
+}

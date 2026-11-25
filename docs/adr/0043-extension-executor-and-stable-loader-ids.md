@@ -140,3 +140,37 @@ source goes straight into the worker (no more `/code/<uuid>` directories). Its l
 > Amended 2026-11-05: the ros-runner main-module budget is raised from 4,096 to 5,120 KiB (stage 5's automation engine reached 4,221 KiB; stage 7a's AI SDK adds about 1.1 MB). The rule that the TypeScript compiler must not be in the main module is unchanged.
 
 > Amended 2026-11-06 (stage 17 W6, ADR 0346): saved A2UI producers are a fourth stable id, `a2ui:<name>@<version>:<hash>`, hashing the version, its source, the entry module and the compatibility date. They run on `LOADER.get`, with a fixed entry that patches no globals, and the viewer's host as a per-run argument.
+
+> Amended 2026-11-23: **the budget measures the module that ships, minified for whitespace only.**
+> - **The build.** `apps/runner/scripts/build.mjs` builds cos-runner for every path that ships it:
+>   wrangler bundles it as before (`deploy --dry-run --outdir`, the product's alias), then esbuild
+>   rewrites the main module with `minifyWhitespace` only. Nothing is renamed and no syntax is
+>   rewritten, so function and class names, `keep_names`, operation and tool names, strings and
+>   template contents (the Dynamic Workers' entry modules among them) are as wrangler emitted them.
+>   Parsed with acorn, the two modules' syntax trees are identical (1,060,588 nodes, positions,
+>   quote style and redundant parentheses aside). The Text modules (`checker.txt`,
+>   `sdk-bundle.txt`, `shipped.txt`) are copied byte for byte. The source map is chained through
+>   wrangler's to the original sources (`index.js.map`).
+> - **Where it ships.** `pnpm build` (so the release, ADR 0160, and `cos deploy`, the installer and
+>   the updater, which deploy release modules) and `scripts/deploy.mjs`, which now uploads that
+>   output with `--no-bundle` and uploads its source map too (`upload_source_maps`). The dry run
+>   shows the same three Text modules and main module as the release. `wrangler dev` and the tests
+>   still bundle the sources unminified. A release still drops source maps (ADR 0160), as it did
+>   before; its builds are reproducible, so rebuilding the release commit gives the exact map.
+> - **Sizes** on `main` at 57be31f8: the main module was 7,578 KiB (1,510 KiB gzip) and is 5,531
+>   KiB (1,269 KiB gzip). The whole upload was 12,822 KiB (2,867 KiB gzip, wrangler's figures) and
+>   is 10,775 KiB (2,629 KiB gzip). The map is 16,610 KiB (3,797 KiB gzip).
+> - **The budget** is 7,168 KiB of the shipped main module, set from an experiment: a scratch entry
+>   that re-exports `src/index.ts` and imports `typescript` made the shipped main module 13,002 KiB
+>   (+7,471 KiB; unminified, 18,409 KiB). That accident fails by about 5.8 MB, and the compiler
+>   markers catch it at any size. The script also fails on React's element symbols in the main
+>   module, on an upload (the main module and its Text modules) over 32 MiB, and on a source map
+>   over 7.5 MiB gzipped. Earlier numbers in this ADR and in the script are unminified and are not
+>   comparable with the new budget.
+> - **Platform limits**, checked 2026-11-23: [Workers limits](https://developers.cloudflare.com/workers/platform/limits/)
+>   (updated 2026-11-19): a Worker's size is 64 MiB uncompressed on the Free and Paid plans, there
+>   is no compressed limit (wrangler's gzip figure is for reference only), and the global scope
+>   must parse and run within 1 second at startup (error 10021). [Source maps](https://developers.cloudflare.com/workers/observability/source-maps/)
+>   (updated 2026-10-23): 15 MiB gzipped, 60 MiB uncompressed. The upload and map budgets are half
+>   of those. Startup time is reported only by a real upload (`startup_time_ms`), so no check here
+>   measures it; whitespace minification can only shorten the parse.

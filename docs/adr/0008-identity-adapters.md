@@ -12,7 +12,7 @@ Status: accepted, 2026-11-04 (stage 0 architecture interview).
 - Identity is never runtime-pluggable or AI-configurable. Auth secrets are env-only. In-CRM roles and permissions are core data, editable by admins.
 
 ## Amended 2026-11-23: a deployment that serves many clients
-[ADR 0611](0611-one-host-a-database-per-client.md) and stage 47's decision 8 (the owner's answer
+[ADR 0611](0611-one-host-a-database-per-client.md) and stage 66's decision 8 (the owner's answer
 of 2026-11-23). On a deployment that serves many clients there is no Worker per client to hold a
 client's secrets. There, auth secrets are derived per client from one secret in the host's
 environment and are stored nowhere; a secret a client gives (payment keys, its own sign-in

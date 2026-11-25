@@ -1,0 +1,21 @@
+// cos-gatekeeper-accounting-fake: the fake accounting system as a gatekeeper (stage 61, ADR 0880),
+// for development and tests only. Named wrangler.fake.jsonc so no release or deployment reads it
+// (scripts/release/manifest-lib.ts reads wrangler.jsonc): only the CRM's dev server
+// (apps/app/vite.config.ts) and cos-runner's tests (apps/runner/vitest.config.ts) run it, bound to
+// cos-runner as GATEKEEPER_ACCOUNTING_FAKE. It holds no secrets and reaches nothing outside.
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "cos-gatekeeper-accounting-fake",
+  "main": "src/fake-worker.ts",
+  "compatibility_date": "2026-09-04",
+  "compatibility_flags": ["allow_irrevocable_stub_storage"],
+  "workers_dev": false,
+  "preview_urls": false,
+  "rules": [{ "type": "Text", "globs": ["**/*.txt"], "fallthrough": false }],
+  "durable_objects": {
+    "bindings": [{ "name": "FAKE_BOOKS", "class_name": "FakeAccountingBooks" }]
+  },
+  "migrations": [
+    { "tag": "v1", "new_sqlite_classes": ["FakeAccountingBooks", "FakeAccountingGatekeeper"] }
+  ]
+}

@@ -17,12 +17,12 @@ import { toast } from "sonner";
 import { errorMessage, useOp, useOpMutation } from "#/lib/query";
 
 /** The signed-in person's address and whether it is confirmed; undefined while unknown. */
-export function useEmailStatus() {
-  return useEmailStatusQuery().data;
+export function useEmailStatus(enabled = true) {
+  return useEmailStatusQuery(enabled).data;
 }
 
-function useEmailStatusQuery() {
-  return useOp("user.emailStatus", {}, { retry: false });
+function useEmailStatusQuery(enabled = true) {
+  return useOp("user.emailStatus", {}, { retry: false, enabled });
 }
 
 export function ConfirmEmailDialog({ open, onClose }: { open: boolean; onClose: () => void }) {

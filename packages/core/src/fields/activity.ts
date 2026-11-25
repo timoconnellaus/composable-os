@@ -13,7 +13,7 @@ export const activityObject = defineObject({
       name: "type",
       label: "Type",
       type: "enum",
-      enumValues: ["note", "email", "call", "meeting", "system"],
+      enumValues: ["note", "email", "call", "meeting", "system", "chat"],
       column: "type",
       filterable: true,
       sortable: true,

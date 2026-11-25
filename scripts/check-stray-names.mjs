@@ -18,7 +18,8 @@ const SELF = /^scripts\/check-stray-names(?:\.test)?\.mjs$/;
 
 /** What a rule about a client's supplier says to write instead. */
 const SUPPLIER =
-  "the repository does not name a client's suppliers (the owner's decision, 2026-11-22)";
+  "the repository does not name a client's suppliers (the owner's decision of 2026-11-22, kept " +
+  "on 2026-11-24 with no named connector, ADR 0921)";
 
 /**
  * A rule with its own `allow` uses it in place of ALLOW: a client's suppliers are kept out of

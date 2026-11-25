@@ -50,6 +50,8 @@ export interface FieldDefinition {
   options?: ExtensionFieldOptions;
   /** Computed (formula) or system-maintained: never written by record operations. */
   readOnly?: boolean;
+  /** Core fields: the operation that changes it, when not `<object>.update` (a birthday's). */
+  setWith?: string;
   required?: boolean;
   description?: string;
 }
@@ -89,6 +91,26 @@ export interface ExtensionFieldOptions {
   documentPath?: { field: string; path: string; count?: boolean | undefined };
 }
 
+/** A restricted field (ADR 0811): its registry name, label and the permission that reads it. */
+export interface RestrictedFieldDefinition {
+  name: string;
+  label: string;
+  /** One of the pack's restricted permissions (ADR 0625), `<pack>:<word>`. */
+  permission: string;
+  fieldType: "text" | "longText";
+}
+
+/** A journey signal declared on an object (stage 53, ADR 0802), as the host records it. */
+export interface ObjectSignal {
+  /** `<extension>.<name>`. */
+  id: string;
+  /** The relation field naming the Person. */
+  person: string;
+  enters?: readonly string[];
+  from?: readonly string[];
+  created?: boolean;
+}
+
 export interface ObjectDefinition {
   /** Registry name, also the `object_type` in links, tags, audit and search. */
   name: string;
@@ -115,19 +137,44 @@ export interface ObjectDefinition {
   capacity?: CapacityDefinition;
   /** Extension objects: something that can be bought (stage 27, ADR 0435). */
   sellable?: SellableDefinition;
+  /** Extension objects: things counted on a shelf, kept from a ledger (stage 37, ADR 0680). */
+  stock?: StockDefinition;
+  /** Extension objects: a state whose entering moves stock (stage 37, ADR 0681). */
+  stockMoves?: StockMovesDefinition;
   /** Extension objects: uses held (a pass) or spent (a booking) (stage 32b, ADR 0493). */
   allowance?: AllowanceDefinition;
   /**
    * Extension objects: an agreement point (stage 44, ADR 0641), as declared (it names no field the
    * registry renames; `person` and `enter` are local names, read only from step 3 on).
    */
+  /** Extension objects: a health-note list (stage 44, ADR 0643), local field names. */
+  healthNotes?: { list: string; person: string };
+  /**
+   * Extension objects: restricted fields (stage 54 step 2, ADR 0811). Never in `fields`: their
+   * values are kept in core_restricted_value, in no view, list, filter, search or export. The
+   * record's customer writes and reads their own (the seam); staff read them only through
+   * `record.readRestricted`, from a tool of the pack that names `permission`.
+   */
+  restricted?: readonly RestrictedFieldDefinition[];
   agreements?: {
     point: string;
     label: string;
     suggests?: readonly string[];
     enter?: readonly string[];
     person?: string;
+    /** States a record keeps its entry in (a ticket valid or used): a move between them is not asked. */
+    keeps?: readonly string[];
+    /** A record the record import makes is someone moving over, not asked (issue #281). */
+    importMovesOver?: boolean;
+    /** The pack's screens show what is due and let a person agree on the way (stage 44 step 5). */
+    inlineStep?: boolean;
   };
+  /**
+   * Extension objects: the journey signals its shipped extension declares on it (stage 53, ADR
+   * 0802), each with its id (`memberships.started`) and its Person field resolved. The host
+   * records them in the write's batch (journeys/signals.ts).
+   */
+  signals?: readonly ObjectSignal[];
   /**
    * A fixed state machine (ADR 0425), with registry field names. An object has stages or states,
    * never both.
@@ -142,6 +189,24 @@ export interface ObjectDefinition {
   unique?: readonly UniqueDefinition[];
   /** Extension objects: a weekly schedule generating records of another object (ADR 0500). */
   recurring?: RecurringDefinition;
+  /** Extension objects: a shift, who works it, when and on what (stage 45, ADR 0621). */
+  staffed?: StaffedDefinition;
+  /** Extension objects: time can be recorded against the record (stage 58, ADR 0850). */
+  workedOn?: WorkedOnDefinition;
+  /** Extension objects: a claim on a thing (a room) for the record's time (stage 49, ADR 0765). */
+  occupies?: OccupiesDefinition;
+  /**
+   * Extension objects of a shipped pack: records that are events in their customer's calendar
+   * feed (stage 62, ADR 0891), as declared: paths from this object, read as the customer.
+   */
+  calendarEntry?: CalendarEntryDefinition;
+  /**
+   * Extension objects of a shipped pack: the public-write door (stage 29, ADR 0720), a form the
+   * public answers, the submission the host makes, or a destination a form may also make.
+   */
+  intake?: IntakeDefinition;
+  /** A checklist its person ticks off (stage 45 step 4b, ADR 0650), with registry names. */
+  checklists?: ChecklistsDefinition;
   /**
    * The user field that holds the record's owner (ADR 0246): `ownerId` on people and
    * organisations, the declared `owner` of an extension object. Assignment rules set it.
@@ -203,6 +268,18 @@ export interface PublishableDefinition {
   readonly slug?: string;
   /** The date a reader is shown: a date or datetime content field, filled on publish (ADR 0441). */
   readonly date?: string;
+  /** The states the record may be published in; left out, any (ADR 0810). */
+  readonly publishIn?: readonly string[];
+  /**
+   * Read and understood (ADR 0702): `who`, the object's "must read" document field; `manage`, the
+   * restricted, grantable permission whose holders (and admins) read who has confirmed.
+   */
+  readonly acknowledge?: { readonly who: string; readonly manage: string };
+  /**
+   * Staff read (ADR 0701): every staff account, pack roles included, reads the current published
+   * version's content and slug through `content.staffGet`, `content.staffList` and `content.search`.
+   */
+  readonly staffRead?: boolean;
 }
 
 /**
@@ -236,6 +313,8 @@ export interface CustomerDeclaration {
   readonly requireAccess?: readonly string[] | undefined;
   /** Fields of `write` a customer sets only on create (ADR 0507). */
   readonly createOnly?: readonly string[] | undefined;
+  /** A customer may put their own records in the Trash through `my.delete` (ADR 0414, amended). */
+  readonly delete?: boolean | undefined;
   /**
    * The family link (ADR 0540): a customer's scope on this object is their own Person's records
    * or a live dependant's. Left out, a guardian reads nothing of a dependant's here.
@@ -306,6 +385,8 @@ export type AllowanceDefinition =
       readonly paidBy: readonly string[];
       /** A boolean field: while true, entering a spend state spends nothing (ADR 0506). */
       readonly waived?: string | undefined;
+      /** The return state the host moves it into when its holder is cooled off (ADR 0647). */
+      readonly released?: string | undefined;
     };
 
 /** The capacity behaviour as the host enforces it (the SDK's CapacitySpec, validated). */
@@ -318,6 +399,34 @@ export interface CapacityDefinition {
   /** `low`'s threshold. */
   lowAt?: number | undefined;
   releaseOnRefund: boolean;
+}
+
+/** The stock behaviour as the host enforces it (the SDK's StockSpec, validated), registry names. */
+export interface StockDefinition {
+  /** The number field holding the reorder level, and the one holding how many to order then. */
+  reorderAt?: string | undefined;
+  reorderQty?: string | undefined;
+  show: "exact" | "low" | "availability";
+  /** `low`'s threshold. */
+  lowAt?: number | undefined;
+  /** The extension's tool permission whose holders are told of low stock (ADR 0681); else admins. */
+  notify?: string | undefined;
+}
+
+/** The stockMoves declaration as the host enforces it (the SDK's StockMovesSpec), registry names. */
+export interface StockMovesDefinition {
+  move: "add" | "remove" | "set";
+  /** The relation field to the record whose stock moves, and that record's object. */
+  on: string;
+  object: string;
+  quantity: string;
+  /** The state entered: this object's, or with `through`, the state of `throughObject`'s record. */
+  when: string;
+  through?: string | undefined;
+  throughObject?: string | undefined;
+  kind: "received" | "written_off" | "used" | "counted";
+  unitCost?: string | undefined;
+  note?: string | undefined;
 }
 
 /**
@@ -349,12 +458,23 @@ export interface SellableDefinition {
         grants?: RecurringGrantDefinition | undefined;
         /** Staff may pause one, within these number fields' days (ADR 0531). */
         pause?: { minDays?: string | undefined; maxDays?: string | undefined } | undefined;
+        /** The extension's number setting holding the cooling-off days (ADR 0647). */
+        coolingOff?: { setting: string } | undefined;
       }
     | undefined;
   /** A boolean field: while true, a Person buys the record once across the object (ADR 0512). */
   onePerPerson?: string | undefined;
   /** A paid line moves the record it was started for (ADR 0560): the SDK's MovesSpec. */
   moves?: MovesDefinition | undefined;
+  /**
+   * What kind of sale it is in the finance reports and when its money is earned (ADR 0792), with
+   * the defaults filled (category `other`, `at_sale`). `at` is a path as declared.
+   */
+  finance: {
+    category: { key: string; label: string };
+    earned: "at_sale" | "over_period" | "per_use" | "at_date";
+    at?: string | undefined;
+  };
 }
 
 /** What an order does to the record it was started for (ADR 0560), with registry names. */
@@ -536,18 +656,138 @@ export interface UniqueDefinition {
   states?: readonly string[] | undefined;
 }
 
+/**
+ * The SDK's StaffedSpec (ADR 0621) with registry names: fields are the object's own (local names
+ * are registry names), and `who.object` is the registry name of the record holding the account
+ * when the person is a relation (a class's coach profile).
+ */
+export interface StaffedDefinition {
+  who: { field: string; account?: string | undefined; object?: string | undefined };
+  starts: string;
+  ends: string;
+  zone?: string | undefined;
+  kind: string;
+  live: readonly string[];
+  place?: string | undefined;
+  pattern?: { link: string; who: string } | undefined;
+  payBefore?: { field: string } | undefined;
+  payAfter?: { field: string } | undefined;
+  /** Minutes kept free before and after, in the claim (ADR 0760): `kind.field` number paths. */
+  claimBefore?: { field: string } | undefined;
+  claimAfter?: { field: string } | undefined;
+  /** A live shift with a person must have an account (ADR 0760). */
+  account?: "required" | undefined;
+  /** Its title may name a client: off the roster for others, never offered (ADR 0761). */
+  private?: boolean | undefined;
+  /**
+   * Booked at free times (ADRs 0762 and 0763): `length`, `step` and `rooms` are `kind.field`
+   * paths, `client` a field of the object, `closedBy.object` the closures' registry name.
+   */
+  open?: StaffedOpenDefinition | undefined;
+  /** What shows a shift was worked (ADR 0627): `object` is the evidence object's registry name. */
+  evidence?: { object: string; link: string; by: string } | undefined;
+  /**
+   * The relation whose record's time this shift is (ADR 0751: a crew place's visit), and that
+   * record's object (registry name): the host copies its starts, ends, zone and kind.
+   */
+  timesFrom?: string | undefined;
+  timesFromObject?: string | undefined;
+}
+
+/** The SDK's StaffedOpenSpec with the closures' registry name (ADRs 0762 and 0763). */
+export interface StaffedOpenDefinition {
+  length: { field: string };
+  step?: { field: string } | undefined;
+  rooms?: { field: string } | undefined;
+  client?: string | undefined;
+  closedBy?: { object: string; from: string; until: string } | undefined;
+  customer?: true | undefined;
+}
+
+/**
+ * The SDK's OccupiesSpec (ADR 0765) with registry names: fields are the object's own, `thingObject`
+ * is the registry name of what `thing` names, and a margin read through a relation (`via`) names
+ * its object (`viaObject`) and that object's number field (`field`).
+ */
+export interface OccupiesDefinition {
+  thing: string;
+  thingObject: string;
+  starts: string;
+  ends: string;
+  live: readonly string[];
+  before?: OccupiesMargin | undefined;
+  after?: OccupiesMargin | undefined;
+  only?: string | undefined;
+  /** Live states the room calendar shows as provisional (ADR 0844); the claim is the same. */
+  provisional?: readonly string[] | undefined;
+  /**
+   * What the room calendar shows for a record (ADR 0844): a field of the record, or of what `via`
+   * names (`viaObject`). Left out, the object's label.
+   */
+  title?: { field: string; via?: string | undefined; viaObject?: string | undefined } | undefined;
+}
+
+/** The SDK's CalendarEntrySpec (ADR 0891): paths of field names from the object, as declared. */
+export interface CalendarEntryDefinition {
+  starts: string;
+  ends: string;
+  title: string;
+  place?: string | undefined;
+  live: readonly string[];
+}
+
+/** A margin of a claim on a thing, in minutes: a field of the record, or of what `via` names. */
+export interface OccupiesMargin {
+  field: string;
+  via?: string | undefined;
+  viaObject?: string | undefined;
+}
+
+/**
+ * The SDK's ChecklistsSpec (ADR 0650): `template` is the checklist field, on this object or (with
+ * `via`, a relation field of this object) on `viaObject`, the registry name of what it names.
+ */
+export interface ChecklistsDefinition {
+  template: { field: string; via?: string | undefined; viaObject?: string | undefined };
+  who: string;
+  opens: string;
+  closes: string;
+  live: readonly string[];
+}
+
+/**
+ * The SDK's WorkedOnSpec (ADR 0850): field names are local (as `staffed`'s are); `partOfObject` is
+ * the registry name of the record a staffed visit's time also counts to, when declared.
+ */
+export interface WorkedOnDefinition {
+  live: readonly string[];
+  title: string;
+  kind?: string | undefined;
+  place?: string | undefined;
+  readers: string;
+  partOf?: string | undefined;
+  partOfObject?: string | undefined;
+}
+
 /** The SDK's RecurringScheduleSpec with the objects' registry names (ADR 0500). */
 export interface RecurringDefinition {
   /** The generated object's registry name. */
   generates: string;
   link: string;
   rule: {
-    weekdays: string;
+    weekdays?: string | undefined;
     time: string;
     length?: string | undefined;
     from: string;
     until?: string | undefined;
     zone?: string | undefined;
+    /** The interval rule (ADR 0860): a select of week, month, year; every N; the day and month. */
+    unit?: string | undefined;
+    every?: string | undefined;
+    day?: string | undefined;
+    month?: string | undefined;
+    /** The length in whole days instead of minutes. */
+    lengthDays?: string | undefined;
   };
   into: {
     starts: string;
@@ -563,6 +803,8 @@ export interface RecurringDefinition {
   horizonDays: number;
   /** The horizon is never less than the largest value of this object's number field (days). */
   horizonAtLeast?: { object: string; field: string } | undefined;
+  /** The extension's number setting (days) that sets the horizon when it holds a value (ADR 0626). */
+  horizonSetting?: { extension: string; name: string } | undefined;
 }
 
 export function defineObject<const O extends ObjectDefinition>(object: O): O {
@@ -619,3 +861,12 @@ export type AccessSource = RecordAccessSource | KindAccessSource;
 export interface AccessDeclaration {
   readonly sources: readonly AccessSource[];
 }
+
+/**
+ * The SDK's IntakeSpec (ADR 0720): field names are the object's own; a submission's `formObject`
+ * is the registry name of the form object its `form` relation names.
+ */
+export type IntakeDefinition =
+  | import("@composable-os/sdk").IntakeFormSpec
+  | (import("@composable-os/sdk").IntakeSubmissionSpec & { formObject: string })
+  | import("@composable-os/sdk").IntakeDestinationSpec;

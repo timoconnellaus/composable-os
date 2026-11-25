@@ -1,0 +1,20 @@
+{
+  "name": "rostering-native-my-shifts",
+  "pack": "rostering",
+  "skin": "native",
+  "operations": [
+    "x.rostering.me",
+    "x.rostering.mine",
+    "x.rostering.offers",
+    "x.rostering.offer",
+    "x.rostering.withdraw",
+    "x.rostering.myPayPeriods",
+    "x.rostering.myPay"
+  ],
+  "files": ["my-shifts-screen.tsx", "my-hours-screen.tsx", "LICENSE"],
+  "dependsOn": ["native-base"],
+  "packages": {
+    "@composable-os/pack-rostering": "*"
+  },
+  "noPurchase": true
+}

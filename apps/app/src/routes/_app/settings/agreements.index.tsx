@@ -18,6 +18,7 @@ import { Skeleton } from "@composable-os/ui/components/skeleton";
 import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { type FormEvent, useState } from "react";
 import { toast } from "sonner";
+import { ErrorState } from "#/components/empty-state";
 import { PageLayout } from "#/components/layout/page-layout";
 import { KIND_LABELS } from "#/components/settings/agreement-labels";
 import { formatDateTime } from "#/lib/format";
@@ -40,6 +41,15 @@ function AgreementsPage() {
       back={{ to: "/settings", label: "Settings" }}
       description="The documents people agree to, written by the business. A document is needed nowhere until a person publishes it and attaches it to a place."
     >
+      <Button asChild variant="outline" className="w-fit">
+        <Link to="/settings/agreements/acceptances">Acceptances and who has something due</Link>
+      </Button>
+      <Button asChild variant="outline" className="w-fit">
+        <Link to="/settings/agreements/health">Health forms</Link>
+      </Button>
+      <Button asChild variant="outline" className="w-fit">
+        <Link to="/settings/agreements/kept">Kept after erase</Link>
+      </Button>
       <NewDocument />
       <Card>
         <CardHeader className="flex flex-row items-center justify-between">
@@ -51,6 +61,12 @@ function AgreementsPage() {
         <CardContent className="space-y-2">
           {list.isLoading ? (
             <Skeleton className="h-16 w-full" />
+          ) : list.isError ? (
+            <ErrorState
+              title="Documents could not be loaded"
+              error={list.error}
+              onRetry={() => void list.refetch()}
+            />
           ) : list.data?.items.length ? (
             <ul className="divide-y" data-testid="agreement-list">
               {list.data.items.map((doc) => (

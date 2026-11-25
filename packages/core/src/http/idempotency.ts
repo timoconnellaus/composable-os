@@ -15,6 +15,7 @@
 // - Rows are purged by the daily maintenance cron after 24 hours.
 import type { CrmDb } from "@composable-os/db";
 import { type Compilable, sql } from "kysely";
+import { sha256Hex } from "../digest.ts";
 import { ConflictError, ValidationError } from "../errors.ts";
 import { canonicalJson } from "../judge/calibration.ts";
 import type { BatchOutcome, InBatch } from "../pipeline.ts";
@@ -48,9 +49,7 @@ export function parseIdempotencyKey(value: string | null): string {
 }
 
 export async function inputHash(operation: string, input: unknown): Promise<string> {
-  const bytes = new TextEncoder().encode(`${operation}\n${canonicalJson(input)}`);
-  const digest = await crypto.subtle.digest("SHA-256", bytes);
-  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
+  return sha256Hex(`${operation}\n${canonicalJson(input)}`);
 }
 
 export interface IdempotentCall {
@@ -61,6 +60,13 @@ export interface IdempotentCall {
   operation: string;
   hash: string;
   now: () => Date;
+  /**
+   * Whether a reply holds what the host never keeps (stage 45 step 5, ADR 0628): an operation's
+   * `redactResult` keys, such as a calendar feed's address shown once or a one-time upload
+   * address. Such a reply is sent to this call only; its row keeps no response, so a replay is
+   * told the call was applied but its response not kept (`idempotency_response_lost`).
+   */
+  secret?: (reply: HttpReply) => boolean;
   /** The reply a committed outcome would send, built the way the surface builds it. */
   replyFor: (outcome: BatchOutcome) => HttpReply | null;
   /** How long a second call waits for the first. Default 10 seconds. */
@@ -163,6 +169,8 @@ async function release(call: IdempotentCall, claimId: string): Promise<void> {
 
 /** Fills in the response of a key this call committed, when it was not known in the batch. */
 async function fillIn(call: IdempotentCall, claimId: string, reply: HttpReply): Promise<void> {
+  // A secret is never stored: the row stays without a response (a replay: response lost).
+  if (call.secret?.(reply)) return;
   await call.db.batch([
     call.db.query
       .updateTable("core_idempotency_key")
@@ -266,7 +274,9 @@ async function runClaimed(
   return { ...reply, replayed: false };
 }
 
-function keyInsert(call: IdempotentCall, claimId: string, reply: HttpReply | null): Compilable {
+function keyInsert(call: IdempotentCall, claimId: string, given: HttpReply | null): Compilable {
+  // A secret is never stored: the key is kept, its response is not (a replay: response lost).
+  const reply = given && call.secret?.(given) ? null : given;
   return call.db.query.insertInto("core_idempotency_key").values({
     scope: call.scope,
     idempotency_key: call.key,

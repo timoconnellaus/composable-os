@@ -1,0 +1,248 @@
+# The mobile app to the phone app stores' testing tracks (stage 63, ADR 0901), from the client's
+# own store accounts. `cos create --with-mobile` writes it; the platform's runbook
+# (docs/app-publishing.md) says how a person sets it up.
+#
+# It runs on a person's manual run (choosing the app's environment) or on a version tag
+# app-v<x.y.z> on main, never on a pull request, so a fork's pull request gets no secret. Each job
+# that holds a secret uses a protected CI environment whose run a person approves:
+#   app-record  the deploy credential: the next build number before, the record after (cos only)
+#   app-upload  the store keys: build, sign, send to the testing tracks (no deploy credential)
+# Every secret is set by a person (`pnpm cos app credentials` names each and how), never by an AI
+# and never in the repository. Nothing here releases to the public: a person does that in each
+# store's console after the client's yes.
+#
+# Repository variables: APP_MACOS_RUNNER (the iPhone build's runner, default macos-latest) and
+# APP_ANDROID_DRAFT ("true" until the Android store has published the app once).
+name: App
+
+on:
+  workflow_dispatch:
+    inputs:
+      environment:
+        description: The app to build, by the environment it talks to (product.ts)
+        required: true
+        default: staging
+      platforms:
+        description: Which stores
+        type: choice
+        options: [both, ios, android]
+        default: both
+      listing:
+        description: Also send the Android store listing's text from apps/mobile/store
+        type: boolean
+        default: false
+  push:
+    tags: ["app-v*"]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: app-${{ inputs.environment || 'live' }}
+  cancel-in-progress: false
+
+env:
+  COS_ENV: ${{ inputs.environment || 'live' }}
+
+jobs:
+  check:
+    name: Check and number the build
+    if: github.ref == 'refs/heads/main' || startsWith(github.ref, 'refs/tags/app-v')
+    runs-on: ubuntu-latest
+    environment: app-record
+    outputs:
+      build: ${{ steps.info.outputs.build }}
+    steps:
+      - uses: actions/checkout@v5
+        with:
+          fetch-depth: 0
+      - name: Only from main
+        run: git merge-base --is-ancestor "$GITHUB_SHA" origin/main || { echo "::error::$GITHUB_SHA is not on main"; exit 1; }
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: The secrets this job needs
+        run: pnpm cos app credentials --check --for record
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      - name: cos app check
+        run: pnpm cos app check
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      - name: The build number and the version
+        id: info
+        run: |
+          pnpm --silent cos app build-info --env "$COS_ENV" --json > "$RUNNER_TEMP/info.json"
+          version=$(jq -r .version "$RUNNER_TEMP/info.json")
+          if [ "$GITHUB_REF_TYPE" = tag ] && [ "$GITHUB_REF_NAME" != "app-v$version" ]; then
+            echo "::error::The tag $GITHUB_REF_NAME is not app-v$version (mobile.app.version in product.ts)"; exit 1
+          fi
+          echo "build=$(jq -r .build "$RUNNER_TEMP/info.json")" >> "$GITHUB_OUTPUT"
+          jq -r '"Build \(.build) of \(.version) for \(.environment), API \(.apiVersion)"' "$RUNNER_TEMP/info.json"
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+
+  android:
+    name: Android build to the internal testing track
+    needs: check
+    if: inputs.platforms != 'ios'
+    runs-on: ubuntu-latest
+    environment: app-upload
+    env:
+      COS_APP_BUILD: ${{ needs.check.outputs.build }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: pnpm
+      - uses: actions/setup-java@v5
+        with:
+          distribution: temurin
+          java-version: 17
+      - run: pnpm install --frozen-lockfile
+      - name: The secrets this job needs
+        run: pnpm cos app credentials --check --for android
+        env:
+          ANDROID_UPLOAD_KEYSTORE: ${{ secrets.ANDROID_UPLOAD_KEYSTORE }}
+          ANDROID_UPLOAD_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_UPLOAD_KEYSTORE_PASSWORD }}
+          ANDROID_STORE_SERVICE_ACCOUNT: ${{ secrets.ANDROID_STORE_SERVICE_ACCOUNT }}
+      - name: Build and sign with the upload key
+        working-directory: apps/mobile
+        run: |
+          npx expo prebuild --platform android --no-install --clean
+          echo "$ANDROID_UPLOAD_KEYSTORE" | base64 --decode > "$RUNNER_TEMP/upload.jks"
+          cd android && ./gradlew bundleRelease \
+            -Pandroid.injected.signing.store.file="$RUNNER_TEMP/upload.jks" \
+            -Pandroid.injected.signing.store.password="$ANDROID_UPLOAD_KEYSTORE_PASSWORD" \
+            -Pandroid.injected.signing.key.alias=upload \
+            -Pandroid.injected.signing.key.password="$ANDROID_UPLOAD_KEYSTORE_PASSWORD"
+        env:
+          ANDROID_UPLOAD_KEYSTORE: ${{ secrets.ANDROID_UPLOAD_KEYSTORE }}
+          ANDROID_UPLOAD_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_UPLOAD_KEYSTORE_PASSWORD }}
+      - name: Send to the internal testing track
+        run: >-
+          pnpm cos app upload --platform android --env "$COS_ENV"
+          --file apps/mobile/android/app/build/outputs/bundle/release/app-release.aab
+          ${{ inputs.listing && '--listing' || '' }} ${{ vars.APP_ANDROID_DRAFT == 'true' && '--draft' || '' }}
+        env:
+          ANDROID_STORE_SERVICE_ACCOUNT: ${{ secrets.ANDROID_STORE_SERVICE_ACCOUNT }}
+      - name: Remove the key
+        if: always()
+        run: rm -f "$RUNNER_TEMP/upload.jks"
+
+  ios:
+    name: iPhone build to the testing track
+    needs: check
+    if: inputs.platforms != 'android'
+    runs-on: ${{ vars.APP_MACOS_RUNNER || 'macos-latest' }}
+    environment: app-upload
+    env:
+      COS_APP_BUILD: ${{ needs.check.outputs.build }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: The secrets this job needs
+        run: pnpm cos app credentials --check --for ios
+        env:
+          IOS_STORE_API_KEY: ${{ secrets.IOS_STORE_API_KEY }}
+          IOS_STORE_API_KEY_ID: ${{ secrets.IOS_STORE_API_KEY_ID }}
+          IOS_STORE_API_ISSUER_ID: ${{ secrets.IOS_STORE_API_ISSUER_ID }}
+          IOS_TEAM_ID: ${{ secrets.IOS_TEAM_ID }}
+          IOS_DISTRIBUTION_CERTIFICATE: ${{ secrets.IOS_DISTRIBUTION_CERTIFICATE }}
+          IOS_DISTRIBUTION_CERTIFICATE_PASSWORD: ${{ secrets.IOS_DISTRIBUTION_CERTIFICATE_PASSWORD }}
+      - name: The signing certificate, in a keychain of this run's own
+        run: |
+          keychain="$RUNNER_TEMP/app.keychain-db"
+          password=$(openssl rand -hex 16)
+          security create-keychain -p "$password" "$keychain"
+          security set-keychain-settings -lut 3600 "$keychain"
+          security unlock-keychain -p "$password" "$keychain"
+          echo "$IOS_DISTRIBUTION_CERTIFICATE" | base64 --decode > "$RUNNER_TEMP/distribution.p12"
+          security import "$RUNNER_TEMP/distribution.p12" -P "$IOS_DISTRIBUTION_CERTIFICATE_PASSWORD" -A -t cert -f pkcs12 -k "$keychain"
+          rm -f "$RUNNER_TEMP/distribution.p12"
+          security set-key-partition-list -S apple-tool:,apple: -k "$password" "$keychain"
+          security list-keychains -d user -s "$keychain" $(security list-keychains -d user | tr -d '"')
+          echo "$IOS_STORE_API_KEY" > "$RUNNER_TEMP/AuthKey.p8"
+        env:
+          IOS_STORE_API_KEY: ${{ secrets.IOS_STORE_API_KEY }}
+          IOS_DISTRIBUTION_CERTIFICATE: ${{ secrets.IOS_DISTRIBUTION_CERTIFICATE }}
+          IOS_DISTRIBUTION_CERTIFICATE_PASSWORD: ${{ secrets.IOS_DISTRIBUTION_CERTIFICATE_PASSWORD }}
+      - name: Build, sign and send to the testing track
+        working-directory: apps/mobile
+        run: |
+          npx expo prebuild --platform ios --clean
+          workspace=$(ls -d ios/*.xcworkspace | head -n 1)
+          scheme=$(basename "$workspace" .xcworkspace)
+          auth=(-allowProvisioningUpdates
+            -authenticationKeyPath "$RUNNER_TEMP/AuthKey.p8"
+            -authenticationKeyID "$IOS_STORE_API_KEY_ID"
+            -authenticationKeyIssuerID "$IOS_STORE_API_ISSUER_ID")
+          xcodebuild archive -workspace "$workspace" -scheme "$scheme" -configuration Release \
+            -destination generic/platform=iOS -archivePath "$RUNNER_TEMP/app.xcarchive" \
+            DEVELOPMENT_TEAM="$IOS_TEAM_ID" CODE_SIGN_STYLE=Automatic "${auth[@]}"
+          cat > "$RUNNER_TEMP/export.plist" <<PLIST
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0"><dict>
+            <key>method</key><string>app-store-connect</string>
+            <key>destination</key><string>upload</string>
+            <key>teamID</key><string>$IOS_TEAM_ID</string>
+            <key>signingStyle</key><string>automatic</string>
+          </dict></plist>
+          PLIST
+          xcodebuild -exportArchive -archivePath "$RUNNER_TEMP/app.xcarchive" \
+            -exportOptionsPlist "$RUNNER_TEMP/export.plist" -exportPath "$RUNNER_TEMP/export" "${auth[@]}"
+        env:
+          IOS_STORE_API_KEY_ID: ${{ secrets.IOS_STORE_API_KEY_ID }}
+          IOS_STORE_API_ISSUER_ID: ${{ secrets.IOS_STORE_API_ISSUER_ID }}
+          IOS_TEAM_ID: ${{ secrets.IOS_TEAM_ID }}
+      - name: Remove the keys
+        if: always()
+        run: |
+          security delete-keychain "$RUNNER_TEMP/app.keychain-db" || true
+          rm -f "$RUNNER_TEMP/AuthKey.p8" "$RUNNER_TEMP/distribution.p12"
+
+  record:
+    name: Record the builds in the host
+    needs: [check, android, ios]
+    if: ${{ !cancelled() && needs.check.result == 'success' && (needs.android.result == 'success' || needs.ios.result == 'success') }}
+    runs-on: ubuntu-latest
+    environment: app-record
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version: 24
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: The secrets this job needs
+        run: pnpm cos app credentials --check --for record
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
+      - name: cos app record
+        run: |
+          platforms=""
+          [ "$IOS" = success ] && platforms="ios"
+          [ "$ANDROID" = success ] && platforms="${platforms:+$platforms,}android"
+          pnpm cos app record --env "$COS_ENV" --platform "$platforms" --build "$BUILD" --commit "$GITHUB_SHA"
+        env:
+          IOS: ${{ needs.ios.result }}
+          ANDROID: ${{ needs.android.result }}
+          BUILD: ${{ needs.check.outputs.build }}
+          CLOUDFLARE_API_TOKEN: ${{ secrets.CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}

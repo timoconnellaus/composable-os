@@ -12,6 +12,8 @@ import { Route as rootRouteImport } from './routes/__root'
 import { Route as AppRouteImport } from './routes/_app'
 import { Route as BlocksRouteImport } from './routes/blocks'
 import { Route as BuyRouteImport } from './routes/buy'
+import { Route as DeskRouteImport } from './routes/desk'
+import { Route as EnrolRouteImport } from './routes/enrol'
 import { Route as SignInRouteImport } from './routes/sign-in'
 import { Route as AppIndexRouteImport } from './routes/_app/index'
 import { Route as AppActivityRouteImport } from './routes/_app/activity'
@@ -50,16 +52,20 @@ import { Route as AppSettingsAssistantMemoryRouteImport } from './routes/_app/se
 import { Route as AppSettingsAssistantRoutinesRouteImport } from './routes/_app/settings/assistant-routines'
 import { Route as AppSettingsAuditRouteImport } from './routes/_app/settings/audit'
 import { Route as AppSettingsAutomationsRouteImport } from './routes/_app/settings/automations'
+import { Route as AppSettingsChecklistsRouteImport } from './routes/_app/settings/checklists'
 import { Route as AppSettingsConnectedAppsRouteImport } from './routes/_app/settings/connected-apps'
+import { Route as AppSettingsDevicesRouteImport } from './routes/_app/settings/devices'
 import { Route as AppSettingsDuplicatesRouteImport } from './routes/_app/settings/duplicates'
 import { Route as AppSettingsExtensionsRouteImport } from './routes/_app/settings/extensions'
 import { Route as AppSettingsGeneralRouteImport } from './routes/_app/settings/general'
 import { Route as AppSettingsIntegrationsRouteImport } from './routes/_app/settings/integrations'
+import { Route as AppSettingsNotesRouteImport } from './routes/_app/settings/notes'
 import { Route as AppSettingsNotificationDeliveryRouteImport } from './routes/_app/settings/notification-delivery'
 import { Route as AppSettingsNotificationRoutesRouteImport } from './routes/_app/settings/notification-routes'
 import { Route as AppSettingsNotificationsRouteImport } from './routes/_app/settings/notifications'
 import { Route as AppSettingsOrdersRouteImport } from './routes/_app/settings/orders'
 import { Route as AppSettingsPlanRouteImport } from './routes/_app/settings/plan'
+import { Route as AppSettingsRoutineEmailRouteImport } from './routes/_app/settings/routine-email'
 import { Route as AppSettingsStorageRouteImport } from './routes/_app/settings/storage'
 import { Route as AppSettingsSupportAccessRouteImport } from './routes/_app/settings/support-access'
 import { Route as AppSettingsUpdatesRouteImport } from './routes/_app/settings/updates'
@@ -70,8 +76,12 @@ import { Route as AppSubscriptionsIdRouteImport } from './routes/_app/subscripti
 import { Route as ApiAssistantThreadRouteImport } from './routes/api/assistant/thread'
 import { Route as ApiAssistantTurnRouteImport } from './routes/api/assistant/turn'
 import { Route as ApiAuthSplatRouteImport } from './routes/api/auth/$'
+import { Route as AppSPackScreenRouteImport } from './routes/_app/s.$pack.$screen'
 import { Route as AppSettingsAgreementsIndexRouteImport } from './routes/_app/settings/agreements.index'
 import { Route as AppSettingsAgreementsIdRouteImport } from './routes/_app/settings/agreements.$id'
+import { Route as AppSettingsAgreementsAcceptancesRouteImport } from './routes/_app/settings/agreements.acceptances'
+import { Route as AppSettingsAgreementsHealthRouteImport } from './routes/_app/settings/agreements.health'
+import { Route as AppSettingsAgreementsKeptRouteImport } from './routes/_app/settings/agreements.kept'
 import { Route as AppXObjectIndexRouteImport } from './routes/_app/x/$object/index'
 import { Route as AppXObjectIdRouteImport } from './routes/_app/x/$object/$id'
 import { Route as ApiAssistantThreadStopRouteImport } from './routes/api/assistant/thread.stop'
@@ -89,6 +99,16 @@ const BlocksRoute = BlocksRouteImport.update({
 const BuyRoute = BuyRouteImport.update({
   id: '/buy',
   path: '/buy',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const DeskRoute = DeskRouteImport.update({
+  id: '/desk',
+  path: '/desk',
+  getParentRoute: () => rootRouteImport,
+} as any)
+const EnrolRoute = EnrolRouteImport.update({
+  id: '/enrol',
+  path: '/enrol',
   getParentRoute: () => rootRouteImport,
 } as any)
 const SignInRoute = SignInRouteImport.update({
@@ -285,12 +305,22 @@ const AppSettingsAutomationsRoute = AppSettingsAutomationsRouteImport.update({
   path: '/settings/automations',
   getParentRoute: () => AppRoute,
 } as any)
+const AppSettingsChecklistsRoute = AppSettingsChecklistsRouteImport.update({
+  id: '/settings/checklists',
+  path: '/settings/checklists',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppSettingsConnectedAppsRoute =
   AppSettingsConnectedAppsRouteImport.update({
     id: '/settings/connected-apps',
     path: '/settings/connected-apps',
     getParentRoute: () => AppRoute,
   } as any)
+const AppSettingsDevicesRoute = AppSettingsDevicesRouteImport.update({
+  id: '/settings/devices',
+  path: '/settings/devices',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppSettingsDuplicatesRoute = AppSettingsDuplicatesRouteImport.update({
   id: '/settings/duplicates',
   path: '/settings/duplicates',
@@ -309,6 +339,11 @@ const AppSettingsGeneralRoute = AppSettingsGeneralRouteImport.update({
 const AppSettingsIntegrationsRoute = AppSettingsIntegrationsRouteImport.update({
   id: '/settings/integrations',
   path: '/settings/integrations',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppSettingsNotesRoute = AppSettingsNotesRouteImport.update({
+  id: '/settings/notes',
+  path: '/settings/notes',
   getParentRoute: () => AppRoute,
 } as any)
 const AppSettingsNotificationDeliveryRoute =
@@ -337,6 +372,11 @@ const AppSettingsOrdersRoute = AppSettingsOrdersRouteImport.update({
 const AppSettingsPlanRoute = AppSettingsPlanRouteImport.update({
   id: '/settings/plan',
   path: '/settings/plan',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppSettingsRoutineEmailRoute = AppSettingsRoutineEmailRouteImport.update({
+  id: '/settings/routine-email',
+  path: '/settings/routine-email',
   getParentRoute: () => AppRoute,
 } as any)
 const AppSettingsStorageRoute = AppSettingsStorageRouteImport.update({
@@ -390,6 +430,11 @@ const ApiAuthSplatRoute = ApiAuthSplatRouteImport.update({
   path: '/api/auth/$',
   getParentRoute: () => rootRouteImport,
 } as any)
+const AppSPackScreenRoute = AppSPackScreenRouteImport.update({
+  id: '/s/$pack/$screen',
+  path: '/s/$pack/$screen',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppSettingsAgreementsIndexRoute =
   AppSettingsAgreementsIndexRouteImport.update({
     id: '/settings/agreements/',
@@ -401,6 +446,24 @@ const AppSettingsAgreementsIdRoute = AppSettingsAgreementsIdRouteImport.update({
   path: '/settings/agreements/$id',
   getParentRoute: () => AppRoute,
 } as any)
+const AppSettingsAgreementsAcceptancesRoute =
+  AppSettingsAgreementsAcceptancesRouteImport.update({
+    id: '/settings/agreements/acceptances',
+    path: '/settings/agreements/acceptances',
+    getParentRoute: () => AppRoute,
+  } as any)
+const AppSettingsAgreementsHealthRoute =
+  AppSettingsAgreementsHealthRouteImport.update({
+    id: '/settings/agreements/health',
+    path: '/settings/agreements/health',
+    getParentRoute: () => AppRoute,
+  } as any)
+const AppSettingsAgreementsKeptRoute =
+  AppSettingsAgreementsKeptRouteImport.update({
+    id: '/settings/agreements/kept',
+    path: '/settings/agreements/kept',
+    getParentRoute: () => AppRoute,
+  } as any)
 const AppXObjectIndexRoute = AppXObjectIndexRouteImport.update({
   id: '/x/$object/',
   path: '/x/$object/',
@@ -427,6 +490,8 @@ export interface FileRoutesByFullPath {
   '/': typeof AppIndexRoute
   '/blocks': typeof BlocksRoute
   '/buy': typeof BuyRoute
+  '/desk': typeof DeskRoute
+  '/enrol': typeof EnrolRoute
   '/sign-in': typeof SignInRoute
   '/activity': typeof AppActivityRoute
   '/approvals': typeof AppApprovalsRoute
@@ -458,16 +523,20 @@ export interface FileRoutesByFullPath {
   '/settings/assistant-routines': typeof AppSettingsAssistantRoutinesRoute
   '/settings/audit': typeof AppSettingsAuditRoute
   '/settings/automations': typeof AppSettingsAutomationsRoute
+  '/settings/checklists': typeof AppSettingsChecklistsRoute
   '/settings/connected-apps': typeof AppSettingsConnectedAppsRoute
+  '/settings/devices': typeof AppSettingsDevicesRoute
   '/settings/duplicates': typeof AppSettingsDuplicatesRoute
   '/settings/extensions': typeof AppSettingsExtensionsRoute
   '/settings/general': typeof AppSettingsGeneralRoute
   '/settings/integrations': typeof AppSettingsIntegrationsRoute
+  '/settings/notes': typeof AppSettingsNotesRoute
   '/settings/notification-delivery': typeof AppSettingsNotificationDeliveryRoute
   '/settings/notification-routes': typeof AppSettingsNotificationRoutesRoute
   '/settings/notifications': typeof AppSettingsNotificationsRoute
   '/settings/orders': typeof AppSettingsOrdersRoute
   '/settings/plan': typeof AppSettingsPlanRoute
+  '/settings/routine-email': typeof AppSettingsRoutineEmailRoute
   '/settings/storage': typeof AppSettingsStorageRoute
   '/settings/support-access': typeof AppSettingsSupportAccessRoute
   '/settings/updates': typeof AppSettingsUpdatesRoute
@@ -484,7 +553,11 @@ export interface FileRoutesByFullPath {
   '/people/': typeof AppPeopleIndexRoute
   '/settings/': typeof AppSettingsIndexRoute
   '/subscriptions/': typeof AppSubscriptionsIndexRoute
+  '/s/$pack/$screen': typeof AppSPackScreenRoute
   '/settings/agreements/$id': typeof AppSettingsAgreementsIdRoute
+  '/settings/agreements/acceptances': typeof AppSettingsAgreementsAcceptancesRoute
+  '/settings/agreements/health': typeof AppSettingsAgreementsHealthRoute
+  '/settings/agreements/kept': typeof AppSettingsAgreementsKeptRoute
   '/x/$object/$id': typeof AppXObjectIdRoute
   '/api/assistant/thread/stop': typeof ApiAssistantThreadStopRoute
   '/api/assistant/thread/stream': typeof ApiAssistantThreadStreamRoute
@@ -494,6 +567,8 @@ export interface FileRoutesByFullPath {
 export interface FileRoutesByTo {
   '/blocks': typeof BlocksRoute
   '/buy': typeof BuyRoute
+  '/desk': typeof DeskRoute
+  '/enrol': typeof EnrolRoute
   '/sign-in': typeof SignInRoute
   '/activity': typeof AppActivityRoute
   '/approvals': typeof AppApprovalsRoute
@@ -526,16 +601,20 @@ export interface FileRoutesByTo {
   '/settings/assistant-routines': typeof AppSettingsAssistantRoutinesRoute
   '/settings/audit': typeof AppSettingsAuditRoute
   '/settings/automations': typeof AppSettingsAutomationsRoute
+  '/settings/checklists': typeof AppSettingsChecklistsRoute
   '/settings/connected-apps': typeof AppSettingsConnectedAppsRoute
+  '/settings/devices': typeof AppSettingsDevicesRoute
   '/settings/duplicates': typeof AppSettingsDuplicatesRoute
   '/settings/extensions': typeof AppSettingsExtensionsRoute
   '/settings/general': typeof AppSettingsGeneralRoute
   '/settings/integrations': typeof AppSettingsIntegrationsRoute
+  '/settings/notes': typeof AppSettingsNotesRoute
   '/settings/notification-delivery': typeof AppSettingsNotificationDeliveryRoute
   '/settings/notification-routes': typeof AppSettingsNotificationRoutesRoute
   '/settings/notifications': typeof AppSettingsNotificationsRoute
   '/settings/orders': typeof AppSettingsOrdersRoute
   '/settings/plan': typeof AppSettingsPlanRoute
+  '/settings/routine-email': typeof AppSettingsRoutineEmailRoute
   '/settings/storage': typeof AppSettingsStorageRoute
   '/settings/support-access': typeof AppSettingsSupportAccessRoute
   '/settings/updates': typeof AppSettingsUpdatesRoute
@@ -552,7 +631,11 @@ export interface FileRoutesByTo {
   '/people': typeof AppPeopleIndexRoute
   '/settings': typeof AppSettingsIndexRoute
   '/subscriptions': typeof AppSubscriptionsIndexRoute
+  '/s/$pack/$screen': typeof AppSPackScreenRoute
   '/settings/agreements/$id': typeof AppSettingsAgreementsIdRoute
+  '/settings/agreements/acceptances': typeof AppSettingsAgreementsAcceptancesRoute
+  '/settings/agreements/health': typeof AppSettingsAgreementsHealthRoute
+  '/settings/agreements/kept': typeof AppSettingsAgreementsKeptRoute
   '/x/$object/$id': typeof AppXObjectIdRoute
   '/api/assistant/thread/stop': typeof ApiAssistantThreadStopRoute
   '/api/assistant/thread/stream': typeof ApiAssistantThreadStreamRoute
@@ -564,6 +647,8 @@ export interface FileRoutesById {
   '/_app': typeof AppRouteWithChildren
   '/blocks': typeof BlocksRoute
   '/buy': typeof BuyRoute
+  '/desk': typeof DeskRoute
+  '/enrol': typeof EnrolRoute
   '/sign-in': typeof SignInRoute
   '/_app/activity': typeof AppActivityRoute
   '/_app/approvals': typeof AppApprovalsRoute
@@ -596,16 +681,20 @@ export interface FileRoutesById {
   '/_app/settings/assistant-routines': typeof AppSettingsAssistantRoutinesRoute
   '/_app/settings/audit': typeof AppSettingsAuditRoute
   '/_app/settings/automations': typeof AppSettingsAutomationsRoute
+  '/_app/settings/checklists': typeof AppSettingsChecklistsRoute
   '/_app/settings/connected-apps': typeof AppSettingsConnectedAppsRoute
+  '/_app/settings/devices': typeof AppSettingsDevicesRoute
   '/_app/settings/duplicates': typeof AppSettingsDuplicatesRoute
   '/_app/settings/extensions': typeof AppSettingsExtensionsRoute
   '/_app/settings/general': typeof AppSettingsGeneralRoute
   '/_app/settings/integrations': typeof AppSettingsIntegrationsRoute
+  '/_app/settings/notes': typeof AppSettingsNotesRoute
   '/_app/settings/notification-delivery': typeof AppSettingsNotificationDeliveryRoute
   '/_app/settings/notification-routes': typeof AppSettingsNotificationRoutesRoute
   '/_app/settings/notifications': typeof AppSettingsNotificationsRoute
   '/_app/settings/orders': typeof AppSettingsOrdersRoute
   '/_app/settings/plan': typeof AppSettingsPlanRoute
+  '/_app/settings/routine-email': typeof AppSettingsRoutineEmailRoute
   '/_app/settings/storage': typeof AppSettingsStorageRoute
   '/_app/settings/support-access': typeof AppSettingsSupportAccessRoute
   '/_app/settings/updates': typeof AppSettingsUpdatesRoute
@@ -622,7 +711,11 @@ export interface FileRoutesById {
   '/_app/people/': typeof AppPeopleIndexRoute
   '/_app/settings/': typeof AppSettingsIndexRoute
   '/_app/subscriptions/': typeof AppSubscriptionsIndexRoute
+  '/_app/s/$pack/$screen': typeof AppSPackScreenRoute
   '/_app/settings/agreements/$id': typeof AppSettingsAgreementsIdRoute
+  '/_app/settings/agreements/acceptances': typeof AppSettingsAgreementsAcceptancesRoute
+  '/_app/settings/agreements/health': typeof AppSettingsAgreementsHealthRoute
+  '/_app/settings/agreements/kept': typeof AppSettingsAgreementsKeptRoute
   '/_app/x/$object/$id': typeof AppXObjectIdRoute
   '/api/assistant/thread/stop': typeof ApiAssistantThreadStopRoute
   '/api/assistant/thread/stream': typeof ApiAssistantThreadStreamRoute
@@ -635,6 +728,8 @@ export interface FileRouteTypes {
     | '/'
     | '/blocks'
     | '/buy'
+    | '/desk'
+    | '/enrol'
     | '/sign-in'
     | '/activity'
     | '/approvals'
@@ -666,16 +761,20 @@ export interface FileRouteTypes {
     | '/settings/assistant-routines'
     | '/settings/audit'
     | '/settings/automations'
+    | '/settings/checklists'
     | '/settings/connected-apps'
+    | '/settings/devices'
     | '/settings/duplicates'
     | '/settings/extensions'
     | '/settings/general'
     | '/settings/integrations'
+    | '/settings/notes'
     | '/settings/notification-delivery'
     | '/settings/notification-routes'
     | '/settings/notifications'
     | '/settings/orders'
     | '/settings/plan'
+    | '/settings/routine-email'
     | '/settings/storage'
     | '/settings/support-access'
     | '/settings/updates'
@@ -692,7 +791,11 @@ export interface FileRouteTypes {
     | '/people/'
     | '/settings/'
     | '/subscriptions/'
+    | '/s/$pack/$screen'
     | '/settings/agreements/$id'
+    | '/settings/agreements/acceptances'
+    | '/settings/agreements/health'
+    | '/settings/agreements/kept'
     | '/x/$object/$id'
     | '/api/assistant/thread/stop'
     | '/api/assistant/thread/stream'
@@ -702,6 +805,8 @@ export interface FileRouteTypes {
   to:
     | '/blocks'
     | '/buy'
+    | '/desk'
+    | '/enrol'
     | '/sign-in'
     | '/activity'
     | '/approvals'
@@ -734,16 +839,20 @@ export interface FileRouteTypes {
     | '/settings/assistant-routines'
     | '/settings/audit'
     | '/settings/automations'
+    | '/settings/checklists'
     | '/settings/connected-apps'
+    | '/settings/devices'
     | '/settings/duplicates'
     | '/settings/extensions'
     | '/settings/general'
     | '/settings/integrations'
+    | '/settings/notes'
     | '/settings/notification-delivery'
     | '/settings/notification-routes'
     | '/settings/notifications'
     | '/settings/orders'
     | '/settings/plan'
+    | '/settings/routine-email'
     | '/settings/storage'
     | '/settings/support-access'
     | '/settings/updates'
@@ -760,7 +869,11 @@ export interface FileRouteTypes {
     | '/people'
     | '/settings'
     | '/subscriptions'
+    | '/s/$pack/$screen'
     | '/settings/agreements/$id'
+    | '/settings/agreements/acceptances'
+    | '/settings/agreements/health'
+    | '/settings/agreements/kept'
     | '/x/$object/$id'
     | '/api/assistant/thread/stop'
     | '/api/assistant/thread/stream'
@@ -771,6 +884,8 @@ export interface FileRouteTypes {
     | '/_app'
     | '/blocks'
     | '/buy'
+    | '/desk'
+    | '/enrol'
     | '/sign-in'
     | '/_app/activity'
     | '/_app/approvals'
@@ -803,16 +918,20 @@ export interface FileRouteTypes {
     | '/_app/settings/assistant-routines'
     | '/_app/settings/audit'
     | '/_app/settings/automations'
+    | '/_app/settings/checklists'
     | '/_app/settings/connected-apps'
+    | '/_app/settings/devices'
     | '/_app/settings/duplicates'
     | '/_app/settings/extensions'
     | '/_app/settings/general'
     | '/_app/settings/integrations'
+    | '/_app/settings/notes'
     | '/_app/settings/notification-delivery'
     | '/_app/settings/notification-routes'
     | '/_app/settings/notifications'
     | '/_app/settings/orders'
     | '/_app/settings/plan'
+    | '/_app/settings/routine-email'
     | '/_app/settings/storage'
     | '/_app/settings/support-access'
     | '/_app/settings/updates'
@@ -829,7 +948,11 @@ export interface FileRouteTypes {
     | '/_app/people/'
     | '/_app/settings/'
     | '/_app/subscriptions/'
+    | '/_app/s/$pack/$screen'
     | '/_app/settings/agreements/$id'
+    | '/_app/settings/agreements/acceptances'
+    | '/_app/settings/agreements/health'
+    | '/_app/settings/agreements/kept'
     | '/_app/x/$object/$id'
     | '/api/assistant/thread/stop'
     | '/api/assistant/thread/stream'
@@ -841,6 +964,8 @@ export interface RootRouteChildren {
   AppRoute: typeof AppRouteWithChildren
   BlocksRoute: typeof BlocksRoute
   BuyRoute: typeof BuyRoute
+  DeskRoute: typeof DeskRoute
+  EnrolRoute: typeof EnrolRoute
   SignInRoute: typeof SignInRoute
   ApiHealthRoute: typeof ApiHealthRoute
   ConnectHandoffRoute: typeof ConnectHandoffRoute
@@ -872,6 +997,20 @@ declare module '@tanstack/react-router' {
       path: '/buy'
       fullPath: '/buy'
       preLoaderRoute: typeof BuyRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/desk': {
+      id: '/desk'
+      path: '/desk'
+      fullPath: '/desk'
+      preLoaderRoute: typeof DeskRouteImport
+      parentRoute: typeof rootRouteImport
+    }
+    '/enrol': {
+      id: '/enrol'
+      path: '/enrol'
+      fullPath: '/enrol'
+      preLoaderRoute: typeof EnrolRouteImport
       parentRoute: typeof rootRouteImport
     }
     '/sign-in': {
@@ -1140,11 +1279,25 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppSettingsAutomationsRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/settings/checklists': {
+      id: '/_app/settings/checklists'
+      path: '/settings/checklists'
+      fullPath: '/settings/checklists'
+      preLoaderRoute: typeof AppSettingsChecklistsRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/settings/connected-apps': {
       id: '/_app/settings/connected-apps'
       path: '/settings/connected-apps'
       fullPath: '/settings/connected-apps'
       preLoaderRoute: typeof AppSettingsConnectedAppsRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/settings/devices': {
+      id: '/_app/settings/devices'
+      path: '/settings/devices'
+      fullPath: '/settings/devices'
+      preLoaderRoute: typeof AppSettingsDevicesRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/settings/duplicates': {
@@ -1173,6 +1326,13 @@ declare module '@tanstack/react-router' {
       path: '/settings/integrations'
       fullPath: '/settings/integrations'
       preLoaderRoute: typeof AppSettingsIntegrationsRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/settings/notes': {
+      id: '/_app/settings/notes'
+      path: '/settings/notes'
+      fullPath: '/settings/notes'
+      preLoaderRoute: typeof AppSettingsNotesRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/settings/notification-delivery': {
@@ -1208,6 +1368,13 @@ declare module '@tanstack/react-router' {
       path: '/settings/plan'
       fullPath: '/settings/plan'
       preLoaderRoute: typeof AppSettingsPlanRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/settings/routine-email': {
+      id: '/_app/settings/routine-email'
+      path: '/settings/routine-email'
+      fullPath: '/settings/routine-email'
+      preLoaderRoute: typeof AppSettingsRoutineEmailRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/settings/storage': {
@@ -1280,6 +1447,13 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof ApiAuthSplatRouteImport
       parentRoute: typeof rootRouteImport
     }
+    '/_app/s/$pack/$screen': {
+      id: '/_app/s/$pack/$screen'
+      path: '/s/$pack/$screen'
+      fullPath: '/s/$pack/$screen'
+      preLoaderRoute: typeof AppSPackScreenRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/settings/agreements/': {
       id: '/_app/settings/agreements/'
       path: '/settings/agreements'
@@ -1292,6 +1466,27 @@ declare module '@tanstack/react-router' {
       path: '/settings/agreements/$id'
       fullPath: '/settings/agreements/$id'
       preLoaderRoute: typeof AppSettingsAgreementsIdRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/settings/agreements/acceptances': {
+      id: '/_app/settings/agreements/acceptances'
+      path: '/settings/agreements/acceptances'
+      fullPath: '/settings/agreements/acceptances'
+      preLoaderRoute: typeof AppSettingsAgreementsAcceptancesRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/settings/agreements/health': {
+      id: '/_app/settings/agreements/health'
+      path: '/settings/agreements/health'
+      fullPath: '/settings/agreements/health'
+      preLoaderRoute: typeof AppSettingsAgreementsHealthRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/settings/agreements/kept': {
+      id: '/_app/settings/agreements/kept'
+      path: '/settings/agreements/kept'
+      fullPath: '/settings/agreements/kept'
+      preLoaderRoute: typeof AppSettingsAgreementsKeptRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/x/$object/': {
@@ -1353,16 +1548,20 @@ interface AppRouteChildren {
   AppSettingsAssistantRoutinesRoute: typeof AppSettingsAssistantRoutinesRoute
   AppSettingsAuditRoute: typeof AppSettingsAuditRoute
   AppSettingsAutomationsRoute: typeof AppSettingsAutomationsRoute
+  AppSettingsChecklistsRoute: typeof AppSettingsChecklistsRoute
   AppSettingsConnectedAppsRoute: typeof AppSettingsConnectedAppsRoute
+  AppSettingsDevicesRoute: typeof AppSettingsDevicesRoute
   AppSettingsDuplicatesRoute: typeof AppSettingsDuplicatesRoute
   AppSettingsExtensionsRoute: typeof AppSettingsExtensionsRoute
   AppSettingsGeneralRoute: typeof AppSettingsGeneralRoute
   AppSettingsIntegrationsRoute: typeof AppSettingsIntegrationsRoute
+  AppSettingsNotesRoute: typeof AppSettingsNotesRoute
   AppSettingsNotificationDeliveryRoute: typeof AppSettingsNotificationDeliveryRoute
   AppSettingsNotificationRoutesRoute: typeof AppSettingsNotificationRoutesRoute
   AppSettingsNotificationsRoute: typeof AppSettingsNotificationsRoute
   AppSettingsOrdersRoute: typeof AppSettingsOrdersRoute
   AppSettingsPlanRoute: typeof AppSettingsPlanRoute
+  AppSettingsRoutineEmailRoute: typeof AppSettingsRoutineEmailRoute
   AppSettingsStorageRoute: typeof AppSettingsStorageRoute
   AppSettingsSupportAccessRoute: typeof AppSettingsSupportAccessRoute
   AppSettingsUpdatesRoute: typeof AppSettingsUpdatesRoute
@@ -1376,7 +1575,11 @@ interface AppRouteChildren {
   AppPeopleIndexRoute: typeof AppPeopleIndexRoute
   AppSettingsIndexRoute: typeof AppSettingsIndexRoute
   AppSubscriptionsIndexRoute: typeof AppSubscriptionsIndexRoute
+  AppSPackScreenRoute: typeof AppSPackScreenRoute
   AppSettingsAgreementsIdRoute: typeof AppSettingsAgreementsIdRoute
+  AppSettingsAgreementsAcceptancesRoute: typeof AppSettingsAgreementsAcceptancesRoute
+  AppSettingsAgreementsHealthRoute: typeof AppSettingsAgreementsHealthRoute
+  AppSettingsAgreementsKeptRoute: typeof AppSettingsAgreementsKeptRoute
   AppXObjectIdRoute: typeof AppXObjectIdRoute
   AppSettingsAgreementsIndexRoute: typeof AppSettingsAgreementsIndexRoute
   AppXObjectIndexRoute: typeof AppXObjectIndexRoute
@@ -1410,16 +1613,20 @@ const AppRouteChildren: AppRouteChildren = {
   AppSettingsAssistantRoutinesRoute: AppSettingsAssistantRoutinesRoute,
   AppSettingsAuditRoute: AppSettingsAuditRoute,
   AppSettingsAutomationsRoute: AppSettingsAutomationsRoute,
+  AppSettingsChecklistsRoute: AppSettingsChecklistsRoute,
   AppSettingsConnectedAppsRoute: AppSettingsConnectedAppsRoute,
+  AppSettingsDevicesRoute: AppSettingsDevicesRoute,
   AppSettingsDuplicatesRoute: AppSettingsDuplicatesRoute,
   AppSettingsExtensionsRoute: AppSettingsExtensionsRoute,
   AppSettingsGeneralRoute: AppSettingsGeneralRoute,
   AppSettingsIntegrationsRoute: AppSettingsIntegrationsRoute,
+  AppSettingsNotesRoute: AppSettingsNotesRoute,
   AppSettingsNotificationDeliveryRoute: AppSettingsNotificationDeliveryRoute,
   AppSettingsNotificationRoutesRoute: AppSettingsNotificationRoutesRoute,
   AppSettingsNotificationsRoute: AppSettingsNotificationsRoute,
   AppSettingsOrdersRoute: AppSettingsOrdersRoute,
   AppSettingsPlanRoute: AppSettingsPlanRoute,
+  AppSettingsRoutineEmailRoute: AppSettingsRoutineEmailRoute,
   AppSettingsStorageRoute: AppSettingsStorageRoute,
   AppSettingsSupportAccessRoute: AppSettingsSupportAccessRoute,
   AppSettingsUpdatesRoute: AppSettingsUpdatesRoute,
@@ -1433,7 +1640,11 @@ const AppRouteChildren: AppRouteChildren = {
   AppPeopleIndexRoute: AppPeopleIndexRoute,
   AppSettingsIndexRoute: AppSettingsIndexRoute,
   AppSubscriptionsIndexRoute: AppSubscriptionsIndexRoute,
+  AppSPackScreenRoute: AppSPackScreenRoute,
   AppSettingsAgreementsIdRoute: AppSettingsAgreementsIdRoute,
+  AppSettingsAgreementsAcceptancesRoute: AppSettingsAgreementsAcceptancesRoute,
+  AppSettingsAgreementsHealthRoute: AppSettingsAgreementsHealthRoute,
+  AppSettingsAgreementsKeptRoute: AppSettingsAgreementsKeptRoute,
   AppXObjectIdRoute: AppXObjectIdRoute,
   AppSettingsAgreementsIndexRoute: AppSettingsAgreementsIndexRoute,
   AppXObjectIndexRoute: AppXObjectIndexRoute,
@@ -1458,6 +1669,8 @@ const rootRouteChildren: RootRouteChildren = {
   AppRoute: AppRouteWithChildren,
   BlocksRoute: BlocksRoute,
   BuyRoute: BuyRoute,
+  DeskRoute: DeskRoute,
+  EnrolRoute: EnrolRoute,
   SignInRoute: SignInRoute,
   ApiHealthRoute: ApiHealthRoute,
   ConnectHandoffRoute: ConnectHandoffRoute,

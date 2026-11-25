@@ -8,6 +8,7 @@ import { Button } from "@composable-os/ui/components/button";
 import { cn } from "@composable-os/ui/lib/utils";
 import { CheckIcon, LoaderCircleIcon } from "lucide-react";
 import { type ComponentProps, type ReactNode, useEffect, useRef, useState } from "react";
+import { initials } from "#/lib/format";
 import { recordHref } from "#/lib/schema";
 import { isAllowedHref, useCardHost } from "./host.tsx";
 
@@ -119,11 +120,6 @@ export function Pill({ tone, children }: { tone: Tone; children: ReactNode }) {
       <span className="truncate">{children}</span>
     </Badge>
   );
-}
-
-export function initials(name: string): string {
-  const words = name.trim().split(/\s+/).filter(Boolean);
-  return ((words[0]?.[0] ?? "?") + (words[1]?.[0] ?? "")).toUpperCase();
 }
 
 export function Initials({

@@ -7,6 +7,7 @@ import { type ReactNode, useMemo, useState } from "react";
 import { EmptyState } from "#/components/empty-state";
 import { LoadMoreSentinel } from "#/components/layout/infinite";
 import type { RecordTab } from "#/components/record/record-layout";
+import { isBuiltScreen, isScreenTab, ScreenView, useMyScreens } from "#/components/screens/screens";
 import { BoardView } from "#/components/views/board-view";
 import { CalendarView } from "#/components/views/calendar-view";
 import { GalleryView } from "#/components/views/gallery-view";
@@ -25,9 +26,12 @@ type RecordViewsOutput = Awaited<
 >;
 type RecordView = RecordViewsOutput["tabs"][number];
 
-/** Tab values of extension record tabs: `x:<extension>.<name>`. */
+/**
+ * Tab values of extension record tabs, `x:<extension>.<name>`, and of a shipped pack's record
+ * screens (stage 47), `s:<pack>.<screen>`.
+ */
 export const isRecordViewTab = (tab: unknown): tab is string =>
-  typeof tab === "string" && /^x:[a-z][a-z0-9]*\.[a-zA-Z0-9]+$/.test(tab);
+  (typeof tab === "string" && /^x:[a-z][a-z0-9]*\.[a-zA-Z0-9]+$/.test(tab)) || isScreenTab(tab);
 
 function RecordViewTable({
   info,
@@ -180,6 +184,9 @@ export function useRecordViews(
   recordId: string,
 ): { tabs: RecordTab[]; panels: ReactNode } {
   const views = useOp("view.recordViews", { object }, { staleTime: 60_000 });
+  // A shipped pack's record screens on this object (stage 47), for a viewer the host lets open
+  // them: a person's memberships, a class's list.
+  const screens = useMyScreens();
   return useMemo(() => {
     const tabs: RecordTab[] = (views.data?.tabs ?? [])
       .filter((v) => v.spec)
@@ -188,6 +195,14 @@ export function useRecordViews(
         label: view.label,
         content: <RecordViewBody view={view} recordId={recordId} />,
       }));
+    for (const screen of screens.data?.screens ?? []) {
+      if (screen.record?.object !== object || !isBuiltScreen(screen.pack, screen.key)) continue;
+      tabs.push({
+        value: `s:${screen.pack}.${screen.key}`,
+        label: screen.label,
+        content: <ScreenView key={recordId} screen={screen} recordId={recordId} />,
+      });
+    }
     const panels = (views.data?.panels ?? [])
       .filter((v) => v.spec)
       .map((view) => (
@@ -201,5 +216,5 @@ export function useRecordViews(
         </section>
       ));
     return { tabs, panels: panels.length ? panels : null };
-  }, [views.data, recordId]);
+  }, [views.data, screens.data, object, recordId]);
 }

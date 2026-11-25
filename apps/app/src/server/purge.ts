@@ -16,8 +16,10 @@ import {
   purgeIntegrationEvents,
   purgeNotificationDeliveries,
   purgeNotifications,
+  purgeRoutineMail,
   purgeRunHistory,
   queueEventSink,
+  runAgreementRetention,
   runAuditPurge,
   runOrderNotices,
   runTrashPurge,
@@ -83,6 +85,9 @@ export async function runScheduledMaintenance(env: PurgeEnv, clock?: () => Date)
   const runs = await step("run history", () => purgeRunHistory(db.query, now));
   if (runs?.deleted) console.log(`run history: ${runs.deleted} run(s) purged`);
   const agents = await step("finished agents", () => purgeAgentJobs(db.query, now));
+  // The routine email log, after its retention setting (ADR 0590, default 12 months).
+  const routine = await step("routine email log", () => purgeRoutineMail(db.query, now));
+  if (routine?.deleted) console.log(`routine email: ${routine.deleted} log row(s) purged`);
   if (agents?.deleted) console.log(`agents: ${agents.deleted} finished job(s) purged`);
   const compacted = await step("pending action compaction", () =>
     compactPendingActions(db.query, now),
@@ -112,6 +117,15 @@ export async function runScheduledMaintenance(env: PurgeEnv, clock?: () => Date)
   );
   // Orders (stage 25, ADR 0429): late payments undecided and balances past due, told daily.
   const orders = await step("order notices", () => runOrderNotices(db, now));
+  // Acceptances kept after an erase, past their retention period (stage 44, ADR 0646): deleted,
+  // a bounded number per round; nothing runs and nothing is audited when none is due.
+  const agreements = await step("kept agreements", () =>
+    runAgreementRetention(db, {
+      floor: parseFloor(env.APPROVAL_FLOOR),
+      ...(clock ? { clock } : {}),
+    }),
+  );
+  if (agreements?.purged) console.log(`agreements: ${agreements.purged} kept acceptance(s) purged`);
   return {
     purge,
     expired,
@@ -124,6 +138,7 @@ export async function runScheduledMaintenance(env: PurgeEnv, clock?: () => Date)
     cacheReview,
     eraseRequests,
     orders,
+    agreements,
     idempotencyKeys,
   };
 }

@@ -17,7 +17,13 @@ import { errorMessage, useOp } from "#/lib/query";
 import { ChangeSetExplanation } from "../ai/summary.tsx";
 import { TwoStepButton } from "../assistant/cards/parts.tsx";
 import { ChangePreview, RiskBadge, StatusBadge } from "./change-preview.tsx";
-import { actionTitle, groupPreview, outboundTitle, summariseDecision, toolOf } from "./describe.ts";
+import {
+  groupPreview,
+  pendingActionTitle,
+  readAgainSuggestion,
+  summariseDecision,
+  toolOf,
+} from "./describe.ts";
 import { ExtensionProposal } from "./extension-proposal.tsx";
 import { decide, useRecordNames, useRefreshAfterDecision } from "./hooks.ts";
 import { OutboundPreview } from "./outbound-preview.tsx";
@@ -130,6 +136,8 @@ function ChangeSetView({
   const [busy, setBusy] = useState<Decision | null>(null);
   const [outcome, setOutcome] = useState<Outcome | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // The approver's read-again choices for publish requests, by action id (ADR 0702).
+  const [readAgain, setReadAgain] = useState<Record<string, boolean>>({});
 
   const pending = actions.filter((a) => a.status === "pending");
   const selected = pending.filter((a) => !deselected.has(a.id));
@@ -137,15 +145,7 @@ function ChangeSetView({
   const allEntries = useMemo(() => actions.flatMap((a) => a.preview), [actions]);
   const names = useRecordNames(allEntries);
   const titles = useMemo(
-    () =>
-      new Map(
-        actions.map((a) => [
-          a.id,
-          a.outbound
-            ? outboundTitle(a.outbound)
-            : actionTitle(a.operation, a.preview, a.input, a.bulkSize),
-        ]),
-      ),
+    () => new Map(actions.map((a) => [a.id, pendingActionTitle(a)])),
     [actions],
   );
 
@@ -159,6 +159,7 @@ function ChangeSetView({
         decision,
         requested ? { actionIds: requested } : { changeSetId: set.id },
         confirm,
+        readAgain,
       );
       const summary = summariseDecision(
         decision,
@@ -322,6 +323,10 @@ function ChangeSetView({
                 })
               }
               isAdmin={isAdmin}
+              readAgain={readAgain[action.id]}
+              onReadAgain={(value) =>
+                setReadAgain((current) => ({ ...current, [action.id]: value }))
+              }
             />
           ))}
         </ul>
@@ -338,6 +343,8 @@ function ActionItem({
   selected,
   onSelect,
   isAdmin,
+  readAgain,
+  onReadAgain,
 }: {
   action: Action;
   title: string;
@@ -346,8 +353,11 @@ function ActionItem({
   selected: boolean;
   onSelect: (checked: boolean) => void;
   isAdmin: boolean;
+  readAgain: boolean | undefined;
+  onReadAgain: (value: boolean) => void;
 }) {
   const [details, setDetails] = useState(false);
+  const suggested = useMemo(() => readAgainSuggestion(action.preview), [action.preview]);
   const groups = useMemo(() => groupPreview(action.preview), [action.preview]);
   const pending = action.status === "pending";
   const checkboxId = `select-${action.id}`;
@@ -400,6 +410,13 @@ function ActionItem({
               />
             )}
           </>
+        )}
+        {pending && suggested !== null && (
+          <ReadAgainChoice
+            suggested={suggested}
+            value={readAgain ?? suggested}
+            onChange={onReadAgain}
+          />
         )}
         {pending && <DryRunNotes notes={action.notes} />}
         {!pending && action.statusReason && (
@@ -479,5 +496,45 @@ function ActionItem({
         {details ? "Hide" : "View"}
       </Button>
     </li>
+  );
+}
+
+/**
+ * A publish of something staff confirm they have read (ADR 0702): the approver chooses whether
+ * it asks everyone again or is a small fix. The request's suggestion is chosen to start with.
+ */
+function ReadAgainChoice({
+  suggested,
+  value,
+  onChange,
+}: {
+  suggested: boolean;
+  value: boolean;
+  onChange: (value: boolean) => void;
+}) {
+  const options = [
+    { value: true, label: "Ask everyone to confirm again" },
+    { value: false, label: "Small fix: keep their confirmations" },
+  ];
+  return (
+    <fieldset className="grid gap-1.5 text-sm" data-testid="read-again-choice">
+      <legend className="text-muted-foreground">
+        Asked for: {suggested ? "everyone confirms again" : "a small fix"}. You choose:
+      </legend>
+      <div className="flex flex-wrap gap-2">
+        {options.map((o) => (
+          <Button
+            key={String(o.value)}
+            type="button"
+            size="sm"
+            variant={value === o.value ? "default" : "outline"}
+            aria-pressed={value === o.value}
+            onClick={() => onChange(o.value)}
+          >
+            {o.label}
+          </Button>
+        ))}
+      </div>
+    </fieldset>
   );
 }

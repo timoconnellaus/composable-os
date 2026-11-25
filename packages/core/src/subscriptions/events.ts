@@ -14,6 +14,7 @@
 //     renewal needing the payer to confirm it keeps the provider's link for the payer.
 import type { CoreDatabase, CoreSubscriptionTable } from "@composable-os/db";
 import { type Kysely, type Selectable, sql } from "kysely";
+import { guestMinorNotice } from "../agreements/enforce.ts";
 import { NotFoundError } from "../errors.ts";
 import { getObject } from "../fields/index.ts";
 import { type SubscriptionState, subscriptionObject } from "../fields/subscription.ts";
@@ -33,6 +34,8 @@ import {
   openChange,
   upgradeNeedsAction,
 } from "./changes.ts";
+import { followCoolOff } from "./cooling-off.ts";
+import { askEraseEnd, eraseEndFor } from "./erase.ts";
 import { followSubscriptionGrant } from "./grants.ts";
 import { type PeriodTerms, recordPaidPeriod } from "./periods.ts";
 import { useTrial } from "./trial.ts";
@@ -456,6 +459,9 @@ export async function applySubscriptionEvent(
       `subscription.ended_failed:${event.provider}:${row.id}`,
     );
   }
+  // A cooling off asked for (stage 44 step 7, ADR 0647): once the provider shows it ended, every
+  // paid order of it is owed back in this batch, a period paid on it later too.
+  await followCoolOff(ctx, row);
   done(outcome);
   return { outcome, orderId, state: orderState, confirmation };
 }
@@ -488,6 +494,48 @@ async function createFromCheckout(
       `subscription.unknown:${event.provider}:${read.ref}`,
     );
     return { refused: "unknown_subscription" };
+  }
+  // Its Person or address was erased before the provider confirmed it (ADR 0646), or a Person on
+  // it no longer exists (every checkout is opened with both: an erased holder whose payer is
+  // live, ADR 0533): nothing is made. It is ended as erase ends any subscription: at the end of the
+  // period paid for, or at once when nothing of it is paid; nothing refunded by the host. Asked
+  // again on a later event while the provider's read does not show it ending. The notice names
+  // nobody.
+  if (checkout.erased_at || !checkout.payer_person_id || !checkout.holder_person_id) {
+    const when = eraseEndFor({
+      state: STATE_OF[read.status],
+      cancelAtPeriodEnd: read.cancelAtPeriodEnd,
+      cancelAt: read.cancelAt,
+      currentPeriodEnd: read.currentPeriodEnd,
+    });
+    const asked = when
+      ? await askEraseEnd(ctx, { id: checkout.id, provider: event.provider, ref: read.ref }, when)
+      : null;
+    const livePayer = !checkout.erased_at && checkout.payer_person_id !== null;
+    const ending =
+      asked === null
+        ? "It already ends at the provider, so nothing more is asked here. "
+        : !asked
+          ? "The provider could not be asked to end it, or the request waits for an approval: " +
+            "cancel it with the provider. "
+          : when === "now"
+            ? "The provider was asked to end it at once, so nothing more is charged. "
+            : "The provider was asked to end it when the period paid for ends, so nothing more is " +
+              "charged. ";
+    await tellStaff(
+      ctx,
+      "A subscription was confirmed for someone who was erased",
+      `The ${event.provider} subscription ${read.ref} was started ${
+        livePayer ? "for a person" : "by a person"
+      } since erased, before the provider confirmed it. Nothing was made here. ${ending}` +
+        "Nothing is refunded: refund it with the provider only if the business owes it." +
+        (livePayer
+          ? " The person paying for it is still a customer: tell them, and they can start a new one."
+          : ""),
+      null,
+      `subscription.erased:${event.provider}:${read.ref}`,
+    );
+    return { refused: "checkout_erased" };
   }
   const base: SubscriptionRow = {
     id: checkout.id,
@@ -563,6 +611,9 @@ async function createFromCheckout(
   });
   postSubscriptionMove(ctx, row, null);
   // What a membership plan's subscription grants (ADR 0510), once its record is written.
+  // A guest's subscription landing on a minor tells staff (ADR 0644); its acceptances settle by
+  // trigger in this batch (migration 0853).
+  await guestMinorNotice(ctx, { subscriptionCheckout: checkout.id }, checkout.holder_person_id);
   await followSubscriptionGrant(ctx, row);
   await trialConfirmed(ctx, row);
   if (checkout.offer_id) await offerConfirmed(ctx, checkout.offer_id, checkout.trial_end, row);

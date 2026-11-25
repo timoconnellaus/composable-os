@@ -87,11 +87,12 @@ function submitPage(checkout: PaymentsCheckout, fields: Record<string, string>):
   );
 }
 
-type MoneyEvent = Exclude<PaymentsEvent, { kind: "subscription" }>;
+type MoneyEvent = Exclude<PaymentsEvent, { kind: "subscription" } | { kind: "reader" }>;
 
 async function eventsFor(h: Host, orderId: string): Promise<MoneyEvent[]> {
   return (await h.recorded()).received.filter(
-    (event): event is MoneyEvent => event.kind !== "subscription" && event.orderId === orderId,
+    (event): event is MoneyEvent =>
+      event.kind !== "subscription" && event.kind !== "reader" && event.orderId === orderId,
   );
 }
 

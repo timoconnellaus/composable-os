@@ -1,0 +1,17 @@
+{
+  "name": "rostering-my-availability",
+  "pack": "rostering",
+  "skin": "web",
+  "operations": [
+    "x.rostering.me",
+    "x.rostering.myAway",
+    "x.rostering.away",
+    "x.rostering.back",
+    "x.rostering.offer"
+  ],
+  "files": ["my-availability.tsx", "LICENSE"],
+  "dependsOn": ["ui-button"],
+  "packages": {
+    "@composable-os/pack-rostering": "*"
+  }
+}

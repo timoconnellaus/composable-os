@@ -106,7 +106,18 @@ export default mergeConfig(
   }),
   {
     // Gatekeeper resource pickers: the vendored configurator specs, rendered with our runtime.
-    plugins: [configuratorSpecs()],
+    plugins: [
+      configuratorSpecs(),
+      // The admin build's screen fingerprints (screens-plugin.ts): none in these tests, so
+      // screens.mine lists nothing here; packages/core/test/screens.test.ts sets its own.
+      {
+        name: "cos-screens-built-stub",
+        resolveId: (id: string) =>
+          id === "virtual:cos-screens-built" ? "\0cos-screens-built" : null,
+        load: (id: string) =>
+          id === "\0cos-screens-built" ? "export const BUILT_SCREENS = {};" : null,
+      },
+    ],
     resolve: {
       alias: {
         "#/server/call-operation": fileURLToPath(

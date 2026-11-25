@@ -11,6 +11,7 @@
 // to the database every time.
 import type { CoreDatabase } from "@composable-os/db";
 import { CompiledQuery, type Kysely } from "kysely";
+import { sha256Hex } from "../digest.ts";
 import { getObject } from "../fields/index.ts";
 import type { RecordChange } from "../operation.ts";
 
@@ -47,19 +48,19 @@ function isPublicContent(object: string): boolean {
 /** The generation bumps for the objects `changes` touch that the public reads as content. */
 export function contentGenerationWrites(changes: readonly RecordChange[], now: string) {
   const objects = [...new Set(changes.map((c) => c.object))].filter(isPublicContent);
-  return objects.map((object) =>
-    CompiledQuery.raw(
-      "INSERT INTO core_content_generation (object_type, generation, epoch, changed_at) VALUES (?, 1, lower(hex(randomblob(16))), ?) ON CONFLICT (object_type) DO UPDATE SET generation = core_content_generation.generation + 1, changed_at = excluded.changed_at",
-      [object, now],
-    ),
+  return objects.map((object) => generationWrite(object, now));
+}
+
+/** Bumps one object's generation: what the public read of it before is not read again. */
+export function generationWrite(object: string, now: string): CompiledQuery {
+  return CompiledQuery.raw(
+    "INSERT INTO core_content_generation (object_type, generation, epoch, changed_at) VALUES (?, 1, lower(hex(randomblob(16))), ?) ON CONFLICT (object_type) DO UPDATE SET generation = core_content_generation.generation + 1, changed_at = excluded.changed_at",
+    [object, now],
   );
 }
 
-/** SHA-256 of `text`, as hex. */
-export async function sha256Hex(text: string): Promise<string> {
-  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
-  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
-}
+/** SHA-256 of `text`, as hex (operations/content.ts takes it from here). */
+export { sha256Hex };
 
 /**
  * The answer to a public read of `object` named by `key` (the operation and its input): from the

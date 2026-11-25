@@ -58,6 +58,8 @@ export interface TransitionRuleBase {
   field: string;
   fields: string[];
   labels: string[];
+  /** A required-fields refusal: the missing fields only the host sets (ADR 0750), named first. */
+  setByHost?: string[];
 }
 
 /** A write broke a lifecycle rule. `code` is `invalid_input`; details say what to fix. */
@@ -232,15 +234,26 @@ export async function runTransition<P extends Placement>(
   const checked = moved || before === null ? required : required.filter(write.changed);
   const missing = checked.filter((field) => isEmptyValue(after[field]));
   if (missing.length) {
-    throw lifecycle.refusal(
+    // A required read-only field is a fact the host sets (ADR 0750: a quote's acceptance, a
+    // sign-off). The move cannot supply it, so it is named first, where a UI looks for the field
+    // to ask for, and the refusal says the act it records sets it.
+    const hostSet = missing.filter((field) => hostFact(object, field));
+    const fields = [...hostSet, ...missing.filter((field) => !hostSet.includes(field))];
+    const byHand = hostSet.length
+      ? `; ${hostSet.map(write.labelOf).join(", ")} ${hostSet.length === 1 ? "is" : "are"} set by the act it records, not by a move`
+      : "";
+    const refusal = lifecycle.refusal(
       write,
       {
         rule: "required_fields",
-        message: `${to.title} needs ${missing.map(write.labelOf).join(", ")}`,
-        fields: missing,
+        message: `${to.title} needs ${fields.map(write.labelOf).join(", ")}${byHand}`,
+        fields,
       },
       placement,
     );
+    // The same key on either form's details, so it is added here rather than by each form.
+    if (hostSet.length) Object.assign(refusal.details as object, { setByHost: hostSet });
+    throw refusal;
   }
 
   // History: close the current row and open one for the position entered, in the write's batch.
@@ -290,6 +303,12 @@ export async function runTransition<P extends Placement>(
     left: moved ? placement.from : null,
     field: lifecycle.field,
   };
+}
+
+/** A field no caller writes: read-only and not computed (a formula has no fact to wait for). */
+function hostFact(object: ObjectDefinition, field: string): boolean {
+  const definition = object.fields.find((f) => f.name === field);
+  return definition?.readOnly === true && definition.fieldType !== "formula";
 }
 
 /** A position value as its column stores it (a select's value, a stage relation's id). */

@@ -2,10 +2,18 @@
   "name": "courses-subscribe",
   "pack": "courses",
   "skin": "web",
-  "operations": ["x.courses.plans", "subscription.start", "subscription.offer.mine"],
+  "operations": [
+    "x.courses.plans",
+    "subscription.start",
+    "subscription.offer.mine",
+    "me.agreements.due",
+    "me.agreements.accept",
+    "agreement.guestVersions"
+  ],
   "files": ["subscribe.tsx", "LICENSE"],
-  "dependsOn": ["ui-button", "ui-card", "ui-input", "ui-label"],
+  "dependsOn": ["ui-button", "ui-card", "ui-input", "ui-label", "web-agree"],
   "packages": {
+    "@composable-os/client": "*",
     "@composable-os/pack-courses": "*"
   }
 }

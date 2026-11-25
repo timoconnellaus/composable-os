@@ -7,7 +7,8 @@
 //   1. what wrangler will not create by itself, idempotently: every queue both Workers name
 //      (producers, consumers and dead-letter queues), the OAUTH_KV namespace, and the Vectorize
 //      index for semantic search (when AI is on),
-//   2. cos-runner (wrangler provisions the `cos` D1 database and `cos-blobs` by name),
+//   2. cos-runner, built by apps/runner/scripts/build.mjs as a release builds it and uploaded with
+//      its source map (wrangler provisions the `cos` D1 database and `cos-blobs` by name),
 //   3. core migrations on that database,
 //   4. cos-app (bound to the same database and to cos-runner).
 //
@@ -121,6 +122,8 @@ const SHARED_SECRETS = [
   "AI_KEY_ASSEMBLYAI",
   "TYPESAFE_API_KEY",
 ];
+// cos-runner only: forms' spam check (stage 29, ADR 0722), where a pack's tool and intake.submit run.
+const RUNNER_SECRETS = ["TURNSTILE_SECRET_KEY"];
 // Settings → AI (ADR 0151) stores provider keys as Workers secrets and reads AI Gateway usage
 // with its own narrowly scoped token. It is read from COS_AI_ADMIN_TOKEN (not the deploy token
 // in CLOUDFLARE_API_TOKEN) and set as cos-app's CLOUDFLARE_API_TOKEN secret.
@@ -268,7 +271,17 @@ function wranglerOk(cwd, args) {
 }
 
 const appConfigObject = deployConfig("apps/app");
-const runnerConfigObject = deployConfig("apps/runner");
+// cos-runner is uploaded as apps/runner/scripts/build.mjs built it into dist/ (whitespace-minified,
+// the same modules a release carries, ADR 0043 as amended 2026-11-23), not bundled again, with its
+// source map.
+const runnerConfigObject = {
+  ...deployConfig("apps/runner"),
+  main: "dist/index.js",
+  base_dir: "dist",
+  no_bundle: true,
+  find_additional_modules: true,
+  upload_source_maps: true,
+};
 const exists = (name) => wranglerOk("apps/app", ["deployments", "list", "--name", name]);
 if (!dryRun) {
   const appExists = exists(appConfigObject.name);
@@ -369,7 +382,11 @@ const fromEnv = (names) =>
 const sharedSecrets = fromEnv(SHARED_SECRETS);
 
 // 2. cos-runner first: cos-app's service binding needs it, and it provisions the D1 database.
-const runnerSecrets = secretsArgs(runnerConfigObject.name, sharedSecrets);
+run("apps/runner", "node", ["scripts/build.mjs", "--outdir", "dist"]);
+const runnerSecrets = secretsArgs(runnerConfigObject.name, {
+  ...fromEnv(RUNNER_SECRETS),
+  ...sharedSecrets,
+});
 try {
   wrangler("apps/runner", [
     "deploy",

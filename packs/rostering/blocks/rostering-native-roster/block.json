@@ -1,0 +1,12 @@
+{
+  "name": "rostering-native-roster",
+  "pack": "rostering",
+  "skin": "native",
+  "operations": ["x.rostering.me", "x.rostering.week"],
+  "files": ["roster-screen.tsx", "LICENSE"],
+  "dependsOn": ["native-base"],
+  "packages": {
+    "@composable-os/pack-rostering": "*"
+  },
+  "noPurchase": true
+}

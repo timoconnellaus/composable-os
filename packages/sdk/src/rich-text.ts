@@ -14,6 +14,7 @@
 // host and both renderers read this one declaration. Changing it changes what every product
 // stores; a block type added here must be added to both renderers (stage 28, step 6).
 import type { DocumentNode, DocumentObjectNode, DocumentSchema } from "./document.ts";
+import { hyphenate } from "./slug.ts";
 
 /** The block types, in the order a renderer lists them. */
 export const RICH_TEXT_BLOCKS = [
@@ -218,4 +219,115 @@ export function documentMaxBytesOf(field: {
   if (field.type === "video") return VIDEO_MAX_BYTES;
   if (field.maxBytes !== undefined) return field.maxBytes;
   return field.type === "richText" ? RICH_TEXT_DEFAULT_BYTES : undefined;
+}
+
+// --- Sections and anchors (stage 38, ADR 0700) ---------------------------------------------------
+//
+// A heading starts a section. Its anchor is made from its text and its place among the document's
+// headings, never stored: the host's published-text index, `content.search`'s results and both
+// renderers (a heading's `id` on the web, its `nativeID` in the app) all call `headingAnchors`, so
+// a link to `#<anchor>` lands on the heading the search found. Two headings with the same words
+// are told apart by their order (`-2`, `-3`); a heading with no letters or digits is `section`.
+
+/** The longest a heading's anchor is, before a `-<n>` that tells two apart. */
+export const ANCHOR_MAX = 60;
+
+interface RichTextLike {
+  blocks?: readonly unknown[] | null;
+}
+
+type Runs = readonly { type?: unknown; text?: unknown }[] | undefined;
+
+/** The words of inline runs, without marks. A line break is a space. */
+function runsText(content: Runs): string {
+  return (content ?? [])
+    .map((run) => (run?.type === "text" && typeof run.text === "string" ? run.text : " "))
+    .join("")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
+function anchorBase(text: string): string {
+  return hyphenate(text, ANCHOR_MAX) || "section";
+}
+
+/** Each heading block's anchor, in the order the headings come in the document. */
+export function headingAnchors(value: RichTextLike | null | undefined): string[] {
+  const taken = new Set<string>();
+  const out: string[] = [];
+  for (const block of value?.blocks ?? []) {
+    const b = block as { type?: unknown; content?: Runs };
+    if (b?.type !== "heading") continue;
+    const base = anchorBase(runsText(b.content));
+    let anchor = base;
+    for (let n = 2; taken.has(anchor); n += 1) anchor = `${base}-${n}`;
+    taken.add(anchor);
+    out.push(anchor);
+  }
+  return out;
+}
+
+/** One section of a document: what comes before the first heading, or a heading and its blocks. */
+export interface RichTextSection {
+  /** The heading's anchor; null for what comes before the first heading. */
+  anchor: string | null;
+  /** The heading's words; empty before the first heading. */
+  heading: string;
+  /** The words of the section's blocks, the heading's own left out. */
+  text: string;
+}
+
+/** A block's words (a list's items, a picture's caption, a button's label). */
+function blockText(block: unknown): string {
+  const b = block as Record<string, unknown> & { type?: unknown };
+  const list = (body: unknown): string[] =>
+    ((body as { items?: unknown[] } | undefined)?.items ?? []).flatMap((item) => {
+      const i = item as { content?: Runs; list?: unknown };
+      return [runsText(i.content), ...(i.list ? list(i.list) : [])];
+    });
+  switch (b?.type) {
+    case "paragraph":
+    case "heading":
+    case "quote":
+    case "callout":
+      return runsText(b.content as Runs);
+    case "list":
+      return list(b).filter(Boolean).join(" ");
+    case "image":
+      return runsText(b.caption as Runs);
+    case "embed":
+      return typeof b.caption === "string" ? b.caption : "";
+    case "button":
+      return typeof b.label === "string" ? b.label : "";
+    default:
+      return "";
+  }
+}
+
+/**
+ * A document split at its headings: the blocks before the first heading (only when they hold
+ * words), then one section per heading, with the anchor `headingAnchors` gives it.
+ */
+export function richTextSections(value: RichTextLike | null | undefined): RichTextSection[] {
+  const anchors = headingAnchors(value);
+  const sections: { anchor: string | null; heading: string; parts: string[] }[] = [
+    { anchor: null, heading: "", parts: [] },
+  ];
+  let heading = 0;
+  for (const block of value?.blocks ?? []) {
+    if ((block as { type?: unknown })?.type === "heading") {
+      sections.push({
+        anchor: anchors[heading] ?? null,
+        heading: blockText(block),
+        parts: [],
+      });
+      heading += 1;
+      continue;
+    }
+    const text = blockText(block);
+    if (text) sections.at(-1)?.parts.push(text);
+  }
+  return sections
+    .map((s) => ({ anchor: s.anchor, heading: s.heading, text: s.parts.join("\n") }))
+    .filter((s) => s.anchor !== null || s.text);
 }

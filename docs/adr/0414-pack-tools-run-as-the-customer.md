@@ -59,3 +59,19 @@ directly: a cancel sets `status`.
 A relation a tool sets for a customer, through `customerFields` or `customer.write`, must point at
 a record the customer can see; another customer's is not found. A record shared with every
 signed-in customer is read by them and changed by none. See [ADR 0447](0447-the-signed-in-scope.md).
+
+## Amendment, 2026-11-23 (stage 45, ADR 0621)
+`toolOnly` is no longer only for an operation open to customers: a staff-only operation may be
+tool-only too (the host's staffing operations, first `staffing.check`). The staff pipeline answers a
+call that is not an extension tool's run as an unknown operation, and the HTTP contract leaves it
+out, as it does the customer ones. See [ADR 0621](0621-the-staffed-behaviour-and-the-time-claim.md).
+
+## Amendment, 2026-11-24 (stage 41, fast logging)
+**`my.delete`**, a third tool-only operation, puts one of the caller's own records in the Trash,
+only for an object that declares `customer.delete: true` (Programs' log: a set ticked by mistake
+is taken back). Its risk is `write`: a customer's own record, restorable by staff from the Trash,
+as a `my.update` that empties it would be. Any other object is refused, and a record that is not
+theirs is not found, both in the seam's helper and again in the final check of every change a
+customer's call recorded. The rules `record.delete` holds (places paid for, holders, claims) hold
+here too: both run the same code. Staff still delete with `record.delete` (`destructive`), so an
+extension's delete for staff stays under the org's approval policy.

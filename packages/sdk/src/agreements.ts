@@ -25,6 +25,18 @@ export const AGREEMENT_POINT_RE = /^[a-z][a-z0-9_]{1,39}$/;
  * - `enter` and `person`: for a record a caller makes (a booking), the states whose entry is checked
  *   and the relation to the Person it is for. Left out, the point is checked where the object is
  *   bought (a `sellable` object).
+ * - `keeps`: with `enter`, for an object without `claims`, the states a record keeps its entry in
+ *   (a ticket valid or used at the door), as `claims` says which states hold a place: a record
+ *   created in one is asked, and a move between two of them is the same entry and is not (staff
+ *   undoing a check-in). Left out, only `enter`'s states count.
+ * - `importMovesOver`: with `enter`, a record the record import makes (a person's door:
+ *   `cos courses import`) is someone moving over from another system, and is not asked (stage 44,
+ *   issue #281). A later import that gives it to another Person or makes it count again is asked.
+ *   Left out, an import is asked as any caller's write.
+ * - `inlineStep`: the pack's own screens (its blocks that buy or book this object) show what is
+ *   due and let a person agree on the way (stage 44 step 5). Left out, nothing on the pack's
+ *   screens can agree, so a document attached there refuses every purchase or booking until the
+ *   person agrees elsewhere (My agreements, the desk, paper): the admin is warned when attaching.
  *
  * In stage 44 step 1 the declaration is inert: it is checked and listed, and documents can be
  * attached to it; the host asks it from step 3.
@@ -35,6 +47,9 @@ export interface AgreementsSpec {
   suggests?: readonly AgreementKind[];
   enter?: readonly string[];
   person?: string;
+  keeps?: readonly string[];
+  importMovesOver?: boolean;
+  inlineStep?: boolean;
 }
 
 export const agreementsManifestSchema = z.object({
@@ -43,6 +58,9 @@ export const agreementsManifestSchema = z.object({
   suggests: z.array(z.enum(AGREEMENT_KINDS)).max(AGREEMENT_KINDS.length).optional(),
   enter: z.array(z.string().max(40)).min(1).max(20).optional(),
   person: z.string().max(40).optional(),
+  keeps: z.array(z.string().max(40)).min(1).max(20).optional(),
+  importMovesOver: z.boolean().optional(),
+  inlineStep: z.boolean().optional(),
 });
 export type AgreementsManifest = z.infer<typeof agreementsManifestSchema>;
 
@@ -76,6 +94,15 @@ export function checkObjectAgreements(
     if (declared.person !== undefined) {
       contract(`${path}.person`, "person is for a point checked when a record enters a state");
     }
+    if (declared.keeps !== undefined) {
+      contract(`${path}.keeps`, "keeps is for a point checked when a record enters a state");
+    }
+    if (declared.importMovesOver !== undefined) {
+      contract(
+        `${path}.importMovesOver`,
+        "importMovesOver is for a point checked when a record enters a state",
+      );
+    }
     if (!object.sellable) {
       contract(
         path,
@@ -92,6 +119,13 @@ export function checkObjectAgreements(
       if (!states.has(state))
         contract(`${path}.enter.${i}`, `"${state}" is not a state of ${name}`);
     }
+    for (const [i, state] of (declared.keeps ?? []).entries()) {
+      if (!states.has(state))
+        contract(`${path}.keeps.${i}`, `"${state}" is not a state of ${name}`);
+    }
+  }
+  if (declared.keeps && object.claims) {
+    contract(`${path}.keeps`, `${name} holds places (claims): its claims say which states keep it`);
   }
   const person = declared.person;
   const field =
@@ -100,5 +134,52 @@ export function checkObjectAgreements(
       : undefined;
   if (field?.type !== "relation" || field.many || field.to !== "person") {
     contract(`${path}.person`, `person must be a relation field (one record) to person`);
+  }
+}
+
+/**
+ * A health-note list (stage 44, ADR 0643): records of this object make a list a person on the
+ * staff reads (a class's bookings), and the host may mark, beside each Person on it, a yes on
+ * their current health form, nothing else. `list` is the relation to the list's own record (the
+ * class), `person` the relation to the Person. The host reads the People itself; pack code names
+ * only the list's record (`agreement.listHealthNotes`), inside a tool a person called.
+ */
+export interface HealthNotesSpec {
+  list: string;
+  person: string;
+}
+
+export const healthNotesManifestSchema = z.object({
+  list: z.string().max(40),
+  person: z.string().max(40),
+});
+export type HealthNotesManifest = z.infer<typeof healthNotesManifestSchema>;
+
+/** The contract checks of an object's `healthNotes` declaration. */
+export function checkObjectHealthNotes(
+  m: ExtensionManifest,
+  name: string,
+  object: ObjectManifest,
+  contract: (path: string, message: string) => void,
+): void {
+  const declared = object.healthNotes;
+  if (!declared) return;
+  const path = `objects.${name}.healthNotes`;
+  const one = (field: string) =>
+    Object.hasOwn(object.fields, field) ? object.fields[field] : undefined;
+  const list = one(declared.list);
+  const self = `${m.id}.${name}`;
+  if (
+    list?.type !== "relation" ||
+    list.many ||
+    list.to === "person" ||
+    list.to === self ||
+    list.to === name
+  ) {
+    contract(`${path}.list`, "list must be a relation field (one record) to another object");
+  }
+  const person = one(declared.person);
+  if (person?.type !== "relation" || person.many || person.to !== "person") {
+    contract(`${path}.person`, "person must be a relation field (one record) to person");
   }
 }

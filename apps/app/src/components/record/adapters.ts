@@ -45,14 +45,16 @@ export interface PagedResult<T> extends AdapterResult<T> {
 
 // --- Timeline -------------------------------------------------------------------------------
 
-export type ActivityType = "note" | "email" | "call" | "meeting" | "system";
-export type HumanActivityType = Exclude<ActivityType, "system">;
+// `chat`: a chat message in an inbox conversation (stage 36), written by the inbox only.
+export type ActivityType = "note" | "email" | "call" | "meeting" | "system" | "chat";
+export type HumanActivityType = Exclude<ActivityType, "system" | "chat">;
 export const ACTIVITY_TYPE_LABELS: Record<ActivityType, string> = {
   note: "Note",
   email: "Email",
   call: "Call",
   meeting: "Meeting",
   system: "System",
+  chat: "Chat message",
 };
 
 export interface TimelinePayload extends Record<string, unknown> {
@@ -93,6 +95,12 @@ export interface TimelineItem {
   /** The full email body can be read with activity.getBody. */
   hasFullBody: boolean;
   threadKey: string | null;
+  /** Who may read a note (stage 56): every staff account, the client's coaches, or sensitive. */
+  level: "staff" | "coaches" | "sensitive";
+  /** A sensitive note listed without its text: opened one at a time (note.open). */
+  locked: boolean;
+  /** A note's kind (Note, Session note, the business's own). */
+  kind: { id: string; name: string } | null;
 }
 
 export function toTimelineItem(activity: Partial<Activity> & { id: string }): TimelineItem {
@@ -116,6 +124,9 @@ export function toTimelineItem(activity: Partial<Activity> & { id: string }): Ti
     disclosure: activity.disclosure ?? null,
     hasFullBody: activity.hasFullBody === true,
     threadKey: activity.threadKey ?? null,
+    level: activity.level ?? "staff",
+    locked: activity.locked === true,
+    kind: activity.kind ?? null,
   };
 }
 

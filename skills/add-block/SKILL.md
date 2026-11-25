@@ -30,7 +30,8 @@ buttons, fields, lists, sheets, or a pack's screens. Blocks ship inside the plat
      `mobile.roles` in `product.ts`), never the staff client. The sign-in
      blocks call no operation: `web-sign-in` posts to the web app's `/auth/*` routes, which its
      host module serves; `native-sign-in` takes `actions` with `requestCode` and `signIn`, which
-     the mobile app's `hostSession` has.
+     the mobile app's `hostSession` has, and says what went wrong when one fails (sign-in not
+     switched on, too many tries, offline) with `signInErrorWords` from `@composable-os/client`.
 3. **Copy it.** `pnpm cos add <name>`. Its files go to `<app>/src/blocks/<name>/`, with the blocks
    it depends on, and `blocks.lock.json` records each block's version and files. If it prints an
    install line, run it: those are the packages the block's files import, the platform's at the
@@ -41,7 +42,10 @@ buttons, fields, lists, sheets, or a pack's screens. Blocks ship inside the plat
    the template's `apps/web/src/styles.css` (`--primary`, `--primary-foreground`, `--destructive`,
    `--input`, `--ring`, `--accent`, `--muted-foreground`, `--background`, `--foreground`, ...):
    brand the app by changing those values. The native blocks take their look from
-   `native-base/theme.ts`. Change the copied files freely (layout, wording); keep their calls to
+   `native-base/theme.ts`: every text, spinner and surface reads its colours, so a dark theme is
+   those values changed. When you change a copied native block, write its text with
+   `native-base/text.tsx`'s `Text` (or a style with `color: theme.color.*`), never a bare React
+   Native `<Text>`, which draws black. Change the copied files freely (layout, wording); keep their calls to
    operations as they are. With no brand given, leave the defaults.
 5. **Wire it** to a route. In the template web app, replace the body of the route file, for
    example `apps/web/src/routes/sign-in.tsx`:
@@ -54,13 +58,42 @@ buttons, fields, lists, sheets, or a pack's screens. Blocks ship inside the plat
    `@composable-os/pack-ticketing/client` (Programs: `createProgramsHooks({ useQuery,
    useMutation, useState, useEffect }, api)` from `@composable-os/pack-programs/client`, whose
    builder saves itself and so needs `useEffect`; Content: `createContentHooks({ useQuery,
-   useMutation }, api)` from `@composable-os/pack-content/client`) and pass them down. Content's
+   useMutation }, api)` from `@composable-os/pack-content/client`) and pass them down. The
+   agreement blocks (`web-agree`, `web-agreements-due`, `web-my-agreements` and their `native-*`
+   twins) take `agreements`: `createAgreementsHooks({ useQuery, useMutation }, api)` from
+   `@composable-os/client` itself. Pass the same `agreements` to Bookings' and Memberships'
+   blocks that buy or book, so what must be agreed to first shows inline; in the web app allow
+   the operations their block.json lists (`agreement.guestVersions` among them, for a visitor),
+   and the template's `agreementPdfRoute` serves a person's signed PDF on the app's hostname.
+   My account (`web-account`, `native-account`, and their sections `*-account-details`,
+   `-devices`, `-family`, `-orders`, `-payment`, `-subscriptions`) takes `account`:
+   `createAccountHooks({ useQuery, useMutation }, api)` from `@composable-os/client`, beside the
+   same `agreements`. Pass the web shell `returnUrl` (the account page) and `onSignOut` (post to
+   `/auth/sign-out`), and the native one `websiteUrl` (the website's account page: money is
+   managed there, ADR 0714) and `onSignOut` (`session.signOut`). Once the shell is copied, `cos
+   add` also copies the sections of the packs `product.ts` lists and writes
+   `src/blocks/account-sections.gen.ts` (do not edit it: `cos add` and `cos upgrade` write it
+   again). Pass the shell `sections={usePackSections(ACCOUNT_SECTIONS, react, api, returnUrl)}`
+   (the native one without `returnUrl`), with `react` a module-level `{ useQuery, useMutation,
+   useState, useEffect }` so the packs' hooks are made once, and the page names no pack; the shell shows what the host's `me.portal` lists. After adding a pack to
+   `product.ts`, run `cos add web-account` again to copy its section.
+   Rostering's blocks (`rostering-*`) take `rostering`: `createRosteringHooks({ useQuery,
+   useMutation }, api)` from `@composable-os/pack-rostering/client`. They are staff screens: in
+   the app, `api` is a role client, `rostering.team`'s for someone rostered with no other access,
+   or a coach's generated with the grant (`mobile.roles: [{ role: "bookings.coach", grants:
+   ["rostering:roster"] }]` in `product.ts`, then `cos client generate`); on the web they need a
+   staff client, which a client web app does not have (its binding never serves staff). Each asks
+   the host who is reading first and shows the rosterers' and pay screens only to who may see
+   them. Content's
    rich text blocks (`content-rich-text`, `content-native-rich-text`) take the document itself
    and find pictures by themselves on the web: the template's `src/host.ts` has `mediaRoute`, which
    `src/server.ts` calls, forwarding `GET /api/media/<id>?w=` to the host over the binding (in an
    adopted site, call `mediaRoute(request, env)` from the site's own Worker before its pages; pass
    `mediaBase` for another origin). In the app, pass `mediaUrl={mediaUrlFor({ hostUrl })}` from the
-   mobile template's `src/host.ts`: the host's `/api/v1/media/<id>`, and the native one an `openUrl` (React Native's `Linking.openURL`). `api` is the client the
+   mobile template's `src/host.ts`: the host's `/api/v1/media/<id>`, and the native one an `openUrl` (React Native's `Linking.openURL`). The Courses
+   players (`courses-player`, `courses-native-player`) bring Content's rich text block with them
+   (Courses requires Content): pass `renderText` drawing the lesson's value with it: `RichText` on
+   the web, `RichTextView` with `mediaUrl` and `openUrl` in the app. `api` is the client the
    screen's user holds: the customer client on a customer's screen, the role client
    (`staff.client(createTicketingDoorClient)`) on the door scanner. The hooks returned are only
    those that client can back, and the block's prop names the hooks it calls
@@ -81,6 +114,12 @@ buttons, fields, lists, sheets, or a pack's screens. Blocks ship inside the plat
    `pnpm cos diff <name> --accept` shows the changes once more and records the block as merged up
    to the version the repo is on (in `blocks.lock.json`), so the next `cos diff` shows only what
    changes after it. It refuses `--version` of another release: upgrade first. Commit the lock.
+
+**Staff screens are not added to a client app.** A company's web app never serves staff (ADR
+0421). A pack's staff blocks (the front desk, a class's list, the roster, pay) are shown in the
+product's admin on the host's address, for whoever may open them, because the pack declares them as
+screens (`screens` in its manifest, ADR 0660; see `write-extension`, "Staff screens"). To give
+staff a new screen, declare it in the shipped pack: never copy a staff block into the client app.
 
 ## The rules
 

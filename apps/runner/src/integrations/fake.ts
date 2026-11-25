@@ -8,13 +8,33 @@
 // Not a template for production gatekeepers: no PKCE, no credentials, a trivially simple journal.
 // See packages/gatekeeper-email-send and packages/gatekeeper-slack-post for real ones.
 import { DurableObject, RpcStub, RpcTarget, WorkerEntrypoint } from "cloudflare:workers";
+import {
+  AGREEMENT_FILENAME,
+  agreementSummary,
+  type EmailAgreement,
+  isAgreementShaped,
+  isHostAgreementMail,
+} from "../../../../packages/gatekeeper-email-send/src/agreement.ts";
+// The email-send gatekeeper's rule for an agreement's copy (ADR 0645). The module imports only
+// types: the fake makes no PDF.
+import {
+  AGREEMENT_KEY_PREFIX,
+  HOST_PRIVATE_CLASSES,
+  keySpaceOf,
+  type QueueClass,
+  queueClassOf,
+} from "../../../../packages/gatekeeper-email-send/src/queue-class.ts";
+import {
+  hostRoutineMail,
+  isRoutineShaped,
+} from "../../../../packages/gatekeeper-email-send/src/routine.ts";
 // The email-send gatekeeper's own rule for the host's sign-in mail, so the fake decides it the
 // same way (ADR 0456). The module imports only types.
 import {
   isHostSignInMail,
   isSignInCodeMessage,
 } from "../../../../packages/gatekeeper-email-send/src/sign-in.ts";
-import { connectHandoffPageHtml, htmlResponse } from "./pages.ts";
+import { connectHandoffPageHtml, escapeHtml, htmlResponse } from "./pages.ts";
 
 // --- Shapes ------------------------------------------------------------------------------------
 
@@ -243,13 +263,21 @@ export class FakeProvider extends DurableObject<Env> {
     return [...this.ctx.storage.kv.list<FakeMessage>({ prefix: "msg:" })].map(([, m]) => m);
   }
 
-  async recordSent(entry: { action: number; to: string[]; subject: string; text: string }) {
+  async recordSent(entry: {
+    action: number;
+    to: string[];
+    subject: string;
+    text: string;
+    attachments?: string[];
+  }) {
     const sent = this.ctx.storage.kv.get<(typeof entry)[]>("sent") ?? [];
     sent.push(entry);
     this.ctx.storage.kv.put("sent", sent);
   }
 
-  async sent(): Promise<{ action: number; to: string[]; subject: string; text: string }[]> {
+  async sent(): Promise<
+    { action: number; to: string[]; subject: string; text: string; attachments?: string[] }[]
+  > {
     return this.ctx.storage.kv.get("sent") ?? [];
   }
 
@@ -363,7 +391,7 @@ export class FakeAccount extends DurableObject<Env> {
 <style>body{font-family:system-ui;max-width:28rem;margin:3rem auto;padding:0 1rem}input,button{font:inherit;padding:.5rem;width:100%;box-sizing:border-box;margin:.25rem 0}</style></head>
 <body><h1>Fake provider</h1><p>The CRM wants access to your fake mailbox and calendar.</p>
 <form method="post"><label for="address">Mailbox address</label>
-<input id="address" name="address" type="email" required value="${suggested.replace(/"/g, "&quot;")}">
+<input id="address" name="address" type="email" required value="${escapeHtml(suggested)}">
 <button type="submit">Allow</button></form></body></html>`);
     }
     if (request.method !== "POST") return new Response("Method not allowed", { status: 405 });
@@ -555,6 +583,10 @@ interface Journal {
       text: string;
       /** The host's sign-in mail (ADR 0456): applied whatever waits before it, as email-send does. */
       independent?: boolean;
+      /** The names of what was attached (an agreement's copy, ADR 0645); the fake makes no file. */
+      attachments?: string[];
+      /** The class of queue that sent it, when the host's (ADR 0645). */
+      queue?: QueueClass;
     }
   >;
 }
@@ -591,11 +623,16 @@ class FakeSession extends RpcTarget {
     text: string;
     internal?: boolean;
     relatedRecords?: string[];
+    idempotencyKey?: string;
+    agreement?: unknown;
   }) {
     return this.#gk.send(this.#queue, message);
   }
   listSent() {
     return this.#gk.listSent(this.#queue);
+  }
+  scrubAgreementCopy(input: { key?: unknown }) {
+    return this.#gk.scrubAgreementCopy(this.#queue, input);
   }
   post(message: { channel: string; text: string }) {
     return this.#gk.slack(this.#queue, "post", String(message?.channel ?? ""), message?.text);
@@ -755,6 +792,21 @@ export class FakeGatekeeper extends DurableObject<
     return this.ctx.storage.kv.get<Journal>("journal") ?? { next: 1, actions: {} };
   }
 
+  /** Journals a new pending action and gives its id. */
+  #journalAction(entry: Journal["actions"][number]): number {
+    const journal = this.#journal();
+    const id = journal.next;
+    journal.next += 1;
+    journal.actions[id] = entry;
+    this.ctx.storage.kv.put("journal", journal);
+    return id;
+  }
+
+  /** Whether action `id` has been applied. */
+  #sent(id: number): boolean {
+    return this.#journal().actions[id]?.status === "sent";
+  }
+
   async send(
     queue: QueueStub,
     message: {
@@ -763,6 +815,8 @@ export class FakeGatekeeper extends DurableObject<
       text: string;
       internal?: boolean;
       relatedRecords?: string[];
+      idempotencyKey?: string;
+      agreement?: unknown;
     },
   ): Promise<{ id: number; status: "pending" | "sent" }> {
     this.#require("outbox");
@@ -771,9 +825,57 @@ export class FakeGatekeeper extends DurableObject<
     const text = String(message?.text ?? "").slice(0, 20_000);
     if (!to.length || !subject) throw new Error("send needs `to` and a `subject`");
     const internal = message.internal === true;
+    // A retried send with the same key answers the first one's receipt (ADR 0574), as email-send:
+    // keys are remembered per class of queue (an ordinary caller's per caller, issue #286), and
+    // the copy's keys are the agreements mail's alone.
+    const queueClass = await queueClassOf(queue);
+    const key = typeof message.idempotencyKey === "string" ? message.idempotencyKey : null;
+    if (key?.startsWith(AGREEMENT_KEY_PREFIX) && queueClass !== "agreements") {
+      throw new Error(
+        `Invalid email: idempotencyKey ${AGREEMENT_KEY_PREFIX}… is the host's own agreements mail's.`,
+      );
+    }
+    // A copy the host scrubbed (its acceptance was erased, ADR 0646) is never queued again.
+    if (key?.startsWith(AGREEMENT_KEY_PREFIX)) {
+      const copy = key.split(":").slice(0, 2).join(":");
+      if (this.ctx.storage.kv.get(`scrubbed:${copy}`) !== undefined) {
+        throw new Error("Refused: this copy's agreement was erased, and it is not sent.");
+      }
+    }
+    // Per key space, as email-send keeps them (never per kind: a retried send may be decided
+    // another kind, and must still find its first send).
+    const slot = key ? `idemc:${await keySpaceOf(queue, queueClass)}:${key}` : null;
+    if (slot) {
+      const known = this.ctx.storage.kv.get<number>(slot);
+      if (known !== undefined) {
+        return {
+          id: known,
+          status: this.#sent(known) ? "sent" : "pending",
+        };
+      }
+    }
+    // A signed agreement only from the host's own agreements mail, to one address, as email-send
+    // decides it (ADR 0645). The fake records the attachment's name; it makes no file.
+    const agreement =
+      message.agreement !== undefined && message.agreement !== null
+        ? (message.agreement as EmailAgreement)
+        : null;
+    if (agreement) {
+      if (
+        internal ||
+        !isAgreementShaped({ to, text }) ||
+        typeof agreement.title !== "string" ||
+        !(await isHostAgreementMail(queue))
+      ) {
+        throw new Error(
+          "Invalid email: agreement is attached only by the host, to its copy of a signed agreement.",
+        );
+      }
+    }
     // The host's sign-in mail, decided exactly as the email-send gatekeeper decides it (ADR 0456):
     // the host's own queue says so, and the message is the fixed code template.
     const signIn =
+      !agreement &&
       message.internal === undefined &&
       isSignInCodeMessage({
         to,
@@ -784,17 +886,22 @@ export class FakeGatekeeper extends DurableObject<
           : {}),
       }) &&
       (await isHostSignInMail(queue));
-    const journal = this.#journal();
-    const id = journal.next;
-    journal.next += 1;
-    journal.actions[id] = {
+    // Routine mail (ADR 0590), decided exactly as email-send decides it.
+    const routineMail = signIn || agreement ? null : await hostRoutineMail(queue);
+    const routine =
+      routineMail !== null &&
+      message.internal === undefined &&
+      isRoutineShaped({ to, subject, text }, routineMail.siteOrigin);
+    const id = this.#journalAction({
       status: "pending",
       to,
       subject,
       text,
-      ...(signIn ? { independent: true } : {}),
-    };
-    this.ctx.storage.kv.put("journal", journal);
+      ...(signIn || routine || agreement ? { independent: true } : {}),
+      ...(agreement ? { attachments: [AGREEMENT_FILENAME] } : {}),
+      ...(queueClass !== "caller" ? { queue: queueClass } : {}),
+    });
+    if (slot) this.ctx.storage.kv.put(slot, id);
     const related = Array.isArray(message.relatedRecords) ? message.relatedRecords.map(String) : [];
     await queue.submitAction(id, {
       title: `Send email: ${subject}`,
@@ -805,17 +912,22 @@ export class FakeGatekeeper extends DurableObject<
         { label: "Subject", value: subject },
         { label: "Body", value: text, syntax: "markdown" },
         ...(related.length ? [{ label: "Related records", value: related.join(", ") }] : []),
+        ...(agreement ? [{ label: "Attachment", value: agreementSummary(agreement) }] : []),
       ],
       descriptionIsComplete: true,
       implementsRevert: false,
       autoApprovable: internal || signIn,
-      actionKind: signIn
-        ? { tag: "fake.signin", label: "Send sign-in codes" }
-        : internal
-          ? { tag: "fake.internal", label: "Send internal mail" }
-          : { tag: "fake.send", label: "Send mail" },
+      actionKind: agreement
+        ? { tag: "fake.agreement", label: "Send copies of signed agreements" }
+        : signIn
+          ? { tag: "fake.signin", label: "Send sign-in codes" }
+          : routine
+            ? { tag: "fake.routine", label: "Send members' routine email" }
+            : internal
+              ? { tag: "fake.internal", label: "Send internal mail" }
+              : { tag: "fake.send", label: "Send mail" },
     });
-    return { id, status: this.#journal().actions[id]?.status === "sent" ? "sent" : "pending" };
+    return { id, status: this.#sent(id) ? "sent" : "pending" };
   }
 
   /** A Slack post (`to` is the channel) or DM (`to` is the user); journalled like a send. */
@@ -828,11 +940,12 @@ export class FakeGatekeeper extends DurableObject<
     this.#require("slack");
     const body = String(text ?? "").slice(0, 4000);
     if (!target || !body) throw new Error(`${kind} needs a target and text`);
-    const journal = this.#journal();
-    const id = journal.next;
-    journal.next += 1;
-    journal.actions[id] = { status: "pending", to: [target], subject: `slack.${kind}`, text: body };
-    this.ctx.storage.kv.put("journal", journal);
+    const id = this.#journalAction({
+      status: "pending",
+      to: [target],
+      subject: `slack.${kind}`,
+      text: body,
+    });
     await queue.submitAction(id, {
       title: kind === "post" ? `Post to Slack: ${target}` : `Send a Slack DM to ${target}`,
       description: body,
@@ -848,7 +961,47 @@ export class FakeGatekeeper extends DurableObject<
           ? { tag: "fake.slack.dm", label: "DM a member" }
           : { tag: "fake.slack.post", label: "Post to a channel" },
     });
-    return { id, status: this.#journal().actions[id]?.status === "sent" ? "posted" : "pending" };
+    return { id, status: this.#sent(id) ? "posted" : "pending" };
+  }
+
+  /**
+   * The host's agreements mail only, as email-send (ADR 0646): a waiting send of the copy is
+   * turned down, later sends under its key are refused, and its journal entries lose their
+   * recipients, subject and text. Counts only.
+   */
+  async scrubAgreementCopy(
+    queue: QueueStub,
+    input: { key?: unknown },
+  ): Promise<{ done: true; found: boolean; dropped: number; redacted: number }> {
+    this.#require("outbox");
+    if ((await queueClassOf(queue)) !== "agreements") {
+      throw new Error("Refused: only the host's own agreements mail scrubs a copy.");
+    }
+    const key = input?.key;
+    if (typeof key !== "string" || !/^agreement-copy:[A-Za-z0-9_]{1,80}$/.test(key)) {
+      throw new TypeError("Invalid scrub: key must be agreement-copy:<acceptance id>.");
+    }
+    const kv = this.ctx.storage.kv;
+    kv.put(`scrubbed:${key}`, Date.now());
+    const journal = this.#journal();
+    let dropped = 0;
+    let redacted = 0;
+    const slot = `idemc:agreements:${key}`;
+    for (const [name, id] of kv.list<number>({ prefix: slot })) {
+      const rest = name.slice(slot.length);
+      const entry = journal.actions[id];
+      if (!entry || (rest !== "" && !/^:\d+$/.test(rest))) continue;
+      if (entry.status === "pending") {
+        entry.status = "rejected";
+        dropped += 1;
+      }
+      entry.to = [];
+      entry.subject = "[erased]";
+      entry.text = "";
+      redacted += 1;
+    }
+    kv.put("journal", journal);
+    return { done: true, found: redacted > 0, dropped, redacted };
   }
 
   async listSent(queue: QueueStub) {
@@ -858,13 +1011,17 @@ export class FakeGatekeeper extends DurableObject<
       description: "",
       subresources: [],
     });
-    // Pending sends are simulated: they show as if sent, marked pending.
-    return Object.entries(this.#journal().actions).map(([id, a]) => ({
-      id: Number(id),
-      to: a.to,
-      subject: a.subject,
-      status: a.status,
-    }));
+    // Pending sends are simulated: they show as if sent, marked pending. The host's agreements,
+    // sign-in and orders mail only to that same queue, as email-send (ADR 0645).
+    const viewer = await queueClassOf(queue);
+    return Object.entries(this.#journal().actions)
+      .filter(([, a]) => !a.queue || !HOST_PRIVATE_CLASSES.has(a.queue) || a.queue === viewer)
+      .map(([id, a]) => ({
+        id: Number(id),
+        to: a.to,
+        subject: a.subject,
+        status: a.status,
+      }));
   }
 
   async applyAction(action: number): Promise<void> {
@@ -886,8 +1043,10 @@ export class FakeGatekeeper extends DurableObject<
       to: entry.to,
       subject: entry.subject,
       text: entry.text,
+      ...(entry.attachments ? { attachments: entry.attachments } : {}),
     });
     entry.status = "sent";
+
     this.ctx.storage.kv.put("journal", journal);
   }
 

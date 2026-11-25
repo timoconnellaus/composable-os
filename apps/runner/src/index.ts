@@ -21,16 +21,22 @@ import {
   queueEventSink,
   type RunToolInput,
   type RunToolResult,
+  releaseWaitingRoutineMessages,
   retryOutbox,
   runAgreementsDue,
+  runChecklistDue,
   runDuplicateCron,
   runPublishDue,
   runRecurringDue,
+  runReindexDue,
+  runStaffingDue,
   runTimedMovesDue,
   runWaitlistDue,
   type ShippedExtension,
   type ShippedInstallResult,
   type StartRunInput,
+  sendAgreementCopies,
+  sendReadyTexts,
   vendorBinding,
   type WorkingCopy,
   type WorkingCopyOptions,
@@ -307,12 +313,15 @@ export async function minuteTick(env: Env, at: Date) {
       duplicates: null,
       orders: null,
       publishing: null,
+      reindex: null,
       recurring: null,
       waitlist: null,
       timedMoves: null,
       agreements: null,
+      agreementCopies: null,
       customerSignup: null,
       deferredRuns: null,
+      routineMessages: null,
     };
   }
   const schedules = await minuteStep("schedules", () => runAutomationCron(env, at));
@@ -348,6 +357,13 @@ export async function minuteTick(env: Env, at: Date) {
       ...(env.AUTOMATION_EVENTS ? { events: queueEventSink(env.AUTOMATION_EVENTS) } : {}),
     }),
   );
+  // The published-text index (stage 38, ADR 0700): caught up with what the objects declare.
+  const reindex = await minuteStep("published text", () =>
+    runReindexDue(createCrmDb(env.DB), {
+      clock: () => at,
+      floor: parseFloor(env.APPROVAL_FLOOR),
+    }),
+  );
   // Recurring schedules (stage 31, ADR 0500): series written since the last tick, and each once a
   // day after its local midnight, make their records up to the horizon.
   const recurring = await minuteStep("recurring", () =>
@@ -374,6 +390,20 @@ export async function minuteTick(env: Env, at: Date) {
       ...(env.AUTOMATION_EVENTS ? { events: queueEventSink(env.AUTOMATION_EVENTS) } : {}),
     }),
   );
+  // The roster (stage 45, ADRs 0623 and 0624): offers past their cut-off lapse; once a day the
+  // rosterers hear of shifts with nobody on them. A quiet minute is a few reads and no write.
+  const staffing = await minuteStep("staffing", () =>
+    runStaffingDue(createCrmDb(env.DB), { clock: () => at, floor: parseFloor(env.APPROVAL_FLOOR) }),
+  );
+  // Checklists (stage 45 step 4b, ADR 0650): runs made a day ahead, kept with their shift, and
+  // closed as missed (the rosterers told) or cancelled after their grace. A quiet minute is a few
+  // reads and no write.
+  const checklists = await minuteStep("checklists", () =>
+    runChecklistDue(createCrmDb(env.DB), {
+      clock: () => at,
+      floor: parseFloor(env.APPROVAL_FLOOR),
+    }),
+  );
   // Agreements (stage 44, ADR 0640): scheduled versions whose time has come take effect.
   const agreements = await minuteStep("agreements", () =>
     runAgreementsDue(createCrmDb(env.DB), {
@@ -381,11 +411,34 @@ export async function minuteTick(env: Env, at: Date) {
       floor: parseFloor(env.APPROVAL_FLOOR),
     }),
   );
+  // Agreements' copies (stage 44 step 4, ADR 0645): those not sent when they were recorded (a
+  // guest's, once its purchase settled; one whose send failed and may be tried again).
+  const agreementCopies = await minuteStep("agreement copies", () =>
+    sendAgreementCopies({
+      db: createCrmDb(env.DB).query,
+      integrations: integrationRuntime(env),
+      clock: () => at,
+    }),
+  );
   // Customer sign-in (ADR 0459): admins hear within a minute when a plan going on sale opened
   // sign-up to anyone ("anyone starting a subscription" on). Nothing while the switch is off.
   const customerSignup = await minuteStep("customer sign-up", async () => {
     const { opened } = await watchSubscriberSignup(createCrmDb(env.DB), at);
     return { opened };
+  });
+  // Quiet hours (stage 30, ADR 0676): texts and pushes that waited for them to end are ready to
+  // go, or expired when their moment passed. Then every text ready to go (released now, back
+  // after a full pending pool, or held and not yet put to a person) is handed to the text
+  // connection (ADR 0672); pushes are their gatekeeper's (a later step). A quiet minute is two
+  // indexed reads.
+  const routineMessages = await minuteStep("routine messages", async () => {
+    const db = createCrmDb(env.DB).query;
+    const released = await releaseWaitingRoutineMessages(db, at.toISOString());
+    const texts = await sendReadyTexts(
+      { db, integrations: integrationRuntime(env) },
+      { now: at.toISOString() },
+    );
+    return { ready: released.ready.length, expired: released.expired, texts };
   });
   return {
     paused: false,
@@ -396,12 +449,18 @@ export async function minuteTick(env: Env, at: Date) {
     duplicates,
     orders,
     publishing,
+    reindex,
     recurring,
     waitlist,
     timedMoves,
+    staffing,
+    checklists,
     agreements,
+    agreementCopies,
     customerSignup,
+
     deferredRuns,
+    routineMessages,
   };
 }
 

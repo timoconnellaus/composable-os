@@ -8,16 +8,20 @@
 import {
   type Block,
   embedKind,
+  headingAnchors,
   type Inline,
   type ListBody,
   type RichText as RichTextValue,
 } from "@composable-os/pack-content/client";
 import type { ReactNode } from "react";
-import { Image, Pressable, StyleSheet, Text, View } from "react-native";
+import { Image, Pressable, StyleSheet, View } from "react-native";
+import { Text } from "../native-base/text.tsx";
 import { theme } from "../native-base/theme.ts";
 
 export type NativeBlockRenderer<T extends Block["type"]> = (props: {
   block: Extract<Block, { type: T }>;
+  /** A heading's anchor (ADR 0700), as the web block's `id`: give it as the view's `nativeID`. */
+  anchor?: string;
 }) => ReactNode;
 
 export interface RichTextViewProps {
@@ -32,6 +36,11 @@ export interface RichTextViewProps {
   /** The width the pictures are shown at, in device pixels (the screen's). */
   width?: number;
   components?: { [T in Block["type"]]?: NativeBlockRenderer<T> };
+  /**
+   * Where each heading is laid out, by its anchor (ADR 0700): scroll to `y` to open a search
+   * result or a citation at its section.
+   */
+  onAnchorLayout?: (anchor: string, y: number) => void;
 }
 
 function Runs({
@@ -109,10 +118,10 @@ function ListView({
 }
 
 const TONE_COLOR = {
-  info: "#0ea5e9",
+  info: theme.color.info,
   note: theme.color.muted,
-  success: "#10b981",
-  warning: "#f59e0b",
+  success: theme.color.success,
+  warning: theme.color.warning,
 } as const;
 
 function DefaultBlock({
@@ -120,11 +129,13 @@ function DefaultBlock({
   openUrl,
   mediaUrl,
   width,
+  anchor,
 }: {
   block: Block;
   openUrl: (url: string) => void;
   mediaUrl: (id: string, width: number) => string;
   width: number;
+  anchor?: string | undefined;
 }): ReactNode {
   switch (block.type) {
     case "paragraph":
@@ -135,7 +146,7 @@ function DefaultBlock({
       );
     case "heading":
       return (
-        <View testID="rt-block-heading" accessibilityRole="header">
+        <View testID="rt-block-heading" accessibilityRole="header" nativeID={anchor}>
           <Runs
             content={block.content}
             openUrl={openUrl}
@@ -219,20 +230,39 @@ export function RichTextView({
   mediaUrl,
   width = 960,
   components = {},
+  onAnchorLayout,
 }: RichTextViewProps) {
   const blocks = value?.blocks ?? [];
   if (!blocks.length) return null;
+  // Each heading's anchor, made by the host's own rule: search results and citations name it.
+  const anchors = headingAnchors(value);
+  let heading = 0;
   return (
     <View style={styles.document} testID="rt-document">
       {blocks.map((block, i) => {
         const custom = components[block.type] as NativeBlockRenderer<typeof block.type> | undefined;
+        const anchor = block.type === "heading" ? anchors[heading++] : undefined;
         return (
-          // biome-ignore lint/suspicious/noArrayIndexKey: blocks are positional in a document.
-          <View key={i}>
+          <View
+            // biome-ignore lint/suspicious/noArrayIndexKey: blocks are positional in a document.
+            key={i}
+            {...(anchor && onAnchorLayout
+              ? {
+                  onLayout: (e: { nativeEvent: { layout: { y: number } } }) =>
+                    onAnchorLayout(anchor, e.nativeEvent.layout.y),
+                }
+              : {})}
+          >
             {custom ? (
-              custom({ block } as never)
+              custom({ block, ...(anchor ? { anchor } : {}) } as never)
             ) : (
-              <DefaultBlock block={block} openUrl={openUrl} mediaUrl={mediaUrl} width={width} />
+              <DefaultBlock
+                block={block}
+                openUrl={openUrl}
+                mediaUrl={mediaUrl}
+                width={width}
+                anchor={anchor}
+              />
             )}
           </View>
         );

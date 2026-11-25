@@ -4,6 +4,8 @@
 // is the typed client. The MCP (stage 2) and host-module (stage 3) adapters follow the same shape
 // with a different actor and origin.
 
+// The screens this build holds, for screens.mine (stage 47).
+import "./built-screens.ts";
 import type { Principal } from "@composable-os/auth";
 import {
   type AgentJobHost,
@@ -24,18 +26,21 @@ import {
   withCodeModeRateLimit,
 } from "@composable-os/core";
 import { createCrmDb } from "@composable-os/db";
-import { getAgentByName } from "agents";
 import { type AiAppEnv, aiContextFor } from "./ai.ts";
-import { type AssistantAgent, threadName } from "./assistant/agent.ts";
+import { approvalExpiryDays } from "./approval-expiry.ts";
+import type { AssistantAgent } from "./assistant/agent.ts";
+import { threadStub } from "./assistant/http.ts";
 import { type AgentJob, jobName } from "./assistant/job.ts";
+import { type DeskEnv, deskHostFor } from "./desk.ts";
 import { hostMailFor } from "./host-mail.ts";
 import { blobStoreFor, integrationRuntimeFor } from "./integrations.ts";
 import { deleteGrantTokens } from "./mcp/handler.ts";
 import { mediaStoreFor } from "./media.ts";
+import { personCodeKeysEntry } from "./person-codes.ts";
 import { runner } from "./runner.ts";
 import { updaterRuntimeFor } from "./updater.ts";
 
-export interface OperationsEnv extends AiAppEnv {
+export interface OperationsEnv extends AiAppEnv, DeskEnv {
   DB: D1Database;
   /** Deploy-time approval floor (ADR 0011), JSON. Empty means none. */
   APPROVAL_FLOOR?: string;
@@ -61,6 +66,8 @@ export interface OperationsEnv extends AiAppEnv {
   ASSISTANT?: DurableObjectNamespace<AssistantAgent>;
   /** One object per agent (ADR 0344). */
   AGENT_JOB?: DurableObjectNamespace<AgentJob>;
+  /** The host's auth secret: the keys of check-in codes and PINs are derived from it (ADR 0783). */
+  BETTER_AUTH_SECRET?: string;
 }
 
 /** The agents' objects as operations see them (ADR 0344). */
@@ -96,10 +103,7 @@ export function agentJobsFor(env: OperationsEnv): AgentJobHost | undefined {
 export function assistantThreadsFor(env: OperationsEnv): AssistantThreadStore | undefined {
   const namespace = env.ASSISTANT;
   if (!namespace) return undefined;
-  const stub = (userId: string) =>
-    getAgentByName(namespace as never, threadName(userId)) as unknown as Promise<
-      DurableObjectStub<AssistantAgent>
-    >;
+  const stub = (userId: string) => threadStub(namespace, userId);
   return {
     async search(userId, query, limit) {
       return (await stub(userId)).search(userId, query, limit);
@@ -266,8 +270,12 @@ export async function staffContext(
     updater: updaterRuntimeFor(env),
     // The host's own mail for staff (ADR 0455): the invite notice.
     hostMail: hostMailFor(env, appOrigin),
+    // Desk signing and enrolled devices (ADRs 0649 and 0780): the secret and where the desk is.
+    ...(deskHostFor(env, appOrigin) ? { desk: deskHostFor(env, appOrigin) } : {}),
+    // Check-in codes, cards and PINs (stage 51, ADR 0783).
+    ...personCodeKeysEntry(env),
     ...aiContextFor(env, db),
-    approvalExpiryDays: Number.parseInt(env.APPROVAL_EXPIRY_DAYS ?? "", 10) || undefined,
+    approvalExpiryDays: approvalExpiryDays(env.APPROVAL_EXPIRY_DAYS),
   };
 }
 

@@ -27,8 +27,10 @@ import {
   resolveStateRequest,
   updateRecordAsHost,
 } from "../src/index.ts";
+import { FOLLOWER_QUERIES_MAX, FOLLOWERS_MAX } from "../src/records/follows.ts";
+import { meterQueries } from "../src/records/query-meter.ts";
 import { extId, manifest, reconcile } from "./extension-helpers.ts";
-import { context, createUser, unique } from "./helpers.ts";
+import { context, createUser, db, refusal as refused, unique } from "./helpers.ts";
 
 const ext = extId("bkp");
 const KIND = `${ext}.kind`;
@@ -235,15 +237,6 @@ const preview = defineOperation({
 const fixtures = createInvoker(
   createRegistry([...coreRegistry.list(), hostCreate, customerCreate, hostUpdate, preview]),
 );
-
-async function refused(promise: Promise<unknown>) {
-  const error = await promise.then(
-    () => null,
-    (e: unknown) => e,
-  );
-  expect(error).not.toBeNull();
-  return error as { code: string; details: Record<string, unknown>; message: string };
-}
 
 const create = async (object: string, values: Record<string, unknown>, now = T) =>
   ((await invoke("record.create", { object, values }, at(now))) as { id: string }).id;
@@ -480,6 +473,29 @@ describe("a class cancelled moves its bookings with it (follows)", () => {
       .bind(KLASS, id)
       .first<{ held: number; taken: number }>();
     expect(counter).toMatchObject({ held: 0, taken: 0 });
+  });
+});
+
+describe("what a booking costs its class's cancel (ADR 0841)", () => {
+  it("at most FOLLOWER_QUERIES_MAX queries each: FOLLOWERS_MAX of them fit in one D1 invocation", async () => {
+    const cost = async (paid: number, desk: number) => {
+      const id = await klass(5 * 60 * MINUTE);
+      for (let i = 0; i < paid; i++) await create(BOOKING, { klass: id, person: personId });
+      for (let i = 0; i < desk; i++) await deskBooking(id);
+      const meter = meterQueries(db);
+      await invoke(
+        "record.update",
+        { object: KLASS, id, values: { state: "cancelled" } },
+        { ...at(T), db: meter.db },
+      );
+      return meter.queries;
+    };
+    const none = await cost(0, 0);
+    // D1 counts each read and each batch as one query.
+    const perPaid = ((await cost(3, 0)) - none) / 3;
+    const perDesk = ((await cost(0, 3)) - none) / 3;
+    expect(Math.max(perPaid, perDesk)).toBeLessThanOrEqual(FOLLOWER_QUERIES_MAX);
+    expect(none + FOLLOWER_QUERIES_MAX * FOLLOWERS_MAX).toBeLessThan(850);
   });
 });
 

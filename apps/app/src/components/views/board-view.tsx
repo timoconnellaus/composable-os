@@ -29,7 +29,7 @@ import { useVirtualizer } from "@tanstack/react-virtual";
 import { MoreHorizontalIcon } from "lucide-react";
 import { type FormEvent, useEffect, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
-import { FieldEditor } from "#/components/fields/field-widgets";
+import { FieldEditor, useBaseCurrency } from "#/components/fields/field-widgets";
 import { callOp } from "#/lib/operations";
 import { errorMessage } from "#/lib/query";
 import type { FieldInfo, ObjectInfo } from "#/lib/schema";
@@ -69,13 +69,18 @@ interface MissingField {
   message: string;
 }
 
-function formatSum(field: FieldInfo | undefined, value: number | null | undefined): string | null {
+/** A column's sum; a currency field without its own currency is in the base one, as on its cards. */
+export function formatSum(
+  field: FieldInfo | undefined,
+  value: number | null | undefined,
+  baseCurrency: string,
+): string | null {
   if (!field || value === null || value === undefined) return null;
   const currency = field.options?.currency as string | undefined;
   try {
     return new Intl.NumberFormat("en", {
       ...(field.fieldType === "currency"
-        ? { style: "currency", currency: currency ?? "USD", maximumFractionDigits: 0 }
+        ? { style: "currency", currency: currency ?? baseCurrency, maximumFractionDigits: 0 }
         : { maximumFractionDigits: 2 }),
     }).format(value);
   } catch {
@@ -89,6 +94,7 @@ export function BoardView({ info, spec }: { info: ObjectInfo; spec: BoardSpec })
   const sumField = spec.sumField ? info.fields.find((f) => f.name === spec.sumField) : undefined;
   const [pending, setPending] = useState<PendingMove[]>([]);
   const [missing, setMissing] = useState<MissingField | null>(null);
+  const baseCurrency = useBaseCurrency();
 
   const choices = useBoardChoices(info, group, spec.filter);
   const labelOf = (value: string | null) => boardLabel(group, choices, value);
@@ -169,7 +175,7 @@ export function BoardView({ info, spec }: { info: ObjectInfo; spec: BoardSpec })
           value={value}
           label={labelOf(value === NONE ? null : value)}
           count={stats(value).count}
-          sum={formatSum(sumField, stats(value).sum)}
+          sum={formatSum(sumField, stats(value).sum, baseCurrency)}
           sumLabel={sumField?.label}
           countPending={groups.isPending}
           pending={pending}

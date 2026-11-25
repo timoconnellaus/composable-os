@@ -74,6 +74,12 @@ function host(operations: Record<string, (input: Record<string, unknown>) => unk
       }),
       "person.get": (input) =>
         input.id === "per_ann" ? { id: "per_ann", displayName: "Ann" } : null,
+      // A list's health notes (stage 44): the host's yes or no per Person, nothing of the form.
+      // The host reads the class's bookings' People itself; the pack names only the list.
+      "agreement.listHealthNotes": (input) => {
+        expect(input).toEqual({ records: "bookings.booking", value: "cls_1" });
+        return { notes: [{ personId: "per_ann", healthNote: true }] };
+      },
       // The member and the child staff linked to them (ADR 0540), as the host says.
       "me.family": () => ({
         self: { personId: "per_me", name: "Mo" },
@@ -108,6 +114,9 @@ describe("bookings pack (test host)", () => {
       "reminderMinutes",
       "dropInPrice",
       "staffOnly",
+      // Pay only (stage 45 step 6, ADR 0627): set-up and pack-down minutes for the coach.
+      "rosterBeforeMinutes",
+      "rosterAfterMinutes",
     ]);
     expect(h.manifest.settings).toMatchObject({
       opensDays: { default: 7, max: 56 },
@@ -211,6 +220,8 @@ describe("bookings pack (test host)", () => {
         movedFrom: { field: "movedFrom", state: "moved" },
         paidBy: ["memberships.membership", "memberships.pass"],
         waived: "paidOtherwise",
+        // A membership ended by cooling off cancels its bookings ahead as the gym's (ADR 0647).
+        released: "cancelled_by_us",
       },
     });
     // A member writes the class, the state (a cancel) and the holder they choose; never what
@@ -236,6 +247,8 @@ describe("bookings pack (test host)", () => {
       "order.get",
       "extensionSettings.list",
       "notification.send",
+      // A class list's "health note" mark (stage 44, decision 18).
+      "agreement.listHealthNotes",
     ]);
     const rules = m.fields["programs.classtype"] ?? {};
     for (const name of [
@@ -598,6 +611,12 @@ describe("bookings pack (test host)", () => {
         guest: true,
         holdCap: { setting: "dropInHoldPercent" },
       },
+      // A drop-in in the finance reports (ADR 0792): earned when its class starts.
+      finance: {
+        category: { key: "drop_ins", label: "Drop-ins" },
+        earned: "at_date",
+        at: "class.startsAt",
+      },
     });
     // A guest's hold is nobody's until paid: the booking's Person is not required (ADR 0560).
     expect(m.objects.booking?.fields.person?.required).toBeUndefined();
@@ -915,9 +934,52 @@ describe("bookings pack (test host)", () => {
         holderId: null,
         bookedBy: null,
         promotedAt: null,
+        healthNote: true,
         passedOver: null,
       },
     ]);
+  });
+
+  // --- Stage 45 step 2: a class is its coach's shift ---------------------------------------------------
+
+  it("declares a class a shift its coach's account works, and one coach profile per account", () => {
+    const m = host().manifest;
+    // The host refuses one account on two overlapping shifts (ADR 0621); no tool checks it.
+    expect(m.objects.class?.staffed).toEqual({
+      who: { field: "coach", account: "user" },
+      starts: "startsAt",
+      ends: "endsAt",
+      zone: "timezone",
+      kind: "classType",
+      live: ["scheduled", "done"],
+      place: "room.name",
+      pattern: { link: "series", who: "coach" },
+      // Pay (ADR 0627): the class type's set-up and pack-down minutes, and the list as evidence.
+      payBefore: { field: "classType.rosterBeforeMinutes" },
+      payAfter: { field: "classType.rosterAfterMinutes" },
+      evidence: { object: "booking", link: "class", by: "markedBy" },
+    });
+    // Set-up and pack-down minutes feed pay: a person's to change.
+    const classtype = m.fields["programs.classtype"] ?? {};
+    expect(classtype.rosterBeforeMinutes?.personApproves).toBe(true);
+    expect(classtype.rosterAfterMinutes?.personApproves).toBe(true);
+    expect(m.objects.coach?.unique).toEqual([{ fields: ["user"] }]);
+  });
+
+  it("declares a class taking its room while it is on, when the room takes one booking at a time", () => {
+    const m = host().manifest;
+    // The host refuses two live records in one such room at once (ADR 0765); no tool checks it.
+    expect(m.objects.class?.occupies).toEqual({
+      thing: "room",
+      starts: "startsAt",
+      ends: "endsAt",
+      live: ["scheduled", "done"],
+      only: "exclusive",
+      // The room calendar shows it by its title (stage 57, ADR 0844).
+      title: "title",
+    });
+    // Off by default: a shared floor many classes use at once is never claimed.
+    expect(m.objects.room?.fields.exclusive).toMatchObject({ type: "boolean", default: false });
   });
 
   // --- Step 7: attendance, the coach role, moves and cancelling a class -----------------------------
@@ -1104,8 +1166,20 @@ describe("bookings pack (test host)", () => {
         markedAt: null,
         markedBy: null,
         promotedAt: null,
+        healthNote: true,
       },
     ]);
+    // A list the host gives no mark for (the assistant reading it): no mark, the list as before.
+    const unmarked = await host({
+      "agreement.listHealthNotes": () => {
+        throw new ExtensionToolError("forbidden", "A health note is for a person on the staff");
+      },
+    }).runTool<{ bookings: Record<string, unknown>[] }>(
+      "roster",
+      { classId: "cls_1" },
+      { caller: STAFF },
+    );
+    expect(unmarked.bookings[0]?.healthNote).toBeNull();
   });
 
   it("move makes the new booking naming the old one, so the host moves both in one batch", async () => {

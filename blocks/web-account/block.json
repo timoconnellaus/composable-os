@@ -1,0 +1,33 @@
+{
+  "name": "web-account",
+  "pack": null,
+  "skin": "web",
+  "operations": [
+    "me.portal",
+    "me.get",
+    "me.update",
+    "me.sessions.list",
+    "me.sessions.revoke",
+    "me.family",
+    "my.list",
+    "subscription.list",
+    "subscription.portal",
+    "me.agreements.due",
+    "me.agreements.list",
+    "me.agreements.get",
+    "me.agreements.accept"
+  ],
+  "files": ["account.tsx", "LICENSE"],
+  "dependsOn": [
+    "web-account-details",
+    "web-account-devices",
+    "web-account-family",
+    "web-account-orders",
+    "web-account-payment",
+    "web-my-agreements",
+    "ui-button"
+  ],
+  "packages": {
+    "@composable-os/client": "*"
+  }
+}

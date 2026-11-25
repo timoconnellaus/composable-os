@@ -84,13 +84,15 @@ export interface CoreVerificationTable {
 // --- Stage 1 (migrations 0002-0007) ------------------------------------------------------------
 
 export type UserRole = "admin" | "member" | "viewer";
-export type ActivityType = "note" | "email" | "call" | "meeting" | "system";
+/** `chat`: a chat message in a conversation (migration 1050, stage 36). */
+export type ActivityType = "note" | "email" | "call" | "meeting" | "system" | "chat";
 export type ActivityAuthorActor = "human" | "assistant" | "mcp" | "automation" | "system";
 export type TaskStatus = "open" | "done";
 /** Who a staff-side call is made by: the actors the approval policy and the queue know. */
 export type StaffActor = "human" | "assistant" | "mcp" | "automation" | "extension";
 /** Every actor the audit log records: staff-side actors, customers and the public (migration 0400). */
-export type AuditActor = StaffActor | "customer" | "public";
+/** `device`: an enrolled device holding a device role (stage 51, ADR 0781). */
+export type AuditActor = StaffActor | "customer" | "public" | "device";
 export type AuditRisk =
   | "read"
   | "write"
@@ -144,6 +146,12 @@ export interface CorePersonTable extends RecordColumns {
    * writer sets it; null for a name that has nothing to compare (an email standing in for one).
    */
   name_key: ColumnType<string | null, string | null, string | null>;
+  /**
+   * Migration 1171 (stage 53, ADR 0803): a birthday, day and month only (no year): both null or
+   * both set, a day the month has. Set by `person.setBirthday` and `me.birthday.set` only.
+   */
+  birth_day: Defaulted<number | null>;
+  birth_month: Defaulted<number | null>;
 }
 
 export interface CorePersonEmailsTable {
@@ -270,7 +278,25 @@ export interface CoreActivityTable extends RecordColumns {
   body_ref: Defaulted<string | null>;
   /** Migration 0111: what a synced activity discloses. */
   disclosure: Defaulted<"full" | "metadata" | null>;
+  /** Migration 1430: the conversation (core_conversation) a message or a staff note belongs to. */
+  conversation_id: Defaulted<string | null>;
+  /** Migration 1230 (stage 56, ADR 0830): who may read a note. Only a note is not `staff`. */
+  level: Defaulted<NoteLevel>;
+  /** Migration 1230: the note's kind (core_note_kind, migration 1232). Every note has one. */
+  kind_id: Defaulted<string | null>;
+  /** Migration 1230: when and by whom the note was shared with its client (stage 56 step 5). */
+  shared_at: Defaulted<string | null>;
+  shared_by: Defaulted<string | null>;
+  /** Migration 1230: the customer account (cus_…) that sent it (stage 56 step 6). */
+  from_customer: Defaulted<string | null>;
+  /** Migration 1230: copied from its kind at write; never changed (stage 56 step 7). */
+  evidence: Defaulted<0 | 1>;
+  /** Migration 1230: the kind's template sections as filled in, JSON (stage 56 step 2). */
+  sections: Defaulted<JsonText | null>;
 }
+
+/** Migration 1230 (stage 56, ADR 0830): who may read a note. */
+export type NoteLevel = "staff" | "coaches" | "sensitive";
 
 export interface CoreActivityLinksTable {
   activity_id: string;
@@ -662,6 +688,8 @@ export interface CoreNotificationsTable {
   dedupe_key: string | null;
   read_at: string | null;
   created_at: string;
+  /** Migration 0851 (stage 44): shown to the person only, never to an AI acting for them. */
+  human_only: ColumnType<number, number | undefined, number>;
 }
 
 /** Migration 0170 (ADR 0170): a person's consent that an automation uses a connection. */
@@ -879,6 +907,29 @@ export interface CoreCustomerVerificationTable {
   updated_at: DateColumn;
 }
 
+/**
+ * Migration 0990 (stage 48, ADR 0712): a request to change an account's sign-in address, waiting
+ * for the code emailed to the new address. One open per account; the code only as a hash.
+ */
+export interface CoreCustomerEmailChangeTable {
+  id: string;
+  customer_id: string;
+  new_email: string;
+  /** The new address's mailbox (`mailboxKey`), for counting requests only. */
+  new_mailbox: string;
+  old_email: string;
+  /** `customer`, or the staff user id of the admin who started it. */
+  started_by: string;
+  code_hash: string;
+  expires_at: string;
+  tries_left: Defaulted<number>;
+  created_at: string;
+  confirmed_at: Defaulted<string | null>;
+  ended_at: Defaulted<string | null>;
+  end_reason: Defaulted<CustomerEmailChangeEnd | null>;
+}
+export type CustomerEmailChangeEnd = "replaced" | "cancelled" | "tries" | "in_use" | "unsent";
+
 /** Migration 0401: an address staff invited to sign up. */
 export interface CoreCustomerInviteTable {
   email: string;
@@ -1026,6 +1077,48 @@ export interface CoreCapacityClaimTable {
 export type CapacityClaimState = "held" | "confirmed" | "released";
 
 /**
+ * Migration 0930 (stage 37, ADR 0680): the stock ledger. Every change of a stock record's count,
+ * append-only (no update, delete or replace), each at a place ('default' until several).
+ */
+export interface CoreStockMovementTable {
+  id: string;
+  object_type: string;
+  record_id: string;
+  place: Defaulted<string>;
+  /** Signed: in is positive, out negative. */
+  quantity: number;
+  kind: StockMovementKind;
+  source_type: string;
+  source_id: string;
+  /** The staff account; null when the host made it (a paid order's sale). */
+  by_user: string | null;
+  at: string;
+  note: string | null;
+  /** Minor units, for what was received. */
+  unit_cost: number | null;
+}
+/**
+ * Migration 0931 (stage 37, ADR 0681): a stock record at or below its reorder level now, and the
+ * crossing its low-stock notice was told for.
+ */
+export interface CoreStockLowTable {
+  object_type: string;
+  record_id: string;
+  crossing: string;
+  since: string;
+  told_at: string | null;
+}
+export type StockMovementKind =
+  | "opening"
+  | "received"
+  | "sold"
+  | "returned"
+  | "written_off"
+  | "counted"
+  | "adjusted"
+  | "used";
+
+/**
  * Migration 0650 (ADR 0540): a family link. While live (`ended_at` null) the guardian, signed in
  * as a customer, reads and acts for the dependant where an object's customer declaration opts in.
  */
@@ -1040,6 +1133,271 @@ export interface CorePersonLinkTable {
   ended_at: Defaulted<string | null>;
   ended_by: Defaulted<string | null>;
   end_reason: Defaulted<string | null>;
+}
+
+/** A section of a note kind's template (migration 1232). */
+export interface NoteKindSection {
+  key: string;
+  label: string;
+  hint: string | null;
+  required: boolean;
+}
+
+/** Migration 1232 (stage 56 step 2, ADR 0833): a kind of note and its template. */
+export interface CoreNoteKindTable {
+  id: string;
+  /** The shipped kinds' stable key; null for a business's own. */
+  key: Defaulted<"note" | "session" | "sensitive" | "from_client" | null>;
+  name: string;
+  default_level: Defaulted<NoteLevel>;
+  lowest_level: Defaulted<NoteLevel>;
+  /** JSON: NoteKindSection[]. */
+  sections: Defaulted<JsonText>;
+  /** Read by record files (stage 56 step 3). */
+  files_allowed: Defaulted<0 | 1>;
+  /** Read by erase and retention (stage 56 step 7). */
+  evidence: Defaulted<0 | 1>;
+  retention_years: Defaulted<number | null>;
+  active: Defaulted<0 | 1>;
+  position: Defaulted<number>;
+  created_by: Defaulted<string | null>;
+  created_at: string;
+  updated_by: Defaulted<string | null>;
+  updated_at: string;
+}
+
+/** Migration 1231 (stage 56, ADR 0831): a staff account that looks after a Person. */
+export interface CorePersonCarerTable {
+  id: string;
+  person_id: string;
+  user_id: string;
+  set_by: string;
+  started_at: string;
+  ended_at: Defaulted<string | null>;
+  ended_by: Defaulted<string | null>;
+}
+
+/** Migration 1170 (stage 53 step 3, ADR 0800): a journey and its working copy. */
+export interface CoreJourneyTable {
+  id: string;
+  name: string;
+  kind: "service" | "promotional";
+  status: Defaulted<"draft" | "live" | "paused" | "archived">;
+  owner_id: Defaulted<string | null>;
+  /** The working copy: JSON, checked by the host (`journeys/definition.ts`). */
+  draft: string;
+  draft_rev: Defaulted<number>;
+  draft_updated_at: string;
+  draft_updated_by: string;
+  draft_updated_via: Defaulted<string>;
+  draft_ai: Defaulted<number>;
+  current_version_id: Defaulted<string | null>;
+  starter: Defaulted<string | null>;
+  created_at: string;
+  created_by: string;
+  status_at: Defaulted<string | null>;
+  status_by: Defaulted<string | null>;
+}
+
+/** Migration 1170 (ADR 0800): a published version; the database refuses any update or delete. */
+export interface CoreJourneyVersionTable {
+  id: string;
+  journey_id: string;
+  number: number;
+  definition: string;
+  summary: string;
+  hash: string;
+  draft_rev: number;
+  drafted_by: "person" | "assistant";
+  published_at: string;
+  published_by: string;
+  requested_by: Defaulted<string | null>;
+  requested_via: Defaulted<string | null>;
+}
+
+/** Migration 1170 (ADR 0800): one Person on one journey. */
+export interface CoreJourneyEntryTable {
+  id: string;
+  journey_id: string;
+  version_id: string;
+  person_id: string;
+  state: Defaulted<"active" | "waiting" | "held" | "finished" | "stopped">;
+  step: string;
+  next_at: Defaulted<string | null>;
+  entered_at: string;
+  entered_by: "signal" | "scan" | "birthday" | "person";
+  entered_by_user: Defaulted<string | null>;
+  cause_standing: "person" | "host" | "ai";
+  cause_record: Defaulted<string | null>;
+  ended_at: Defaulted<string | null>;
+  stopped_by: Defaulted<string | null>;
+  stop_reason: Defaulted<string | null>;
+}
+
+/** Migration 1170 (ADR 0800): what happened at a step of an entry; never words. */
+export interface CoreJourneyStepLogTable {
+  id: string;
+  entry_id: string;
+  step: string;
+  at: string;
+  what:
+    | "entered"
+    | "sent"
+    | "held"
+    | "skipped"
+    | "waited"
+    | "branch"
+    | "task"
+    | "finished"
+    | "stopped"
+    | "moved";
+  detail: Defaulted<string | null>;
+}
+
+/** Migration 1410 (stage 65 step 3, ADR 0922): the booking-system copy's one row of settings. */
+export interface CoreOutsideSettingsTable {
+  id: number;
+  source: Defaulted<"file">;
+  enabled: Defaulted<number>;
+  /** JSON array of outside type refs; null: every type of kind `membership`. */
+  member_types: Defaulted<string | null>;
+  manage_url: Defaulted<string | null>;
+  book_url: Defaulted<string | null>;
+  largest_age_days: Defaulted<number>;
+  mappings: Defaulted<string>;
+  updated_by: Defaulted<string | null>;
+  updated_at: Defaulted<string | null>;
+}
+
+/** Migration 1410: one loaded list (counts only). */
+export interface CoreOutsideListTable {
+  id: string;
+  kind: "members" | "timetable";
+  source: "file";
+  exported_on: string;
+  loaded_by: string;
+  loaded_at: string;
+  row_count: Defaulted<number>;
+  refused_count: Defaulted<number>;
+  kept_count: Defaulted<number>;
+  mapping: Defaulted<string>;
+  state: Defaulted<"current" | "replaced" | "removed">;
+  ended_at: Defaulted<string | null>;
+}
+
+/** Migration 1410: an outside person kept from the current members list, and their link. */
+export interface CoreOutsidePersonTable {
+  ref: string;
+  list_id: string;
+  address: string | null;
+  address_folded: string | null;
+  given_name: string | null;
+  family_name: string | null;
+  member_status: "member" | "not_member" | "suspended" | "expired" | "ended" | "declined";
+  active: number;
+  why_kept: "member" | "pass" | "booked" | "staff";
+  person_id: string | null;
+  link_how: "address" | "staff" | null;
+  link_by: string | null;
+  link_why: string | null;
+  linked_at: string | null;
+}
+
+/** Migration 1410. */
+export interface CoreOutsideMembershipTypeTable {
+  ref: string;
+  list_id: string;
+  name: string;
+  kind: "membership" | "pass";
+  active: number;
+}
+
+/** Migration 1410. */
+export interface CoreOutsideMembershipTable {
+  ref: string;
+  list_id: string;
+  person_ref: string;
+  type_ref: string;
+  name: string;
+  kind: "membership" | "pass";
+  status: "live" | "paused" | "ended" | "cancelled";
+  from_date: string | null;
+  until_date: string | null;
+  uses_total: number | null;
+  uses_left: number | null;
+  renews: number;
+}
+
+/** Migration 1410. */
+export interface CoreOutsideClassTypeTable {
+  ref: string;
+  list_id: string;
+  name: string;
+  description: string | null;
+  active: number;
+}
+
+/** Migration 1410. */
+export interface CoreOutsideClassTable {
+  ref: string;
+  list_id: string;
+  class_type_ref: string;
+  title: string;
+  starts_at: string;
+  ends_at: string;
+  location_name: string | null;
+  staff_ref: string | null;
+  places: number | null;
+  booked: number;
+  waiting: number;
+  cancelled: number;
+}
+
+/** Migration 1410. */
+export interface CoreOutsideBookingTable {
+  ref: string;
+  list_id: string;
+  class_ref: string;
+  person_ref: string;
+  state: "booked" | "waiting" | "attended" | "late_cancelled" | "no_show" | "cancelled";
+}
+
+/** Migration 1410: a coach as the booking system names them, and their link to a staff account. */
+export interface CoreOutsideStaffTable {
+  ref: string;
+  list_id: string;
+  display_name: string;
+  address: string | null;
+  active: number;
+  user_id: string | null;
+  link_how: "address" | "staff" | null;
+  link_by: string | null;
+  link_why: string | null;
+  linked_at: string | null;
+}
+
+/** Migration 1410: an outside person or coach waiting for a person to link them. */
+export interface CoreOutsideMatchTable {
+  kind: "person" | "staff";
+  ref: string;
+  why: "several_people" | "shared_address" | "no_address";
+  candidates: Defaulted<string>;
+  created_at: string;
+}
+
+/** Migration 1410: staff's "nobody here" for an outside ref, by hash. */
+export interface CoreOutsideUnlinkedTable {
+  kind: "person" | "staff";
+  hash: string;
+  unlinked_by: string;
+  unlinked_at: string;
+}
+
+/** Migration 1410: an erased Person's outside ref and address, by hash. */
+export interface CoreOutsideSuppressedTable {
+  hash: string;
+  kind: "ref" | "address";
+  created_at: string;
 }
 
 /** Migration 0850 (stage 44, ADR 0640): an agreement document and its working copy. */
@@ -1103,6 +1461,206 @@ export interface CoreAgreementRevTable {
 }
 
 /**
+ * Migration 0851 (stage 44 step 2, ADR 0642): one record that a person agreed to one version. The
+ * database refuses any change but setting its Person (settlement, merge) and clearing who it
+ * names (erase).
+ */
+export interface CoreAgreementAcceptanceTable {
+  id: string;
+  document_id: string;
+  version_id: string;
+  shown_hash: string;
+  context: Defaulted<string | null>;
+  person_id: string | null;
+  by: "self" | "guardian" | "guest" | "paper";
+  agent_person_id: Defaulted<string | null>;
+  account_id: Defaulted<string | null>;
+  order_id: Defaulted<string | null>;
+  subscription_checkout: Defaulted<string | null>;
+  email: Defaulted<string | null>;
+  how: "typed" | "drawn" | "paper";
+  typed_name: string | null;
+  channel: "web" | "app" | "paper" | "desk";
+  desk_session_id: Defaulted<string | null>;
+  accepted_at: string;
+  signed_on: Defaulted<string | null>;
+  recorded_by: Defaulted<string | null>;
+  signed_by: Defaulted<string | null>;
+  note: Defaulted<string | null>;
+  erased_at: Defaulted<string | null>;
+}
+
+/** Migration 0851 (ADR 0642): a drawn signature's strokes, beside its acceptance. */
+export interface CoreAgreementSignatureTable {
+  acceptance_id: string;
+  strokes: string;
+}
+
+/** Migration 0851 (ADR 0643): a health form's answers. Health information. */
+export interface CoreAgreementAnswerTable {
+  acceptance_id: string;
+  answers: string;
+  any_yes: 0 | 1;
+  entered_by: Defaulted<string | null>;
+}
+
+/**
+ * Migration 1190 (ADR 0811): a restricted field's value, apart from its record. In no view; read
+ * by its author and through `record.readRestricted` only.
+ */
+export interface CoreRestrictedValueTable {
+  object_type: string;
+  record_id: string;
+  field: string;
+  value: string;
+  written_at: string;
+}
+
+/** Migration 0851 (ADR 0642): a Person staff marked as a minor. */
+export interface CoreAgreementMinorTable {
+  person_id: string;
+  set_by: string;
+  set_at: string;
+}
+
+/**
+ * Migration 0858 (stage 44 step 6, ADR 0649): one Person signing on the business's enrolled
+ * tablet, in a session a person on the staff started. The code and the token as HMACs only.
+ */
+export interface CoreAgreementDeskSessionTable {
+  id: string;
+  person_id: string | null;
+  /** A JSON list of the live dependants' Person ids the signer agrees for. */
+  dependant_ids: Defaulted<string>;
+  device_id: string;
+  claimed_device_id: Defaulted<string | null>;
+  started_by: string;
+  started_at: string;
+  email: string | null;
+  code_hash: string | null;
+  code_expires_at: string;
+  token_hash: Defaulted<string | null>;
+  claimed_at: Defaulted<string | null>;
+  last_activity_at: Defaulted<string | null>;
+  last_heartbeat_at: Defaulted<string | null>;
+  ended_at: Defaulted<string | null>;
+  end_reason: Defaulted<
+    | "finished"
+    | "staff"
+    | "unclaimed"
+    | "idle"
+    | "limit"
+    | "replaced"
+    | "wrong_device"
+    | "failed_claim"
+    | "revoked"
+    | "device_changed"
+    | "erased"
+    | null
+  >;
+  erased_at: Defaulted<string | null>;
+}
+
+/**
+ * Migration 1130 (stage 51 step 1, ADR 0780): a device a human admin enrolled as the business's
+ * own, for one use. Its enrolment code and credentials as HMACs only.
+ */
+export interface CoreDeviceTable {
+  id: string;
+  name: string;
+  use: "signing" | "role" | "till";
+  role: string | null;
+  enrolled_by: string;
+  enrolled_at: string;
+  enrol_code_hash: string | null;
+  enrol_expires_at: string;
+  claimed_at: Defaulted<string | null>;
+  credential_hash: Defaulted<string | null>;
+  pending_credential_hash: Defaulted<string | null>;
+  previous_credential_hash: Defaulted<string | null>;
+  rotated_at: Defaulted<string | null>;
+  last_seen_at: Defaulted<string | null>;
+  claim_user_agent: Defaulted<string | null>;
+  claim_address: Defaulted<string | null>;
+  last_user_agent: Defaulted<string | null>;
+  last_address: Defaulted<string | null>;
+  /** A JSON list of { kind: "browser" | "network", at }. */
+  flags: Defaulted<string>;
+  bad_codes: Defaulted<number>;
+  bad_codes_since: Defaulted<string | null>;
+  locked_until: Defaulted<string | null>;
+  revoked_at: Defaulted<string | null>;
+  revoked_by: Defaulted<string | null>;
+  revoke_reason: Defaulted<"admin" | "clone" | "lapsed" | null>;
+}
+
+/**
+ * Migration 0854 (stage 44 step 4, ADR 0645): the copy of one acceptance, the host's own mail,
+ * kept beside it so the acceptance itself never changes. Made by trigger when a person agrees (and
+ * when a guest's acceptance settles), or by `agreement.copy.send` for paper. Who it goes to never
+ * changes once written.
+ */
+export interface CoreAgreementCopyTable {
+  acceptance_id: string;
+  to_address: string | null;
+  state: "queued" | "sending" | "sent" | "waiting" | "failed" | "cancelled";
+  /** The idempotency key of the current try (`agreement-copy:<acceptance id>` first). */
+  send_key: string;
+  attempts: number;
+  queued_at: string;
+  next_at: string | null;
+  claimed_at: string | null;
+  sent_at: string | null;
+  pending_action_id: string | null;
+  error: string | null;
+  /** Paper: the staff user who pressed "Email a copy". */
+  requested_by: string | null;
+  /**
+   * Migration 0855 (stage 44 step 8, ADR 0646): the email gatekeeper still holds something of an
+   * erased acceptance's copy (a waiting send, its history line): the host asks it to scrub them.
+   */
+  scrub_due_at: Defaulted<string | null>;
+  /** When a scrub was first owed (never changes): after 30 days the purge may go ahead. */
+  scrub_owed_since: Defaulted<string | null>;
+  /**
+   * Why the last scrub was not done: every gatekeeper left is gone (`unreachable`), one exists
+   * but needs re-authorising (`inactive`), or one failed.
+   */
+  scrub_error: Defaulted<"unreachable" | "inactive" | "failed" | null>;
+  /** The gatekeepers (as `via` names them) the last scrub finished on, as a JSON list. */
+  scrub_done: Defaulted<string | null>;
+  /** Since when every gatekeeper left has been gone: the purge's 30 days count from here. */
+  scrub_gone_since: Defaulted<string | null>;
+  /** When the gatekeeper confirmed the scrub. */
+  scrubbed_at: Defaulted<string | null>;
+  /** The gatekeepers a send reached, as a JSON list of `<connection id> <resource key>`. */
+  via: Defaulted<string | null>;
+  /**
+   * Migration 0857 (ADR 0648): a child's paper form, sent to the parent or guardian staff picked
+   * (a live guardian of the child at the insert; the address is theirs). Null for every other
+   * copy, and once that guardian is erased.
+   */
+  guardian_id: Defaulted<string | null>;
+  /** When that guardian was erased: their address left the row then. */
+  guardian_erased_at: Defaulted<string | null>;
+  /**
+   * When the guardian's link to the child stopped being live before the copy went (ended, or
+   * either Person to the Trash): it was cancelled and its address cleared then.
+   */
+  guardian_ended_at: Defaulted<string | null>;
+}
+
+/**
+ * Migration 0855 (stage 44 step 8, ADR 0646): a kept acceptance a person on the staff holds for a
+ * dispute or a claim; the retention purge passes it by until the hold is released.
+ */
+export interface CoreAgreementHoldTable {
+  acceptance_id: string;
+  held_by: string;
+  held_at: string;
+}
+
+/**
  * Migration 0690 (ADR 0560): a refund the host owes on a record bought through `sellable.moves`
  * (a drop-in booking cancelled in time, or its class cancelled). The minute cron asks for it.
  */
@@ -1120,6 +1678,128 @@ export interface CoreSellableRefundDueTable {
   note: Defaulted<string | null>;
   created_at: string;
   updated_at: string;
+}
+
+/** Migration 0750 (ADR 0590): one routine email the host was asked to send. */
+export interface CoreRoutineMailTable {
+  id: string;
+  kind: string;
+  message: string;
+  extension_id: string;
+  record_object: string;
+  record_id: string;
+  /** Migration 0910 (ADR 0670): the channel this row goes on. */
+  channel: Defaulted<"email" | "text" | "push">;
+  recipient: string;
+  recipient_rule: "person" | "guardian" | "order";
+  recipient_person_id: Defaulted<string | null>;
+  recipient_key: string;
+  about_person_id: Defaulted<string | null>;
+  /** Null for a host kind's row (migration 0910): host code asked for it, not an automation. */
+  automation_id: string | null;
+  run_id: string | null;
+  trigger_type: string;
+  triggered_by: Defaulted<string | null>;
+  idempotency_key: string;
+  routine: number;
+  ordinary: Defaulted<number>;
+  claimed_at: Defaulted<string | null>;
+  held_reason: Defaulted<string | null>;
+  status:
+    | "off"
+    | "ready"
+    | "sending"
+    | "sent"
+    | "delivered"
+    | "waiting"
+    | "held"
+    | "denied"
+    | "failed"
+    | "stopped"
+    | "expired"
+    | "over_limit"
+    | "no_channel";
+  connection_id: Defaulted<string | null>;
+  subject: Defaulted<string | null>;
+  body: Defaulted<string | null>;
+  calendar: Defaulted<string | null>;
+  related: Defaulted<string | null>;
+  sources: Defaulted<string | null>;
+  pending_action_id: Defaulted<string | null>;
+  error: Defaulted<string | null>;
+  /** A text's segments and cost (migration 0910). */
+  segments: Defaulted<number | null>;
+  cost_minor: Defaulted<number | null>;
+  provider_ref: Defaulted<string | null>;
+  delivered_at: Defaulted<string | null>;
+  /** Quiet hours (ADR 0676): a waiting text or push goes at this moment. */
+  wait_until: Defaulted<string | null>;
+  /** The kind's moment for the record: a text or push not sent by then is `expired`. */
+  until_at: Defaulted<string | null>;
+  created_at: string;
+  updated_at: string;
+}
+
+/** Migration 0911 (ADR 0672): the month's spend on texts, against the text limit. */
+export interface CoreTextSpendTable {
+  /** `YYYY-MM` in the business's zone. */
+  month: string;
+  segments: Defaulted<number>;
+  estimated_minor: Defaulted<number>;
+  reported_minor: Defaulted<number>;
+  updated_at: string;
+}
+
+/** Migration 0911 (ADR 0673): a code sent to a Person's number, and whether it was typed back. */
+export interface CorePhoneCheckTable {
+  id: string;
+  person_id: string;
+  /** International form. */
+  number: string;
+  number_hash: string;
+  how: Defaulted<"code">;
+  started_at: string;
+  checked_at: Defaulted<string | null>;
+  tries: Defaulted<number>;
+}
+
+/** Migration 0911 (ADR 0672): a number that replied STOP, as a salted hash; START deletes it. */
+export interface CoreTextStopTable {
+  number_hash: string;
+  how: "stop_reply";
+  at: string;
+}
+
+/** Migration 0750 (ADR 0590): who stands behind a record field's current value. */
+export interface CoreValueMarkTable {
+  object_type: string;
+  record_id: string;
+  field: string;
+  value_hash: string;
+  standing: "person" | "customer" | "public" | "default" | "host" | "ai";
+  by_id: string | null;
+  at: string;
+}
+
+/**
+ * Migration 1175 (stage 53, ADR 0802): the last time a Person had a journey signal, one row per
+ * Person and signal, written by the host in the write's batch.
+ */
+export interface CorePersonSignalTable {
+  person_id: string;
+  signal: string;
+  last_at: string;
+  object_type: string;
+  record_id: string;
+  standing: "person" | "customer" | "public" | "default" | "host" | "ai";
+  bulk: number;
+}
+
+/** Migration 1171: a birthday write's guard (stage 53, ADR 0803); its trigger stores nothing. */
+export interface CoreBirthdayGuardTable {
+  person_id: string;
+  birth_day: number | null;
+  birth_month: number | null;
 }
 
 /** Migration 0650: a guardian's write's guard; its trigger stores nothing. */
@@ -1140,10 +1820,20 @@ export interface CoreRecurrenceSeriesTable {
 
 /** Migration 0560: a guard on what a batch was planned from (never holds a row). */
 export interface CoreWriteGuardTable {
-  kind: "claimed" | "claimant" | "series" | "full";
+  kind: "claimed" | "claimant" | "series" | "full" | "unmoved" | "held_cap" | "agreements";
   object_type: string;
   record_id: string;
   expected: number;
+}
+
+/**
+ * Migration 1092 (stage 49, ADR 0763): a guard that one client's booked shifts do not overlap,
+ * counted inside the write's batch (never holds a row).
+ */
+export interface CoreClientGuardTable {
+  object_type: string;
+  record_id: string;
+  clashes: number;
 }
 
 /** Migration 0560: one record a series made, keyed on the series and its local date. */
@@ -1155,6 +1845,747 @@ export interface CoreRecurrenceOccurrenceTable {
   record_id: string;
   edited_at: Defaulted<string | null>;
   created_at: string;
+  /** Migration 0810: bumped by a hand write to the record and by a change of its series. */
+  version: Defaulted<number>;
+}
+
+/** Migration 0810: guards on occurrences' versions (stores nothing; its trigger checks). */
+export interface CoreRecurrenceGuardTable {
+  kind: "occurrence" | "occurrences";
+  object_type: string;
+  record_id: string;
+  from_date: string | null;
+  expected: number;
+}
+
+/**
+ * Migration 0810 (stage 45 step 1, ADR 0620): a copied field a generated record keeps as its own.
+ * The series writes the record's other fields and never this one, until it is cleared.
+ */
+export interface CoreRecurrenceExceptionTable {
+  object_type: string;
+  record_id: string;
+  field: string;
+  set_by: string;
+  set_at: string;
+}
+
+/**
+ * Migration 0811 (stage 45, ADR 0621): a live, covered shift's time claim, kept by triggers on the
+ * staffed object's table. The database refuses two overlapping claims of one account.
+ */
+export interface CoreStaffTimeTable {
+  object_type: string;
+  record_id: string;
+  account_id: string;
+  /** Unix seconds, half-open, widened by the margins. */
+  starts: number;
+  ends: number;
+  /** Migration 1091 (ADR 0760): seconds the claim was widened by before and after the shift. */
+  margin_before: Generated<number>;
+  margin_after: Generated<number>;
+}
+
+/**
+ * Migration 1095 (stage 49, ADR 0765): a live occupant's claim on a thing (a room), kept by
+ * triggers on the declaring object's table. The database refuses two overlapping claims of one
+ * thing, whatever objects hold them.
+ */
+export interface CoreThingTimeTable {
+  object_type: string;
+  record_id: string;
+  thing_object: string;
+  thing_record: string;
+  /** Unix seconds with the margins, half-open. */
+  starts: number;
+  ends: number;
+}
+
+/** Migration 0811 (stage 45, ADR 0622): who may do which kind of work. */
+export interface CoreStaffQualificationTable {
+  account_id: string;
+  kind_object: string;
+  kind_record: string;
+  set_by: string;
+  set_at: string;
+}
+
+/** Migration 0811 (stage 45, ADR 0622): when someone said they cannot work. */
+export interface CoreStaffAwayTable {
+  id: string;
+  account_id: string;
+  kind: "leave" | "regular" | "other";
+  note: string | null;
+  starts_at: string | null;
+  ends_at: string | null;
+  weekdays: string | null;
+  start_time: string | null;
+  end_time: string | null;
+  from_date: string | null;
+  until_date: string | null;
+  zone: string;
+  set_by: string;
+  set_at: string;
+  /** Migration 1271 (stage 58, ADR 0853): the leave request whose approval wrote it, or null. */
+  leave_request: ColumnType<string | null, string | null | undefined, string | null>;
+}
+
+/** Migration 1271 (stage 58 step 4, ADR 0853): a kind of leave the business offers. */
+export interface CoreLeaveTypeTable {
+  id: string;
+  name: string;
+  unit: "hours" | "days";
+  keeps_balance: number;
+  below_zero: "warn" | "refuse";
+  paid: number;
+  active: Generated<number>;
+  position: Generated<number>;
+  created_by: string;
+  created_at: string;
+  updated_by: string;
+  updated_at: string;
+}
+
+/** Migration 1271 (stage 58 step 4, ADR 0853): one ask for time off. */
+export interface CoreLeaveRequestTable {
+  id: string;
+  account_id: string;
+  type_id: string;
+  start_date: string;
+  end_date: string;
+  start_time: string | null;
+  end_time: string | null;
+  zone: string;
+  starts_at: string;
+  ends_at: string;
+  state: "requested" | "approved" | "declined" | "cancelled";
+  note: string | null;
+  asked_by: string;
+  asked_at: string;
+  decided_by: string | null;
+  decided_at: string | null;
+  why: string | null;
+  updated_at: string;
+}
+
+/** Migration 1271 (stage 58 step 4, ADR 0853): a date of a leave request and its amounts. */
+export interface CoreLeaveDayTable {
+  request_id: string;
+  date: string;
+  asked: number;
+  approved: number | null;
+}
+
+/** Migration 1271 (stage 58 step 4, ADR 0853): one entry of the balance ledger (insert only). */
+export interface CoreLeaveBalanceEntryTable {
+  id: string;
+  account_id: string;
+  type_id: string;
+  amount: number;
+  why: "set" | "adjust" | "approved" | "cancelled";
+  request_id: string | null;
+  note: string | null;
+  made_by: string;
+  made_at: string;
+}
+
+/**
+ * Migration 1090 (stage 49 step 3, ADR 0762): when someone takes appointments. A weekly rule in
+ * local time (overnight when the end is at or before the start), or extra hours as a range of
+ * instants; optionally only for some kinds of work (`only_for`, a JSON list of `{object, id}`).
+ * In no rec_* view.
+ */
+export interface CoreStaffHoursTable {
+  id: string;
+  account_id: string;
+  kind: "weekly" | "extra";
+  weekdays: string | null;
+  start_time: string | null;
+  end_time: string | null;
+  from_date: string | null;
+  until_date: string | null;
+  starts_at: string | null;
+  ends_at: string | null;
+  zone: string;
+  only_for: string | null;
+  set_by: string;
+  set_at: string;
+}
+
+/**
+ * Migration 1030 (stage 35 step 2, ADR 0730): a numbering series for quotes, invoices or credit
+ * notes. The next number only goes up; every change moves `version` by one (compare-and-set).
+ */
+export interface CoreDocumentCounterTable {
+  series: "quote" | "invoice" | "credit_note";
+  prefix: string;
+  next_number: number;
+  version: number;
+  updated_at: string | null;
+  updated_by: string | null;
+}
+
+/** The columns quotes, invoices and credit notes share (migration 1030, ADR 0730). */
+interface DocumentColumns {
+  id: string;
+  number: Defaulted<string | null>;
+  number_seq: Defaulted<number | null>;
+  currency: string;
+  tax_mode: "exclusive" | "inclusive";
+  person_id: Defaulted<string | null>;
+  organisation_id: Defaulted<string | null>;
+  bill_to_name: Defaulted<string | null>;
+  bill_to_address: Defaulted<string | null>;
+  bill_to_tax_number: Defaulted<string | null>;
+  bill_to_email: Defaulted<string | null>;
+  net_total: Defaulted<number>;
+  tax_total: Defaulted<number>;
+  total: Defaulted<number>;
+  tax_by_rate: Defaulted<string>;
+  created_at: string;
+  created_by: string;
+  updated_at: string;
+  updated_by: string;
+  version: Defaulted<number>;
+}
+
+/** Migration 1030: a quote. Once sent, the database refuses any change to what it says. */
+export interface CoreQuoteTable extends DocumentColumns {
+  state: Defaulted<"draft" | "sent" | "accepted" | "declined" | "expired" | "withdrawn">;
+  site_address: Defaulted<string | null>;
+  about_object: Defaulted<string | null>;
+  about_id: Defaulted<string | null>;
+  title: Defaulted<string | null>;
+  notes: Defaulted<string | null>;
+  valid_until: Defaulted<string | null>;
+  deposit_kind: Defaulted<"none" | "amount" | "percent">;
+  deposit_value: Defaulted<number | null>;
+  replaces_quote_id: Defaulted<string | null>;
+  acceptance_id: Defaulted<string | null>;
+  sent_at: Defaulted<string | null>;
+  accepted_at: Defaulted<string | null>;
+  declined_at: Defaulted<string | null>;
+  decline_reason: Defaulted<string | null>;
+  withdrawn_at: Defaulted<string | null>;
+  expired_at: Defaulted<string | null>;
+}
+
+/** Migration 1030: an invoice. Once issued, the database refuses any change to what it says. */
+export interface CoreInvoiceTable extends DocumentColumns {
+  state: Defaulted<"draft" | "issued" | "sent" | "part_paid" | "paid" | "credited" | "void">;
+  kind: Defaulted<"standard" | "deposit" | "final">;
+  site_address: Defaulted<string | null>;
+  about_object: Defaulted<string | null>;
+  about_id: Defaulted<string | null>;
+  title: Defaulted<string | null>;
+  notes: Defaulted<string | null>;
+  quote_id: Defaulted<string | null>;
+  order_id: Defaulted<string | null>;
+  payment_terms_days: number;
+  issued_on: Defaulted<string | null>;
+  due_on: Defaulted<string | null>;
+  issued_at: Defaulted<string | null>;
+  sent_at: Defaulted<string | null>;
+  allow_part_payments: Defaulted<number>;
+  reminders_paused: Defaulted<number>;
+  reminders_paused_reason: Defaulted<string | null>;
+  business: Defaulted<string | null>;
+}
+
+/** Migration 1030: a credit note against an invoice. Once issued, never changed. */
+export interface CoreCreditNoteTable extends DocumentColumns {
+  state: Defaulted<"draft" | "issued">;
+  invoice_id: string;
+  reason: Defaulted<string | null>;
+  settle: Defaulted<"reduce" | "refund" | "both">;
+  issued_on: Defaulted<string | null>;
+  issued_at: Defaulted<string | null>;
+  business: Defaulted<string | null>;
+}
+
+/** The columns every document line has (migration 1030). */
+interface DocumentLineColumns {
+  id: string;
+  position: number;
+  description: string;
+  quantity_milli: number;
+  unit: Defaulted<string | null>;
+  unit_price: number;
+  tax_key: Defaulted<string | null>;
+  tax_label: Defaulted<string | null>;
+  tax_rate: Defaulted<number>;
+  line_net: number;
+  line_tax: number;
+  line_total: number;
+  created_at: string;
+}
+
+/** The columns of a quote's or an invoice's line that a credit note's line does not have. */
+interface PricedLineColumns extends DocumentLineColumns {
+  discount_kind: Defaulted<"amount" | "percent" | null>;
+  discount_value: Defaulted<number | null>;
+  discount_reason: Defaulted<string | null>;
+  discount: Defaulted<number>;
+  source_object: Defaulted<string | null>;
+  source_id: Defaulted<string | null>;
+  source_category: Defaulted<string | null>;
+  source_price: Defaulted<number | null>;
+}
+
+/** Migration 1030: a quote's line; changed only while the quote is a draft. */
+export interface CoreQuoteLineTable extends PricedLineColumns {
+  quote_id: string;
+  source: "record" | "custom";
+}
+
+/** Migration 1030: an invoice's line; changed only while the invoice is a draft. */
+export interface CoreInvoiceLineTable extends PricedLineColumns {
+  invoice_id: string;
+  source: "record" | "custom" | "deduction";
+  deducts_invoice_id: Defaulted<string | null>;
+}
+
+/** Migration 1030: a credit note's line; changed only while the credit note is a draft. */
+export interface CoreCreditNoteLineTable extends DocumentLineColumns {
+  credit_note_id: string;
+  credits_line_id: Defaulted<string | null>;
+}
+
+/**
+ * Migration 1030 (decision 11 of stage 35): the document event log, read by `seq`. Insert only:
+ * the database refuses any update or delete, and a row below the newest.
+ */
+export interface CoreInvoiceEventTable {
+  seq: Generated<number>;
+  document_kind: "quote" | "invoice" | "credit_note";
+  document_id: string;
+  invoice_id: string | null;
+  event:
+    | "issued"
+    | "sent"
+    | "payment_applied"
+    | "payment_reversed"
+    | "credited"
+    | "refund_confirmed"
+    | "paid_back"
+    | "voided";
+  payment_id: string | null;
+  method: string | null;
+  amount: number | null;
+  currency: string | null;
+  at: string;
+  by_user: string | null;
+}
+
+/**
+ * Migration 1270 (stage 58 step 1, ADR 0850): one stretch of time a staff member worked, the one
+ * record of time worked. Times are unix seconds; `ends` is null while open. The database refuses
+ * two overlapping entries of one account and a second open one.
+ */
+export interface CoreTimeEntryTable {
+  id: string;
+  account_id: string;
+  starts: number;
+  ends: number | null;
+  break_minutes: Generated<number>;
+  zone: string;
+  local_date: string;
+  against_object: string | null;
+  against_record: string | null;
+  how: "clocked" | "entered" | "by_approver";
+  how_why: string | null;
+  state: "open" | "waiting" | "approved" | "rejected";
+  finish_missing: Generated<number>;
+  recorded_starts: number | null;
+  recorded_ends: number | null;
+  recorded_break_minutes: number | null;
+  approved_by: string | null;
+  approved_at: string | null;
+  rejected_why: string | null;
+  /**
+   * Migration 1273 (stage 58 step 2, ADR 0851): the host never approves it on a match ('person':
+   * an approver's entry, a missing finish entered; 'approver': sent back or reopened, and never
+   * withdrawn by its person).
+   */
+  held: "person" | "approver" | null;
+  /** Migration 1273 (stage 58 step 2, ADR 0851): why an approver reopened it, while it waits. */
+  reopened_why: string | null;
+  note: string | null;
+  start_key: string | null;
+  made_by: string;
+  created_at: string;
+  updated_at: string;
+}
+
+/**
+ * Migration 0812 (stage 45, ADR 0623): a shift offered for someone else to take. It leaves `open`
+ * once; the database refuses every later move, so exactly one take wins.
+ */
+export interface CoreStaffOfferTable {
+  id: string;
+  object_type: string;
+  record_id: string;
+  from_account: string | null;
+  made_by: string;
+  to_account: string | null;
+  /** The shift's start, unix seconds, kept current while open. */
+  starts: number;
+  /** The shift's kind (object and record), kept current while open. */
+  kind_object: string | null;
+  kind_record: string | null;
+  state: "open" | "taken" | "withdrawn" | "cancelled" | "lapsed";
+  made_at: string;
+  taken_by: string | null;
+  taken_at: string | null;
+  ended_at: string | null;
+  ended_by: string | null;
+  why: string | null;
+}
+
+/**
+ * Migration 0814 (stage 45 step 5, ADR 0628): a staff account's private calendar feed, by the
+ * SHA-256 of its token (never the token), and the tool that made it.
+ */
+export interface CoreStaffFeedTable {
+  account_id: string;
+  token_hash: string;
+  tool: string;
+  created_at: string;
+}
+
+/** Migration 1050 (stage 36, ADR 0740): a conversation in the shared inbox. */
+export interface CoreConversationTable {
+  id: string;
+  person_id: string | null;
+  sender_address: Defaulted<string | null>;
+  sender_hash: Defaulted<string | null>;
+  channel: "email" | "chat";
+  inbox_address: Defaulted<string | null>;
+  subject: Defaulted<string | null>;
+  status: Defaulted<"open" | "waiting" | "closed">;
+  assignee_id: Defaulted<string | null>;
+  category: Defaulted<string | null>;
+  about_object: Defaulted<string | null>;
+  about_id: Defaulted<string | null>;
+  private_at: Defaulted<Timestamp | null>;
+  private_by: Defaulted<string | null>;
+  sender_unverified: Defaulted<number>;
+  opened_at: Timestamp;
+  last_inbound_at: Defaulted<Timestamp | null>;
+  last_reply_at: Defaulted<Timestamp | null>;
+  first_reply_at: Defaulted<Timestamp | null>;
+  reply_due_at: Defaulted<Timestamp | null>;
+  snoozed_until: Defaulted<Timestamp | null>;
+  closed_at: Defaulted<Timestamp | null>;
+  closed_by: Defaulted<string | null>;
+  created_at: Timestamp;
+  updated_at: Timestamp;
+  version: Defaulted<number>;
+}
+
+/**
+ * Migration 1350 (stage 62 step 1, ADR 0890): a customer account's private calendar feed, by the
+ * SHA-256 of its token (never the token).
+ */
+export interface CoreCustomerFeedTable {
+  customer_id: string;
+  token_hash: string;
+  created_at: string;
+}
+
+/**
+ * Migration 1135 (stage 51 step 3, ADR 0783): what identifies a Person at a check-in tablet. An
+ * `app` code's secret (encrypted, for one sign-in) or a `card`'s code (an HMAC only). Never in a
+ * rec_* view.
+ */
+export interface CorePersonCodeTable {
+  id: string;
+  person_id: string;
+  kind: "app" | "card";
+  code_hmac: string | null;
+  label: string | null;
+  issued_by: string | null;
+  secret_enc: string | null;
+  device_session_id: string | null;
+  customer_session_id: string | null;
+  guardian_id: string | null;
+  created_at: string;
+  last_used_at: string | null;
+  revoked_at: string | null;
+  revoked_by: string | null;
+}
+
+/** Migration 1135: a Person's PIN, as a slow hash, and its wrong tries over a day. */
+export interface CorePersonPinTable {
+  person_id: string;
+  hash: string;
+  salt: string;
+  iterations: number;
+  set_at: string;
+  failed_count: Generated<number>;
+  failed_since: string | null;
+  disabled_at: string | null;
+}
+
+/** Migration 1135: a device's failed identifications this minute, per entry. No Person. */
+export interface CoreIdentifyLockoutTable {
+  device_id: string;
+  entry: "name" | "code";
+  window_started_at: string;
+  failures: number;
+  locked_until: string | null;
+}
+
+/** Migration 0815 (stage 45 step 4b, ADR 0650): a checklist template. Not personal. */
+export interface CoreChecklistTable {
+  id: string;
+  name: string;
+  purpose: string | null;
+  active: number;
+  version: number;
+  created_by: string;
+  created_at: string;
+  updated_by: string;
+  updated_at: string;
+  /**
+   * Migration 0816 (ADR 0651): its standing schedule, if it has one: the ISO weekdays it is due
+   * (JSON, 1 Monday … 7 Sunday), the local time it is due by (HH:MM), and who may do it.
+   */
+  days: ColumnType<string | null, string | null | undefined, string | null>;
+  due_by: ColumnType<string | null, string | null | undefined, string | null>;
+  doers_kind: ColumnType<
+    "staff" | "role" | "grant" | null,
+    "staff" | "role" | "grant" | null | undefined,
+    "staff" | "role" | "grant" | null
+  >;
+  doers_value: ColumnType<string | null, string | null | undefined, string | null>;
+}
+
+/** Migration 0815: a template's steps as they are now (position from 0). */
+export interface CoreChecklistStepTable {
+  checklist_id: string;
+  position: number;
+  text: string;
+  required: number;
+  asks_note: number;
+}
+
+/**
+ * Migration 0815: a run of a template on one record, its steps copied as they were (JSON). The
+ * database refuses every change of a closed run, and of its ticks.
+ */
+export interface CoreChecklistRunTable {
+  id: string;
+  object_type: string;
+  record_id: string;
+  checklist_id: string;
+  version: number;
+  name: string;
+  steps: string;
+  account_id: string | null;
+  /** Unix seconds, kept current while open. */
+  opens: number;
+  closes: number;
+  state: "open" | "done" | "missed" | "cancelled";
+  made_at: string;
+  /** The record left its live states after the run opened: when, and by a rosterer or the host. */
+  ended_at: string | null;
+  ended_by: string | null;
+  closed_at: string | null;
+  closed_by: string | null;
+  closed_why: string | null;
+  missed_steps: string | null;
+  /** Migration 0816 (ADR 0651): a day run's copy of who may do it; null on a record's run. */
+  doers_kind: ColumnType<
+    "staff" | "role" | "grant" | null,
+    "staff" | "role" | "grant" | null | undefined,
+    "staff" | "role" | "grant" | null
+  >;
+  doers_value: ColumnType<string | null, string | null | undefined, string | null>;
+  /** A day run's due-by time (unix seconds), or null. */
+  due_at: ColumnType<number | null, number | null | undefined, number | null>;
+}
+
+/**
+ * Migration 0815: one tick of a run's step, keeping who ticked it and for whom. Never changed or
+ * removed: a later tick of the step is a new row, and the latest counts.
+ */
+export interface CoreChecklistTickTable {
+  id: string;
+  run_id: string;
+  position: number;
+  state: "done" | "not_done" | "cleared";
+  why: string | null;
+  note: string | null;
+  ticked_by: string;
+  ticked_for: string;
+  on_behalf: number;
+  on_behalf_why: string | null;
+  ticked_at: string;
+}
+
+/** Migration 0815: a correction someone who rosters added beside a closed run. */
+export interface CoreChecklistNoteTable {
+  id: string;
+  run_id: string;
+  text: string;
+  written_by: string;
+  written_at: string;
+}
+
+/** Migration 0812 (stage 45, ADR 0624): a batch's count guard; nothing is stored. */
+export interface CoreStaffGuardTable {
+  expected: number;
+  actual: number;
+}
+
+/** Migration 0813 (stage 45 step 6, ADR 0627): who is counted for pay, from a local date. */
+export interface CoreStaffPayBasisTable {
+  account_id: string;
+  from_date: string;
+  basis: "by_time" | "by_class" | "not_counted";
+  set_by: string;
+  set_at: string;
+}
+
+/** Migration 0813 (stage 45 step 6, ADR 0627): a shift marked not worked, with why. */
+export interface CoreStaffNotWorkedTable {
+  object_type: string;
+  record_id: string;
+  /** The shift's start when marked, unix seconds. */
+  starts: number;
+  reason: string;
+  marked_by: string;
+  marked_at: string;
+}
+
+/** Migration 0813 (stage 45 step 6, ADR 0627): one version of one locked pay period. */
+export interface CorePayPeriodTable {
+  id: string;
+  start_date: string;
+  end_date: string;
+  zone: string;
+  /** Local midnights as unix seconds, half-open. */
+  starts: number;
+  ends: number;
+  version: number;
+  state: "locking" | "locked" | "reopened";
+  locked_by: string;
+  locked_at: string;
+  reopened_by: string | null;
+  reopened_at: string | null;
+  reopen_reason: string | null;
+}
+
+/** Migration 0813 (stage 45 step 6, ADR 0627): one shift counted in a locked pay period. */
+export interface CorePayLineTable {
+  period_id: string;
+  n: number;
+  account_id: string;
+  name: string;
+  email: string;
+  basis: "by_time" | "by_class";
+  object_type: string;
+  record_id: string;
+  kind_object: string | null;
+  kind_record: string | null;
+  kind_name: string;
+  title: string;
+  place: string | null;
+  starts: number;
+  ends: number;
+  local_date: string;
+  local_start: string;
+  local_end: string;
+  shift_minutes: number;
+  before_minutes: number;
+  after_minutes: number;
+  counted_minutes: number;
+  counted: number;
+  not_worked_reason: string | null;
+  list_taken: number | null;
+  marked_by: string | null;
+  flagged: number;
+}
+
+/** Migration 1150 (stage 52 step 1, ADR 0790): one version of one closed month. */
+export interface CoreFinancePeriodTable {
+  id: string;
+  /** `YYYY-MM`. */
+  month: string;
+  start_date: string;
+  end_date: string;
+  zone: string;
+  /** Local midnights as unix seconds, half-open. */
+  starts: number;
+  ends: number;
+  version: number;
+  state: "closing" | "closed" | "reopened";
+  closed_by: string;
+  closed_at: string;
+  entry_count: number;
+  line_count: number;
+  row_count: number;
+  reopened_by: string | null;
+  reopened_at: string | null;
+  reopen_reason: string | null;
+}
+
+/** Migration 1150 (stage 52 step 1, ADR 0791): one book entry of a closed version. */
+export interface CoreFinanceEntryTable {
+  period_id: string;
+  entry_key: string;
+  n: number;
+  kind: "day" | "payout" | "held" | "late";
+  date: string;
+  belongs_to: string | null;
+  fingerprint: string;
+}
+
+/** Migration 1150 (stage 52 step 1, ADR 0791): one line of a book entry. */
+export interface CoreFinanceEntryLineTable {
+  period_id: string;
+  entry_key: string;
+  n: number;
+  heading: string;
+  side: "debit" | "credit";
+  amount: number;
+  tax_code: string | null;
+  tax_country: string | null;
+  method: string | null;
+  category: string | null;
+}
+
+/** Migration 1150 (stage 52 step 1, ADR 0790): a report's row as a version closed it. */
+export interface CoreFinanceRowTable {
+  period_id: string;
+  report: "sales" | "tax" | "refunds" | "payouts" | "owed" | "held" | "unearned" | "members";
+  n: number;
+  person_id: string | null;
+  name: string | null;
+  email: string | null;
+  /** JSON: the row's amounts, dates and order ids, never a name. */
+  data: string;
+}
+
+/** Migration 1150 (stage 52 step 1, ADR 0790): a source a version counted. */
+export interface CoreFinanceCountedTable {
+  source_kind: string;
+  source_id: string;
+  period_id: string;
+  month: string;
+}
+
+/** Migration 1150 (stage 52 step 1, ADR 0790): the close's guard; nothing is stored. */
+export interface CoreFinanceGuardTable {
+  expected: number;
+  actual: number;
+}
+
+/** Migration 0812 (stage 45, ADR 0624): the local date the roster's daily work last ran. */
+export interface CoreStaffRunTable {
+  name: string;
+  last_date: string;
 }
 
 /** Migration 0533 (stage 32b, ADR 0493): an allowance holder's terms, kept from its record. */
@@ -1648,6 +3079,13 @@ export interface CoreOrderTable {
   invoice_ref: Defaulted<string | null>;
   /** Migration 0530: a period paid other than as agreed, recorded for what was paid. */
   period_flag: Defaulted<"paid_less" | "paid_more" | "not_as_agreed" | null>;
+  /**
+   * Migration 0856 (ADR 0647): when the provider took a period's payment (its verified event's
+   * time), as against `paid_at` (when the host processed it). Null: not a period's order.
+   */
+  provider_paid_at: Defaulted<Timestamp | null>;
+  /** Migration 0950: the sum of the order's adjustments; `total` is after them (ADR 0690). */
+  discount: Generated<number>;
 }
 
 export interface CoreOrderLineTable {
@@ -1666,6 +3104,34 @@ export interface CoreOrderLineTable {
   tax_amount: Generated<number>;
   /** Migration 0516: the product tax code it was last charged at. */
   tax_code: Defaulted<string | null>;
+  /** Migration 0950: the line's share of the order's adjustments; its net is the difference. */
+  line_discount: Generated<number>;
+}
+
+/**
+ * Money off an order (stage 34, ADR 0690, migration 0950): on a line, or on the whole order and
+ * spread over its lines. Never changed, except marked removed once and a reason blanked by erase.
+ */
+export interface CoreOrderAdjustmentTable {
+  id: string;
+  order_id: string;
+  /** Null: the whole order, spread over its lines in proportion. */
+  line_id: string | null;
+  kind: "code" | "automatic" | "staff" | "referral";
+  source_object: Defaulted<string | null>;
+  source_id: Defaulted<string | null>;
+  /** A staff adjustment: the user who gave it. */
+  given_by: Defaulted<string | null>;
+  reason: Defaulted<string | null>;
+  /** Asked as a percentage, when it was. */
+  percent: Defaulted<number | null>;
+  /** Positive minor units. */
+  amount: number;
+  /** The pending action it waited in, when it did. */
+  approval: Defaulted<string | null>;
+  created_at: Timestamp;
+  removed_at: Defaulted<Timestamp | null>;
+  removed_by: Defaulted<string | null>;
 }
 
 /** A record a paid order line granted (stage 27, ADR 0435, migration 0450). */
@@ -1698,7 +3164,27 @@ export interface CoreOrderPaymentTable {
   tax_country: Defaulted<string | null>;
   /** Migration 0530: the subscription invoice this payment paid. */
   invoice_ref: Defaulted<string | null>;
+  /**
+   * Migration 0952 (ADR 0694): how it was paid. `provider` rows are the provider's verified
+   * payments; the others are the host's (provider `host`), made by `applyOtherPayment`.
+   */
+  method: Defaulted<PaymentMethod>;
+  /** A recorded payment: how, who received it, the day they did, and the payer's reference. */
+  recorded_kind: Defaulted<RecordedKind | null>;
+  recorded_by: Defaulted<string | null>;
+  received_on: Defaulted<string | null>;
+  reference: Defaulted<string | null>;
+  voucher_id: Defaulted<string | null>;
+  stored_value_id: Defaulted<string | null>;
+  /** A reversal: the event id of the host's row it undoes (its amount negated), and why. */
+  reverses: Defaulted<string | null>;
+  reason: Defaulted<string | null>;
 }
+
+/** Migration 0952 (ADR 0694): the ways an order's payment is made. */
+export type PaymentMethod = "provider" | "recorded" | "voucher" | "stored_value";
+/** How a recorded payment was paid. */
+export type RecordedKind = "transfer" | "cash" | "cheque" | "card_machine" | "other";
 
 /** Migration 0422: a checkout the host opened on the provider's page for an order. */
 export interface CoreOrderCheckoutTable {
@@ -1748,6 +3234,10 @@ export interface CoreOrderRefundTable {
   tax_amount: Defaulted<number | null>;
   /** Migration 0530: a credit note's tax that arrived before the refund's confirmation. */
   reported_tax: Defaulted<number | null>;
+  /** Migration 0952: the way it went back; a recorded one, how a person paid it back. */
+  method: Defaulted<PaymentMethod>;
+  recorded_kind: Defaulted<RecordedKind | null>;
+  reference: Defaulted<string | null>;
 }
 
 /** Migration 0530 (ADR 0485): a subscription's state, mirrored from the provider's. */
@@ -1784,6 +3274,17 @@ export interface CoreSubscriptionCheckoutTable {
   created_at: Timestamp;
   /** Migration 0532: the continuation offer this checkout was opened from, if any. */
   offer_id: Defaulted<string | null>;
+  /**
+   * Migration 0855 (ADR 0646): its Person or address was erased before the provider confirmed
+   * it. A later confirmation makes no subscription.
+   */
+  erased_at: Defaulted<string | null>;
+  /**
+   * Migration 0856 (stage 44 step 7, ADR 0647): the cooling-off days in force when it was started
+   * (the plan's pack's setting): the subscription's days for good, whatever the setting later.
+   * Null: no cooling off on the plan, or started before it was built (0 days).
+   */
+  cooling_off_days: Defaulted<number | null>;
 }
 
 /** Migration 0530: a subscription the provider runs and the host mirrors. */
@@ -1884,6 +3385,54 @@ export interface CoreSubscriptionChangeTable {
 }
 
 /**
+ * Migration 0856 (stage 44 step 7, ADR 0647): a cooling off asked for, one per subscription. Its
+ * refunds are owed (core_sellable_refund_due) in the batch of the provider's event that shows the
+ * subscription ended.
+ */
+export interface CoreSubscriptionCoolOffTable {
+  subscription_id: string;
+  holder_person_id: string | null;
+  asked_by: "payer" | "staff";
+  asked_by_user: string | null;
+  days: number;
+  window_ends_at: Timestamp;
+  state: "asked" | "ended" | "lapsed";
+  call_outcome: "sent" | "pending" | "unknown" | "refused" | null;
+  asked_at: Timestamp;
+  deadline_at: Timestamp;
+  last_asked_at: Timestamp;
+  ask_count: Defaulted<number>;
+  ended_at: Timestamp | null;
+  finished: Defaulted<number>;
+  /** Staff asked to finish a lapsed one, and what came of ending it at the provider. */
+  finish_state: Defaulted<"asked" | "sent" | "pending" | "unknown" | "stuck" | null>;
+  finish_asked_at: Defaulted<Timestamp | null>;
+  owed_from: Defaulted<Timestamp | null>;
+  owed_to: Defaulted<Timestamp | null>;
+  lapsed_because: Defaulted<"deadline" | "action" | "end_time" | "used" | null>;
+  told_at: Defaulted<Timestamp | null>;
+  release_left: Defaulted<number>;
+  released_count: Defaulted<number>;
+  release_stopped: Defaulted<number>;
+  release_failures: Defaulted<number>;
+  mail_state: Defaulted<"due" | "sending" | "sent" | "pending" | "failed" | null>;
+  mail_claimed_at: Defaulted<Timestamp | null>;
+  mail_tries: Defaulted<number>;
+  updated_at: Timestamp;
+}
+
+/**
+ * Migration 0856 (ADR 0647): every cancel of a cooling off that waited for a person at the
+ * gatekeeper, kept for good; `ask` is the ask it was made by.
+ */
+export interface CoreSubscriptionCoolOffActionTable {
+  subscription_id: string;
+  action_id: string;
+  ask: number;
+  created_at: Timestamp;
+}
+
+/**
  * Migration 0581 (stage 32b, ADR 0512): a Person's one purchase of something sold once per Person
  * (an intro offer), held from the order's start, used when it is paid, released when it expires.
  */
@@ -1957,6 +3506,8 @@ export interface CrmOrderView {
   tax_country: string | null;
   /** Paid less refunded, less the tax still held. */
   net: number;
+  /** Migration 0950: the sum of the order's adjustments (ADR 0690). */
+  discount: number;
 }
 
 export interface CrmOrderLineView {
@@ -1973,6 +3524,77 @@ export interface CrmOrderLineView {
   created_at: Timestamp;
   tax_amount: number;
   tax_code: string | null;
+  /** Migration 0950: the line's share of the adjustments, and its total after them. */
+  line_discount: number;
+  line_net: number;
+}
+
+/** Migration 0950: an order's adjustments, for reports (ADR 0690). */
+export interface CrmOrderAdjustmentView {
+  id: string;
+  order_id: string;
+  person_id: string | null;
+  line_id: string | null;
+  kind: "code" | "automatic" | "staff" | "referral";
+  source_object: string | null;
+  source_id: string | null;
+  given_by: string | null;
+  reason: string | null;
+  percent: number | null;
+  amount: number;
+  approval: string | null;
+  created_at: Timestamp;
+  removed_at: Timestamp | null;
+  removed_by: string | null;
+  order_state: OrderState;
+  currency: string;
+}
+
+/** Migration 0952: an order's payments by method, for reports. */
+export interface CrmOrderPaymentView {
+  id: string;
+  provider: string;
+  event_id: string;
+  order_id: string;
+  person_id: string | null;
+  method: PaymentMethod;
+  recorded_kind: RecordedKind | null;
+  recorded_by: string | null;
+  received_on: string | null;
+  reference: string | null;
+  voucher_id: string | null;
+  stored_value_id: string | null;
+  reverses: string | null;
+  reason: string | null;
+  amount: number;
+  currency: string;
+  outcome: "applied" | "mismatch" | "late";
+  resolved: "honoured" | "refunded" | null;
+  tax_amount: number | null;
+  received_at: Timestamp;
+  order_state: OrderState;
+}
+
+/** Migration 0952: an order's refunds by method, for reports. */
+export interface CrmOrderRefundView {
+  id: string;
+  order_id: string;
+  person_id: string | null;
+  provider: string;
+  payment_ref: string | null;
+  method: PaymentMethod;
+  recorded_kind: RecordedKind | null;
+  reference: string | null;
+  reason: string | null;
+  amount: number;
+  currency: string;
+  status: "requested" | "confirmed";
+  requested_by: string | null;
+  requested_at: Timestamp | null;
+  confirmed_at: Timestamp | null;
+  tax_amount: number | null;
+  created_at: Timestamp;
+  order_state: OrderState;
 }
 
 export interface CrmStageHistoryView {
@@ -2283,6 +3905,11 @@ export interface CorePublishVersionTable {
   requested_by: string | null;
   /** Migration 0520: for an approved request, the actor that asked (`mcp`, `assistant`, ...). */
   requested_via: string | null;
+  /**
+   * Migration 0971 (ADR 0702): on an acknowledged object, 1 when this version asks everyone who
+   * must read it to confirm again, 0 for a small fix; NULL on other objects.
+   */
+  read_again: ColumnType<number | null, number | null | undefined, never>;
 }
 
 /** `core_publish_schedule` (migration 0460): a publish a person scheduled (ADR 0441). */
@@ -2301,6 +3928,37 @@ export interface CorePublishScheduleTable {
   requested_by: string | null;
   /** Migration 0520: for an approved request, the actor that asked. */
   requested_via: string | null;
+  /** Migration 0971 (ADR 0702): the version's read-again choice, carried to it on publish. */
+  read_again: ColumnType<number | null, number | null | undefined, number | null>;
+}
+
+/**
+ * `core_published_text` (migration 0970, ADR 0700): one section of a record's current published
+ * version, as `content.search` finds it. Written only by content/published-text.ts.
+ */
+export interface CorePublishedTextTable {
+  id: Generated<number>;
+  object_type: string;
+  record_id: string;
+  version: number;
+  field: string;
+  section: number;
+  anchor: string | null;
+  heading: string;
+  body: string;
+}
+
+/**
+ * `core_publish_ack` (migration 0971, ADR 0702): a staff account confirmed it read and understood
+ * one published version. Insert only; a trigger refuses any change.
+ */
+export interface CorePublishAckTable {
+  object_type: string;
+  record_id: string;
+  version: number;
+  account_id: string;
+  confirmed_at: string;
+  how: ColumnType<"self", "self" | undefined, never>;
 }
 
 /** `core_slug_redirect` (migration 0460): an old slug of a published record (ADR 0442). */
@@ -2384,6 +4042,31 @@ export interface CoreMediaCaptionTable {
 /** `rec_media` (migration 0461): the live media items. */
 export type RecMediaView = Omit<CoreMediaTable, "deleted_at" | "deleted_by" | "sha256">;
 
+/**
+ * `core_location` (migration 1390, ADR 0910): one place the business works from, inside the one
+ * organisation. The main location (`main = 1`) is made by the migration; nothing deletes one.
+ */
+export interface CoreLocationTable {
+  id: string;
+  name: string;
+  short_name: string | null;
+  address: string | null;
+  timezone: string;
+  public: Generated<number>;
+  /** Minor units; null: not set. */
+  drop_in_price: number | null;
+  state: Generated<"open" | "closed">;
+  notes: string | null;
+  main: Generated<number>;
+  created_at: Timestamp;
+  created_by: string | null;
+  updated_at: Timestamp;
+  updated_by: string | null;
+}
+
+/** `rec_location` (migration 1390): every location, with `listed` for the public (ADR 0916). */
+export type RecLocationView = CoreLocationTable & { listed: "yes" | "no" };
+
 /** `core_import_key` (migration 0501): what an import made, and the values it last wrote. */
 export interface CoreImportKeyTable {
   object_type: string;
@@ -2393,6 +4076,133 @@ export interface CoreImportKeyTable {
   written: string;
   imported_at: Timestamp;
   imported_by: string;
+}
+
+/** Migration 1330 (stage 61): accounting sync's one settings row (id 1). */
+export interface CoreAccountingSettingsTable {
+  id: number;
+  connection_id: Defaulted<string | null>;
+  resource: Defaulted<string | null>;
+  start_date: Defaulted<string | null>;
+  approved_days: Defaulted<number>;
+  approve_until: Defaulted<number>;
+  settle_days: Defaulted<number>;
+  enabled: Defaulted<number>;
+  automatic_told_at: Defaulted<Timestamp | null>;
+  updated_by: string;
+  updated_at: Timestamp;
+}
+
+export type AccountingMapKind =
+  | "category"
+  | "tax"
+  | "fees"
+  | "clearing"
+  | "bank"
+  | "method"
+  | "rounding"
+  | "refunds"
+  | "invoice_default";
+
+/** Migration 1330: which books account or tax rate each kind of host money goes to. */
+export interface CoreAccountingMapTable {
+  connection_id: string;
+  kind: AccountingMapKind;
+  /** A category key, tax code or recorded-payment kind; empty for the single kinds. */
+  host_key: Defaulted<string>;
+  books_ref: string;
+  books_name: string;
+  set_by: string;
+  set_at: Timestamp;
+}
+
+/** Migration 1330: a host object to the books' record it is, unique both ways per connection. */
+export interface CoreAccountingLinkTable {
+  connection_id: string;
+  object: "person" | "organisation" | "invoice" | "credit_note" | "payment" | "payout" | "summary";
+  object_id: string;
+  books_kind: "contact" | "document" | "payment" | "entry";
+  books_ref: string;
+  created_at: Timestamp;
+}
+
+export type AccountingPostState =
+  | "awaiting_approval"
+  | "queued"
+  | "sending"
+  | "sent"
+  | "retrying"
+  | "held"
+  | "unknown"
+  | "skipped";
+
+/** Migration 1330: the outbox, one entry to send to the books with its fixed reference. */
+export interface CoreAccountingPostTable {
+  id: string;
+  connection_id: string;
+  kind:
+    | "summary"
+    | "adjustment"
+    | "transfer"
+    | "contact"
+    | "invoice"
+    | "credit_note"
+    | "payment"
+    | "refund"
+    | "void";
+  source_kind: string;
+  source_id: string;
+  n: Defaulted<number>;
+  reference: string;
+  carries_date: string;
+  belongs_date: string;
+  amount: Defaulted<number>;
+  /** JSON array: the lines as sent. */
+  lines: Defaulted<JsonText>;
+  /** JSON: what a contact or document carried about its person (an erase may clear it). */
+  detail: Defaulted<JsonText | null>;
+  depends_on: Defaulted<string | null>;
+  state: AccountingPostState;
+  attempts: Defaulted<number>;
+  next_attempt_at: Defaulted<Timestamp | null>;
+  error_code: Defaulted<string | null>;
+  error_text: Defaulted<string | null>;
+  books_ref: Defaulted<string | null>;
+  sent_at: Defaulted<Timestamp | null>;
+  approved_by: Defaulted<string | null>;
+  approved_at: Defaulted<Timestamp | null>;
+  skipped_by: Defaulted<string | null>;
+  skipped_at: Defaulted<Timestamp | null>;
+  skip_reason: Defaulted<string | null>;
+  created_at: Timestamp;
+  updated_at: Timestamp;
+}
+
+/** Migration 1330: each money event to the entry it went in, unique by source. */
+export interface CoreAccountingItemTable {
+  source_kind: string;
+  source_id: string;
+  post_id: string;
+  belongs_date: string;
+  amount: number;
+  created_at: Timestamp;
+}
+
+/** Migration 1330: a bill-to waiting for a person to choose its contact in the books. */
+export interface CoreAccountingMatchTable {
+  id: string;
+  connection_id: string;
+  reason: "unsure" | "merged";
+  object: "person" | "organisation";
+  object_id: string;
+  post_id: Defaulted<string | null>;
+  /** JSON array, at most 10: ref, name, email, tax number, archived. */
+  candidates: Defaulted<JsonText>;
+  state: Defaulted<"open" | "linked" | "created" | "dismissed">;
+  chosen_ref: Defaulted<string | null>;
+  decided_by: Defaulted<string | null>;
+  decided_at: Defaulted<Timestamp | null>;
+  created_at: Timestamp;
 }
 
 /** `core_published_media` (migration 0461): media a record's current version references. */
@@ -2500,6 +4310,7 @@ export interface CoreDatabase {
   core_transition_history: CoreTransitionHistoryTable;
   core_order: CoreOrderTable;
   core_order_line: CoreOrderLineTable;
+  core_order_adjustment: CoreOrderAdjustmentTable;
   core_order_grant: CoreOrderGrantTable;
   core_order_payment: CoreOrderPaymentTable;
   core_order_checkout: CoreOrderCheckoutTable;
@@ -2510,6 +4321,8 @@ export interface CoreDatabase {
   core_subscription_offer: CoreSubscriptionOfferTable;
   core_subscription_grant: CoreSubscriptionGrantTable;
   core_subscription_change: CoreSubscriptionChangeTable;
+  core_subscription_cool_off: CoreSubscriptionCoolOffTable;
+  core_subscription_cool_off_action: CoreSubscriptionCoolOffActionTable;
   core_sellable_once: CoreSellableOnceTable;
   core_order_refund: CoreOrderRefundTable;
   core_automations: CoreAutomationsTable;
@@ -2539,6 +4352,7 @@ export interface CoreDatabase {
   core_field_options: CoreFieldOptionsTable;
   core_customer: CoreCustomerTable;
   core_customer_session: CoreCustomerSessionTable;
+  core_customer_email_change: CoreCustomerEmailChangeTable;
   core_customer_verification: CoreCustomerVerificationTable;
   core_customer_invite: CoreCustomerInviteTable;
   core_erase_request: CoreEraseRequestTable;
@@ -2551,29 +4365,124 @@ export interface CoreDatabase {
   core_native_sign_in_confirm: CoreNativeSignInConfirmTable;
   core_capacity: CoreCapacityTable;
   core_capacity_claim: CoreCapacityClaimTable;
+  core_stock_movement: CoreStockMovementTable;
+  core_stock_low: CoreStockLowTable;
   core_person_link: CorePersonLinkTable;
+  core_person_carer: CorePersonCarerTable;
+  core_note_kind: CoreNoteKindTable;
   core_agreement_document: CoreAgreementDocumentTable;
   core_agreement_version: CoreAgreementVersionTable;
   core_agreement_point: CoreAgreementPointTable;
   core_agreement_rev: CoreAgreementRevTable;
+  core_agreement_acceptance: CoreAgreementAcceptanceTable;
+  core_agreement_signature: CoreAgreementSignatureTable;
+  core_agreement_answer: CoreAgreementAnswerTable;
+  core_agreement_minor: CoreAgreementMinorTable;
+  core_restricted_value: CoreRestrictedValueTable;
+  core_agreement_desk_session: CoreAgreementDeskSessionTable;
+  core_device: CoreDeviceTable;
+  core_device_guard: { device_id: string; credential_hash: string };
+  core_agreement_desk_guard: { session_id: string; device_id: string };
+  core_agreement_copy: CoreAgreementCopyTable;
+  core_agreement_hold: CoreAgreementHoldTable;
   core_person_link_guard: CorePersonLinkGuardTable;
   core_sellable_refund_due: CoreSellableRefundDueTable;
+  core_routine_mail: CoreRoutineMailTable;
+  core_text_spend: CoreTextSpendTable;
+  core_phone_check: CorePhoneCheckTable;
+  core_text_stop: CoreTextStopTable;
+  core_value_mark: CoreValueMarkTable;
+  core_person_signal: CorePersonSignalTable;
+  core_birthday_guard: CoreBirthdayGuardTable;
   core_recurrence_series: CoreRecurrenceSeriesTable;
   core_recurrence_occurrence: CoreRecurrenceOccurrenceTable;
+  core_recurrence_exception: CoreRecurrenceExceptionTable;
+  core_recurrence_guard: CoreRecurrenceGuardTable;
+  core_staff_time: CoreStaffTimeTable;
+  core_thing_time: CoreThingTimeTable;
+  core_staff_qualification: CoreStaffQualificationTable;
+  core_staff_away: CoreStaffAwayTable;
+  core_leave_type: CoreLeaveTypeTable;
+  core_leave_request: CoreLeaveRequestTable;
+  core_leave_day: CoreLeaveDayTable;
+  core_leave_balance_entry: CoreLeaveBalanceEntryTable;
+  core_staff_hours: CoreStaffHoursTable;
+  core_document_counter: CoreDocumentCounterTable;
+  core_quote: CoreQuoteTable;
+  core_quote_line: CoreQuoteLineTable;
+  core_invoice: CoreInvoiceTable;
+  core_invoice_line: CoreInvoiceLineTable;
+  core_credit_note: CoreCreditNoteTable;
+  core_credit_note_line: CoreCreditNoteLineTable;
+  core_invoice_event: CoreInvoiceEventTable;
+  core_time_entry: CoreTimeEntryTable;
+  core_staff_feed: CoreStaffFeedTable;
+  core_customer_feed: CoreCustomerFeedTable;
+  core_person_code: CorePersonCodeTable;
+  core_person_pin: CorePersonPinTable;
+  core_identify_lockout: CoreIdentifyLockoutTable;
+  core_checklist: CoreChecklistTable;
+  core_conversation: CoreConversationTable;
+  core_checklist_step: CoreChecklistStepTable;
+  core_checklist_run: CoreChecklistRunTable;
+  core_checklist_tick: CoreChecklistTickTable;
+  core_checklist_note: CoreChecklistNoteTable;
+  core_staff_offer: CoreStaffOfferTable;
+  core_staff_run: CoreStaffRunTable;
+  core_staff_guard: CoreStaffGuardTable;
+  /** Migration 1230 (stage 56): a note's change fails whole when its level moved meanwhile. */
+  core_note_guard: CoreStaffGuardTable;
+  core_staff_pay_basis: CoreStaffPayBasisTable;
+  core_staff_not_worked: CoreStaffNotWorkedTable;
+  core_pay_period: CorePayPeriodTable;
+  core_pay_line: CorePayLineTable;
+  core_finance_period: CoreFinancePeriodTable;
+  core_finance_entry: CoreFinanceEntryTable;
+  core_finance_entry_line: CoreFinanceEntryLineTable;
+  core_finance_row: CoreFinanceRowTable;
+  core_finance_counted: CoreFinanceCountedTable;
+  core_finance_guard: CoreFinanceGuardTable;
   core_write_guard: CoreWriteGuardTable;
+  core_client_guard: CoreClientGuardTable;
   core_allowance: CoreAllowanceTable;
   core_allowance_period: CoreAllowancePeriodTable;
   core_allowance_use: CoreAllowanceUseTable;
   core_publish_version: CorePublishVersionTable;
   core_publish_schedule: CorePublishScheduleTable;
+  core_published_text: CorePublishedTextTable;
+  core_publish_ack: CorePublishAckTable;
   core_slug_redirect: CoreSlugRedirectTable;
   core_preview_link: CorePreviewLinkTable;
   core_content_generation: CoreContentGenerationTable;
   core_media: CoreMediaTable;
+  core_location: CoreLocationTable;
   core_published_media: CorePublishedMediaTable;
   core_media_caption: CoreMediaCaptionTable;
   core_import_key: CoreImportKeyTable;
+  core_accounting_settings: CoreAccountingSettingsTable;
+  core_accounting_map: CoreAccountingMapTable;
+  core_accounting_link: CoreAccountingLinkTable;
+  core_accounting_post: CoreAccountingPostTable;
+  core_accounting_item: CoreAccountingItemTable;
+  core_accounting_match: CoreAccountingMatchTable;
+  core_journey: CoreJourneyTable;
+  core_journey_version: CoreJourneyVersionTable;
+  core_journey_entry: CoreJourneyEntryTable;
+  core_journey_step_log: CoreJourneyStepLogTable;
+  core_outside_settings: CoreOutsideSettingsTable;
+  core_outside_list: CoreOutsideListTable;
+  core_outside_person: CoreOutsidePersonTable;
+  core_outside_membership_type: CoreOutsideMembershipTypeTable;
+  core_outside_membership: CoreOutsideMembershipTable;
+  core_outside_class_type: CoreOutsideClassTypeTable;
+  core_outside_class: CoreOutsideClassTable;
+  core_outside_booking: CoreOutsideBookingTable;
+  core_outside_staff: CoreOutsideStaffTable;
+  core_outside_match: CoreOutsideMatchTable;
+  core_outside_suppressed: CoreOutsideSuppressedTable;
+  core_outside_unlinked: CoreOutsideUnlinkedTable;
   rec_media: RecMediaView;
+  rec_location: RecLocationView;
   rec_publish_version: RecPublishVersionView;
   rec_stage_history: CrmStageHistoryView;
   rec_state_history: RecStateHistoryView;
@@ -2586,6 +4495,9 @@ export interface CoreDatabase {
   rec_task: CrmTasksView;
   rec_order: CrmOrderView;
   rec_order_line: CrmOrderLineView;
+  rec_order_adjustment: CrmOrderAdjustmentView;
+  rec_order_payment: CrmOrderPaymentView;
+  rec_order_refund: CrmOrderRefundView;
   rec_task_link: CrmTaskLinksView;
   rec_record_tag: CrmRecordTagsView;
 }

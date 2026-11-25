@@ -5,7 +5,7 @@
 // the outline on save (its schema, a video that is ready, a program that exists) and a person
 // publishes (an assistant's request to publish waits for one, ADR 0480).
 import type { CoursesHooks, LessonKind, Outline } from "@composable-os/pack-courses/client";
-import { outlineEdits } from "@composable-os/pack-courses/client";
+import { asOutline, COURSE, outlineEdits } from "@composable-os/pack-courses/client";
 import { useEffect, useState } from "react";
 import { Button } from "../ui-button/button.tsx";
 import { Input } from "../ui-input/input.tsx";
@@ -42,33 +42,34 @@ export function CourseBuilder({
   const [newSection, setNewSection] = useState("");
 
   useEffect(() => {
-    const value = working.data?.values.outline as Outline | null | undefined;
-    if (value && !outline) setOutline(value?.sections ? value : { sections: [] });
-    else if (working.data && !outline) setOutline({ sections: [] });
+    if (working.data && !outline) setOutline(asOutline(working.data.values.outline));
   }, [working.data, outline]);
 
   if (working.isPending || !outline) return <p aria-busy="true">Loading the course…</p>;
   if (working.error) return <p role="alert">This course is not here.</p>;
 
-  const onSave = async () => {
+  /** Runs the step and says how it went: `done`, or the host's reason (`failed` without one). */
+  const act = async (step: () => Promise<unknown>, done: string, failed: string) => {
     setMessage(null);
     try {
-      await save.mutateAsync({ object: "courses.course", id: courseId, values: { outline } });
-      setMessage("Saved");
+      await step();
+      setMessage(done);
     } catch (e) {
-      setMessage(e instanceof Error ? e.message : "Not saved");
+      setMessage(e instanceof Error ? e.message : failed);
     }
   };
-  const onPublish = async () => {
-    setMessage(null);
-    try {
-      await save.mutateAsync({ object: "courses.course", id: courseId, values: { outline } });
-      await publish.mutateAsync({ object: "courses.course", id: courseId });
-      setMessage("Published");
-    } catch (e) {
-      setMessage(e instanceof Error ? e.message : "Not published");
-    }
-  };
+  const saveOutline = () => save.mutateAsync({ object: COURSE, id: courseId, values: { outline } });
+  const onSave = () => act(saveOutline, "Saved", "Not saved");
+  // A person publishes what they see: the working copy is saved first.
+  const onPublish = () =>
+    act(
+      async () => {
+        await saveOutline();
+        await publish.mutateAsync({ object: COURSE, id: courseId });
+      },
+      "Published",
+      "Not published",
+    );
 
   return (
     <section className="grid gap-6" aria-label="Course builder">

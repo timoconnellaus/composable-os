@@ -1,0 +1,20 @@
+{
+  "name": "rostering-pay",
+  "pack": "rostering",
+  "skin": "web",
+  "operations": [
+    "x.rostering.me",
+    "x.rostering.periods",
+    "x.rostering.periodTotals",
+    "x.rostering.lock",
+    "x.rostering.reopen",
+    "x.rostering.export",
+    "x.rostering.payBases",
+    "x.rostering.payBasis"
+  ],
+  "files": ["pay.tsx", "LICENSE"],
+  "dependsOn": ["ui-button"],
+  "packages": {
+    "@composable-os/pack-rostering": "*"
+  }
+}

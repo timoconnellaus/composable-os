@@ -401,23 +401,26 @@ describe("person.erase reaches every store", () => {
     // Their customer account (stage 22): sessions, a sign-in code, an invite for the old address,
     // and the erase request they made by deleting the account (which also notified the admins).
     const customerId = newId("customer");
+    const sessionId = `ses_${unique("s")}`;
     await env.DB.batch([
       env.DB.prepare(
         "INSERT INTO core_customer (id, person_id, email, email_verified, created_at, updated_at) VALUES (?, ?, ?, 1, ?, ?)",
       ).bind(customerId, person.id, email, now, now),
       env.DB.prepare(
         "INSERT INTO core_customer_session (id, customer_id, token, expires_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)",
-      ).bind(`ses_${unique("s")}`, customerId, unique("token"), now, now, now),
+      ).bind(sessionId, customerId, unique("token"), now, now, now),
       env.DB.prepare(
         "INSERT INTO core_customer_verification (id, identifier, value, expires_at, created_at, updated_at) VALUES (?, ?, 'hashed', ?, ?, ?)",
       ).bind(`ver_${unique("v")}`, `sign-in-otp-${email}`, now, now, now),
     ]);
     await invoke("customer.invite", { email: oldEmail }, context(admin));
-    await invokeByName(
-      "me.deleteAccount",
-      {},
-      { principal: { kind: "customer", customerId, personId: person.id }, db },
-    );
+    const principal = { kind: "customer" as const, customerId, personId: person.id };
+    // Deleting the account needs a sign-in within 15 minutes (ADR 0712): this one, just now.
+    const signedIn = { principal, db, origin: { surface: "client" as const, sessionId } };
+    const preview = (await invokeByName("me.deleteAccount", {}, signedIn)) as {
+      expect: string;
+    };
+    await invokeByName("me.deleteAccount", { confirm: true, expect: preview.expect }, signedIn);
 
     const result = await invoke("person.erase", { id: person.id }, context(admin, { blobs }));
     expect(result).toMatchObject({

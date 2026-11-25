@@ -11,6 +11,9 @@
 //                         (an upgrade now, prorated; a downgrade from the next period)
 //   subscription.pause    staff (subscriptions:manage): the provider's pause, for a set time
 //   subscription.unpause  staff (subscriptions:manage): end a pause now, or withdraw one asked
+//   subscription.coolingOff staff; a customer, their own: may it be cooled off, and how far one got
+//   subscription.coolOff  staff (subscriptions:manage); a customer, their own: end it now in its
+//                         cooling-off period, every paid period owed back (ADR 0647)
 //
 // No operation here takes a price, moves a subscription or makes a period paid: the provider's
 // verified events do that, through `order.applyPaymentEvent`. Cancel and resume ask the provider;
@@ -22,16 +25,25 @@
 // gatekeeper for a caller outside the org, so they keep the database; each touches only the
 // caller's own subscription (through the seam) or the checkout it opens.
 import { z } from "zod";
+import { guestAcceptancesSchema } from "../agreements/enforce.ts";
+import { ForbiddenError } from "../errors.ts";
 import { SUBSCRIPTION_STATES } from "../fields/subscription.ts";
 import { filterSchema } from "../filter.ts";
 import { LIST_MAX_LIMIT, sortSchema } from "../list.ts";
-import { defineOperation, type HandlerContext } from "../operation.ts";
+import { afterCommit, defineOperation, type HandlerContext } from "../operation.ts";
 import {
   requestPause,
   requestPlanChange,
   requestUnpause,
   withdrawPlanChange,
 } from "../subscriptions/changes.ts";
+import {
+  coolingOffFor,
+  coolOff,
+  NOT_OFFERED,
+  releaseFollowUp,
+  sweepCoolOffs,
+} from "../subscriptions/cooling-off.ts";
 import {
   cancelAtPeriodEnd,
   cancelNow,
@@ -178,6 +190,10 @@ export const subscriptionStart = defineOperation({
     "A signed-in customer with a continuation offer (moving their subscription from another " +
     "platform) takes it with `offerId`: free until their paid-up date, then charged, with no " +
     "trial on top; with under 48 hours left it is charged at once. " +
+    "Nobody starts one without the agreements the business needs for the plan (its terms, a " +
+    "waiver): refused with rule agreements_due and the documents while any is due, a " +
+    "continuation offer included (a guest passes their acceptances in `agreements`; a " +
+    "signed-in customer agrees first; staff send a link or record paper). " +
     "The host prices it from the plan: no " +
     "price is sent. Coming back to `returnUrl` changes nothing: the subscription exists once the " +
     "provider confirms it. Returns the page's address and what will be charged, in minor units.",
@@ -211,6 +227,7 @@ export const subscriptionStart = defineOperation({
         "Staff only: the Person who holds what it gives (a child whose parent pays), when not " +
           "the payer. The payer, named by email, is billed; the trial and access are the holder's.",
       ),
+    agreements: guestAcceptancesSchema.optional(),
   }),
   output: z.object({
     subscriptionId: z.string(),
@@ -244,6 +261,8 @@ export const subscriptionStart = defineOperation({
   staffInput: ["holderPersonId"],
   hostInternal: true,
   mcp: { expose: false },
+  // What a visitor typed, drew and answered never reaches the audit log.
+  redact: ["agreements"],
   auditSummary: (output, input) => ({
     subscriptionId: output.subscriptionId,
     plan: input.plan,
@@ -338,6 +357,7 @@ export const subscriptionCancel = defineOperation({
   mcp: { expose: false },
   async handler(input, ctx) {
     const row = await subscriptionForChange(ctx, input.id);
+    // A cooling off under way is refused by both (ADR 0647, subscriptions/subscriptions.ts).
     if (input.now) await cancelNow(ctx, row, input.reason);
     else await cancelAtPeriodEnd(ctx, row, input.reason);
     return { id: row.id, requested: true as const };
@@ -555,6 +575,224 @@ export const subscriptionChangeWithdraw = defineOperation({
   },
 });
 
+const coolOffSchema = z
+  .object({
+    state: z
+      .enum(["asked", "ended", "lapsed"])
+      .describe(
+        "asked: open until its deadline (any end of the subscription by then is its end); " +
+          "ended: it ended (or staff finished it) and its refunds are owed; lapsed: its deadline " +
+          "passed (or its waiting cancel was turned down, or the end was not its): nothing owed as " +
+          "cooled off, and the ordinary cancel works again",
+      ),
+    asked: z
+      .enum(["sent", "pending", "unknown", "refused"])
+      .nullable()
+      .describe("What came of the latest ask of the provider"),
+    askedBy: z.enum(["payer", "staff"]),
+    askedAt: z.string(),
+    deadline: z.string().describe("Open until then: the ask plus the approval expiry (7 days)"),
+    endedAt: when,
+    finished: z.boolean().describe("Staff finished a lapsed one"),
+    finishing: z
+      .enum(["asked", "sent", "pending", "unknown", "stuck"])
+      .nullable()
+      .describe(
+        "Staff asked to finish a lapsed one, not yet confirmed: asked or unknown (the host asks " +
+          "the provider again), sent (waiting for the provider's end), pending (waiting for a " +
+          "person at the payments gatekeeper), stuck (it could not be done; admins were told)",
+      ),
+    waiting: z
+      .boolean()
+      .describe(
+        "A cancel of it waits for a person at the payments gatekeeper: nobody may ask again " +
+          "until it is approved or turned down",
+      ),
+    lapsedBecause: z.enum(["deadline", "action", "end_time", "used"]).nullable(),
+    askAgain: z
+      .boolean()
+      .describe(
+        "The caller may ask the provider again now (the member inside the period, staff before " +
+          "the deadline), or (staff) finish a lapsed one",
+      ),
+    open: z.boolean().describe("Open, before its deadline: the ordinary cancel waits"),
+    staffTold: z.boolean().describe("Admins were told it is stuck or lapsed"),
+    paid: z
+      .number()
+      .describe(
+        "What it owes (or would, if it ended now): paid on or before the end of the period, plus paid after the ask and by the end, in minor units",
+      ),
+    refunded: z.number().describe("What has been refunded of that so far, in minor units"),
+    refunds: z
+      .enum(["waiting", "refunded", "held"])
+      .nullable()
+      .describe(
+        "Once ended: waiting (each refund waits for a person who may refund), refunded, or held " +
+          "(a refund was not approved or could not be asked: staff refund it from the order)",
+      ),
+  })
+  .nullable();
+
+const coolingOffStatusSchema = z.object({
+  subscriptionId: z.string(),
+  offered: z.boolean().describe("The payer may end it now for a full refund (cooling off)"),
+  why: z
+    .enum(NOT_OFFERED)
+    .nullable()
+    .describe(
+      "Why not: not_covered (the plan has no cooling off), off (the business set none), " +
+        "continuation (not started here as a new member), ended, window_passed, used (once per " +
+        "member), nothing_paid (a free trial: an ordinary cancel ends it at no charge)",
+    ),
+  days: z.number().describe("The cooling-off days that apply; 0 when none"),
+  until: z
+    .string()
+    .nullable()
+    .describe("The last day of the window (YYYY-MM-DD, the business's time zone)"),
+  endsAt: when.describe("The moment the window closes"),
+  refund: z
+    .number()
+    .describe("What a cooling off asked now owes back, not yet refunded, in minor units"),
+  currency: z.string(),
+  coolOff: coolOffSchema.describe("A cooling off asked for, and how far it has got"),
+});
+
+export const subscriptionCoolingOff = defineOperation({
+  name: "subscription.coolingOff",
+  description:
+    "Whether each subscription may be ended in its cooling-off period for a full refund: the " +
+    "business's setting (whole days, 0 off), counted from when the payment provider confirmed " +
+    "it to the end of the last day in the business's time zone, for a new member's membership " +
+    "only (not a pass, not one moved over with a continuation offer), once per member. Also " +
+    "says how far a cooling off asked for has got and where its refunds are. The host decides; " +
+    "an app shows the button only when `offered`. A signed-in customer asks about the " +
+    "subscriptions they pay for only; another's is not found. Read-only.",
+  input: z.object({
+    ids: z.array(subscriptionId).min(1).max(20).describe("Up to 20 subscriptions"),
+  }),
+  output: z.object({ items: z.array(coolingOffStatusSchema) }),
+  permission: "records:read",
+  risk: "read",
+  audiences: ["staff", "customer"],
+  hostInternal: true,
+  mcp: { idempotent: true },
+  async handler(input, ctx) {
+    return { items: await coolingOffFor(ctx, input.ids) };
+  },
+});
+
+export const subscriptionCoolOff = defineOperation({
+  name: "subscription.coolOff",
+  description:
+    "End a subscription in its cooling-off period, for a full refund of what was paid in it " +
+    "(subscription.coolingOff says whether it may be, and what it owes). Ended at the payment " +
+    "provider now: nothing more is charged, and what it gives stops once the provider confirms. " +
+    "Then each order paid up to the end of the period, and between the ask and the end, is owed " +
+    "back in full, whatever was used; each waits for a person with orders:refund to approve it. " +
+    "The bookings ahead the membership paid for are cancelled as the business's. Refused for a " +
+    "plan with no cooling off, a membership moved over with a continuation offer, a member who " +
+    "has cooled off before, while nothing has been paid (a free trial: cancel instead), and " +
+    "after the period unless one was asked in it. An ask inside the period opens it for 7 days; " +
+    "any end in that time is the cooling off's, and at its deadline it lapses (the ordinary " +
+    "cancel works again). A signed-in customer ends their own (the one they pay for, a child's " +
+    "included) and asks again only inside the period; staff any, with subscriptions:manage, ask " +
+    "again until the deadline, and finish a lapsed one (only what was paid in the period is " +
+    "owed, once the provider confirms the membership ended). Each ask reads the provider first " +
+    "and is a new request to it; nothing is done twice. Refused while a cancel of it waits for " +
+    "a person at the payments gatekeeper. A person decides, never an AI assistant.",
+  input: z.object({ id: subscriptionId }),
+  output: z.object({
+    id: z.string(),
+    state: z
+      .enum(["asked", "ended", "lapsed"])
+      .describe(
+        "asked: open; ended: it ended (or was finished) and its refunds are owed; lapsed: staff " +
+          "asked to finish it and the provider has not confirmed the end yet",
+      ),
+    asked: z
+      .enum(["sent", "pending", "unknown"])
+      .nullable()
+      .describe(
+        "sent: the provider was asked to end it; pending: it waits for a person at the payments " +
+          "gatekeeper; unknown: it may or may not have reached it (its next event decides; staff " +
+          "are told)",
+      ),
+    refund: z.number().describe("Paid and not refunded so far, in minor units: owed back"),
+    currency: z.string(),
+  }),
+  permission: "subscriptions:manage",
+  risk: "write",
+  audiences: ["staff", "customer"],
+  actors: ["human"],
+  hostInternal: true,
+  mcp: { expose: false },
+  auditSummary: (output) => ({
+    subscriptionId: output.id,
+    state: output.state,
+    asked: output.asked,
+    refund: output.refund,
+  }),
+  async handler(input, ctx) {
+    return coolOff(ctx, input.id);
+  },
+});
+
+export const subscriptionCoolOffSweep = defineOperation({
+  name: "subscription.coolOffSweep",
+  description:
+    "The host's minute step for cooling offs: one whose call to the payment provider was lost " +
+    "or never made is resolved from the provider's read or asked again (the same ask) until its " +
+    "deadline; at the deadline, or once its latest waiting cancel is rejected or expires with " +
+    "none still waiting, or once its holder has used theirs on another, an open one lapses " +
+    "(every waiting cancel rejected, admins told once); staff's finish of a lapsed one is asked " +
+    "again, waited for, or marked stuck with admins told; then the summary emails. Bounded; " +
+    "nothing when nothing is due. The host's own cron only.",
+  input: z.object({}),
+  output: z.object({
+    resolved: z.number(),
+    asked: z.number(),
+    told: z.number(),
+    unread: z.number(),
+    lapsed: z.number(),
+    mailed: z.number(),
+  }),
+  permission: "subscriptions:manage",
+  risk: "write",
+  actors: ["automation"],
+  // The host finishing what a person asked in time: never queued under a floor.
+  hostStep: true,
+  mcp: { expose: false },
+  async handler(_input, ctx) {
+    if (ctx.origin.surface !== "system") {
+      throw new ForbiddenError("Only the host's own cron sweeps cooling offs");
+    }
+    return afterCommit(() => sweepCoolOffs(ctx));
+  },
+});
+
+export const subscriptionCoolOffRelease = defineOperation({
+  name: "subscription.coolOffRelease",
+  description:
+    "The host's follow-up for a membership ended in its cooling-off period: cancels the next " +
+    "bookings ahead it paid for, as the business's, until none is left. The host's own cron only.",
+  input: z.object({ id: subscriptionId }),
+  output: z.object({ released: z.number(), left: z.boolean() }),
+  permission: "subscriptions:manage",
+  risk: "write",
+  actors: ["automation"],
+  // The host carrying out what a person asked in time: never queued under a floor.
+  hostStep: true,
+  mcp: { expose: false },
+  async handler(input, ctx) {
+    if (ctx.origin.surface !== "system") {
+      throw new ForbiddenError(
+        "Only the host's own cron releases a cooled-off membership's bookings",
+      );
+    }
+    return releaseFollowUp(ctx, input.id);
+  },
+});
+
 export const subscriptionOperations = [
   subscriptionStart,
   subscriptionGet,
@@ -566,4 +804,8 @@ export const subscriptionOperations = [
   subscriptionPause,
   subscriptionUnpause,
   subscriptionChangeWithdraw,
+  subscriptionCoolingOff,
+  subscriptionCoolOff,
+  subscriptionCoolOffSweep,
+  subscriptionCoolOffRelease,
 ] as const;

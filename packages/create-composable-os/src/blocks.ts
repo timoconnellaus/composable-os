@@ -3,13 +3,21 @@
 // client's. `cos diff <block>` shows what changed upstream between the recorded version and the
 // current one, for a person or an agent to apply by hand. Nothing updates a copied block.
 //
+// My account (stage 48, ADR 0710): once an app has the account shell (`web-account`,
+// `native-account`), every `cos add` also copies the section blocks of each pack product.ts lists
+// that declares a section of My account (the release's roles.json `portal`), and writes the app's
+// `src/blocks/account-sections.gen.ts` naming them; `cos upgrade` writes it again. The page imports
+// that file, so its own source names no pack.
+//
 // A block in the release's client kit is `blocks/<name>/`: its files and a block.json:
 //   { "name", "pack": "deals" | null, "skin": "web" | "native", "operations": [...],
 //     "files": [...], "dependsOn": [...] }
 import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
-import { type ClientKit, fetchKit, loadClientProduct } from "./client-repo.ts";
+import type { PortalPackFile } from "@composable-os/core/http-contract";
+import type { ClientProductDefinition } from "@composable-os/product";
+import { type ClientKit, fetchKit, loadClientProduct, requiredPacks } from "./client-repo.ts";
 import { lineDiff } from "./diff.ts";
 import { CliError, type Deps, type Flags, str } from "./main.ts";
 
@@ -82,7 +90,10 @@ export function blockManifest(kit: ClientKit, name: string): BlockManifest {
 export function installCommand(root: string, app: string, packages: string[]): string {
   const cd = app && app !== "." ? `cd ${app} && ` : "";
   const appJson = join(root, app, "app.json");
-  if (existsSync(appJson) && /"expo"\s*:/.test(readFileSync(appJson, "utf8"))) {
+  const expo =
+    (existsSync(appJson) && /"expo"\s*:/.test(readFileSync(appJson, "utf8"))) ||
+    ["app.config.ts", "app.config.js"].some((f) => existsSync(join(root, app, f)));
+  if (expo) {
     return `${cd}npx expo install ${packages.join(" ")}`;
   }
   const at = (file: string) => existsSync(join(root, file)) || existsSync(join(root, app, file));
@@ -101,6 +112,134 @@ export function installCommand(root: string, app: string, packages: string[]): s
 /** Where a block's files go: `<app>/src/blocks/<name>/`. */
 const blockDir = (app: string, name: string) => join(app, "src", "blocks", name);
 
+/** The account shell of each skin, whose sections `cos add` wires (ADR 0710). */
+export const ACCOUNT_SHELLS = { web: "web-account", native: "native-account" } as const;
+/** The file in `<app>/src/blocks/` that names the copied sections. */
+export const ACCOUNT_SECTIONS_FILE = "account-sections.gen.ts";
+
+/** The release's packs' sections of My account; none in a release older than stage 48. */
+function kitPortal(kit: ClientKit): Record<string, PortalPackFile> {
+  const file = kit.get("contract/roles.json");
+  if (!file) return {};
+  return (JSON.parse(decode(file)) as { portal?: Record<string, PortalPackFile> }).portal ?? {};
+}
+
+/** One pack section an app's shell shows: what it is and the block that draws it. */
+interface WiredSection {
+  key: string;
+  pack: string;
+  label: string;
+  order: number;
+  block: string;
+  export: string;
+  hooks: string;
+}
+
+/** The sections of `packs` (in product order) whose pack has a block for `skin`. */
+function sectionsFor(
+  kit: ClientKit,
+  packs: readonly string[],
+  skin: "web" | "native",
+): WiredSection[] {
+  const portal = kitPortal(kit);
+  return packs
+    .flatMap((pack) =>
+      Object.entries(portal[pack]?.sections ?? {}).flatMap(([key, section]) => {
+        const named = section[skin];
+        if (!named) return [];
+        return [
+          {
+            key: `${pack}.${key}`,
+            pack,
+            label: section.label,
+            order: section.order,
+            block: named.block,
+            export: named.export,
+            hooks: portal[pack]?.hooks as string,
+          },
+        ];
+      }),
+    )
+    .sort((a, b) => a.order - b.order || a.key.localeCompare(b.key));
+}
+
+/** The file of a block (as the release has it) that exports `name`, or null. */
+function fileExporting(kit: ClientKit, block: string, name: string): string | null {
+  const exported = new RegExp(`\\bexport\\s+(?:function|const)\\s+${name}\\b`);
+  for (const file of blockManifest(kit, block).files) {
+    const bytes = kit.get(`blocks/${block}/${file}`);
+    if (bytes && /\.[jt]sx?$/.test(file) && exported.test(decode(bytes))) return file;
+  }
+  return null;
+}
+
+/** The text of an app's `account-sections.gen.ts`: each section's component and hooks. */
+export function accountSectionsSource(
+  kit: ClientKit,
+  sections: readonly WiredSection[],
+  skin: "web" | "native",
+): string {
+  const shell = ACCOUNT_SHELLS[skin];
+  const shellFile = skin === "web" ? "account.tsx" : "account-screen.tsx";
+  const entryType = skin === "web" ? "WebSectionEntry" : "NativeSectionEntry";
+  const hooks = [...new Map(sections.map((s) => [s.pack, s.hooks])).entries()];
+  const components = sections.map((s) => {
+    const file = fileExporting(kit, s.block, s.export);
+    if (!file) throw new CliError(`The release's ${s.block} exports no ${s.export}.`);
+    return { ...s, file };
+  });
+  const lines = [
+    "// Generated by `cos add` and `cos upgrade` from the packs product.ts lists (stage 48, ADR 0710):",
+    "// each section of My account a pack declares, as its copied block's component and the pack's",
+    "// hooks. Do not edit: it is written again. The blocks it names are yours (cos diff <block>).",
+    ...hooks.map(
+      ([pack, factory]) => `import { ${factory} } from "@composable-os/pack-${pack}/client";`,
+    ),
+    ...components.map((c) => `import { ${c.export} } from "./${c.block}/${c.file}";`),
+    `import type { ${entryType} } from "./${shell}/${shellFile}";`,
+    "",
+    `export const ACCOUNT_SECTIONS: readonly ${entryType}[] = [`,
+    ...components.flatMap((c) => [
+      "  {",
+      `    key: ${JSON.stringify(c.key)},`,
+      `    pack: ${JSON.stringify(c.pack)},`,
+      `    label: ${JSON.stringify(c.label)},`,
+      `    order: ${c.order},`,
+      `    component: ${c.export},`,
+      `    hooks: ${c.hooks},`,
+      "  },",
+    ]),
+    "];",
+    "",
+  ];
+  return lines.join("\n");
+}
+
+/**
+ * Writes `account-sections.gen.ts` in each app whose account shell is copied, naming the sections
+ * whose blocks are copied too; returns the section blocks of the listed packs not copied yet.
+ */
+export function writeAccountSections(
+  root: string,
+  product: ClientProductDefinition,
+  kit: ClientKit,
+  lock: Readonly<Record<string, { app: string }>>,
+): string[] {
+  const packs = [...product.packs, ...requiredPacks(kit, product.packs)];
+  const missing: string[] = [];
+  for (const skin of ["web", "native"] as const) {
+    const shell = lock[ACCOUNT_SHELLS[skin]];
+    if (!shell) continue;
+    const sections = sectionsFor(kit, packs, skin);
+    for (const s of sections) if (!lock[s.block]) missing.push(s.block);
+    const copied = sections.filter((s) => lock[s.block]);
+    const file = join(root, shell.app, "src", "blocks", ACCOUNT_SECTIONS_FILE);
+    mkdirSync(dirname(file), { recursive: true });
+    writeFileSync(file, accountSectionsSource(kit, copied, skin));
+  }
+  return missing;
+}
+
 export async function add(argv: string[], flags: Flags, deps: Deps): Promise<number> {
   const name = argv[0];
   const root = resolve(str(flags, "dir") ?? process.cwd());
@@ -117,6 +256,9 @@ export async function add(argv: string[], flags: Flags, deps: Deps): Promise<num
     return 0;
   }
   const lock = readLock(root);
+  // The packs product.ts lists and those they bring (Courses: Content, whose rich text its
+  // player draws with): `cos deploy` installs both, so a block may be either's.
+  const packs = [...product.packs, ...requiredPacks(kit, product.packs)];
   const added: string[] = [];
   const needs = new Map<string, string>();
   const visit = (block: string, trail: string[]) => {
@@ -130,7 +272,7 @@ export async function add(argv: string[], flags: Flags, deps: Deps): Promise<num
         `${block} is a ${manifest.skin} block and this repo has no ${manifest.skin === "web" ? "web" : "mobile"} app in product.ts.`,
       );
     }
-    if (manifest.pack && !product.packs.includes(manifest.pack)) {
+    if (manifest.pack && !packs.includes(manifest.pack)) {
       throw new CliError(
         `${block} is a block of the ${manifest.pack} pack, which product.ts does not list.`,
       );
@@ -156,6 +298,13 @@ export async function add(argv: string[], flags: Flags, deps: Deps): Promise<num
   };
   const apps: string[] = [];
   visit(name, []);
+  // My account: with a shell copied, the listed packs' section blocks come too, and the app's
+  // section wiring is written again (ADR 0710).
+  const shells = Object.values(ACCOUNT_SHELLS).filter((shell) => lock[shell]);
+  if (shells.length) {
+    for (const block of writeAccountSections(root, product, kit, lock)) visit(block, []);
+    writeAccountSections(root, product, kit, lock);
+  }
   writeLock(root, lock);
   if (needs.size) {
     const app = apps[0] as string;
@@ -172,7 +321,33 @@ export async function add(argv: string[], flags: Flags, deps: Deps): Promise<num
       ? `Copied ${added.join(", ")} (${version}) into ${added.map((b) => blockDir(lock[b]?.app ?? "", b)).join(", ")}. The files are yours now; ${LOCK} records where they came from.`
       : `${name} is already copied (${LOCK}).`,
   );
+  for (const shell of shells) {
+    const app = lock[shell]?.app ?? "";
+    deps.io.out(
+      `My account's sections: ${join(app, "src", "blocks", ACCOUNT_SECTIONS_FILE)} names the packs' sections; written again by cos add and cos upgrade.`,
+    );
+  }
   return 0;
+}
+
+/**
+ * `cos upgrade`: each app's `account-sections.gen.ts` written again from the new release, and
+ * the section blocks of the listed packs not copied yet named (`cos add` copies them).
+ */
+export function rewriteAccountSections(
+  root: string,
+  product: ClientProductDefinition,
+  kit: ClientKit,
+  io: { out(line: string): void },
+): void {
+  const lock = readLock(root);
+  if (!Object.values(ACCOUNT_SHELLS).some((shell) => lock[shell])) return;
+  const missing = writeAccountSections(root, product, kit, lock);
+  io.out(
+    missing.length
+      ? `My account's sections written again; the release has sections not copied yet (${missing.join(", ")}): run cos add web-account to copy them.`
+      : "My account's sections written again.",
+  );
 }
 
 export async function diff(argv: string[], flags: Flags, deps: Deps): Promise<number> {

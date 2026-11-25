@@ -2,6 +2,116 @@
   "version": "v1",
   "operations": [
     {
+      "name": "agreement.guestVersions",
+      "description": "The words a visitor buying without an account is asked to agree to: each version named (by the versionId of an agreements_due refusal from a buying call), as it will be recorded: its title, body, tick label, health questions and how it is agreed to. Only the version in effect of a live document attached somewhere and asked of everyone; any other id (an older version, one scheduled for later) is left out. The business's text, never anyone's personal data. Read-only.",
+      "risk": "read",
+      "audiences": ["customer"],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "versionIds": {
+            "minItems": 1,
+            "maxItems": 20,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64,
+              "description": "A version's id (agv_…), as an agreements_due refusal named it"
+            }
+          }
+        },
+        "required": ["versionIds"],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "versions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "documentId": {
+                  "type": "string"
+                },
+                "number": {
+                  "type": "number"
+                },
+                "kind": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "body": {},
+                "tickLabel": {
+                  "type": "string"
+                },
+                "questions": {
+                  "anyOf": [
+                    {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "key": {
+                            "type": "string"
+                          },
+                          "text": {
+                            "type": "string"
+                          },
+                          "noteOnYes": {
+                            "type": "boolean"
+                          }
+                        },
+                        "required": ["key", "text", "noteOnYes"],
+                        "additionalProperties": false
+                      }
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "how": {
+                  "type": "string",
+                  "enum": ["typed", "drawn"]
+                },
+                "effectiveFrom": {
+                  "type": "string"
+                },
+                "hash": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "documentId",
+                "number",
+                "kind",
+                "title",
+                "body",
+                "tickLabel",
+                "questions",
+                "how",
+                "effectiveFrom",
+                "hash"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["versions"],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
       "name": "allowance.get",
       "description": "How many uses a pass, membership or other allowance holder has spent and has left, in the period containing `at` (default now): this week or month (from Monday, or the 1st, in its time zone), or in all for a pass of N. Staff also get its uses per period (null is unlimited), whether it can be spent (live), and the dates it is valid between; a signed-in customer reads their own only, with the terms their own record shows them. Anyone else's is not found. Read-only: uses are spent by booking.",
       "risk": "read",
@@ -594,8 +704,1291 @@
       "invalidates": []
     },
     {
-      "name": "me.deleteAccount",
-      "description": "Delete your customer account and ask for your personal data to be erased. You are signed out everywhere at once and can no longer sign in. Staff then erase your data, or tell you by email why some of it must be kept, by the due date returned. Asking again changes nothing.",
+      "name": "content.search",
+      "description": "Search the published records of a content object (help pages, blog posts) by the words the public reads in them: their published versions only, never a draft or a working copy. Staff searching an object they read as published (procedures) search all its published words. Every word of two letters or more must match the start of a word, so partial input works. Best matches first, one result per record, each with its slug, title, the section the best match is in (its heading and anchor, to link to) and a highlighted snippet as plain and matching parts. Pass nextCursor back as cursor. Read-only.",
+      "risk": "read",
+      "audiences": ["customer"],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "object": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80,
+            "description": "A publishable object the public reads, e.g. `content.post`"
+          },
+          "q": {
+            "type": "string",
+            "maxLength": 200,
+            "description": "What the reader typed"
+          },
+          "cursor": {
+            "type": "string",
+            "pattern": "^\\d{1,3}$",
+            "description": "nextCursor from the previous page"
+          },
+          "limit": {
+            "default": 10,
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 50
+          }
+        },
+        "required": ["object", "q"]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "object": {
+                  "type": "string"
+                },
+                "id": {
+                  "type": "string"
+                },
+                "slug": {
+                  "type": "string",
+                  "description": "Read the record with content.get by this slug"
+                },
+                "title": {
+                  "description": "The record's title, when the public reads it",
+                  "type": ["string", "null"]
+                },
+                "titleHighlight": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "text": {
+                        "type": "string"
+                      },
+                      "match": {
+                        "type": "boolean"
+                      }
+                    },
+                    "required": ["text", "match"],
+                    "additionalProperties": false
+                  },
+                  "description": "The title in parts, matching words marked"
+                },
+                "version": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991,
+                  "description": "The published version the words are from"
+                },
+                "section": {
+                  "type": "object",
+                  "properties": {
+                    "field": {
+                      "type": "string",
+                      "description": "The content field the match is in"
+                    },
+                    "anchor": {
+                      "description": "The heading's anchor: link to `#<anchor>`. Null: the top of the record",
+                      "type": ["string", "null"]
+                    },
+                    "heading": {
+                      "type": "string",
+                      "description": "The heading's words; empty before the first heading"
+                    },
+                    "headingHighlight": {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "text": {
+                            "type": "string"
+                          },
+                          "match": {
+                            "type": "boolean"
+                          }
+                        },
+                        "required": ["text", "match"],
+                        "additionalProperties": false
+                      }
+                    }
+                  },
+                  "required": ["field", "anchor", "heading", "headingHighlight"],
+                  "additionalProperties": false,
+                  "description": "Where in the record the best match is"
+                },
+                "snippet": {
+                  "anyOf": [
+                    {
+                      "type": "array",
+                      "items": {
+                        "type": "object",
+                        "properties": {
+                          "text": {
+                            "type": "string"
+                          },
+                          "match": {
+                            "type": "boolean"
+                          }
+                        },
+                        "required": ["text", "match"],
+                        "additionalProperties": false
+                      }
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "A short excerpt of the matching words, as plain and matching parts (no HTML)"
+                }
+              },
+              "required": [
+                "object",
+                "id",
+                "slug",
+                "title",
+                "titleHighlight",
+                "version",
+                "section",
+                "snippet"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "nextCursor": {
+            "type": ["string", "null"]
+          }
+        },
+        "required": ["items", "nextCursor"],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
+      "name": "me.agreements.accept",
+      "description": "Agree to a version of a document, as a signed-in customer: for yourself, or with forPersonId for a child linked to you. Give the name you type, a signature for a document agreed to by drawing, and every answer for a health form. Recorded for good and never changed. Refused for yourself when a parent or guardian agrees for you.",
+      "risk": "write",
+      "audiences": ["customer"],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "versionId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "The version's id (agv_…), as me.agreements.due gave it"
+          },
+          "forPersonId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "A child linked to you (per_…); left out: yourself"
+          },
+          "typedName": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "description": "The name the person typed beside the box: personal data, never shown to an AI"
+          },
+          "signature": {
+            "type": "object",
+            "properties": {
+              "width": {
+                "type": "number",
+                "const": 1000
+              },
+              "height": {
+                "type": "number",
+                "const": 400
+              },
+              "strokes": {
+                "minItems": 1,
+                "maxItems": 30,
+                "type": "array",
+                "items": {
+                  "minItems": 1,
+                  "maxItems": 5000,
+                  "type": "array",
+                  "items": {
+                    "type": "array",
+                    "prefixItems": [
+                      {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 1000
+                      },
+                      {
+                        "type": "integer",
+                        "minimum": 0,
+                        "maximum": 400
+                      }
+                    ],
+                    "items": false,
+                    "minItems": 2,
+                    "maxItems": 2
+                  }
+                }
+              }
+            },
+            "required": ["width", "height", "strokes"],
+            "additionalProperties": false,
+            "description": "A drawn signature as strokes in a 1000 by 400 box: personal data"
+          },
+          "answers": {
+            "minItems": 1,
+            "maxItems": 40,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "key": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 40
+                },
+                "yes": {
+                  "type": "boolean"
+                },
+                "note": {
+                  "type": "string",
+                  "maxLength": 1000
+                }
+              },
+              "required": ["key", "yes"],
+              "additionalProperties": false
+            },
+            "description": "A health form's answers: health information, never shown to an AI or logged"
+          }
+        },
+        "required": ["versionId", "typedName"],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "documentId": {
+            "type": "string"
+          },
+          "versionNumber": {
+            "type": "number"
+          },
+          "acceptedAt": {
+            "type": "string"
+          },
+          "copyTo": {
+            "description": "The address the copy is emailed to (your sign-in address), or null for none",
+            "type": ["string", "null"]
+          }
+        },
+        "required": ["id", "documentId", "versionNumber", "acceptedAt", "copyTo"],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "me.agreements.due",
+        "me.agreements.get",
+        "me.agreements.list",
+        "me.agreements.pdf",
+        "me.attention",
+        "me.birthday.get",
+        "me.calendarFeed.status",
+        "me.family",
+        "me.get",
+        "me.portal",
+        "me.sessions.list",
+        "my.get",
+        "my.list"
+      ]
+    },
+    {
+      "name": "me.agreements.due",
+      "description": "What you, as a signed-in customer, and each child linked to you still have to agree to: each due document's version in effect, to read and agree to with me.agreements.accept. canAgree is false for someone a parent or guardian agrees for. Read-only.",
+      "risk": "read",
+      "audiences": ["customer"],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "people": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "personId": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "self": {
+                  "type": "boolean"
+                },
+                "canAgree": {
+                  "type": "boolean",
+                  "description": "False when a parent or guardian agrees for them"
+                },
+                "due": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "documentId": {
+                        "type": "string"
+                      },
+                      "kind": {
+                        "type": "string"
+                      },
+                      "title": {
+                        "type": "string"
+                      },
+                      "reason": {
+                        "type": "string",
+                        "enum": ["never", "agree_again", "ask_again", "guardian"]
+                      },
+                      "version": {
+                        "type": "object",
+                        "properties": {
+                          "id": {
+                            "type": "string"
+                          },
+                          "documentId": {
+                            "type": "string"
+                          },
+                          "number": {
+                            "type": "number"
+                          },
+                          "kind": {
+                            "type": "string"
+                          },
+                          "title": {
+                            "type": "string"
+                          },
+                          "body": {},
+                          "tickLabel": {
+                            "type": "string"
+                          },
+                          "questions": {
+                            "anyOf": [
+                              {
+                                "type": "array",
+                                "items": {
+                                  "type": "object",
+                                  "properties": {
+                                    "key": {
+                                      "type": "string"
+                                    },
+                                    "text": {
+                                      "type": "string"
+                                    },
+                                    "noteOnYes": {
+                                      "type": "boolean"
+                                    }
+                                  },
+                                  "required": ["key", "text", "noteOnYes"],
+                                  "additionalProperties": false
+                                }
+                              },
+                              {
+                                "type": "null"
+                              }
+                            ]
+                          },
+                          "how": {
+                            "type": "string",
+                            "enum": ["typed", "drawn"]
+                          },
+                          "effectiveFrom": {
+                            "type": "string"
+                          },
+                          "hash": {
+                            "type": "string"
+                          }
+                        },
+                        "required": [
+                          "id",
+                          "documentId",
+                          "number",
+                          "kind",
+                          "title",
+                          "body",
+                          "tickLabel",
+                          "questions",
+                          "how",
+                          "effectiveFrom",
+                          "hash"
+                        ],
+                        "additionalProperties": false
+                      }
+                    },
+                    "required": ["documentId", "kind", "title", "reason", "version"],
+                    "additionalProperties": false
+                  }
+                }
+              },
+              "required": ["personId", "name", "self", "canAgree", "due"],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["people"],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
+      "name": "me.agreements.get",
+      "description": "One of your acceptances, or a linked child's, as a signed-in customer: the version as you were shown it, a health form's answers, and the name typed and the signature drawn when you are the one who agreed (another guardian's are not shown). Read-only.",
+      "risk": "read",
+      "audiences": ["customer"],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "The acceptance's id (aga_…)"
+          }
+        },
+        "required": ["id"]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "documentId": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string"
+          },
+          "versionId": {
+            "type": "string"
+          },
+          "versionNumber": {
+            "type": "number"
+          },
+          "personId": {
+            "type": ["string", "null"]
+          },
+          "by": {
+            "type": "string",
+            "enum": ["self", "guardian", "guest", "paper"]
+          },
+          "how": {
+            "type": "string",
+            "enum": ["typed", "drawn", "paper"]
+          },
+          "channel": {
+            "type": "string",
+            "enum": ["web", "app", "paper", "desk"]
+          },
+          "acceptedAt": {
+            "type": "string"
+          },
+          "agentPersonId": {
+            "description": "The guardian who agreed for a dependant",
+            "type": ["string", "null"]
+          },
+          "recordedBy": {
+            "description": "Paper: the staff user who recorded it",
+            "type": ["string", "null"]
+          },
+          "signedOn": {
+            "description": "Paper: the date on the form",
+            "type": ["string", "null"]
+          },
+          "counts": {
+            "type": "boolean",
+            "description": "Whether it is the acceptance that counts for its document now"
+          },
+          "version": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "documentId": {
+                "type": "string"
+              },
+              "number": {
+                "type": "number"
+              },
+              "kind": {
+                "type": "string"
+              },
+              "title": {
+                "type": "string"
+              },
+              "body": {},
+              "tickLabel": {
+                "type": "string"
+              },
+              "questions": {
+                "anyOf": [
+                  {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "key": {
+                          "type": "string"
+                        },
+                        "text": {
+                          "type": "string"
+                        },
+                        "noteOnYes": {
+                          "type": "boolean"
+                        }
+                      },
+                      "required": ["key", "text", "noteOnYes"],
+                      "additionalProperties": false
+                    }
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "how": {
+                "type": "string",
+                "enum": ["typed", "drawn"]
+              },
+              "effectiveFrom": {
+                "type": "string"
+              },
+              "hash": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "id",
+              "documentId",
+              "number",
+              "kind",
+              "title",
+              "body",
+              "tickLabel",
+              "questions",
+              "how",
+              "effectiveFrom",
+              "hash"
+            ],
+            "additionalProperties": false
+          },
+          "typedName": {
+            "type": ["string", "null"]
+          },
+          "signature": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "width": {
+                    "type": "number"
+                  },
+                  "height": {
+                    "type": "number"
+                  },
+                  "strokes": {
+                    "type": "array",
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "type": "array",
+                        "items": {
+                          "type": "number"
+                        }
+                      }
+                    }
+                  }
+                },
+                "required": ["width", "height", "strokes"],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "answers": {
+            "anyOf": [
+              {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "key": {
+                      "type": "string"
+                    },
+                    "yes": {
+                      "type": "boolean"
+                    },
+                    "note": {
+                      "type": "string"
+                    }
+                  },
+                  "required": ["key", "yes"],
+                  "additionalProperties": false
+                }
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "documentId",
+          "title",
+          "kind",
+          "versionId",
+          "versionNumber",
+          "personId",
+          "by",
+          "how",
+          "channel",
+          "acceptedAt",
+          "agentPersonId",
+          "recordedBy",
+          "signedOn",
+          "counts",
+          "version",
+          "typedName",
+          "signature",
+          "answers"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
+      "name": "me.agreements.list",
+      "description": "Your agreements, as a signed-in customer, and those of each child linked to you: every acceptance, newest first, with the document, the version, who agreed and how, and whether it is the one that counts now. me.agreements.get reads one. Read-only.",
+      "risk": "read",
+      "audiences": ["customer"],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "documentId": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "kind": {
+                  "type": "string"
+                },
+                "versionId": {
+                  "type": "string"
+                },
+                "versionNumber": {
+                  "type": "number"
+                },
+                "personId": {
+                  "type": ["string", "null"]
+                },
+                "by": {
+                  "type": "string",
+                  "enum": ["self", "guardian", "guest", "paper"]
+                },
+                "how": {
+                  "type": "string",
+                  "enum": ["typed", "drawn", "paper"]
+                },
+                "channel": {
+                  "type": "string",
+                  "enum": ["web", "app", "paper", "desk"]
+                },
+                "acceptedAt": {
+                  "type": "string"
+                },
+                "agentPersonId": {
+                  "description": "The guardian who agreed for a dependant",
+                  "type": ["string", "null"]
+                },
+                "recordedBy": {
+                  "description": "Paper: the staff user who recorded it",
+                  "type": ["string", "null"]
+                },
+                "signedOn": {
+                  "description": "Paper: the date on the form",
+                  "type": ["string", "null"]
+                },
+                "counts": {
+                  "type": "boolean",
+                  "description": "Whether it is the acceptance that counts for its document now"
+                }
+              },
+              "required": [
+                "id",
+                "documentId",
+                "title",
+                "kind",
+                "versionId",
+                "versionNumber",
+                "personId",
+                "by",
+                "how",
+                "channel",
+                "acceptedAt",
+                "agentPersonId",
+                "recordedBy",
+                "signedOn",
+                "counts"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["items"],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
+      "name": "me.agreements.pdf",
+      "description": "The signed PDF of one of your acceptances, as a signed-in customer, or a linked child's: the version as you were shown it and the record of who agreed, how and when, with a health form's answers. The name typed and the signature drawn are in it when you are the one who agreed. Built when asked, never stored. Read-only.",
+      "risk": "read",
+      "audiences": ["customer"],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "acceptanceId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "The acceptance's id (aga_…)"
+          }
+        },
+        "required": ["acceptanceId"],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "filename": {
+            "type": "string",
+            "description": "The file name to save it as"
+          },
+          "document": {
+            "type": "object",
+            "properties": {
+              "business": {
+                "type": "string"
+              },
+              "title": {
+                "type": "string"
+              },
+              "versionNumber": {
+                "type": "number"
+              },
+              "versionHash": {
+                "type": "string"
+              },
+              "body": {
+                "type": "object",
+                "properties": {
+                  "blocks": {
+                    "type": "array",
+                    "items": {}
+                  }
+                },
+                "required": ["blocks"],
+                "additionalProperties": false
+              },
+              "tickLabel": {
+                "type": "string"
+              },
+              "questions": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "key": {
+                      "type": "string"
+                    },
+                    "text": {
+                      "type": "string"
+                    }
+                  },
+                  "required": ["key", "text"],
+                  "additionalProperties": false
+                }
+              },
+              "answers": {
+                "anyOf": [
+                  {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "key": {
+                          "type": "string"
+                        },
+                        "yes": {
+                          "type": "boolean"
+                        },
+                        "note": {
+                          "type": "string"
+                        }
+                      },
+                      "required": ["key", "yes"],
+                      "additionalProperties": false
+                    }
+                  },
+                  {
+                    "type": "string",
+                    "const": "in-app"
+                  },
+                  {
+                    "type": "string",
+                    "const": "withheld"
+                  }
+                ]
+              },
+              "record": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "label": {
+                      "type": "string"
+                    },
+                    "value": {
+                      "type": "string"
+                    }
+                  },
+                  "required": ["label", "value"],
+                  "additionalProperties": false
+                }
+              },
+              "signature": {
+                "type": "object",
+                "properties": {
+                  "width": {
+                    "type": "number"
+                  },
+                  "height": {
+                    "type": "number"
+                  },
+                  "strokes": {
+                    "type": "array",
+                    "items": {
+                      "type": "array",
+                      "items": {
+                        "type": "array",
+                        "items": {
+                          "type": "number"
+                        }
+                      }
+                    }
+                  }
+                },
+                "required": ["width", "height", "strokes"],
+                "additionalProperties": false
+              },
+              "acceptanceId": {
+                "type": "string"
+              },
+              "blank": {
+                "type": "boolean"
+              }
+            },
+            "required": ["business", "title", "versionNumber", "versionHash", "body", "tickLabel"],
+            "additionalProperties": false,
+            "description": "What the signed PDF says; the download route draws it"
+          }
+        },
+        "required": ["filename", "document"],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
+      "name": "me.attention",
+      "description": "What needs your attention, as a signed-in customer, soonest first: a document to agree to (for you or a child linked to you), a card payment that failed, a payment waiting for you to confirm with your bank, the rest of a deposit to pay, an order you started paying for and did not finish, a pass about to expire with uses left or with none left (yours or a child's), and a free trial about to end. `days` is how far ahead it looks for a pass or a trial ending. An item goes once its cause is fixed. Read-only.",
+      "risk": "read",
+      "audiences": ["customer"],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "days": {
+            "type": "number",
+            "description": "How many days ahead a pass or trial ending is listed"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "key": {
+                  "type": "string",
+                  "description": "Stable for the same cause: kind, record and Person"
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "agree",
+                    "card_failing",
+                    "confirm_payment",
+                    "balance_due",
+                    "finish_paying",
+                    "pass_expiring",
+                    "pass_used_up",
+                    "trial_ending"
+                  ],
+                  "description": "agree: a document to agree to (me.agreements.due has it). card_failing: a card payment for a subscription you pay failed. confirm_payment: a payment waits for you to confirm it with your bank. balance_due: the rest of a deposit to pay. finish_paying: an order holding places you started paying for and did not finish. pass_expiring: a pass about to expire with uses still on it. pass_used_up: a pass with no uses left. trial_ending: a free trial about to end."
+                },
+                "person": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "name": {
+                      "type": "string"
+                    },
+                    "self": {
+                      "type": "boolean"
+                    }
+                  },
+                  "required": ["id", "name", "self"],
+                  "additionalProperties": false,
+                  "description": "Whose it is: you (self), or a child linked to you"
+                },
+                "record": {
+                  "type": "object",
+                  "properties": {
+                    "object": {
+                      "type": "string"
+                    },
+                    "id": {
+                      "type": "string"
+                    },
+                    "title": {
+                      "type": "string"
+                    }
+                  },
+                  "required": ["object", "id", "title"],
+                  "additionalProperties": false,
+                  "description": "What it is about: an agreement document, a subscription, an order, or a pass by its object"
+                },
+                "at": {
+                  "description": "The moment it is about: the version taking effect, the first failed payment, the payment started, the balance due, the held order expiring, the pass or trial ending",
+                  "type": ["string", "null"]
+                },
+                "amount": {
+                  "description": "Money due or to be charged, in the currency's minor unit; null where none",
+                  "type": ["number", "null"]
+                },
+                "currency": {
+                  "type": ["string", "null"]
+                },
+                "usesLeft": {
+                  "description": "A pass's uses left; null for other kinds",
+                  "type": ["number", "null"]
+                }
+              },
+              "required": [
+                "key",
+                "kind",
+                "person",
+                "record",
+                "at",
+                "amount",
+                "currency",
+                "usesLeft"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["days", "items"],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
+      "name": "me.birthday.get",
+      "description": "Your birthday as the business has it, as a signed-in customer: day and month only, or null when none is recorded. Read-only.",
+      "risk": "read",
+      "audiences": ["customer"],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "birthday": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "day": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 31,
+                    "description": "Day of the month, 1 to 31"
+                  },
+                  "month": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 12,
+                    "description": "Month, 1 (January) to 12 (December)"
+                  }
+                },
+                "required": ["day", "month"],
+                "additionalProperties": false,
+                "description": "A birthday: day and month only, never a year"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Day and month; null when none is recorded"
+          }
+        },
+        "required": ["birthday"],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
+      "name": "me.birthday.set",
+      "description": "Give your birthday, as a signed-in customer: day and month only, never a year; null removes it. The business may send you a message on the day. Returns your birthday.",
+      "risk": "write",
+      "audiences": ["customer"],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "birthday": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "day": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 31,
+                    "description": "Day of the month, 1 to 31"
+                  },
+                  "month": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 12,
+                    "description": "Month, 1 (January) to 12 (December)"
+                  }
+                },
+                "required": ["day", "month"],
+                "additionalProperties": false,
+                "description": "A birthday: day and month only, never a year"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Day and month; null when none is recorded"
+          }
+        },
+        "required": ["birthday"],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "birthday": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "day": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 31,
+                    "description": "Day of the month, 1 to 31"
+                  },
+                  "month": {
+                    "type": "integer",
+                    "minimum": 1,
+                    "maximum": 12,
+                    "description": "Month, 1 (January) to 12 (December)"
+                  }
+                },
+                "required": ["day", "month"],
+                "additionalProperties": false,
+                "description": "A birthday: day and month only, never a year"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Day and month; null when none is recorded"
+          }
+        },
+        "required": ["birthday"],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "me.agreements.due",
+        "me.agreements.get",
+        "me.agreements.list",
+        "me.agreements.pdf",
+        "me.attention",
+        "me.birthday.get",
+        "me.calendarFeed.status",
+        "me.family",
+        "me.get",
+        "me.portal",
+        "me.sessions.list",
+        "my.get",
+        "my.list"
+      ]
+    },
+    {
+      "name": "me.calendarFeed.revoke",
+      "description": "Turn off your private calendar link, as a signed-in customer: it then answers as if it never existed (a calendar app subscribed to it keeps what it last fetched, and gets no more). Make a new one with me.calendarFeed.rotate.",
+      "risk": "write",
+      "audiences": ["customer"],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "revoked": {
+            "type": "boolean"
+          }
+        },
+        "required": ["revoked"],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "me.agreements.due",
+        "me.agreements.get",
+        "me.agreements.list",
+        "me.agreements.pdf",
+        "me.attention",
+        "me.birthday.get",
+        "me.calendarFeed.status",
+        "me.family",
+        "me.get",
+        "me.portal",
+        "me.sessions.list",
+        "my.get",
+        "my.list"
+      ]
+    },
+    {
+      "name": "me.calendarFeed.rotate",
+      "description": "A new private link for your calendar, as a signed-in customer: your bookings and your children's, from two weeks ago to four months ahead, for a calendar app to subscribe to. It replaces any old link, which stops working at once. The link is shown this once and never again: anyone who has it sees your bookings, so do not share it. Your own act.",
+      "risk": "write",
+      "audiences": ["customer"],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "path": {
+            "type": "string",
+            "description": "The link's address on this host (put the host's origin before it; webcal:// opens it in a calendar app). Shown once."
+          },
+          "createdAt": {
+            "type": "string"
+          }
+        },
+        "required": ["path", "createdAt"],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "me.agreements.due",
+        "me.agreements.get",
+        "me.agreements.list",
+        "me.agreements.pdf",
+        "me.attention",
+        "me.birthday.get",
+        "me.calendarFeed.status",
+        "me.family",
+        "me.get",
+        "me.portal",
+        "me.sessions.list",
+        "my.get",
+        "my.list"
+      ]
+    },
+    {
+      "name": "me.calendarFeed.status",
+      "description": "Whether you have a private calendar link (your bookings, and your children's, for a calendar app to subscribe to), and when it was made, as a signed-in customer. Never the link itself: it is shown once, when made. Read-only.",
+      "risk": "read",
+      "audiences": ["customer"],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "active": {
+            "type": "boolean",
+            "description": "Whether a calendar link exists (it is never shown again)"
+          },
+          "createdAt": {
+            "description": "When the current link was made",
+            "type": ["string", "null"]
+          }
+        },
+        "required": ["active", "createdAt"],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
+      "name": "me.code",
+      "description": "Your check-in code, as a signed-in customer: the code to hold up at the gym's check-in tablet, and one for each child linked to you (by their given name), each changing every 30 seconds. It works only while this sign-in lasts. In the native app it also carries the secret the app makes the code from offline. Made the first time it is asked for on a sign-in.",
       "risk": "write",
       "audiences": ["customer"],
       "kind": "mutation",
@@ -607,31 +2000,417 @@
       "output": {
         "type": "object",
         "properties": {
-          "disabled": {
-            "type": "boolean",
-            "const": true
+          "codes": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "givenName": {
+                  "type": ["string", "null"]
+                },
+                "own": {
+                  "type": "boolean"
+                },
+                "payload": {
+                  "type": "string"
+                },
+                "secret": {
+                  "type": ["string", "null"]
+                }
+              },
+              "required": ["givenName", "own", "payload", "secret"],
+              "additionalProperties": false
+            }
           },
-          "sessionsEnded": {
-            "type": "number"
+          "refreshAt": {
+            "type": "string"
           },
-          "eraseRequest": {
+          "algorithm": {
             "type": "object",
             "properties": {
-              "requestedAt": {
-                "type": "string"
+              "kind": {
+                "type": "string",
+                "const": "totp"
               },
-              "dueAt": {
-                "type": "string"
+              "hash": {
+                "type": "string",
+                "const": "SHA-1"
+              },
+              "periodSeconds": {
+                "type": "number"
+              },
+              "digits": {
+                "type": "number"
               }
             },
-            "required": ["requestedAt", "dueAt"],
+            "required": ["kind", "hash", "periodSeconds", "digits"],
             "additionalProperties": false
           }
         },
-        "required": ["disabled", "sessionsEnded", "eraseRequest"],
+        "required": ["codes", "refreshAt", "algorithm"],
         "additionalProperties": false
       },
-      "invalidates": ["me.family", "me.get", "me.sessions.list", "my.get", "my.list"]
+      "invalidates": [
+        "me.agreements.due",
+        "me.agreements.get",
+        "me.agreements.list",
+        "me.agreements.pdf",
+        "me.attention",
+        "me.birthday.get",
+        "me.calendarFeed.status",
+        "me.family",
+        "me.get",
+        "me.portal",
+        "me.sessions.list",
+        "my.get",
+        "my.list"
+      ]
+    },
+    {
+      "name": "me.deleteAccount",
+      "description": "Delete your customer account and ask for your personal data to be erased, signed in within the last 15 minutes (else sign_in_again, for the preview too). Without `confirm` it changes nothing and says what will happen: each subscription you pay ends when the period already paid for ends (nothing refunded, nothing more charged), or with a cooling off you asked for; one that cannot be ended that way (an end date set later, or waiting for payment, unpaid or paused) is left for staff and may charge until they end it. Your unpaid orders are cancelled, and your bookings, tickets and other records stay for staff to decide when they erase your data. With `confirm: true` and the preview's `expect` it does that: you are signed out everywhere at once and can no longer sign in, and staff erase your data, or tell you by email why some of it must be kept, by the due date returned. A preview that changed meanwhile is a conflict: ask for it again.",
+      "risk": "write",
+      "audiences": ["customer"],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "confirm": {
+            "default": false,
+            "description": "Delete now, as the preview said",
+            "type": "boolean"
+          },
+          "expect": {
+            "description": "The preview's `expect`; required with confirm: true",
+            "type": "string",
+            "maxLength": 64
+          }
+        },
+        "additionalProperties": false
+      },
+      "output": {
+        "oneOf": [
+          {
+            "type": "object",
+            "properties": {
+              "subscriptions": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "title": {
+                      "type": "string"
+                    },
+                    "amount": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    "currency": {
+                      "type": "string"
+                    },
+                    "interval": {
+                      "type": "string"
+                    },
+                    "endsAt": {
+                      "description": "When it stops: the end of the period paid for, or an earlier end already set",
+                      "type": ["string", "null"]
+                    },
+                    "ending": {
+                      "type": "string",
+                      "enum": ["period_end", "already", "cooling_off"],
+                      "description": "period_end: it will be set to end then. already: it already ends by then. cooling_off: the cooling off you asked for ends it, with its refund"
+                    }
+                  },
+                  "required": ["id", "title", "amount", "currency", "interval", "endsAt", "ending"],
+                  "additionalProperties": false
+                },
+                "description": "Subscriptions you pay that will end when the period already paid for ends. Nothing is refunded and nothing more is charged"
+              },
+              "orders": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "total": {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    "currency": {
+                      "type": "string"
+                    },
+                    "createdAt": {
+                      "type": "string"
+                    },
+                    "lines": {
+                      "type": "array",
+                      "items": {
+                        "type": "string"
+                      }
+                    }
+                  },
+                  "required": ["id", "total", "currency", "createdAt", "lines"],
+                  "additionalProperties": false
+                },
+                "description": "Your unpaid orders, which will be cancelled"
+              },
+              "leftForStaff": {
+                "type": "object",
+                "properties": {
+                  "records": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "object": {
+                          "type": "string"
+                        },
+                        "label": {
+                          "type": "string"
+                        },
+                        "count": {
+                          "type": "number"
+                        }
+                      },
+                      "required": ["object", "label", "count"],
+                      "additionalProperties": false
+                    }
+                  },
+                  "partPaidOrders": {
+                    "type": "number"
+                  },
+                  "moreUnpaidOrders": {
+                    "type": "number"
+                  },
+                  "subscriptions": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string"
+                        },
+                        "title": {
+                          "type": "string"
+                        },
+                        "state": {
+                          "type": "string"
+                        },
+                        "why": {
+                          "type": "string",
+                          "enum": ["end_date_later", "state", "more"]
+                        }
+                      },
+                      "required": ["id", "title", "state", "why"],
+                      "additionalProperties": false
+                    },
+                    "description": "Subscriptions you pay that deleting does not end, which may still charge until staff end them: an end date set after the period paid for (end_date_later), waiting for a first payment, unpaid or paused (state), or more than one deletion ends (more)"
+                  },
+                  "dependantsWithoutGuardian": {
+                    "type": "number"
+                  }
+                },
+                "required": [
+                  "records",
+                  "partPaidOrders",
+                  "moreUnpaidOrders",
+                  "subscriptions",
+                  "dependantsWithoutGuardian"
+                ],
+                "additionalProperties": false,
+                "description": "What stays for staff to decide when they erase your data: your bookings, tickets and other open records by kind, part-paid orders, and children with no other guardian"
+              },
+              "eraseDueAt": {
+                "type": "string",
+                "description": "When staff must have erased your data or said why not"
+              },
+              "expect": {
+                "type": "string",
+                "description": "Pass back with confirm: true to do exactly this"
+              },
+              "deleted": {
+                "type": "boolean",
+                "const": false
+              }
+            },
+            "required": [
+              "subscriptions",
+              "orders",
+              "leftForStaff",
+              "eraseDueAt",
+              "expect",
+              "deleted"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "deleted": {
+                "type": "boolean",
+                "const": true
+              },
+              "disabled": {
+                "type": "boolean",
+                "const": true
+              },
+              "sessionsEnded": {
+                "type": "number"
+              },
+              "subscriptionsEnding": {
+                "type": "number"
+              },
+              "ordersCancelled": {
+                "type": "number"
+              },
+              "eraseRequest": {
+                "type": "object",
+                "properties": {
+                  "requestedAt": {
+                    "type": "string"
+                  },
+                  "dueAt": {
+                    "type": "string"
+                  }
+                },
+                "required": ["requestedAt", "dueAt"],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "deleted",
+              "disabled",
+              "sessionsEnded",
+              "subscriptionsEnding",
+              "ordersCancelled",
+              "eraseRequest"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "invalidates": [
+        "me.agreements.due",
+        "me.agreements.get",
+        "me.agreements.list",
+        "me.agreements.pdf",
+        "me.attention",
+        "me.birthday.get",
+        "me.calendarFeed.status",
+        "me.family",
+        "me.get",
+        "me.portal",
+        "me.sessions.list",
+        "my.get",
+        "my.list"
+      ]
+    },
+    {
+      "name": "me.email.change",
+      "description": "Ask to change the address you sign in with, as a signed-in customer who signed in within the last 15 minutes (else sign_in_again). A code is emailed to the new address; enter it with me.email.confirm within 15 minutes. Nothing changes until then. Asking again replaces the earlier request. The answer is the same whatever the address: whether it can be used is said only when the code is entered.",
+      "risk": "write",
+      "audiences": ["customer"],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 320,
+            "description": "The new sign-in address"
+          }
+        },
+        "required": ["email"],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "newEmail": {
+            "type": "string",
+            "description": "The address the code was sent to"
+          },
+          "expiresAt": {
+            "type": "string",
+            "description": "When the code stops working"
+          }
+        },
+        "required": ["newEmail", "expiresAt"],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "me.agreements.due",
+        "me.agreements.get",
+        "me.agreements.list",
+        "me.agreements.pdf",
+        "me.attention",
+        "me.birthday.get",
+        "me.calendarFeed.status",
+        "me.family",
+        "me.get",
+        "me.portal",
+        "me.sessions.list",
+        "my.get",
+        "my.list"
+      ]
+    },
+    {
+      "name": "me.email.confirm",
+      "description": "Finish changing your sign-in address with the code emailed to the new address, as the signed-in customer it was asked for (by you, or by staff for you), signed in within the last 15 minutes (else sign_in_again; the code keeps working). From then on you sign in with the new address, which is also your primary email; the old one is removed from your details and told of the change; every other place you are signed in is signed out. A wrong code five times ends the request. Refused, changing nothing, when the new address is already in use at the business.",
+      "risk": "write",
+      "audiences": ["customer"],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 20,
+            "description": "The emailed code"
+          }
+        },
+        "required": ["code"],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "signInEmail": {
+            "type": "string",
+            "description": "Your sign-in address now"
+          },
+          "sessionsEnded": {
+            "type": "number",
+            "description": "Other sessions signed out"
+          }
+        },
+        "required": ["signInEmail", "sessionsEnded"],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "me.agreements.due",
+        "me.agreements.get",
+        "me.agreements.list",
+        "me.agreements.pdf",
+        "me.attention",
+        "me.birthday.get",
+        "me.calendarFeed.status",
+        "me.family",
+        "me.get",
+        "me.portal",
+        "me.sessions.list",
+        "my.get",
+        "my.list"
+      ]
     },
     {
       "name": "me.family",
@@ -752,6 +2531,283 @@
       "invalidates": []
     },
     {
+      "name": "me.phone.check",
+      "description": "Checks the code a text sent to one of your own numbers (me.phone.startCheck). A match marks the number as checked: your routine texts may go to it.",
+      "risk": "write",
+      "audiences": ["customer"],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "number": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 40,
+            "description": "One of your own numbers, as it is in your details"
+          },
+          "code": {
+            "type": "string",
+            "pattern": "^\\d{4,10}$"
+          }
+        },
+        "required": ["number", "code"],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "checked": {
+            "type": "boolean"
+          }
+        },
+        "required": ["checked"],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "me.agreements.due",
+        "me.agreements.get",
+        "me.agreements.list",
+        "me.agreements.pdf",
+        "me.attention",
+        "me.birthday.get",
+        "me.calendarFeed.status",
+        "me.family",
+        "me.get",
+        "me.portal",
+        "me.sessions.list",
+        "my.get",
+        "my.list"
+      ]
+    },
+    {
+      "name": "me.phone.startCheck",
+      "description": "Sends a code by text to one of your own mobile numbers, to check it is yours. Type it back with me.phone.check within 10 minutes. At most three codes a day.",
+      "risk": "write",
+      "audiences": ["customer"],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "number": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 40,
+            "description": "One of your own numbers, as it is in your details"
+          }
+        },
+        "required": ["number"],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "started": {
+            "type": "boolean",
+            "const": true
+          },
+          "number": {
+            "type": "string",
+            "description": "The number the code went to, partly hidden"
+          },
+          "minutes": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991,
+            "description": "How long the code may be typed back"
+          }
+        },
+        "required": ["started", "number", "minutes"],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "me.agreements.due",
+        "me.agreements.get",
+        "me.agreements.list",
+        "me.agreements.pdf",
+        "me.attention",
+        "me.birthday.get",
+        "me.calendarFeed.status",
+        "me.family",
+        "me.get",
+        "me.portal",
+        "me.sessions.list",
+        "my.get",
+        "my.list"
+      ]
+    },
+    {
+      "name": "me.pin.clear",
+      "description": "Remove your PIN, as a signed-in customer: nobody can then check in as you by name and PIN. Your check-in code and cards still work. Clearing when there is none changes nothing.",
+      "risk": "write",
+      "audiences": ["customer"],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "cleared": {
+            "type": "boolean"
+          }
+        },
+        "required": ["cleared"],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "me.agreements.due",
+        "me.agreements.get",
+        "me.agreements.list",
+        "me.agreements.pdf",
+        "me.attention",
+        "me.birthday.get",
+        "me.calendarFeed.status",
+        "me.family",
+        "me.get",
+        "me.portal",
+        "me.sessions.list",
+        "my.get",
+        "my.list"
+      ]
+    },
+    {
+      "name": "me.pin.set",
+      "description": "Choose your 4-digit PIN, as a signed-in customer, to check in at the gym's tablet by typing your full name and the PIN when you do not have your phone. The most common PINs (1234, 0000 and the like) are refused. Setting it again replaces it, and turns it back on after too many wrong tries turned it off.",
+      "risk": "write",
+      "audiences": ["customer"],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "pin": {
+            "type": "string",
+            "maxLength": 16,
+            "description": "4 digits"
+          }
+        },
+        "required": ["pin"],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "set": {
+            "type": "boolean",
+            "const": true
+          }
+        },
+        "required": ["set"],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "me.agreements.due",
+        "me.agreements.get",
+        "me.agreements.list",
+        "me.agreements.pdf",
+        "me.attention",
+        "me.birthday.get",
+        "me.calendarFeed.status",
+        "me.family",
+        "me.get",
+        "me.portal",
+        "me.sessions.list",
+        "my.get",
+        "my.list"
+      ]
+    },
+    {
+      "name": "me.portal",
+      "description": "The sections of your account, as a signed-in customer, in the order they show: your orders, agreements, family, payment method (only when you pay a subscription), details and where you are signed in, and each installed pack's section (bookings, memberships and passes, courses, tickets, training) when you, or a child linked to you, have something there. `paysSubscription` says whether you pay a subscription. Read-only.",
+      "risk": "read",
+      "audiences": ["customer"],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "sections": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "key": {
+                  "type": "string",
+                  "description": "A base section's key (orders, agreements, family, payment, details, devices), or a pack's as <pack>.<key>"
+                },
+                "pack": {
+                  "description": "The pack the section is from; null for a base section",
+                  "type": ["string", "null"]
+                },
+                "label": {
+                  "type": "string"
+                },
+                "order": {
+                  "type": "number",
+                  "description": "Lower first: a pack's sections come before the base ones"
+                },
+                "web": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "block": {
+                          "type": "string"
+                        },
+                        "export": {
+                          "type": "string"
+                        }
+                      },
+                      "required": ["block", "export"],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "The block of the client app that draws a pack's section, and its component"
+                },
+                "native": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "block": {
+                          "type": "string"
+                        },
+                        "export": {
+                          "type": "string"
+                        }
+                      },
+                      "required": ["block", "export"],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "The block of the client app that draws a pack's section, and its component"
+                }
+              },
+              "required": ["key", "pack", "label", "order", "web", "native"],
+              "additionalProperties": false
+            }
+          },
+          "paysSubscription": {
+            "type": "boolean",
+            "description": "Whether you pay a subscription that has not ended"
+          }
+        },
+        "required": ["sections", "paysSubscription"],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
       "name": "me.sessions.list",
       "description": "The places you are signed in, as a signed-in customer: each session's id, whether it is a browser or an app on a device (with the device's name), when it began, when it was last used and when it expires, and which one is this one. Read-only.",
       "risk": "read",
@@ -842,7 +2898,21 @@
         "required": ["id", "revoked"],
         "additionalProperties": false
       },
-      "invalidates": ["me.family", "me.get", "me.sessions.list", "my.get", "my.list"]
+      "invalidates": [
+        "me.agreements.due",
+        "me.agreements.get",
+        "me.agreements.list",
+        "me.agreements.pdf",
+        "me.attention",
+        "me.birthday.get",
+        "me.calendarFeed.status",
+        "me.family",
+        "me.get",
+        "me.portal",
+        "me.sessions.list",
+        "my.get",
+        "my.list"
+      ]
     },
     {
       "name": "me.signOut",
@@ -864,11 +2934,25 @@
         "required": ["signedOut"],
         "additionalProperties": false
       },
-      "invalidates": ["me.family", "me.get", "me.sessions.list", "my.get", "my.list"]
+      "invalidates": [
+        "me.agreements.due",
+        "me.agreements.get",
+        "me.agreements.list",
+        "me.agreements.pdf",
+        "me.attention",
+        "me.birthday.get",
+        "me.calendarFeed.status",
+        "me.family",
+        "me.get",
+        "me.portal",
+        "me.sessions.list",
+        "my.get",
+        "my.list"
+      ]
     },
     {
       "name": "me.update",
-      "description": "Change your own name or primary phone, as a signed-in customer. Only the fields you pass change; pass null to clear one. Your email cannot be changed here. Returns your Person.",
+      "description": "Change your own name or primary phone, as a signed-in customer. Only the fields you pass change; pass null to clear one. Your email cannot be changed here: change your sign-in address with me.email.change and me.email.confirm. Returns your Person.",
       "risk": "write",
       "audiences": ["customer"],
       "kind": "mutation",
@@ -948,7 +3032,21 @@
         ],
         "additionalProperties": false
       },
-      "invalidates": ["me.family", "me.get", "me.sessions.list", "my.get", "my.list"]
+      "invalidates": [
+        "me.agreements.due",
+        "me.agreements.get",
+        "me.agreements.list",
+        "me.agreements.pdf",
+        "me.attention",
+        "me.birthday.get",
+        "me.calendarFeed.status",
+        "me.family",
+        "me.get",
+        "me.portal",
+        "me.sessions.list",
+        "my.get",
+        "my.list"
+      ]
     },
     {
       "name": "media.play",
@@ -1401,6 +3499,10 @@
             "description": "The country the latest taxed payment was for",
             "type": ["string", "null"]
           },
+          "discount": {
+            "type": "number",
+            "description": "Money taken off the order (its discounts), already out of the total"
+          },
           "lines": {
             "type": "array",
             "items": {
@@ -1433,6 +3535,10 @@
                 "taxAmount": {
                   "type": "number",
                   "description": "The tax inside this line's payments, as the payment provider calculated it"
+                },
+                "discount": {
+                  "type": "number",
+                  "description": "The line's share of the order's discounts: it costs total less this"
                 }
               },
               "required": [
@@ -1444,7 +3550,62 @@
                 "quantity",
                 "unitPrice",
                 "total",
-                "taxAmount"
+                "taxAmount",
+                "discount"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "adjustments": {
+            "description": "Staff only: the discounts on the order, in the order they were given",
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "lineId": {
+                  "description": "The line it is on; null: spread over the order",
+                  "type": ["string", "null"]
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": ["code", "automatic", "staff", "referral"]
+                },
+                "amount": {
+                  "type": "number",
+                  "description": "What it took off, in the currency's minor unit"
+                },
+                "percent": {
+                  "description": "The percentage asked for, when it was one",
+                  "type": ["number", "null"]
+                },
+                "reason": {
+                  "type": ["string", "null"]
+                },
+                "givenBy": {
+                  "description": "The staff account that gave it",
+                  "type": ["string", "null"]
+                },
+                "approval": {
+                  "description": "The approval it waited in, when it did",
+                  "type": ["string", "null"]
+                },
+                "createdAt": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "lineId",
+                "kind",
+                "amount",
+                "percent",
+                "reason",
+                "givenBy",
+                "approval",
+                "createdAt"
               ],
               "additionalProperties": false
             }
@@ -1477,6 +3638,7 @@
           "taxAmount",
           "taxRefunded",
           "taxCountry",
+          "discount",
           "lines"
         ],
         "additionalProperties": false
@@ -1620,6 +3782,10 @@
             "description": "The country the latest taxed payment was for",
             "type": ["string", "null"]
           },
+          "discount": {
+            "type": "number",
+            "description": "Money taken off the order (its discounts), already out of the total"
+          },
           "lines": {
             "type": "array",
             "items": {
@@ -1652,6 +3818,10 @@
                 "taxAmount": {
                   "type": "number",
                   "description": "The tax inside this line's payments, as the payment provider calculated it"
+                },
+                "discount": {
+                  "type": "number",
+                  "description": "The line's share of the order's discounts: it costs total less this"
                 }
               },
               "required": [
@@ -1663,7 +3833,62 @@
                 "quantity",
                 "unitPrice",
                 "total",
-                "taxAmount"
+                "taxAmount",
+                "discount"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "adjustments": {
+            "description": "Staff only: the discounts on the order, in the order they were given",
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "lineId": {
+                  "description": "The line it is on; null: spread over the order",
+                  "type": ["string", "null"]
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": ["code", "automatic", "staff", "referral"]
+                },
+                "amount": {
+                  "type": "number",
+                  "description": "What it took off, in the currency's minor unit"
+                },
+                "percent": {
+                  "description": "The percentage asked for, when it was one",
+                  "type": ["number", "null"]
+                },
+                "reason": {
+                  "type": ["string", "null"]
+                },
+                "givenBy": {
+                  "description": "The staff account that gave it",
+                  "type": ["string", "null"]
+                },
+                "approval": {
+                  "description": "The approval it waited in, when it did",
+                  "type": ["string", "null"]
+                },
+                "createdAt": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "lineId",
+                "kind",
+                "amount",
+                "percent",
+                "reason",
+                "givenBy",
+                "approval",
+                "createdAt"
               ],
               "additionalProperties": false
             }
@@ -1696,6 +3921,7 @@
           "taxAmount",
           "taxRefunded",
           "taxCountry",
+          "discount",
           "lines"
         ],
         "additionalProperties": false
@@ -1704,7 +3930,7 @@
     },
     {
       "name": "order.start",
-      "description": "Start an order for one or more records that are for sale, as a signed-in customer, a guest (with an email address) or staff. The host prices it from the records: a caller never sends a price or a total. The order starts pending and is not paid: paying happens on the payment provider's page (order.checkout), and only the provider's confirmation marks it paid. An unpaid order expires after a few minutes. Returns the order with its lines and amounts in the currency's minor unit; a guest also gets `token`, shown once, which is the only way back to the order (order.view).",
+      "description": "Start an order for one or more records that are for sale, as a signed-in customer, a guest (with an email address) or staff. The host prices it from the records: a caller never sends a price or a total. The order starts pending and is not paid: paying happens on the payment provider's page (order.checkout), and only the provider's confirmation marks it paid. An unpaid order expires after a few minutes. Nobody buys without the agreements the business needs for what is bought: refused with rule agreements_due and the documents while any is due (a guest passes their acceptances in `agreements`; a signed-in customer agrees first; staff send a link, sign at the desk or record paper). Returns the order with its lines and amounts in the currency's minor unit; a guest also gets `token`, shown once, which is the only way back to the order (order.view).",
       "risk": "write",
       "audiences": ["customer"],
       "kind": "mutation",
@@ -1751,6 +3977,99 @@
             "description": "The buyer's email address. Required when the caller is not a signed-in customer; a signed-in customer's order uses their account's address and must not pass one.",
             "type": "string",
             "maxLength": 320
+          },
+          "agreements": {
+            "maxItems": 20,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "versionId": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 64,
+                  "description": "The version's id (agv_…) the visitor read"
+                },
+                "typedName": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200,
+                  "description": "The name the person typed beside the box: personal data, never shown to an AI"
+                },
+                "signature": {
+                  "type": "object",
+                  "properties": {
+                    "width": {
+                      "type": "number",
+                      "const": 1000
+                    },
+                    "height": {
+                      "type": "number",
+                      "const": 400
+                    },
+                    "strokes": {
+                      "minItems": 1,
+                      "maxItems": 30,
+                      "type": "array",
+                      "items": {
+                        "minItems": 1,
+                        "maxItems": 5000,
+                        "type": "array",
+                        "items": {
+                          "type": "array",
+                          "prefixItems": [
+                            {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 1000
+                            },
+                            {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 400
+                            }
+                          ],
+                          "items": false,
+                          "minItems": 2,
+                          "maxItems": 2
+                        }
+                      }
+                    }
+                  },
+                  "required": ["width", "height", "strokes"],
+                  "additionalProperties": false,
+                  "description": "A drawn signature as strokes in a 1000 by 400 box: personal data"
+                },
+                "answers": {
+                  "minItems": 1,
+                  "maxItems": 40,
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "key": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 40
+                      },
+                      "yes": {
+                        "type": "boolean"
+                      },
+                      "note": {
+                        "type": "string",
+                        "maxLength": 1000
+                      }
+                    },
+                    "required": ["key", "yes"],
+                    "additionalProperties": false
+                  },
+                  "description": "A health form's answers: health information, never shown to an AI or logged"
+                }
+              },
+              "required": ["versionId", "typedName"],
+              "additionalProperties": false
+            },
+            "description": "A visitor without an account only: what they agreed to on the way to paying, one entry per document the host says is due (each document's current version, the name they typed, a signature for a document agreed to by drawing, every answer for a health form). A signed-in customer agrees first (me.agreements.accept); staff never agree for anyone."
           }
         },
         "required": ["lines"]
@@ -1812,6 +4131,10 @@
             "description": "The country the latest taxed payment was for",
             "type": ["string", "null"]
           },
+          "discount": {
+            "type": "number",
+            "description": "Money taken off the order (its discounts), already out of the total"
+          },
           "lines": {
             "type": "array",
             "items": {
@@ -1844,6 +4167,10 @@
                 "taxAmount": {
                   "type": "number",
                   "description": "The tax inside this line's payments, as the payment provider calculated it"
+                },
+                "discount": {
+                  "type": "number",
+                  "description": "The line's share of the order's discounts: it costs total less this"
                 }
               },
               "required": [
@@ -1855,7 +4182,62 @@
                 "quantity",
                 "unitPrice",
                 "total",
-                "taxAmount"
+                "taxAmount",
+                "discount"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "adjustments": {
+            "description": "Staff only: the discounts on the order, in the order they were given",
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "lineId": {
+                  "description": "The line it is on; null: spread over the order",
+                  "type": ["string", "null"]
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": ["code", "automatic", "staff", "referral"]
+                },
+                "amount": {
+                  "type": "number",
+                  "description": "What it took off, in the currency's minor unit"
+                },
+                "percent": {
+                  "description": "The percentage asked for, when it was one",
+                  "type": ["number", "null"]
+                },
+                "reason": {
+                  "type": ["string", "null"]
+                },
+                "givenBy": {
+                  "description": "The staff account that gave it",
+                  "type": ["string", "null"]
+                },
+                "approval": {
+                  "description": "The approval it waited in, when it did",
+                  "type": ["string", "null"]
+                },
+                "createdAt": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "lineId",
+                "kind",
+                "amount",
+                "percent",
+                "reason",
+                "givenBy",
+                "approval",
+                "createdAt"
               ],
               "additionalProperties": false
             }
@@ -1892,6 +4274,7 @@
           "taxAmount",
           "taxRefunded",
           "taxCountry",
+          "discount",
           "lines",
           "token"
         ],
@@ -1980,6 +4363,10 @@
             "description": "The country the latest taxed payment was for",
             "type": ["string", "null"]
           },
+          "discount": {
+            "type": "number",
+            "description": "Money taken off the order (its discounts), already out of the total"
+          },
           "lines": {
             "type": "array",
             "items": {
@@ -2012,6 +4399,10 @@
                 "taxAmount": {
                   "type": "number",
                   "description": "The tax inside this line's payments, as the payment provider calculated it"
+                },
+                "discount": {
+                  "type": "number",
+                  "description": "The line's share of the order's discounts: it costs total less this"
                 }
               },
               "required": [
@@ -2023,7 +4414,62 @@
                 "quantity",
                 "unitPrice",
                 "total",
-                "taxAmount"
+                "taxAmount",
+                "discount"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "adjustments": {
+            "description": "Staff only: the discounts on the order, in the order they were given",
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "lineId": {
+                  "description": "The line it is on; null: spread over the order",
+                  "type": ["string", "null"]
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": ["code", "automatic", "staff", "referral"]
+                },
+                "amount": {
+                  "type": "number",
+                  "description": "What it took off, in the currency's minor unit"
+                },
+                "percent": {
+                  "description": "The percentage asked for, when it was one",
+                  "type": ["number", "null"]
+                },
+                "reason": {
+                  "type": ["string", "null"]
+                },
+                "givenBy": {
+                  "description": "The staff account that gave it",
+                  "type": ["string", "null"]
+                },
+                "approval": {
+                  "description": "The approval it waited in, when it did",
+                  "type": ["string", "null"]
+                },
+                "createdAt": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "lineId",
+                "kind",
+                "amount",
+                "percent",
+                "reason",
+                "givenBy",
+                "approval",
+                "createdAt"
               ],
               "additionalProperties": false
             }
@@ -2056,8 +4502,109 @@
           "taxAmount",
           "taxRefunded",
           "taxCountry",
+          "discount",
           "lines"
         ],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
+      "name": "stock.get",
+      "description": "How many of a thing in stock there are (a variant of an item in a shop). Staff get on hand (sold ones gone), held (by orders being paid for), available (on hand less held) and the reorder level, and the last five movements. Customers and the public get only what the object shows: in stock or sold out, a low-stock warning, or the number available. Read-only; holds nothing.",
+      "risk": "read",
+      "audiences": ["customer"],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "object": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80,
+            "description": "An extension object that declares stock"
+          },
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          }
+        },
+        "required": ["object", "id"]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "object": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string",
+            "enum": ["in_stock", "low", "sold_out"],
+            "description": "`low` only when the object shows a low-stock warning and few are left"
+          },
+          "available": {
+            "description": "How many can be bought now. Shown to outsiders only when `show` allows",
+            "type": "number"
+          },
+          "onHand": {
+            "description": "Staff only: how many there are, sold ones gone",
+            "type": "number"
+          },
+          "held": {
+            "description": "Staff only: how many unpaid orders hold",
+            "type": "number"
+          },
+          "reorderAt": {
+            "type": ["number", "null"]
+          },
+          "reorderQty": {
+            "type": ["number", "null"]
+          },
+          "atReorderLevel": {
+            "type": "boolean"
+          },
+          "show": {
+            "type": "string",
+            "enum": ["exact", "low", "availability"]
+          },
+          "lowAt": {
+            "type": ["number", "null"]
+          },
+          "recent": {
+            "description": "Staff only: the last five movements, newest first; the rest is stock.movements",
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "kind": {
+                  "type": "string"
+                },
+                "quantity": {
+                  "type": "number"
+                },
+                "place": {
+                  "type": "string"
+                },
+                "at": {
+                  "type": "string"
+                },
+                "note": {
+                  "type": ["string", "null"]
+                }
+              },
+              "required": ["id", "kind", "quantity", "place", "at", "note"],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["object", "id", "status"],
         "additionalProperties": false
       },
       "invalidates": []
@@ -2103,6 +4650,7 @@
         "additionalProperties": false
       },
       "invalidates": [
+        "subscription.coolingOff",
         "subscription.get",
         "subscription.list",
         "subscription.offer.mine",
@@ -2187,11 +4735,297 @@
         "additionalProperties": false
       },
       "invalidates": [
+        "subscription.coolingOff",
         "subscription.get",
         "subscription.list",
         "subscription.offer.mine",
         "subscription.portal"
       ]
+    },
+    {
+      "name": "subscription.coolOff",
+      "description": "End a subscription in its cooling-off period, for a full refund of what was paid in it (subscription.coolingOff says whether it may be, and what it owes). Ended at the payment provider now: nothing more is charged, and what it gives stops once the provider confirms. Then each order paid up to the end of the period, and between the ask and the end, is owed back in full, whatever was used; each waits for a person with orders:refund to approve it. The bookings ahead the membership paid for are cancelled as the business's. Refused for a plan with no cooling off, a membership moved over with a continuation offer, a member who has cooled off before, while nothing has been paid (a free trial: cancel instead), and after the period unless one was asked in it. An ask inside the period opens it for 7 days; any end in that time is the cooling off's, and at its deadline it lapses (the ordinary cancel works again). A signed-in customer ends their own (the one they pay for, a child's included) and asks again only inside the period; staff any, with subscriptions:manage, ask again until the deadline, and finish a lapsed one (only what was paid in the period is owed, once the provider confirms the membership ended). Each ask reads the provider first and is a new request to it; nothing is done twice. Refused while a cancel of it waits for a person at the payments gatekeeper. A person decides, never an AI assistant.",
+      "risk": "write",
+      "audiences": ["customer"],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "Subscription id (sbs_…)"
+          }
+        },
+        "required": ["id"]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string",
+            "enum": ["asked", "ended", "lapsed"],
+            "description": "asked: open; ended: it ended (or was finished) and its refunds are owed; lapsed: staff asked to finish it and the provider has not confirmed the end yet"
+          },
+          "asked": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": ["sent", "pending", "unknown"]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "sent: the provider was asked to end it; pending: it waits for a person at the payments gatekeeper; unknown: it may or may not have reached it (its next event decides; staff are told)"
+          },
+          "refund": {
+            "type": "number",
+            "description": "Paid and not refunded so far, in minor units: owed back"
+          },
+          "currency": {
+            "type": "string"
+          }
+        },
+        "required": ["id", "state", "asked", "refund", "currency"],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "subscription.coolingOff",
+        "subscription.get",
+        "subscription.list",
+        "subscription.offer.mine",
+        "subscription.portal"
+      ]
+    },
+    {
+      "name": "subscription.coolingOff",
+      "description": "Whether each subscription may be ended in its cooling-off period for a full refund: the business's setting (whole days, 0 off), counted from when the payment provider confirmed it to the end of the last day in the business's time zone, for a new member's membership only (not a pass, not one moved over with a continuation offer), once per member. Also says how far a cooling off asked for has got and where its refunds are. The host decides; an app shows the button only when `offered`. A signed-in customer asks about the subscriptions they pay for only; another's is not found. Read-only.",
+      "risk": "read",
+      "audiences": ["customer"],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "ids": {
+            "minItems": 1,
+            "maxItems": 20,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64,
+              "description": "Subscription id (sbs_…)"
+            },
+            "description": "Up to 20 subscriptions"
+          }
+        },
+        "required": ["ids"]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "subscriptionId": {
+                  "type": "string"
+                },
+                "offered": {
+                  "type": "boolean",
+                  "description": "The payer may end it now for a full refund (cooling off)"
+                },
+                "why": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "enum": [
+                        "not_covered",
+                        "off",
+                        "continuation",
+                        "ended",
+                        "window_passed",
+                        "used",
+                        "nothing_paid"
+                      ]
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "Why not: not_covered (the plan has no cooling off), off (the business set none), continuation (not started here as a new member), ended, window_passed, used (once per member), nothing_paid (a free trial: an ordinary cancel ends it at no charge)"
+                },
+                "days": {
+                  "type": "number",
+                  "description": "The cooling-off days that apply; 0 when none"
+                },
+                "until": {
+                  "description": "The last day of the window (YYYY-MM-DD, the business's time zone)",
+                  "type": ["string", "null"]
+                },
+                "endsAt": {
+                  "description": "The moment the window closes",
+                  "type": ["string", "null"]
+                },
+                "refund": {
+                  "type": "number",
+                  "description": "What a cooling off asked now owes back, not yet refunded, in minor units"
+                },
+                "currency": {
+                  "type": "string"
+                },
+                "coolOff": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "state": {
+                          "type": "string",
+                          "enum": ["asked", "ended", "lapsed"],
+                          "description": "asked: open until its deadline (any end of the subscription by then is its end); ended: it ended (or staff finished it) and its refunds are owed; lapsed: its deadline passed (or its waiting cancel was turned down, or the end was not its): nothing owed as cooled off, and the ordinary cancel works again"
+                        },
+                        "asked": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": ["sent", "pending", "unknown", "refused"]
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "description": "What came of the latest ask of the provider"
+                        },
+                        "askedBy": {
+                          "type": "string",
+                          "enum": ["payer", "staff"]
+                        },
+                        "askedAt": {
+                          "type": "string"
+                        },
+                        "deadline": {
+                          "type": "string",
+                          "description": "Open until then: the ask plus the approval expiry (7 days)"
+                        },
+                        "endedAt": {
+                          "type": ["string", "null"]
+                        },
+                        "finished": {
+                          "type": "boolean",
+                          "description": "Staff finished a lapsed one"
+                        },
+                        "finishing": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": ["asked", "sent", "pending", "unknown", "stuck"]
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "description": "Staff asked to finish a lapsed one, not yet confirmed: asked or unknown (the host asks the provider again), sent (waiting for the provider's end), pending (waiting for a person at the payments gatekeeper), stuck (it could not be done; admins were told)"
+                        },
+                        "waiting": {
+                          "type": "boolean",
+                          "description": "A cancel of it waits for a person at the payments gatekeeper: nobody may ask again until it is approved or turned down"
+                        },
+                        "lapsedBecause": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": ["deadline", "action", "end_time", "used"]
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "askAgain": {
+                          "type": "boolean",
+                          "description": "The caller may ask the provider again now (the member inside the period, staff before the deadline), or (staff) finish a lapsed one"
+                        },
+                        "open": {
+                          "type": "boolean",
+                          "description": "Open, before its deadline: the ordinary cancel waits"
+                        },
+                        "staffTold": {
+                          "type": "boolean",
+                          "description": "Admins were told it is stuck or lapsed"
+                        },
+                        "paid": {
+                          "type": "number",
+                          "description": "What it owes (or would, if it ended now): paid on or before the end of the period, plus paid after the ask and by the end, in minor units"
+                        },
+                        "refunded": {
+                          "type": "number",
+                          "description": "What has been refunded of that so far, in minor units"
+                        },
+                        "refunds": {
+                          "anyOf": [
+                            {
+                              "type": "string",
+                              "enum": ["waiting", "refunded", "held"]
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ],
+                          "description": "Once ended: waiting (each refund waits for a person who may refund), refunded, or held (a refund was not approved or could not be asked: staff refund it from the order)"
+                        }
+                      },
+                      "required": [
+                        "state",
+                        "asked",
+                        "askedBy",
+                        "askedAt",
+                        "deadline",
+                        "endedAt",
+                        "finished",
+                        "finishing",
+                        "waiting",
+                        "lapsedBecause",
+                        "askAgain",
+                        "open",
+                        "staffTold",
+                        "paid",
+                        "refunded",
+                        "refunds"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "A cooling off asked for, and how far it has got"
+                }
+              },
+              "required": [
+                "subscriptionId",
+                "offered",
+                "why",
+                "days",
+                "until",
+                "endsAt",
+                "refund",
+                "currency",
+                "coolOff"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["items"],
+        "additionalProperties": false
+      },
+      "invalidates": []
     },
     {
       "name": "subscription.get",
@@ -2855,6 +5689,7 @@
         "additionalProperties": false
       },
       "invalidates": [
+        "subscription.coolingOff",
         "subscription.get",
         "subscription.list",
         "subscription.offer.mine",
@@ -2863,7 +5698,7 @@
     },
     {
       "name": "subscription.start",
-      "description": "Start a subscription to a plan (a record of an object sold every week, month or year), as a signed-in customer, a guest (with an email address) or staff for someone. Opens the payment provider's own page, which takes the card; the provider charges each period on its own schedule, after the plan's free trial when it has one. A trial is one per person per plan, and only for a signed-in customer (or staff with subscriptions:manage starting it for a person): a guest is charged from the start, and `noTrial` says why no trial was given. Starting again while the page you opened with a trial is still open gives that page. A signed-in customer with a continuation offer (moving their subscription from another platform) takes it with `offerId`: free until their paid-up date, then charged, with no trial on top; with under 48 hours left it is charged at once. The host prices it from the plan: no price is sent. Coming back to `returnUrl` changes nothing: the subscription exists once the provider confirms it. Returns the page's address and what will be charged, in minor units.",
+      "description": "Start a subscription to a plan (a record of an object sold every week, month or year), as a signed-in customer, a guest (with an email address) or staff for someone. Opens the payment provider's own page, which takes the card; the provider charges each period on its own schedule, after the plan's free trial when it has one. A trial is one per person per plan, and only for a signed-in customer (or staff with subscriptions:manage starting it for a person): a guest is charged from the start, and `noTrial` says why no trial was given. Starting again while the page you opened with a trial is still open gives that page. A signed-in customer with a continuation offer (moving their subscription from another platform) takes it with `offerId`: free until their paid-up date, then charged, with no trial on top; with under 48 hours left it is charged at once. Nobody starts one without the agreements the business needs for the plan (its terms, a waiver): refused with rule agreements_due and the documents while any is due, a continuation offer included (a guest passes their acceptances in `agreements`; a signed-in customer agrees first; staff send a link or record paper). The host prices it from the plan: no price is sent. Coming back to `returnUrl` changes nothing: the subscription exists once the provider confirms it. Returns the page's address and what will be charged, in minor units.",
       "risk": "write",
       "audiences": ["customer"],
       "kind": "mutation",
@@ -2904,6 +5739,99 @@
             "type": "string",
             "minLength": 1,
             "maxLength": 64
+          },
+          "agreements": {
+            "maxItems": 20,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "versionId": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 64,
+                  "description": "The version's id (agv_…) the visitor read"
+                },
+                "typedName": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200,
+                  "description": "The name the person typed beside the box: personal data, never shown to an AI"
+                },
+                "signature": {
+                  "type": "object",
+                  "properties": {
+                    "width": {
+                      "type": "number",
+                      "const": 1000
+                    },
+                    "height": {
+                      "type": "number",
+                      "const": 400
+                    },
+                    "strokes": {
+                      "minItems": 1,
+                      "maxItems": 30,
+                      "type": "array",
+                      "items": {
+                        "minItems": 1,
+                        "maxItems": 5000,
+                        "type": "array",
+                        "items": {
+                          "type": "array",
+                          "prefixItems": [
+                            {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 1000
+                            },
+                            {
+                              "type": "integer",
+                              "minimum": 0,
+                              "maximum": 400
+                            }
+                          ],
+                          "items": false,
+                          "minItems": 2,
+                          "maxItems": 2
+                        }
+                      }
+                    }
+                  },
+                  "required": ["width", "height", "strokes"],
+                  "additionalProperties": false,
+                  "description": "A drawn signature as strokes in a 1000 by 400 box: personal data"
+                },
+                "answers": {
+                  "minItems": 1,
+                  "maxItems": 40,
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "key": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 40
+                      },
+                      "yes": {
+                        "type": "boolean"
+                      },
+                      "note": {
+                        "type": "string",
+                        "maxLength": 1000
+                      }
+                    },
+                    "required": ["key", "yes"],
+                    "additionalProperties": false
+                  },
+                  "description": "A health form's answers: health information, never shown to an AI or logged"
+                }
+              },
+              "required": ["versionId", "typedName"],
+              "additionalProperties": false
+            },
+            "description": "A visitor without an account only: what they agreed to on the way to paying, one entry per document the host says is due (each document's current version, the name they typed, a signature for a document agreed to by drawing, every answer for a health form). A signed-in customer agrees first (me.agreements.accept); staff never agree for anyone."
           }
         },
         "required": ["plan", "returnUrl"]
@@ -2966,6 +5894,7 @@
         "additionalProperties": false
       },
       "invalidates": [
+        "subscription.coolingOff",
         "subscription.get",
         "subscription.list",
         "subscription.offer.mine",
@@ -3185,8 +6114,16 @@
         ]
       },
       "invalidates": [
+        "me.agreements.due",
+        "me.agreements.get",
+        "me.agreements.list",
+        "me.agreements.pdf",
+        "me.attention",
+        "me.birthday.get",
+        "me.calendarFeed.status",
         "me.family",
         "me.get",
+        "me.portal",
         "me.sessions.list",
         "my.get",
         "my.list",
@@ -3221,6 +6158,19 @@
             "type": "string",
             "maxLength": 320,
             "description": "A guest's email address"
+          },
+          "agreements": {
+            "maxItems": 20,
+            "type": "array",
+            "items": {
+              "propertyNames": {
+                "type": "string"
+              },
+              "type": "object",
+              "properties": {},
+              "additionalProperties": {}
+            },
+            "description": "A guest only: their acceptances of what is due, passed on to the host as they are (each { versionId, typedName, signature?, answers? }); the host checks and records them. A signed-in member agrees first."
           }
         },
         "required": ["classId"],
@@ -3343,8 +6293,16 @@
         ]
       },
       "invalidates": [
+        "me.agreements.due",
+        "me.agreements.get",
+        "me.agreements.list",
+        "me.agreements.pdf",
+        "me.attention",
+        "me.birthday.get",
+        "me.calendarFeed.status",
         "me.family",
         "me.get",
+        "me.portal",
         "me.sessions.list",
         "my.get",
         "my.list",
@@ -3482,8 +6440,16 @@
         ]
       },
       "invalidates": [
+        "me.agreements.due",
+        "me.agreements.get",
+        "me.agreements.list",
+        "me.agreements.pdf",
+        "me.attention",
+        "me.birthday.get",
+        "me.calendarFeed.status",
         "me.family",
         "me.get",
+        "me.portal",
         "me.sessions.list",
         "my.get",
         "my.list",
@@ -3785,8 +6751,16 @@
         ]
       },
       "invalidates": [
+        "me.agreements.due",
+        "me.agreements.get",
+        "me.agreements.list",
+        "me.agreements.pdf",
+        "me.attention",
+        "me.birthday.get",
+        "me.calendarFeed.status",
         "me.family",
         "me.get",
+        "me.portal",
         "me.sessions.list",
         "my.get",
         "my.list",
@@ -4164,6 +7138,19 @@
             "type": "string",
             "maxLength": 320,
             "description": "A guest's email address"
+          },
+          "agreements": {
+            "maxItems": 20,
+            "type": "array",
+            "items": {
+              "propertyNames": {
+                "type": "string"
+              },
+              "type": "object",
+              "properties": {},
+              "additionalProperties": {}
+            },
+            "description": "A guest only: their acceptances of what is due, passed on to the host as they are (each { versionId, typedName, signature?, answers? }); the host checks and records them. A signed-in member agrees first."
           }
         },
         "additionalProperties": {}
@@ -4192,8 +7179,16 @@
         "additionalProperties": false
       },
       "invalidates": [
+        "me.agreements.due",
+        "me.agreements.get",
+        "me.agreements.list",
+        "me.agreements.pdf",
+        "me.attention",
+        "me.birthday.get",
+        "me.calendarFeed.status",
         "me.family",
         "me.get",
+        "me.portal",
         "me.sessions.list",
         "my.get",
         "my.list",
@@ -4966,8 +7961,16 @@
         "additionalProperties": false
       },
       "invalidates": [
+        "me.agreements.due",
+        "me.agreements.get",
+        "me.agreements.list",
+        "me.agreements.pdf",
+        "me.attention",
+        "me.birthday.get",
+        "me.calendarFeed.status",
         "me.family",
         "me.get",
+        "me.portal",
         "me.sessions.list",
         "my.get",
         "my.list",
@@ -5026,6 +8029,174 @@
       "pack": "courses"
     },
     {
+      "name": "x.forms.form",
+      "description": "A form by its address, as the caller may answer it now: its version, title, questions and thank-you words, whether it is anonymous, whether a Turnstile token is needed, and the host's token of when it was shown (send it back with the answers). A form that is not open to the caller now (a draft, closed, not published, out of its dates, for signed-in customers only, or no such address) is not found, the same answer whatever the reason. Read-only. (Extension tool from Forms 0.1.0.)",
+      "risk": "read",
+      "audiences": ["customer"],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "slug": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "description": "The form's address, e.g. ask-about-a-trial"
+          }
+        },
+        "required": ["slug"],
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "version": {
+            "type": "number",
+            "description": "The version shown: send it with the answers"
+          },
+          "title": {
+            "type": ["string", "null"]
+          },
+          "questions": {
+            "type": "object",
+            "properties": {
+              "items": {
+                "type": "array",
+                "items": {
+                  "propertyNames": {
+                    "type": "string"
+                  },
+                  "type": "object",
+                  "properties": {},
+                  "additionalProperties": {}
+                }
+              }
+            },
+            "required": ["items"],
+            "additionalProperties": false,
+            "description": "The questions, in the platform's question schema, in order"
+          },
+          "thanks": {
+            "description": "The words to show once the answers are sent",
+            "type": ["string", "null"]
+          },
+          "anonymous": {
+            "type": "boolean",
+            "description": "Nothing kept says who answered"
+          },
+          "turnstile": {
+            "type": "boolean",
+            "description": "A Turnstile token must be sent with the answers"
+          },
+          "shown": {
+            "description": "Send back as `shown` with the answers",
+            "type": ["string", "null"]
+          }
+        },
+        "required": [
+          "id",
+          "version",
+          "title",
+          "questions",
+          "thanks",
+          "anonymous",
+          "turnstile",
+          "shown"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [],
+      "pack": "forms"
+    },
+    {
+      "name": "x.forms.submit",
+      "description": "Send answers to a form the caller may answer (from `form`). The host checks the form is still open to them, a visitor's Turnstile token and when the form was shown, the caps and the answers against the version shown, then keeps them in the business's inbox, linked to the sender's person by the email answered. Answers that break the form are refused naming the question's key; a form published again since it was shown is refused with 'load it again'; too many answers just now is 'try again later'. Kept, kept as spam or dropped, the answer is the same. (Extension tool from Forms 0.1.0.)",
+      "risk": "write",
+      "audiences": ["customer"],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "The form (forms.form record id)"
+          },
+          "version": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991,
+            "description": "The version `form` showed"
+          },
+          "answers": {
+            "propertyNames": {
+              "type": "string",
+              "maxLength": 40
+            },
+            "description": "The answers by question key: text, email, phone and date as strings (a date YYYY-MM-DD), number and rating as numbers, a choice as a string or a list of strings, yes/no and a tick box as true or false. Leave out what was not answered.",
+            "type": "object",
+            "properties": {},
+            "additionalProperties": {}
+          },
+          "via": {
+            "type": "string",
+            "enum": ["site", "app", "page"],
+            "description": "Which way in: the business's website, its app, or the form's own page"
+          },
+          "turnstileToken": {
+            "type": "string",
+            "maxLength": 4096,
+            "description": "A visitor's Turnstile token"
+          },
+          "shown": {
+            "type": "string",
+            "maxLength": 200,
+            "description": "`form`'s shown token"
+          },
+          "honeypot": {
+            "type": "string",
+            "maxLength": 1000,
+            "description": "The hidden field a person leaves empty"
+          }
+        },
+        "required": ["id", "version", "answers"],
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "received": {
+            "type": "boolean",
+            "const": true,
+            "description": "The answers were sent: shown the same whatever the host's spam checks decided"
+          }
+        },
+        "required": ["received"],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "me.agreements.due",
+        "me.agreements.get",
+        "me.agreements.list",
+        "me.agreements.pdf",
+        "me.attention",
+        "me.birthday.get",
+        "me.calendarFeed.status",
+        "me.family",
+        "me.get",
+        "me.portal",
+        "me.sessions.list",
+        "my.get",
+        "my.list",
+        "x.forms.form"
+      ],
+      "pack": "forms"
+    },
+    {
       "name": "x.memberships.buy",
       "description": "Start an order for one pass (a class pack, a drop-in or an intro offer). A signed-in customer buys as themselves; a guest gives their email address, and may not buy an intro offer (the host refuses it: one per person, signed in). The host prices it from the pass type, refuses one not on sale, and refuses a second intro offer for the same person. Nothing is paid here: the buyer then calls order.checkout with the order's id (and a guest's token) to pay on the provider's page; the pass is granted when the provider confirms the payment. Amounts in the minor unit. (Extension tool from Memberships 0.1.0.)",
       "risk": "write",
@@ -5043,6 +8214,19 @@
             "type": "string",
             "maxLength": 320,
             "description": "A guest's email address"
+          },
+          "agreements": {
+            "maxItems": 20,
+            "type": "array",
+            "items": {
+              "propertyNames": {
+                "type": "string"
+              },
+              "type": "object",
+              "properties": {},
+              "additionalProperties": {}
+            },
+            "description": "A guest only: their acceptances of what is due, passed on to the host as they are (each { versionId, typedName, signature?, answers? }); the host checks and records them. A signed-in member agrees first."
           }
         },
         "required": ["passTypeId"],
@@ -5072,8 +8256,16 @@
         "additionalProperties": false
       },
       "invalidates": [
+        "me.agreements.due",
+        "me.agreements.get",
+        "me.agreements.list",
+        "me.agreements.pdf",
+        "me.attention",
+        "me.birthday.get",
+        "me.calendarFeed.status",
         "me.family",
         "me.get",
+        "me.portal",
         "me.sessions.list",
         "my.get",
         "my.list",
@@ -5759,7 +8951,7 @@
     },
     {
       "name": "x.programs.logAdd",
-      "description": "Log one set done on a session: the item (A1), the exercise when the item has more than one, the level taken when it has levels, which set (1, 2, …), what was done (reps, seconds, load) and how hard it felt (RPE). The target is taken from the session's plan, and who recorded it is the caller. A member logs on their own sessions and their class types'; a coach logs for a client (on a class session, naming them). Nobody logs on a session that is not theirs. Returns the set. (Extension tool from Programs 0.1.0.)",
+      "description": "Log one set done on a session: the item (A1), the exercise when the item has more than one, the level taken when it has levels, which set (1, 2, …), what was done (reps, seconds, load) and how hard it felt (RPE). The target is taken from the session's plan, and who recorded it is the caller. A member logs on their own sessions and their class types'; a coach logs for a client (on a class session, naming them). Nobody logs on a session that is not theirs. A set already logged (a retried save, a second device) is not logged twice: its numbers and effort become these, and its note is kept unless one is given. Returns the set. (Extension tool from Programs 0.1.0.)",
       "risk": "write",
       "audiences": ["customer"],
       "kind": "mutation",
@@ -5917,8 +9109,95 @@
         "additionalProperties": false
       },
       "invalidates": [
+        "me.agreements.due",
+        "me.agreements.get",
+        "me.agreements.list",
+        "me.agreements.pdf",
+        "me.attention",
+        "me.birthday.get",
+        "me.calendarFeed.status",
         "me.family",
         "me.get",
+        "me.portal",
+        "me.sessions.list",
+        "my.get",
+        "my.list",
+        "x.programs.classToday",
+        "x.programs.history",
+        "x.programs.progress",
+        "x.programs.sessionGet",
+        "x.programs.today"
+      ],
+      "pack": "programs"
+    },
+    {
+      "name": "x.programs.logRemove",
+      "description": "Take back a set logged by mistake (un-tick it): the set with this number of a session's item and exercise. A member takes back their own; a coach a client's (on a class session, naming them). A set that is not logged changes nothing, so a retried call is safe. The row goes to the Trash, where staff can restore it. For staff the Trash is an extension's delete, so the org's approval policy may hold it for a person: `waiting` counts those. Returns how many rows were taken back. (Extension tool from Programs 0.1.0.)",
+      "risk": "write",
+      "audiences": ["customer"],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "sessionId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "item": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 6
+          },
+          "exerciseId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "setNumber": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 30
+          },
+          "personId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "Staff: the person. A member is always themselves."
+          }
+        },
+        "required": ["sessionId", "item", "exerciseId", "setNumber"],
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "removed": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "waiting": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991,
+            "description": "Staff: rows whose removal waits for a person's approval"
+          }
+        },
+        "required": ["removed", "waiting"],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "me.agreements.due",
+        "me.agreements.get",
+        "me.agreements.list",
+        "me.agreements.pdf",
+        "me.attention",
+        "me.birthday.get",
+        "me.calendarFeed.status",
+        "me.family",
+        "me.get",
+        "me.portal",
         "me.sessions.list",
         "my.get",
         "my.list",
@@ -6071,8 +9350,16 @@
         "additionalProperties": false
       },
       "invalidates": [
+        "me.agreements.due",
+        "me.agreements.get",
+        "me.agreements.list",
+        "me.agreements.pdf",
+        "me.attention",
+        "me.birthday.get",
+        "me.calendarFeed.status",
         "me.family",
         "me.get",
+        "me.portal",
         "me.sessions.list",
         "my.get",
         "my.list",
@@ -6303,8 +9590,16 @@
         "additionalProperties": false
       },
       "invalidates": [
+        "me.agreements.due",
+        "me.agreements.get",
+        "me.agreements.list",
+        "me.agreements.pdf",
+        "me.attention",
+        "me.birthday.get",
+        "me.calendarFeed.status",
         "me.family",
         "me.get",
+        "me.portal",
         "me.sessions.list",
         "my.get",
         "my.list",
@@ -7056,6 +10351,19 @@
             "type": "string",
             "maxLength": 320,
             "description": "A guest's email address. A signed-in customer passes none."
+          },
+          "agreements": {
+            "maxItems": 20,
+            "type": "array",
+            "items": {
+              "propertyNames": {
+                "type": "string"
+              },
+              "type": "object",
+              "properties": {},
+              "additionalProperties": {}
+            },
+            "description": "A guest only: their acceptances of what is due, passed on to the host as they are (each { versionId, typedName, signature?, answers? }); the host checks and records them. A signed-in member agrees first."
           }
         },
         "required": ["lines"],
@@ -7145,8 +10453,16 @@
         "additionalProperties": false
       },
       "invalidates": [
+        "me.agreements.due",
+        "me.agreements.get",
+        "me.agreements.list",
+        "me.agreements.pdf",
+        "me.attention",
+        "me.birthday.get",
+        "me.calendarFeed.status",
         "me.family",
         "me.get",
+        "me.portal",
         "me.sessions.list",
         "my.get",
         "my.list",

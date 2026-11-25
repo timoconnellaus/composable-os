@@ -25,6 +25,7 @@ import {
   gatekeeperSettings,
   isLiveEnvironment,
   LIVE_ENVIRONMENT,
+  mobileRole,
   type ProductDefinition,
 } from "@composable-os/product";
 import { DEFAULT_PRODUCT, products } from "@composable-os/products";
@@ -40,6 +41,7 @@ import {
   sha256Hex,
   toBase64,
 } from "@composable-os/release";
+import { writeBrand } from "./app.ts";
 import { lineDiff } from "./diff.ts";
 import { recordHostModules, STATE_FILE, upgradeHostModules } from "./host-modules.ts";
 import type { Io } from "./io.ts";
@@ -259,34 +261,73 @@ export async function generateClients(
   }
   // A client per pack role the mobile app's staff sign in with (ADR 0451): only that role's
   // operations, from the release's roles.json and its staff contract. Never the staff client.
+  // And the owner's client, when the app has it (ADR 0872): Today's short list, from the same file.
   const roles = product.mobile?.roles ?? [];
-  if (roles.length && product.mobile) {
-    const { renderRoleClient } = await import("@composable-os/client-gen");
+  const owner = product.mobile?.owner === true;
+  if ((roles.length || owner) && product.mobile) {
+    const { renderOwnerClient, renderRoleClient } = await import("@composable-os/client-gen");
     const rolesFile = kit.get(`${KIT.contract}roles.json`);
     if (!rolesFile) {
       throw new CliError(
         "The release's client kit has no roles.json: it is older than role clients. Upgrade the platform version first.",
       );
     }
-    const declared = (JSON.parse(decode(rolesFile)) as PackRolesFile).roles;
+    const parsed = JSON.parse(decode(rolesFile)) as PackRolesFile;
+    const declared = parsed.roles;
     const staff = perAudience[2] as ApiContract;
     const dir = join(product.mobile.dir, product.mobile.clientDir ?? "src/client", "roles");
     mkdirSync(join(root, dir), { recursive: true });
-    for (const name of roles) {
+    if (owner) {
+      if (!parsed.owner) {
+        throw new CliError(
+          "The release's roles.json has no owner's client (mobile.owner): it is older than it. Upgrade the platform version first.",
+        );
+      }
+      writeFileSync(
+        join(root, dir, "owner.ts"),
+        renderOwnerClient(staff, parsed.owner, { product: product.id }),
+      );
+      written.push(join(dir, "owner.ts"));
+    }
+    for (const entry of roles) {
+      const { role: name, grants } = mobileRole(entry);
       const role = declared.find((r) => r.name === name);
       if (!role) {
         throw new CliError(
           `The release has no pack role ${name}. Its roles: ${declared.map((r) => r.name).join(", ") || "none"}.`,
         );
       }
+      // A role with grants (ADR 0600): its client also holds the tools each grant opens.
+      const granted: string[] = [];
+      for (const permission of grants) {
+        const grant = parsed.grants?.find((g) => g.permission === permission);
+        if (!grant) {
+          throw new CliError(
+            `The release has no grantable permission ${permission}. Its grantable permissions: ${(parsed.grants ?? []).map((g) => g.permission).join(", ") || "none (the release is older than role clients with grants)"}.`,
+          );
+        }
+        if (grant.restricted) {
+          io.out(
+            `Note: ${name}'s client includes ${permission}, a restricted permission: the host still decides every call, and only an account an admin granted it may use those screens.`,
+          );
+        }
+        granted.push(...grant.operations);
+      }
+      const withGrants = granted.length
+        ? { ...role, operations: [...new Set([...role.operations, ...granted])].sort() }
+        : role;
       writeFileSync(
         join(root, dir, `${name}.ts`),
-        renderRoleClient(staff, role, { product: product.id }),
+        renderRoleClient(staff, withGrants, { product: product.id, grants }),
       );
       written.push(join(dir, `${name}.ts`));
     }
   }
   if (written.length) io.out(`Typed client: ${written.join(", ")}`);
+  // The app's brand from product.ts, beside its copied blocks (stage 63, ADR 0900).
+  const brand =
+    product.mobile && existsSync(join(root, product.mobile.dir)) ? writeBrand(root, product) : null;
+  if (brand) written.push(brand);
   return written;
 }
 
@@ -390,11 +431,6 @@ export function templateFiles(kit: ClientKit, values: Values): Map<string, strin
     const app = /^apps\/([^/]+)\/(package\.json|wrangler\.jsonc)$/.exec(rel);
     if (app?.[2] === "package.json")
       text = appPackage(text, `${values.id}-${app[1]}`, values.version);
-    if (rel === "apps/mobile/app.json") {
-      const config = JSON.parse(text) as { expo: Record<string, unknown> };
-      config.expo = { ...config.expo, name: values.label, slug: values.id, scheme: values.id };
-      text = `${JSON.stringify(config, null, 2)}\n`;
-    }
     if (app?.[2] === "wrangler.jsonc") {
       text = text
         .replace(/"name":\s*"client-web"/, `"name": "${values.id}-web"`)
@@ -412,6 +448,28 @@ function slug(name: string): string {
     .replace(/^-+|-+$/g, "")
     .slice(0, 40);
 }
+
+/** The template's workflow that builds the app and sends it to the stores' testing tracks. */
+const APP_WORKFLOW = ".github/workflows/app.yml";
+
+/** What `cos create --with-mobile` adds to product.ts: the app, and its identity to fill in. */
+const MOBILE_ENTRY = `  mobile: {
+    dir: "apps/mobile",
+    // The app's identity in the phone app stores (stage 63): app.config.ts and the app's brand are
+    // made from it. Fill it in before the first store build, then run \`pnpm cos app check\`.
+    // app: {
+    //   name: "Example", // under the icon, at most 30 characters
+    //   version: "1.0.0",
+    //   ids: { ios: "com.example.app", android: "com.example.app" }, // never change once published
+    //   icon: "apps/mobile/assets/icon.png", // 1024 by 1024, no transparency
+    //   splash: { image: "apps/mobile/assets/splash.png", background: "#ffffff" },
+    //   colours: { primary: "#18181b", background: "#ffffff", text: "#18181b" },
+    //   listing: "apps/mobile/store", // <locale>/name.txt, subtitle.txt, description.txt, …
+    //   purchases: "none",
+    // },
+    // A staging app installs beside the live one with its own name, ids and scheme:
+    // environments.staging.mobile: { scheme: "example-staging", app: { name, ids } }.
+  },`;
 
 export async function create(argv: string[], flags: Flags, deps: Deps): Promise<number> {
   const { io } = deps;
@@ -450,14 +508,13 @@ export async function create(argv: string[], flags: Flags, deps: Deps): Promise<
   // The mobile app is optional (--with-mobile): without it, its folder is left out and product.ts
   // names only the web app.
   const mobile = Boolean(flags["with-mobile"]);
+  // Without it, its folder and its CI workflow (stage 63) are left out and product.ts names only
+  // the web app.
   for (const path of [...files.keys()])
-    if (!mobile && path.startsWith("apps/mobile/")) files.delete(path);
+    if (!mobile && (path.startsWith("apps/mobile/") || path === APP_WORKFLOW)) files.delete(path);
   if (mobile) {
     const product = files.get("product.ts") as string;
-    files.set(
-      "product.ts",
-      product.replace(/(\n\s*web: \{[^\n]*\},)/, '$1\n  mobile: { dir: "apps/mobile" },'),
-    );
+    files.set("product.ts", product.replace(/(\n\s*web: \{[^\n]*\},)/, `$1\n${MOBILE_ENTRY}`));
   }
   for (const [path, text] of files) {
     mkdirSync(dirname(join(root, path)), { recursive: true });
@@ -603,7 +660,7 @@ export async function init(flags: Flags, deps: Deps): Promise<number> {
   };
   const guessWeb = wranglerConfig(root) ? "." : undefined;
   const guessMobile = ["mobile", "app", "apps/mobile"].find((d) =>
-    existsSync(join(root, d, "app.json")),
+    ["app.json", "app.config.ts", "app.config.js"].some((f) => existsSync(join(root, d, f))),
   );
   const webDir = str(flags, "web") ?? (await ask("Where is the web app (its Worker)?", guessWeb));
   const mobileDir = str(flags, "mobile") ?? (await ask("Where is the mobile app?", guessMobile));
@@ -1151,12 +1208,15 @@ export function gatekeeperPlan(
       }
       vars[worker.name] = { ...vars[worker.name], [key]: String(value) };
     }
-    if (
-      vars[worker.name]?.PAYMENTS_FAKE_PROVIDER === "true" &&
-      isLiveEnvironment(product, environment)
-    ) {
+    const fake =
+      vars[worker.name]?.PAYMENTS_FAKE_PROVIDER === "true"
+        ? "the fake payment provider"
+        : vars[worker.name]?.TEXT_PROVIDER === "fake"
+          ? "the fake text provider"
+          : null;
+    if (fake && isLiveEnvironment(product, environment)) {
       return {
-        problem: `${where} is live and turns on the fake payment provider: only an environment marked live: false may.`,
+        problem: `${where} is live and turns on ${fake}: only an environment marked live: false may.`,
       };
     }
   }
@@ -1226,12 +1286,22 @@ export async function deploy(flags: Flags, deps: Deps): Promise<number> {
   const { bundle } = await verified(source, product.platform.version, scoped);
   const manifest = bundle.manifest;
   const inRelease = kitPacks(bundle.clientFiles);
-  const missing = product.packs.filter((pack) => !inRelease.has(pack));
+  // A listed pack brings the packs it requires (Courses: Programs and Content): the host installs
+  // them too, as the pack cannot install without them.
+  const brought = requiredPacks(bundle.clientFiles, product.packs);
+  const missing = [...product.packs, ...brought].filter((pack) => !inRelease.has(pack));
   if (missing.length) {
     io.err(
-      `${release.label} ${product.platform.version} does not carry the pack${missing.length > 1 ? "s" : ""} ${missing.join(", ")} that product.ts lists (it carries ${[...inRelease].sort().join(", ") || "none"}): the platform needs it in a release first. Nothing was deployed.`,
+      `${release.label} ${product.platform.version} does not carry the pack${missing.length > 1 ? "s" : ""} ${missing.join(", ")} that product.ts lists${brought.some((p) => missing.includes(p)) ? " or its packs require" : ""} (it carries ${[...inRelease].sort().join(", ") || "none"}): the platform needs it in a release first. Nothing was deployed.`,
     );
     return 1;
+  }
+  if (brought.length) {
+    hostFlags.packs = [...product.packs, ...brought].join(",");
+    const them = brought.length > 1 ? "them" : "it";
+    io.out(
+      `Installing ${brought.join(", ")} too: a pack product.ts lists requires ${them}. Add ${them} to packs in product.ts to say so there.`,
+    );
   }
   // The gatekeepers product.ts turns on here and their settings, checked against what each
   // declares in this release before anything changes (ADR 0452).
@@ -1385,6 +1455,8 @@ export async function upgradeRepo(flags: Flags, deps: Deps): Promise<number> {
     // Compared by content: a kit rebuilt at the same version can still change the host modules.
     io.out(`Already on ${version}. Checking the host modules against its template.`);
     upgradeHostModules(root, product, kit, version, io);
+    const { rewriteAccountSections } = await import("./blocks.ts");
+    rewriteAccountSections(root, product, kit, io);
     // And the packages: run again after installing, this is where the type check happens.
     return packagesAndTypes(root, product, version, io);
   }
@@ -1409,6 +1481,10 @@ export async function upgradeRepo(flags: Flags, deps: Deps): Promise<number> {
   const moved = await loadClientProduct(root);
   await generateClients(root, moved, kit, io);
   io.out(`Skills: ${writeSkills(root, kit)} replaced.`);
+  // My account's section wiring, from the new release's packs (ADR 0710). Loaded late: blocks.ts
+  // imports this file.
+  const { rewriteAccountSections } = await import("./blocks.ts");
+  rewriteAccountSections(root, moved, kit, io);
   // The host modules: unedited ones replaced, edited ones shown as a diff (ADR 0451).
   upgradeHostModules(root, moved, kit, version, io);
   return packagesAndTypes(root, moved, version, io);
@@ -1463,6 +1539,28 @@ export function kitPacks(kit: ClientKit): Set<string> {
   const listed = kit.get("packs.json");
   if (!listed) return new Set();
   return new Set(JSON.parse(decode(listed)) as string[]);
+}
+
+/**
+ * The packs a product's packs require and it does not list, from the release's roles.json (each
+ * pack's `requires`, ADR 0478), followed to the end: Courses brings Programs and Content. A kit
+ * older than the list brings none.
+ */
+export function requiredPacks(kit: ClientKit, packs: readonly string[]): string[] {
+  const file = kit.get(`${KIT.contract}roles.json`);
+  const requires = file
+    ? ((JSON.parse(decode(file)) as { requires?: Record<string, string[]> }).requires ?? {})
+    : {};
+  const brought: string[] = [];
+  const visit = (pack: string) => {
+    for (const needed of requires[pack] ?? []) {
+      if (packs.includes(needed) || brought.includes(needed)) continue;
+      brought.push(needed);
+      visit(needed);
+    }
+  };
+  for (const pack of packs) visit(pack);
+  return brought;
 }
 
 /** `cos client generate` in a client repo: each app's typed client from its release, again. */

@@ -6,6 +6,7 @@
 // assistant may call it, but only inside a chat turn, and the words are the person's, passed by
 // code: a model, an agent or another assistant can never supply them. High-risk items need the
 // second step here on the server too, whichever operation asks.
+
 import type { ApprovalVia, CoreDatabase, CrmDb, PendingActionStatus } from "@composable-os/db";
 import type { Kysely } from "kysely";
 import { z } from "zod";
@@ -14,6 +15,7 @@ import { loadVerdicts, verdictViewSchema } from "../adjudicator/run.ts";
 import { actionTitle, outboundTitle, verbOf } from "../approvals/describe.ts";
 import { combinedStep, DEFAULT_PHRASE_THRESHOLD } from "../approvals/high-risk.ts";
 import { ApprovalStateError, objectOfId } from "../approvals/queue.ts";
+import { redactForReader } from "../approvals/redact.ts";
 import { titlesFor } from "../approvals/simulation.ts";
 import {
   loadPhraseThreshold,
@@ -36,9 +38,11 @@ import {
 } from "../errors.ts";
 import { isProvisionalId, newId, replaceIds } from "../ids.ts";
 import {
-  ALWAYS_REVIEWED_KINDS,
+  ACCOUNTING_VOID_KINDS,
   type OutboundInput,
   outboundAppliedAudit,
+  READER_KINDS,
+  REFUND_KINDS,
 } from "../integrations/outbound.ts";
 import type { IntegrationRuntime } from "../integrations/runtime.ts";
 import {
@@ -66,6 +70,15 @@ import {
 } from "../principals.ts";
 import { jsonList } from "../records/common.ts";
 import { PUBLISH_OPERATIONS } from "../records/publish.ts";
+
+/** The publish operations whose read-again choice the approver makes (ADR 0702). */
+const READ_AGAIN_OPERATIONS: ReadonlySet<string> = new Set([
+  "record.publish",
+  "record.schedulePublish",
+]);
+
+import { approvalMarkStatements } from "../routine-mail/marks.ts";
+import { assertRosterApprover } from "../staffing/approvals.ts";
 
 // --- Schemas -----------------------------------------------------------------------------------
 
@@ -478,9 +491,12 @@ async function loadChangeSetDetail(ctx: HandlerContext, id: string) {
   const set = await changeSetQuery(ctx.db).where("c.id", "=", id).executeTakeFirst();
   if (!set) throw new NotFoundError("change set", id);
   assertCanSee(ctx, set.user_id);
-  const actions = await withVerdicts(
+  const actions = await redactForReader(
     ctx,
-    (await loadActions(ctx.db, { changeSetIds: [id] })).map((r) => toActionView(r, ctx.now)),
+    await withVerdicts(
+      ctx,
+      (await loadActions(ctx.db, { changeSetIds: [id] })).map((r) => toActionView(r, ctx.now)),
+    ),
   );
   return { ...summarise(set, actions), actions };
 }
@@ -530,10 +546,13 @@ export const approvalStatus = defineOperation({
       ? query.where("c.session_id", "=", ctx.origin.sessionId)
       : query.where("c.session_id", "is", null);
     const sets = await query.orderBy("c.id", "desc").limit(10).execute();
-    const actions = await withVerdicts(
+    const actions = await redactForReader(
       ctx,
-      (await loadActions(ctx.db, { changeSetIds: sets.map((s) => s.id) })).map((a) =>
-        toActionView(a, ctx.now),
+      await withVerdicts(
+        ctx,
+        (await loadActions(ctx.db, { changeSetIds: sets.map((s) => s.id) })).map((a) =>
+          toActionView(a, ctx.now),
+        ),
       ),
     );
     return {
@@ -698,6 +717,14 @@ const approveInput = z
       .optional()
       .describe(
         "High-risk items only: the second button's words, exactly as the action's secondStep gives them",
+      ),
+    readAgain: z
+      .record(actionId, z.boolean())
+      .optional()
+      .describe(
+        "A publish of something staff confirm they have read (ADR 0702): by action id, whether " +
+          "it asks everyone again (true) or is a small fix (false). Left out, the request's " +
+          "own suggestion stands",
       ),
   })
   .refine(...oneTarget);
@@ -923,6 +950,7 @@ async function approveActions(
     changeSetId?: string | undefined;
     actionIds?: string[] | undefined;
     confirm?: string | undefined;
+    readAgain?: Record<string, boolean> | undefined;
   },
   how: Decided,
 ) {
@@ -937,15 +965,22 @@ async function approveActions(
       { actionId: privileged.id, permission: "extensions:manage" },
     );
   }
+  // A change to how the system is set up is reviewed on a computer, never approved from the
+  // company's app on a phone (stage 60 decision 8, ADR 0872): the host holds the rule, not the
+  // owner's screen that says so.
+  if (privileged && ctx.origin.staffDevice) {
+    throw new ForbiddenError(`Review ${privileged.operation} on a computer: it changes the setup`, {
+      actionId: privileged.id,
+      reason: "review_on_computer",
+    });
+  }
   // A refund sends money back (ADR 0429): only a person approves one, and only a person who may
   // refund. No AI actor, under any policy, and not by relaying the person's words.
-  const refund = targets.find(
-    (t) =>
-      t.connection_id !== null &&
-      ALWAYS_REVIEWED_KINDS.has(
-        parse<{ actionKind?: { tag?: string } | null }>(t.input, {}).actionKind?.tag ?? "",
-      ),
-  );
+  const kindOf = (t: (typeof targets)[number]) =>
+    t.connection_id === null
+      ? ""
+      : (parse<{ actionKind?: { tag?: string } | null }>(t.input, {}).actionKind?.tag ?? "");
+  const refund = targets.find((t) => REFUND_KINDS.has(kindOf(t)));
   if (refund) {
     if (ctx.actor !== "human") {
       throw new ForbiddenError("A refund is approved by a person, never by an AI actor", {
@@ -958,6 +993,45 @@ async function approveActions(
         actionId: refund.id,
         permission: "orders:refund",
       });
+    }
+  }
+  // A card reader registered to or removed from the payment account (stage 50, ADR 0774): a device
+  // that takes money, so a person who is an admin (integrations:manage, which no grant gives)
+  // approves it, never an AI actor.
+  const reader = targets.find((t) => READER_KINDS.has(kindOf(t)));
+  if (reader) {
+    if (ctx.actor !== "human") {
+      throw new ForbiddenError("A card reader is approved by a person, never by an AI actor", {
+        actionId: reader.id,
+        actor: ctx.actor,
+      });
+    }
+    if (!roleHasPermission(ctx.user.role, "integrations:manage")) {
+      throw new ForbiddenError("Approving a card reader needs an admin (integrations:manage)", {
+        actionId: reader.id,
+        permission: "integrations:manage",
+      });
+    }
+  }
+  // A void of an entry the host posted to the books (stage 61, ADR 0881): it takes back what the
+  // bookkeeper may already have reconciled, so a person who is an admin (integrations:manage,
+  // which no grant gives) approves it, never an AI actor.
+  const accountingVoid = targets.find((t) => ACCOUNTING_VOID_KINDS.has(kindOf(t)));
+  if (accountingVoid) {
+    if (ctx.actor !== "human") {
+      throw new ForbiddenError(
+        "A void in the books is approved by a person, never by an AI actor",
+        {
+          actionId: accountingVoid.id,
+          actor: ctx.actor,
+        },
+      );
+    }
+    if (!roleHasPermission(ctx.user.role, "integrations:manage")) {
+      throw new ForbiddenError(
+        "Approving a void in the books needs an admin (integrations:manage)",
+        { actionId: accountingVoid.id, permission: "integrations:manage" },
+      );
     }
   }
   // An AI actor's publish request (ADR 0480): only a person approves it, and only a person who
@@ -977,6 +1051,120 @@ async function approveActions(
         "Approving a publish needs the publish permission (records:publish)",
         { actionId: publish.id, permission: "records:publish" },
       );
+    }
+  }
+  // An AI's journey publish (stage 53, ADR 0800): the approval of the wording members get without
+  // anyone approving each send, so only a person who may publish journeys approves it.
+  const journeyPublish = targets.find((t) => t.operation === "journey.publish");
+  if (journeyPublish) {
+    if (ctx.actor !== "human") {
+      throw new ForbiddenError("A journey is published by a person, never by an AI actor", {
+        actionId: journeyPublish.id,
+        actor: ctx.actor,
+      });
+    }
+    if (!holdsPermission(ctx.user, ctx.permissionGrants, "journeys:publish")) {
+      throw new ForbiddenError(
+        "Approving a journey's publish needs the journeys publish permission (journeys:publish)",
+        { actionId: journeyPublish.id, permission: "journeys:publish" },
+      );
+    }
+  }
+  // An AI's manual journey entry (ADR 0800): the entry counts as a person's (its messages are
+  // not held for the AI's cause) only because a person approved it, so the approver must be one
+  // who could have added those people themselves.
+  const journeyEnter = targets.find((t) => t.operation === "journey.enter");
+  if (journeyEnter) {
+    if (ctx.actor !== "human") {
+      throw new ForbiddenError("People are added to a journey by a person, never by an AI actor", {
+        actionId: journeyEnter.id,
+        actor: ctx.actor,
+      });
+    }
+    if (!holdsPermission(ctx.user, ctx.permissionGrants, "journeys:manage")) {
+      throw new ForbiddenError(
+        "Approving people added to a journey needs the journeys permission (journeys:manage)",
+        { actionId: journeyEnter.id, permission: "journeys:manage" },
+      );
+    }
+  }
+  // A roster change (stage 45, ADRs 0625 and 0626): a restricted tool's call is approved only by
+  // someone who holds the tool, and a write of who works a shift only by someone who rosters.
+  await assertRosterApprover(ctx, ctx.db, targets);
+  // An AI's checklist (stage 45 step 4b, ADR 0650): approved only by a person who may write
+  // checklists themselves, so what staff are asked to follow is always a person's.
+  const checklist = targets.find((t) => t.operation === "checklist.save");
+  if (checklist) {
+    if (ctx.actor !== "human") {
+      throw new ForbiddenError("A checklist is approved by a person, never by an AI actor", {
+        actionId: checklist.id,
+        actor: ctx.actor,
+      });
+    }
+    if (!holdsPermission(ctx.user, ctx.permissionGrants, "checklists:write")) {
+      throw new ForbiddenError(
+        "Approving a checklist needs the checklists permission (checklists:write)",
+        { actionId: checklist.id, permission: "checklists:write" },
+      );
+    }
+  }
+  // An AI's draft of a kind of note (stage 56, ADR 0833): approved only by a person who may keep
+  // the kinds themselves, so what staff are asked to write is always a person's.
+  const noteKind = targets.find((t) => t.operation === "note.kinds.save");
+  if (noteKind) {
+    if (ctx.actor !== "human") {
+      throw new ForbiddenError("A kind of note is approved by a person, never by an AI actor", {
+        actionId: noteKind.id,
+        actor: ctx.actor,
+      });
+    }
+    if (!holdsPermission(ctx.user, ctx.permissionGrants, "notes:manage")) {
+      throw new ForbiddenError(
+        "Approving a kind of note needs the notes permission (notes:manage)",
+        { actionId: noteKind.id, permission: "notes:manage" },
+      );
+    }
+  }
+  // An AI's opening stock or correction (stage 37, ADR 0680): approved only by a person who may
+  // change stock themselves, so stock is never changed by an AI alone.
+  const stock = targets.find(
+    (t) => t.operation === "stock.adjust" || t.operation === "stock.opening",
+  );
+  if (stock) {
+    if (ctx.actor !== "human") {
+      throw new ForbiddenError("A stock change is approved by a person, never by an AI actor", {
+        actionId: stock.id,
+        actor: ctx.actor,
+      });
+    }
+    if (!holdsPermission(ctx.user, ctx.permissionGrants, "stock:adjust")) {
+      throw new ForbiddenError(
+        "Approving a stock change needs the stock permission (stock:adjust)",
+        {
+          actionId: stock.id,
+          permission: "stock:adjust",
+        },
+      );
+    }
+  }
+  // A staff discount over the limit, or asked by an AI, and an AI's taking one off (stage 34,
+  // ADR 0691): approved only by a human admin, so an order's price beyond what the owner allowed,
+  // or an AI's change to it, is always the owner's decision.
+  const discount = targets.find(
+    (t) => t.operation === "order.adjust" || t.operation === "order.unadjust",
+  );
+  if (discount) {
+    if (ctx.actor !== "human") {
+      throw new ForbiddenError("A discount is approved by a person, never by an AI actor", {
+        actionId: discount.id,
+        actor: ctx.actor,
+      });
+    }
+    if (!roleHasPermission(ctx.user.role, "settings:manage")) {
+      throw new ForbiddenError("Approving a discount over the limit needs an admin", {
+        actionId: discount.id,
+        permission: "settings:manage",
+      });
     }
   }
   const targetIds = new Set(targets.map((t) => t.id));
@@ -1143,7 +1331,24 @@ async function approveActions(
         const status = outcome.ok ? "applied" : "failed";
         const statusReason = outcome.ok ? null : `Failed: ${outcome.message}`;
         if (!outcome.ok) failed.add(action.id);
+        // A held routine email a person approved (ADR 0590): exactly the values it showed, as
+        // they were when it was prepared, are a person's from now on.
+        const routine = outcome.ok
+          ? await ctx.db
+              .selectFrom("core_routine_mail")
+              .select("sources")
+              .where("pending_action_id", "=", action.id)
+              .executeTakeFirst()
+          : undefined;
+        let shown: { o: string; r: string; f: string; h: string }[] = [];
+        try {
+          shown = routine?.sources ? JSON.parse(routine.sources) : [];
+        } catch {}
+        const marks = shown.length
+          ? await approvalMarkStatements(ctx.db, shown, approver, ctx.now)
+          : [];
         await crm.batch([
+          ...marks,
           ctx.db
             .updateTable("core_pending_action")
             .set({
@@ -1173,7 +1378,14 @@ async function approveActions(
         const user = await loadUser(ctx.db, action.user_id);
         if (!user) throw new ValidationError(`The user ${action.user_id} no longer exists`);
         const granted = parse<string[] | null>(action.granted_permissions, null);
-        await ctx.pipeline.invoke(action.operation, replaceIds(parse(action.input, {}), bindings), {
+        const asked = replaceIds(parse<Record<string, unknown>>(action.input, {}), bindings);
+        // The approver's read-again choice replaces the AI's suggestion (ADR 0702).
+        const choice = input.readAgain?.[action.id];
+        const applying =
+          choice !== undefined && READ_AGAIN_OPERATIONS.has(action.operation)
+            ? { ...asked, readAgain: choice }
+            : asked;
+        await ctx.pipeline.invoke(action.operation, applying, {
           actor: action.actor,
           user,
           origin: parse<Origin>(action.origin, { surface: "mcp" }),
@@ -1560,6 +1772,12 @@ export const approvalDecide = defineOperation({
       via: z.enum(["tap", "typed", "spoken"]).default("tap").describe("Set by the app"),
       words: z.string().trim().max(2_000).optional().describe("Set by the app"),
       confirm: z.string().max(300).optional().describe("Set by the app: the second button"),
+      readAgain: z
+        .record(actionId, z.boolean())
+        .optional()
+        .describe(
+          "Set by the app: a person's read-again choice for a publish request, by action id (ADR 0702)",
+        ),
     })
     .refine(...oneTarget),
   output: decideResultSchema,
@@ -1621,7 +1839,13 @@ export const approvalDecide = defineOperation({
     }
     // Only a person's press can stand for the second button: a model's `confirm` never does.
     const confirm = assistant || told.via !== "tap" ? undefined : input.confirm;
-    const applied = await approveActions(ctx, { ...scoped, confirm }, { via: told.via, proved });
+    // The read-again choice is a person's in the app: an assistant relaying a yes makes none.
+    const readAgain = assistant ? undefined : input.readAgain;
+    const applied = await approveActions(
+      ctx,
+      { ...scoped, confirm, readAgain },
+      { via: told.via, proved },
+    );
     return ctx.afterCommit(async () => ({
       status: "decided" as const,
       ...(await runAfterCommit(applied)),

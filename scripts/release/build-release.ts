@@ -50,7 +50,6 @@ import {
 } from "@composable-os/release";
 import { collectClientKit } from "./client-kit.ts";
 import {
-  type DeployablePackage,
   generateManifest,
   readDeployablePackages,
   readMigrations,
@@ -83,7 +82,7 @@ function walk(dir: string): string[] {
 const posix = (path: string) => path.split(sep).join("/");
 
 /** Reads a `wrangler deploy --dry-run --outdir` directory into modules (source maps dropped). */
-export async function collectModules(outDir: string) {
+async function collectModules(outDir: string) {
   const modules: (ManifestModule & { bytes: Uint8Array })[] = [];
   for (const file of walk(outDir)) {
     const name = posix(relative(outDir, file));
@@ -174,7 +173,11 @@ async function main() {
   ).version as string;
 
   // 1. Build every package (turbo): the runner and gatekeepers write their dry-run bundles to dist/.
-  if (!args["skip-build"]) run(ROOT, "pnpm", ["build"], productEnv);
+  // CORE_SCHEMA_VERSION is written from the migration files first, whatever turbo's cache holds.
+  if (!args["skip-build"]) {
+    run(ROOT, "node", ["packages/db/scripts/schema-version.mjs"]);
+    run(ROOT, "pnpm", ["build"], productEnv);
+  }
 
   const packages = readDeployablePackages(ROOT);
   const scratch = mkdtempSync(join(tmpdir(), "cos-release-"));
@@ -205,7 +208,7 @@ async function main() {
       const { mainModule, modules } = await collectModules(outDir);
       for (const m of modules) moduleBlobs.set(m.sha256, m.bytes);
       builds.push({
-        pkg: pkg as DeployablePackage,
+        pkg,
         mainModule,
         modules: modules.map(({ bytes: _bytes, ...m }) => m),
         ...(assets ? { assets } : {}),
@@ -258,7 +261,7 @@ async function main() {
   );
 }
 
-if (import.meta.url === `file://${process.argv[1]}`) {
+if (process.argv[1] === fileURLToPath(import.meta.url)) {
   main().catch((error: unknown) => {
     console.error(`release build failed: ${(error as Error).message}`);
     process.exitCode = 1;

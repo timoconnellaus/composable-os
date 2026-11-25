@@ -2,21 +2,24 @@
 // another. Filter values live in the URL (`?filters=`), so a filtered Home is shareable.
 import { Skeleton } from "@composable-os/ui/components/skeleton";
 import { createFileRoute, useNavigate } from "@tanstack/react-router";
-import { DashboardPage, parseFilterValues } from "#/components/dashboards/dashboard-page";
-import type { FilterValues } from "#/components/dashboards/dashboard-view";
+import { DashboardPage, validateFiltersSearch } from "#/components/dashboards/dashboard-page";
 import { ErrorState } from "#/components/empty-state";
 import { PageLayout } from "#/components/layout/page-layout";
+import { FixedRoleHome } from "#/components/screens/fixed-role-shell";
 import { useOp } from "#/lib/query";
 
 export const Route = createFileRoute("/_app/")({
-  validateSearch: (search: Record<string, unknown>): { filters?: FilterValues } => {
-    const filters = parseFilterValues(search.filters);
-    return filters && Object.keys(filters).length ? { filters } : {};
-  },
+  validateSearch: validateFiltersSearch,
   component: Home,
 });
 
 function Home() {
+  // A fixed-role account's home is its screens (stage 47): no dashboard, which its role cannot read.
+  const { packRole } = Route.useRouteContext();
+  return packRole ? <FixedRoleHome /> : <StaffHome />;
+}
+
+function StaffHome() {
   const { filters = {} } = Route.useSearch();
   const { isAdmin } = Route.useRouteContext();
   const navigate = useNavigate({ from: "/" });

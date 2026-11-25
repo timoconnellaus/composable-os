@@ -128,6 +128,7 @@ export function isolationSuite(how: string, call: CallFn): void {
     type?: string | string[];
     enum?: unknown[];
     default?: unknown;
+    anyOf?: Property[];
   }
 
   const isId = (name: string) => name === "id" || name === "owner" || /Id$/.test(name);
@@ -148,6 +149,8 @@ export function isolationSuite(how: string, call: CallFn): void {
     if (!required) return undefined;
     if (isId(name)) return a.principal.personId;
     if (property.enum?.length) return property.enum[0];
+    // A nullable value (a birthday, stage 53): null is the harmless one.
+    if (property.anyOf?.some((p) => p.type === "null")) return null;
     const type = Array.isArray(property.type) ? property.type[0] : property.type;
     if (type === "string") return "x";
     if (type === "number" || type === "integer") return 1;

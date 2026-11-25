@@ -1,12 +1,15 @@
 // The widget result cache (ADR 0057): 60 seconds per query + params + visibility scope, in the
 // Workers Cache API. It is free, needs no binding, and never writes to D1 or KV. Entries are
-// keyed by a SHA-256 of the validated SQL, its bound params and the caller's visibility scope,
-// so a cached result is only served to someone who would see the same rows. Each data centre
+// keyed by a SHA-256 of the validated SQL, its bound params, the caller's visibility scope and the
+// organisation's time zone, so a cached result is only served to someone who would see the same
+// rows, and a change of zone is never answered from before it (ADR 0871). Each data centre
 // keeps its own copy; a miss simply runs the query. Manual refresh skips the read and replaces
 // the entry.
 //
 // The Cache API is a no-op on `*.workers.dev` hostnames and when no `caches` global exists
 // (Node tests): every call is then a miss, which is correct, only slower.
+
+import { sha256Hex } from "../digest.ts";
 
 export const WIDGET_CACHE_TTL_SECONDS = 60;
 const CACHE_ORIGIN = "https://widget-cache.crm.internal/v1/";
@@ -21,19 +24,17 @@ export interface WidgetCache {
   put<T>(key: string, value: T, cachedAt: string): Promise<void>;
 }
 
-async function sha256(text: string): Promise<string> {
-  const digest = await crypto.subtle.digest("SHA-256", new TextEncoder().encode(text));
-  return [...new Uint8Array(digest)].map((b) => b.toString(16).padStart(2, "0")).join("");
-}
-
-/** The cache key for one query run: SQL, positional params, row limit and visibility scope. */
+/** The cache key for one query run: SQL, positional params, row limit, scope and zone. */
 export async function widgetCacheKey(parts: {
   sql: string;
   params: readonly unknown[];
   maxRows: number;
   scope: string;
+  zone: string;
 }): Promise<string> {
-  return sha256(JSON.stringify([parts.sql, parts.params, parts.maxRows, parts.scope]));
+  return sha256Hex(
+    JSON.stringify([parts.sql, parts.params, parts.maxRows, parts.scope, parts.zone]),
+  );
 }
 
 /**

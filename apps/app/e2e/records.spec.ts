@@ -269,7 +269,8 @@ test("an admin changes a user's role", async ({ page, baseURL }) => {
   await open(page, "/settings/users");
   const row = page.locator(`[data-testid=user-row][data-email="${email}"]`);
   await expect(row).toBeVisible();
-  const role = row.getByRole("combobox", { name: `Role for ${name}` });
+  // Exact: with a pack that has fixed roles installed, the row also has "Fixed role for …".
+  const role = row.getByRole("combobox", { name: `Role for ${name}`, exact: true });
   await expect(role).toHaveText("Member");
   await expectNoHorizontalScroll(page);
   await role.click();
@@ -280,7 +281,7 @@ test("an admin changes a user's role", async ({ page, baseURL }) => {
   await expect(
     page
       .locator(`[data-testid=user-row][data-email="${email}"]`)
-      .getByRole("combobox", { name: `Role for ${name}` }),
+      .getByRole("combobox", { name: `Role for ${name}`, exact: true }),
   ).toHaveText("Viewer");
 });
 

@@ -59,12 +59,15 @@ describe("the minute cron and the kill switch", () => {
       duplicates: null,
       orders: null,
       publishing: null,
+      reindex: null,
       recurring: null,
       waitlist: null,
       timedMoves: null,
       agreements: null,
+      agreementCopies: null,
       customerSignup: null,
       deferredRuns: null,
+      routineMessages: null,
     });
     expect(await state(ids)).toEqual({ outboxPending: true, eventConsumed: false });
 
@@ -78,6 +81,9 @@ describe("the minute cron and the kill switch", () => {
     expect(resumed.duplicates).toMatchObject({ mode: "continue" });
     // Agreements (ADR 0640): scheduled versions take effect; nothing is scheduled here.
     expect(resumed.agreements).toEqual({ documents: 0 });
+    // Agreements' copies (ADR 0645): none waits here.
+    expect(resumed.agreementCopies).toMatchObject({ sent: 0, failed: 0 });
+
     expect(await state(ids)).toEqual({ outboxPending: false, eventConsumed: true });
   });
 

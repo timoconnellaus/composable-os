@@ -7,7 +7,10 @@
 //   (`order.honourLate`) or it is refunded.
 // - Once a day admins are told about late payments still undecided and balances past due.
 import type { CrmDb } from "@composable-os/db";
+import type { Compilable } from "kysely";
+import { enforcePurchase, pointsOfObjects } from "../agreements/enforce.ts";
 import { ConflictError } from "../errors.ts";
+import { getObject } from "../fields/index.ts";
 import { notifyStatements } from "../notifications/send.ts";
 import type { HandlerContext } from "../operation.ts";
 import { changeOrder, formatMoney, type OrderRow, overdueOrders } from "./orders.ts";
@@ -15,17 +18,30 @@ import { changeOrder, formatMoney, type OrderRow, overdueOrders } from "./orders
 /** How many pending orders one sweep expires. */
 export const EXPIRE_BATCH = 50;
 
+/**
+ * Whether any pending order's time to pay has run out: one row of an index at most, read outside
+ * any operation, so the minute cron calls `order.expireDue` (and audits it) only when it has work.
+ */
+export async function orderExpiryDue(db: CrmDb["query"], now: string): Promise<boolean> {
+  return (await dueOrders(db, now).select("id").limit(1).executeTakeFirst()) !== undefined;
+}
+
+/** Pending orders past their time to pay, oldest first. */
+function dueOrders(db: CrmDb["query"], now: string) {
+  return db
+    .selectFrom("core_order")
+    .where("state", "=", "pending")
+    .where("expires_at", "<=", now)
+    .orderBy("expires_at");
+}
+
 /** Expires pending orders whose time is up, in the calling operation's batch. */
 export async function expireDueOrders(
   ctx: HandlerContext,
   limit = EXPIRE_BATCH,
 ): Promise<string[]> {
-  const rows = await ctx.db
-    .selectFrom("core_order")
+  const rows = await dueOrders(ctx.db, ctx.now)
     .selectAll()
-    .where("state", "=", "pending")
-    .where("expires_at", "<=", ctx.now)
-    .orderBy("expires_at")
     .limit(Math.min(Math.max(limit, 1), EXPIRE_BATCH))
     .execute();
   for (const row of rows) {
@@ -112,6 +128,27 @@ export async function honourLatePayment(ctx: HandlerContext, row: OrderRow): Pro
       { order: row.id, rule: "late_payment" },
     );
   }
+  // Keeping it makes the purchase (stage 44 step 3, ADR 0644): a guest's acceptances went with the
+  // order when it expired, so the order's Person must have what is due now, like any purchase.
+  // Refused with the list: refund the payment, or have them agree and buy again.
+  // An order that moves a record (a drop-in, ADR 0560) is never honoured late: the order's move
+  // hook refuses it (`held_gone`), the place having gone back at expiry, so it is not judged here
+  // (its participant is the booking's Person, a child's for a guardian's drop-in, not the payer).
+  const lines = await ctx.db
+    .selectFrom("core_order_line")
+    .select("object_type")
+    .where("order_id", "=", row.id)
+    .execute();
+  const objects = lines.map((line) => line.object_type);
+  if (!objects.some((name) => getObject(name)?.sellable?.moves)) {
+    const agreed = await enforcePurchase(
+      ctx,
+      pointsOfObjects(objects),
+      { guest: false, participant: row.person_id, payer: row.person_id },
+      undefined,
+    );
+    if (agreed.guards.length) ctx.write(...agreed.guards);
+  }
   const paid = row.paid + payment.amount;
   const settled = paid >= row.total;
   const next = await changeOrder(
@@ -144,42 +181,41 @@ export async function runOrderNotices(
   const day = now.slice(0, 10);
   const late = await paidLate(db);
   const overdue = await overdueOrders(db, now);
-  const statements = [];
-  if (late.length) {
+  const statements: Compilable[] = [];
+  // `list`: the order list the notice opens; `kind`: its once-a-day key.
+  const tell = async (list: string, kind: string, title: string, body: string) => {
     const plan = await notifyStatements(
       db,
       {
         to: [{ role: "admin" }],
         type: "system.message",
-        title: `${late.length} late ${late.length === 1 ? "payment needs" : "payments need"} a decision`,
-        body:
-          "A payment arrived after its order had closed. Honour it (the order becomes paid) or " +
-          "refund it. It stays on the paid-late list until one happens.",
-        link: { kind: "record", object: "order", id: "paid-late" },
-        dedupeKey: `order.paid_late_daily:${day}`,
+        title,
+        body,
+        link: { kind: "record", object: "order", id: list },
+        dedupeKey: `order.${kind}:${day}`,
         source: { actor: "system" },
       },
       now,
     );
     statements.push(...plan.statements);
+  };
+  if (late.length) {
+    await tell(
+      "paid-late",
+      "paid_late_daily",
+      `${late.length} late ${late.length === 1 ? "payment needs" : "payments need"} a decision`,
+      "A payment arrived after its order had closed. Honour it (the order becomes paid) or " +
+        "refund it. It stays on the paid-late list until one happens.",
+    );
   }
   if (overdue.length) {
-    const plan = await notifyStatements(
-      db,
-      {
-        to: [{ role: "admin" }],
-        type: "system.message",
-        title: `${overdue.length} ${overdue.length === 1 ? "balance is" : "balances are"} past due`,
-        body:
-          "Part-paid orders whose balance was due before today. Nothing happens by itself: " +
-          "extend the date, cancel the order, or wait for the buyer to pay.",
-        link: { kind: "record", object: "order", id: "overdue" },
-        dedupeKey: `order.overdue_daily:${day}`,
-        source: { actor: "system" },
-      },
-      now,
+    await tell(
+      "overdue",
+      "overdue_daily",
+      `${overdue.length} ${overdue.length === 1 ? "balance is" : "balances are"} past due`,
+      "Part-paid orders whose balance was due before today. Nothing happens by itself: " +
+        "extend the date, cancel the order, or wait for the buyer to pay.",
     );
-    statements.push(...plan.statements);
   }
   if (statements.length) await crm.batch(statements);
   return { paidLate: late.length, overdue: overdue.length };

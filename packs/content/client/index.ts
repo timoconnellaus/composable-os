@@ -6,7 +6,13 @@
 // (ADR 0442): only published versions, only the fields the post declares public. Nothing here
 // decides what is published or who may read it. Rich text arrives as structured data (ADR 0440);
 // the renderers draw it block by block with the app's own components and never as HTML.
-import { type ClientHolding, type PackClient, packHooks } from "@composable-os/client";
+import {
+  type ClientHolding,
+  type PackClient,
+  packHooks,
+  type UseMutation,
+  type UseQuery,
+} from "@composable-os/client";
 import type { z } from "@composable-os/sdk";
 import type { categories } from "../tools.ts";
 
@@ -158,6 +164,12 @@ export function hostMediaUrl(hostUrl: string): (id: string, width: number) => st
     `${host}/api/v1/media/${encodeURIComponent(id)}${width ? `?w=${Math.round(width)}` : ""}`;
 }
 
+/**
+ * Each heading's anchor, in document order (ADR 0700): the host's own rule, so a renderer's
+ * heading ids are the anchors `content.search` returns.
+ */
+export { headingAnchors } from "@composable-os/sdk/rich-text";
+
 /** The text of inline runs, without marks: for excerpts, alt text and screen readers. */
 export function inlineText(content: readonly Inline[] | undefined): string {
   return (content ?? []).map((run) => (run.type === "text" ? run.text : "\n")).join("");
@@ -280,24 +292,7 @@ export function postHead(
 
 // --- Hooks ---------------------------------------------------------------------------------------
 
-/** The app's `useQuery`, as far as these hooks use it. */
-export type UseQuery = <T>(options: {
-  queryKey: readonly unknown[];
-  queryFn: () => Promise<T>;
-  enabled?: boolean;
-}) => { data: T | undefined; isPending: boolean; error: unknown };
-
-/** The app's `useMutation`, as far as these hooks use it. */
-export type UseMutation = <I, O>(options: {
-  mutationKey: readonly unknown[];
-  mutationFn: (input: I) => Promise<O>;
-}) => {
-  mutate(input: I): void;
-  mutateAsync(input: I): Promise<O>;
-  data: O | undefined;
-  isPending: boolean;
-  error: unknown;
-};
+export type { UseMutation, UseQuery } from "@composable-os/client";
 
 /**
  * The operations each hook calls (ADR 0453). A customer's client and the public's get the

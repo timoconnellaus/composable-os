@@ -6,7 +6,10 @@ host, as the person who runs it. It is the platform's door for writing content f
 checked and audited as theirs. `cos courses import` is the same door for a course platform's
 courses, videos and students' access ([below](#courses-cos-courses-import), ADR 0495), and `cos
 subscriptions offers import` for subscribers moving from another platform
-([below](#subscribers-cos-subscriptions-offers-import), ADR 0491).
+([below](#subscribers-cos-subscriptions-offers-import), ADR 0491), and `cos rostering import` for
+duties and who works them ([below](#the-roster-cos-rostering-import), ADR 0629), and `cos programs
+import` for a gym's exercises, programs and past training ([below](#programs-cos-programs-import),
+stage 41).
 
 ```bash
 cos content import ./export --host https://admin.example.com              # by the browser
@@ -405,3 +408,177 @@ period's end**, and chase the rest before their date. Withdraw an offer made in 
 - You are staff with `subscriptions:manage` (admins have it), and `users:manage` for `--invite`.
 - Payments with the company's own provider account, set up and tried in test mode first
   ([docs/subscriptions-stripe-runbook.md](subscriptions-stripe-runbook.md)).
+
+## The roster: `cos rostering import`
+
+Duties that are not classes (cleaning, opening up) are rarely in a booking system, so they move in
+with this command (stage 45, [ADR 0629](adr/0629-the-rosters-screens-role-clients-with-grants-and-the-roster-import.md)):
+each as a **weekly pattern** (a duty series and its regular person) or a **one-off shift**. Classes,
+their series and coaches come in through the booking import (stage 31's door). The same door as
+the others: the file is checked before anyone signs in, the sign-in lasts for the run, and every
+write is an operation your session calls.
+
+```bash
+cos rostering import roster.csv --host https://admin.example.com              # a dry run
+cos rostering import roster.csv --host https://admin.example.com --apply      # writes
+```
+
+**It is a dry run unless `--apply`**: it reports what it would make and every clash, and writes
+nothing. `--email` works as for content. It exits 0 when the file went through (clashes are
+reported, not failures), 1 on a problem (nothing written), and 2 on a wrong command line.
+
+### The file
+
+A CSV with a header row; columns in any order, extra ones ignored. Each row is a weekly pattern
+(`weekdays` and `first_date`) or one shift (`date`), never both.
+
+| Column | | What |
+| --- | --- | --- |
+| `duty` | required | The duty's name (`Close-down clean`). A duty of that name is used; otherwise one is added. |
+| `time` | required | The local start time, `HH:MM` (`18:00`). |
+| `length` | required | Whole minutes, 1 to 1440. |
+| `weekdays` | a pattern | The days it repeats (`Mon Wed Fri`, `mon;wed`, `Monday, Friday`). |
+| `first_date`, `last_date` | a pattern | Its first date (`YYYY-MM-DD`), and its last (empty: ongoing). |
+| `date` | one shift | Its date (`YYYY-MM-DD`). |
+| `staff_email` | optional | Who works it (empty: nobody, an uncovered shift). |
+| `zone` | optional | An IANA time zone (`Australia/Sydney`); the organisation's when empty. |
+| `place` | optional | A new duty's place. |
+
+### What it does
+
+- **Staff come first.** Accounts are never made by an import (ADR 0455): invite each person on
+  Settings → Users first, with the role they should hold (a cleaner the rostered team role; a coach
+  the coach role and the Rostering grant). A row naming an address with no staff account stops the
+  run, listed with its line, before anything is written.
+- **The host checks every row** in one call, against the roster as it stands and against the other
+  rows: the same check every write and an upgrade make, so one person is never on two shifts at
+  once. Each date that would clash is named with the other shift's title and start. A one-off shift
+  that clashes is made with nobody on it; a pattern is made with its person, and the host makes each
+  clashing date with nobody on it and tells whoever rosters. A clash between shifts that have both
+  ended is reported only. Dates the person said they are away, and a duty they are not marked as
+  qualified for, are listed as warnings: they are imported, as a rosterer's own write would be.
+- **A pattern's shifts** are made by the host over the next minutes, as far ahead as the duty
+  horizon (8 weeks by default), each with its person; the clash check covers the same dates.
+- **A re-run makes nothing twice, and changes nothing there**: a duty by its name, a pattern by its
+  duty, days, time and first date, a shift by its duty and start. When the file now gives such a
+  pattern another person, length or last date (or such a shift another end or person), it is left
+  as it is and reported "differs, left as it is": change it on the roster.
+- **One file, one check**: at most 1,000 rows (split a larger file: it is refused before anyone
+  signs in) and 20,000 dated shifts (refused, never checked in part). With `--apply`, nothing is
+  written unless that check answered in the same run. The report names rows by their line, never by
+  anyone's address.
+- **Not imported**: time off (staff enter it), who is counted for pay (the owner sets it), past pay.
+  Who may do which duty is set on the qualifications screen.
+
+### What the host needs
+
+- The Rostering pack installed, and the staff invited.
+- You roster: an admin, or granted Rostering's "rosters others" permission, signed in as yourself
+  (the check reads people's time off, so it is a person's own call, never an assistant's).
+
+## Programs: `cos programs import`
+
+A gym's programming usually lives in documents and spreadsheets. This command brings the Programs
+pack's records in (stage 41, [ADR 0448](adr/0448-programs-the-layout-assignments-and-the-log.md),
+amended): the **exercise bank**, the **class types**, **programs** written in the pack's shorthand
+(the same text `x.programs.importText` reads, read by the same code), and **past training**, each
+set someone did before, with the session it was done in. The same door as the others: the folder is
+checked before anyone signs in, the sign-in lasts for the run, every record is written with
+`record.import` and its import key, and a person's edit since is a conflict, never overwritten.
+
+```bash
+cos programs import ./programs --host https://admin.example.com --dry-run   # checks, writes nothing
+cos programs import ./programs --host https://admin.example.com             # writes
+```
+
+`--email` works as for content. It exits 0 when everything is in (conflicts and rows that matched
+no person are reported, not failures), 1 on a problem (nothing written), and 2 on a wrong command
+line.
+
+### The folder
+
+Every file is optional. A **key** is what a record is found by on a re-run: keep it the same between
+runs (the old system's id, or a name that will not change).
+
+```
+programs/
+  exercises.csv      the bank
+  classtypes.csv     the kinds of class
+  programs/          one .txt file of shorthand per program; its name (without .txt) is its key
+  training.csv       past training, one row per set
+```
+
+**`exercises.csv`**: `name` (required), `key` (the name when left out), `measure` (`weight_reps`,
+`reps`, `time` or `hold`; `reps` when left out), `video` (a link), `cues`, `theme`, `level`,
+`equipment` and `body_areas` (lists split by `;`, the pack's options), and `easier` and `harder`
+(other rows' keys, split by `;`).
+
+**`classtypes.csv`**: `name` (required), `key` (the name when left out), `order`.
+
+**`programs/*.txt`**: the shorthand coaches type, as `x.programs.importText` documents it
+(`packs/programs/authoring.ts`): `Title:`, `Kind:` (`class`, `client` or `course`; `class` when
+left out), `Guidance:`, `Week:`, `Session:`, `Focus:`, `Warm-up:`, `Block A:`, items `A1:` with an
+exercise (for everyone), level lines `1:` to `5:`, or both (an exercise for everyone with levels
+beside it), `*` notes for coaches and `TV:` notes for members. Exercises are matched by name to the
+folder's and the host's bank. **Every line the reader cannot use is a problem** that stops the run,
+named with its file and line (a warm-up line it keeps as words is a note, not a problem): change
+the line, or make it a `*` note, rather than lose it.
+
+**`training.csv`**: one row per set. `email`, `date` (`YYYY-MM-DD`, today or before) and
+`exercise` (a key of `exercises.csv`, or the exact name of an exercise in the folder or on the
+host) are required. Optional: `session` (its name, at most 100 characters; `Training` when left out), `set` (counted
+in the order of the rows when left out, per person, day, session, item and exercise), `reps`, `seconds`, `load` (kilograms), `rpe` (1 to 10 in
+halves), `note`, `item` (`A1`), `level`, `program` (a file of `programs/`, without `.txt`), and
+`target_reps`, `target_seconds` and `target_load`. A row says what was done: reps, seconds or load. Two rows that are the
+same set (the same person, day, session, item, exercise and set number, whether the exercise is
+named by its key or its name and the person by either of their addresses) are a problem: the second
+is never written over the first.
+
+### What it does
+
+1. Reads the folder and checks it. Any problem stops the run before signing in, named with its file
+   and, for a CSV row, its line (`training.csv:7`).
+2. Signs you in for the run. Reads the host's bank and finds each training row's person: the one
+   live Person with that email. A row whose address no person has (or more than one) is listed with
+   its line and left out: import the people first (Settings → Import), never by this command.
+3. Checks every record on the host as it would be written (`record.import` with `dryRun`), records
+   not yet made standing in as placeholders, and reads every program's shorthand. A problem stops
+   the run with nothing written. `--dry-run` stops here and says what would happen.
+4. Writes, in order, each batch naming what the one before made by its id: the class types, the
+   exercises, their easier and harder versions, the programs (working copies: a person with the
+   publish permission publishes them), the past sessions and their sets.
+
+**Past training.** Each person's sets on one day under one session name become one **session**,
+done, with no assignment, marked `source: import`, and the program it names (if any). Each row is
+one **logged set** against that session, marked `source: import`, with its exercise as a relation,
+so history, progress, the Training dashboard and the `rec_*` views read imported sets as they read
+logged ones. The dashboard's planned and done sessions leave imported sessions out (they have no
+kind: they were never planned here). A member sees their own imported sessions and sets in the app as they see the rest of
+their training; they cannot log more sets on an imported session (it has no plan), nor move it
+back to planned (staff can).
+
+**What it brings in starts nothing.** Everything `record.import` writes was done before, somewhere
+else, so its events are marked `imported`: no automation starts from them (not even one that takes
+bulk changes) and no notification is sent. Nobody gets a "well done" message for a session they
+did last year.
+
+**A re-run makes nothing twice.** Every record is found by its key: a class type and an exercise by
+theirs, a program by its file's name, a session by its person, day and name, a set by its session,
+item, exercise and set number. What the source changed is updated while the record still holds
+what the import last wrote; one someone has changed since is reported as a conflict, with its
+fields, and left as it is.
+
+**Erasing a person** removes what the import kept of them too: every import key, and every
+record of what the import last wrote, that names them. A later re-run finds no person for their
+rows and leaves them out.
+
+**Not imported:** assignments of programs to people or class types (a coach assigns a published
+version, and the sessions follow from it), class attendance and bookings (the booking import),
+people (the people import).
+
+### What the host needs
+
+- The Programs pack in `product.ts`'s `packs`, and installed.
+- The people the training names, imported first.
+- You are staff, signed in as yourself.
+

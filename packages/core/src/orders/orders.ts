@@ -7,10 +7,18 @@
 //   - a caller names records and quantities, and whether to pay in full or by deposit;
 //   - the host reads every price, the deposit and the balance's due date from the records, and
 //     works out the total. No function here takes an amount from a caller for a new order;
+//   - money off is an adjustment (ADR 0690): the total is what is owed after the adjustments,
+//     priced through the seam (`priceLines`, then `applyAdjustments`), never sent by a caller;
 //   - a move to `paid`, `part_paid`, `expired` or `refunded` is a `host` move (fields/order.ts):
 //     only platform code passes `by: "host"`, and no operation takes the mover from its input.
 import type { CoreDatabase, CoreOrderTable } from "@composable-os/db";
 import type { Kysely, Selectable } from "kysely";
+import {
+  enforcePurchase,
+  type GuestAcceptance,
+  guestMinorNotice,
+  pointsOfObjects,
+} from "../agreements/enforce.ts";
 import { ConfigError, ConflictError, NotFoundError, ValidationError } from "../errors.ts";
 import { getObject } from "../fields/index.ts";
 import { type OrderState, orderObject } from "../fields/order.ts";
@@ -28,6 +36,7 @@ import {
   type VisibleSource,
   visibleSource,
 } from "../visibility/index.ts";
+import { applyAdjustments } from "./adjustments.ts";
 import { claimOrderPlaces } from "./holds.ts";
 import { holdOncePerPerson } from "./once.ts";
 import {
@@ -36,6 +45,7 @@ import {
   type Sellable,
   sellableOf,
   sellableProblems,
+  viewRow,
 } from "./sellable.ts";
 import {
   currencyDecimals,
@@ -79,6 +89,7 @@ export function orderSnapshot(row: OrderRow): Record<string, unknown> {
     taxAmount: row.tax_amount,
     taxRefunded: row.tax_refunded,
     taxCountry: row.tax_country,
+    discount: row.discount,
   };
 }
 
@@ -109,7 +120,10 @@ export interface PricedLine {
   title: string;
   quantity: number;
   unitPrice: number;
+  /** What the line costs before adjustments: `unitPrice * quantity`. */
   total: number;
+  /** The line's share of the order's adjustments (ADR 0690); it costs `total - discount`. */
+  discount: number;
   /** Deposit for one unit and when the balance is due, when the record offers a deposit. */
   deposit: { amount: number; balanceDueAt: string } | null;
   /** A plan's period and trial (ADR 0485): only when priced as a plan. */
@@ -134,17 +148,10 @@ function refuseLine(rule: LineRule, line: number, message: string, extra?: objec
 
 const column = (field: FieldDefinition | undefined) => (field ? viewColumnOf(field) : null);
 
-/** A date or datetime field's value as the moment a balance falls due (a date: its last instant). */
-function dueMoment(value: unknown): string | null {
-  if (typeof value !== "string" || value.trim() === "") return null;
-  const text = /^\d{4}-\d{2}-\d{2}$/.test(value) ? `${value}T23:59:59.999Z` : value;
-  const at = new Date(text);
-  return Number.isNaN(at.getTime()) ? null : at.toISOString();
-}
-
 /**
- * A sale window's end as a moment: a datetime as it is; a date from the start of its day
- * (`start`) or through its end (`end`), in UTC. Null when empty.
+ * A date or datetime field's value as a moment: a datetime as it is; a date from the start of its
+ * day (`start`) or through its end (`end`), in UTC. Null when empty. A sale window's ends, and the
+ * moment a balance falls due (a date's last instant).
  */
 function windowMoment(value: unknown, end: "start" | "end"): string | null {
   if (typeof value !== "string" || value.trim() === "") return null;
@@ -179,13 +186,7 @@ async function readable(
   } catch {
     return false;
   }
-  // biome-ignore lint/suspicious/noExplicitAny: the source is a registry-driven view, not a key of the typed schema.
-  const row = await (db as any)
-    .selectFrom(source)
-    .select("id")
-    .where("id", "=", id)
-    .executeTakeFirst();
-  return Boolean(row);
+  return Boolean(await db.selectFrom(source).select("id").where("id", "=", id).executeTakeFirst());
 }
 
 export async function priceLines(
@@ -229,12 +230,7 @@ export async function priceLines(
         sellable.recurring ? "This is a plan: subscribe to it instead" : "This is not a plan",
       );
     }
-    // biome-ignore lint/suspicious/noExplicitAny: the source is a registry-driven view, not a key of the typed schema.
-    const row = (await (db as any)
-      .selectFrom(visibleSource(reader, object))
-      .selectAll()
-      .where("id", "=", line.id)
-      .executeTakeFirst()) as AnyRow | undefined;
+    const row = await viewRow(db, visibleSource(reader, object), line.id);
     if (!row) refuseLine("not_for_sale", index, "This cannot be bought");
     if (buyer && buyer.kind !== "staff" && !(await readable(db, buyer, object, line.id))) {
       refuseLine("not_for_sale", index, "This cannot be bought");
@@ -297,7 +293,7 @@ export async function priceLines(
     let deposit: PricedLine["deposit"] = null;
     if (sellable.deposit) {
       const amount = toMinorUnits(read(sellable.deposit.amount), currency);
-      const balanceDueAt = dueMoment(read(sellable.deposit.balanceDue));
+      const balanceDueAt = windowMoment(read(sellable.deposit.balanceDue), "end");
       if (amount !== null && amount > 0 && balanceDueAt) deposit = { amount, balanceDueAt };
     }
     const title = object.titleField ? read(object.titleField) : null;
@@ -322,6 +318,7 @@ export async function priceLines(
       quantity: line.quantity,
       unitPrice,
       total: unitPrice * line.quantity,
+      discount: 0,
       deposit,
     });
   }
@@ -347,6 +344,13 @@ export interface NewOrder {
    */
   id?: string;
   priced?: readonly PricedLine[];
+  /**
+   * Who it is for, when not the order's Person (stage 44 step 3): a drop-in a guardian buys for a
+   * dependant (`order.startHeld`). Left out, the order's Person.
+   */
+  participantId?: string | null;
+  /** A visitor's acceptances, carried in the buying call (only `placedAs: "public"`). */
+  agreements?: readonly GuestAcceptance[] | undefined;
 }
 
 export interface StartedOrder {
@@ -377,10 +381,15 @@ export async function createOrder(ctx: HandlerContext, input: NewOrder): Promise
   if (!currency) {
     throw new ConfigError("No currency is set for orders yet, so nothing can be sold");
   }
-  const lines = input.priced
+  const priced = input.priced
     ? [...input.priced]
     : await priceLines(ctx.db, input.lines, currency, ctx.now, callerOf(ctx));
-  const total = lines.reduce((sum, line) => sum + line.total, 0);
+  // The seam's adjustment stage (ADR 0690): nothing is taken off an order as it starts yet (a
+  // code or a member's price joins here with the discount behaviour); staff take money off a
+  // pending order afterwards (orders/staff-discounts.ts), through the same function.
+  const adjusted = applyAdjustments(priced, []);
+  const lines = priced.map((line, i) => ({ ...line, discount: adjusted.discounts[i] ?? 0 }));
+  const total = adjusted.total;
   if (total <= 0) {
     throw new ValidationError("An order with nothing to pay cannot be started", { rule: "total" });
   }
@@ -409,8 +418,23 @@ export async function createOrder(ctx: HandlerContext, input: NewOrder): Promise
     }
   }
 
-  const minutes = await loadOrderExpiryMinutes(ctx.db);
   const id = input.id ?? newId("order");
+  // Nobody pays without the agreements they need (stage 44 step 3, ADR 0644): asked at the points
+  // the bought objects declare, before anything is written, with the guard in this batch. A
+  // visitor's acceptances in the call are checked now and recorded after the order (below).
+  const agreed = await enforcePurchase(
+    ctx,
+    pointsOfObjects(lines.map((line) => line.object)),
+    {
+      guest: input.placedAs === "public",
+      participant: input.participantId === undefined ? input.personId : input.participantId,
+      payer: input.personId,
+    },
+    input.agreements,
+  );
+  const guestRows = await agreed.guestRows({ orderId: id, email: input.email });
+
+  const minutes = await loadOrderExpiryMinutes(ctx.db);
   const row: OrderRow = {
     id,
     person_id: input.personId,
@@ -438,12 +462,14 @@ export async function createOrder(ctx: HandlerContext, input: NewOrder): Promise
     period_end: null,
     invoice_ref: null,
     period_flag: null,
+    provider_paid_at: null,
     paid_at: null,
     cancelled_at: null,
     refunded_at: null,
     created_at: ctx.now,
     updated_at: ctx.now,
     version: 0,
+    discount: adjusted.discount,
   };
   // The host creates the order: its first history row is the host's, whoever is buying.
   const outcome = await applyTransition(
@@ -473,10 +499,14 @@ export async function createOrder(ctx: HandlerContext, input: NewOrder): Promise
         quantity: line.quantity,
         unit_price: line.unitPrice,
         line_total: line.total,
+        line_discount: line.discount,
         created_at: ctx.now,
       }),
     ),
     ...outcome.history,
+    ...agreed.guards,
+    // After the order: a guest's acceptance names an order that must exist (migration 0851).
+    ...guestRows,
   );
   // One per Person (ADR 0512): refused, or held in this batch, after the order it names.
   await holdOncePerPerson(
@@ -529,11 +559,39 @@ export type OrderChange = Partial<
  * from platform code that has itself established why: a verified payment, an expiry, a refund
  * the provider confirmed.
  */
-export async function changeOrder(
+export function changeOrder(
   ctx: HandlerContext,
   row: OrderRow,
   to: OrderState,
   change: OrderChange,
+  by: Mover,
+): Promise<OrderRow> {
+  return writeOrderChange(ctx, row, to, change, by);
+}
+
+/** What a change to a pending order's adjustments sets: its total and their sum (ADR 0690). */
+export type OrderPriceChange = Pick<OrderRow, "total" | "discount">;
+
+/**
+ * Queues a pending order's new price after its adjustments changed, in the calling batch, with
+ * the version check and the audit row of any change. Only orders/staff-discounts.ts calls it, with
+ * a total `applyAdjustments` worked out from the order's lines.
+ */
+export function changeOrderPrice(
+  ctx: HandlerContext,
+  row: OrderRow,
+  change: OrderPriceChange,
+  by: Mover,
+): Promise<OrderRow> {
+  requireState(row, ["pending"], "repriced");
+  return writeOrderChange(ctx, row, row.state, change, by);
+}
+
+async function writeOrderChange(
+  ctx: HandlerContext,
+  row: OrderRow,
+  to: OrderState,
+  change: OrderChange | OrderPriceChange,
   by: Mover,
 ): Promise<OrderRow> {
   const before = orderSnapshot(row);
@@ -543,10 +601,14 @@ export async function changeOrder(
     state: to,
     updated_at: ctx.now,
     version: row.version + 1,
-    // A guest's link outlives the order's closing by a while, then stops.
-    access_until: CLOSED.has(to)
-      ? new Date(Date.parse(ctx.now) + ORDER_ACCESS_DAYS_AFTER_CLOSE * 86_400_000).toISOString()
-      : null,
+    // A guest's link outlives the order's closing by a while, then stops. A later change to a
+    // closed order (its Person given, a refund) keeps the date it closed with; an expired order
+    // becoming paid (a late payment honoured) closes again, as paid, and its time starts now.
+    access_until: !CLOSED.has(to)
+      ? null
+      : CLOSED.has(row.state) && row.access_until && !(to === "paid" && row.state !== "paid")
+        ? row.access_until
+        : new Date(Date.parse(ctx.now) + ORDER_ACCESS_DAYS_AFTER_CLOSE * 86_400_000).toISOString(),
   };
   // The engine and the move hooks see the order as this write leaves it (what is now paid).
   const outcome = await applyTransition(ctx, order(), row.id, before, orderSnapshot(next), { by });
@@ -571,6 +633,11 @@ export async function changeOrder(
     after: orderSnapshot(next),
   });
   if (to !== row.state) postOrderMove(ctx, next, row.state);
+  // A guest's purchase landing on a minor tells staff (ADR 0644): the batch that pays it or
+  // gives it its Person settles its acceptances (migration 0853).
+  if (next.person_id && next.paid > 0) {
+    await guestMinorNotice(ctx, { orderId: row.id }, next.person_id);
+  }
   return next;
 }
 
@@ -630,6 +697,8 @@ export interface Charge {
  * What a checkout for `row` may charge (the payments gatekeeper asks before it opens the
  * provider's page, and a verified payment is checked against the same rule).
  * - Nothing paid yet: the whole price, or the deposit when the buyer chose one. No other amount.
+ *   A deposit an adjustment left at or above the total (ADR 0690) is not taken: the whole price
+ *   is, and the order is paid in full.
  * - Part paid: the balance, or a part of it the buyer names, at least `minPart` (or the balance,
  *   when less is owed) and never more than the balance.
  * - Any other state: nothing.
@@ -639,7 +708,8 @@ export function chargeFor(row: OrderRow, minPart: number, amount?: number): Char
     throw new ValidationError(message, { rule, order: row.id, ...extra });
   };
   if (row.state === "pending") {
-    const due = row.pay === "deposit" ? (row.deposit as number) : row.total;
+    const byDeposit = row.pay === "deposit" && (row.deposit as number) < row.total;
+    const due = byDeposit ? (row.deposit as number) : row.total;
     if (amount !== undefined && amount !== due) {
       refuse("The first payment on an order is not the buyer's to choose", "charge_amount", {
         due,
@@ -648,7 +718,7 @@ export function chargeFor(row: OrderRow, minPart: number, amount?: number): Char
     return {
       amount: due,
       currency: row.currency,
-      kind: row.pay === "deposit" ? "deposit" : "full",
+      kind: byDeposit ? "deposit" : "full",
     };
   }
   if (row.state === "part_paid") {

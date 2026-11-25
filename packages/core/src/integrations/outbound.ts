@@ -74,14 +74,60 @@ export interface OutboundSubmission {
    * unless the floor denies it. Set only by the integration host for its own calls.
    */
   hostMessage?: boolean | undefined;
+  /**
+   * Routine mail (ADR 0590): the host's own send of a row of `core_routine_mail`, set only by the
+   * integration host for its `callAsHost` with purpose `routine-mail`. `routine` is the host's
+   * decision that it may go without a person; it applies only when the gatekeeper also gave the
+   * send its routine kind (one recipient, plain text, links only to the business's site).
+   * Anything else from that queue, a held one included, always waits for a person.
+   */
+  routineMail?: { routine: boolean; ordinary?: boolean } | undefined;
 }
 
 /**
- * Kinds that are always reviewed, whoever submits them and whatever the policy, the floor, an
- * admin's auto-approve or the host say (ADR 0429). A refund sends money back: a person with
- * `orders:refund` approves each one (approval.ts), and no AI actor can.
+ * Gatekeeper kinds of routine messages (ADR 0590, ADR 0672): email-send's, the fake outbox's, and
+ * the text gatekeeper's.
  */
-export const ALWAYS_REVIEWED_KINDS: ReadonlySet<string> = new Set(["payments.refund"]);
+export const ROUTINE_MAIL_KINDS: ReadonlySet<string> = new Set([
+  "email.routine",
+  "fake.routine",
+  "text.routine",
+]);
+
+/**
+ * A refund sends money back (ADR 0429): a person with `orders:refund` approves each one
+ * (approval.ts), and no AI actor can.
+ */
+export const REFUND_KINDS: ReadonlySet<string> = new Set(["payments.refund"]);
+
+/**
+ * A card reader registered to or removed from the payment account (stage 50, ADR 0774): it moves
+ * no money, but adds or takes away a device that can take it. Asked only by the host's own call,
+ * which the host's message rule would otherwise apply at once: a human admin approves each one
+ * (approval.ts), and no AI actor can.
+ */
+export const READER_KINDS: ReadonlySet<string> = new Set([
+  "payments.reader.register",
+  "payments.reader.remove",
+]);
+
+/**
+ * A void of a document the host posted to the books (stage 61, ADR 0881): it takes back an entry
+ * the bookkeeper may already have reconciled. Asked only by the host's own accounting call, which
+ * the host's message rule would otherwise apply at once: a human admin approves each one
+ * (approval.ts), and no AI actor can.
+ */
+export const ACCOUNTING_VOID_KINDS: ReadonlySet<string> = new Set(["accounting.void"]);
+
+/**
+ * Kinds that are always reviewed, whoever submits them and whatever the policy, the floor, an
+ * admin's auto-approve or the host say (ADRs 0429, 0774 and 0881).
+ */
+export const ALWAYS_REVIEWED_KINDS: ReadonlySet<string> = new Set([
+  ...REFUND_KINDS,
+  ...READER_KINDS,
+  ...ACCOUNTING_VOID_KINDS,
+]);
 
 export type OutboundDecision =
   /**
@@ -225,6 +271,11 @@ export async function submitOutbound(db: CrmDb, s: OutboundSubmission): Promise<
   const now = s.now ?? new Date().toISOString();
   const input = outboundInput(s);
   const policy = await loadApprovalPolicy(db.query);
+  // Routine mail (ADR 0590): the host decided it, and the gatekeeper confirmed its shape.
+  const routine =
+    s.routineMail?.routine === true &&
+    input.actionKind !== null &&
+    ROUTINE_MAIL_KINDS.has(input.actionKind.tag);
   const kind = input.actionKind
     ? await db.query
         .selectFrom("core_outbound_kind")
@@ -239,6 +290,7 @@ export async function submitOutbound(db: CrmDb, s: OutboundSubmission): Promise<
       outbound: {
         autoApprovable: input.autoApprovable,
         enabled: kind?.auto_approve === 1 && kind.auto_approvable === 1,
+        routine,
       },
     },
     policy,
@@ -254,12 +306,19 @@ export async function submitOutbound(db: CrmDb, s: OutboundSubmission): Promise<
   if (decision === "auto" && provisional.length) decision = "review";
   // An agent's email or post always waits for the person, whatever the policy (ADR 0344).
   if (decision === "auto" && s.origin.jobId) decision = "review";
+  // Routine mail the host held (over the daily cap, a value not routine, an AI's change no person
+  // approved), or that the gatekeeper did not confirm: a person decides, whatever the preset.
+  // A pack whose routine email is not turned on yet (D1) sends as before: the policy decides.
+  if (decision === "auto" && s.routineMail && !routine && !s.routineMail.ordinary) {
+    decision = "review";
+  }
 
   // outbound.message (ADR 0238): a message an AI actor wrote is read before it leaves. A finding,
   // or no answer, turns an automatic send into a review; Jev never lets one through.
   let check: OutboundCheck | null = null;
   let judgeUsage: JudgeCallUsage | undefined;
-  if (decision !== "deny" && s.judge && textFromAi(s.actor, s.origin)) {
+  // Routine mail's words are the shipped pack's declaration, not an AI's: not read here.
+  if (decision !== "deny" && s.judge && !routine && textFromAi(s.actor, s.origin)) {
     const checked = await checkOutbound({
       judge: s.judge,
       db: db.query,
@@ -274,7 +333,8 @@ export async function submitOutbound(db: CrmDb, s: OutboundSubmission): Promise<
       judgeUsage = checked.usage;
     }
   }
-  // Whatever said otherwise above, a refund waits for a person.
+  // Whatever said otherwise above, a refund, a card reader's change and a void of an entry in the
+  // books wait for a person.
   if (decision === "auto" && input.actionKind && ALWAYS_REVIEWED_KINDS.has(input.actionKind.tag)) {
     decision = "review";
   }

@@ -11,7 +11,11 @@ export interface BypassedPath {
   path: string;
   /** How the path authenticates without Access, in a sentence a reviewer can check. */
   authenticates: string;
-  /** `always`; `customers-on-host` when customers buy on the host's own pages; `non-live` only. */
+  /**
+   * When the bypass is needed: `always`; `customers-on-host` when customers buy on the host's own
+   * pages; `mcp` when MCP clients connect; `if-used` when that provider or webhook is in use;
+   * `non-live` only outside a live environment.
+   */
   when: "always" | "customers-on-host" | "mcp" | "non-live" | "if-used";
 }
 
@@ -21,6 +25,30 @@ export interface StaffPath {
 }
 
 export const ACCESS_BYPASS: readonly BypassedPath[] = [
+  {
+    // Inside /api/v1/* (below), listed on its own so that it stays bypassed, and says how, if the
+    // surface's bypass ever narrows: a calendar app cannot sign in through Access.
+    path: "/api/v1/staffing/feed/*",
+    when: "always",
+    authenticates:
+      "A staff member's private calendar feed (ADR 0628), polled by a calendar app with no " +
+      "sign-in: the 32-byte random token in the address is the credential, looked up by its " +
+      "SHA-256 (the host keeps nothing else of it), answering only that person's own shifts " +
+      "while their account is active and holds the pack's permission. Any other token, and any " +
+      "other path under it, is a 404 like a missing route; limited per token and per address.",
+  },
+  {
+    // The same, for a customer's own calendar feed (stage 62, ADR 0890).
+    path: "/api/v1/me/feed/*",
+    when: "always",
+    authenticates:
+      "A customer's private calendar feed (ADR 0890), polled by a calendar app with no sign-in: " +
+      "the 32-byte random token in the address is the credential, looked up by its SHA-256 in its " +
+      "own table (a staff feed's token opens nothing here), answering only that customer's own " +
+      "and their live dependants' bookings, read as the customer, while the account is active. " +
+      "Any other token, and any other path under it, is a 404 like a missing route; limited per " +
+      "token and per address.",
+  },
   {
     path: "/api/v1/*",
     when: "always",
@@ -42,6 +70,12 @@ export const ACCESS_BYPASS: readonly BypassedPath[] = [
     path: "/gatekeeper/payments/in/*",
     when: "if-used",
     authenticates: "The payment provider's webhook, checked against STRIPE_WEBHOOK_SECRET.",
+  },
+  {
+    path: "/gatekeeper/text/in/*",
+    when: "if-used",
+    authenticates:
+      "The text provider's webhook (receipts and STOP, START and HELP replies), checked against the provider's signing secret.",
   },
   {
     path: "/gatekeeper/webhook/in/*",
@@ -141,8 +175,30 @@ export const ACCESS_STAFF: readonly StaffPath[] = [
       "through the client-app binding, which Access does not front.",
   },
   {
+    path: "/api/agreements/*",
+    why:
+      "A signed agreement's PDF and a version's blank form (stage 44, ADR 0645): staff download " +
+      "them. A customer downloads their own at /api/v1/agreements/… (bypassed with /api/v1) or " +
+      "through the client-app binding.",
+  },
+  {
     path: "/blocks",
     why: "A pack's web block mounted on its own, in development only; a deployed host renders nothing there.",
+  },
+  {
+    path: "/desk",
+    why:
+      "The desk tablet's page (stage 44 step 6, ADR 0649): served only on the desk origin, a " +
+      "hostname of its own that this Access application does not cover; the staff hostname " +
+      "answers it as not found.",
+  },
+  {
+    path: "/enrol",
+    why: "Enrolling the desk tablet (ADR 0780): on the desk origin only, as /desk.",
+  },
+  {
+    path: "/api/desk/*",
+    why: "The desk tablet's calls: on the desk origin only, as /desk.",
   },
   {
     path: "/gatekeeper/*",
@@ -169,7 +225,12 @@ export const GATEKEEPER_ROUTES: Readonly<Record<string, readonly string[]>> = {
   websearch: [],
   webhook: ["/gatekeeper/webhook/in/*"],
   payments: ["/gatekeeper/payments/in/*", "/gatekeeper/payments/fake/pay/*"],
+  text: ["/gatekeeper/text/in/*"],
   fake: [],
+  // The fake accounting books (stage 61): development and tests only, and it serves no routes.
+  "accounting-fake": [],
+  // The fake booking system (stage 65): development and tests only, and it serves no routes.
+  "booking-system-fake": [],
 };
 
 /** Whether `pathname` matches a layout pattern. */

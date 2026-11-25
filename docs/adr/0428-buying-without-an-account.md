@@ -79,10 +79,28 @@ What it records with `recordChange` is checked in full, exactly as before. No ex
 - `order.view` answers staff and customers too: holding the token is the proof, whoever holds it.
 
 ## Amended 2026-11-23: a deployment that serves many clients
-[ADR 0611](0611-one-host-a-database-per-client.md) and stage 47's decision 8 (the owner's answer
+[ADR 0611](0611-one-host-a-database-per-client.md) and stage 66's decision 8 (the owner's answer
 of 2026-11-23). On a deployment that serves many clients there is no Worker per client to hold a
 client's secrets. There, auth secrets are derived per client from one secret in the host's
 environment and are stored nowhere; a secret a client gives (payment keys, its own sign-in
 provider, its own AI keys) is stored encrypted in the host's registry, under a key only the
 host's environment holds, written only by the operator's command and never readable by an
 operation, an extension or the assistant. A deployment for one organisation is unchanged.
+
+## Amended 2026-11-23: a guest's acceptances settle with the order (stage 44 step 3, [ADR 0644](0644-enforcement-nobody-pays-or-books-without-what-is-due.md))
+- **A guest agrees in the buying call.** `order.start` (and `order.startHeld`, through a pack's
+  tool) takes `agreements`: the guest's acceptances of every document attached for everyone at the
+  points of what they buy, checked without reading any Person (the answer is the same whatever the
+  address matches; a member who has agreed is asked again). They are recorded with the order and
+  the order's address, with no Person.
+- **They become the order's Person's** once something is paid on the order and it has a Person: the
+  verified payment's batch, or `order.setPerson`'s when the address matched several People
+  (migration 0853's trigger). An order that closes unpaid (expired, cancelled) deletes them.
+- **Staff starting an order for an address several People share** are refused while anything is
+  due there: nobody's acceptances can be read until staff merge them.
+
+## Amendment, 2026-11-24 (stage 29, ADR 0721)
+Whose a typed address is is now one shared matcher, `personForAddress`
+(`packages/core/src/customers/address-person.ts`): `resolveBuyer` calls it, and so does the
+submitter of a form (`intake.submit`). Same rules and same words. See
+[ADR 0721](0721-the-submitters-person-and-certainty.md).
