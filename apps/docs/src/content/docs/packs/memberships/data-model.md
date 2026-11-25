@@ -6,7 +6,7 @@ sidebar:
 editUrl: false
 ---
 
-Requires [programs](/packs/programs/): the host refuses to install it while one is missing.
+Requires [programs](/packs/programs/), [bookings](/packs/bookings/): the host refuses to install it while one is missing.
 
 ## Membership plan (`memberships.plan`)
 
@@ -29,6 +29,8 @@ A membership paid every month: unlimited classes, or a number a week or a month,
 | `price` | `currency` | Price per month | yes |   |   |
 | `uses` | `number` | Classes per period |   | min 1; max 1000 | Empty: unlimited. |
 | `per` | `select` | Per | yes | one of `week`, `month`; default `"week"` |   |
+| `covers` | `multiSelect` | Pays for |   | one of `classes`, `sessions` | Classes, one-to-one sessions (Bookings' appointments), or both. Empty: classes only. |
+| `services` | `relation` | Services |   | to `bookings.service`, many | The one-to-one sessions it pays for, when it pays for sessions. Empty: every one. |
 | `classTypes` | `relation` | Class types |   | to `programs.classtype`, many | Empty: every class type. |
 | `weekdays` | `multiSelect` | Days |   | one of `1`, `2`, `3`, `4`, `5`, `6`, `7` | Empty: every day. |
 | `fromMinute` | `number` | Classes from (minutes after midnight) |   | min 0; max 1440 | A class must start at or after this time of day: 540 is 09:00. Empty: any. |
@@ -40,6 +42,7 @@ A membership paid every month: unlimited classes, or a number a week or a month,
 
 ### Relations
 
+- `services` → `bookings.service` (many)
 - `classTypes` → `programs.classtype` (many)
 
 ### Behaviour declarations
@@ -102,6 +105,8 @@ A membership paid every month: unlimited classes, or a number a week or a month,
           "title": "item.title",
           "uses": "item.uses",
           "per": "item.per",
+          "covers": "item.covers",
+          "services": "item.services",
           "classTypes": "item.classTypes",
           "weekdays": "item.weekdays",
           "fromMinute": "item.fromMinute",
@@ -159,6 +164,8 @@ A member's membership: granted by the host when their subscription to a plan sta
 | `subscription` | `text` | Subscription |   | read-only |   |
 | `uses` | `number` | Classes per period |   | read-only |   |
 | `per` | `select` | Per |   | one of `week`, `month`; read-only |   |
+| `covers` | `multiSelect` | Pays for |   | one of `classes`, `sessions`; read-only | Classes, one-to-one sessions (Bookings' appointments), or both. Empty: classes only. |
+| `services` | `relation` | Services |   | to `bookings.service`, many; read-only | The one-to-one sessions it pays for, when it pays for sessions. Empty: every one. |
 | `classTypes` | `relation` | Class types |   | to `programs.classtype`, many; read-only | Empty: every class type. |
 | `weekdays` | `multiSelect` | Days |   | one of `1`, `2`, `3`, `4`, `5`, `6`, `7`; read-only | Empty: every day. |
 | `fromMinute` | `number` | Classes from (minutes after midnight) |   | min 0; max 1440; read-only | A class must start at or after this time of day: 540 is 09:00. Empty: any. |
@@ -172,6 +179,7 @@ A member's membership: granted by the host when their subscription to a plan sta
 - `person` → `person`
 - `payer` → `person`
 - `plan` → `memberships.plan`
+- `services` → `bookings.service` (many)
 - `classTypes` → `programs.classtype` (many)
 
 ### Behaviour declarations
@@ -295,27 +303,59 @@ A member's membership: granted by the host when their subscription to a plan sta
         "past_due"
       ],
       "emptyIsUnlimited": true,
-      "spendsOn": {
-        "object": "bookings.booking",
-        "when": [
-          {
-            "field": "classType",
-            "in": "classTypes"
-          },
-          {
-            "field": "weekday",
-            "in": "weekdays"
-          },
-          {
-            "field": "minute",
-            "atLeast": "fromMinute"
-          },
-          {
-            "field": "minute",
-            "below": "untilMinute"
-          }
-        ]
-      }
+      "spendsOn": [
+        {
+          "object": "bookings.booking",
+          "when": [
+            {
+              "value": "classes",
+              "in": "covers"
+            },
+            {
+              "field": "classType",
+              "in": "classTypes"
+            },
+            {
+              "field": "weekday",
+              "in": "weekdays"
+            },
+            {
+              "field": "minute",
+              "atLeast": "fromMinute"
+            },
+            {
+              "field": "minute",
+              "below": "untilMinute"
+            }
+          ]
+        },
+        {
+          "object": "bookings.appointment",
+          "when": [
+            {
+              "value": "sessions",
+              "in": "covers",
+              "empty": "none"
+            },
+            {
+              "field": "serviceId",
+              "in": "services"
+            },
+            {
+              "field": "weekday",
+              "in": "weekdays"
+            },
+            {
+              "field": "minute",
+              "atLeast": "fromMinute"
+            },
+            {
+              "field": "minute",
+              "below": "untilMinute"
+            }
+          ]
+        }
+      ]
     }
   }
 }
@@ -344,6 +384,8 @@ A pass bought once: a class pack of N that expires, a drop-in (a pass of one), o
 | `price` | `currency` | Price | yes |   |   |
 | `uses` | `number` | Classes | yes | min 1; max 1000 |   |
 | `validDays` | `number` | Valid for (days) |   | min 1; max 3650 | From the day it is bought. Empty: it does not expire. |
+| `covers` | `multiSelect` | Pays for |   | one of `classes`, `sessions` | Classes, one-to-one sessions (Bookings' appointments), or both. Empty: classes only. |
+| `services` | `relation` | Services |   | to `bookings.service`, many | The one-to-one sessions it pays for, when it pays for sessions. Empty: every one. |
 | `classTypes` | `relation` | Class types |   | to `programs.classtype`, many | Empty: every class type. |
 | `weekdays` | `multiSelect` | Days |   | one of `1`, `2`, `3`, `4`, `5`, `6`, `7` | Empty: every day. |
 | `fromMinute` | `number` | Classes from (minutes after midnight) |   | min 0; max 1440 | A class must start at or after this time of day: 540 is 09:00. Empty: any. |
@@ -353,6 +395,7 @@ A pass bought once: a class pack of N that expires, a drop-in (a pass of one), o
 
 ### Relations
 
+- `services` → `bookings.service` (many)
 - `classTypes` → `programs.classtype` (many)
 
 ### Behaviour declarations
@@ -396,6 +439,8 @@ A pass bought once: a class pack of N that expires, a drop-in (a pass of one), o
         "title": "line.title",
         "order": "order",
         "uses": "item.uses",
+        "covers": "item.covers",
+        "services": "item.services",
         "classTypes": "item.classTypes",
         "weekdays": "item.weekdays",
         "fromMinute": "item.fromMinute",
@@ -454,6 +499,8 @@ A member's pass: granted by a paid order (or given by staff), with its classes a
 | `passtype` | `relation` | Pass type |   | to `memberships.passtype`; read-only |   |
 | `order` | `text` | Order |   | read-only |   |
 | `uses` | `number` | Classes |   | read-only |   |
+| `covers` | `multiSelect` | Pays for |   | one of `classes`, `sessions`; read-only | Classes, one-to-one sessions (Bookings' appointments), or both. Empty: classes only. |
+| `services` | `relation` | Services |   | to `bookings.service`, many; read-only | The one-to-one sessions it pays for, when it pays for sessions. Empty: every one. |
 | `classTypes` | `relation` | Class types |   | to `programs.classtype`, many; read-only | Empty: every class type. |
 | `weekdays` | `multiSelect` | Days |   | one of `1`, `2`, `3`, `4`, `5`, `6`, `7`; read-only | Empty: every day. |
 | `fromMinute` | `number` | Classes from (minutes after midnight) |   | min 0; max 1440; read-only | A class must start at or after this time of day: 540 is 09:00. Empty: any. |
@@ -468,6 +515,7 @@ A member's pass: granted by a paid order (or given by staff), with its classes a
 
 - `person` → `person`
 - `passtype` → `memberships.passtype`
+- `services` → `bookings.service` (many)
 - `classTypes` → `programs.classtype` (many)
 
 ### Behaviour declarations
@@ -538,27 +586,59 @@ A member's pass: granted by a paid order (or given by staff), with its classes a
       "live": [
         "active"
       ],
-      "spendsOn": {
-        "object": "bookings.booking",
-        "when": [
-          {
-            "field": "classType",
-            "in": "classTypes"
-          },
-          {
-            "field": "weekday",
-            "in": "weekdays"
-          },
-          {
-            "field": "minute",
-            "atLeast": "fromMinute"
-          },
-          {
-            "field": "minute",
-            "below": "untilMinute"
-          }
-        ]
-      }
+      "spendsOn": [
+        {
+          "object": "bookings.booking",
+          "when": [
+            {
+              "value": "classes",
+              "in": "covers"
+            },
+            {
+              "field": "classType",
+              "in": "classTypes"
+            },
+            {
+              "field": "weekday",
+              "in": "weekdays"
+            },
+            {
+              "field": "minute",
+              "atLeast": "fromMinute"
+            },
+            {
+              "field": "minute",
+              "below": "untilMinute"
+            }
+          ]
+        },
+        {
+          "object": "bookings.appointment",
+          "when": [
+            {
+              "value": "sessions",
+              "in": "covers",
+              "empty": "none"
+            },
+            {
+              "field": "serviceId",
+              "in": "services"
+            },
+            {
+              "field": "weekday",
+              "in": "weekdays"
+            },
+            {
+              "field": "minute",
+              "atLeast": "fromMinute"
+            },
+            {
+              "field": "minute",
+              "below": "untilMinute"
+            }
+          ]
+        }
+      ]
     }
   }
 }

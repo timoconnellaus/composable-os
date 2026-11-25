@@ -181,3 +181,8 @@ state (checked by the contract). When a membership ends by its payer's cooling o
 each record that spent a use of it, not given back, whose time is ahead and that is still in a
 spend state, into it in the end's batch (its use returned, its place freed). Bookings declares
 `cancelled_by_us`. Any other end of a holder releases nothing.
+
+## Amended 2026-11-25 (stage 49 step 5, ADR 0764)
+A condition may read a fixed word (`value`) in place of a spender field, and `empty: "none"` makes
+an empty holder field allow nothing; a spender's `copy` may read a related record's own id
+(`<relation>.id`). See [ADR 0764](0764-appointments-in-the-bookings-pack.md).

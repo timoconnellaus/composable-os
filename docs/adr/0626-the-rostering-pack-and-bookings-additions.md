@@ -177,3 +177,8 @@ kind's name to anyone but its own person and those who roster. See
 A customer booking a shift that is booked at free times (`staffed.open.customer`) names its
 provider without being a rosterer: the customer's check decides it
 ([ADR 0763](0763-the-customers-check-on-a-free-time.md)).
+
+## Amended 2026-11-25 (stage 49 step 5, ADR 0764)
+The person of a shift booked at free times (`staffed.open`, an appointment) is not a rosterer's to
+set: whoever may write it names its provider. A coach profile's account and a series' person stay
+rosterers'. See [ADR 0764](0764-appointments-in-the-bookings-pack.md).

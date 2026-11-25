@@ -17,13 +17,20 @@ type Values = Record<string, unknown>;
 const isValues = (value: unknown): value is Values =>
   typeof value === "object" && value !== null && !Array.isArray(value);
 
-/** Whether `values` sets a human-only field of `object`. */
-function setsPersonApproves(object: unknown, values: unknown): boolean {
+/**
+ * Whether `values` sets a human-only field of `object`. On an update (`changing`), a booked
+ * shift's provider (`staffed.open`'s person, an appointment's coach) is one too (ADR 0764): who
+ * gives a client's session is changed by a person, by every path, while booking one is not.
+ */
+function setsPersonApproves(object: unknown, values: unknown, changing = false): boolean {
   if (typeof object !== "string" || !isValues(values)) return false;
   const definition = getObject(object);
   if (!definition) return false;
+  const provider = changing && definition.staffed?.open ? definition.staffed.who.field : undefined;
   return Object.keys(values).some(
-    (name) => definition.fields.find((f) => f.name === name)?.options?.personApproves === true,
+    (name) =>
+      name === provider ||
+      definition.fields.find((f) => f.name === name)?.options?.personApproves === true,
   );
 }
 
@@ -43,10 +50,11 @@ export async function touchesPersonApproves(
   if (!isValues(input)) return false;
   switch (operation) {
     case "record.create":
-    case "record.update":
     case "recurring.change":
     case "recurring.close":
       return setsPersonApproves(input.object, input.values);
+    case "record.update":
+      return setsPersonApproves(input.object, input.values, true);
     // Following the series writes the named fields (default every copied one) from the series
     // (ADR 0620): a human-only field among them is a person's to change.
     case "recurring.follow": {

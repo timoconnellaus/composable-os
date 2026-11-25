@@ -88,18 +88,20 @@ import type { Judge } from "./judge/types.ts";
 import { errorForLog } from "./log.ts";
 import type { ModelRunner } from "./models.ts";
 import { notifyStatements } from "./notifications/send.ts";
-import type { FollowerBudget, MediaUpload } from "./operation.ts";
 import {
   type AnyOperation,
   type ApplyingApproval,
   type AssistantTurn,
   afterCommit,
   type ExtensionCaller,
+  type FollowerBudget,
   type HandlerContext,
   isAfterCommit,
   isHostTool,
+  type MediaUpload,
   type NestedInvocation,
   type OperationOutput,
+  personsTool,
   type RecordChange,
   runAfterCommit,
   type SystemActivityInput,
@@ -882,6 +884,7 @@ async function invokeOnce<O extends AnyOperation>(
     (Array.isArray(op.alwaysReview) && op.alwaysReview.includes(ctx.actor)) ||
     (!ctx.approval &&
       ALWAYS_REVIEWED_PUBLISHERS.includes(ctx.actor) &&
+      !writtenByPersonsTool(ctx, input) &&
       (await touchesPersonApproves(ctx.db.query, op.name, input))) ||
     (!ctx.approval &&
       decision === "auto" &&
@@ -2774,4 +2777,17 @@ function staffStanding(ctx: InvocationContext): Standing {
   // own automation, an AI's for one authored in the app (ADR 0590, the third review).
   if (ctx.actor === "extension" || ctx.actor === "automation") return ctx.markStanding ?? "host";
   return "host";
+}
+
+/**
+ * Whether a record write comes from a person's own tool of the record's extension (`humanOnly` or
+ * `personApproves`, with a permission, ADR 0513): the tool's call was already a person's act, or
+ * waited for a person, so the fields only a person changes are a person's here (ADR 0764: an
+ * appointment's coach given to another by `reassignAppointment`).
+ */
+function writtenByPersonsTool(ctx: { extension?: InvocationContext["extension"] }, input: unknown) {
+  const object =
+    typeof input === "object" && input !== null ? (input as { object?: unknown }).object : null;
+  if (typeof object !== "string") return false;
+  return personsTool(ctx, getObject(object)?.extension) !== null;
 }
