@@ -90,17 +90,23 @@ It requires no other pack.
   waits on an earlier answer only once it holds, check the answers first with the host's own
   check (so what to fix is said beside each question) and show the host's answer: a refusal stays
   on the screen with the answers as typed. The spam checks travel with the send: a field a person
-  never sees (the honeypot), the host's token of when the form was shown, and on a public form a
-  visitor's Turnstile token (the page draws Cloudflare's widget with the host's site key; a block
+  never sees (the honeypot), the host's token of when the form was shown (kept through a redraw, so a
+  quick correction is not taken for a bot), and on a public form a visitor's Turnstile token (the page draws Cloudflare's widget with the host's site key; a block
   is given the app's widget). What a person typed is kept nowhere but their screen.
 - **A personal link's page** is sent with no referrer, loads nothing from anywhere else (no
   Turnstile: the host skips it for a link), and takes the token out of the address bar once
-  loaded, keeping it only in the page for the send. Opening it uses nothing; the send uses it, once.
+  loaded, keeping it only in the page for the send. Opening it uses nothing; the send uses it, once,
+  and a reload of the thanks is answered from the host's store. A site that shows a link's form
+  with the web block instead keeps the same three rules on its own page: no referrer, no
+  third-party script (analytics would read the address before the token is out), and the token
+  taken out at once with `takeLinkToken`.
 - **Every page** is never cached or framed and sets no cookie. Each send carries the page's own
   idempotency key, so a reload or a second press is one answer. A send posted from another site is
   refused. On the business's site the web app forwards the page's two paths to the host
   (`formPageRoute` in the template's host module), with the customer's cookie and the form's
-  fields only.
+  fields only, and the visitor's address. A send is taken only from the page's own origin
+  (`Sec-Fetch-Site: same-origin`, else its own or a `null` Origin): another site's form, or a page on
+  a sibling subdomain, is refused.
 
 ## Main flows
 
