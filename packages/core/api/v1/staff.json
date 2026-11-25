@@ -114244,6 +114244,753 @@
       "pack": "rostering"
     },
     {
+      "name": "x.shop.markCollected",
+      "description": "Mark a ready shipment collected: the buyer has picked it up. It cannot be undone. (Extension tool from Shop 0.1.0.)",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "shipmentId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "The shipment's id"
+          }
+        },
+        "required": [
+          "shipmentId"
+        ],
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "moved": {
+            "type": "boolean"
+          },
+          "message": {
+            "type": "string"
+          },
+          "shipment": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "name": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "orderId": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "kind": {
+                "description": "post or collect",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "state": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "tracking": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "collectAt": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "buyerId": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "buyer": {
+                "description": "The buyer's name, if they are a Person",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "createdAt": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "id",
+              "name",
+              "orderId",
+              "kind",
+              "state",
+              "tracking",
+              "collectAt",
+              "buyerId",
+              "buyer",
+              "createdAt"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "moved",
+          "message",
+          "shipment"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "x.shop.shipmentsToSend",
+        "x.shop.stockLevels"
+      ],
+      "pack": "shop"
+    },
+    {
+      "name": "x.shop.markPacked",
+      "description": "Mark a shipment packed: its goods are boxed and waiting to be sent or collected. Safe to call twice; two people at once: one marks it, the other is told. (Extension tool from Shop 0.1.0.)",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "shipmentId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "The shipment's id"
+          }
+        },
+        "required": [
+          "shipmentId"
+        ],
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "moved": {
+            "type": "boolean"
+          },
+          "message": {
+            "type": "string"
+          },
+          "shipment": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "name": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "orderId": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "kind": {
+                "description": "post or collect",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "state": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "tracking": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "collectAt": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "buyerId": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "buyer": {
+                "description": "The buyer's name, if they are a Person",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "createdAt": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "id",
+              "name",
+              "orderId",
+              "kind",
+              "state",
+              "tracking",
+              "collectAt",
+              "buyerId",
+              "buyer",
+              "createdAt"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "moved",
+          "message",
+          "shipment"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "x.shop.shipmentsToSend",
+        "x.shop.stockLevels"
+      ],
+      "pack": "shop"
+    },
+    {
+      "name": "x.shop.markReady",
+      "description": "Mark a shipment to collect as ready: its goods are waiting where the buyer collects them. (Extension tool from Shop 0.1.0.)",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "shipmentId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "The shipment's id"
+          }
+        },
+        "required": [
+          "shipmentId"
+        ],
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "moved": {
+            "type": "boolean"
+          },
+          "message": {
+            "type": "string"
+          },
+          "shipment": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "name": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "orderId": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "kind": {
+                "description": "post or collect",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "state": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "tracking": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "collectAt": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "buyerId": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "buyer": {
+                "description": "The buyer's name, if they are a Person",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "createdAt": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "id",
+              "name",
+              "orderId",
+              "kind",
+              "state",
+              "tracking",
+              "collectAt",
+              "buyerId",
+              "buyer",
+              "createdAt"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "moved",
+          "message",
+          "shipment"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "x.shop.shipmentsToSend",
+        "x.shop.stockLevels"
+      ],
+      "pack": "shop"
+    },
+    {
+      "name": "x.shop.markSent",
+      "description": "Mark a posted shipment sent, with the carrier's tracking reference if there is one. It cannot be undone. The buyer sees the state and the reference on their own shipments. (Extension tool from Shop 0.1.0.)",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "shipmentId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "The shipment's id"
+          },
+          "tracking": {
+            "type": "string",
+            "maxLength": 200,
+            "description": "The carrier's tracking reference"
+          }
+        },
+        "required": [
+          "shipmentId"
+        ],
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "moved": {
+            "type": "boolean"
+          },
+          "message": {
+            "type": "string"
+          },
+          "shipment": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "name": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "orderId": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "kind": {
+                "description": "post or collect",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "state": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "tracking": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "collectAt": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "buyerId": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "buyer": {
+                "description": "The buyer's name, if they are a Person",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "createdAt": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "id",
+              "name",
+              "orderId",
+              "kind",
+              "state",
+              "tracking",
+              "collectAt",
+              "buyerId",
+              "buyer",
+              "createdAt"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "moved",
+          "message",
+          "shipment"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "x.shop.shipmentsToSend",
+        "x.shop.stockLevels"
+      ],
+      "pack": "shop"
+    },
+    {
+      "name": "x.shop.shipmentsToSend",
+      "description": "What paid online orders have left to do: shipments to pack, packed ones to send or have ready, and those waiting to be collected, oldest first, with the buyer's name, the kind (post or collect), where to collect and the tracking reference. Read-only. (Extension tool from Shop 0.1.0.)",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "state": {
+            "type": "string",
+            "enum": [
+              "to_pack",
+              "packed",
+              "ready"
+            ],
+            "description": "Only shipments in this state; left out, all three"
+          }
+        },
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "shipments": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "orderId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "kind": {
+                  "description": "post or collect",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "state": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "tracking": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "collectAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "buyerId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "buyer": {
+                  "description": "The buyer's name, if they are a Person",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "createdAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "name",
+                "orderId",
+                "kind",
+                "state",
+                "tracking",
+                "collectAt",
+                "buyerId",
+                "buyer",
+                "createdAt"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "shipments"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [],
+      "pack": "shop"
+    },
+    {
+      "name": "x.shop.stockLevels",
+      "description": "The stock of the shop's active variants: on hand, held by orders being paid for, available, the reorder level and quantity, and the usual supplier, lowest first. Use lowOnly for 'what's low?' (on hand at or below the reorder level), and category or supplierId to narrow it. Numbers are the host's, kept from the stock ledger; this changes nothing. Read-only. (Extension tool from Shop 0.1.0.)",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "lowOnly": {
+            "type": "boolean",
+            "description": "Only variants at or below their reorder level"
+          },
+          "category": {
+            "type": "string",
+            "maxLength": 80,
+            "description": "Only items of this category"
+          },
+          "supplierId": {
+            "type": "string",
+            "maxLength": 64,
+            "description": "Only variants this organisation supplies"
+          }
+        },
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "variants": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "variantId": {
+                  "type": "string"
+                },
+                "variant": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "itemId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "item": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "category": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "onHand": {
+                  "type": "number",
+                  "description": "On the shelf now: opening, received and returned, less sold"
+                },
+                "held": {
+                  "type": "number",
+                  "description": "Held by orders being paid for"
+                },
+                "available": {
+                  "type": "number",
+                  "description": "On hand less held: what can still be sold"
+                },
+                "reorderAt": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "reorderQty": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "low": {
+                  "type": "boolean",
+                  "description": "On hand is at or below the reorder level"
+                },
+                "supplierId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "supplier": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "variantId",
+                "variant",
+                "itemId",
+                "item",
+                "category",
+                "onHand",
+                "held",
+                "available",
+                "reorderAt",
+                "reorderQty",
+                "low",
+                "supplierId",
+                "supplier"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "truncated": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "variants",
+          "truncated"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [],
+      "pack": "shop"
+    },
+    {
       "name": "x.ticketing.checkIn",
       "description": "Check a ticket in at the door by its code. A valid ticket is marked used and accepted; a used one is refused with who checked it in and when; a void (cancelled or refunded) one and an unknown code are refused with their own reasons. A ticket whose order still has a balance owing is accepted, and the result says how much. Safe to call twice: the second scan reports the first. Two scanners at once: one is accepted, the other told. (Extension tool from Ticketing 0.1.0.)",
       "risk": "write",

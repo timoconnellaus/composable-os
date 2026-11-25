@@ -116,6 +116,14 @@
 - [Rostering: screens](https://docs.composableos.dev/packs/rostering/screens/)
 - [Rostering: settings](https://docs.composableos.dev/packs/rostering/settings/)
 - [Rostering: operations and tools](https://docs.composableos.dev/packs/rostering/tools/)
+- [Shop: data model](https://docs.composableos.dev/packs/shop/data-model/)
+- [Shop: decisions](https://docs.composableos.dev/packs/shop/decisions/)
+- [Shop](https://docs.composableos.dev/packs/shop/): One list of what a business sells, in its versions, sold online, in person or both, with stock the host keeps, ways to get an order to its buyer, and the shipments staff pack and send.
+- [Shop: messages](https://docs.composableos.dev/packs/shop/messages/)
+- [Shop: permissions and roles](https://docs.composableos.dev/packs/shop/permissions/)
+- [Shop: screens](https://docs.composableos.dev/packs/shop/screens/)
+- [Shop: settings](https://docs.composableos.dev/packs/shop/settings/)
+- [Shop: operations and tools](https://docs.composableos.dev/packs/shop/tools/)
 - [Ticketing: data model](https://docs.composableos.dev/packs/ticketing/data-model/)
 - [Ticketing: decisions](https://docs.composableos.dev/packs/ticketing/decisions/)
 - [Ticketing](https://docs.composableos.dev/packs/ticketing/): Events, ticket types for sale and the tickets a paid order grants, with check-in at the door. Buyers are people; tickets are theirs to see.

@@ -367,8 +367,12 @@ extension declares it; it never implements it. Each behaviour the platform has i
 - **`public`** on an object: what the public may read (ADR 0438), `public: { read: [fields],
   when?: { field, in } | { via, field, in } }`: the fields, of the records whose state (a select
   field of the record, or of the one its `via` relation points to) is one of `in`. Left without
-  `when`, every live record. Nothing is public by default, and an object declares `customer` or
-  `public`, not both. A customer reads it too. The public reaches it only through your tool, which
+  `when`, every live record. `when` may be a list of up to three conditions that all hold, and a
+  condition may be `{ via: "<relation>" }` alone: the record it points to is one the public reads
+  (published, if its object is publishable, and meeting its own `when`; one step, no chains). A
+  shop's variant: `when: [{ field: "state", in: ["active"] }, { via: "item" }]`, never sold while
+  its item is a draft (ADR 0689; Shop: `objects.variant.public`). Nothing is public by default,
+  and an object declares `customer` or `public`, not both. A customer reads it too. The public reaches it only through your tool, which
   calls `public.list` or `public.get` (add them to `permissions.operations`); never filter by state
   in the tool, the seam does. Anything you sell to customers or guests must declare it: they buy
   only what they may read. See Ticketing: `objects.event.public`, `objects.tickettype.public`.

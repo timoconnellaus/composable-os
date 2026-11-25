@@ -20,4 +20,5 @@ A company's own product lives in its own repository, made with `cos create` or a
 | [Memberships](/packs/memberships/) | Membership plans paid every month and class passes bought once, with what each allows and what a member has left. |
 | [Programs](/packs/programs/) | An exercise bank, programs built from it as one layout (weeks, sessions, blocks, items, levels, typed sets), published versions, assignments to a person or a class type as dated sessions, and a log of every set against its target. |
 | [Rostering](/packs/rostering/) | Who works when: duties that are not classes, their weekly pattern and dated shifts, and the roster of every shift, with offers, takes and time off. |
+| [Shop](/packs/shop/) | One list of the things the business sells, in their versions, sold online, in person or both, with stock the host keeps, ways to get an order to its buyer, and the shipments staff pack and send or hand over. |
 | [Ticketing](/packs/ticketing/) | Events, ticket types for sale and the tickets a paid order grants, with check-in at the door. |

@@ -231,8 +231,8 @@ interface OpensOutside {
         guardians?: { write?: boolean; madeBy?: string };
         delete?: boolean;
       };
-      public?: { read: string[]; when?: { via?: string; field: string; in: string[] } };
-      signedIn?: { read: string[]; when?: { via?: string; field: string; in: string[] } };
+      public?: { read: string[]; when?: ReadWhen | ReadWhen[] };
+      signedIn?: { read: string[]; when?: ReadWhen | ReadWhen[] };
       customerVia?: { from: string; field: string; read: string[] };
       sellable?: {
         price: string;
@@ -252,6 +252,24 @@ interface OpensOutside {
     string,
     { risk: string; audiences?: string[]; customerFields?: Record<string, string[]> }
   >;
+}
+
+/** One condition of a read declaration's `when` (ADRs 0438 and 0689). */
+interface ReadWhen {
+  via?: string;
+  field?: string;
+  in?: string[];
+}
+
+/** A `when` in words: each condition, all of them holding. */
+function whileText(when: ReadWhen | ReadWhen[]): string {
+  return (Array.isArray(when) ? when : [when])
+    .map((c) =>
+      c.field === undefined
+        ? `its ${c.via} is public`
+        : `${c.via ? `its ${c.via}'s ` : ""}${c.field} is ${(c.in ?? []).join(" or ")}`,
+    )
+    .join(" and ");
 }
 
 /**
@@ -275,9 +293,8 @@ export function outsideSummary(manifest: OpensOutside | null | undefined): strin
     }
     const p = object.public;
     if (p) {
-      const via = p.when?.via ? `its ${p.when.via}'s ` : "";
       const while_ = p.when
-        ? ` while ${via}${p.when.field} is ${p.when.in.join(" or ")}`
+        ? ` while ${whileText(p.when)}`
         : object.publishable
           ? ""
           : ", every record";
@@ -289,10 +306,7 @@ export function outsideSummary(manifest: OpensOutside | null | undefined): strin
     }
     const s = object.signedIn;
     if (s) {
-      const via = s.when?.via ? `its ${s.when.via}'s ` : "";
-      const while_ = s.when
-        ? ` while ${via}${s.when.field} is ${s.when.in.join(" or ")}`
-        : ", every record";
+      const while_ = s.when ? ` while ${whileText(s.when)}` : ", every record";
       lines.push(
         `  every signed-in customer sees ${manifest.id}.${name}${while_}: read ${s.read.join(", ")}`,
       );
