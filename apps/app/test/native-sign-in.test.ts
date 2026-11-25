@@ -258,6 +258,32 @@ describe("a customer signs in natively and never holds a cookie", () => {
       .first<{ n: number }>();
     expect(rows?.n).toBe(1);
   });
+
+  it("a sign-in never ends another customer's session, whatever it names", async () => {
+    const emailA = `${unique("owner")}@example.com`;
+    const emailB = `${unique("other")}@example.com`;
+    await inviteCustomer(db, emailA, admin.id, new Date().toISOString());
+    await inviteCustomer(db, emailB, admin.id, new Date().toISOString());
+    const storeA = memoryStore();
+    const sessionA = tokenSession({ baseUrl: ORIGIN, store: storeA, fetch: phone });
+    await sessionA.requestCode(emailA);
+    await sessionA.signInWithCode(emailA, sentCodes.get(emailA.toLowerCase()) as string, "Phone");
+    const theirs = storeA.peek() as Tokens;
+
+    // B signs in naming A's refresh token as the session to replace.
+    const sessionB = tokenSession({ baseUrl: ORIGIN, store: memoryStore(), fetch: phone });
+    await sessionB.requestCode(emailB);
+    const signedIn = await post("/api/v1/auth/customer/sign-in", {
+      email: emailB,
+      code: sentCodes.get(emailB.toLowerCase()),
+      deviceName: "Phone",
+      replaces: theirs.refreshToken,
+    });
+    expect(signedIn.status).toBe(200);
+    // A's session is untouched.
+    const still = await post("/api/v1/auth/refresh", { refreshToken: theirs.refreshToken });
+    expect(still.status).toBe(200);
+  });
 });
 
 describe("the browser cookie flow is unchanged", () => {

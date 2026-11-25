@@ -452,8 +452,14 @@ async function nativeRoute(
       deviceName,
       now,
     );
-    // Holding the refresh token is what sign-out asks too; any other token ends nothing.
-    if (replaces) await signOutDeviceSession(db, replaces, now);
+    // Only this customer's own earlier session is ended: a token of another customer's, or of a
+    // staff session, ends nothing, and the answer is the same either way. A failure to end it
+    // never fails the sign-in that has already worked (the old session idles out).
+    if (replaces) {
+      await signOutDeviceSession(db, replaces, now, { customerId: signedIn.customerId }).catch(
+        () => false,
+      );
+    }
     return dataReply({ ...tokens, account: signedIn.account });
   }
   if (route === "/auth/staff/exchange") {
