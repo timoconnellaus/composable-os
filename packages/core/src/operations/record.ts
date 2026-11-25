@@ -95,6 +95,7 @@ import {
 } from "../recurring/index.ts";
 import { type ChangeMarks, CREATED, type MarkSource } from "../routine-mail/marks.ts";
 import { loadGeneralSettings } from "../settings.ts";
+import { hostRoomFor } from "../staffing/free.ts";
 import {
   assertFollowerRoom,
   assertHolderTrashable,
@@ -821,6 +822,15 @@ export async function createRecord(
     ];
   }
   assertChoiceRequirements(object, prepared, valuesOf(prepared));
+  // A booked shift with no room named takes the first of its kind's rooms free then (ADR 0764).
+  const room = await hostRoomFor(ctx, object, valuesOf(prepared));
+  if (room && object.occupies) {
+    const thing = object.occupies.thing;
+    prepared = [
+      ...prepared.filter((p) => p.field.name !== thing),
+      ...hostValues(object, { [thing]: room }),
+    ];
+  }
   const table = objectTableOf(object.name) as string;
   const id = newId("record");
   const by = options.by ?? callerMover(ctx);

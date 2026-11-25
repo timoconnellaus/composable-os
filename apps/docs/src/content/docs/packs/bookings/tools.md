@@ -593,6 +593,209 @@ No fields.
 | `people[].name` | string | yes |   |   |
 | `people[].self` | boolean | yes |   |   |
 
+### bookAppointment
+
+Staff book a one-to-one session (an appointment) for a client: a service, a start time, a coach (or none: the first qualified coach free then), and the client (personId; look them up with findPeople). It ends after the service's length. The host refuses it when the coach is on anything else then (a class, a duty or another session, the service's buffer included), when no room the service needs is free, when the coach has no staff account, or when nothing the client holds pays for the service; staff may book any time, outside the booking windows and the coach's open hours, and are told what it was made with (warnings: the coach away, not qualified, outside open hours, the client busy). It spends one session of a pass or membership covering the service, unless paidAtDesk. The room is the first of the service's rooms free then unless roomId names one. Audited.
+
+|  |  |
+| --- | --- |
+| Risk | `write` |
+| Audiences | `staff` |
+| Permission | `bookings:desk`, `bookings:appointments` |
+
+#### Input
+
+| Field | Type | Required | Limits | Description |
+| --- | --- | --- | --- | --- |
+| `serviceId` | string | yes | min length 1, max length 64 |   |
+| `startsAt` | string (date-time) | yes | pattern `^(?:(?:\d\d[2468][048]\|\d\d[13579][26]\|\d\d0[48]\|[02468][048]00\|[13579][26]00)-02-29\|\d{4}-(?:(?:0[13578]\|1[02])-(?:0[1-9]\|[12]\d\|3[01])\|(?:0[469]\|11)-(?:0[1-9]\|[12]\d\|30)\|(?:02)-(?:0[1-9]\|1\d\|2[0-8])))T(?:(?:[01]\d\|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z))$` | When it starts (ISO 8601) |
+| `personId` | string | yes | min length 1, max length 64 | The client |
+| `coachId` | string |   | min length 1, max length 64 | Left out: any coach free then |
+| `roomId` | string |   | min length 1, max length 64 |   |
+| `holderId` | string |   | min length 1, max length 64 | A pass or membership to spend |
+| `paidAtDesk` | boolean |   | default `false` | Paid at the desk: it spends no session |
+| `note` | string |   | max length 2000 | A staff note, never shown to the client |
+
+#### Output
+
+No fields.
+
+### moveAppointment
+
+Staff move a booked appointment to another start time, or another coach, or both, in one batch: a new appointment is made at the new time and the old one is moved, the session it spent moving with it (a session paid at the desk stays paid). The host refuses it whole, nothing changed, when the coach is on anything else then, no room is free, or it has started. Same warnings as booking. Only a booked appointment, before it starts.
+
+|  |  |
+| --- | --- |
+| Risk | `write` |
+| Audiences | `staff` |
+| Permission | `bookings:desk`, `bookings:appointments` |
+
+#### Input
+
+| Field | Type | Required | Limits | Description |
+| --- | --- | --- | --- | --- |
+| `appointmentId` | string | yes | min length 1, max length 64 |   |
+| `startsAt` | string (date-time) | yes | pattern `^(?:(?:\d\d[2468][048]\|\d\d[13579][26]\|\d\d0[48]\|[02468][048]00\|[13579][26]00)-02-29\|\d{4}-(?:(?:0[13578]\|1[02])-(?:0[1-9]\|[12]\d\|3[01])\|(?:0[469]\|11)-(?:0[1-9]\|[12]\d\|30)\|(?:02)-(?:0[1-9]\|1\d\|2[0-8])))T(?:(?:[01]\d\|2[0-3]):[0-5]\d:[0-5]\d(?:\.\d+)?(?:Z))$` | The new start (ISO 8601) |
+| `coachId` | string |   | min length 1, max length 64 | Left out: the same coach |
+| `note` | string |   | max length 2000 |   |
+
+#### Output
+
+No fields.
+
+### cancelAppointment
+
+Staff cancel a booked appointment, in time or late by the host's clock: before the service's late-cancel point (24 hours before unless the service sets its own) it is cancelled and its session given back; from then until it starts it is cancelled late and the session is used, with no fee. With keepUse it is cancelled late whatever the time. After it starts it cannot be cancelled. To give a session back after the late point a person excuses it (excuseAppointment); the business cancelling its own appointment is cancelAppointmentByUs. Without confirm it only says which it would be.
+
+|  |  |
+| --- | --- |
+| Risk | `write` |
+| Audiences | `staff` |
+| Permission | `bookings:desk`, `bookings:appointments` |
+
+#### Input
+
+| Field | Type | Required | Limits | Description |
+| --- | --- | --- | --- | --- |
+| `appointmentId` | string | yes | min length 1, max length 64 |   |
+| `confirm` | boolean |   | default `false` |   |
+| `keepUse` | boolean |   | default `false` |   |
+| `note` | string |   | max length 2000 |   |
+
+#### Output
+
+No fields.
+
+### cancelAppointmentByUs
+
+The business cancels an appointment that is booked, held while paying or not paid yet (the coach is ill, the room is closed): it is cancelled by the business and the session it spent is given back, whatever the time, with the reason kept. A person's act: the assistant, MCP clients and automations may ask, and it waits for a person to approve it. Fails with the reason when it cannot be done, so an approved request shows it did not apply. (The client's email comes in a later release.)
+
+|  |  |
+| --- | --- |
+| Risk | `destructive` |
+| Audiences | `staff` |
+| Permission | `bookings:appointments` |
+| Approval | a person approves anyone else's call (`personApproves`) |
+
+#### Input
+
+| Field | Type | Required | Limits | Description |
+| --- | --- | --- | --- | --- |
+| `appointmentId` | string | yes | min length 1, max length 64 |   |
+| `reason` | string | yes | min length 3, max length 2000 |   |
+
+#### Output
+
+| Field | Type | Required | Limits | Description |
+| --- | --- | --- | --- | --- |
+| `result` | `"cancelled_by_us"` | yes |   |   |
+| `appointmentId` | string | yes |   |   |
+
+### markAppointment
+
+Mark an appointment once it has started: attended (they came) or no_show (they did not; the session is used, with no fee). Either may be corrected into the other for 7 days after it ends. The host marks one nobody marked as attended 30 minutes after it ends. Who marked it and when are kept. To give a no-show's session back a person excuses it.
+
+|  |  |
+| --- | --- |
+| Risk | `write` |
+| Audiences | `staff` |
+| Permission | `bookings:desk`, `bookings:appointments` |
+
+#### Input
+
+| Field | Type | Required | Limits | Description |
+| --- | --- | --- | --- | --- |
+| `appointmentId` | string | yes | min length 1, max length 64 |   |
+| `mark` | `"attended"`, `"no_show"` | yes |   |   |
+
+#### Output
+
+No fields.
+
+### excuseAppointment
+
+A person on the staff gives the session back for a late cancel or a no-show (a client who was ill): it becomes excused and the pass or membership gets its session back. A person's own act: the assistant, MCP clients, automations and other code cannot call it. The reason is kept on the appointment and in the audit log.
+
+|  |  |
+| --- | --- |
+| Risk | `destructive` |
+| Audiences | `staff` |
+| Permission | `bookings:desk`, `bookings:appointments` |
+| Who may call it | a person only (`humanOnly`) |
+
+#### Input
+
+| Field | Type | Required | Limits | Description |
+| --- | --- | --- | --- | --- |
+| `appointmentId` | string | yes | min length 1, max length 64 |   |
+| `reason` | string | yes | min length 3, max length 2000 |   |
+
+#### Output
+
+No fields.
+
+### reassignAppointment
+
+Give an appointment still to come to another coach (decision 7: the coach is off or away), keeping its time, room and how it was paid. The host refuses it when that coach is on anything else then (buffers included) or has no staff account, and says what it was made with (warnings: not qualified for the service, away, outside their open hours). (The client's email comes in a later release.)
+
+|  |  |
+| --- | --- |
+| Risk | `write` |
+| Audiences | `staff` |
+| Permission | `bookings:appointments` |
+| Approval | a person approves anyone else's call (`personApproves`) |
+
+#### Input
+
+| Field | Type | Required | Limits | Description |
+| --- | --- | --- | --- | --- |
+| `appointmentId` | string | yes | min length 1, max length 64 |   |
+| `coachId` | string | yes | min length 1, max length 64 |   |
+
+#### Output
+
+No fields.
+
+### coachDay
+
+The coaches' day for staff: for each coach (or one, with coachId), their classes, appointments (service, client, room, state) and other shifts (duties) on one local date of the organisation, in start order. Classes and appointments cancelled, moved or done are left out but for attended and no-show sessions. Read-only.
+
+|  |  |
+| --- | --- |
+| Risk | `read` |
+| Audiences | `staff` |
+| Permission | `bookings:desk`, `bookings:appointments` |
+
+#### Input
+
+| Field | Type | Required | Limits | Description |
+| --- | --- | --- | --- | --- |
+| `date` | string | yes | pattern `^\d{4}-\d{2}-\d{2}$` | The local date, YYYY-MM-DD |
+| `coachId` | string |   | min length 1, max length 64 |   |
+
+#### Output
+
+| Field | Type | Required | Limits | Description |
+| --- | --- | --- | --- | --- |
+| `date` | string | yes |   |   |
+| `timeZone` | string | yes |   |   |
+| `coaches` | array of object | yes |   |   |
+| `coaches[].coachId` | string | yes |   |   |
+| `coaches[].name` | string or null | yes |   |   |
+| `coaches[].items` | array of object | yes |   |   |
+| `coaches[].items[].kind` | `"class"`, `"appointment"`, `"shift"` | yes |   |   |
+| `coaches[].items[].object` | string | yes |   |   |
+| `coaches[].items[].id` | string | yes |   |   |
+| `coaches[].items[].title` | string or null | yes |   |   |
+| `coaches[].items[].startsAt` | string or null | yes |   |   |
+| `coaches[].items[].endsAt` | string or null | yes |   |   |
+| `coaches[].items[].room` | string or null | yes |   |   |
+| `coaches[].items[].state` | string or null | yes |   |   |
+| `coaches[].items[].service` | string or null | yes |   | An appointment's service |
+| `coaches[].items[].client` | object or null | yes |   | An appointment's client |
+| `coaches[].items[].client.id` | string | yes |   |   |
+| `coaches[].items[].client.name` | string or null | yes |   |   |
+
 ## Automations
 
 ### bookingConfirmed
@@ -696,5 +899,7 @@ The operations its code may call through `ctx.ops`, as its manifest asks for the
 - [`extensionSettings.list`](/reference/operations/extensionsettings/#extensionsettingslist)
 - [`notification.send`](/reference/operations/notification/#notificationsend)
 - [`agreement.listHealthNotes`](/reference/operations/agreement/#agreementlisthealthnotes)
+- [`staffing.free`](/reference/operations/staffing/#staffingfree)
+- [`staffing.week`](/reference/operations/staffing/#staffingweek)
 
 Host modules it asks for: `ops`, `routine-mail`, `email-send`, `storage`.

@@ -64,21 +64,32 @@ function siblingsNamed(dir: string, id: string, manifest: unknown): string[] {
   return [...names].sort();
 }
 
-/** Reconciles the extension in `dir` into `local` (after the ones it names), or says why not. */
+/**
+ * Reconciles the extension in `dir` into `local` (after the ones it names), or says why not. One
+ * that requires the extension being checked (`root`) is installed after it in a deployment, never
+ * before, so it is not one the checked extension builds on: it is left out (stage 49, ADR 0764:
+ * Memberships requires Bookings, whose appointments name Memberships' holders as payers).
+ */
 async function installSibling(
   platform: Platform,
   local: LocalDb,
   dir: string,
   now: string,
   done: Set<string>,
+  root: string,
 ): Promise<string | null> {
   const id = extensionIdOf(dir);
   if (done.has(id)) return null;
   done.add(id);
   const evaluated = await evaluateFiles(platform, readExtensionFiles(dir));
   if (!evaluated.ok) return evaluated.issues[0]?.message ?? "it does not evaluate";
+  const requires = (evaluated.manifest as { requires?: unknown } | null)?.requires;
+  if (Array.isArray(requires) && requires.includes(root)) {
+    done.delete(id);
+    return null;
+  }
   for (const sibling of siblingsNamed(dir, id, evaluated.manifest)) {
-    const why = await installSibling(platform, local, join(dirname(dir), sibling), now, done);
+    const why = await installSibling(platform, local, join(dirname(dir), sibling), now, done, root);
     if (why) return `${sibling}: ${why}`;
   }
   await refreshSchemaRegistry(local.db);
@@ -164,7 +175,14 @@ export async function checkExtensionDir(
     const done = new Set([id]);
     if (evaluated.ok) {
       for (const sibling of siblingsNamed(root, id, evaluated.manifest)) {
-        const why = await installSibling(platform, local, join(dirname(root), sibling), now, done);
+        const why = await installSibling(
+          platform,
+          local,
+          join(dirname(root), sibling),
+          now,
+          done,
+          id,
+        );
         if (why) {
           before.push({
             stage: "reconcile",
