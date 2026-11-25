@@ -2714,6 +2714,60 @@ export interface CoreFinanceGuardTable {
   actual: number;
 }
 
+/** Migration 1151 (stage 52 step 4, ADR 0793): a payout the provider sent to the bank. */
+export interface CorePayoutTable {
+  provider: string;
+  ref: string;
+  amount: number;
+  currency: string;
+  arrival_date: string;
+  status: "paid";
+  itemised: number;
+  line_count: number;
+  lines_net: number;
+  created_at: string;
+  read_at: string;
+}
+
+/** Migration 1151: one movement a payout settled. */
+export interface CorePayoutLineTable {
+  provider: string;
+  ref: string;
+  payout_ref: string;
+  kind: "payment" | "refund" | "dispute" | "adjustment" | "fee";
+  amount: number;
+  fee: number;
+  currency: string;
+  payment_ref: string | null;
+  refund_ref: string | null;
+  occurred_at: string;
+}
+
+/** Migration 1151: a recorded payout the provider later reported failed. */
+export interface CorePayoutFailureTable {
+  provider: string;
+  payout_ref: string;
+  date: string;
+  seen_at: string;
+}
+
+/** Migration 1151: where the daily payout read is. */
+export interface CorePayoutSyncTable {
+  provider: string;
+  pass_date: string;
+  done: number;
+  since: string;
+  cursor: string | null;
+  reading: string | null;
+  line_cursor: string | null;
+  state: "ok" | "unavailable" | "failing";
+  reason: string | null;
+  failures: Generated<number>;
+  next_at: string;
+  version: number;
+  updated_at: string;
+}
+
 /** Migration 0812 (stage 45, ADR 0624): the local date the roster's daily work last ran. */
 export interface CoreStaffRunTable {
   name: string;
@@ -4691,6 +4745,10 @@ export interface CoreDatabase {
   core_finance_row: CoreFinanceRowTable;
   core_finance_counted: CoreFinanceCountedTable;
   core_finance_guard: CoreFinanceGuardTable;
+  core_payout: CorePayoutTable;
+  core_payout_line: CorePayoutLineTable;
+  core_payout_failure: CorePayoutFailureTable;
+  core_payout_sync: CorePayoutSyncTable;
   core_write_guard: CoreWriteGuardTable;
   core_client_guard: CoreClientGuardTable;
   core_allowance: CoreAllowanceTable;

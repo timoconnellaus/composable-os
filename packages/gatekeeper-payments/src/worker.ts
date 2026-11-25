@@ -39,7 +39,13 @@ import {
   type TaggedAction,
 } from "@composable-os/gatekeeper-kit/actions";
 import { eventsStub, PaymentsEvents, type StoredInitiator } from "./events.js";
-import { FakePaymentsLedger, FakeProvider, fakeLedger } from "./fake.js";
+import {
+  FakePaymentsLedger,
+  type FakePayoutOptions,
+  type FakePayoutReads,
+  FakeProvider,
+  fakeLedger,
+} from "./fake.js";
 import { formatMinor } from "./money.js";
 import {
   assertProviderAvailable,
@@ -64,8 +70,12 @@ import type {
   PaymentsCustomerEmailReceipt,
   PaymentsEvent,
   PaymentsEventHook,
+  PaymentsListPayoutsInput,
   PaymentsPauseSubscriptionInput,
   PaymentsPayment,
+  PaymentsPayoutLinePage,
+  PaymentsPayoutLinesInput,
+  PaymentsPayoutPage,
   PaymentsPortal,
   PaymentsPortalInput,
   PaymentsPresentation,
@@ -98,7 +108,9 @@ import {
   parseChangeSubscriptionInput,
   parseCheckoutInput,
   parseCustomerEmailInput,
+  parseListPayoutsInput,
   parsePauseSubscriptionInput,
+  parsePayoutLinesInput,
   parsePortalInput,
   parsePresentInput,
   parseRefundInput,
@@ -672,6 +684,13 @@ async function requireHostReaderQueue(queue: unknown): Promise<void> {
   }
 }
 
+/** Payouts are the host's own read only (stage 52 step 4, ADR 0793). */
+async function requireHostPayoutsQueue(queue: unknown): Promise<void> {
+  if (!(await isHostOrdersQueue(queue))) {
+    throw new Error("Payouts are read only by the host, for its finance reports.");
+  }
+}
+
 class PaymentsSessionImpl extends RpcTarget implements PaymentsSession {
   readonly #backend: SessionBackend;
   readonly #queue: RpcStub<ApprovalQueue>;
@@ -960,6 +979,34 @@ class PaymentsSessionImpl extends RpcTarget implements PaymentsSession {
     return provider.listReaders();
   }
 
+  // --- Payouts (stage 52 step 4, ADR 0793) ----------------------------------------------------
+  // Read only, the host's own call only: the business's figures (what reached its bank, the
+  // provider's fees) are the host's finance reports' to show, to `finance:read` holders, so no
+  // other caller (Code Mode, an extension's tool, MCP, the assistant) reads them here. The bank
+  // destination of a payout is never read.
+
+  async listPayouts(input: PaymentsListPayoutsInput): Promise<PaymentsPayoutPage> {
+    const parsed = parseListPayoutsInput(input);
+    await requireHostPayoutsQueue(this.#queue);
+    const provider = this.#backend.open();
+    await this.#queue.authorizeObservation({
+      title: "Read payouts",
+      description: `Read the payouts ${PROVIDER_TITLES[provider.name]} sent to the bank arriving from ${parsed.since}: amounts, dates and status, never the bank account.`,
+    });
+    return provider.listPayouts(parsed);
+  }
+
+  async payoutLines(input: PaymentsPayoutLinesInput): Promise<PaymentsPayoutLinePage> {
+    const parsed = parsePayoutLinesInput(input);
+    await requireHostPayoutsQueue(this.#queue);
+    const provider = this.#backend.open();
+    await this.#queue.authorizeObservation({
+      title: "Read a payout's lines",
+      description: `Read what payout \`${parsed.payoutRef}\` on ${PROVIDER_TITLES[provider.name]} settled: its payments, refunds, disputes, adjustments and fees, by reference.`,
+    });
+    return provider.payoutLines(parsed);
+  }
+
   async presentPayment(input: PaymentsPresentInput): Promise<PaymentsPresentation> {
     const parsed = parsePresentInput(input);
     await requireHostReaderQueue(this.#queue);
@@ -1081,7 +1128,8 @@ export class PaymentsGatekeeper
       title: `Payments with ${PROVIDER_TITLES[provider]}`,
       snippet:
         `Open ${PROVIDER_TITLES[provider]} checkouts, read them, and refund payments. Each ` +
-        "refund waits for approval. The host also puts payments on registered card readers.",
+        "refund waits for approval. The host also puts payments on registered card readers, and " +
+          "reads the payouts sent to the bank for its finance reports.",
       suggestedBindingName: "PAYMENTS",
       tsType: "PaymentsSession",
       hookTsType: "PaymentsEventHook",
@@ -1324,6 +1372,34 @@ export class PaymentsAccount extends WorkerEntrypoint<Env> implements Gatekeeper
 /** The trivial verifier that goes with admitting every observer. */
 export class PaymentsVerifier extends WorkerEntrypoint<Env> implements GatekeeperUserVerifier {
   verify(): void {}
+}
+
+/**
+ * What a test does to the fake provider's payouts (stage 52 step 4, ADR 0793), as the provider
+ * would: pay out what it settled, fail a payout, refuse or fail the reads. A service binding only,
+ * never a route (no route reads the ledger), and only while the fake provider is on.
+ */
+export class FakePaymentsControl extends WorkerEntrypoint<Env> {
+  #ledger() {
+    const reason = unavailableReason(this.env, "fake");
+    if (reason !== undefined) throw new Error(reason);
+    return fakeLedger(this.env);
+  }
+  makePayout(options?: FakePayoutOptions) {
+    return this.#ledger().makePayout(options ?? {});
+  }
+  makePayouts(list: FakePayoutOptions[]) {
+    return this.#ledger().makePayouts(list);
+  }
+  failPayout(ref: string) {
+    return this.#ledger().failPayout(ref);
+  }
+  configurePayoutReads(change: Partial<FakePayoutReads>) {
+    return this.#ledger().configurePayoutReads(change);
+  }
+  payoutState() {
+    return this.#ledger().payoutState();
+  }
 }
 
 /**

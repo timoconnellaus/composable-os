@@ -15,10 +15,16 @@
 // may read figures for an account that holds `finance:read`, and never closes, reopens or changes
 // anything here, whatever is granted (decision 7). No figure reaches the audit log or an error's
 // text: the audit rows say which month and version.
+import type { CrmDb } from "@composable-os/db";
 import { CompiledQuery } from "kysely";
 import { z } from "zod";
-import { ConflictError, ValidationError } from "../errors.ts";
+import { ConflictError, UnknownOperationError, ValidationError } from "../errors.ts";
 import { closePlan, periodBook, readGuards } from "../finance/close.ts";
+import { payoutsDue, syncPayouts } from "../finance/payout-sync.ts";
+import type { GateFloor } from "../gate.ts";
+import type { IntegrationRuntime } from "../integrations/runtime.ts";
+import { invoke } from "../invoke.ts";
+import { SYSTEM_USER } from "../users.ts";
 import { addMonths } from "../finance/day.ts";
 import { reportCsv, reportFilename } from "../finance/files.ts";
 import {
@@ -609,6 +615,75 @@ export const financeExport = defineOperation({
   },
 });
 
+// --- The daily payout read (stage 52 step 4, ADR 0793) --------------------------------------------
+
+const syncOutput = z.object({
+  provider: z.string().nullable(),
+  calls: z.number().int().describe("Provider calls this run made (pages of payouts or lines)"),
+  recorded: z.number().int().describe("Payouts recorded"),
+  lines: z.number().int().describe("Payout lines read"),
+  failed: z.number().int().describe("Recorded payouts the provider now reports failed"),
+  state: z.enum(["ok", "unavailable", "failing", "not_connected", "not_due"]),
+  more: z.boolean().describe("The pass is not finished: the next tick carries on"),
+});
+
+export const financePayoutsSync = defineOperation({
+  name: "finance.payouts.sync",
+  description:
+    "Platform use only (the minute cron, as the host, once a business day): reads the payouts " +
+    "the payment provider sent to the bank, and what each settled, through the payments " +
+    "gatekeeper, and keeps them as the provider reported them, each once by the provider's id. " +
+    "Read only at the provider: nothing moves. A bounded number of provider calls a run; a " +
+    "backlog is read over several runs. Returns what it read.",
+  input: z.object({}),
+  output: syncOutput,
+  permission: "finance:read",
+  // It writes the host's copy of the provider's payouts (and its own marker), never an order,
+  // a payment or a refund: a write in the pipeline's terms, where a read may write nothing.
+  risk: "write",
+  actors: ["automation"],
+  // The host's own step: never queued for review under an approval floor on automation writes.
+  hostStep: true,
+  mcp: { expose: false },
+  auditSummary: (output) => ({
+    provider: output.provider,
+    calls: output.calls,
+    recorded: output.recorded,
+    state: output.state,
+    more: output.more,
+  }),
+  async handler(_input, ctx) {
+    if (ctx.origin.surface !== "system") throw new UnknownOperationError("finance.payouts.sync");
+    return syncPayouts(ctx);
+  },
+});
+
+/** The minute cron's payouts step: one `finance.payouts.sync` when a run is due, as the host. */
+export async function runPayoutsDue(
+  db: CrmDb,
+  {
+    integrations,
+    floor,
+    clock,
+  }: { integrations?: IntegrationRuntime; floor?: GateFloor; clock?: () => Date } = {},
+): Promise<z.infer<typeof syncOutput> | null> {
+  const now = (clock?.() ?? new Date()).toISOString();
+  if (!(await payoutsDue(db.query, now))) return null;
+  return (await invoke(
+    "finance.payouts.sync",
+    {},
+    {
+      actor: "automation",
+      user: SYSTEM_USER,
+      origin: { surface: "system", automationId: "system.finance" },
+      db,
+      ...(integrations ? { integrations } : {}),
+      ...(floor ? { floor } : {}),
+      ...(clock ? { clock } : {}),
+    },
+  )) as z.infer<typeof syncOutput>;
+}
+
 export const financeOperations = [
   financePeriods,
   financeReport,
@@ -618,4 +693,5 @@ export const financeOperations = [
   financeReopen,
   financeSettingsGet,
   financeSettingsUpdate,
+  financePayoutsSync,
 ] as const;

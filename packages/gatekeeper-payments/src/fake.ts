@@ -21,7 +21,12 @@ import type {
   PaymentsInterval,
   PaymentsInvoice,
   PaymentsPauseSubscriptionInput,
+  PaymentsListPayoutsInput,
   PaymentsPayment,
+  PaymentsPayout,
+  PaymentsPayoutLinePage,
+  PaymentsPayoutLinesInput,
+  PaymentsPayoutPage,
   PaymentsPortalInput,
   PaymentsPresentInput,
   PaymentsReader,
@@ -184,6 +189,84 @@ export type FakeSubscription = {
   pauseCredit?: number;
 };
 
+/** A payment or refund the ledger holds, as a payout settles it (refunds negative). */
+type FakeMovement = {
+  ref: string;
+  kind: "payment" | "refund";
+  amount: number;
+  currency: string;
+  paymentRef: string;
+  refundRef: string | null;
+  at: string;
+};
+
+/** One movement a fake payout settled (stage 52 step 4, ADR 0793). */
+export type FakePayoutLine = {
+  ref: string;
+  kind: "payment" | "refund" | "dispute" | "adjustment" | "fee";
+  amount: number;
+  fee: number;
+  currency: string;
+  paymentRef: string | null;
+  refundRef: string | null;
+  occurredAt: string;
+};
+
+/** A fake payout: what the fake provider sent to the bank, and what it settled. */
+export type FakePayout = {
+  ref: string;
+  amount: number;
+  currency: string;
+  arrivalDate: string;
+  status: "paid" | "pending" | "in_transit" | "failed" | "canceled";
+  createdAt: string;
+  itemised: boolean;
+  lines: FakePayoutLine[];
+};
+
+/**
+ * What a test makes a payout of. By default: every payment and refund the ledger holds that no
+ * payout settled yet, in one currency, each payment with a fee of 1.75% and 30 minor units (a
+ * development figure, not any provider's price), arriving today (UTC).
+ */
+export type FakePayoutOptions = {
+  currency?: string;
+  /** `YYYY-MM-DD`; default today (UTC). */
+  arrivalDate?: string;
+  status?: "paid" | "pending" | "in_transit";
+  /** Only these payments and refunds (their references); default every one not yet paid out. */
+  only?: string[];
+  /** Settle none of the ledger's own payments: only `extra`. */
+  none?: boolean;
+  /** Lines the ledger has no payment for: a dispute, an adjustment, a charge made at the provider. */
+  extra?: {
+    kind: FakePayoutLine["kind"];
+    amount: number;
+    fee?: number;
+    paymentRef?: string | null;
+    refundRef?: string | null;
+  }[];
+  /** Added to the payout's amount, so its lines do not sum to it. */
+  skew?: number;
+  /** False: a payout made by hand at the provider, whose lines cannot be listed. */
+  itemised?: boolean;
+  feeBasisPoints?: number;
+  feeFixed?: number;
+};
+
+/** How the fake answers payout reads: a test turns a refusal or a failure on. */
+export type FakePayoutReads = {
+  /** `unavailable`: the key may not read payouts. `error`: the provider fails (a 5xx). */
+  reads: "ok" | "unavailable" | "error";
+  /** Payouts or lines per page (the provider's is 100). */
+  pageSize: number;
+  /**
+   * Development's schedule: on a first page read, everything settled before today (UTC) and not
+   * yet paid out is paid out, arriving today. Tests turn it off and make payouts themselves.
+   */
+  auto: boolean;
+};
+
 /**
  * What a test or a developer makes the fake provider's schedule do next (no public route: through
  * the ledger's binding only). `renew`: the period ends and the next is charged, or the subscription
@@ -271,6 +354,32 @@ const PRESENTATION_LIFETIME_MS = 24 * 60 * 60 * 1000;
 /** Readers the fake account holds at most, as `listReaders` answers at most 100. */
 const MAX_READERS = 100;
 const CLOCK = "clock";
+const PAYOUT = "payout:";
+/** A payment or refund reference a payout settled → that payout's reference. */
+const PAID_OUT = "paid-out:";
+const PAYOUT_READS = "payout-reads";
+/** How many payout reads (pages of payouts or lines) the ledger answered: tests bound it. */
+const PAYOUT_READ_COUNT = "payout-read-count";
+const DEFAULT_PAYOUT_READS: FakePayoutReads = { reads: "ok", pageSize: 100, auto: true };
+
+/** The fake's development fee on a payment: 1.75% and 30 minor units, rounded half up. */
+export function fakeFee(amount: number, basisPoints = 175, fixed = 30): number {
+  return amount > 0 ? Math.round((amount * basisPoints) / 10_000) + fixed : 0;
+}
+
+/** A fake payout as the provider-neutral read of it. */
+export function fakePayoutRead(payout: FakePayout): PaymentsPayout {
+  return {
+    provider: "fake",
+    ref: payout.ref,
+    amount: payout.amount,
+    currency: payout.currency,
+    arrivalDate: payout.arrivalDate,
+    status: payout.status,
+    createdAt: payout.createdAt,
+    itemised: payout.itemised,
+  };
+}
 
 /** A fake subscription as a read of it at `observedAt`. */
 export function fakeSubscriptionRead(
@@ -1131,6 +1240,202 @@ export class FakePaymentsLedger extends DurableObject<Cloudflare.Env> {
     this.ctx.storage.kv.put(SUBSCRIPTION + sub.ref, sub);
   }
 
+  // --- Payouts (stage 52 step 4, ADR 0793) ----------------------------------------------------
+
+  /** Every payment and refund the ledger holds, as a payout would settle it. */
+  #movements(): FakeMovement[] {
+    const kv = this.ctx.storage.kv;
+    const out: FakeMovement[] = [];
+    for (const [, c] of kv.list<FakeCheckout>({ prefix: CHECKOUT })) {
+      if (c.status !== "paid" || c.subscription || !c.paymentRef) continue;
+      out.push({
+        ref: c.paymentRef,
+        kind: "payment",
+        amount: c.paidAmount ?? c.amount,
+        currency: c.currency,
+        paymentRef: c.paymentRef,
+        refundRef: null,
+        at: c.createdAt,
+      });
+    }
+    for (const sub of this.#subscriptions()) {
+      for (const invoice of sub.invoices) {
+        if (invoice.status !== "paid" || !invoice.paymentRef || invoice.amountPaid <= 0) continue;
+        out.push({
+          ref: invoice.paymentRef,
+          kind: "payment",
+          amount: invoice.amountPaid,
+          currency: sub.currency,
+          paymentRef: invoice.paymentRef,
+          refundRef: null,
+          at: invoice.periodStart,
+        });
+      }
+    }
+    for (const [, r] of kv.list<FakeRefund>({ prefix: REFUND })) {
+      out.push({
+        ref: r.refundRef,
+        kind: "refund",
+        amount: -r.amount,
+        currency: r.currency,
+        paymentRef: r.paymentRef,
+        refundRef: r.refundRef,
+        at: r.createdAt,
+      });
+    }
+    return out.sort((a, b) => a.at.localeCompare(b.at) || a.ref.localeCompare(b.ref));
+  }
+
+  /**
+   * Makes a payout (tests and development only: no public route), settling what no payout settled
+   * yet, once each. Null when there is nothing to pay out.
+   */
+  async makePayout(options: FakePayoutOptions = {}): Promise<FakePayout | null> {
+    const kv = this.ctx.storage.kv;
+    const open = options.none
+      ? []
+      : this.#movements().filter(
+          (m) =>
+            kv.get<string>(PAID_OUT + m.ref) === undefined &&
+            (!options.only || options.only.includes(m.ref)),
+        );
+    const currency = (options.currency ?? open[0]?.currency ?? "AUD").toUpperCase();
+    const settled = open.filter((m) => m.currency.toUpperCase() === currency);
+    const lines: FakePayoutLine[] = settled.map((m) => ({
+      ref: randomId("ftx_"),
+      kind: m.kind,
+      amount: m.amount,
+      fee: m.kind === "payment" ? fakeFee(m.amount, options.feeBasisPoints, options.feeFixed) : 0,
+      currency,
+      paymentRef: m.paymentRef,
+      refundRef: m.refundRef,
+      occurredAt: m.at,
+    }));
+    for (const extra of options.extra ?? []) {
+      lines.push({
+        ref: randomId("ftx_"),
+        kind: extra.kind,
+        amount: extra.amount,
+        fee: extra.fee ?? 0,
+        currency,
+        paymentRef: extra.paymentRef ?? null,
+        refundRef: extra.refundRef ?? null,
+        occurredAt: this.#tick(),
+      });
+    }
+    if (!lines.length) return null;
+    const payout: FakePayout = {
+      ref: randomId("fpo_"),
+      amount: lines.reduce((n, l) => n + l.amount - l.fee, 0) + (options.skew ?? 0),
+      currency,
+      arrivalDate: options.arrivalDate ?? new Date().toISOString().slice(0, 10),
+      status: options.status ?? "paid",
+      createdAt: this.#tick(),
+      itemised: options.itemised ?? true,
+      lines: options.itemised === false ? [] : lines,
+    };
+    kv.put(PAYOUT + payout.ref, payout);
+    for (const m of settled) kv.put(PAID_OUT + m.ref, payout.ref);
+    return payout;
+  }
+
+  /** Many payouts at once (a year of them, for a backlog). */
+  async makePayouts(list: FakePayoutOptions[]): Promise<FakePayout[]> {
+    const out: FakePayout[] = [];
+    for (const options of list) {
+      const made = await this.makePayout(options);
+      if (made) out.push(made);
+    }
+    return out;
+  }
+
+  /** A paid payout the bank returned: the provider reports it failed (its money back in the balance). */
+  async failPayout(ref: string): Promise<FakePayout | null> {
+    const kv = this.ctx.storage.kv;
+    const payout = kv.get<FakePayout>(PAYOUT + ref);
+    if (!payout) return null;
+    const failed: FakePayout = { ...payout, status: "failed" };
+    kv.put(PAYOUT + ref, failed);
+    return failed;
+  }
+
+  /** How payout reads are answered from now on. */
+  async configurePayoutReads(change: Partial<FakePayoutReads>): Promise<FakePayoutReads> {
+    const next = { ...this.#payoutReads(), ...change };
+    this.ctx.storage.kv.put(PAYOUT_READS, next);
+    return next;
+  }
+
+  /** Every payout, and how many pages of payouts or lines were read. */
+  async payoutState(): Promise<{ payouts: FakePayout[]; reads: number }> {
+    const kv = this.ctx.storage.kv;
+    return {
+      payouts: [...kv.list<FakePayout>({ prefix: PAYOUT })].map(([, p]) => p),
+      reads: kv.get<number>(PAYOUT_READ_COUNT) ?? 0,
+    };
+  }
+
+  #payoutReads(): FakePayoutReads {
+    return { ...DEFAULT_PAYOUT_READS, ...(this.ctx.storage.kv.get<FakePayoutReads>(PAYOUT_READS) ?? {}) };
+  }
+
+  /** Counts a read, and answers a refusal or a failure when a test turned one on. */
+  #read(): FakePayoutReads | { unavailable: true; reason: string } {
+    const kv = this.ctx.storage.kv;
+    kv.put(PAYOUT_READ_COUNT, (kv.get<number>(PAYOUT_READ_COUNT) ?? 0) + 1);
+    const mode = this.#payoutReads();
+    if (mode.reads === "error") throw new Error("The fake provider could not be read (a 5xx).");
+    if (mode.reads === "unavailable") {
+      return { unavailable: true, reason: "this account's key may not read payouts" };
+    }
+    return mode;
+  }
+
+  async listPayouts(input: PaymentsListPayoutsInput): Promise<PaymentsPayoutPage> {
+    const mode = this.#read();
+    if ("unavailable" in mode) return mode;
+    if (mode.auto && !input.after) {
+      const today = new Date().toISOString().slice(0, 10);
+      const before = this.#movements().filter(
+        (m) =>
+          m.at.slice(0, 10) < today &&
+          this.ctx.storage.kv.get<string>(PAID_OUT + m.ref) === undefined,
+      );
+      const currencies = [...new Set(before.map((m) => m.currency.toUpperCase()))];
+      for (const currency of currencies) {
+        await this.makePayout({
+          currency,
+          only: before.filter((m) => m.currency.toUpperCase() === currency).map((m) => m.ref),
+        });
+      }
+    }
+    // Newest first, as Stripe lists them; the cursor is the last payout of the page before.
+    const all = [...this.ctx.storage.kv.list<FakePayout>({ prefix: PAYOUT })]
+      .map(([, p]) => p)
+      .filter((p) => p.arrivalDate >= input.since)
+      .sort((a, b) => b.arrivalDate.localeCompare(a.arrivalDate) || b.ref.localeCompare(a.ref));
+    const from = input.after ? all.findIndex((p) => p.ref === input.after) + 1 : 0;
+    const page = all.slice(from, from + mode.pageSize);
+    return {
+      payouts: page.map(fakePayoutRead),
+      next: from + mode.pageSize < all.length ? (page.at(-1)?.ref ?? null) : null,
+    };
+  }
+
+  async payoutLines(input: PaymentsPayoutLinesInput): Promise<PaymentsPayoutLinePage> {
+    const mode = this.#read();
+    if ("unavailable" in mode) return mode;
+    const payout = this.ctx.storage.kv.get<FakePayout>(PAYOUT + input.payoutRef);
+    if (!payout) throw new Error("The fake provider has no payout with that reference.");
+    if (!payout.itemised) throw new Error("A payout made by hand has no lines to list.");
+    const from = input.after ? payout.lines.findIndex((l) => l.ref === input.after) + 1 : 0;
+    const page = payout.lines.slice(from, from + mode.pageSize);
+    return {
+      lines: page.map((l) => ({ ...l })),
+      next: from + mode.pageSize < payout.lines.length ? (page.at(-1)?.ref ?? null) : null,
+    };
+  }
+
   /** The ledger's clock: never goes back, and moves on at every change, so reads are ordered. */
   #tick(): string {
     const kv = this.ctx.storage.kv;
@@ -1398,6 +1703,14 @@ export class FakeProvider implements PaymentProvider {
           .catch(() => console.warn("payments: the fake reader webhook was not accepted")),
       );
     }
+  }
+
+  listPayouts(input: PaymentsListPayoutsInput): Promise<PaymentsPayoutPage> {
+    return this.#options.ledger.listPayouts(input);
+  }
+
+  payoutLines(input: PaymentsPayoutLinesInput): Promise<PaymentsPayoutLinePage> {
+    return this.#options.ledger.payoutLines(input);
   }
 
   /** Changes the subscription, then confirms it by webhook once this call has returned. */

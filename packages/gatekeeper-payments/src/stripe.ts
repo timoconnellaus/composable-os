@@ -22,8 +22,14 @@ import type {
   PaymentsCustomerEmailInput,
   PaymentsEvent,
   PaymentsInvoice,
+  PaymentsListPayoutsInput,
   PaymentsPauseSubscriptionInput,
   PaymentsPayment,
+  PaymentsPayout,
+  PaymentsPayoutLine,
+  PaymentsPayoutLinePage,
+  PaymentsPayoutLinesInput,
+  PaymentsPayoutPage,
   PaymentsPortalInput,
   PaymentsPresentInput,
   PaymentsReader,
@@ -95,6 +101,8 @@ class StripeCallError extends Error {
     /** Stripe's error code and the parameter it names, when it says (never its message). */
     readonly code: string | null = null,
     readonly param: string | null = null,
+    /** The HTTP status Stripe answered, when it answered. */
+    readonly status: number | null = null,
   ) {
     super(message);
   }
@@ -1113,6 +1121,70 @@ export class StripeProvider implements PaymentProvider {
     return id;
   }
 
+  // --- Payouts (stage 52 step 4, ADR 0793) ----------------------------------------------------
+  // Read only. A payout's bank destination is in its object (`destination`) and is never read or
+  // expanded. A key that may not read payouts or balance transactions (a restricted key without
+  // "Payouts: read" and "Balance: read") is answered `unavailable`, never thrown, so the host's
+  // report says payouts are not available for this connection; anything else is thrown.
+
+  async listPayouts(input: PaymentsListPayoutsInput): Promise<PaymentsPayoutPage> {
+    const query = new URLSearchParams();
+    query.set("limit", "100");
+    const since = Math.floor(Date.parse(`${input.since}T00:00:00Z`) / 1000);
+    query.set("arrival_date[gte]", String(since));
+    if (input.after) query.set("starting_after", input.after);
+    const read = await this.#payoutRead(`/v1/payouts?${query}`);
+    if (read.unavailable) return read;
+    const data = Array.isArray(read.body.data) ? read.body.data : [];
+    return {
+      payouts: data.flatMap((raw) => {
+        const payout = stripePayoutRead(raw);
+        return payout ? [payout] : [];
+      }),
+      next: read.body.has_more === true ? idOf(data.at(-1)) : null,
+    };
+  }
+
+  async payoutLines(input: PaymentsPayoutLinesInput): Promise<PaymentsPayoutLinePage> {
+    const query = new URLSearchParams();
+    query.set("payout", input.payoutRef);
+    query.set("limit", "100");
+    // The source (a charge, refund or dispute) carries the payment intent the host stores.
+    query.append("expand[]", "data.source");
+    if (input.after) query.set("starting_after", input.after);
+    const read = await this.#payoutRead(`/v1/balance_transactions?${query}`);
+    if (read.unavailable) return read;
+    const data = Array.isArray(read.body.data) ? read.body.data : [];
+    return {
+      lines: data.flatMap((raw) => {
+        const line = stripePayoutLineRead(raw);
+        return line ? [line] : [];
+      }),
+      next: read.body.has_more === true ? idOf(data.at(-1)) : null,
+    };
+  }
+
+  async #payoutRead(
+    path: string,
+  ): Promise<
+    | { unavailable?: undefined; body: Record<string, unknown> }
+    | { unavailable: true; reason: string }
+  > {
+    try {
+      return { body: (await this.#call("GET", path, undefined, undefined)).body };
+    } catch (error) {
+      if (error instanceof StripeCallError && (error.status === 401 || error.status === 403)) {
+        return {
+          unavailable: true,
+          reason:
+            "the Stripe key may not read payouts and balance transactions (a restricted key " +
+            "needs Payouts: read and Balance: read)",
+        };
+      }
+      throw error;
+    }
+  }
+
   async #call(
     method: "GET" | "POST" | "DELETE",
     path: string,
@@ -1158,9 +1230,10 @@ export class StripeProvider implements PaymentProvider {
         "refused",
         typeof error.code === "string" ? error.code.slice(0, 60) : null,
         typeof error.param === "string" ? error.param.slice(0, 60) : null,
+        response.status,
       );
     }
-    throw new StripeCallError(detail, "unknown");
+    throw new StripeCallError(detail, "unknown", null, null, response.status);
   }
 }
 
@@ -1608,4 +1681,98 @@ export function mapStripeEvent(
     };
   }
   return null;
+}
+
+// --- Payouts (stage 52 step 4, ADR 0793) --------------------------------------------------------
+
+const PAYOUT_STATUSES = new Set(["paid", "pending", "in_transit", "failed", "canceled"]);
+
+function integerOrNull(value: unknown): number | null {
+  return typeof value === "number" && Number.isSafeInteger(value) ? value : null;
+}
+
+/** A Stripe day timestamp (`arrival_date`) as the day it names, `YYYY-MM-DD` (UTC). */
+function dayOf(seconds: unknown): string | null {
+  const s = integerOrNull(seconds);
+  return s === null ? null : new Date(s * 1000).toISOString().slice(0, 10);
+}
+
+/**
+ * A Stripe payout as the provider-neutral read of it, or null when it is not one this reads. Its
+ * `destination` (the bank account) is never read.
+ */
+export function stripePayoutRead(value: unknown): PaymentsPayout | null {
+  const raw = metadataOf(value);
+  const ref = stringOrNull(raw.id);
+  const amount = integerOrNull(raw.amount);
+  const currency = currencyOf(raw.currency);
+  const arrivalDate = dayOf(raw.arrival_date);
+  const created = integerOrNull(raw.created);
+  const status =
+    typeof raw.status === "string" && PAYOUT_STATUSES.has(raw.status) ? raw.status : null;
+  if (!ref || amount === null || !currency || !arrivalDate || created === null || !status) {
+    return null;
+  }
+  return {
+    provider: "stripe",
+    ref,
+    amount,
+    currency,
+    arrivalDate,
+    status: status as PaymentsPayout["status"],
+    createdAt: new Date(created * 1000).toISOString(),
+    // Only an automatic payout's balance transactions can be listed by payout.
+    itemised: raw.automatic === true,
+  };
+}
+
+/** What a balance transaction's reporting category is, as a payout line; null: not a line. */
+function lineKind(category: string | null): PaymentsPayoutLine["kind"] | null {
+  switch (category) {
+    case "payout":
+      // The payout itself (its amount negated), not something it settled.
+      return null;
+    case "charge":
+      return "payment";
+    case "refund":
+      return "refund";
+    case "dispute":
+    case "dispute_reversal":
+      return "dispute";
+    case "fee":
+      return "fee";
+    default:
+      return "adjustment";
+  }
+}
+
+/**
+ * One balance transaction of a payout as a line, or null when it is the payout's own or not
+ * readable. The expanded source gives the payment intent (the host's payment reference) and a
+ * refund's own id; nothing else of it is passed on (a charge carries billing details).
+ */
+export function stripePayoutLineRead(value: unknown): PaymentsPayoutLine | null {
+  const raw = metadataOf(value);
+  const ref = stringOrNull(raw.id);
+  const category = stringOrNull(raw.reporting_category) ?? stringOrNull(raw.type);
+  const kind = lineKind(category);
+  const amount = integerOrNull(raw.amount);
+  const fee = integerOrNull(raw.fee) ?? 0;
+  const currency = currencyOf(raw.currency);
+  const created = integerOrNull(raw.created);
+  if (!ref || !kind || amount === null || !currency || created === null) return null;
+  const source = metadataOf(raw.source);
+  return {
+    ref,
+    kind,
+    amount,
+    fee,
+    currency,
+    paymentRef:
+      kind === "payment" || kind === "refund" || kind === "dispute"
+        ? idOf(source.payment_intent)
+        : null,
+    refundRef: kind === "refund" ? idOf(raw.source) : null,
+    occurredAt: new Date(created * 1000).toISOString(),
+  };
 }

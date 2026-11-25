@@ -24,7 +24,12 @@ export function decimal(minor: unknown, places: number): string {
   return `${sign}${digits.slice(0, -places)}.${digits.slice(-places)}`;
 }
 
-const TITLES: Record<BuiltReport, string> = { sales: "Sales", tax: "Tax", refunds: "Refunds" };
+const TITLES: Record<BuiltReport, string> = {
+  sales: "Sales",
+  tax: "Tax",
+  refunds: "Refunds",
+  payouts: "Payouts",
+};
 
 type Column = [header: string, cell: (r: Record<string, unknown>) => string[]];
 
@@ -195,6 +200,112 @@ export function reportCsv(view: ReportView): string {
         "net of tax",
       ]),
       view.rows.filter((r) => r.type === "rate" || r.type === "untaxed"),
+      places,
+    );
+  } else if (view.report === "payouts") {
+    const m = (header: string, key: string) => money(header, key, places);
+    const payoutMoney = [
+      "amount to the bank",
+      "payments",
+      "refunds",
+      "disputes",
+      "adjustments",
+      "matching nothing",
+      "fees",
+      "lines net",
+      "difference",
+    ];
+    table(
+      out,
+      "Payouts arriving",
+      [
+        textCol("date", "date"),
+        textCol("belongs to closed month", "belongsTo"),
+        textCol("payout", "payoutRef"),
+        textCol("provider", "provider"),
+        m("amount to the bank", "amount"),
+        m("payments", "payments"),
+        m("refunds", "refunds"),
+        m("disputes", "disputes"),
+        m("adjustments", "adjustments"),
+        m("matching nothing", "unmatched"),
+        m("fees", "fees"),
+        m("lines net", "linesNet"),
+        m("difference", "difference"),
+        ["lines", (r) => [num(r.lineCount)]],
+        ["itemised", (r) => [text(r.itemised === true)]],
+        ...traced,
+      ],
+      new Set(payoutMoney),
+      rows("payout"),
+      places,
+    );
+    table(
+      out,
+      "Payout lines",
+      [
+        textCol("payout", "payoutRef"),
+        textCol("line", "lineRef"),
+        textCol("kind", "kind"),
+        textCol("at", "occurredAt"),
+        m("amount", "amount"),
+        m("fee", "fee"),
+        m("net", "net"),
+        ["matched", (r) => [text(r.matched === true)]],
+        textCol("matched to", "source"),
+        textCol("payment or refund", "sourceId"),
+        textCol("order", "orderId"),
+        textCol("payment reference", "paymentRef"),
+        textCol("refund reference", "refundRef"),
+      ],
+      new Set(["amount", "fee", "net"]),
+      rows("line"),
+      places,
+    );
+    table(
+      out,
+      "Failed after arriving (the bank returned it)",
+      [
+        textCol("seen on", "date"),
+        textCol("belongs to closed month", "belongsTo"),
+        textCol("payout", "payoutRef"),
+        textCol("arrived", "arrivalDate"),
+        m("amount", "amount"),
+      ],
+      new Set(["amount"]),
+      rows("failure"),
+      places,
+    );
+    table(
+      out,
+      "Received through the provider, not yet paid out",
+      [
+        textCol("as at", "asAt"),
+        textCol("from", "since"),
+        m("payments", "payments"),
+        m("refunds", "refunds"),
+        m("not yet paid out", "amount"),
+        ["payments counted", (r) => [num(r.paymentCount)]],
+        ["refunds counted", (r) => [num(r.refundCount)]],
+        list("payments and refunds (up to 200)", "sources"),
+        ...traced,
+      ],
+      new Set(["payments", "refunds", "not yet paid out"]),
+      rows("unpaid"),
+      places,
+    );
+    table(
+      out,
+      "In another currency (not summed)",
+      [
+        textCol("date", "date"),
+        textCol("belongs to closed month", "belongsTo"),
+        textCol("payout", "payoutRef"),
+        textCol("currency", "currency"),
+        ["amount", (r) => [num(r.amount)]],
+      ],
+      new Set(),
+      rows("exception"),
       places,
     );
   } else {

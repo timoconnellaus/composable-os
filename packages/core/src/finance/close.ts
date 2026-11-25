@@ -11,9 +11,11 @@
 import { CompiledQuery } from "kysely";
 import { ConflictError } from "../errors.ts";
 import type { HandlerContext } from "../operation.ts";
+import { loadOrderCurrency } from "../orders/settings.ts";
 import { moneyBook } from "./book.ts";
 import type { LocalRange } from "./day.ts";
 import { type BookEntry, type SealedEntry, sealEntry } from "./entries.ts";
+import { mergeEntries, payoutBook } from "./payouts.ts";
 
 /** The most lines, report rows or counted sources one version holds; more is refused. */
 export const MAX_CLOSE_LINES = 100_000;
@@ -73,19 +75,28 @@ export interface PeriodBook {
  * Refunds), and what arrived for the closed months before it that none of their versions counted.
  */
 export async function periodBook(ctx: HandlerContext, range: LocalRange): Promise<PeriodBook> {
-  const { entries, rows, counted, guards } = await moneyBook(
+  const late = await closedBefore(ctx.db, range);
+  const money = await moneyBook(ctx.db, range, late);
+  // Payouts (step 4): a payout entry each, the Payouts rows, and late payouts in the late entry.
+  const payouts = await payoutBook(
     ctx.db,
     range,
-    await closedBefore(ctx.db, range),
+    late,
+    money.currency ?? (await loadOrderCurrency(ctx.db)),
   );
-  return { entries, rows, counted, guards };
+  return {
+    entries: mergeEntries(money.entries, payouts.entries),
+    rows: [...money.rows, ...payouts.rows],
+    counted: [...money.counted, ...payouts.counted],
+    guards: [...money.guards, ...payouts.guards],
+  };
 }
 
 /** The closed months before `range` (the months a late source can belong to). */
 export async function closedBefore(db: HandlerContext["db"], range: LocalRange) {
   return db
     .selectFrom("core_finance_period")
-    .select(["month", "starts", "ends"])
+    .select(["month", "starts", "ends", "start_date", "end_date"])
     .where("state", "=", "closed")
     .where("ends", "<=", range.starts)
     .orderBy("month")
