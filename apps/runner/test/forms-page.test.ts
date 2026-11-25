@@ -84,7 +84,7 @@ function serve(request: Request): Promise<Response> {
       fetch: async (url, init) =>
         (await surface.handle(new Request(url, init))) ??
         new Response("Not found", { status: 404 }),
-      headers: () => (cookie ? { cookie } : {}),
+      headers: (): Record<string, string> => (cookie ? { cookie } : {}),
     }),
     turnstileSiteKey: "1x00000000000000000000AA",
   });
