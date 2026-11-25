@@ -74,9 +74,18 @@ gym's rooms on the same calendar, which stage 43 did not cover.
   rosterer's act (ADR 0626 amended) and carries no staff warnings or roster notices. Platform only:
   no Bookings object declares `open` yet (step 5), so nothing calls `staffing.free` outside tests.
 
-- **Step 5** — in progress — branch `feat/stage-49-pack-spine` — The pack spine, staff-booked: services, appointments,
+- **Step 5** — built — PR #452 — The pack spine, staff-booked: services, appointments,
   states, passes paying, desk payment, late cancel and no-show, excuse, reassign, the coach's day;
-  Memberships' services.
+  Memberships' services (`feat/stage-49-pack-spine`; ADR 0764, the spec's "0765"; no migration):
+  `bookings.service` and `bookings.appointment` (staffed with the buffer and a required account,
+  private, open; occupies its room; states with late from 24 hours, excused and cancelled by us
+  only through a person's tools, attended by the host 30 minutes after; the allowance spender), the
+  staff tools under `bookings:desk` or the grantable `bookings:appointments`, and Memberships'
+  `covers` and `services` (Memberships now requires Bookings). Platform: allowance conditions
+  `value` and `empty: "none"`, a copy of `<relation>.id`, the host choosing a booked shift's room,
+  booking a provider not being rostering, and `cos ext check` leaving out a sibling that requires
+  the checked one. Nothing opened to customers or the public; the appointment emails are step 6's
+  and 10's.
 
 - **Step 6** — not built — needs: step 4, step 5 — Members book online: freeTimes, book, move, cancel (web
   and native blocks); the coach role's own reach; confirmation and reminder mail; staff screens; the
