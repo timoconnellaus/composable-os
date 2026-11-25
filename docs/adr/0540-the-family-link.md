@@ -141,3 +141,10 @@ A guardian booking for a dependant (`my.create` with `forPersonId`) or buying th
 guardian's acceptance for the child or a paper form counts (the child is a minor), never the
 guardian's own and never the child's. A payer document is the guardian's own, as the payer of a
 drop-in.
+
+## Amended 2026-11-25: Bookings' blocks read `me.family` (stage 48 step 7, [ADR 0715](0715-the-account-blocks-signing-in-again-in-place-and-one-subscriptions-part.md))
+
+Bookings' `useFamily` hook, which its timetable blocks use to pick whom a member books for, reads
+the host's own `me.family` and gives it in the `family` tool's shape. The `family` tool stays and
+answers as before, for the API contract; no block calls it. The Memberships section reads
+`me.family` too, to show a linked child's memberships and passes under the child's name.

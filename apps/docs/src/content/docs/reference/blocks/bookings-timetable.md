@@ -25,7 +25,7 @@ Through its hooks; the host decides what each caller may do.
 
 - [`x.bookings.timetable`](/packs/bookings/tools/#timetable)
 - [`x.bookings.mine`](/packs/bookings/tools/#mine)
-- [`x.bookings.family`](/packs/bookings/tools/#family)
+- [`me.family`](/reference/operations/me/#mefamily)
 - [`x.bookings.book`](/packs/bookings/tools/#book)
 - [`x.bookings.cancel`](/packs/bookings/tools/#cancel)
 - [`x.bookings.buy`](/packs/bookings/tools/#buy)

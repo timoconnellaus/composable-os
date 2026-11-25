@@ -2919,8 +2919,24 @@ agreements, passes on objects that open to guardians and personal links, their l
 soonest first, each with the record, the moment, the money in minor units and a pass's uses left. A pass expiring and a trial ending are
 listed within `account.attentionDays` (`customer.settings` `attentionDays`, default 7, 1 to 30,
 human admins). It reads a fixed number of statements whatever the packs installed, the family's size or the
-number of documents (plus two for each personal link listed, at most ten), and lists a pass only where its customer reads its uses and end; its block is a
-later step. In the app, money opens the website ([ADR 0714](adr/0714-the-app-shows-money-and-opens-the-website.md)):
+number of documents (plus two for each personal link listed, at most ten), and lists a pass only where its customer reads its uses and end. Step 7
+is built ([ADR 0715](adr/0715-the-account-blocks-signing-in-again-in-place-and-one-subscriptions-part.md)):
+the attention blocks (`web-account-attention`, `native-account-attention`) at the top of each shell,
+each item saying whose it is and leading only to a section the host listed (`attentionTarget`: a
+lookup, never a rule); changing the sign-in address (`*-account-email`, under Your details) and
+**Delete my account** (`*-account-delete`, a last base section `delete` that `me.portal` lists for
+everyone), which shows the host's preview in full and confirms only that preview, with the word
+DELETE typed (`deleteConfirmInput`). Both work in the app. When the host refuses with
+`sign_in_again`, the block signs the customer in again in place, through the app's own sign-in
+(`AccountSignIn`), and carries on with what they were doing (`sensitive`). The Memberships and
+Courses sections show their subscriptions through the one subscriptions part (no card button of
+their own: the card is Payment method's), Courses' section is `MyCoursesSection` (its courses and
+its subscription), Memberships' shows a linked child's memberships and passes under the child's
+name, and Bookings' blocks read `me.family` (the `family` tool stays for the API contract). The
+staff customer card on a Person's page shows an open address change (masked) and erase request
+and has the admins' buttons: disable, enable, sign out everywhere, start or cancel an address
+change. A `form_to_fill` item opens the form through the shell's `onFillForm` (the Forms pack's
+page, where the app has it). In the app, money opens the website ([ADR 0714](adr/0714-the-app-shows-money-and-opens-the-website.md)):
 the native shell shows orders and subscriptions, and "Manage on the website" opens the business's
 website account page; no native block calls a billing operation. The template's `/account` route
 and the mobile Account tab are plain pages over the same entry.

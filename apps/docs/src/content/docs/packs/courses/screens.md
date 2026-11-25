@@ -86,6 +86,6 @@ Web. Subscribing to every course on a studio's site (stage 32a): the course plan
 
 ### courses-subscription
 
-Web. A member's own course subscription on the studio's site (stage 32a): its state in words, the next charge or when it ends, and what they can do: cancel at the period's end, keep it going, confirm a payment that waits on them, or open the payment provider's portal for their card and past invoices. [The block](/reference/blocks/courses-subscription/).
+Web. A member's own course subscription on the studio's site (stage 32a), through My account's one subscriptions part (`web-account-subscriptions`, stage 48): its state in words, the next charge or when it ends, and what they can do: cancel at the period's end, keep it going, confirm a payment that waits on them. [The block](/reference/blocks/courses-subscription/).
 
 <img class="cos-screen" src="/screens/courses-subscription.png" alt="courses-subscription, drawn with dummy data" width="640" height="238" loading="lazy" decoding="async" />
