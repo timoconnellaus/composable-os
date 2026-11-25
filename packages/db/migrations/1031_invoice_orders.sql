@@ -38,10 +38,11 @@ END;
 -- The invoice is the order's for good; its price is the invoice's; a credit is never taken back,
 -- is only an invoice's, and never takes more than is owed.
 CREATE TRIGGER core_order_invoice_fixed
-BEFORE UPDATE OF invoice_id, total, discount, credited, paid, expires_at ON core_order
+BEFORE UPDATE OF invoice_id, total, discount, credited, paid, expires_at, currency ON core_order
 WHEN NEW.invoice_id IS NOT OLD.invoice_id
   OR (OLD.invoice_id IS NOT NULL AND (NEW.total IS NOT OLD.total
-    OR NEW.discount IS NOT OLD.discount OR NEW.expires_at IS NOT NULL))
+    OR NEW.discount IS NOT OLD.discount OR NEW.expires_at IS NOT NULL
+    OR NEW.currency IS NOT OLD.currency))
   OR NEW.credited < OLD.credited
   OR (NEW.credited > 0 AND NEW.invoice_id IS NULL)
   OR NEW.paid + NEW.credited > NEW.total
@@ -49,11 +50,56 @@ BEGIN
   SELECT RAISE(ABORT, 'core_order_invoice');
 END;
 
--- An invoice's order's lines say what the invoice says: no price, quantity or discount changes.
+-- An invoice's order's tax is what its payments carried and its refunds gave back (each its share
+-- of the document's tax, ADR 0731): never written on its own. The payment or refund row is written
+-- before the order in the same batch (orders/payments.ts, refunds.ts, events.ts).
+CREATE TRIGGER core_order_invoice_tax
+BEFORE UPDATE OF tax_amount, tax_refunded ON core_order
+WHEN OLD.invoice_id IS NOT NULL AND (
+  -- What the applied payments carried, less what those a reversal undid carried.
+  NEW.tax_amount IS NOT (SELECT coalesce(sum(p.tax_amount), 0) FROM core_order_payment p
+    WHERE p.order_id = NEW.id AND p.outcome = 'applied'
+      AND NOT EXISTS (SELECT 1 FROM core_order_payment q
+        WHERE q.order_id = p.order_id AND q.reverses = p.event_id))
+  OR NEW.tax_refunded IS NOT (SELECT coalesce(sum(r.tax_amount), 0) FROM core_order_refund r
+    WHERE r.order_id = NEW.id AND r.status = 'confirmed'))
+BEGIN
+  SELECT RAISE(ABORT, 'core_order_invoice');
+END;
+
+-- An invoice's order is never deleted (retention, stage 35 step 11, is specified later).
+CREATE TRIGGER core_order_invoice_kept
+BEFORE DELETE ON core_order
+WHEN OLD.invoice_id IS NOT NULL
+BEGIN
+  SELECT RAISE(ABORT, 'core_order_invoice');
+END;
+
+-- An invoice's order's lines say what the invoice says: no price, quantity, discount or tax
+-- changes, none deleted, and none added once the order exists (its lines are written in the
+-- batch that starts it, before its first history row).
 CREATE TRIGGER core_order_line_invoice_fixed
-BEFORE UPDATE OF unit_price, quantity, line_total, line_discount, object_type, record_id
+BEFORE UPDATE OF unit_price, quantity, line_total, line_discount, object_type, record_id,
+  tax_amount, order_id
 ON core_order_line
 WHEN (SELECT invoice_id FROM core_order WHERE id = OLD.order_id) IS NOT NULL
+  OR (SELECT invoice_id FROM core_order WHERE id = NEW.order_id) IS NOT NULL
+BEGIN
+  SELECT RAISE(ABORT, 'core_order_invoice');
+END;
+
+CREATE TRIGGER core_order_line_invoice_kept
+BEFORE DELETE ON core_order_line
+WHEN (SELECT invoice_id FROM core_order WHERE id = OLD.order_id) IS NOT NULL
+BEGIN
+  SELECT RAISE(ABORT, 'core_order_invoice');
+END;
+
+CREATE TRIGGER core_order_line_invoice_new
+BEFORE INSERT ON core_order_line
+WHEN (SELECT invoice_id FROM core_order WHERE id = NEW.order_id) IS NOT NULL
+  AND EXISTS (SELECT 1 FROM core_transition_history h
+    WHERE h.object_type = 'order' AND h.record_id = NEW.order_id)
 BEGIN
   SELECT RAISE(ABORT, 'core_order_invoice');
 END;
@@ -81,10 +127,8 @@ SELECT
   discount, invoice_id, credited
 FROM core_order;
 
--- Adjustments gain two kinds only the host writes on an invoice's order: `prepaid` (a final
--- invoice's "less deposit paid", stage 35 step 6 writes its lines) and `rounding` (the cents a
--- whole-unit price of a line typed without tax rounds up, taken back off that line). Both name
--- the invoice. SQLite cannot change a CHECK, so the table is remade with its rows; nothing
+-- Adjustments gain a kind only the host writes on an invoice's order: `prepaid` (a final
+-- invoice's "less deposit paid", stage 35 step 6 writes its lines), naming the invoice. SQLite cannot change a CHECK, so the table is remade with its rows; nothing
 -- references it, its triggers and its view go with it and are made again as migration 0950 made
 -- them. A later remake carries these kinds forward and sorts after 1031.
 DROP VIEW rec_order_adjustment;
@@ -96,7 +140,7 @@ CREATE TABLE core_order_adjustment_new (
   id TEXT PRIMARY KEY,
   order_id TEXT NOT NULL REFERENCES core_order(id),
   line_id TEXT REFERENCES core_order_line(id),
-  kind TEXT NOT NULL CHECK (kind IN ('code', 'automatic', 'staff', 'referral', 'prepaid', 'rounding')),
+  kind TEXT NOT NULL CHECK (kind IN ('code', 'automatic', 'staff', 'referral', 'prepaid')),
   source_object TEXT,
   source_id TEXT,
   given_by TEXT,
@@ -109,7 +153,7 @@ CREATE TABLE core_order_adjustment_new (
   removed_by TEXT,
   CHECK (kind <> 'staff' OR given_by IS NOT NULL),
   CHECK ((removed_at IS NULL) = (removed_by IS NULL)),
-  CHECK (kind NOT IN ('prepaid', 'rounding') OR (source_object = 'invoice' AND source_id IS NOT NULL))
+  CHECK (kind NOT IN ('prepaid') OR (source_object = 'invoice' AND source_id IS NOT NULL))
 );
 INSERT INTO core_order_adjustment_new (
   id, order_id, line_id, kind, source_object, source_id, given_by, reason, percent, amount,
@@ -146,11 +190,11 @@ BEGIN
 END;
 
 -- An adjustment is added to or taken off a pending order only; an invoice's only in the batch
--- that starts its order (before anything is paid on it), and `prepaid` and `rounding` only there.
+-- that starts its order (before anything is paid on it), and `prepaid` only there.
 CREATE TRIGGER core_order_adjustment_pending
 BEFORE INSERT ON core_order_adjustment
 WHEN (SELECT state FROM core_order WHERE id = NEW.order_id) IS NOT 'pending'
-  OR (NEW.kind IN ('prepaid', 'rounding') AND NOT EXISTS (
+  OR (NEW.kind IN ('prepaid') AND NOT EXISTS (
     SELECT 1 FROM core_order o WHERE o.id = NEW.order_id AND o.invoice_id = NEW.source_id))
 BEGIN
   SELECT RAISE(ABORT, 'core_order_adjustment_pending');
@@ -167,8 +211,10 @@ JOIN core_order o ON o.id = a.order_id;
 -- What a credit note gives back, per payment of the invoice's order, newest first (ADR 0735):
 -- a provider's payment through the existing refund approval (`refund_id` names the refund asked
 -- for, in the credit note's batch); a recorded payment owed until a person records it paid back
--- (order.recordRefund fills in `refund_id` and `paid_back_at`, once). Never changed otherwise,
--- never deleted: the credit note says it.
+-- (order.recordRefund fills in `refund_id` and `paid_back_at`, once). A provider's refund a person
+-- rejected, or that expired or failed, is asked for again for the same amount
+-- (creditNote.askRefundAgain): `refund_id` names the new one and `attempt` moves on by one, only
+-- while the old one was never confirmed. Never changed otherwise, never deleted.
 CREATE TABLE core_credit_note_refund (
   -- cnr_… (ids.ts).
   id TEXT PRIMARY KEY NOT NULL,
@@ -180,6 +226,7 @@ CREATE TABLE core_credit_note_refund (
   amount INTEGER NOT NULL CHECK (amount > 0),
   refund_id TEXT,
   paid_back_at TEXT,
+  attempt INTEGER NOT NULL DEFAULT 1 CHECK (attempt >= 1),
   created_at TEXT NOT NULL,
   CHECK (method = 'recorded' OR refund_id IS NOT NULL),
   CHECK ((paid_back_at IS NULL) OR (method = 'recorded' AND refund_id IS NOT NULL))
@@ -205,8 +252,17 @@ WHEN NEW.id IS NOT OLD.id OR NEW.credit_note_id IS NOT OLD.credit_note_id
   OR NEW.order_id IS NOT OLD.order_id OR NEW.provider IS NOT OLD.provider
   OR NEW.payment_ref IS NOT OLD.payment_ref OR NEW.method IS NOT OLD.method
   OR NEW.amount IS NOT OLD.amount OR NEW.created_at IS NOT OLD.created_at
-  OR OLD.paid_back_at IS NOT NULL OR OLD.method <> 'recorded'
-  OR NEW.paid_back_at IS NULL OR NEW.refund_id IS NULL
+  OR OLD.paid_back_at IS NOT NULL OR NEW.refund_id IS NULL
+  -- A recorded one: paid back, once.
+  OR (OLD.method = 'recorded' AND (NEW.paid_back_at IS NULL OR NEW.attempt IS NOT OLD.attempt))
+  -- A provider's: asked again, for the same amount, when the one before was never confirmed.
+  OR (OLD.method = 'provider' AND (NEW.paid_back_at IS NOT NULL
+    OR NEW.attempt IS NOT OLD.attempt + 1 OR NEW.refund_id IS OLD.refund_id
+    OR EXISTS (SELECT 1 FROM core_order_refund r WHERE r.id = OLD.refund_id
+      AND r.status = 'confirmed')
+    OR NOT EXISTS (SELECT 1 FROM core_order_refund r WHERE r.id = NEW.refund_id
+      AND r.order_id = NEW.order_id AND r.payment_ref = NEW.payment_ref
+      AND r.amount = NEW.amount)))
 BEGIN
   SELECT RAISE(ABORT, 'core_credit_note_refund');
 END;

@@ -3277,7 +3277,7 @@ export interface CoreOrderAdjustmentTable {
   /** Null: the whole order, spread over its lines in proportion. */
   line_id: string | null;
   /** Migration 1031: `prepaid` and `rounding` are the host's, on an invoice's order (ADR 0731). */
-  kind: "code" | "automatic" | "staff" | "referral" | "prepaid" | "rounding";
+  kind: "code" | "automatic" | "staff" | "referral" | "prepaid";
   source_object: Defaulted<string | null>;
   source_id: Defaulted<string | null>;
   /** A staff adjustment: the user who gave it. */
@@ -3309,6 +3309,8 @@ export interface CoreCreditNoteRefundTable {
   amount: number;
   refund_id: Defaulted<string | null>;
   paid_back_at: Defaulted<Timestamp | null>;
+  /** A provider's refund asked again after one rejected, expired or failed: 2, 3, … */
+  attempt: Defaulted<number>;
   created_at: Timestamp;
 }
 
@@ -3740,7 +3742,7 @@ export interface CrmOrderAdjustmentView {
   order_id: string;
   person_id: string | null;
   line_id: string | null;
-  kind: "code" | "automatic" | "staff" | "referral" | "prepaid" | "rounding";
+  kind: "code" | "automatic" | "staff" | "referral" | "prepaid";
   source_object: string | null;
   source_id: string | null;
   given_by: string | null;

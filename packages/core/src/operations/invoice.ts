@@ -20,6 +20,7 @@ import { ConflictError, ValidationError } from "../errors.ts";
 import { INVOICE_KINDS, TAX_MODES } from "../fields/invoice.ts";
 import { filterSchema } from "../filter.ts";
 import { newId } from "../ids.ts";
+import { creditRefunds } from "../invoices/credit.ts";
 import {
   aboutSchema,
   auditSnapshot,
@@ -605,6 +606,9 @@ function getOperation<K extends DraftKind>(kind: K) {
           credited: order.credited,
           refunded: order.refunded,
           balance: owedOn(order),
+          owedBack: (await creditRefunds(ctx, order.id))
+            .filter((r) => r.state === "owed")
+            .reduce((sum, r) => sum + r.amount, 0),
           orderState: order.state,
         },
       };

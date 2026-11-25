@@ -4,19 +4,20 @@
 // tax worked out on the document and (later) its PDF.
 //
 // The order is made by the one pricing path, `createOrder` → `priceOrder` (ADR 0693), with the
-// invoice's lines as the host priced them (`priced`), one order line per invoice line:
+// invoice's lines as the host priced them (`priced`), one order line per invoice line (two when
+// a record's amount with tax does not divide by its quantity, `orderPieces`):
 //   - a record's line is the record (its object and id, its quantity), so its places are held,
 //     its stock held and sold and what it grants granted, as on any order; its price is read from
 //     the record again at issue and must be the one on the draft;
 //   - a typed line is a line of the invoice itself (object `invoice`), for its whole amount;
-//   - every order line's price is the invoice line's amount with tax, before its discount: with
+//   - the order lines cost the invoice line's amount with tax, before its discount, exactly: with
 //     amounts typed without tax that is its net plus its tax, as the document worked it out;
 //   - a line's staff discount is a stage 34 `staff` adjustment on its order line (its amount with
 //     tax), given by the person who issues it, with `orders:discount` and within the limit a human
-//     admin set, or approved; the cents a whole-unit price rounds up are a `rounding` adjustment;
-//     a deduction line ("less deposit paid", step 6) is a `prepaid` adjustment on the whole order;
-//   - each order line keeps the line's tax and the order the document's tax (ADR 0732): its
-//     checkout asks the provider for none;
+//     admin set, or approved; a deduction line ("less deposit paid", step 6) is a `prepaid`
+//     adjustment on the whole order;
+//   - each order line keeps the line's tax (ADR 0732), and each payment on the order carries its
+//     share of the document's tax (orders/payments.ts); its checkout asks the provider for none;
 //   - no deal: the invoice's price is what staff wrote and the customer is sent;
 //   - the goods rules hold (ADR 0682): a goods record needs a delivery, which an invoice does not
 //     choose, so it is refused (at draft and again here);
@@ -31,6 +32,7 @@ import {
   createOrder,
   type InvoiceAdjustment,
   type LineRequest,
+  ORDER_MAX_LINES,
   ORDER_MAX_QUANTITY,
   type OrderRow,
   type PricedLine,
@@ -173,6 +175,57 @@ export function businessSnapshot(settings: InvoiceSettings): string {
   });
 }
 
+/** One order line an invoice line becomes: its quantity, unit price, tax and discount. */
+export interface OrderPiece {
+  quantity: number;
+  unitPrice: number;
+  tax: number;
+  discount: number;
+}
+
+/**
+ * The order lines one invoice line becomes, costing `undiscounted` (its amount with tax, before
+ * its discount) exactly, with its tax and discount shared out in whole minor units:
+ *   - a record's line keeps its quantity (its places, stock and grants). When its amount does not
+ *     divide by it (amounts typed without tax: two at 45.45 plus 10% are 99.99), it is two lines
+ *     of the record, some units a cent dearer than the rest (one at 49.99, one at 50.00), so no
+ *     order line costs more than the invoice says and nothing is rounded;
+ *   - a typed line is of its quantity when it is whole and its amount divides by it, else of one.
+ */
+export function orderPieces(
+  record: boolean,
+  whole: number | null,
+  undiscounted: number,
+  tax: number,
+  discount: number,
+): OrderPiece[] {
+  const quantity = record
+    ? (whole as number)
+    : whole !== null && whole <= ORDER_MAX_QUANTITY && undiscounted % whole === 0
+      ? whole
+      : 1;
+  const unit = Math.floor(undiscounted / quantity);
+  const dearer = undiscounted - unit * quantity;
+  const shape =
+    dearer === 0
+      ? [{ quantity, unitPrice: unit }]
+      : [
+          { quantity: quantity - dearer, unitPrice: unit },
+          { quantity: dearer, unitPrice: unit + 1 },
+        ];
+  let taxLeft = tax;
+  let offLeft = discount;
+  return shape.map((piece, i) => {
+    const total = piece.quantity * piece.unitPrice;
+    const last = i === shape.length - 1;
+    const share = last ? taxLeft : undiscounted ? Math.floor((tax * total) / undiscounted) : 0;
+    taxLeft -= share;
+    const off = last ? offLeft : Math.min(offLeft, total);
+    offLeft -= off;
+    return { ...piece, tax: share, discount: off };
+  });
+}
+
 export interface IssuedInvoice {
   /** The invoice as this batch leaves it, without its number (read it after the commit). */
   invoice: InvoiceRow;
@@ -249,67 +302,57 @@ export async function issueInvoice(
     });
   }
 
-  // One order line per invoice line, in the invoice's order.
+  // The order's lines, in the invoice's order: each invoice line one, or two (below).
   const priced: PricedLine[] = [];
   const requests: LineRequest[] = [];
   const adjustments: InvoiceAdjustment[] = [];
-  for (const [position, { line, undiscounted, discount }] of figures.entries()) {
-    const id = newId("orderLine");
+  for (const { line, undiscounted, discount } of figures) {
     const record = line.source === "record";
     const whole = line.quantity_milli % 1000 === 0 ? line.quantity_milli / 1000 : null;
-    // A record's line keeps its quantity (its places, stock and grants); a typed one too when it
-    // is whole and its amount divides by it, else it is one of its whole amount.
-    const quantity = record
-      ? (whole as number)
-      : whole !== null && whole <= ORDER_MAX_QUANTITY && undiscounted % whole === 0
-        ? whole
-        : 1;
-    const unitPrice = Math.ceil(undiscounted / quantity);
-    const total = unitPrice * quantity;
     const base = record
       ? (freshOf.get(`${line.source_object}\u0000${line.source_id}`) as PricedLine)
       : null;
-    priced.push({
-      ...(base ?? {}),
-      id,
-      position,
-      object: record ? (line.source_object as string) : INVOICE_LINE_OBJECT,
-      recordId: record ? (line.source_id as string) : doc.id,
-      title: line.description,
-      quantity,
-      unitPrice,
-      total,
-      discount: 0,
-      // Paid in full (or in parts staff allow): a record's own deposit is not the invoice's.
-      deposit: null,
-      taxAmount: line.line_tax,
-    });
-    requests.push({
-      object: record ? (line.source_object as string) : INVOICE_LINE_OBJECT,
-      id: record ? (line.source_id as string) : doc.id,
-      quantity,
-    });
-    if (total > undiscounted) {
-      adjustments.push({
-        kind: "rounding",
-        lineId: id,
-        amount: total - undiscounted,
-        percent: null,
-        reason: null,
+    for (const piece of orderPieces(record, whole, undiscounted, line.line_tax, discount)) {
+      const id = newId("orderLine");
+      priced.push({
+        ...(base ?? {}),
+        id,
+        position: priced.length,
+        object: record ? (line.source_object as string) : INVOICE_LINE_OBJECT,
+        recordId: record ? (line.source_id as string) : doc.id,
+        title: line.description,
+        quantity: piece.quantity,
+        unitPrice: piece.unitPrice,
+        total: piece.quantity * piece.unitPrice,
+        discount: 0,
+        // Paid in full (or in parts staff allow): a record's own deposit is not the invoice's.
+        deposit: null,
+        taxAmount: piece.tax,
       });
-    }
-    if (discount > 0) {
-      adjustments.push({
-        kind: "staff",
-        lineId: id,
-        amount: discount,
-        percent:
-          line.discount_kind === "percent" && line.discount_value !== null
-            ? line.discount_value / 100
-            : null,
-        reason: line.discount_reason,
+      requests.push({
+        object: record ? (line.source_object as string) : INVOICE_LINE_OBJECT,
+        id: record ? (line.source_id as string) : doc.id,
+        quantity: piece.quantity,
       });
+      if (piece.discount > 0) {
+        adjustments.push({
+          kind: "staff",
+          lineId: id,
+          amount: piece.discount,
+          percent:
+            line.discount_kind === "percent" && line.discount_value !== null
+              ? line.discount_value / 100
+              : null,
+          reason: line.discount_reason,
+        });
+      }
     }
+  }
+  if (priced.length > ORDER_MAX_LINES) {
+    throw new ValidationError(
+      `This invoice's lines make more than an order's ${ORDER_MAX_LINES} lines: split it in two`,
+      { field: "lines", rule: "too_many_lines" },
+    );
   }
   for (const line of lines) {
     if (line.source !== "deduction") continue;
@@ -356,7 +399,6 @@ export async function issueInvoice(
         ...adjustments.filter((a) => a.kind === "prepaid"),
       ],
       total: doc.total,
-      tax: doc.tax_total,
     },
   });
   ctx.write(

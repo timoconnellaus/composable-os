@@ -19,6 +19,7 @@ import type { PendingApproval } from "../errors.ts";
 import { ConflictError, NotFoundError, ValidationError } from "../errors.ts";
 import { newId } from "../ids.ts";
 import { eventStatement } from "../invoices/events.ts";
+import { mulDivHalfUp } from "../invoices/tax.ts";
 import type { HandlerContext } from "../operation.ts";
 import { paymentsTarget, requestProviderRefund } from "./gateway.ts";
 import { changeOrder, formatMoney, type OrderRow } from "./orders.ts";
@@ -93,6 +94,50 @@ export async function refundablePayments(
   return [...byPayment.values()];
 }
 
+/**
+ * The tax a refund of `amount` on one payment of an invoice's order gives back (ADR 0731): that
+ * payment's share of the document's tax, in proportion, rounded half up, never past what its
+ * earlier refunds left; all of what is left when the refund takes the rest of the payment.
+ */
+export async function invoiceRefundTax(
+  ctx: Pick<HandlerContext, "db">,
+  orderId: string,
+  provider: string,
+  paymentRef: string,
+  amount: number,
+): Promise<number> {
+  const [paid, back] = await Promise.all([
+    ctx.db
+      .selectFrom("core_order_payment")
+      .select((eb) => [
+        eb.fn.coalesce(eb.fn.sum<number>("amount"), eb.val(0)).as("amount"),
+        eb.fn.coalesce(eb.fn.sum<number>("tax_amount"), eb.val(0)).as("tax"),
+      ])
+      .where("order_id", "=", orderId)
+      .where("provider", "=", provider)
+      .where("payment_ref", "=", paymentRef)
+      .where("outcome", "=", "applied")
+      .executeTakeFirst(),
+    ctx.db
+      .selectFrom("core_order_refund")
+      .select((eb) => [
+        eb.fn.coalesce(eb.fn.sum<number>("amount"), eb.val(0)).as("amount"),
+        eb.fn.coalesce(eb.fn.sum<number>("tax_amount"), eb.val(0)).as("tax"),
+      ])
+      .where("order_id", "=", orderId)
+      .where("provider", "=", provider)
+      .where("payment_ref", "=", paymentRef)
+      .where("status", "=", "confirmed")
+      .executeTakeFirst(),
+  ]);
+  const payAmount = Number(paid?.amount ?? 0);
+  const payTax = Number(paid?.tax ?? 0);
+  const taxLeft = Math.max(0, payTax - Number(back?.tax ?? 0));
+  if (!payTax || payAmount <= 0) return 0;
+  if (Number(back?.amount ?? 0) + amount >= payAmount) return taxLeft;
+  return Math.min(taxLeft, mulDivHalfUp(amount, payTax, payAmount));
+}
+
 export interface RequestedRefund {
   id: string;
   paymentRef: string;
@@ -125,7 +170,9 @@ export async function requestRefund(
     outcome?: "applied" | "unapplied" | undefined;
   },
 ): Promise<{ refunds: RequestedRefund[]; pending: PendingApproval[] }> {
-  if (row.state === "pending" || row.state === "part_paid") {
+  // A payment that was never applied (late, not matching) is given back whatever the order's
+  // state: it is not part of what the order was paid (an invoice's order is never cancelled).
+  if ((row.state === "pending" || row.state === "part_paid") && input.outcome !== "unapplied") {
     throw new ConflictError(
       row.state === "pending"
         ? "Nothing has been paid on this order"
@@ -325,6 +372,10 @@ export async function recordRefund(
       }),
     );
   }
+  // An invoice's order (ADR 0731): the payment's tax share goes back with it.
+  const tax = row.invoice_id
+    ? await invoiceRefundTax(ctx, row.id, HOST_PROVIDER, input.paymentId, amount)
+    : 0;
   ctx.write(
     ctx.db.insertInto("core_order_refund").values({
       id: refundId,
@@ -342,6 +393,7 @@ export async function recordRefund(
       method: "recorded",
       recorded_kind: input.kind,
       reference: input.reference,
+      ...(tax ? { tax_amount: tax } : {}),
     }),
   );
   const refunded = row.refunded + amount;
@@ -350,7 +402,11 @@ export async function recordRefund(
     ctx,
     row,
     whole ? "refunded" : row.state,
-    { refunded, ...(whole ? { refunded_at: ctx.now } : {}) },
+    {
+      refunded,
+      ...(whole ? { refunded_at: ctx.now } : {}),
+      ...(tax ? { tax_refunded: row.tax_refunded + tax } : {}),
+    },
     // The host's move: a person with the refund permission says the money went back.
     "host",
   );

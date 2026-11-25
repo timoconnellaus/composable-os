@@ -388,12 +388,12 @@ async function throughSeam(ctx: HandlerContext, id: string): Promise<Order> {
       taxAmount: line.values.taxAmount ?? 0,
       discount: line.values.discount ?? 0,
     })),
-    // An invoice's own host adjustments (`rounding`, `prepaid`, ADR 0731) are the invoice's to
-    // show (invoice.get: its lines' discounts and "less deposit paid"); its staff discounts show.
+    // A final invoice's "less deposit paid" (`prepaid`, ADR 0731; step 6 writes it) is not in this
+    // operation's contract yet: step 6 adds the kind here when it writes one.
     ...(staff
       ? {
           adjustments: (await liveAdjustments(ctx.db, id))
-            .filter((a) => a.kind !== "rounding" && a.kind !== "prepaid")
+            .filter((a) => a.kind !== "prepaid")
             .map(toAdjustment),
         }
       : {}),

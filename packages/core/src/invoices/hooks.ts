@@ -11,18 +11,21 @@
 import { type MoveHook, onRecordMove } from "../records/lifecycle.ts";
 import { loadDocument } from "./drafts.ts";
 
-const FOLLOWS: Readonly<Record<string, "part_paid" | "paid">> = {
+const FOLLOWS: Readonly<Record<string, "part_paid" | "paid" | "unpaid">> = {
   part_paid: "part_paid",
   paid: "paid",
+  // Every payment reversed (ADR 0733): issued again, or sent when it was sent.
+  pending: "unpaid",
 };
 
 const invoiceFollowsOrder: MoveHook = async (ctx, move) => {
   const invoiceId = move.after.invoiceId;
   if (typeof invoiceId !== "string") return;
-  const to = FOLLOWS[move.to.id];
-  if (!to) return;
-  // The invoice's own table, as its draft and issue code reads it (invoices/drafts.ts).
+  const follows = FOLLOWS[move.to.id];
+  // Created into pending: issuing writes the invoice itself.
+  if (!follows || move.from === null) return;
   const invoice = await loadDocument(ctx.db, "invoice", invoiceId);
+  const to = follows === "unpaid" ? (invoice.sent_at ? "sent" : "issued") : follows;
   if (invoice.state === to || invoice.state === "draft") return;
   if (invoice.state === "credited" || invoice.state === "void") return;
   // The host's write, against the version read: a write made meanwhile fails this batch.

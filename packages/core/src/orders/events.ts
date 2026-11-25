@@ -33,6 +33,7 @@ import { type PaymentsEvent, sendHostEmail } from "./gateway.ts";
 import { hashOrderToken, newOrderToken } from "./guests.ts";
 import { changeOrder, formatMoney, loadOrderRow, type OrderRow } from "./orders.ts";
 import { applyVerifiedPayment, type SentTaxLine } from "./payments.ts";
+import { invoiceRefundTax } from "./refunds.ts";
 
 const id = z.string().min(1).max(200);
 const amount = z.number().int().positive().max(Number.MAX_SAFE_INTEGER);
@@ -446,11 +447,18 @@ async function confirmRefund(
   }
   // A credit note's tax that arrived first (ADR 0486) stands for the provider's word on this one.
   const reported = requested?.reported_tax ?? null;
-  const refundTax = await refundTaxOf(
-    ctx,
-    row.id,
-    event.tax === undefined && reported !== null ? { ...event, tax: { amount: reported } } : event,
-  );
+  // An invoice's order (ADR 0731): the refunded payment's share of the document's tax, which its
+  // checkout never asked the provider for.
+  const refundTax =
+    row.invoice_id && event.paymentRef
+      ? await invoiceRefundTax(ctx, row.id, event.provider, event.paymentRef, event.amount)
+      : await refundTaxOf(
+          ctx,
+          row.id,
+          event.tax === undefined && reported !== null
+            ? { ...event, tax: { amount: reported } }
+            : event,
+        );
   const confirmed = {
     status: "confirmed" as const,
     amount: event.amount,

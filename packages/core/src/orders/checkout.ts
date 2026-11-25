@@ -25,6 +25,43 @@ export interface OpenedCheckout {
   expiresAt: string | null;
 }
 
+/** How long the provider's page stays open after it is made (its sessions last a day). */
+export const CHECKOUT_OPEN_HOURS = 24;
+
+/**
+ * Refuses a change to what an invoice's order is owed (a credit note, a recorded payment) while a
+ * payment page opened for it in the last day has had no payment since (stage 35): the page asks
+ * for the old amount, and a payment made there would no longer match. The host cannot close the
+ * provider's page (the gatekeeper has no such action), so it waits for the page to be paid or to
+ * lapse.
+ */
+export async function refusePageOpen(ctx: HandlerContext, row: OrderRow, what: string) {
+  const since = new Date(Date.parse(ctx.now) - CHECKOUT_OPEN_HOURS * 3_600_000).toISOString();
+  const page = await ctx.db
+    .selectFrom("core_order_checkout")
+    .select(["created_at"])
+    .where("order_id", "=", row.id)
+    .where("created_at", ">", since)
+    .orderBy("created_at", "desc")
+    .limit(1)
+    .executeTakeFirst();
+  if (!page) return;
+  const paidSince = await ctx.db
+    .selectFrom("core_order_payment")
+    .select("event_id")
+    .where("order_id", "=", row.id)
+    // A payment made on a page (a recorded one leaves the page open).
+    .where("provider", "!=", "host")
+    .where("received_at", ">=", page.created_at)
+    .limit(1)
+    .executeTakeFirst();
+  if (paidSince) return;
+  throw new ConflictError(
+    `A payment page for this invoice was opened for what it owed then: ${what} once it is paid, or after it lapses (a day after it opened)`,
+    { rule: "checkout_open", order: row.id, openedAt: page.created_at },
+  );
+}
+
 /** A retried press of "Pay" within ten minutes, for the same amount, opens the same page. */
 const IDEMPOTENCY_WINDOW_MS = 10 * 60_000;
 

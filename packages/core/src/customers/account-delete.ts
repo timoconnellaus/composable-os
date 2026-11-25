@@ -82,6 +82,11 @@ export interface LeftForStaff {
   partPaidOrders: number;
   /** Unpaid orders beyond the ACCOUNT_DELETE_MOST cancelled. */
   moreUnpaidOrders: number;
+  /**
+   * Invoices still owed (stage 35, ADR 0731): their orders are never cancelled here. Deleting an
+   * account never cancels an issued invoice: it stays owed.
+   */
+  invoicesOwed: number;
   /** Subscriptions they pay that are not ended, and may still charge until staff end them. */
   subscriptions: StaffSubscription[];
   /** Dependants who would be left with no other live guardian (ADR 0540). */
@@ -184,15 +189,18 @@ export async function deletePreview(ctx: HandlerContext, personId: string): Prom
 
   // Their orders still open: unpaid ones are cancelled, part-paid ones stay for staff. A
   // subscription's period order follows its subscription, never cancelled here.
-  const open = await db
+  const owing = await db
     .selectFrom("core_order")
-    .select(["id", "state", "total", "currency", "created_at"])
+    .select(["id", "state", "total", "currency", "created_at", "invoice_id"])
     .where("person_id", "=", personId)
     .where("state", "in", ["pending", "part_paid"])
     .where("subscription_id", "is", null)
     .orderBy("created_at")
     .orderBy("id")
     .execute();
+  // An invoice's order is never cancelled by deleting the account: the invoice stays owed.
+  const open = owing.filter((row) => row.invoice_id === null);
+  const invoicesOwed = owing.length - open.length;
   const unpaid = open.filter((row) => row.state === "pending");
   const cancelled = unpaid.slice(0, ACCOUNT_DELETE_MOST);
   const lines = cancelled.length
@@ -221,6 +229,7 @@ export async function deletePreview(ctx: HandlerContext, personId: string): Prom
     subscriptions: staffSubscriptions,
     partPaidOrders: open.length - unpaid.length,
     moreUnpaidOrders: unpaid.length - cancelled.length,
+    invoicesOwed,
     dependantsWithoutGuardian: (await dependantsLeftAlone(ctx, [personId])).length,
   };
   // Not a secret, a fingerprint: the ids acted on and what is left, so a confirm made on an older
@@ -267,6 +276,7 @@ export function leftForStaffSentences(preview: DeletePreview): string[] {
   };
   add(left.partPaidOrders, "part-paid order", "part-paid orders");
   add(left.moreUnpaidOrders, "other unpaid order", "other unpaid orders");
+  add(left.invoicesOwed, "invoice still owed", "invoices still owed");
   add(
     left.dependantsWithoutGuardian,
     "child with no other guardian",

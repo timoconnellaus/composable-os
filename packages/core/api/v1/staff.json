@@ -29168,6 +29168,280 @@
       ]
     },
     {
+      "name": "creditNote.askRefundAgain",
+      "description": "Ask again for what an issued credit note gives back on the payment page, where its refund was rejected, its approval expired or it failed: the same amount, on the same payment, waiting in the Approvals inbox for a person with the refund permission as before. Until then the credit note shows it as owed back. A person only, with the refund permission. Returns the credit note and the refunds waiting.",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "The credit note's id (cn_…)"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "number": {
+            "description": "Given when issued; null on a draft",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "draft",
+              "issued"
+            ]
+          },
+          "invoiceId": {
+            "type": "string"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "taxMode": {
+            "type": "string",
+            "enum": [
+              "exclusive",
+              "inclusive"
+            ]
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "settle": {
+            "type": "string",
+            "enum": [
+              "reduce",
+              "refund",
+              "both"
+            ],
+            "description": "reduce: take it off what is still owed; refund: give it back from what was paid (nothing may be owed); both: take off what is owed first, then give back the rest"
+          },
+          "lines": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "position": {
+                  "type": "number"
+                },
+                "description": {
+                  "type": "string"
+                },
+                "quantity": {
+                  "type": "number"
+                },
+                "unit": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "unitPrice": {
+                  "type": "number"
+                },
+                "taxRate": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "key": {
+                          "type": "string"
+                        },
+                        "label": {
+                          "type": "string"
+                        },
+                        "rate": {
+                          "type": "number"
+                        }
+                      },
+                      "required": [
+                        "key",
+                        "label",
+                        "rate"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "net": {
+                  "type": "number"
+                },
+                "tax": {
+                  "type": "number"
+                },
+                "total": {
+                  "type": "number"
+                },
+                "creditsLineId": {
+                  "description": "The invoice line it credits; null: an amount",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "position",
+                "description",
+                "quantity",
+                "unit",
+                "unitPrice",
+                "taxRate",
+                "net",
+                "tax",
+                "total",
+                "creditsLineId"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "netTotal": {
+            "type": "number"
+          },
+          "taxTotal": {
+            "type": "number"
+          },
+          "total": {
+            "type": "number"
+          },
+          "issuedOn": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "refunds": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "paymentRef": {
+                  "type": "string"
+                },
+                "method": {
+                  "type": "string",
+                  "enum": [
+                    "provider",
+                    "recorded"
+                  ]
+                },
+                "amount": {
+                  "type": "number"
+                },
+                "refundId": {
+                  "description": "The refund asked for (provider) or recorded (paid back); null: still owed",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "paidBackAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "attempt": {
+                  "type": "number",
+                  "description": "1, or how many times a provider's refund was asked for"
+                },
+                "state": {
+                  "type": "string",
+                  "enum": [
+                    "given_back",
+                    "asked",
+                    "owed"
+                  ],
+                  "description": "given_back: confirmed or recorded paid back; asked: waits for approval or the provider; owed: not given back (a person pays a recorded one back; a provider's rejected, expired or failed is asked for again with creditNote.askRefundAgain)"
+                }
+              },
+              "required": [
+                "paymentRef",
+                "method",
+                "amount",
+                "refundId",
+                "paidBackAt",
+                "attempt",
+                "state"
+              ],
+              "additionalProperties": false
+            },
+            "description": "What it gives back, per payment, and where each stands"
+          },
+          "owedBack": {
+            "type": "number",
+            "description": "What it still owes back: not given back, nor waiting"
+          },
+          "version": {
+            "type": "number"
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "pending": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The refunds now waiting in Approvals"
+          }
+        },
+        "required": [
+          "id",
+          "number",
+          "state",
+          "invoiceId",
+          "currency",
+          "taxMode",
+          "reason",
+          "settle",
+          "lines",
+          "netTotal",
+          "taxTotal",
+          "total",
+          "issuedOn",
+          "refunds",
+          "owedBack",
+          "version",
+          "createdAt",
+          "pending"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "creditNote.get",
+        "creditNote.list"
+      ]
+    },
+    {
       "name": "creditNote.create",
       "description": "Draft a credit note against an issued invoice: some of its lines (each with a quantity, or all that is left of it), or an amount at one of its tax rates (in minor units, as the invoice's amounts are typed). Its tax is worked out as the invoice's was. Never more than is left to credit of a line, a rate or the invoice. Say why, and how it settles: reduce what is still owed, give back what was paid, or both. A draft changes nothing until a person with the permission to credit issues it. Returns the draft.",
       "risk": "write",
@@ -29443,6 +29717,19 @@
                     "string",
                     "null"
                   ]
+                },
+                "attempt": {
+                  "type": "number",
+                  "description": "1, or how many times a provider's refund was asked for"
+                },
+                "state": {
+                  "type": "string",
+                  "enum": [
+                    "given_back",
+                    "asked",
+                    "owed"
+                  ],
+                  "description": "given_back: confirmed or recorded paid back; asked: waits for approval or the provider; owed: not given back (a person pays a recorded one back; a provider's rejected, expired or failed is asked for again with creditNote.askRefundAgain)"
                 }
               },
               "required": [
@@ -29450,11 +29737,17 @@
                 "method",
                 "amount",
                 "refundId",
-                "paidBackAt"
+                "paidBackAt",
+                "attempt",
+                "state"
               ],
               "additionalProperties": false
             },
-            "description": "What it gives back, per payment: a provider's waits for approval, a recorded one for a person to record it paid back"
+            "description": "What it gives back, per payment, and where each stands"
+          },
+          "owedBack": {
+            "type": "number",
+            "description": "What it still owes back: not given back, nor waiting"
           },
           "version": {
             "type": "number"
@@ -29478,6 +29771,7 @@
           "total",
           "issuedOn",
           "refunds",
+          "owedBack",
           "version",
           "createdAt"
         ],
@@ -29739,6 +30033,19 @@
                     "string",
                     "null"
                   ]
+                },
+                "attempt": {
+                  "type": "number",
+                  "description": "1, or how many times a provider's refund was asked for"
+                },
+                "state": {
+                  "type": "string",
+                  "enum": [
+                    "given_back",
+                    "asked",
+                    "owed"
+                  ],
+                  "description": "given_back: confirmed or recorded paid back; asked: waits for approval or the provider; owed: not given back (a person pays a recorded one back; a provider's rejected, expired or failed is asked for again with creditNote.askRefundAgain)"
                 }
               },
               "required": [
@@ -29746,11 +30053,17 @@
                 "method",
                 "amount",
                 "refundId",
-                "paidBackAt"
+                "paidBackAt",
+                "attempt",
+                "state"
               ],
               "additionalProperties": false
             },
-            "description": "What it gives back, per payment: a provider's waits for approval, a recorded one for a person to record it paid back"
+            "description": "What it gives back, per payment, and where each stands"
+          },
+          "owedBack": {
+            "type": "number",
+            "description": "What it still owes back: not given back, nor waiting"
           },
           "version": {
             "type": "number"
@@ -29774,6 +30087,7 @@
           "total",
           "issuedOn",
           "refunds",
+          "owedBack",
           "version",
           "createdAt"
         ],
@@ -29799,14 +30113,15 @@
             "description": "The credit note's id (cn_…)"
           },
           "version": {
-            "description": "The version you read: one changed since by someone else is refused",
             "type": "integer",
             "minimum": 0,
-            "maximum": 9007199254740991
+            "maximum": 9007199254740991,
+            "description": "The version you read (from get): required, so what is approved is what was asked; one changed since is refused"
           }
         },
         "required": [
-          "id"
+          "id",
+          "version"
         ]
       },
       "output": {
@@ -29988,6 +30303,19 @@
                     "string",
                     "null"
                   ]
+                },
+                "attempt": {
+                  "type": "number",
+                  "description": "1, or how many times a provider's refund was asked for"
+                },
+                "state": {
+                  "type": "string",
+                  "enum": [
+                    "given_back",
+                    "asked",
+                    "owed"
+                  ],
+                  "description": "given_back: confirmed or recorded paid back; asked: waits for approval or the provider; owed: not given back (a person pays a recorded one back; a provider's rejected, expired or failed is asked for again with creditNote.askRefundAgain)"
                 }
               },
               "required": [
@@ -29995,11 +30323,17 @@
                 "method",
                 "amount",
                 "refundId",
-                "paidBackAt"
+                "paidBackAt",
+                "attempt",
+                "state"
               ],
               "additionalProperties": false
             },
-            "description": "What it gives back, per payment: a provider's waits for approval, a recorded one for a person to record it paid back"
+            "description": "What it gives back, per payment, and where each stands"
+          },
+          "owedBack": {
+            "type": "number",
+            "description": "What it still owes back: not given back, nor waiting"
           },
           "version": {
             "type": "number"
@@ -30416,6 +30750,10 @@
                         "type": "number",
                         "description": "What is still owed: total less paid less credited"
                       },
+                      "owedBack": {
+                        "type": "number",
+                        "description": "What credit notes give back that has not gone back yet, nor waits for approval"
+                      },
                       "orderState": {
                         "type": "string"
                       }
@@ -30425,6 +30763,7 @@
                       "credited",
                       "refunded",
                       "balance",
+                      "owedBack",
                       "orderState"
                     ],
                     "additionalProperties": false
@@ -30488,6 +30827,7 @@
           "total",
           "issuedOn",
           "refunds",
+          "owedBack",
           "version",
           "createdAt",
           "invoice",
@@ -43914,6 +44254,10 @@
                     "type": "number",
                     "description": "What is still owed: total less paid less credited"
                   },
+                  "owedBack": {
+                    "type": "number",
+                    "description": "What credit notes give back that has not gone back yet, nor waits for approval"
+                  },
                   "orderState": {
                     "type": "string"
                   }
@@ -43923,6 +44267,7 @@
                   "credited",
                   "refunded",
                   "balance",
+                  "owedBack",
                   "orderState"
                 ],
                 "additionalProperties": false
@@ -43991,15 +44336,16 @@
             "type": "boolean"
           },
           "version": {
-            "description": "The version you read: one changed since by someone else is refused",
             "type": "integer",
             "minimum": 0,
-            "maximum": 9007199254740991
+            "maximum": 9007199254740991,
+            "description": "The version you read (from get): required, so what is approved is what was asked; one changed since is refused"
           }
         },
         "required": [
           "id",
-          "allow"
+          "allow",
+          "version"
         ]
       },
       "output": {
@@ -44411,6 +44757,10 @@
                     "type": "number",
                     "description": "What is still owed: total less paid less credited"
                   },
+                  "owedBack": {
+                    "type": "number",
+                    "description": "What credit notes give back that has not gone back yet, nor waits for approval"
+                  },
                   "orderState": {
                     "type": "string"
                   }
@@ -44420,6 +44770,7 @@
                   "credited",
                   "refunded",
                   "balance",
+                  "owedBack",
                   "orderState"
                 ],
                 "additionalProperties": false
@@ -45127,6 +45478,10 @@
                     "type": "number",
                     "description": "What is still owed: total less paid less credited"
                   },
+                  "owedBack": {
+                    "type": "number",
+                    "description": "What credit notes give back that has not gone back yet, nor waits for approval"
+                  },
                   "orderState": {
                     "type": "string"
                   }
@@ -45136,6 +45491,7 @@
                   "credited",
                   "refunded",
                   "balance",
+                  "owedBack",
                   "orderState"
                 ],
                 "additionalProperties": false
@@ -45796,6 +46152,10 @@
                     "type": "number",
                     "description": "What is still owed: total less paid less credited"
                   },
+                  "owedBack": {
+                    "type": "number",
+                    "description": "What credit notes give back that has not gone back yet, nor waits for approval"
+                  },
                   "orderState": {
                     "type": "string"
                   }
@@ -45805,6 +46165,7 @@
                   "credited",
                   "refunded",
                   "balance",
+                  "owedBack",
                   "orderState"
                 ],
                 "additionalProperties": false
@@ -45865,14 +46226,15 @@
             "description": "The invoice's id (inv_…)"
           },
           "version": {
-            "description": "The version you read: one changed since by someone else is refused",
             "type": "integer",
             "minimum": 0,
-            "maximum": 9007199254740991
+            "maximum": 9007199254740991,
+            "description": "The version you read (from get): required, so what is approved is what was asked; one changed since is refused"
           }
         },
         "required": [
-          "id"
+          "id",
+          "version"
         ]
       },
       "output": {
@@ -46284,6 +46646,10 @@
                     "type": "number",
                     "description": "What is still owed: total less paid less credited"
                   },
+                  "owedBack": {
+                    "type": "number",
+                    "description": "What credit notes give back that has not gone back yet, nor waits for approval"
+                  },
                   "orderState": {
                     "type": "string"
                   }
@@ -46293,6 +46659,7 @@
                   "credited",
                   "refunded",
                   "balance",
+                  "owedBack",
                   "orderState"
                 ],
                 "additionalProperties": false
@@ -46613,13 +46980,20 @@
             "type": "string",
             "minLength": 1,
             "maxLength": 200
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991,
+            "description": "The version you read (from get): required, so what is approved is what was asked; one changed since is refused"
           }
         },
         "required": [
           "invoiceId",
           "amount",
           "kind",
-          "receivedOn"
+          "receivedOn",
+          "version"
         ]
       },
       "output": {
@@ -47038,6 +47412,10 @@
                         "type": "number",
                         "description": "What is still owed: total less paid less credited"
                       },
+                      "owedBack": {
+                        "type": "number",
+                        "description": "What credit notes give back that has not gone back yet, nor waits for approval"
+                      },
                       "orderState": {
                         "type": "string"
                       }
@@ -47047,6 +47425,7 @@
                       "credited",
                       "refunded",
                       "balance",
+                      "owedBack",
                       "orderState"
                     ],
                     "additionalProperties": false
@@ -47538,6 +47917,10 @@
                     "type": "number",
                     "description": "What is still owed: total less paid less credited"
                   },
+                  "owedBack": {
+                    "type": "number",
+                    "description": "What credit notes give back that has not gone back yet, nor waits for approval"
+                  },
                   "orderState": {
                     "type": "string"
                   }
@@ -47547,6 +47930,7 @@
                   "credited",
                   "refunded",
                   "balance",
+                  "owedBack",
                   "orderState"
                 ],
                 "additionalProperties": false
@@ -48039,6 +48423,10 @@
                         "type": "number",
                         "description": "What is still owed: total less paid less credited"
                       },
+                      "owedBack": {
+                        "type": "number",
+                        "description": "What credit notes give back that has not gone back yet, nor waits for approval"
+                      },
                       "orderState": {
                         "type": "string"
                       }
@@ -48048,6 +48436,7 @@
                       "credited",
                       "refunded",
                       "balance",
+                      "owedBack",
                       "orderState"
                     ],
                     "additionalProperties": false
@@ -49417,6 +49806,10 @@
                     "type": "number",
                     "description": "What is still owed: total less paid less credited"
                   },
+                  "owedBack": {
+                    "type": "number",
+                    "description": "What credit notes give back that has not gone back yet, nor waits for approval"
+                  },
                   "orderState": {
                     "type": "string"
                   }
@@ -49426,6 +49819,7 @@
                   "credited",
                   "refunded",
                   "balance",
+                  "owedBack",
                   "orderState"
                 ],
                 "additionalProperties": false
@@ -49998,6 +50392,10 @@
                     "type": "number",
                     "description": "What is still owed: total less paid less credited"
                   },
+                  "owedBack": {
+                    "type": "number",
+                    "description": "What credit notes give back that has not gone back yet, nor waits for approval"
+                  },
                   "orderState": {
                     "type": "string"
                   }
@@ -50007,6 +50405,7 @@
                   "credited",
                   "refunded",
                   "balance",
+                  "owedBack",
                   "orderState"
                 ],
                 "additionalProperties": false
@@ -50078,15 +50477,16 @@
             "description": "Why, as printed on the credit note"
           },
           "version": {
-            "description": "The version you read: one changed since by someone else is refused",
             "type": "integer",
             "minimum": 0,
-            "maximum": 9007199254740991
+            "maximum": 9007199254740991,
+            "description": "The version you read (from get): required, so what is approved is what was asked; one changed since is refused"
           }
         },
         "required": [
           "id",
-          "reason"
+          "reason",
+          "version"
         ]
       },
       "output": {
@@ -50268,6 +50668,19 @@
                     "string",
                     "null"
                   ]
+                },
+                "attempt": {
+                  "type": "number",
+                  "description": "1, or how many times a provider's refund was asked for"
+                },
+                "state": {
+                  "type": "string",
+                  "enum": [
+                    "given_back",
+                    "asked",
+                    "owed"
+                  ],
+                  "description": "given_back: confirmed or recorded paid back; asked: waits for approval or the provider; owed: not given back (a person pays a recorded one back; a provider's rejected, expired or failed is asked for again with creditNote.askRefundAgain)"
                 }
               },
               "required": [
@@ -50275,11 +50688,17 @@
                 "method",
                 "amount",
                 "refundId",
-                "paidBackAt"
+                "paidBackAt",
+                "attempt",
+                "state"
               ],
               "additionalProperties": false
             },
-            "description": "What it gives back, per payment: a provider's waits for approval, a recorded one for a person to record it paid back"
+            "description": "What it gives back, per payment, and where each stands"
+          },
+          "owedBack": {
+            "type": "number",
+            "description": "What it still owes back: not given back, nor waiting"
           },
           "version": {
             "type": "number"
@@ -50696,6 +51115,10 @@
                         "type": "number",
                         "description": "What is still owed: total less paid less credited"
                       },
+                      "owedBack": {
+                        "type": "number",
+                        "description": "What credit notes give back that has not gone back yet, nor waits for approval"
+                      },
                       "orderState": {
                         "type": "string"
                       }
@@ -50705,6 +51128,7 @@
                       "credited",
                       "refunded",
                       "balance",
+                      "owedBack",
                       "orderState"
                     ],
                     "additionalProperties": false
@@ -50768,6 +51192,7 @@
           "total",
           "issuedOn",
           "refunds",
+          "owedBack",
           "version",
           "createdAt",
           "invoice",

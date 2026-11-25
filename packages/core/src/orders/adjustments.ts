@@ -16,18 +16,10 @@
 import { splitInProportion } from "./tax.ts";
 
 /**
- * `prepaid` and `rounding` are the host's, on an invoice's order only (stage 35, ADR 0731): a
- * final invoice's "less deposit paid", and the cents a whole-unit price rounds up on a line typed
- * without tax. The database refuses them on any other order (migration 1031).
+ * `prepaid` is the host's, on an invoice's order only (stage 35, ADR 0731): a final invoice's
+ * "less deposit paid". The database refuses it on any other order (migration 1031).
  */
-export const ADJUSTMENT_KINDS = [
-  "code",
-  "automatic",
-  "staff",
-  "referral",
-  "prepaid",
-  "rounding",
-] as const;
+export const ADJUSTMENT_KINDS = ["code", "automatic", "staff", "referral", "prepaid"] as const;
 export type AdjustmentKind = (typeof ADJUSTMENT_KINDS)[number];
 
 /** A line as the seam prices it: its id and what it costs before adjustments. */

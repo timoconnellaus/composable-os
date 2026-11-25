@@ -24,6 +24,7 @@ import {
   chargeFor,
   chargeOptions,
   formatMoney,
+  invoiceTaxShare,
   loadOrderRow,
   type OrderChange,
   type OrderRow,
@@ -133,7 +134,7 @@ export async function applyVerifiedPayment(
   const currency = payment.currency.toUpperCase();
   // Only a taxed checkout's figure is kept: one the host asked for, as the provider said it.
   const taxed = payment.sentTax && payment.tax ? payment.tax : null;
-  const record = (outcome: "applied" | "mismatch" | "late") =>
+  const record = (outcome: "applied" | "mismatch" | "late", invoiceTax = 0) =>
     ctx.write(
       ctx.db.insertInto("core_order_payment").values({
         provider: payment.provider,
@@ -145,6 +146,8 @@ export async function applyVerifiedPayment(
         payment_ref: payment.paymentRef ?? null,
         received_at: ctx.now,
         ...(taxed ? { tax_amount: taxed.amount, tax_country: taxed.country } : {}),
+        // An invoice's order (ADR 0731): the payment's share of the document's tax.
+        ...(invoiceTax ? { tax_amount: invoiceTax } : {}),
       }),
     );
   const tellStaff = async (title: string, body: string, kind: string) => {
@@ -216,7 +219,8 @@ export async function applyVerifiedPayment(
     return { outcome: "mismatch", orderId: row.id };
   }
 
-  record("applied");
+  const invoiceTax = await invoiceTaxShare(ctx.db, row, payment.amount);
+  record("applied", invoiceTax);
   if (taxed && payment.sentTax) {
     // Each line's share of the provider's tax, by the line the checkout sent it as.
     const codes = new Map(payment.sentTax.map((line) => [line.ref, line.taxCode]));
@@ -239,7 +243,9 @@ export async function applyVerifiedPayment(
     payment.amount,
     taxed
       ? { tax_amount: row.tax_amount + taxed.amount, tax_country: taxed.country ?? row.tax_country }
-      : {},
+      : invoiceTax
+        ? { tax_amount: row.tax_amount + invoiceTax }
+        : {},
     { id: payment.eventId, method: "provider", by: null },
   );
   return { outcome: "applied", order: next, charge };
@@ -426,6 +432,8 @@ export async function applyOtherPayment(
     });
   }
   const paymentId = newId("orderPayment");
+  // An invoice's order (ADR 0731): the payment's share of the document's tax.
+  const invoiceTax = await invoiceTaxShare(ctx.db, row, amount);
   ctx.write(
     ctx.db.insertInto("core_order_payment").values({
       provider: HOST_PROVIDER,
@@ -442,13 +450,14 @@ export async function applyOtherPayment(
       recorded_by: payment.recordedBy,
       received_on: payment.receivedOn,
       reference: payment.reference,
+      ...(invoiceTax ? { tax_amount: invoiceTax } : {}),
     }),
   );
   const order = await settle(
     ctx,
     row,
     amount,
-    {},
+    invoiceTax ? { tax_amount: row.tax_amount + invoiceTax } : {},
     {
       id: paymentId,
       method: payment.method,
@@ -592,6 +601,8 @@ export async function reverseOtherPayment(
       received_on: payment.received_on,
       reverses: payment.event_id,
       reason: input.reason,
+      // Its tax share comes off the order with it (an invoice's order, ADR 0731); the row itself
+      // carries none (a tax figure is never negative), the database reads it from the one undone.
     }),
   );
   if (row.invoice_id) {
@@ -610,14 +621,19 @@ export async function reverseOtherPayment(
       }),
     );
   }
+  // An invoice's order with nothing left paid is unpaid again (ADR 0733): back to pending, as the
+  // host, so it is voided or credited as any unpaid invoice. Any other order stays part paid.
+  const paid = row.paid - payment.amount;
+  const unpaid = row.invoice_id !== null && paid === 0;
   const order = await changeOrder(
     ctx,
     row,
-    "part_paid",
+    unpaid ? "pending" : "part_paid",
     {
-      paid: row.paid - payment.amount,
+      paid,
       balance_due_at: row.balance_due_at ?? ctx.now,
       ...(row.state === "paid" ? { paid_at: null } : {}),
+      ...(payment.tax_amount ? { tax_amount: row.tax_amount - payment.tax_amount } : {}),
     },
     // The host's move: a payment it applied is taken back off.
     "host",
@@ -642,7 +658,7 @@ export async function reverseOtherPayment(
     row.id,
     "A recorded payment was reversed",
     `The payment of ${what} recorded on order ${row.id} was reversed as entered in error. The ` +
-      `order is part paid with ${formatMoney(order.total - order.paid, order.currency)} owed.`,
+      `order is ${unpaid ? "unpaid again" : "part paid"} with ${formatMoney(owedOn(order), order.currency)} owed.`,
     `order.payment_reversed:${reversalId}`,
   );
   return { order, reversalId };

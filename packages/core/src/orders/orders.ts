@@ -33,6 +33,7 @@ import { invoiceObject } from "../fields/invoice.ts";
 import { type OrderState, orderObject } from "../fields/order.ts";
 import type { FieldDefinition, ObjectDefinition } from "../fields/types.ts";
 import { newId } from "../ids.ts";
+import { mulDivHalfUp } from "../invoices/tax.ts";
 import { type HandlerContext, recordHostChange } from "../operation.ts";
 import type { Principal } from "../principals.ts";
 import { viewColumnOf } from "../records/columns.ts";
@@ -505,11 +506,10 @@ export interface NewOrder {
 /** An adjustment an invoice brings to its order (ADR 0731): the document's own money off. */
 export interface InvoiceAdjustment {
   /**
-   * `staff`: a line's discount as staff wrote it on the invoice; `rounding`: the cents a whole-unit
-   * price rounds up on a line typed without tax, taken back off it; `prepaid`: a final invoice's
+   * `staff`: a line's discount as staff wrote it on the invoice; `prepaid`: a final invoice's
    * "less deposit paid" (stage 35 step 6 writes its lines), on the whole order.
    */
-  kind: "staff" | "rounding" | "prepaid";
+  kind: "staff" | "prepaid";
   /** The order line it is on; null: the whole order, spread over its lines. */
   lineId: string | null;
   amount: number;
@@ -525,12 +525,10 @@ export interface InvoiceOrder {
   id: string;
   /** When the invoice is due: the order's `balance_due_at`. It never expires. */
   dueAt: string;
-  /** In the order the seam takes them off: staff discounts and rounding, then prepaid. */
+  /** In the order the seam takes them off: staff discounts, then prepaid. */
   adjustments: readonly InvoiceAdjustment[];
   /** The invoice's total, which the order's must equal (checked again by the database). */
   total: number;
-  /** The invoice's tax, worked out on the document (ADR 0732): the order's `tax_amount`. */
-  tax: number;
 }
 
 export interface StartedOrder {
@@ -677,8 +675,9 @@ export async function createOrder(ctx: HandlerContext, input: NewOrder): Promise
     access_until: null,
     email_link_hash: null,
     refunded: 0,
-    // The document's tax, worked out by the host (ADR 0732); otherwise the provider's, as paid.
-    tax_amount: invoice ? invoice.tax : 0,
+    // The tax on what has been paid: none yet. An invoice's lines keep the document's tax, and each
+    // payment on its order carries its share of it (ADR 0731).
+    tax_amount: 0,
     tax_refunded: 0,
     tax_country: null,
     subscription_id: null,
@@ -1106,6 +1105,31 @@ export async function chargeOptions(
     row.invoice_id,
   );
   return { partsAllowed: invoice?.allow_part_payments === 1 };
+}
+
+/**
+ * The share of an invoice's tax (worked out on the document, ADR 0732) that a payment of `amount`
+ * on its order carries (ADR 0731): in proportion to the invoice's total, rounded half up, never
+ * past the document's tax; the payment that settles an order nothing was credited on takes what is
+ * left, so the payments' shares add up to the document's tax exactly. Zero for any other order:
+ * there the provider says the tax at checkout (ADR 0479).
+ */
+export async function invoiceTaxShare(
+  db: Kysely<CoreDatabase>,
+  row: OrderRow,
+  amount: number,
+): Promise<number> {
+  if (!row.invoice_id || amount <= 0) return 0;
+  const invoice = await viewRow(
+    db,
+    visibleSource(orgReader(db), getObject("invoice") ?? invoiceObject),
+    row.invoice_id,
+  );
+  const tax = Number(invoice?.tax_total ?? 0);
+  if (!tax || !row.total) return 0;
+  const left = Math.max(0, tax - row.tax_amount);
+  if (row.credited === 0 && row.paid + amount === row.total) return left;
+  return Math.min(left, mulDivHalfUp(amount, tax, row.total));
 }
 
 // --- Overdue balances --------------------------------------------------------------------------

@@ -22,9 +22,10 @@ import {
 } from "../src/index.ts";
 import { extId, manifest, reconcile } from "./extension-helpers.ts";
 import { context, createUser, db, setPreset, unique } from "./helpers.ts";
-import { CURRENCY, createBuyer, outside, refusal, run } from "./order-fixtures.ts";
+import { CURRENCY, createBuyer, outside, refusal, run, signedInJustNow } from "./order-fixtures.ts";
 import { paymentsDouble } from "./payments-double.ts";
 import { boxOfficeManifest } from "./sellable-fixtures.ts";
+import { meterStatements } from "./statement-meter.ts";
 
 const BOX = extId("invbox");
 const EVENT = `${BOX}.event`;
@@ -156,7 +157,15 @@ interface CreditNote {
   total: number;
   taxTotal: number;
   lines: { id: string; total: number; tax: number; creditsLineId: string | null }[];
-  refunds: { method: string; amount: number; refundId: string | null; paidBackAt: string | null }[];
+  refunds: {
+    method: string;
+    amount: number;
+    refundId: string | null;
+    paidBackAt: string | null;
+    attempt?: number;
+    state?: string;
+  }[];
+  owedBack?: number;
   invoice?: Invoice;
   pending?: string[];
 }
@@ -200,7 +209,17 @@ async function draft(
   );
 }
 
-const issue = (id: string, ctx = staff()) => run<Invoice>("invoice.issue", { id }, ctx);
+/** The version the database holds now: what a person read before acting. */
+async function versionOf(table: "core_invoice" | "core_credit_note", id: string) {
+  return (
+    (await env.DB.prepare(`SELECT version FROM ${table} WHERE id = ?`).bind(id).first()) as {
+      version: number;
+    }
+  ).version;
+}
+
+const issue = async (id: string, ctx = staff()) =>
+  run<Invoice>("invoice.issue", { id, version: await versionOf("core_invoice", id) }, ctx);
 
 async function issued(ticket?: string, options: Parameters<typeof draft>[1] = {}) {
   return issue((await draft(ticket ?? (await ticketType()), options)).id);
@@ -231,18 +250,43 @@ async function counter() {
   ).first()) as { next_number: number; version: number };
 }
 
-const recordPayment = (invoiceId: string, amount: number, ctx = staff(desk)) =>
+const recordPayment = async (invoiceId: string, amount: number, ctx = staff(desk)) =>
   run<{ paymentId: string; invoice: Invoice }>(
     "invoice.recordPayment",
-    { invoiceId, amount, kind: "transfer", receivedOn: TODAY, reference: "Fixture ref" },
+    {
+      invoiceId,
+      amount,
+      kind: "transfer",
+      receivedOn: TODAY,
+      reference: "Fixture ref",
+      version: await versionOf("core_invoice", invoiceId),
+    },
     ctx,
   );
 
 const credit = (input: Record<string, unknown>, ctx = staff()) =>
   run<CreditNote>("creditNote.create", { reason: "Fixture credit", ...input }, ctx);
 
-const issueCredit = (id: string, ctx = staff(desk)) =>
-  run<CreditNote>("creditNote.issue", { id }, ctx);
+const issueCredit = async (id: string, ctx = staff(desk)) =>
+  run<CreditNote>(
+    "creditNote.issue",
+    { id, version: await versionOf("core_credit_note", id) },
+    ctx,
+  );
+
+const voidInvoice = async (id: string, ctx = staff(desk)) =>
+  run<CreditNote>(
+    "invoice.void",
+    { id, reason: "Booked twice", version: await versionOf("core_invoice", id) },
+    ctx,
+  );
+
+const allowParts = async (id: string) =>
+  run<Invoice & { allowPartPayments: boolean }>(
+    "invoice.allowPartPayments",
+    { id, allow: true, version: await versionOf("core_invoice", id) },
+    staff(desk),
+  );
 
 beforeAll(async () => {
   admin = await createUser("admin");
@@ -350,7 +394,8 @@ describe("issuing an invoice starts its order (criterion 4)", () => {
       placed_as: "staff",
       person_id: personId,
       pay: "full",
-      tax_amount: invoice.taxTotal,
+      // Nothing is paid yet, so no tax is: each payment carries its share (proof 7, below).
+      tax_amount: 0,
     });
     expect(order.balance_due_at?.slice(0, 10)).toBe(invoice.dueOn);
     // One order line per invoice line: the record's (its quantity, its places held), and the
@@ -446,7 +491,7 @@ describe("issuing an invoice starts its order (criterion 4)", () => {
     }
   });
 
-  it("typed without tax: lines priced with their tax, a discount a staff adjustment, the rounding taken back", async () => {
+  it("typed without tax: lines priced with their tax, a discount a staff adjustment, no rounding as a discount", async () => {
     const ticket = await ticketType();
     const invoice = await issue(
       (
@@ -467,22 +512,54 @@ describe("issuing an invoice starts its order (criterion 4)", () => {
     );
     expect(invoice.lines.map((l) => l.total)).toEqual([9999, 9900]);
     const order = await orderOf(invoice);
-    expect(order).toMatchObject({ total: 9999 + 9900, discount: 1 + 1100, tax_amount: 909 + 900 });
+    // The order's discount is the staff discount only (review item 10): the cents are on lines.
+    expect(order).toMatchObject({ total: 9999 + 9900, discount: 1100 });
+    // 99.99 for two tickets is one at 49.99 and one at 50.00, each a line of the ticket type, the
+    // ticket's tax shared between them; the places held are still two.
+    const { results: lines } = await env.DB.prepare(
+      "SELECT object_type, quantity, unit_price, line_total, line_discount, tax_amount FROM core_order_line WHERE order_id = ? ORDER BY position",
+    )
+      .bind(order.id)
+      .all();
+    expect(lines).toEqual([
+      {
+        object_type: TICKET_TYPE,
+        quantity: 1,
+        unit_price: 4999,
+        line_total: 4999,
+        line_discount: 0,
+        tax_amount: 454,
+      },
+      {
+        object_type: TICKET_TYPE,
+        quantity: 1,
+        unit_price: 5000,
+        line_total: 5000,
+        line_discount: 0,
+        tax_amount: 455,
+      },
+      {
+        object_type: "invoice",
+        quantity: 1,
+        unit_price: 11_000,
+        line_total: 11_000,
+        line_discount: 1100,
+        tax_amount: 900,
+      },
+    ]);
+    expect(await held(ticket)).toEqual({ held: 2, taken: 0 });
+    const staffView = await run<{ discount: number; adjustments: { amount: number }[] }>(
+      "order.get",
+      { id: order.id },
+      staff(),
+    );
+    expect(staffView.adjustments.reduce((sum, a) => sum + a.amount, 0)).toBe(staffView.discount);
     const { results: adjustments } = await env.DB.prepare(
       "SELECT kind, amount, percent, reason, given_by, source_object, source_id FROM core_order_adjustment WHERE order_id = ? ORDER BY amount",
     )
       .bind(order.id)
       .all();
     expect(adjustments).toEqual([
-      {
-        kind: "rounding",
-        amount: 1,
-        percent: null,
-        reason: null,
-        given_by: null,
-        source_object: "invoice",
-        source_id: invoice.id,
-      },
       {
         kind: "staff",
         amount: 1100,
@@ -565,7 +642,7 @@ describe("issuing an invoice starts its order (criterion 4)", () => {
       (await draft("", { lines: [{ item: { object: CLASS, id: pass }, quantity: 2 }] })).id,
     );
     const order = await orderOf(invoice);
-    expect(order).toMatchObject({ total: 9000, discount: 0, tax_amount: 818 });
+    expect(order).toMatchObject({ total: 9000, discount: 0, tax_amount: 0 });
     const opened = await run<{ amount: number; kind: string }>(
       "order.checkout",
       { id: order.id, returnUrl: RETURN },
@@ -612,11 +689,7 @@ describe("paying an invoice online (criteria 6 and 7)", () => {
       run("order.checkout", { id, returnUrl: RETURN, amount: 5_000 }, staff()),
     );
     expect(part.details.rule).toBe("charge_amount");
-    const allowed = await run<Invoice & { allowPartPayments: boolean }>(
-      "invoice.allowPartPayments",
-      { id: invoice.id, allow: true },
-      staff(desk),
-    );
+    const allowed = await allowParts(invoice.id);
     expect(allowed.allowPartPayments).toBe(true);
     expect(
       (await refusal(run("order.checkout", { id, returnUrl: RETURN, amount: 500 }, staff())))
@@ -846,8 +919,9 @@ describe("a payment recorded on an invoice (criteria 7 and 8)", () => {
       { paymentId: paid.paymentId, reason: "Entered on the wrong invoice" },
       staff(desk),
     );
-    expect(reversed.invoice.state).toBe("part_paid");
-    expect(await orderOf(invoice)).toMatchObject({ state: "part_paid", paid: 0 });
+    // Nothing left paid: the invoice is unpaid again (the coordinator's decision, item 4).
+    expect(reversed.invoice.state).toBe("issued");
+    expect(await orderOf(invoice)).toMatchObject({ state: "pending", paid: 0, tax_amount: 0 });
     expect((await eventsOf(invoice.id)).map((e) => e.event)).toEqual([
       "issued",
       "payment_applied",
@@ -896,6 +970,7 @@ describe("credit notes (criterion 9)", () => {
       credited: 2000,
       refunded: 0,
       balance: invoice.total - 2000,
+      owedBack: 0,
       orderState: "pending",
     });
     const opened = await run<{ amount: number; kind: string }>(
@@ -904,10 +979,23 @@ describe("credit notes (criterion 9)", () => {
       staff(),
     );
     expect(opened).toMatchObject({ amount: invoice.total - 2000, kind: "balance" });
-    expect((await refusal(recordPayment(invoice.id, invoice.total - 1999))).details.rule).toBe(
-      "overpaid",
+    // While that page is open, neither a payment recorded nor a credit note may change what is
+    // owed (review item 8): a payment made there would no longer match.
+    expect((await refusal(recordPayment(invoice.id, 1000))).details.rule).toBe("checkout_open");
+    const another = await credit({
+      invoiceId: invoice.id,
+      lines: [{ lineId: typed.id, quantity: 0.1 }],
+      settle: "reduce",
+    });
+    expect((await refusal(issueCredit(another.id))).details.rule).toBe("checkout_open");
+    // A day later the page has lapsed.
+    const later = staff(desk, { clock: () => new Date(Date.now() + 25 * 3_600_000) });
+    expect(
+      (await refusal(recordPayment(invoice.id, invoice.total - 1999, later))).details.rule,
+    ).toBe("overpaid");
+    expect((await recordPayment(invoice.id, invoice.total - 2000, later)).invoice.state).toBe(
+      "paid",
     );
-    expect((await recordPayment(invoice.id, invoice.total - 2000)).invoice.state).toBe("paid");
     expect((await eventsOf(invoice.id)).map((e) => [e.document_kind, e.event])).toEqual([
       ["invoice", "issued"],
       ["credit_note", "issued"],
@@ -919,7 +1007,7 @@ describe("credit notes (criterion 9)", () => {
   it("beyond the unpaid part: a provider payment's refund waits for approval, a recorded one for a person's paid back", async () => {
     const invoice = await issued();
     // Half online, half by transfer.
-    await run("invoice.allowPartPayments", { id: invoice.id, allow: true }, staff(desk));
+    await allowParts(invoice.id);
     await run("order.checkout", { id: invoice.orderId, returnUrl: RETURN, amount: 8_000 }, staff());
     await providerPays(invoice.orderId as string);
     const byHand = await recordPayment(invoice.id, invoice.total - 8_000);
@@ -980,16 +1068,9 @@ describe("credit notes (criterion 9)", () => {
     const invoice = await issued(ticket);
     expect(await held(ticket)).toEqual({ held: 2, taken: 0 });
     for (const extra of NOT_A_PERSON.slice(0, 2)) {
-      expect(
-        (await refusal(run("invoice.void", { id: invoice.id, reason: "x" }, staff(admin, extra))))
-          .code,
-      ).toBe("forbidden");
+      expect((await refusal(voidInvoice(invoice.id, staff(admin, extra)))).code).toBe("forbidden");
     }
-    const voided = await run<CreditNote>(
-      "invoice.void",
-      { id: invoice.id, reason: "Booked twice" },
-      staff(desk),
-    );
+    const voided = await voidInvoice(invoice.id);
     expect(voided).toMatchObject({ state: "issued", total: invoice.total });
     expect(voided.invoice?.state).toBe("void");
     expect(await orderOf(invoice)).toMatchObject({ state: "cancelled", credited: invoice.total });
@@ -1000,15 +1081,11 @@ describe("credit notes (criterion 9)", () => {
       "credited",
       "voided",
     ]);
-    expect(
-      (await refusal(run("invoice.void", { id: invoice.id, reason: "x" }, staff(desk)))).code,
-    ).toBe("conflict");
+    expect((await refusal(voidInvoice(invoice.id))).code).toBe("conflict");
     // Something paid: credited instead.
     const paid = await issued();
     await recordPayment(paid.id, 1_000);
-    expect(
-      (await refusal(run("invoice.void", { id: paid.id, reason: "x" }, staff(desk)))).details.rule,
-    ).toBe("void_paid");
+    expect((await refusal(voidInvoice(paid.id))).details.rule).toBe("void_paid");
   });
 
   it("credited in full with nothing paid: credited, its order cancelled", async () => {
@@ -1203,5 +1280,399 @@ describe("the event log for a document's life (criterion 18)", () => {
     const log = await eventsOf(invoice.id);
     expect(log.map((e) => e.event)).toEqual(["issued", "payment_applied", "payment_reversed"]);
     expect(log.map((e) => e.seq)).toEqual([...log.map((e) => e.seq)].sort((a, b) => a - b));
+  });
+});
+
+// --- The review of PR #460 ---------------------------------------------------------------------
+
+/** The pending action a queued call made. */
+async function queued(call: Promise<unknown>): Promise<string> {
+  try {
+    await call;
+  } catch (error) {
+    if (error instanceof PendingApprovalError) return error.pending.actionId;
+    throw error;
+  }
+  throw new Error("expected the call to wait for approval");
+}
+
+async function approve(actionId: string) {
+  return run<{ results: { status: string }[] }>(
+    "approval.approve",
+    { actionIds: [actionId] },
+    staff(),
+  );
+}
+
+describe("an approved act is what was approved (review item 1)", () => {
+  it("an AI's ask to issue at 160.00, applied after a 9,000.00 line was added, issues nothing", async () => {
+    await setPreset("autonomous");
+    const drafted = await draft(await ticketType());
+    const ask = await queued(
+      issue(
+        drafted.id,
+        staff(admin, { actor: "assistant", origin: { surface: "assistant", sessionId: "ath_p1" } }),
+      ),
+    );
+    await run(
+      "invoice.addLine",
+      { id: drafted.id, line: { description: "Extra", unitPrice: 900_000 } },
+      staff(),
+    );
+    const out = await approve(ask);
+    expect(out.results[0]?.status).not.toBe("applied");
+    const row = await env.DB.prepare("SELECT state, number, total FROM core_invoice WHERE id = ?")
+      .bind(drafted.id)
+      .first();
+    expect(row).toEqual({ state: "draft", number: null, total: drafted.total + 900_000 });
+  });
+
+  it("a discount over the limit, raised to 90% after the ask, is not applied", async () => {
+    const drafted = await draft("", {
+      lines: [
+        {
+          description: "Workshop",
+          unitPrice: 20_000,
+          discount: { kind: "amount", value: 5_000, reason: "Regular" },
+        },
+      ],
+    });
+    const ask = await queued(issue(drafted.id));
+    const line = drafted.lines[0] as Line;
+    await run(
+      "invoice.updateLine",
+      {
+        lineId: line.id,
+        change: { discount: { kind: "percent", value: 9_000, reason: "Nearly everything" } },
+      },
+      staff(),
+    );
+    expect((await approve(ask)).results[0]?.status).not.toBe("applied");
+    expect(
+      await env.DB.prepare("SELECT state FROM core_invoice WHERE id = ?").bind(drafted.id).first(),
+    ).toEqual({ state: "draft" });
+  });
+
+  it("every act that may wait for a person names the version read: without one it is refused", async () => {
+    const invoice = await issued();
+    for (const [name, input] of [
+      ["invoice.issue", { id: invoice.id }],
+      ["invoice.allowPartPayments", { id: invoice.id, allow: true }],
+      [
+        "invoice.recordPayment",
+        { invoiceId: invoice.id, amount: 100, kind: "cash", receivedOn: TODAY },
+      ],
+      ["invoice.void", { id: invoice.id, reason: "x" }],
+      ["creditNote.issue", { id: "cn_x" }],
+    ] as const) {
+      expect((await refusal(run(name, input, staff(desk)))).code, name).toBe("invalid_input");
+    }
+    // A payment recorded from an older read of the invoice is refused.
+    const stale = await refusal(
+      run(
+        "invoice.recordPayment",
+        {
+          invoiceId: invoice.id,
+          amount: 100,
+          kind: "cash",
+          receivedOn: TODAY,
+          version: invoice.version - 1,
+        },
+        staff(desk),
+      ),
+    );
+    expect(stale.details.rule).toBe("document_changed");
+  });
+});
+
+describe("a credit note's refund that did not go through (review item 2)", () => {
+  async function paidOnline() {
+    const invoice = await issued();
+    await run("order.checkout", { id: invoice.orderId, returnUrl: RETURN }, staff());
+    await providerPays(invoice.orderId as string);
+    return invoice;
+  }
+
+  it("rejected: owed back, never a second credit note, asked again for the same amount", async () => {
+    const invoice = await paidOnline();
+    const note = await issueCredit(
+      (
+        await credit({
+          invoiceId: invoice.id,
+          lines: [{ lineId: (invoice.lines[1] as Line).id }],
+          settle: "refund",
+        })
+      ).id,
+    );
+    const amount = (invoice.lines[1] as Line).total;
+    await run("approval.reject", { actionIds: note.pending }, staff());
+    const after = await run<CreditNote & { owedBack: number }>(
+      "creditNote.get",
+      { id: note.id },
+      staff(),
+    );
+    expect(after.refunds.map((r) => [r.amount, (r as { state?: string }).state])).toEqual([
+      [amount, "owed"],
+    ]);
+    expect(after.owedBack).toBe(amount);
+    const money = (
+      await run<{ money: { owedBack: number; balance: number } }>(
+        "invoice.get",
+        { id: invoice.id },
+        staff(),
+      )
+    ).money;
+    expect(money).toMatchObject({ owedBack: amount, balance: 0 });
+    // The P2 case: what it owes back is not given back by another credit note too.
+    const second = await credit({
+      invoiceId: invoice.id,
+      lines: [{ lineId: (invoice.lines[0] as Line).id }],
+      settle: "refund",
+    });
+    const issuedSecond = await issueCredit(second.id);
+    expect(issuedSecond.refunds.reduce((sum, r) => sum + r.amount, 0)).toBe(
+      (invoice.lines[0] as Line).total,
+    );
+    // Only a person with the refund permission asks again, for the same amount.
+    expect(
+      (await refusal(run("creditNote.askRefundAgain", { id: note.id }, staff(member)))).code,
+    ).toBe("forbidden");
+    const again = await run<CreditNote & { pending: string[] }>(
+      "creditNote.askRefundAgain",
+      { id: note.id },
+      staff(desk),
+    );
+    expect(again.pending).toHaveLength(1);
+    expect(
+      again.refunds.map((r) => [
+        r.amount,
+        (r as { attempt?: number }).attempt,
+        (r as { state?: string }).state,
+      ]),
+    ).toEqual([[amount, 2, "asked"]]);
+    expect(
+      (await refusal(run("creditNote.askRefundAgain", { id: note.id }, staff(desk)))).details.rule,
+    ).toBe("refund_not_owed");
+    // Refunds wait in order at the gatekeeper (earlier tests' among them): all are approved,
+    // and the provider confirms this order's.
+    const { results: waiting } = await env.DB.prepare(
+      "SELECT id FROM core_pending_action WHERE action_kind = 'payments.refund' AND status = 'pending' AND (expires_at IS NULL OR expires_at > ?) ORDER BY created_at, id",
+    )
+      .bind(new Date().toISOString())
+      .all<{ id: string }>();
+    await run("approval.approve", { actionIds: waiting.map((w) => w.id) }, staff());
+    const sent = [...issuedSecond.refunds, ...again.refunds].map((r) => r.refundId);
+    for (const [action, refund] of gw.refunds) {
+      if (sent.includes(refund.refundId)) await providerRefunds(action);
+    }
+    const done = await run<CreditNote & { owedBack: number }>(
+      "creditNote.get",
+      { id: note.id },
+      staff(),
+    );
+    expect(done.refunds.map((r) => (r as { state?: string }).state)).toEqual(["given_back"]);
+    expect(done.owedBack).toBe(0);
+    const log = (await eventsOf(invoice.id)).map((e) => e.event);
+    expect(log.filter((e) => e === "refund_confirmed")).toHaveLength(2);
+    expect(await orderOf(invoice)).toMatchObject({ state: "refunded", refunded: invoice.total });
+  });
+
+  it("expired: an approval nobody decided in time is owed back, and is asked for again", async () => {
+    const invoice = await paidOnline();
+    const note = await issueCredit(
+      (
+        await credit({
+          invoiceId: invoice.id,
+          lines: invoice.lines.map((l) => ({ lineId: l.id })),
+          settle: "refund",
+        })
+      ).id,
+    );
+    // Its approval runs out, as one does on the ordinary path.
+    await env.DB.prepare(
+      "UPDATE core_pending_action SET expires_at = '2000-01-01T00:00:00.000Z' WHERE id = ?",
+    )
+      .bind(note.pending?.[0])
+      .run();
+    const after = await run<CreditNote & { owedBack: number }>(
+      "creditNote.get",
+      { id: note.id },
+      staff(),
+    );
+    expect(after.owedBack).toBe(invoice.total);
+    // Nothing left to credit: the documents never say more than the invoice.
+    expect(
+      (await refusal(credit({ invoiceId: invoice.id, amount: { value: 1, taxRate: "gst" } })))
+        .details.rule,
+    ).toBe("credit_beyond_invoice");
+    const again = await run<CreditNote & { pending: string[] }>(
+      "creditNote.askRefundAgain",
+      { id: note.id },
+      staff(desk),
+    );
+    expect(again.owedBack).toBe(0);
+    expect(again.refunds[0]).toMatchObject({ amount: invoice.total, state: "asked" });
+  });
+});
+
+describe("deleting an account or erasing the bill-to never cancels an invoice (review item 3)", () => {
+  it("me.deleteAccount leaves an unpaid invoice's order owed, and its preview says so", async () => {
+    const buyer = await createBuyer(admin, "invdelete");
+    const drafted = await run<Invoice>(
+      "invoice.create",
+      {
+        billTo: { personId: buyer.principal.personId },
+        lines: [{ description: "Hire", unitPrice: 5_000 }],
+      },
+      staff(),
+    );
+    const invoice = await issue(drafted.id);
+    const as = async () =>
+      outside(buyer.principal, {
+        integrations: runtime,
+        events,
+        ...(await signedInJustNow(buyer)),
+      });
+    const preview = await run<{
+      orders: { id: string }[];
+      leftForStaff: { invoicesOwed: number };
+      expect: string;
+    }>("me.deleteAccount", {}, await as());
+    expect(preview.orders.map((o) => o.id)).not.toContain(invoice.orderId);
+    expect(preview.leftForStaff.invoicesOwed).toBe(1);
+    await run("me.deleteAccount", { confirm: true, expect: preview.expect }, await as());
+    expect(await orderOf(invoice)).toMatchObject({ state: "pending" });
+    expect((await run<Invoice>("invoice.get", { id: invoice.id }, staff())).state).toBe("issued");
+  });
+
+  it("person.erase detaches the invoice's order and keeps the invoice as issued", async () => {
+    const person = (
+      await run<{ id: string }>(
+        "person.create",
+        { givenName: unique("Erased"), emails: [{ email: `${unique("er")}@example.com` }] },
+        context(admin),
+      )
+    ).id;
+    const drafted = await run<Invoice>(
+      "invoice.create",
+      { billTo: { personId: person }, lines: [{ description: "Hire", unitPrice: 5_000 }] },
+      staff(),
+    );
+    const invoice = await issue(drafted.id);
+    await run("person.erase", { id: person }, context(admin));
+    expect(await orderOf(invoice)).toMatchObject({ state: "pending", person_id: null });
+    const row = await env.DB.prepare(
+      "SELECT state, number, total, person_id, bill_to_name FROM core_invoice WHERE id = ?",
+    )
+      .bind(invoice.id)
+      .first();
+    expect(row).toMatchObject({
+      state: "issued",
+      number: invoice.number,
+      total: invoice.total,
+      person_id: null,
+    });
+    expect((row as { bill_to_name: string | null }).bill_to_name).not.toBeNull();
+    // Staff can still void it.
+    expect((await voidInvoice(invoice.id)).invoice?.state).toBe("void");
+  });
+});
+
+describe("payments all reversed: unpaid again (review item 4, the coordinator's decision)", () => {
+  it("a bounced transfer leaves the invoice unpaid, and it is voided or credited in full as any unpaid one", async () => {
+    const ticket = await ticketType();
+    const invoice = await issued(ticket);
+    const paid = await recordPayment(invoice.id, invoice.total);
+    expect(await held(ticket)).toEqual({ held: 0, taken: 2 });
+    await run(
+      "invoice.reversePayment",
+      { paymentId: paid.paymentId, reason: "Bounced" },
+      staff(desk),
+    );
+    expect(await orderOf(invoice)).toMatchObject({ state: "pending", paid: 0 });
+    // Paid again: it is granted once, not twice.
+    const again = await recordPayment(invoice.id, invoice.total);
+    const grants = await env.DB.prepare(
+      "SELECT count(*) AS n FROM core_order_grant WHERE order_id = ?",
+    )
+      .bind(invoice.orderId)
+      .first<{ n: number }>();
+    expect(grants?.n).toBe(2);
+    await run(
+      "invoice.reversePayment",
+      { paymentId: again.paymentId, reason: "Bounced again" },
+      staff(desk),
+    );
+    const voided = await voidInvoice(invoice.id);
+    expect(voided.invoice?.state).toBe("void");
+    expect(await orderOf(invoice)).toMatchObject({ state: "cancelled" });
+    // Its places go back, confirmed as they were.
+    expect(await held(ticket)).toEqual({ held: 0, taken: 0 });
+    // And a full credit note on another, after a reversal.
+    const other = await issued();
+    const otherPaid = await recordPayment(other.id, 1_000);
+    await run(
+      "invoice.reversePayment",
+      { paymentId: otherPaid.paymentId, reason: "Bounced" },
+      staff(desk),
+    );
+    const note = await issueCredit(
+      (
+        await credit({
+          invoiceId: other.id,
+          lines: other.lines.map((l) => ({ lineId: l.id })),
+          settle: "reduce",
+        })
+      ).id,
+    );
+    expect(note.invoice?.state).toBe("credited");
+  });
+});
+
+describe("the database holds an invoice's order (review item 6)", () => {
+  it("its currency, tax and lines' tax are fixed, and neither it nor a line is deleted or added", async () => {
+    const invoice = await issued();
+    const order = invoice.orderId as string;
+    for (const sql of [
+      "UPDATE core_order SET currency = 'EUR' WHERE id = ?1",
+      "UPDATE core_order SET tax_amount = 1, version = version + 1 WHERE id = ?1",
+      "UPDATE core_order SET tax_refunded = 1, version = version + 1 WHERE id = ?1",
+      "UPDATE core_order_line SET tax_amount = 1 WHERE order_id = ?1",
+      "DELETE FROM core_order_line WHERE order_id = ?1",
+      "DELETE FROM core_order WHERE id = ?1",
+      "INSERT INTO core_order_line (id, order_id, position, object_type, record_id, title, quantity, unit_price, line_total, created_at) VALUES ('orl_fake', ?1, 9, 'invoice', 'x', 'More', 1, 100, 100, '2026-01-01')",
+      "INSERT OR REPLACE INTO core_order_line (id, order_id, position, object_type, record_id, title, quantity, unit_price, line_total, created_at) SELECT id, order_id, position, object_type, record_id, title, quantity, 1, quantity, created_at FROM core_order_line WHERE order_id = ?1",
+    ]) {
+      await expect(env.DB.prepare(sql).bind(order).run(), sql).rejects.toThrow();
+    }
+    const lines = await env.DB.prepare(
+      "SELECT count(*) AS n FROM core_order_line WHERE order_id = ?",
+    )
+      .bind(order)
+      .first<{ n: number }>();
+    expect(lines?.n).toBe(invoice.lines.length);
+  });
+});
+
+describe("issuing stays inside D1's limits (criterion 23)", () => {
+  it("a 50-line invoice issues in a bounded number of statements, each binding fewer than 100 values", async () => {
+    const lines = Array.from({ length: 50 }, (_, i) => ({
+      description: `Line ${i}`,
+      quantity: 1,
+      unitPrice: 1_000 + i,
+    }));
+    const drafted = await draft("", { lines });
+    const meter = meterStatements();
+    meter.reset();
+    const out = await run<Invoice>(
+      "invoice.issue",
+      { id: drafted.id, version: drafted.version },
+      staff(admin, { db: meter.db }),
+    );
+    expect(out.state).toBe("issued");
+    // One statement per line written (the order's lines), and some 31 reads and writes besides:
+    // 81 measured on 2026-11-26, well inside D1's 1,000.
+    expect(meter.bound.length).toBeLessThanOrEqual(90);
+    expect(Math.max(...meter.bound)).toBeLessThan(100);
   });
 });

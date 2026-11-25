@@ -18,15 +18,17 @@
 import { z } from "zod";
 import { ConflictError, NotFoundError, ValidationError } from "../errors.ts";
 import {
+  askRefundAgain,
   type CreditLineRow,
   type CreditNoteRow,
   creditedSoFar,
   creditLines,
+  creditNoteSource,
+  creditRefunds,
   draftRow,
   draftStatements,
   issueCreditNote,
   loadCreditNote,
-  NOTES,
   requireCreditable,
   voidLines,
 } from "../invoices/credit.ts";
@@ -41,6 +43,7 @@ import "../invoices/hooks.ts";
 import { invoiceDiscountsWithinLimit, issueInvoice } from "../invoices/issue.ts";
 import { loadInvoiceSettings } from "../invoices/settings.ts";
 import { defineOperation, type HandlerContext } from "../operation.ts";
+import { refusePageOpen } from "../orders/checkout.ts";
 import { formatMoney, loadOrderRow } from "../orders/orders.ts";
 import { applyOtherPayment, RECORDED_KINDS, reverseOtherPayment } from "../orders/payments.ts";
 import { receivedDayOk } from "./order.ts";
@@ -53,6 +56,18 @@ const versionInput = z
   .min(0)
   .optional()
   .describe("The version you read: one changed since by someone else is refused");
+/**
+ * The version read, required (review of PR #460): an act a person may have to approve names what
+ * they approve. A queued call keeps its input, so applying it after the document changed (a line
+ * added, a discount raised, a payment recorded) is refused, never applied to what was not asked.
+ */
+const pinnedVersion = z
+  .number()
+  .int()
+  .min(0)
+  .describe(
+    "The version you read (from get): required, so what is approved is what was asked; one changed since is refused",
+  );
 
 function checkVersion(doc: { version: number }, version: number | undefined): void {
   if (version !== undefined && version !== doc.version) {
@@ -86,7 +101,7 @@ export const invoiceIssue = defineOperation({
     "A line discount needs the discount permission, and over the limit an admin set it waits for " +
     "approval. An AI assistant can ask; a person approves. Sending it is a separate step. " +
     "Returns the invoice.",
-  input: z.object({ id: invoiceId, version: versionInput }),
+  input: z.object({ id: invoiceId, version: pinnedVersion }),
   output: invoiceOutput,
   permission: "invoices:send",
   risk: "write",
@@ -130,7 +145,7 @@ export const invoiceAllowPartPayments = defineOperation({
     "for the whole balance; with, the payer may pay part of it, at least the minimum set for " +
     "orders. A payment recorded by staff can be any amount up to the balance either way. " +
     "Returns the invoice.",
-  input: z.object({ id: invoiceId, allow: z.boolean(), version: versionInput }),
+  input: z.object({ id: invoiceId, allow: z.boolean(), version: pinnedVersion }),
   output: invoiceOutput,
   permission: "invoices:send",
   risk: "write",
@@ -203,6 +218,7 @@ export const invoiceRecordPayment = defineOperation({
       .max(200)
       .optional()
       .describe("The payer's reference: a bank reference, a cheque number"),
+    version: pinnedVersion,
   }),
   output: paidOutput,
   permission: "invoices:payments",
@@ -223,6 +239,9 @@ export const invoiceRecordPayment = defineOperation({
       );
     }
     const { doc, order } = await owingInvoice(ctx, input.invoiceId);
+    checkVersion(doc, input.version);
+    // A payment page open for the old amount would no longer match (review of PR #460).
+    await refusePageOpen(ctx, order, "record a payment");
     const settings = await loadInvoiceSettings(ctx.db);
     // The shared step (ADR 0694): the payment row, the order moved as the host through the
     // settle path, the invoice following it and the log written in that batch. At most what is
@@ -372,11 +391,16 @@ const creditNoteOutput = z.object({
           .nullable()
           .describe("The refund asked for (provider) or recorded (paid back); null: still owed"),
         paidBackAt: z.string().nullable(),
+        attempt: z.number().describe("1, or how many times a provider's refund was asked for"),
+        state: z
+          .enum(["given_back", "asked", "owed"])
+          .describe(
+            "given_back: confirmed or recorded paid back; asked: waits for approval or the provider; owed: not given back (a person pays a recorded one back; a provider's rejected, expired or failed is asked for again with creditNote.askRefundAgain)",
+          ),
       }),
     )
-    .describe(
-      "What it gives back, per payment: a provider's waits for approval, a recorded one for a person to record it paid back",
-    ),
+    .describe("What it gives back, per payment, and where each stands"),
+  owedBack: z.number().describe("What it still owes back: not given back, nor waiting"),
   version: z.number(),
   createdAt: z.string(),
 });
@@ -386,12 +410,8 @@ async function presentCreditNote(
   note: CreditNoteRow,
   lines: readonly Omit<CreditLineRow, "credit_note_id" | "created_at">[],
 ): Promise<z.infer<typeof creditNoteOutput>> {
-  const refunds = await ctx.db
-    .selectFrom("core_credit_note_refund")
-    .selectAll()
-    .where("credit_note_id", "=", note.id)
-    .orderBy("created_at")
-    .execute();
+  const invoice = await loadDocument(ctx.db, "invoice", note.invoice_id);
+  const refunds = invoice.order_id ? await creditRefunds(ctx, invoice.order_id, note.id) : [];
   return {
     id: note.id,
     number: note.number,
@@ -424,12 +444,15 @@ async function presentCreditNote(
     total: note.total,
     issuedOn: note.issued_on,
     refunds: refunds.map((r) => ({
-      paymentRef: r.payment_ref,
+      paymentRef: r.paymentRef,
       method: r.method,
       amount: r.amount,
-      refundId: r.refund_id,
-      paidBackAt: r.paid_back_at,
+      refundId: r.refundId,
+      paidBackAt: r.paidBackAt,
+      attempt: r.attempt,
+      state: r.state,
     })),
+    owedBack: refunds.filter((r) => r.state === "owed").reduce((sum, r) => sum + r.amount, 0),
     version: note.version,
     createdAt: note.created_at,
   };
@@ -519,7 +542,7 @@ export const creditNoteGet = defineOperation({
   risk: "read",
   mcp: { idempotent: true },
   async handler(input, ctx) {
-    const { note, lines } = await loadCreditNote(ctx, input.id);
+    const { note, lines } = await loadCreditNote(ctx, input.id, ctx);
     return presentCreditNote(ctx, note, lines);
   },
 });
@@ -547,13 +570,23 @@ export const creditNoteList = defineOperation({
   risk: "read",
   mcp: { idempotent: true },
   async handler(input, ctx) {
-    const rows = await ctx.db
-      .selectFrom(NOTES)
+    // Through the seam, as the caller may read them.
+    // biome-ignore lint/suspicious/noExplicitAny: the source is a registry-driven view, not a key of the typed schema.
+    const rows = (await (ctx.db as any)
+      .selectFrom(creditNoteSource(ctx))
       .select(["id", "number", "state", "settle", "total", "issued_on", "created_at"])
       .where("invoice_id", "=", input.invoiceId)
       .orderBy("created_at")
       .limit(200)
-      .execute();
+      .execute()) as {
+      id: string;
+      number: string | null;
+      state: "draft" | "issued";
+      settle: "reduce" | "refund" | "both";
+      total: number;
+      issued_on: string | null;
+      created_at: string;
+    }[];
     return {
       items: rows.map((r) => ({
         id: r.id,
@@ -639,7 +672,7 @@ export const creditNoteIssue = defineOperation({
     "invoice credited in full with nothing paid is credited, its order cancelled and its places " +
     "given back. A person only, with the permission to credit invoices: AI assistants are " +
     "refused. Returns the credit note, its invoice and the refunds waiting.",
-  input: z.object({ id: creditNoteId, version: versionInput }),
+  input: z.object({ id: creditNoteId, version: pinnedVersion }),
   output: issuedOutput,
   permission: "invoices:credit",
   risk: "write",
@@ -665,6 +698,36 @@ export const creditNoteIssue = defineOperation({
   },
 });
 
+export const creditNoteAskRefundAgain = defineOperation({
+  name: "creditNote.askRefundAgain",
+  description:
+    "Ask again for what an issued credit note gives back on the payment page, where its refund " +
+    "was rejected, its approval expired or it failed: the same amount, on the same payment, " +
+    "waiting in the Approvals inbox for a person with the refund permission as before. Until " +
+    "then the credit note shows it as owed back. A person only, with the refund permission. " +
+    "Returns the credit note and the refunds waiting.",
+  input: z.object({ id: creditNoteId }),
+  output: creditNoteOutput.extend({
+    pending: z.array(z.string()).describe("The refunds now waiting in Approvals"),
+  }),
+  permission: "orders:refund",
+  risk: "write",
+  actors: ["human"],
+  mcp: { expose: false },
+  auditSummary: (output, input) => ({ id: input.id, pending: output.pending.length }),
+  async handler(input, ctx) {
+    const { note } = await loadCreditNote(ctx, input.id);
+    const asked = await askRefundAgain(ctx, note);
+    return ctx.afterCommit(async () => {
+      const read = await loadCreditNote(ctx, input.id);
+      return {
+        ...(await presentCreditNote(ctx, read.note, read.lines)),
+        pending: asked.pending,
+      };
+    });
+  },
+});
+
 export const invoiceVoid = defineOperation({
   name: "invoice.void",
   description:
@@ -676,7 +739,7 @@ export const invoiceVoid = defineOperation({
   input: z.object({
     id: invoiceId,
     reason: z.string().trim().min(1).max(500).describe("Why, as printed on the credit note"),
-    version: versionInput,
+    version: pinnedVersion,
   }),
   output: issuedOutput,
   permission: "invoices:credit",
@@ -712,5 +775,6 @@ export const invoiceOrderOperations = [
   creditNoteList,
   creditNoteDelete,
   creditNoteIssue,
+  creditNoteAskRefundAgain,
   invoiceVoid,
 ] as const;

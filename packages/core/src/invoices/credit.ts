@@ -26,12 +26,16 @@ import type { Selectable } from "kysely";
 import { ConflictError, NotFoundError, ValidationError } from "../errors.ts";
 import { newId } from "../ids.ts";
 import type { HandlerContext } from "../operation.ts";
+import { refusePageOpen } from "../orders/checkout.ts";
 import { changeOrder, formatMoney, loadOrderRow, type OrderRow, owedOn } from "../orders/orders.ts";
 import { refundablePayments, requestRefund } from "../orders/refunds.ts";
 import { loadGeneralSettings } from "../settings.ts";
 import { localDay } from "../time/local.ts";
+import { orgReader, type Viewer, visibleSource } from "../visibility/index.ts";
 import {
   DOCUMENT_MAX_LINES,
+  documentObject,
+  documentVisible,
   type InvoiceRow,
   type LineRow,
   linesOf,
@@ -47,13 +51,10 @@ export type CreditNoteRow = Selectable<CoreCreditNoteTable>;
 export type CreditLineRow = Selectable<CoreCreditNoteLineTable>;
 export type Settle = CreditNoteRow["settle"];
 
-/**
- * A credit note's own tables, read as invoices/drafts.ts reads a quote's and an invoice's (its
- * `KIND_TABLES`): staff-only documents, never in a customer's or the public's reach (ADR 0730);
- * their view, rec_credit_note, has no reason, version or lines.
- */
-export const NOTES = "core_credit_note" as const;
-export const NOTE_LINES = "core_credit_note_line" as const;
+/** The credit notes the seam shows `reader` (their `rec_credit_note` view), as a source. */
+export function creditNoteSource(reader: Viewer) {
+  return visibleSource(reader, documentObject("creditNote"));
+}
 
 /** An invoice's states a credit note may be made for: issued and not yet credited or void. */
 const CREDITABLE: ReadonlySet<string> = new Set(["issued", "sent", "part_paid", "paid"]);
@@ -82,14 +83,22 @@ export async function creditedSoFar(
   invoiceId: string,
   except?: string,
 ): Promise<Credited> {
-  let query = ctx.db
-    .selectFrom(`${NOTE_LINES} as l` as const)
-    .innerJoin(`${NOTES} as n` as const, "n.id", "l.credit_note_id")
-    .select(["l.credits_line_id", "l.quantity_milli", "l.line_total", "l.line_tax", "l.tax_key"])
-    .where("n.invoice_id", "=", invoiceId)
-    .where("n.state", "=", "issued");
-  if (except) query = query.where("n.id", "!=", except);
-  const rows = await query.execute();
+  // The invoice's issued credit notes through the seam, org-wide (host code), then their lines.
+  // biome-ignore lint/suspicious/noExplicitAny: the source is a registry-driven view, not a key of the typed schema.
+  const notes = (await (ctx.db as any)
+    .selectFrom(creditNoteSource(orgReader(ctx.db)))
+    .select("id")
+    .where("invoice_id", "=", invoiceId)
+    .where("state", "=", "issued")
+    .execute()) as { id: string }[];
+  const ids = notes.map((n) => n.id).filter((id) => id !== except);
+  const rows = ids.length
+    ? await ctx.db
+        .selectFrom("core_credit_note_line")
+        .select(["credits_line_id", "quantity_milli", "line_total", "line_tax", "tax_key"])
+        .where("credit_note_id", "in", ids)
+        .execute()
+    : [];
   const out: Credited = { byLine: new Map(), byRate: new Map(), total: 0 };
   for (const row of rows) {
     out.total += row.line_total;
@@ -385,17 +394,170 @@ export function draftStatements(
   ];
 }
 
-export async function loadCreditNote(ctx: Pick<HandlerContext, "db">, id: string) {
-  const note = await ctx.db.selectFrom(NOTES).selectAll().where("id", "=", id).executeTakeFirst();
+/**
+ * A credit note, whole: through the seam first (as `reader` sees it; host code: org-wide), then
+ * its table for what its view leaves out (its reason, its version) and its lines.
+ */
+export async function loadCreditNote(
+  ctx: Pick<HandlerContext, "db">,
+  id: string,
+  reader: Viewer = orgReader(ctx.db),
+) {
+  if (!(await documentVisible(ctx.db, reader, "creditNote", id))) {
+    throw new NotFoundError("credit note", id);
+  }
+  const note = await ctx.db
+    .selectFrom("core_credit_note")
+    .selectAll()
+    .where("id", "=", id)
+    .executeTakeFirst();
   if (!note) throw new NotFoundError("credit note", id);
   const lines = await ctx.db
-    .selectFrom(NOTE_LINES)
+    .selectFrom("core_credit_note_line")
     .selectAll()
     .where("credit_note_id", "=", id)
     .orderBy("position")
     .limit(DOCUMENT_MAX_LINES + 1)
     .execute();
   return { note, lines };
+}
+
+/**
+ * What a credit note gives back on one payment, and where that stands:
+ *   - `given_back`: the provider confirmed the refund, or a person recorded it paid back;
+ *   - `asked`: the refund waits in Approvals, or was approved and waits for the provider;
+ *   - `owed`: not given back. A recorded payment's until a person pays it back; a provider's whose
+ *     refund a person rejected, whose approval expired or that failed, until it is asked for
+ *     again (`creditNote.askRefundAgain`).
+ */
+export interface CreditRefund {
+  id: string;
+  creditNoteId: string;
+  provider: string;
+  paymentRef: string;
+  method: "provider" | "recorded";
+  amount: number;
+  refundId: string | null;
+  attempt: number;
+  paidBackAt: string | null;
+  state: "given_back" | "asked" | "owed";
+}
+
+/** The money back an order's credit notes (or one of them) give, each with where it stands. */
+export async function creditRefunds(
+  ctx: Pick<HandlerContext, "db" | "now">,
+  orderId: string,
+  creditNoteId?: string,
+): Promise<CreditRefund[]> {
+  let query = ctx.db
+    .selectFrom("core_credit_note_refund as c")
+    .leftJoin("core_order_refund as r", "r.id", "c.refund_id")
+    .leftJoin("core_pending_action as p", "p.id", "r.pending_action_id")
+    .select([
+      "c.id",
+      "c.credit_note_id",
+      "c.provider",
+      "c.payment_ref",
+      "c.method",
+      "c.amount",
+      "c.refund_id",
+      "c.attempt",
+      "c.paid_back_at",
+      "r.status as refund",
+      "p.status as action",
+      "p.expires_at",
+    ])
+    .where("c.order_id", "=", orderId);
+  if (creditNoteId) query = query.where("c.credit_note_id", "=", creditNoteId);
+  const rows = await query.orderBy("c.created_at").orderBy("c.id").execute();
+  return rows.map((row) => {
+    const asked =
+      row.action === "applied" ||
+      (row.action === "pending" && (row.expires_at === null || row.expires_at > ctx.now));
+    const state: CreditRefund["state"] =
+      row.method === "recorded"
+        ? row.paid_back_at
+          ? "given_back"
+          : "owed"
+        : row.refund === "confirmed"
+          ? "given_back"
+          : asked
+            ? "asked"
+            : "owed";
+    return {
+      id: row.id,
+      creditNoteId: row.credit_note_id,
+      provider: row.provider,
+      paymentRef: row.payment_ref,
+      method: row.method,
+      amount: row.amount,
+      refundId: row.refund_id,
+      attempt: row.attempt,
+      paidBackAt: row.paid_back_at,
+      state,
+    };
+  });
+}
+
+/**
+ * Asks again, in the calling batch, for each of a credit note's provider refunds that is owed (a
+ * person rejected it, its approval expired or it failed): the same amount, on the same payment,
+ * through the same approval, the row naming the new refund. Returns the approvals asked for.
+ */
+export async function askRefundAgain(
+  ctx: HandlerContext,
+  note: CreditNoteRow,
+): Promise<{ asked: CreditRefund[]; pending: string[] }> {
+  if (note.state !== "issued") {
+    throw new ConflictError("Only an issued credit note gives money back", {
+      rule: "credit_state",
+    });
+  }
+  const invoice = await loadDocument(ctx.db, "invoice", note.invoice_id);
+  const order = await loadOrderRow(ctx.db, invoice.order_id as string);
+  const owed = (await creditRefunds(ctx, order.id, note.id)).filter(
+    (r) => r.method === "provider" && r.state === "owed",
+  );
+  if (!owed.length) {
+    throw new ConflictError(
+      "Nothing this credit note gives back through the payment provider is owed: each refund was confirmed or waits for a person",
+      { rule: "refund_not_owed" },
+    );
+  }
+  const pending: string[] = [];
+  for (const row of owed) {
+    const asked = await requestRefund(ctx, order, {
+      amount: row.amount,
+      reason: `Credit note ${note.number}, asked again: ${note.reason ?? ""}`.slice(0, 500),
+      paymentRef: row.paymentRef,
+      outcome: "applied",
+    });
+    const refund = asked.refunds[0];
+    if (asked.refunds.length !== 1 || !refund || refund.amount !== row.amount) {
+      // What can go back on the payment is less than the credit note owes: a bug, write nothing.
+      throw new ConflictError("This payment cannot give back what the credit note owes", {
+        rule: "credit_beyond_paid",
+      });
+    }
+    if (refund.pendingActionId) pending.push(refund.pendingActionId);
+    ctx.write(
+      ctx.db
+        .updateTable("core_credit_note_refund")
+        .set({ refund_id: refund.id, attempt: row.attempt + 1 })
+        .where("id", "=", row.id)
+        .where("attempt", "=", row.attempt),
+    );
+  }
+  ctx.recordChange({
+    object: "creditNote",
+    id: note.id,
+    action: "update",
+    before: { owed: owed.reduce((sum, r) => sum + r.amount, 0) },
+    after: { askedAgain: owed.map((r) => ({ paymentRef: r.paymentRef, amount: r.amount })) },
+  });
+  // Two asks at once are never both made: the order's version moves, so the second batch fails.
+  await changeOrder(ctx, order, order.state, {}, "host");
+  return { asked: owed, pending };
 }
 
 /** How a credit note settled, once issued. */
@@ -463,21 +625,17 @@ export async function issueCreditNote(
   const back = credit - reduced;
 
   // What can go back, payment by payment, newest first: what was applied and not yet given back
-  // or asked for, less what earlier credit notes owe back on it by hand.
-  const owedBack = await ctx.db
-    .selectFrom("core_credit_note_refund")
-    .select(["provider", "payment_ref", "amount"])
-    .where("order_id", "=", order.id)
-    .where("method", "=", "recorded")
-    .where("paid_back_at", "is", null)
-    .execute();
+  // or asked for, less what earlier credit notes still owe back on it (by hand, or a provider's
+  // refund rejected, expired or failed, to be asked for again).
+  await refusePageOpen(ctx, order, "credit it");
+  const owedBack = (await creditRefunds(ctx, order.id)).filter((r) => r.state === "owed");
   const payments = (await refundablePayments(ctx, order.id, "applied"))
     .map((p) => ({
       ...p,
       refundable:
         p.refundable -
         owedBack
-          .filter((o) => o.provider === p.provider && o.payment_ref === p.paymentRef)
+          .filter((o) => o.provider === p.provider && o.paymentRef === p.paymentRef)
           .reduce((sum, o) => sum + o.amount, 0),
     }))
     .filter((p) => p.refundable > 0);

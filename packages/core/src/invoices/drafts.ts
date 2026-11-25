@@ -15,7 +15,14 @@ import type { Compilable, Kysely, Selectable } from "kysely";
 import { z } from "zod";
 import { ConflictError, NotFoundError, ValidationError } from "../errors.ts";
 import { getObject } from "../fields/index.ts";
-import type { InvoiceKind, TaxMode } from "../fields/invoice.ts";
+import {
+  creditNoteObject,
+  type InvoiceKind,
+  invoiceObject,
+  quoteObject,
+  type TaxMode,
+} from "../fields/invoice.ts";
+import type { ObjectDefinition } from "../fields/types.ts";
 import { type IdKind, newId } from "../ids.ts";
 import type { HandlerContext } from "../operation.ts";
 import { applyGoodsRules } from "../orders/goods.ts";
@@ -25,6 +32,8 @@ import {
   type PricedLine,
   priceLines,
 } from "../orders/orders.ts";
+import { viewRow } from "../orders/sellable.ts";
+import { orgReader, type Viewer, visibleSource } from "../visibility/index.ts";
 import { type InvoiceSettings, rateFor, type TaxRate } from "./settings.ts";
 import { type Discount, documentTotals, lineAmounts, unitPriceFromRecord } from "./tax.ts";
 
@@ -271,6 +280,9 @@ export const invoiceOutput = documentBase.extend({
       credited: z.number().describe("What credit notes took off what was owed"),
       refunded: z.number().describe("What has gone back, confirmed or recorded"),
       balance: z.number().describe("What is still owed: total less paid less credited"),
+      owedBack: z
+        .number()
+        .describe("What credit notes give back that has not gone back yet, nor waits for approval"),
       orderState: z.string(),
     })
     .nullable()
@@ -404,38 +416,75 @@ export function auditSnapshot(
 
 // --- Reading --------------------------------------------------------------------------------
 
+/** The base object of a kind of document, as the seam knows it (fields/invoice.ts). */
+export function documentObject(kind: DraftKind | "creditNote"): ObjectDefinition {
+  const fallback =
+    kind === "quote" ? quoteObject : kind === "invoice" ? invoiceObject : creditNoteObject;
+  return getObject(fallback.name) ?? fallback;
+}
+
+/**
+ * Whether the document `id` of `kind` is one `reader` may see, through the seam (its `rec_*`
+ * view). The document's own columns that the view leaves out (the bill-to as printed, its notes,
+ * its snapshot, its version) are read from its table after it, by the callers below.
+ */
+export async function documentVisible(
+  db: Kysely<CoreDatabase>,
+  reader: Viewer,
+  kind: DraftKind | "creditNote",
+  id: string,
+): Promise<boolean> {
+  return Boolean(await viewRow(db, visibleSource(reader, documentObject(kind)), id));
+}
+
+/**
+ * The document, whole, as host code reads it (staff only; ADR 0730): first through the seam,
+ * org-wide, then its table for the columns its view leaves out.
+ */
 export async function loadDocument<K extends DraftKind>(
   db: Kysely<CoreDatabase>,
   kind: K,
   id: string,
 ): Promise<K extends "quote" ? QuoteRow : InvoiceRow> {
-  const row = await loose(db)
-    .selectFrom(KIND_TABLES[kind].doc)
-    .selectAll()
-    .where("id", "=", id)
-    .executeTakeFirst();
+  if (!(await documentVisible(db, orgReader(db), kind, id))) {
+    throw new NotFoundError(KIND_TABLES[kind].label, id);
+  }
+  const row =
+    kind === "quote"
+      ? await db.selectFrom("core_quote").selectAll().where("id", "=", id).executeTakeFirst()
+      : await db.selectFrom("core_invoice").selectAll().where("id", "=", id).executeTakeFirst();
   if (!row) throw new NotFoundError(KIND_TABLES[kind].label, id);
   return row as K extends "quote" ? QuoteRow : InvoiceRow;
 }
 
+/** A document's lines: parts of a document read through `loadDocument` first. */
 export async function linesOf(
   db: Kysely<CoreDatabase>,
   kind: DraftKind,
   id: string,
 ): Promise<LineRow[]> {
-  const t = KIND_TABLES[kind];
-  const rows = (await loose(db)
-    .selectFrom(t.line)
+  if (kind === "quote") {
+    const rows = await db
+      .selectFrom("core_quote_line")
+      .selectAll()
+      .where("quote_id", "=", id)
+      .orderBy("position")
+      .limit(DOCUMENT_MAX_LINES + 1)
+      .execute();
+    return rows.map(({ quote_id, ...row }) => ({
+      ...row,
+      document_id: quote_id,
+      deducts_invoice_id: null,
+    }));
+  }
+  const rows = await db
+    .selectFrom("core_invoice_line")
     .selectAll()
-    .where(t.fk, "=", id)
+    .where("invoice_id", "=", id)
     .orderBy("position")
     .limit(DOCUMENT_MAX_LINES + 1)
-    .execute()) as Record<string, unknown>[];
-  return rows.map((row) => ({
-    ...(row as unknown as LineRow),
-    document_id: String(row[t.fk]),
-    deducts_invoice_id: (row.deducts_invoice_id as string | null | undefined) ?? null,
-  }));
+    .execute();
+  return rows.map(({ invoice_id, ...row }) => ({ ...row, document_id: invoice_id }));
 }
 
 /** The line `lineId` and the draft it is on. */
@@ -445,13 +494,24 @@ export async function loadLine(
   lineId: string,
 ): Promise<{ doc: DocumentRow; lines: LineRow[]; line: LineRow }> {
   const t = KIND_TABLES[kind];
-  const row = (await loose(db)
-    .selectFrom(t.line)
-    .select(t.fk)
-    .where("id", "=", lineId)
-    .executeTakeFirst()) as Record<string, string> | undefined;
-  if (!row) throw new NotFoundError(`${t.label} line`, lineId);
-  const doc = await loadDocument(db, kind, String(row[t.fk]));
+  const of =
+    kind === "quote"
+      ? (
+          await db
+            .selectFrom("core_quote_line")
+            .select("quote_id as doc")
+            .where("id", "=", lineId)
+            .executeTakeFirst()
+        )?.doc
+      : (
+          await db
+            .selectFrom("core_invoice_line")
+            .select("invoice_id as doc")
+            .where("id", "=", lineId)
+            .executeTakeFirst()
+        )?.doc;
+  if (!of) throw new NotFoundError(`${t.label} line`, lineId);
+  const doc = await loadDocument(db, kind, of);
   const lines = await linesOf(db, kind, doc.id);
   const line = lines.find((l) => l.id === lineId);
   if (!line) throw new NotFoundError(`${t.label} line`, lineId);
