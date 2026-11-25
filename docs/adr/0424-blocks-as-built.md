@@ -132,3 +132,24 @@ Tests: `scripts/check-blocks.test.mjs` (the `native-dark` fixture and the rule's
 shipped block passes), `packages/client/test/client.test.ts` (each failure's words, from the
 host's real answers), `packages/create-composable-os/test/client-repo.test.ts` (the players bring
 Content's blocks).
+
+## Amended 2026-11-26: cos upgrade over an older copy of a block
+
+Found at the review of PR #467: Courses' section of My account came to name `MyCoursesSection`,
+and `cos upgrade` wrote `account-sections.gen.ts` importing it from the client's own, older copy
+of `courses-my-courses`, which did not export it. The app stopped compiling and nothing said why.
+
+- **A section is wired only when the client's copy exports what the release's section names.**
+  One that does not is left out of `account-sections.gen.ts`, and `cos add` and `cos upgrade` say
+  which block it is and that `cos diff <block>` shows what changed upstream; once the copy is
+  brought up to date, `cos add web-account` (or `native-account`) wires it again. The copy is never
+  changed.
+- **`cos upgrade` lists every copied block whose upstream files changed** since it was copied (or
+  last accepted with `cos diff --accept`), compared by content, with any block it now depends on
+  that is not copied (`cos add <block>`). Nothing is changed.
+- **The upgrade still succeeds.** A copied block is the client's (this ADR): an older copy is not
+  an error, and what fails an upgrade is the apps' type check (ADR 0422), which the wiring passes
+  once the out-of-date section is left out. The exit code stays the type check's.
+
+Test: `packages/create-composable-os/test/client-repo.test.ts` (an upgrade over a client holding
+1.0.0's `courses-my-courses`).

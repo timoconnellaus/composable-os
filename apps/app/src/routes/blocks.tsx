@@ -22,7 +22,9 @@
 // hooks as `notes` (createNotesHooks, stage 56), for the note composer a pack's screen opens.
 // My account's blocks (`web-account*`, stage 48) are given the account hooks as `account`, and
 // the shell (`web-account`) the packs' sections the host lists for the customer (`me.portal`),
-// each the pack's own block with its hooks, as `cos add web-account` wires them in a client app.
+// each the pack's own block with its hooks, as `cos add web-account` wires them in a client app,
+// and `onFillForm`, which opens a form from Needs your attention in the block exporting
+// `LinkedFormBlock` (ADR 0728), mounted here with the link's id.
 import {
   ACCOUNT_HOOKS_CALL,
   type AccountClient,
@@ -202,6 +204,34 @@ function usePortalSections(account: AccountHooks, returnUrl: string): PackSectio
   return sections;
 }
 
+/**
+ * Where a form a customer was asked to fill in opens (`onFillForm(linkId)`, a `form_to_fill`
+ * item of Needs your attention): the block that exports `LinkedFormBlock` (ADR 0728), mounted
+ * here with that link's id, as a client app with Forms opens it on a page of its own. Found by
+ * its export, so this page names no pack; null when no installed pack's block has it.
+ */
+let linkedFormBlock: Promise<string | null> | null = null;
+function findLinkedFormBlock(): Promise<string | null> {
+  linkedFormBlock ??= (async () => {
+    for (const [path, load] of Object.entries(files)) {
+      if (!path.includes("/packs/")) continue;
+      const module = await load();
+      if (typeof module.LinkedFormBlock === "function") {
+        return /\/blocks\/([^/]+)\/[^/]+$/.exec(path)?.[1] ?? null;
+      }
+    }
+    return null;
+  })();
+  return linkedFormBlock;
+}
+
+async function openLinkedForm(linkId: string) {
+  const block = await findLinkedFormBlock();
+  if (!block) return;
+  const props = encodeURIComponent(JSON.stringify({ linkId }));
+  window.location.assign(`/blocks?block=${block}&component=LinkedFormBlock&props=${props}`);
+}
+
 /** The account shell with the packs' sections the host lists for the signed-in customer. */
 function WithPackSections({
   account,
@@ -273,6 +303,8 @@ function BlocksPage() {
     // What a client app gives My account: leaving after sign-out or deleting the account.
     onSignOut: () => window.location.assign("/blocks"),
     onDeleted: () => window.location.assign("/blocks"),
+    // A form from Needs your attention, opened as a client app with Forms opens it (ADR 0728).
+    onFillForm: (linkId: string) => void openLinkedForm(linkId),
     ...extra,
   };
   return (

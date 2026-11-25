@@ -10,7 +10,12 @@ export const click = "See what deleting my account does";
 export default function Preview() {
   return (
     <Screen title="Delete my account">
-      <DeleteAccount account={account} signIn={signIn} onDeleted={() => {}} />
+      <DeleteAccount
+        account={account}
+        signIn={signIn}
+        endSession={async () => {}}
+        onDeleted={() => {}}
+      />
     </Screen>
   );
 }

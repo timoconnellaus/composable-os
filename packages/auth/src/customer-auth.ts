@@ -357,6 +357,15 @@ export function customerIdentity(auth: CustomerAuthInstance, d1: D1Database): Cu
       if (CUSTOMER_ROUTES[route] !== request.method) {
         return new Response("Not found", { status: 404 });
       }
+      // Signing in again in place (stage 48, ADR 0715 amended): the session the browser's cookie
+      // names now is the one this sign-in replaces. Read before, ended only once it has worked.
+      const previous =
+        route === "/sign-in/email-otp"
+          ? await auth.api
+              .getSession({ headers: request.headers })
+              .then((s) => s?.session.id ?? null)
+              .catch(() => null)
+          : null;
       const response = await auth.handler(request);
       if (route !== "/sign-in/email-otp") return response;
       // One answer for every failed sign-in: "expired" or "too many tries" would say a code was
@@ -365,6 +374,13 @@ export function customerIdentity(auth: CustomerAuthInstance, d1: D1Database): Cu
       // Signed in: say whether the account is ready or needs a moment (staff are merging people).
       const body = (await response.json()) as { user?: { id?: unknown } } & Record<string, unknown>;
       const customerId = typeof body.user?.id === "string" ? body.user.id : null;
+      // The new session is never the one replaced (a sign-in makes one); its token says so anyway.
+      if (previous) {
+        await d1
+          .prepare("DELETE FROM core_customer_session WHERE id = ? AND token IS NOT ?")
+          .bind(previous, typeof body.token === "string" ? body.token : null)
+          .run();
+      }
       const account = customerId ? await accountState(crm, customerId) : "needs_attention";
       const headers = new Headers(response.headers);
       headers.delete("content-length");

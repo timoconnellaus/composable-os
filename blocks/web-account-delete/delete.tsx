@@ -9,6 +9,12 @@
 //
 // The host keeps it to a sign-in within the last 15 minutes, the preview too. When it says
 // `sign_in_again`, the block signs the customer in again in place (`SignInAgain`) and carries on.
+//
+// Once the host has deleted the account it has also ended every session, this browser's cookie
+// with them. At once, `useDeleteAccount` forgets every query in the app's cache (when the app made
+// the hooks with its `useQueryClient`: `createAccountHooks({ useQuery, useMutation,
+// useQueryClient }, api)`), so nothing of the account stays in memory. What the app must still
+// do, in `onDeleted`: leave the page (the template goes to its home page with a full load).
 import {
   type AccountHooks,
   type AccountSignIn,
@@ -53,8 +59,6 @@ export function DeleteAccount({
   const [typed, setTyped] = useState("");
   const [problem, setProblem] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  if (!me.data) return null;
-  const email = me.data.signInEmail;
 
   async function preview(changed = false) {
     setProblem(null);
@@ -93,18 +97,7 @@ export function DeleteAccount({
     setStep({ kind: "done", words: deletedWords(outcome.value) });
   }
 
-  if (step.kind === "sign_in_again") {
-    return (
-      <SignInAgain
-        email={email}
-        signIn={signIn}
-        onCancel={() => setStep({ kind: "idle" })}
-        // Back to the preview: asked again (after a sign-in, what it shows is asked afresh).
-        onSignedIn={() => void preview()}
-      />
-    );
-  }
-
+  // Deleted: said first, as the account's own reads now find nobody (the hooks forgot them).
   if (step.kind === "done") {
     return (
       <div className="grid gap-3">
@@ -115,6 +108,21 @@ export function DeleteAccount({
           </Button>
         </div>
       </div>
+    );
+  }
+
+  if (!me.data) return null;
+  const email = me.data.signInEmail;
+
+  if (step.kind === "sign_in_again") {
+    return (
+      <SignInAgain
+        email={email}
+        signIn={signIn}
+        onCancel={() => setStep({ kind: "idle" })}
+        // Back to the preview: asked again (after a sign-in, what it shows is asked afresh).
+        onSignedIn={() => void preview()}
+      />
     );
   }
 

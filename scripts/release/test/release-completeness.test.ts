@@ -18,9 +18,12 @@ const UNPUBLISHED_PACKS: Record<string, string> = {};
 
 /**
  * Folders under blocks/ or packs/<id>/blocks/ deliberately not released, by path from the root,
- * each with why. None today: the platform's own block tooling is files there, not folders.
+ * each with why. The platform's own block tooling is files there, not folders, but for its tests.
  */
-const UNPUBLISHED_BLOCKS: Record<string, string> = {};
+const UNPUBLISHED_BLOCKS: Record<string, string> = {
+  "blocks/test":
+    "the blocks' render tests (vitest, React Native drawn as plain elements), no block",
+};
 
 const folders = (dir: string) =>
   readdirSync(dir, { withFileTypes: true })

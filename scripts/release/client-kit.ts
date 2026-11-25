@@ -13,8 +13,19 @@
 import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 
-/** Never part of the kit: build output, dependencies, local state. */
-const SKIP = new Set(["node_modules", "dist", ".wrangler", ".turbo", ".tanstack", ".expo"]);
+/**
+ * Never part of the kit: build output, dependencies, local state, and the template mobile app's
+ * platform-only tsconfig (it reads the blocks from this repository's blocks/).
+ */
+const SKIP = new Set([
+  "node_modules",
+  "dist",
+  ".wrangler",
+  ".turbo",
+  ".tanstack",
+  ".expo",
+  "tsconfig.platform.json",
+]);
 
 function walk(dir: string, base: string, out: Map<string, Uint8Array>, prefix: string) {
   for (const entry of readdirSync(dir, { withFileTypes: true })) {

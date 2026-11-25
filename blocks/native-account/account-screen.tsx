@@ -15,7 +15,11 @@
 // `onManage`, which opens the website account page. "Needs your attention" sits at the top
 // (me.attention, ADR 0711), each item opening the section that deals with it. Changing the sign-in
 // address (under Your details) and Delete my account work in the app; when the host asks for a
-// recent sign-in, they sign the customer in again in place through `signIn` (ADR 0712).
+// recent sign-in, they sign the customer in again in place through `signIn` (ADR 0712). Once the
+// account is deleted, the shell's `endSession` (the app's `session.signOut`) forgets this device's
+// tokens at once; the app's `onDeleted` then goes back to sign-in. Money owed on an order opens
+// the website, as the card does. A base section the host lists that this copy draws nothing for
+// (added to the platform later) is left out (`portalSections`' `base`).
 import {
   type AccountHooks,
   type AccountSection,
@@ -105,6 +109,7 @@ export function AccountScreen({
   sections = [],
   websiteUrl,
   signIn,
+  endSession,
   onSignOut,
   onDeleted,
   onFillForm,
@@ -119,9 +124,14 @@ export function AccountScreen({
   websiteUrl: string;
   /** The app's session sign-in by code, for signing in again in place when the host asks. */
   signIn: AccountSignIn;
+  /**
+   * Ends this device's session and forgets its tokens (`session.signOut`): Delete my account
+   * calls it as soon as the host has deleted the account.
+   */
+  endSession: () => Promise<unknown>;
   /** Signs this device out and goes back to sign-in. */
   onSignOut: () => void;
-  /** The account is deleted and this device signed out: back to sign-in. */
+  /** The account is deleted and this device's tokens forgotten: back to sign-in. */
   onDeleted: () => void;
   /** Opens a form the customer was asked to fill in, by its personal link's id. */
   onFillForm?: (linkId: string) => void;
@@ -133,20 +143,29 @@ export function AccountScreen({
   const me = account.useMe();
   const portal = account.usePortal();
   const [open, setOpen] = useState<string | null>(null);
-  const shown = portalSections(portal.data, sections);
   const packs = new Map(sections.map((s) => [s.key, s]));
   const manage = () => openUrl(websiteUrl);
 
   // Each base section's content; the shell gives it a screen. Agreements is a screen of its own.
   const base: Record<string, () => ReactNode> = {
-    orders: () => <YourOrders account={account} openUrl={openUrl} />,
+    orders: () => <YourOrders account={account} openUrl={openUrl} onManage={manage} />,
     family: () => <YourFamily account={account} />,
     payment: () => <PaymentMethod onManage={manage} />,
     details: () => <YourDetails account={account} signIn={signIn} />,
     contact: () => <ContactPreferences account={account} />,
     devices: () => <SignInAndDevices account={account} onSignOut={onSignOut} />,
-    delete: () => <DeleteAccount account={account} signIn={signIn} onDeleted={onDeleted} />,
+    delete: () => (
+      <DeleteAccount
+        account={account}
+        signIn={signIn}
+        endSession={endSession}
+        onDeleted={onDeleted}
+      />
+    ),
   };
+  // Only the base sections drawn here (Agreements has its own screen): one a newer host lists
+  // that this copy has no part for is left out, never shown empty.
+  const shown = portalSections(portal.data, sections, [...Object.keys(base), "agreements"]);
 
   const section = shown.find((s) => s.key === open);
   if (section) {

@@ -244,6 +244,8 @@ export async function signOutDeviceSession(
   db: CrmDb,
   refreshToken: string,
   now: Date,
+  /** End it only when it is this customer's own session (a sign-in replacing its own). */
+  only?: { customerId: string },
 ): Promise<boolean> {
   const sessionId = sessionIdOf(refreshToken);
   if (!sessionId) return false;
@@ -253,6 +255,7 @@ export async function signOutDeviceSession(
     .where("id", "=", sessionId)
     .executeTakeFirst();
   if (!row) return false;
+  if (only && (row.audience !== "customer" || row.customer_id !== only.customerId)) return false;
   const hash = await tokenHash(refreshToken);
   const used = JSON.parse(row.used_refresh_hashes) as string[];
   if (hash !== row.refresh_hash && !used.includes(hash)) return false;
