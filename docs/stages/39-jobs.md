@@ -517,7 +517,7 @@ may override any of them.
 
 ## Status
 
-- **Step 1, stage rules on host facts** (branch `feat/stage-39-host-set-date`, PR #350): built.
+- **Step 1** — built — PR #350 — Stage rules on host facts (branch `feat/stage-39-host-set-date`).
   `packages/sdk/src/behaviour.ts` lets a stage's `requiredFields` options and `requiredByType`
   name a read-only field (not a formula, the stage field or a field the behaviour keeps). Such a
   host fact (`packages/core/src/records/host-facts.ts`) is written only by the host or the pack's
@@ -532,7 +532,8 @@ may override any of them.
   the host, and editing, adding, trashing and restoring the gated stages). Left for step 5: the
   Jobs pack declaring `acceptedAt`, `signedOffAt` and `invoicedAt` and its seeded pipelines; the
   board e2e of criterion 1 comes with the pack.
-- **Step 2, times that follow** (branch `feat/stage-39-times-follow`): built.
+
+- **Step 2** — built — PR #419 — Times that follow (branch `feat/stage-39-times-follow`).
   `packages/sdk/src/staffed.ts` adds `staffed.timesFrom`: a required relation to another of the
   extension's objects that has the shift's `starts`, `ends`, `zone` and `kind` under the same names;
   the shift's copies must be read-only, and no series makes it. Triggers the reconciler builds
@@ -547,11 +548,12 @@ may override any of them.
   3 on a fixture of visits and crew places, raw statement shapes, Trash and restore, the cascade,
   declaring it over existing records) and `staffed-times-follow-cost.test.ts` (25 crew places moved
   in about 360 queries). After review: every roster rule runs for each following shift (a visit's
-type changing its crew's checklist is a rosterer's), a move that also cancels the crew is not
-refused at its new time, the bound of 25 is checked when a crew place is made, chains are refused,
-and a shift naming no record is refused by the database. Left for step 5: the Jobs pack's
-`jobs.assignment` declaring it.
-- **Step 3, the "mine" reach for pack roles** (branch `feat/stage-39-mine-reach`, PR #424): built.
+  type changing its crew's checklist is a rosterer's), a move that also cancels the crew is not
+  refused at its new time, the bound of 25 is checked when a crew place is made, chains are refused,
+  and a shift naming no record is refused by the database. Left for step 5: the Jobs pack's
+  `jobs.assignment` declaring it.
+
+- **Step 3** — built — PR #424 — The "mine" reach for pack roles (branch `feat/stage-39-mine-reach`).
   A pack role may declare `mine` (`packages/sdk/src/mine.ts`): by object, the records of its pack
   naming the holder (`through`, its user field `who`), the relations from them to the object
   (`path`, at most three), the states in which they count (`live`) and a window around their own
@@ -573,3 +575,17 @@ and a shift naming no record is refused by the database. Left for step 5: the Jo
   clocking, checklist ticks); treating the sources of step 2's time copy (merged, `staffed.timesFrom`) and of
   `states.follows` onto the crew place as deciding (ADR 0755, Consequences); prices without `jobs:prices` and
   access notes on the visit's day only (field rules, not the reach).
+
+- **Step 4** — not built — needs: stage 44 step 6 — Acceptance of a record: variation approval
+  and sign-off, the phone view
+
+- **Step 5** — not built — needs: step 1, step 2, step 3 — The Jobs pack's spine: objects,
+  pipelines, crew places, lines, variations, rates, tools, settings, views, the CSV (its time
+  tools after stage 58 steps 1 and 7)
+
+- **Step 6** — not built — The customer's record link and customer scope
+
+- **Step 7** — not built — needs: step 5, stage 47, stage 48, stage 56 step 3 — Blocks and
+  screens: office, crew, the My account section and attention kinds, photos, routine and host mail
+
+- **Step 8** — not built — needs: stage 35 step 3 — `billable` and the seam with stage 35

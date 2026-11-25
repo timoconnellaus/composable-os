@@ -33,21 +33,42 @@ Status: **spec agreed** (owner interviewed 2026-11-24: decision 1 answered by th
 and #237 (buying in the app, deferred), #116 (push to client apps, stage 30), #121 (preview builds
 per branch), #120 (a TV app).
 
+## Status
+
 Built (`feat/stage-63-app-cli`, ADRs 0900, 0901 and 0905; not yet tried on a real store account):
-- **Step 1:** `mobile.app` in the product definition, per environment, and its checks in
+
+- **Step 1** — built — PR #369 — `mobile.app` and its checks; `app.config.ts`; `brand.ts`: `mobile.app` in the product definition, per environment, and its checks in
   `defineClientProduct`; `appBuild`; the template's `app.json` replaced by `app.config.ts` (name,
   ids, scheme, icon, splash, colours, host and build number from `product.ts` and `COS_ENV`);
   `brand.ts` written by `cos client generate` at `apps/mobile/src/blocks/brand.ts` (beside the
   copied blocks, not `src/brand.ts`: ADR 0900) and read by the native base theme.
-- **Step 2:** `cos app check`, `cos app credentials` and `cos app build-info`; the purchase scan
+
+- **Step 2** — built — PR #369 — `cos app check`, `credentials`, `build-info`; the purchase scan: `cos app check`, `cos app credentials` and `cos app build-info`; the purchase scan
   over the client's app code, its rules shared with the block lint
   (`packages/create-composable-os/src/purchase-rules.ts`).
-- **Step 3:** the template's workflow (`templates/client/.github/workflows/app.yml`), `cos app
+
+- **Step 3** — built — PR #369 — The CI workflow; `cos app record`; the runbook: the template's workflow (`templates/client/.github/workflows/app.yml`), `cos app
   record` (writing `core_app_build` over the deploy path; the table is step 4's migration 1370),
   `cos app upload --platform android` (the internal testing track), and the runbook,
   [`docs/app-publishing.md`](../app-publishing.md). Deviations in ADR 0901: two small `cos` jobs
   hold the deploy credential (the number before, the record after); the iPhone listing is entered
   by the person who submits; the Android listing is sent only when asked.
+
+- **Step 4** — not built — The build header, the minimum build and its warning, `app.status`,
+  `core_app_build` (migration 1370), the settings operations, Settings → App.
+
+- **Step 5** — not built — Review access (migration 1371).
+
+- **Step 6** — not built — `native-update-required`; template wiring (`onUpgradeRequired`, the account
+  shell).
+
+- **Step 7** — not built — needs: stage 46 step 5 — The API version guard in `cos deploy` and the fleet
+  update.
+
+- **Step 8** — not built — needs: stage 30 step 4 — Push readiness.
+
+- **Step 9** — not built — needs: stage 48, the first client's store accounts and real phones — The first
+  client: accounts, keys, listing, review access, first release.
 
 ## Goal
 

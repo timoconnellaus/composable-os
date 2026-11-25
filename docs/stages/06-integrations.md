@@ -162,3 +162,7 @@ Completes ADR 0029:
 9. The upstream sync check script runs in CI as an informational job.
 10. `pnpm lint typecheck test` and e2e pass in CI. ADRs, `CONTEXT.md` (Connection, Sharing level,
     Integration host, Outbound action, Suggested contact) and `docs/architecture.md` are updated.
+
+## Status
+
+- **All steps** — built — PRs #10, #16, #29, #35 — Integrations: vendored gatekeepers (#10, #16); 6a integration host and outbound approvals (#29); 6b run-as, triggers, outbox (#35).

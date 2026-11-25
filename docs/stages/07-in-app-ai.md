@@ -119,3 +119,7 @@ Voice, vision features beyond the role, fine-tuning, multi-agent orchestration.
    - Settings → AI test button
 10. `pnpm lint typecheck test` and e2e pass in CI. ADRs, `CONTEXT.md` (Assistant, Model role
     registry, Shadow mode, Written policy) and `docs/architecture.md` are updated.
+
+## Status
+
+- **All steps** — built — PRs #32, #44 — In-app AI: 7a model registry, summaries, semantic search (#32); 7b assistant, adjudicator, daily digest (#44).

@@ -30,7 +30,7 @@ stage 30".
 
 ## Status
 
-- **Step 1, conversations and messages** (branch `feat/stage-36-conversations`; migrations 1050
+- **Step 1** — built — PR #381 — Conversations and messages (branch `feat/stage-36-conversations`; migrations 1050
   and 1430, ADR 0740): `core_conversation` with its version guard; `core_activity` rebuilt with the type
   `chat` and `conversation_id`, its links, triggers and views kept, and private conversations left
   out of search and the `rec_*` views; `packages/core/src/inbox/` (the private-conversation rule
@@ -54,6 +54,33 @@ stage 30".
   rebuild numbered 1050 lost the private rule on a fresh database and a note's level on a host
   that already had 1230. Migration 1061, reserved for 36b's `text` rebuild, can no longer be used
   for it: that rebuild sorts after 1430.
+
+- **Step 2** — not built — needs: step 1 — Email in and out: the inbound hook, sender checks,
+  threading, unknown senders, replies via email-send, auto-acknowledgement
+
+- **Step 3** — not built — needs: step 1 — The web inbox screens, saved replies, Settings → Inbox
+
+- **Step 4** — not built — needs: step 1 — Chat for customers: `chat.*`, web and native blocks,
+  the Messages section and `message_unread`
+
+- **Step 5** — not built — needs: step 1 — Reply targets, opening hours, snooze, assignment rules
+  for conversations
+
+- **Step 6** — not built — needs: step 1 — AI: the `compose` role, drafts, summaries, suggestions,
+  judge warnings
+
+- **Step 7** — not built — needs: step 2, stage 30 step 5 — 36b Campaigns: records, preview, the
+  send Workflow, `email.campaign`, report
+
+- **Step 8** — not built — needs: stage 30 step 3, stage 30 step 5 — 36b Texts: inbound and
+  outbound on conversations, STOP (whether stage 30 step 3's text gatekeeper is the two-way one
+  this step needs is to be checked when it starts)
+
+- **Step 9** — not built — needs: step 3 — The staff native inbox; "about" declared by Bookings,
+  Memberships and Leads
+
+- **Step 10** — not built — needs: step 2, step 3, step 4, step 5, step 6, step 9 — E2E journeys,
+  the site and `SITE.md` (last for 36a; again after 36b)
 
 ## Goal
 

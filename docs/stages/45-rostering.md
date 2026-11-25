@@ -51,6 +51,37 @@ migration 0816; see "Built: checklists on their own" below). Builds on stage
 31a (built) and ADR 0600 (merged). Replaces the roadmap's placeholder stage 40 (Rosters), which was
 never specced. Where this spec guesses, it says **(guess)**.
 
+## Status
+
+- **Step 1** — built — PR #271 — Field-level exceptions in `recurring`: migration 0810, ADR 0620.
+
+- **Step 2** — built — PR #279 — `staffed` and the time claim: migration 0811, ADRs 0621 and 0622 ("Built in
+  step 2").
+
+- **Step 3** — built — PR #282 — Qualifications, unavailability, offers and takes, uncovered shifts, the
+  notices and leaving: migration 0812, ADRs 0623 and 0624 ("Built in step 3").
+
+- **Step 4** — built — PR #284 — Permissions, the `rostering.team` role and the Rostering pack's spine: no
+  migration, ADRs 0625 and 0626 ("Built in step 4").
+
+- **Step 4b** — built — PR #298 — Checklists: migration 0815, ADR 0650 ("Built in step 4b").
+
+- **Step 5** — built — PR #295 — The feed and the shared calendar writer: migration 0814, ADR 0628, ADR 0571
+  amended ("Built in step 5").
+
+- **Step 6** — built — PR #287 — Pay: migration 0813, ADR 0627 ("Built in step 6").
+
+- **Step 7** — built — PR #296 — Blocks and hooks, role clients with grants, `cos rostering import`: no
+  migration, ADR 0629 ("Built in step 7").
+
+- **Step 8** — not built — needs: step 7, the first client's move-in (stage 33 has no spec) — The first client:
+  invites, qualifications, patterns from the moved timetable, a fortnight's pay export checked by
+  the owner.
+
+Follow-ups merged after the steps: a staff member sees their own pay-period totals (PR #304);
+checklists on their own, without a roster (PR #383, migration 0816, ADRs 0651 and 0652; "Built:
+checklists on their own"), and its review fixes (PR #443).
+
 ## Goal
 
 A business keeps its roster on its host. The owner sets the regular week once: a named coach takes

@@ -6,6 +6,10 @@ editUrl: false
 
 Qualifications (stage 45 step 7), for someone who rosters: people down, kinds of work across (each class type, each duty), a tick each. A ticked person may take an offered shift of that kind without anybody approving; putting someone unticked on one is made with a warning. Who is qualified is the host's (`qualifications`), and each tick is the host's write (`qualify`). Shown only when the host says the reader rosters (`me.rosters`). On a phone the grid scrolls sideways inside its own box; the page does not.
 
+<img class="cos-screen" src="/screens/rostering-qualifications.png" alt="rostering-qualifications, drawn with dummy data" width="900" height="468" loading="lazy" decoding="async" />
+
+Drawn with dummy data.
+
 |  |  |
 | --- | --- |
 | Skin | web |

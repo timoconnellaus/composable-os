@@ -6,6 +6,10 @@ editUrl: false
 
 The courses a signed-in student holds, in the studio's app (stage 42), with how far they are. Which they hold is the host's (`useMyCourses`); nothing here is for sale (`noPurchase`).
 
+<img class="cos-screen cos-screen-native" src="/screens/courses-native-my-courses.png" alt="courses-native-my-courses, drawn with dummy data" width="390" height="844" loading="lazy" decoding="async" />
+
+Drawn with dummy data.
+
 |  |  |
 | --- | --- |
 | Skin | native |

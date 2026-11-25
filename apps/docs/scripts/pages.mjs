@@ -39,6 +39,28 @@ const toolLink = (pack, tool) => `/packs/${pack}/tools/#${slug(tool)}`;
 const blockLink = (name) => `/reference/blocks/${name}/`;
 const behaviourLink = (key) => `/reference/behaviours/#${slug(key)}`;
 
+/**
+ * A block's picture (apps/screens draws it with dummy data, apps/docs/public/screens/), or "" when
+ * it has none. A native block's is drawn at twice a phone's size and shown at a phone's.
+ */
+function screenPicture(b, ctx) {
+  const shot = ctx.screens?.[b.name];
+  if (!shot) return "";
+  const native = shot.skin === "native";
+  const alt = `${b.name}, drawn with dummy data`.replace(/"/g, "&quot;");
+  return `<img class="cos-screen${native ? " cos-screen-native" : ""}" src="/screens/${b.name}.png" alt="${alt}" width="${shot.width}" height="${shot.height}" loading="lazy" decoding="async" />`;
+}
+
+/** Blocks as a gallery: each one's name, skin, what it shows and its picture. */
+function blockGallery(blocks, ctx) {
+  return blocks
+    .map((b) => {
+      const picture = screenPicture(b, ctx);
+      return `### ${b.name}\n\n${b.skin === "native" ? "Native" : "Web"}. ${inline(firstSentence(b.shows))} [The block](${blockLink(b.name)}).${picture ? `\n\n${picture}` : ""}`;
+    })
+    .join("\n\n");
+}
+
 /** A link for an operation name as a block or a pack lists it: a core operation or a pack tool. */
 function operationRef(name, ctx) {
   const tool = name.match(/^x\.([a-z0-9]+)\.(.+)$/);
@@ -402,11 +424,11 @@ function screensPage(id, m, ctx) {
   ];
   const own = ctx.blocks.filter((b) => b.pack === id);
   parts.push(
-    `## Blocks\n\n${table(
-      ["Block", "Skin", "What it shows"],
-      own.map((b) => [`[${b.name}](${blockLink(b.name)})`, b.skin, cell(firstSentence(b.shows))]),
-      "This pack has no blocks.",
-    )}`,
+    `## Blocks\n\n${
+      own.length
+        ? `Each drawn with dummy data.\n\n${blockGallery(own, ctx)}`
+        : "This pack has no blocks."
+    }`,
   );
   return parts.join("\n\n");
 }
@@ -529,12 +551,7 @@ function capabilityPages(c, ctx) {
     code: false,
     content: page(
       { title: `${c.title}: screens`, label: "Screens", order: 4 },
-      `Its blocks, for client apps (copied with \`cos add\`) and the admin.\n\n${table(
-        ["Block", "Skin", "What it shows"],
-        screens
-          .filter(Boolean)
-          .map((b) => [`[${b.name}](${blockLink(b.name)})`, b.skin, cell(firstSentence(b.shows))]),
-      )}`,
+      `Its blocks, for client apps (copied with \`cos add\`) and the admin, each drawn with dummy data.\n\n${blockGallery(screens.filter(Boolean), ctx)}`,
     ),
   });
   if (!ctx.facts) return out;
@@ -745,7 +762,9 @@ function blockPages(ctx) {
       code: true,
       content: page(
         { title: b.name, description: firstSentence(b.shows) },
-        `${inline(b.shows) || "Its files say nothing about what it shows."}\n\n${table(["", ""], rows)}\n\n## Operations it calls\n\nThrough its hooks; the host decides what each caller may do.\n\n${
+        `${inline(b.shows) || "Its files say nothing about what it shows."}\n\n${
+          screenPicture(b, ctx) ? `${screenPicture(b, ctx)}\n\nDrawn with dummy data.\n\n` : ""
+        }${table(["", ""], rows)}\n\n## Operations it calls\n\nThrough its hooks; the host decides what each caller may do.\n\n${
           list(b.operations)
             .map((o) => `- ${operationRef(o, ctx)}`)
             .join("\n") || "None."

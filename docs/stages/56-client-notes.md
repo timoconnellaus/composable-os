@@ -34,7 +34,17 @@ Status: **spec agreed** (2026-11-24: the draft's ten questions were decided as b
 the owner's standing rule on questions, with no interview needed; decisions 1 to 10 below). Build
 may start. A new stage, numbered 56.
 
-- **Step 1 built** (branch `feat/stage-56-note-levels`, ADRs 0830, 0831, 0832; migrations 1230 and
+These notes can hold health and injury details. This stage is exact about who reads each note,
+records every read of a restricted one, and deletes them on erase. **It is not a clinical record**:
+allied health's clinical layer is out of scope (the owner ranked that market lower), and nothing
+here is designed or described as meeting any rule for health records. What a business must keep,
+and for how long, is for the business to confirm with its accountant or lawyer.
+
+## Status
+
+- **Step 1** — built — PR #373 — Levels and kinds' columns, looks after, the three permissions,
+  the seam's note scope and actor, read audits: migrations 1230 and 1231, ADRs 0830, 0831, 0832
+  (branch `feat/stage-56-note-levels`, ADRs 0830, 0831, 0832; migrations 1230 and
   1231): `core_activity.level` and the note's other columns; levels 2 and 3 out of
   `core_base_activities`, `rec_activity`, `rec_activity_link`, search, embeddings and summaries;
   the note scope in the seam (`visibility/notes.ts`, through `visibleTable(ctx, "activity")`),
@@ -49,7 +59,10 @@ may start. A new stage, numbered 56.
   restricted: never self-granted). Not in step 1: kinds and templates and every admin screen
   (step 2), the shipped pack's `team` key (with Jobs), merge moving looks-after rows (step 7),
   the digest needed nothing (it reads no activities).
-- **Step 2 built** (branch `feat/stage-56-note-kinds`, ADR 0833; migration 1232):
+
+- **Step 2** — built — PRs #434, #437 — Note kinds and templates; Settings → Notes; the composer
+  block: migration 1232, ADR 0833 (#437 is the review fixes)
+  (branch `feat/stage-56-note-kinds`, ADR 0833; migration 1232):
   `core_note_kind` with the four kinds seeded (Note stays `staff` and is never retired) and
   `note.kinds.list`, `.save`, `.retire` (`notes:manage`; an AI drafts a kind's name and template
   only, waiting for a person who holds it); every note has a kind (old notes are Notes), starts at
@@ -62,11 +75,27 @@ may start. A new stage, numbered 56.
   retention settings (step 7, with the typed count), client uploads and storage totals (steps 3
   and 6); existing notes keep their level when a kind's lowest is raised.
 
-These notes can hold health and injury details. This stage is exact about who reads each note,
-records every read of a restricted one, and deletes them on erase. **It is not a clinical record**:
-allied health's clinical layer is out of scope (the owner ranked that market lower), and nothing
-here is designed or described as meeting any rule for health records. What a business must keep,
-and for how long, is for the business to confirm with its accountant or lawyer.
+- **Step 3** — not built — needs: step 1 — Record files: table, R2 prefix, staff upload and serve
+  routes, metadata removal, limits, cap, Trash and purge
+
+- **Step 4** — not built — needs: step 1 — Coaches: pack-role reach, Bookings' class list "Add
+  note", Programs' session notes, the coach app
+
+- **Step 5** — not built — needs: step 1, stage 48 step 4 — Sharing and Documents: `note.share`,
+  `me.documents.*`, guardians, the attention kind, the section blocks
+
+- **Step 6** — not built — needs: step 3 — The customer upload (issue #117): open route, limits,
+  daily count, `files.customer`, typed client upload
+
+- **Step 7** — not built — needs: step 3 — Erase, merge, evidence kinds, retention, holds, the
+  erase preview
+
+- **Step 8** — not built — needs: step 5, stage 30 step 1 — The "shared with you" email kind
+  (stage 30's host kinds' send path is its step 1)
+
+- **Step 9** — not built — needs: step 2, step 3, step 4, step 5, step 6, step 7, step 8 — Site
+  and `SITE.md`
+
 
 ## Goal
 

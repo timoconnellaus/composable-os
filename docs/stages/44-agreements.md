@@ -43,6 +43,42 @@ amended; build notes at the end).
 Builds on stages 25, 31a and 32. The first client is a gym moving from another system. It must be in
 place before members pay or train on the new system (decision 13).
 
+## Status
+
+- **Step 1** — built — PR #266 — Documents and versions: `feat/stage-44-documents`, migration 0850, ADRs
+  0640 and 0641.
+
+- **Step 2** — built — PR #274 — Acceptances and the one question: `feat/stage-44-acceptances`, migration
+  0851, ADRs 0642 and 0643 (build notes below, "Step 2: build notes").
+
+- **Step 3** — built — PR #280 — Enforcement: `feat/stage-44-enforcement`, migration 0853, ADR 0644 ("Step 3:
+  build notes").
+
+- **Step 4** — built — PR #283 — The copy and the PDF: `feat/stage-44-copy`, migration 0854, ADR 0645 ("Step
+  4: build notes").
+
+- **Step 5** — built — PR #291 — Blocks and hooks: `feat/stage-44-blocks`, ADR 0644 amended ("Step 5: build
+  notes").
+
+- **Step 6** — built — PR #390 — Signing at the desk: `feat/stage-44-desk-signing` with stage 51 step 1 (the
+  enrolled device), migration 0858, ADRs 0649 and 0780 ("Step 6: build notes").
+
+- **Step 7** — built — PR #299 — Cooling off: `feat/stage-44-cooling-off`, migration 0856, ADR 0647 ("Step 7:
+  build notes").
+
+- **Step 8** — built — PR #288 — Erase, merge, the Trash and retention: `feat/stage-44-erase`, migration 0855,
+  ADR 0646 ("Step 8: build notes").
+
+- **Step 9** — not built — needs: stage 43 step 4 — Stage 43's consent as a `care` acceptance.
+
+- **Step 10** — not built — needs: step 3, step 4, step 5, step 6, the first client — The first client: the
+  business writes and publishes its four documents and attaches them; a moved member's first
+  sign-in in test mode; a visitor's drop-in; a parent for a child; a member at the desk.
+
+Follow-ups merged after the steps: a child's paper form copy goes to the guardian staff pick (PR
+#301, migration 0857, ADR 0648); an agreement step in the Ticketing and Courses checkouts (PR #356,
+issue #292); staff-given enrolments and hand-made tickets are asked (PR #357, issue #281).
+
 **This is not legal advice, and the platform ships no legal wording.** A business writes its own
 documents, with its own advice. This stage records what a person agreed to, how and when, and stops
 anyone paying or booking without it. Whether a document does what the business needs is the

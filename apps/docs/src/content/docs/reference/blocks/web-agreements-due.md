@@ -6,6 +6,10 @@ editUrl: false
 
 "Before you go on" (stage 44 step 5), for the web: shown after sign-in when the host says something is due (me.agreements.due). Each due document in turn, the member's own first, then each child's linked to them; "Not now" goes on to their account. It is a convenience: the host refuses a booking or a purchase while anything it needs is due, whatever this screen did.
 
+<img class="cos-screen" src="/screens/web-agreements-due.png" alt="web-agreements-due, drawn with dummy data" width="720" height="731" loading="lazy" decoding="async" />
+
+Drawn with dummy data.
+
 |  |  |
 | --- | --- |
 | Skin | web |

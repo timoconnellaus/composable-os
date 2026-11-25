@@ -21,3 +21,7 @@ Read: ADR [0191](../adr/0191-saas-and-enterprise-model.md), ADRs 0001, 0012, 005
 4. Export and delete work and are audited. The support grant needs customer approval and expires.
 5. Cost per idle customer is documented and minimised: no always-on DOs, and no per-request control-plane calls.
 6. Lint, typecheck, test and e2e pass in CI. The go-live runbook exists.
+
+## Status
+
+- **All steps** — built — PR #43 — SaaS control plane, built against fakes and not deployed: it is deployed on the first sign-up.

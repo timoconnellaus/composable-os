@@ -6,6 +6,10 @@ editUrl: false
 
 A signed-in customer's tickets, for the mobile app's Tickets tab (stage 27). Which tickets are theirs, and what of them they may see, is the host's (`useMyTickets` reads through the seam).
 
+<img class="cos-screen cos-screen-native" src="/screens/ticketing-native-my-tickets.png" alt="ticketing-native-my-tickets, drawn with dummy data" width="390" height="844" loading="lazy" decoding="async" />
+
+Drawn with dummy data.
+
 |  |  |
 | --- | --- |
 | Skin | native |

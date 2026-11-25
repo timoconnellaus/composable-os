@@ -178,3 +178,7 @@ For an extension change, the approvals inbox shows:
    of at least 8/10 and failures analysed. This feeds improvements to the SDK docs.
 10. `pnpm lint typecheck test` and e2e pass in CI. ADRs, `CONTEXT.md` (Extension principal,
     Quarantine, Formula field, Eject), `docs/architecture.md` and the SDK README are updated.
+
+## Status
+
+- **All steps** — built — PRs #13, #19 — Extension runtime: 3a SDK, reconciler, runtime and install (#13); 3b authoring, approval screen, Code Mode, type checking (#19).

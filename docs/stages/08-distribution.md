@@ -103,3 +103,7 @@ privacy notes.
    screenshots, and marked as needing a human.
 9. `pnpm lint typecheck test` and e2e pass in CI. ADRs, `CONTEXT.md` (Release bundle, Channel,
    Preflight, Self-updater) and `docs/architecture.md` are updated.
+
+## Status
+
+- **All steps** — built — PR #31 — Distribution and updates (still needs a human: the CI test account and the manual real-account run).

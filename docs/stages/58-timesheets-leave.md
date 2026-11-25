@@ -14,7 +14,10 @@ Status: **spec agreed** (owner interviewed 2026-11-24: decision 1; the owner's e
 decisions of 2026-11-24 stand as decisions 2 to 4; decisions 5 to 13 decided as best practice by
 the coordinator, open to override). Build may start.
 
-- **Step 1, time entries** (built 2026-11-24, migration 1270, [ADR 0850](../adr/0850-time-entries-the-hosts-clock-overlaps-refused-and-worked-on.md)):
+## Status
+
+- **Step 1** — built — PR #364 — Time entries
+  (built 2026-11-24, migration 1270, [ADR 0850](../adr/0850-time-entries-the-hosts-clock-overlaps-refused-and-worked-on.md)):
   `core_time_entry` with the overlap triggers (every statement shape), one open entry per person
   and a start's idempotency key; the tool-only `staffing.time.clockIn`, `clockOut` (the host's
   clock), `enter`, `edit`, `withdraw` and `mine`, a person's own act on their own entries, working
@@ -23,7 +26,9 @@ the coordinator, open to override). Build may start.
   work); finish missing on the minute cron (`staffing.due`); `workedOn` in the SDK, refused to a
   runtime extension. Until step 2 every finished or entered entry waits. Leaving does not yet mark
   an open entry finish missing (step 4 amends `leaving.ts`).
-- **Step 2, differences and approval** (branch `feat/stage-58-approval`; migration 1273,
+
+- **Step 2** — built — PR #417 — Differences and approval
+  (branch `feat/stage-58-approval`; migration 1273,
   [ADR 0851](../adr/0851-differences-from-the-roster-and-approval-of-time.md); amends ADR 0850):
   built in core. The tolerance (`staffing.settings.matchMinutes`, 5, 0 to 30); an entry finished,
   entered or corrected that matches the person's own live shift within it is approved by the host
@@ -44,7 +49,11 @@ the coordinator, open to override). Build may start.
   time. Amended after the review of PR #417. Left for later steps: not recorded
   from `recordedFrom` (step 3), the 07:00 summary to approvers and Rostering's tools and setting
   (step 5), the screens (step 6).
-- **Step 4, leave** (branch `feat/stage-58-leave`; migration 1271, ADR 0853; amends ADRs 0622,
+
+- **Step 3** — not built — needs: step 2, step 4 — Pay: `recordedFrom`, lines from entries and leave, the lock's refusals and triggers, export columns, `myPay` (migration 1272)
+
+- **Step 4** — built — PR #374 — Leave
+  (branch `feat/stage-58-leave`; migration 1271, ADR 0853; amends ADRs 0622,
   0624, 0629): built in core. `core_leave_type`, `core_leave_request`, `core_leave_day`,
   `core_leave_balance_entry` (insert only) and `core_staff_away.leave_request`, with triggers
   (a request decided once, so two approvals at once apply once; what it asked fixed; an approved
@@ -63,6 +72,14 @@ the coordinator, open to override). Build may start.
   requests and marks an entry left open finish missing (no finish written). Tests: `packages/core/test/staffing-leave.test.ts`. Left for later steps: the lock's
   triggers over leave and leave lines in pay (step 3, migration 1272), Rostering's tools and
   notification words (step 5), the screens (step 6), the `forget` additions (with `staffing.forget`).
+
+- **Step 5** — not built — needs: step 1, step 2, step 4 — Rostering's tools, settings, labels, notification words
+
+- **Step 6** — not built — needs: step 5 — Screens: My time; leave in My time off and Time off; Time to approve, Differences, Leave types and balances, Pay's additions; stage 47 declarations
+
+- **Step 7** — not built — needs: step 1 — The Jobs seam: a test pack with `workedOn` and `partOf`; `forRecord`
+
+- **Step 8** — not built — needs: step 6, the first client — The first client: hours and leave recorded, leave types and balances entered, a fortnight recorded, the export checked
 
 ## Goal
 

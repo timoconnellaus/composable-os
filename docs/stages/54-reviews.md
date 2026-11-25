@@ -22,7 +22,7 @@ coordinator, recorded below; no interview was needed and none is open). Builds a
 public-write door and personal links, and after stage 30's preferences and one-tap stop. Number
 54.
 
-Built so far (see "Built" at the end): step 1 (P1, publishable with an author), step 2 (P2,
+Built so far (see "Status" at the end): step 1 (P1, publishable with an author), step 2 (P2,
 restricted fields), step 3 (P3, `onlyWith` automations).
 
 ## Goal
@@ -466,9 +466,11 @@ the trades' moment and review sites are to be checked with each business during 
 - **Needs a real client:** the Nth class and the wording; the website block with real quotes; the
   bot check on a real site; routine mail on a real email connection.
 
-## Built
+## Status
 
-- **Step 1 (P1), 2026-11-24.** [ADR 0810](../adr/0810-publishable-with-an-author.md) (amends 0442
+- **Step 1** — built — PRs #367, #442 — P1: publishable with an author, author-only fields, no
+  slug, `publishIn`: no migration, ADR 0810 (#442 is the review fixes)
+  (2026-11-24.) [ADR 0810](../adr/0810-publishable-with-an-author.md) (amends 0442
   and 0446). No migration: P1 needs no table (1190 stays P2's; 1191 to 1194, given to this step,
   are unused). A publishable object may declare a `customer`, its author, beside `public`; it has
   no slug and is listed only (`content.list`; `content.get` not found); `public.read` never lists
@@ -485,8 +487,9 @@ the trades' moment and review sites are to be checked with each business during 
   is still in a `publishIn` state (a guard in its batch); `public.read` may not list an author's
   field outside `content`, nor `publishable.date` be one; and a withdrawn review's author's fields
   are not written again, by the author either.
-- **Step 2, P2: restricted fields** (`feat/stage-54-restricted-fields`, migration 1190, ADR 0811):
-  built. A pack's `text` or `longText` field may declare `restricted: "<pack>:<word>"` (one of its
+
+- **Step 2** — built — PR #368 — P2: restricted fields: migration 1190, ADR 0811
+  (`feat/stage-54-restricted-fields`, migration 1190, ADR 0811): built. A pack's `text` or `longText` field may declare `restricted: "<pack>:<word>"` (one of its
   restricted permissions) on an object whose customer reads and writes it; the contract refuses
   any other use of it (`packages/sdk/src/restricted-fields.ts`). The host keeps the value in
   `core_restricted_value`, never in the `x_*` table, the registry or any view; the customer writes
@@ -496,7 +499,9 @@ the trades' moment and review sites are to be checked with each business during 
   erase and purge delete the author's values and scrub others that name them; dropping the field
   drops them. Proof: `packages/core/test/restricted-fields.test.ts`. Left for step 4: Reviews'
   `privateFeedback` and its `reviews.feedback` tool; stage 29's door writes through the same seam.
-- **Step 3 (P3), 2026-11-24.** [ADR 0812](../adr/0812-an-automation-that-runs-only-with-another-pack.md).
+
+- **Step 3** — built — PR #420 — P3: `onlyWith` automations: no migration, ADR 0812
+  (2026-11-24.) [ADR 0812](../adr/0812-an-automation-that-runs-only-with-another-pack.md).
   No migration (nothing is stored for the wait; 1190 stays P2's). `onlyWith: ["<extension>"]` on
   `defineAutomation` (`packages/sdk`: the contract, its manifest form, `automation-check.ts`): the
   extension installs without them, and while one is not installed that automation's trigger,
@@ -514,3 +519,10 @@ the trades' moment and review sites are to be checked with each business during 
   `packages/sdk/test/automation.test.ts`, `packages/extension-check/test/check.test.ts` (fixture
   `onlywith/`). Not done: field checks of another extension's object, which a deployment's check
   does not make today (ADR 0812, Consequences).
+
+- **Step 4** — not built — needs: step 1, step 2, step 3, stage 29 step 2, stage 29 step 5, stage 30 step 3 — The Reviews pack's spine: objects, states, settings, tools, automations, views, routine mail kinds, tests
+
+- **Step 5** — not built — needs: step 4, stage 47 step 1, stage 48 step 5 — Blocks (web and
+  native), headless hooks, the staff screen, the My account section
+
+- **Step 6** — not built — needs: step 5 — E2E, erase and merge tests, the site and `SITE.md`

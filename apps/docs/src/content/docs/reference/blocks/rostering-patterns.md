@@ -6,6 +6,10 @@ editUrl: false
 
 The regular week (stage 45 step 7), for someone who rosters: every class series' coach and duty series' regular person, day by day, and changing who works one from a date. The shifts from that date follow, except those that keep their own person; a change that would put someone on two shifts at once on any date is refused whole by the host, naming the dates, and shown so. Shown only when the host says the reader rosters (`me.rosters`): nobody else's screen asks for the patterns. Everything shown is the host's answer.
 
+<img class="cos-screen" src="/screens/rostering-patterns.png" alt="rostering-patterns, drawn with dummy data" width="1280" height="598" loading="lazy" decoding="async" />
+
+Drawn with dummy data.
+
 |  |  |
 | --- | --- |
 | Skin | web |

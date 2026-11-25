@@ -6,6 +6,10 @@ editUrl: false
 
 The page the buyer comes back to from the payment provider (stage 27). Coming back proves nothing: only the provider's verified word makes an order paid (ADR 0427), so this shows the order's real state from the host and keeps asking while it is pending.
 
+<img class="cos-screen" src="/screens/ticketing-order.png" alt="ticketing-order, drawn with dummy data" width="640" height="240" loading="lazy" decoding="async" />
+
+Drawn with dummy data.
+
 |  |  |
 | --- | --- |
 | Skin | web |

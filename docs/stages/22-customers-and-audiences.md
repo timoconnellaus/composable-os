@@ -240,3 +240,7 @@ built and reviewed before anything else is handed out.
 - **The audit tables no longer constrain the actor.** The pipeline validates it (migration 0400).
 - **A pack's tool called by a customer runs as that customer,** and lists per object the fields
   it may set beyond `customer.write` (ADR 0414).
+
+## Status
+
+- **All steps** — built — PR #80 — Customers and audiences.

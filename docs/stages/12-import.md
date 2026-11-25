@@ -312,3 +312,7 @@ Migrations 0280–0289 (block G in `docs/parallel-work.md`). ADRs 0240 and 0241.
 - **Undo window:** 30 days, tied to the Trash purge.
 - **Overwrite** of matching records requires an Admin. Skip and update-empty-fields-only stay open to anyone allowed to import.
 - **After each import** a duplicate scan runs over the imported records (stage 16).
+
+## Status
+
+- **All steps** — not built — needs: the owner's agreement on the spec — Import and migration (spec proposed, PR #49).

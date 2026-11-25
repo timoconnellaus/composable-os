@@ -181,3 +181,7 @@ Deviations are recorded in [ADR 0247](../adr/0247-duplicate-rules-and-scan.md#am
 bulk merge runs in batches from the page rather than as a separate job; the import dry run's name
 flag is on `import.csv.preview` because stage 12 is not built; visibility and the moves for stages
 12 and 13 wait for those stages.
+
+## Status
+
+- **All steps** — built — PR #65 — Duplicates.

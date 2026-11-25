@@ -6,6 +6,10 @@ editUrl: false
 
 Subscribing to every course on a studio's site (stage 32a): the course plans with the host's price per month and trial days, and a button that opens the payment provider's page. The price is the host's (`usePlans`); whether the trial is given, and the page, are the host's (`useSubscribe`, `subscription.start`): one trial per person, signed in. Web only. A guest who wants the trial confirms their address with a code here, on the plan, when the app passes `signIn` (the same two calls as the web sign-in block), and goes on to the provider's page signed in, with the trial (ADR 0459). Whether a new address gets a code is the host's: with "anyone starting a subscription" on and a plan on sale, it does. A signed-in member moving from another platform sees their continuation offer in place of the trial ("continue, free until &lt;date&gt;", `useMyOffers`); taking it is the host's too (`offerId`): only its own person can (ADR 0491). A guest who confirms a code and turns out to have an offer is shown the offer, never sent on to the trial. What must be agreed to first (stage 44: the course terms) is the host's answer too: when "Subscribe" is refused with it, the documents are shown inline (the web-agree block's step) and "Subscribe" is tried again (issue #292). A visitor's agreements travel in subscription.start, held in memory until then; a member's are recorded as they agree. A minor is told a parent or guardian buys it.
 
+<img class="cos-screen" src="/screens/courses-subscribe.png" alt="courses-subscribe, drawn with dummy data" width="720" height="516" loading="lazy" decoding="async" />
+
+Drawn with dummy data.
+
 |  |  |
 | --- | --- |
 | Skin | web |
