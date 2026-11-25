@@ -1965,8 +1965,26 @@ small fix (`read_again`, migration 0971; the first always asks; `record.publish`
 `core_publish_ack` (the person's own, the current version only, once; triggers refuse anything
 else and every update and delete); `ack.mine` lists what is to read and what was confirmed; both
 reach every pack role (`PACK_ROLE_OWN`). `ack.status` and `ack.overview` are for a person who is an
-admin or holds the object's `manage` grant. Who must read is a person's to change, and once a
-record is published a manager's. The confirmations are in no `rec_*` view.
+admin or holds the object's `manage` grant, called by the person or through a person-only tool of
+the shipped pack that owns the object (ADR 0706). Who must read, and the fields `managed` names, are
+a person's to change, and once a record is published a manager's. The confirmations are in no
+`rec_*` view. The declaration's `owner` and `notices` (ADR 0706,
+`packages/core/src/records/acknowledge-notices.ts`) are the pack's words for notices the host
+sends, each the person's only (`human_only`, never in an AI's list or the digest): a version
+that asks tells exactly who must read it, in the publish batch; `ack.due`, the minute cron's host
+step once a local day and bounded (at most 300 notices a run, carried on at the next tick), asks
+anyone never told, reminds who still has one to read, tells each owner who manages (else the
+admins) weekly who has not, and welcomes new accounts, each keyed so it is sent once. Titles are the
+published version's.
+
+**The Knowledge pack** (stage 38 step 5, [ADR 0706](adr/0706-the-knowledge-pack.md),
+`packs/knowledge`). Procedures (`knowledge.procedure`: publishable, `staffRead`, acknowledged,
+never public; its review period `managed`, its next review a formula over `publishedAt`, which a
+date-relative automation reminds the owner on) in sections, and help pages
+(`knowledge.helppage`, public as published) in help topics. Its tools compose `ack.*`,
+`public.list` and the record writes; it adds no rule. A formula of a publishable object's own
+fields may read `publishedAt` and `publishedVersion`, and a date-relative trigger may name a date
+formula.
 
 **Media** ([ADR 0444](adr/0444-media-the-editor-and-the-content-pack.md),
 `packages/core/src/operations/media.ts`, `packages/core/src/http/media.ts`). A base record,

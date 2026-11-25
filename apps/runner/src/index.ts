@@ -23,6 +23,7 @@ import {
   type RunToolResult,
   releaseWaitingRoutineMessages,
   retryOutbox,
+  runAckDue,
   runAgreementsDue,
   runChecklistDue,
   runDuplicateCron,
@@ -317,6 +318,7 @@ export async function minuteTick(env: Env, at: Date) {
       recurring: null,
       waitlist: null,
       timedMoves: null,
+      acknowledgements: null,
       agreements: null,
       agreementCopies: null,
       customerSignup: null,
@@ -404,6 +406,11 @@ export async function minuteTick(env: Env, at: Date) {
       floor: parseFloor(env.APPROVAL_FLOOR),
     }),
   );
+  // Read and understood (stage 38, ADR 0706): once a local day, the reminders of what is still to
+  // read, the owners' weekly notice and the welcome of new accounts. A quiet minute is two reads.
+  const acknowledgements = await minuteStep("acknowledgements", () =>
+    runAckDue(createCrmDb(env.DB), { clock: () => at, floor: parseFloor(env.APPROVAL_FLOOR) }),
+  );
   // Agreements (stage 44, ADR 0640): scheduled versions whose time has come take effect.
   const agreements = await minuteStep("agreements", () =>
     runAgreementsDue(createCrmDb(env.DB), {
@@ -455,6 +462,7 @@ export async function minuteTick(env: Env, at: Date) {
     timedMoves,
     staffing,
     checklists,
+    acknowledgements,
     agreements,
     agreementCopies,
     customerSignup,

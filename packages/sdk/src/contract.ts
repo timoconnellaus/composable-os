@@ -2,6 +2,7 @@
 // `defineExtension({...})`. Everything here is plain data plus tool/automation handlers, so the host
 // can turn it into a JSON manifest, validate it, diff it and reconcile it to tables.
 import type { z } from "zod";
+import type { AcknowledgeSpec } from "./acknowledge.ts";
 import type { AgreementsSpec, HealthNotesSpec } from "./agreements.ts";
 import type { AllowanceSpec } from "./allowance.ts";
 import type { AutomationSpec } from "./automation.ts";
@@ -985,9 +986,11 @@ export interface PublishableSpec {
    * own, outside `content`, with the schema `MUST_READ_SCHEMA`. `manage` names a permission of
    * this extension's tools that is restricted and grantable: who holds it, and admins, read who
    * has confirmed and change who must read a published record. Not on an object the public or a
-   * customer reads.
+   * customer reads. `managed`, `owner` and `notices` (ADR 0706): more fields guarded as who
+   * must read is, the user field told weekly who has not confirmed, and the pack's words for the
+   * notices the host sends (`AcknowledgeSpec` in `acknowledge.ts`).
    */
-  acknowledge?: { who: string; manage: string };
+  acknowledge?: AcknowledgeSpec;
   /**
    * Staff read (stage 38, ADR 0701): every staff account reads the current published version,
    * never the working copy, through `content.staffGet`, `content.staffList` and `content.search`,

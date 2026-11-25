@@ -232,6 +232,10 @@ describe("the committed roles file", () => {
       "x.dailychecks.done",
       "x.dailychecks.tick",
       "x.dailychecks.today",
+      // Knowledge's own list and confirm (ADR 0706): every staff account's, through the host's
+      // ack.mine and ack.confirm.
+      "x.knowledge.confirm",
+      "x.knowledge.toRead",
       "x.ticketing.checkIn",
       "x.ticketing.undoCheckIn",
     ]);

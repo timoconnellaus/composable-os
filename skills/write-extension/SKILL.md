@@ -45,7 +45,9 @@ Read these before writing. They are the source of truth; this skill only gives t
 4. **Declare the objects** in `index.ts` with `defineExtension`. For each: `label`, `plural`,
    `icon`, `titleField`, `description`, `fields`. Use the field type that says what the value is
    (`currency`, `date`, `user`, `select` with options), not `text` for everything. A `formula`
-   reads only the same record's fields. See Deals: `objects.deal.fields`, `weightedValue`.
+   reads only the same record's fields (and, on a `publishable` object, `publishedAt` and
+   `publishedVersion`: a date from the last publish, ADR 0706). See Deals:
+   `objects.deal.fields`, `weightedValue`.
    `ObjectSpec` has more than the examples use; read it for `owner` (the record's user field),
    `titleDefault` (a title taken from a relation) and `requireOneOf` (Leads uses all three).
    A number a person or a device records has bounds: `min`, `max` and `step` on a `number`,
@@ -434,6 +436,23 @@ extension declares it; it never implements it. Each behaviour the platform has i
   Publishing, scheduling (`record.schedulePublish`) and unpublishing are a person's; your code and
   the assistant write the working copy, and a call of theirs to publish waits for a person's
   approval whatever the policy (ADR 0480). See Content: `packs/content/index.ts`.
+- **What every staff account reads, and confirms** (stage 38, ADRs 0701, 0702 and 0706; a staff
+  procedure): `publishable.staffRead: true` opens the current published version (the content and
+  the slug, never the working copy) to every staff account, pack roles included, through
+  `content.staffGet`, `content.staffList` and `content.search`; a block reads it with those, never
+  `record.get`. `publishable.acknowledge: { who, manage, managed?, owner?, notices? }` asks the
+  staff a "must read" field names (`who`: a `document` field with `MUST_READ_SCHEMA`, outside the
+  content: everyone, staff roles, pack roles, granted pack permissions) to confirm each version
+  that asks again, with one tap; `manage` is a restricted, grantable permission of yours (who
+  reads who has confirmed); `managed` lists more fields guarded as `who` is (a person's, once
+  published a manager's, never an AI's: a review period, the owner); `owner` a user field told weekly who has
+  not confirmed (when it manages, else the admins); `notices` your words for what the host sends (`asked`, `reminder` with
+  `afterDays`, `outstanding`, `welcome`; `{record}` is the title). An acknowledged object declares
+  no `public` or `signedIn`. Your tools call `ack.mine` and `ack.confirm` (a `humanOnly`,
+  `anyStaff` tool: the host decides what is the caller's) and `ack.status` / `ack.overview` (a
+  `humanOnly` tool naming `manage`); add them to `permissions.operations`. Never work out who must
+  read, whether a confirmation counts, or who to notify in a tool: the host does, and tells them.
+  See Knowledge: `packs/knowledge/index.ts`.
 - **Videos and downloads** (stage 42, ADR 0475): a **`video`** field (`{ media, poster? }`, a
   ready video in Cloudflare Stream, checked by the host), or in your own document a ref to media
   with its kind: `{ type: "ref", to: "media", media: "video" }` (`VIDEO_NODE`) or

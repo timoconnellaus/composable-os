@@ -34,6 +34,7 @@ import { getObject } from "../fields/index.ts";
 import type { ObjectDefinition } from "../fields/types.ts";
 import { defineOperation, type HandlerContext } from "../operation.ts";
 import { readAgainOf } from "../records/acknowledge.ts";
+import { askedNoticeWrites } from "../records/acknowledge-notices.ts";
 import {
   ALWAYS_REVIEWED_PUBLISHERS,
   assertAskedFor,
@@ -239,6 +240,8 @@ export const recordPublish = defineOperation({
         readAgain,
       }),
       ...guarded(ctx, object, input.id),
+      // A version that asks everyone tells them, in the same batch (ADR 0706).
+      ...(await askedNoticeWrites(ctx, object, input.id, version, record.values, readAgain)),
     );
     return {
       version,
@@ -454,6 +457,10 @@ export const recordPublishDue = defineOperation({
         continue;
       }
       const version = await nextVersion(ctx, object.name, due.record_id);
+      // Scheduled before the object asked anyone to confirm: it asks (ADR 0702).
+      const readAgain = object.publishable.acknowledge
+        ? due.read_again === null || Number(due.read_again) === 1
+        : null;
       ctx.write(
         ...publishWrites(object, due.record_id, version, due, {
           at: ctx.now,
@@ -461,13 +468,20 @@ export const recordPublishDue = defineOperation({
           note: due.note,
           requestedBy: due.requested_by,
           requestedVia: due.requested_via,
-          // Scheduled before the object asked anyone to confirm: it asks (ADR 0702).
-          readAgain: object.publishable.acknowledge
-            ? due.read_again === null || Number(due.read_again) === 1
-            : null,
+          readAgain,
         }),
         // Moved out meanwhile (ADR 0810): the whole run fails, and the next one drops it.
         ...guarded(ctx, object, due.record_id),
+        // A read-again version asks nobody until it goes live, then tells them (ADR 0706): who
+        // must read is the record's now, the title the version's.
+        ...(await askedNoticeWrites(
+          ctx,
+          object,
+          due.record_id,
+          version,
+          { ...record.values, ...(JSON.parse(due.content) as Record<string, unknown>) },
+          readAgain,
+        )),
       );
       ctx.recordChange({
         object: object.name,

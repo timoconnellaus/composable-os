@@ -665,8 +665,19 @@ None open. The six questions this spec raised were decided by the coordinator (d
 
 - **Step 4** — not built — needs: step 3 — The `to_read` warning on the roster
 
-- **Step 5** — not built — needs: step 2, step 3 — The Knowledge pack: objects, views, settings,
-  tools, hooks, notices, the review reminder
+- **Step 5** — built — PR #457 — The Knowledge pack: objects, views, settings, tools, hooks,
+  notices, the review reminder. ADR 0706 (amends ADR 0702); no migration. `packs/knowledge`:
+  `knowledge.procedure` (staff-read, acknowledged, never public; review period guarded by
+  `acknowledge.managed`, next review a formula over `publishedAt`), `knowledge.section`,
+  `knowledge.helppage` (public as published) and `knowledge.helptopic`; tools `toRead`, `confirm`,
+  `readStatus`, `helpTopics`, `draftProcedure`, `draftHelpPage`; the review reminder; client hooks.
+  Platform: the host sends the declaration's notices (asked in the publish batch; reminder, weekly
+  owner notice and welcome from `ack.due`); `ack.status`/`ack.overview` from the owning pack's
+  person-only tool; formulas read `publishedAt`, date-relative triggers name a date formula. No
+  settings (none named). Not added to a product's `packs` list: the CRM is this repository's
+  only product and lists no gym pack; a client product lists it, and the release carries every
+  pack. Left: blocks and screens (step 6); pack-role accounts are not served a procedure's
+  pictures and cannot read section names.
 
 - **Step 6** — not built — needs: step 5, stage 47 — Blocks: help centre, procedure reader, to
   read, confirm, read status; the declared screens
