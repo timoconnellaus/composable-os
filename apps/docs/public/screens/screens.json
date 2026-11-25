@@ -167,6 +167,54 @@
     "height": 844,
     "fingerprint": "51695b0242bb625f"
   },
+  "knowledge-help-centre": {
+    "skin": "web",
+    "width": 860,
+    "height": 708,
+    "fingerprint": "4fb629eb4d4de33b"
+  },
+  "knowledge-help-page": {
+    "skin": "web",
+    "width": 860,
+    "height": 557,
+    "fingerprint": "4fe47087be8786c3"
+  },
+  "knowledge-native-help": {
+    "skin": "native",
+    "width": 390,
+    "height": 844,
+    "fingerprint": "fcc577fa979f01bd"
+  },
+  "knowledge-native-procedures": {
+    "skin": "native",
+    "width": 390,
+    "height": 844,
+    "fingerprint": "c75f88b6822472c9"
+  },
+  "knowledge-native-to-read": {
+    "skin": "native",
+    "width": 390,
+    "height": 844,
+    "fingerprint": "3446e0a77c4aa8f8"
+  },
+  "knowledge-procedures": {
+    "skin": "web",
+    "width": 860,
+    "height": 718,
+    "fingerprint": "ea31985ecf38c871"
+  },
+  "knowledge-read-status": {
+    "skin": "web",
+    "width": 760,
+    "height": 505,
+    "fingerprint": "b29197c7891d4eb3"
+  },
+  "knowledge-to-read": {
+    "skin": "web",
+    "width": 760,
+    "height": 440,
+    "fingerprint": "0cddabce65eb1e46"
+  },
   "memberships-mine": {
     "skin": "web",
     "width": 720,
