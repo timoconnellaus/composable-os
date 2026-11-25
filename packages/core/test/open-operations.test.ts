@@ -66,7 +66,7 @@ describe("open-operations.json", () => {
         name: "fixture.anyone",
         audiences: ["public"],
         risk: "read",
-        perAddress: { tier: "standard" },
+        perAddress: { tier: "read" },
       },
       { name: "fixture.mine", audiences: ["customer"], risk: "read" },
       { name: "fixture.shared", audiences: ["staff", "customer"], risk: "read" },

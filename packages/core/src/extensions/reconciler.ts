@@ -244,11 +244,18 @@ async function codeWordData(
         (f) => f.tableName === object.tableName && f.columnName === index.column,
       );
       if (!exists) continue; // A new field: no record has a word yet.
-      const rows = await sql<{ id: string; word: string }>`
-        SELECT id, ${sql.ref(index.column)} AS word FROM ${sql.table(object.tableName)}
-        WHERE deleted_at IS NULL AND ${sql.ref(index.column)} IS NOT NULL`.execute(db);
+      // Org-wide, through the seam: the installed object's live records, as dataIssues reads them.
+      const installed = getObject(object.name);
+      const viewColumn = installed?.fields.find((f) => f.column === index.column)?.column;
+      if (!installed || !viewColumn) continue;
+      // biome-ignore lint/suspicious/noExplicitAny: extension views are not in the typed schema.
+      const rows = (await (db as unknown as Kysely<any>)
+        .selectFrom(visibleSource(orgReader(db), installed))
+        .select(["id", sql.ref(viewColumn).as("word")])
+        .where(viewColumn, "is not", null)
+        .execute()) as { id: string; word: string }[];
       const byWord = new Map<string, string[]>();
-      for (const row of rows.rows) {
+      for (const row of rows) {
         const folded = foldCode(String(row.word));
         byWord.set(folded, [...(byWord.get(folded) ?? []), row.id]);
         if (folded !== row.word) {
