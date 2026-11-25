@@ -56,6 +56,9 @@ pnpm --filter @composable-os/app exec playwright test deals --project=desktop
   refuses the option on a `test.describe`). Tag a test when its layout really differs at phone width: the nav drawer, a sheet in place of
   a panel, a table or grid that reflows, touch in place of drag or hover, or a phone-only
   assertion. Most tests are not tagged.
+- **The specs share one database**, so a count another spec can change is read from the host just
+  before it is compared (never as a 0 baseline from a badge that may not have loaded yet), and a
+  journey that leaves an action waiting in Approvals rejects it at the end (issue #473).
 - **One e2e test per user journey, not one per screen.** A new stage adds an e2e test for each
   journey a person takes through it. Rules, edge cases and anything that waits on time (cron
   ticks, delivery lags) belong in integration tests (vitest in workerd), which are fast.
