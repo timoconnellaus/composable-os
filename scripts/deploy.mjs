@@ -47,6 +47,7 @@
 // `crm`. The Workers are built for the same product.
 //
 // Usage: pnpm run deploy [-- --dry-run]
+import { turnstileTestKeysIn } from "./turnstile-keys.mjs";
 import { execFileSync } from "node:child_process";
 import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
@@ -285,6 +286,17 @@ const runnerConfigObject = {
   upload_source_maps: true,
 };
 const exists = (name) => wranglerOk("apps/app", ["deployments", "list", "--name", name]);
+// Cloudflare's Turnstile test keys are local development's (scripts/dev-setup.mjs): an
+// always-passing secret on a real host would turn forms' spam check off for good.
+const testKeys = turnstileTestKeysIn(process.env);
+if (testKeys.length) {
+  console.error(
+    `\n${testKeys.join(" and ")}: Cloudflare's Turnstile test key, which only local development ` +
+      "uses. Create a Turnstile widget for your hostnames and use its own keys " +
+      "(docs/deploying.md, Forms: Turnstile), or leave them unset.",
+  );
+  process.exit(1);
+}
 if (!dryRun) {
   const appExists = exists(appConfigObject.name);
   // wrangler would only refuse at the very end, after everything else had been created.

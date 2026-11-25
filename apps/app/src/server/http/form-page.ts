@@ -14,6 +14,9 @@ import { CUSTOMER_COOKIE_PREFIX } from "@composable-os/auth";
 import { formPage, formPageClient, isFormPagePath } from "@composable-os/pack-forms/page";
 import type { ApiEnv } from "./api.ts";
 
+/** The header the page's calls name their visitor in (bound.ts reads it, ADR 0940). */
+const VISITOR_ADDRESS_HEADER = "cos-visitor-address";
+
 export { isFormPagePath };
 
 export interface FormPageEnv extends ApiEnv {
@@ -31,21 +34,65 @@ function customerCookie(request: Request): string | null {
   return parts.length ? parts.join("; ") : null;
 }
 
+/** Where the page is served, and so who vouches for the visitor (ADR 0728, ADR 0940). */
+export interface FormPageVisitor {
+  /**
+   * The visitor's address, for the per-address limits on the page's calls: on the host's own
+   * address, Cloudflare's `cf-connecting-ip` (never a `cos-visitor-address` a browser sent); over
+   * the binding, what the bound Worker forwarded, in the binding's order.
+   */
+  address: string | null;
+  /**
+   * `page`: a browser posts to the host itself, and the page checks its Sec-Fetch-Site or Origin.
+   * `forwarded`: the bound Worker checked its browser's request and forwards neither header.
+   */
+  sameOrigin: "page" | "forwarded";
+}
+
+/**
+ * The visitor of a request to the host's own address: Cloudflare's `cf-connecting-ip`, which a
+ * browser cannot set. A `cos-visitor-address` the browser sent is never read here.
+ */
+export function hostVisitor(request: Request): FormPageVisitor {
+  return { address: request.headers.get("cf-connecting-ip"), sameOrigin: "page" };
+}
+
+/**
+ * The visitor of a request over the binding: the bound Worker's word, in the binding's order (a
+ * forwarded `cf-connecting-ip` first, then the `cos-visitor-address` it names). The bound Worker
+ * checked its browser's request came from its own page.
+ */
+export function boundVisitor(request: Request): FormPageVisitor {
+  return {
+    address:
+      request.headers.get("cf-connecting-ip") ?? request.headers.get(VISITOR_ADDRESS_HEADER),
+    sameOrigin: "forwarded",
+  };
+}
+
 /**
  * Serves one request to the form page. `door` answers the page's calls to the HTTP surface: the
- * client-app binding's (`handleBound`), so the caller is a customer or the public.
+ * client-app binding's (`handleBound`), so the caller is a customer or the public, counted against
+ * `visitor.address`. The inner requests are made afresh: the customer's cookie and the address,
+ * nothing else of the browser's request.
  */
 export function handleFormPage(
   request: Request,
   env: FormPageEnv,
   door: (request: Request) => Promise<Response>,
+  visitor: FormPageVisitor,
 ): Promise<Response> {
   const cookie = customerCookie(request);
+  const address = visitor.address?.trim();
   return formPage(request, {
     client: formPageClient({
       fetch: (url, init) => door(new Request(url, init)),
-      headers: (): Record<string, string> => (cookie ? { cookie } : {}),
+      headers: (): Record<string, string> => ({
+        ...(cookie ? { cookie } : {}),
+        ...(address ? { [VISITOR_ADDRESS_HEADER]: address } : {}),
+      }),
     }),
     turnstileSiteKey: env.TURNSTILE_SITE_KEY?.trim() || null,
+    sameOrigin: visitor.sameOrigin,
   });
 }

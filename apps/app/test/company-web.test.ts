@@ -13,6 +13,7 @@ import { createIdentityProvider } from "@composable-os/auth";
 import { inviteCustomer, issueDeviceSession } from "@composable-os/core";
 import { createCrmDb } from "@composable-os/db";
 import { beforeAll, describe, expect, it } from "vitest";
+import { formPageRoute } from "../../../templates/client/apps/web/src/host.ts";
 import { runOperation } from "../src/server/operations.ts";
 import { boundTestEnv, sentCodes, WEB_ORIGIN } from "./bound-env.ts";
 import { signUp, type TestUser, unique } from "./mcp-helpers.ts";
@@ -198,16 +199,30 @@ describe("the form page on the company's own hostname (stage 29, ADR 0728)", () 
     expect((await env.COMPANY_WEB.fetch(`${WEB_ORIGIN}/forms`)).status).toBe(404);
   });
 
-  it("refuses a send posted from another site before it reaches the host", async () => {
-    const sent = await env.COMPANY_WEB.fetch(`${WEB_ORIGIN}/form`, {
-      method: "POST",
-      headers: {
-        "content-type": "application/x-www-form-urlencoded",
-        origin: "https://elsewhere.example",
-      },
-      body: `_link=${TOKEN}`,
-    });
-    expect(sent.status).toBe(403);
+  it("refuses a send from another site or a sibling subdomain before it reaches the host", async () => {
+    const send = (headers: Record<string, string>) =>
+      env.COMPANY_WEB.fetch(`${WEB_ORIGIN}/f/newsletter`, {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded", ...headers },
+        body: "a.news=yes",
+      });
+    for (const headers of [
+      { origin: "https://elsewhere.example" },
+      { "sec-fetch-site": "cross-site" },
+      // A page on a sibling subdomain, with the signed-in customer's cookie going along.
+      { "sec-fetch-site": "same-site", origin: "null", cookie: "cos-customer.session_token=c.sig" },
+      // Neither header (an old browser): no proof it is this site's page.
+      {},
+    ]) {
+      const refused = await send(headers);
+      expect(refused.status, JSON.stringify(headers)).toBe(403);
+      // The route's own refusals are never cached and send no referrer, as its pages.
+      expect(refused.headers.get("referrer-policy")).toBe("no-referrer");
+      expect(refused.headers.get("cache-control")).toBe("no-store");
+    }
+    // This site's own page: through to the host (no Forms here: the form is not open).
+    expect((await send({ "sec-fetch-site": "same-origin" })).status).toBe(404);
+    expect((await send({ origin: "null" })).status).toBe(404);
     // The host's page itself refuses the same, on the host's own address.
     const direct = await env.COMPANY_WEB_HOST.fetch("https://host/form", {
       method: "POST",
@@ -217,3 +232,97 @@ describe("the form page on the company's own hostname (stage 29, ADR 0728)", () 
     expect(direct.status).toBe(415);
   });
 });
+
+describe("the template's form route, alone (review of PR #461)", () => {
+  /** A HOST that records what the route sends it, answering as the host's page would. */
+  function recordingHost() {
+    const sent: { url: string; init: RequestInit }[] = [];
+    return {
+      sent,
+      env: {
+        HOST: {
+          fetch: async (url: string, init: RequestInit = {}) => {
+            sent.push({ url, init });
+            return new Response("<p>page</p>", {
+              status: 200,
+              headers: { "content-type": "text/html", "set-cookie": "x=y", "x-other": "1" },
+            });
+          },
+        },
+      },
+    };
+  }
+
+  it("sends the host the customer's cookie, Cloudflare's address and the form's fields, and nothing else", async () => {
+    const { sent, env: hostEnv } = recordingHost();
+    const answer = await formPageRoute(
+      new Request(`${WEB_ORIGIN}/f/newsletter`, {
+        method: "POST",
+        headers: {
+          "content-type": "application/x-www-form-urlencoded",
+          "sec-fetch-site": "same-origin",
+          origin: WEB_ORIGIN,
+          authorization: "Bearer staff",
+          cookie: "cos-customer.session_token=c.sig; other=1",
+          "cf-connecting-ip": "198.51.100.90",
+          // The browser naming its own address, hoping to choose its limit.
+          "cos-visitor-address": "192.0.2.250",
+        },
+        body: "a.news=yes",
+      }),
+      hostEnv,
+    );
+    expect(answer?.status).toBe(200);
+    expect(sent).toHaveLength(1);
+    expect(sent[0]?.url).toBe("https://host/f/newsletter");
+    expect(sent[0]?.init.headers).toEqual({
+      cookie: "cos-customer.session_token=c.sig",
+      "cos-visitor-address": "198.51.100.90",
+      "content-type": "application/x-www-form-urlencoded",
+    });
+    expect(sent[0]?.init.body).toBe("a.news=yes");
+    // The page's answer comes back with no cookie and no header the route does not pass.
+    expect(answer?.headers.get("set-cookie")).toBeNull();
+    expect(answer?.headers.get("x-other")).toBeNull();
+    expect(answer?.headers.get("referrer-policy")).toBe("no-referrer");
+    expect(answer?.headers.get("cache-control")).toBe("no-store");
+  });
+
+  it("answers 405, 413 and 415 itself, and HEAD with no body", async () => {
+    const { sent, env: hostEnv } = recordingHost();
+    const put = await formPageRoute(
+      new Request(`${WEB_ORIGIN}/form`, { method: "PUT" }),
+      hostEnv,
+    );
+    expect(put?.status).toBe(405);
+    expect(put?.headers.get("allow")).toBe("GET, HEAD, POST");
+    expect(put?.headers.get("referrer-policy")).toBe("no-referrer");
+    const post = (body: string, headers: Record<string, string> = {}) =>
+      formPageRoute(
+        new Request(`${WEB_ORIGIN}/form`, {
+          method: "POST",
+          headers: {
+            "content-type": "application/x-www-form-urlencoded",
+            "sec-fetch-site": "same-origin",
+            ...headers,
+          },
+          body,
+        }),
+        hostEnv,
+      );
+    const declared = await post("a=1", { "content-length": "200000" });
+    expect(declared?.status).toBe(413);
+    expect(declared?.headers.get("cache-control")).toBe("no-store");
+    expect((await post("a=".padEnd(140_000, "x")))?.status).toBe(413);
+    expect((await post("{}", { "content-type": "application/json" }))?.status).toBe(415);
+    expect(sent).toEqual([]);
+    const head = await formPageRoute(
+      new Request(`${WEB_ORIGIN}/form?t=x`, { method: "HEAD" }),
+      hostEnv,
+    );
+    expect(head?.status).toBe(200);
+    expect(await head?.text()).toBe("");
+    expect(sent[0]?.url).toBe("https://host/form?t=x");
+  });
+});
+

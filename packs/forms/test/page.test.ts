@@ -5,8 +5,10 @@
 import { describe, expect, it } from "vitest";
 import type { FormsOperations, OpenedForm } from "../client/index.ts";
 import {
+  cappedText,
   type FormPageClient,
   formPage,
+  MAX_BODY,
   isFormPagePath,
   PAGE_SCRIPT,
   pageScriptSource,
@@ -64,7 +66,11 @@ const post = (path: string, fields: [string, string][], api: FormPageClient, hea
   formPage(
     new Request(`https://gym.example${path}`, {
       method: "POST",
-      headers: { "content-type": "application/x-www-form-urlencoded", ...headers },
+      headers: {
+        "content-type": "application/x-www-form-urlencoded",
+        "sec-fetch-site": "same-origin",
+        ...headers,
+      },
       body: new URLSearchParams(fields).toString(),
     }),
     { client: api, turnstileSiteKey: "site-key" },
@@ -74,7 +80,12 @@ const post = (path: string, fields: [string, string][], api: FormPageClient, hea
 function hidden(html: string): [string, string][] {
   return [...html.matchAll(/<input type="hidden" name="([^"]+)" value="([^"]*)">/g)].map((m) => [
     m[1] as string,
-    (m[2] as string).replaceAll("&amp;", "&"),
+    (m[2] as string)
+      .replaceAll("&quot;", '"')
+      .replaceAll("&#39;", "'")
+      .replaceAll("&lt;", "<")
+      .replaceAll("&gt;", ">")
+      .replaceAll("&amp;", "&"),
   ]);
 }
 
@@ -208,6 +219,7 @@ describe("a form's own page", () => {
   it("refuses a send from another site", async () => {
     const { api, calls } = client(form());
     const response = await post("/f/ask-about-a-trial", [], api, {
+      "sec-fetch-site": "cross-site",
       origin: "https://elsewhere.example",
     });
     expect(response.status).toBe(403);
@@ -277,3 +289,232 @@ describe("a personal link's page (the security review of PR #458)", () => {
     });
   });
 });
+
+describe("the review of PR #461", () => {
+  /** A page drawn, then posted back with `fields` added (or changed). */
+  async function drawnThenPosted(
+    api: FormPageClient,
+    path: string,
+    fields: [string, string][],
+    headers: Record<string, string> = {},
+  ) {
+    const page = await (await get(path, api)).text();
+    const keep = hidden(page).filter(([name]) => !fields.some(([n]) => n === name));
+    return post(path, [...keep, ...fields], api, headers);
+  }
+
+  it("a redraw carries the time the form was first shown, so a quick correction is not dropped", async () => {
+    // Every open signs a new time: the page must not take the reopened one for its redraw.
+    let opens = 0;
+    const api: FormPageClient = {
+      async call(name) {
+        if (name === "x.forms.form") {
+          opens += 1;
+          return form({ shown: `v1.shown-${opens}` }) as never;
+        }
+        return { received: true } as never;
+      },
+    };
+    const redrawn = await drawnThenPosted(api, "/f/ask-about-a-trial", [["a.email", "x"]]);
+    expect(redrawn.status).toBe(422);
+    expect(Object.fromEntries(hidden(await redrawn.text()))._shown).toBe("v1.shown-1");
+    expect(opens).toBe(2);
+  });
+
+  it("after the host says the form changed, the redraw is shown afresh", async () => {
+    let opens = 0;
+    const api: FormPageClient = {
+      async call(name) {
+        if (name === "x.forms.form") {
+          opens += 1;
+          return form({ shown: `v1.shown-${opens}` }) as never;
+        }
+        throw Object.assign(new Error("This form has changed: load it again and send"), {
+          code: "tool_failed",
+          details: { code: "invalid_input", details: { rule: "intake_reload" } },
+        });
+      },
+    };
+    const redrawn = await drawnThenPosted(api, "/f/ask-about-a-trial", [
+      ["a.name", "Ada"],
+      ["a.email", "ada@example.com"],
+    ]);
+    expect(redrawn.status).toBe(409);
+    expect(Object.fromEntries(hidden(await redrawn.text()))._shown).toBe("v1.shown-2");
+  });
+
+  it("takes a send only from the page's own origin (an allow-list)", async () => {
+    const cases: [Record<string, string>, number][] = [
+      [{ "sec-fetch-site": "same-origin" }, 422],
+      [{ "sec-fetch-site": "none" }, 422],
+      // A sibling subdomain, which a customer's cookie still goes with, and another site.
+      [{ "sec-fetch-site": "same-site", origin: "null" }, 403],
+      [{ "sec-fetch-site": "cross-site" }, 403],
+      // An older browser with no Sec-Fetch-Site: its Origin, this page's or "null".
+      [{ "sec-fetch-site": "", origin: "https://gym.example" }, 422],
+      [{ "sec-fetch-site": "", origin: "null" }, 422],
+      [{ "sec-fetch-site": "", origin: "https://news.gym.example" }, 403],
+      [{ "sec-fetch-site": "" }, 403],
+    ];
+    for (const [headers, status] of cases) {
+      const { api, calls } = client(form());
+      const sent = await formPage(
+        new Request("https://gym.example/f/ask-about-a-trial", {
+          method: "POST",
+          headers: Object.fromEntries(
+            Object.entries({
+              "content-type": "application/x-www-form-urlencoded",
+              ...headers,
+            }).filter(([, v]) => v !== ""),
+          ),
+          body: "a.email=x",
+        }),
+        { client: api },
+      );
+      expect(sent.status, JSON.stringify(headers)).toBe(status);
+      if (status === 403) expect(calls).toEqual([]);
+    }
+    // Over the binding, the Worker checked its browser's request and forwards neither header.
+    const { api } = client(form());
+    const forwarded = await formPage(
+      new Request("https://host/f/ask-about-a-trial", {
+        method: "POST",
+        headers: { "content-type": "application/x-www-form-urlencoded" },
+        body: "a.email=x",
+      }),
+      { client: api, sameOrigin: "forwarded" },
+    );
+    expect(forwarded.status).toBe(422);
+  });
+
+  it("refuses a body over the limit before reading it, by its length or as it streams", async () => {
+    const { api, calls } = client(form());
+    const declared = await formPage(
+      new Request("https://gym.example/f/ask-about-a-trial", {
+        method: "POST",
+        headers: {
+          "content-type": "application/x-www-form-urlencoded",
+          "sec-fetch-site": "same-origin",
+          "content-length": String(MAX_BODY + 1),
+        },
+        body: "a.email=x",
+      }),
+      { client: api },
+    );
+    expect(declared.status).toBe(413);
+    const streamed = await post(
+      "/f/ask-about-a-trial",
+      [["a.name", "x".repeat(MAX_BODY + 10)]],
+      api,
+    );
+    expect(streamed.status).toBe(413);
+    expect(calls).toEqual([]);
+    expect(await cappedText(new Request("https://x", { method: "POST", body: "abc" }), 3)).toBe("abc");
+  });
+
+  it("answers another method with 405 and Allow, and HEAD with the page's headers and no body", async () => {
+    const { api } = client(form());
+    const put = await formPage(
+      new Request("https://gym.example/f/ask-about-a-trial", { method: "PUT" }),
+      { client: api },
+    );
+    expect(put.status).toBe(405);
+    expect(put.headers.get("allow")).toBe("GET, HEAD, POST");
+    expect(put.headers.get("referrer-policy")).toBe("no-referrer");
+    const head = await formPage(
+      new Request(`https://gym.example/form?t=${TOKEN}`, { method: "HEAD" }),
+      { client: client(form({ turnstile: false, shown: null })).api },
+    );
+    expect(head.status).toBe(200);
+    expect(await head.text()).toBe("");
+    expect(head.headers.get("referrer-policy")).toBe("no-referrer");
+    expect(head.headers.get("x-content-type-options")).toBe("nosniff");
+    expect(head.headers.get("permissions-policy")).toContain("camera=()");
+  });
+
+  it("escapes what a visitor typed when the page is drawn again", async () => {
+    const { api } = client(
+      form({
+        questions: {
+          items: [
+            { kind: "text", key: "why", label: "Why?", long: true },
+            { kind: "text", key: "name", label: "Name", required: true },
+          ],
+        },
+      }),
+    );
+    const redrawn = await drawnThenPosted(api, "/f/ask-about-a-trial", [
+      ["a.why", "</textarea><script>alert(1)</script>"],
+    ]);
+    expect(redrawn.status).toBe(422);
+    const html = await redrawn.text();
+    expect(html).toContain("&lt;/textarea&gt;&lt;script&gt;alert(1)&lt;/script&gt;");
+    expect(html).not.toContain("<script>alert(1)");
+  });
+
+  it("draws a paragraph's links of http, https and mailto only", async () => {
+    const { api } = client(
+      form({
+        questions: {
+          items: [
+            {
+              kind: "paragraph",
+              key: "intro",
+              content: [
+                { type: "text", text: "bad", href: "javascript:alert(1)" },
+                { type: "text", text: "good", href: "https://gym.example/terms" },
+              ],
+            },
+          ],
+        },
+      }),
+    );
+    const html = await (await get("/f/ask-about-a-trial", api)).text();
+    expect(html).not.toContain("javascript:");
+    expect(html).toContain('<a href="https://gym.example/terms" rel="noopener noreferrer nofollow">good</a>');
+  });
+
+  it("a reload after a link's send shows the thanks: the host's stored reply answers", async () => {
+    const linked = form({ turnstile: false, shown: null });
+    const sent: { input: unknown; key: string | undefined }[] = [];
+    let used = false;
+    const api: FormPageClient = {
+      async call(name, input, options) {
+        if (name === "x.forms.form") {
+          if (used) {
+            throw Object.assign(new Error("This link cannot be used"), {
+              code: "tool_failed",
+              details: { code: "not_found", details: { rule: "personal_link" } },
+            });
+          }
+          return linked as never;
+        }
+        sent.push({ input, key: options?.idempotencyKey });
+        used = true;
+        return { received: true } as never;
+      },
+    };
+    const page = await (await get(`/form?t=${TOKEN}`, api)).text();
+    const fields: [string, string][] = [...hidden(page), ["a.name", "Ada"], ["a.email", "ada@example.com"]];
+    expect((await post("/form", fields, api)).status).toBe(200);
+    const again = await post("/form", fields, api);
+    expect(again.status).toBe(200);
+    expect(await again.text()).toContain("Your answers were sent");
+    // The same answers under the same key: what the host answers from its store.
+    expect(sent).toHaveLength(2);
+    expect(sent[1]).toEqual(sent[0]);
+    // A link used some other way (the host refuses this send too): the plain answer.
+    const other: FormPageClient = {
+      async call() {
+        throw Object.assign(new Error("This link cannot be used"), {
+          code: "tool_failed",
+          details: { code: "not_found", details: { rule: "personal_link" } },
+        });
+      },
+    };
+    const refused = await post("/form", fields, other);
+    expect(refused.status).toBe(404);
+    expect(await refused.text()).toContain("This link cannot be used");
+  });
+});
+

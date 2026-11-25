@@ -77,7 +77,12 @@ import {
   outsideContext,
   practitioners,
 } from "./api.ts";
-import { type FormPageEnv, handleFormPage, isFormPagePath } from "./form-page.ts";
+import {
+  boundVisitor,
+  type FormPageEnv,
+  handleFormPage,
+  isFormPagePath,
+} from "./form-page.ts";
 
 const PUBLIC: PublicPrincipal = Object.freeze({ kind: "public" });
 
@@ -240,7 +245,12 @@ export async function handleBound(request: Request, env: ApiEnv): Promise<Respon
   // The form page, which a web app serves on its own site by forwarding its two paths here; its
   // calls go through this same door, as the bound Worker's own would.
   if (isFormPagePath(pathname)) {
-    return handleFormPage(request, env as FormPageEnv, (call) => handleBound(call, env));
+    return handleFormPage(
+      request,
+      env as FormPageEnv,
+      (call) => handleBound(call, env),
+      boundVisitor(request),
+    );
   }
   if (!isApiPath(pathname)) return notServed();
   let surface = surfaces.get(env);

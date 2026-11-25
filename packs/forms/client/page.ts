@@ -27,6 +27,7 @@
 import { createClient, type FetchLike } from "@composable-os/client";
 import { PERSONAL_LINK_PARAM, PERSONAL_LINK_PATH } from "@composable-os/sdk";
 import {
+  answersFrom,
   checkDraft,
   type Draft,
   draftFromFields,
@@ -94,14 +95,68 @@ export interface FormPageOptions {
    * Without one, a form that needs the check says it cannot be sent here.
    */
   turnstileSiteKey?: string | null;
+  /**
+   * Who checked that a send comes from this page. `page` (the default, the host's own address):
+   * this function checks the browser's word (`Sec-Fetch-Site`, else `Origin`). `forwarded`: the
+   * page is served over the client-app binding, whose Worker checked its browser's request
+   * (the template's `formPageRoute`) and forwards none of those headers.
+   */
+  sameOrigin?: "page" | "forwarded";
+}
+
+/**
+ * Whether a browser's POST comes from the page's own origin (ADR 0728, review of PR #461): an
+ * allow-list. With `Sec-Fetch-Site`, only `same-origin` (or `none`, a person's own action); a
+ * sibling subdomain is `same-site` and is refused, as a customer's cookie still goes with it.
+ * Without it (an older browser), `Origin` must be the page's own, or `null` (the page's own
+ * no-referrer policy makes a browser send `null`).
+ */
+export function sameOriginPost(
+  headers: { get(name: string): string | null },
+  pageOrigin: string,
+): boolean {
+  const site = headers.get("sec-fetch-site");
+  if (site !== null) return site === "same-origin" || site === "none";
+  const origin = headers.get("origin");
+  return origin === "null" || origin === pageOrigin;
+}
+
+/**
+ * A request's body as text, read only up to `max` bytes: null when it says (`content-length`) or
+ * turns out to be longer, so a large body is never held whole.
+ */
+export async function cappedText(request: Request, max: number): Promise<string | null> {
+  const declared = Number(request.headers.get("content-length") ?? "");
+  if (Number.isFinite(declared) && declared > max) return null;
+  if (!request.body) return "";
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    size += value.byteLength;
+    if (size > max) {
+      await reader.cancel().catch(() => undefined);
+      return null;
+    }
+    chunks.push(value);
+  }
+  const bytes = new Uint8Array(size);
+  let at = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, at);
+    at += chunk.byteLength;
+  }
+  return new TextDecoder().decode(bytes);
 }
 
 // Each answer is an id in the page, so its label, help and error are tied to it.
 const SLUG = /^[a-z0-9]+(?:-[a-z0-9]+)*$/;
 const TOKEN = /^[A-Za-z0-9_-]{43}$/;
 const KEY = /^[A-Za-z0-9._:-]{16,128}$/;
-/** The most a posted form may be: the answers' 20 KB, URL-encoded, and the page's own fields. */
-const MAX_BODY = 131_072;
+/** The most a posted form may be, in bytes: the answers' 20 KB, URL-encoded, and the page's own fields. */
+export const MAX_BODY = 131_072;
 
 /** The one script the page runs, inline and allowed by its hash alone. */
 export const PAGE_SCRIPT = `(function () {
@@ -405,6 +460,51 @@ function itemHtml(
   }
 }
 
+/**
+ * What a link's page carries of its questions (`_q`): their keys and kinds, enough to turn the
+ * posted fields into the same answers again. Used only when the link cannot be opened again on a
+ * send (it was used: a reload after the send), to ask the host for its stored reply.
+ */
+type Skeleton = { k: string; t: string; m?: 1; l?: 1; s?: [string, string] }[];
+
+function skeletonOf(questions: Questions): Skeleton {
+  return questions.items.map((item) => ({
+    k: item.key,
+    t: item.kind,
+    ...(item.kind === "choice" && item.multiple ? { m: 1 as const } : {}),
+    ...(item.kind === "text" && item.long ? { l: 1 as const } : {}),
+    ...(item.showIf ? { s: [item.showIf.question, item.showIf.is] as [string, string] } : {}),
+  }));
+}
+
+/** The questions a skeleton stands for, or null when it is not one. */
+function questionsOfSkeleton(text: string | null): Questions | null {
+  try {
+    const parsed: unknown = JSON.parse(text ?? "");
+    if (!Array.isArray(parsed) || parsed.length > 60) return null;
+    const items = parsed.map((raw) => {
+      const r = raw as { k?: unknown; t?: unknown; m?: unknown; l?: unknown; s?: unknown };
+      if (typeof r.k !== "string" || typeof r.t !== "string") throw new Error("not a skeleton");
+      const show =
+        Array.isArray(r.s) && typeof r.s[0] === "string" && typeof r.s[1] === "string"
+          ? { showIf: { question: r.s[0], is: r.s[1] } }
+          : {};
+      return {
+        key: r.k,
+        kind: r.t,
+        label: "",
+        options: [],
+        ...(r.m ? { multiple: true } : {}),
+        ...(r.l ? { long: true } : {}),
+        ...show,
+      };
+    });
+    return { items } as unknown as Questions;
+  } catch {
+    return null;
+  }
+}
+
 interface Drawn {
   opened: OpenedForm;
   /** The form's own address: where it posts. */
@@ -462,7 +562,7 @@ function formPageOf(d: Drawn): Promise<Response> {
     // One key for this page's send: a second press, or the browser posting it again, is the
     // same send to the host, which answers it once.
     ["_key", crypto.randomUUID()],
-    ...(d.link ? [["_link", d.link]] : []),
+    ...(d.link ? [["_link", d.link], ["_q", JSON.stringify(skeletonOf(questions))]] : []),
   ]
     .map(([name, value]) => `<input type="hidden" name="${name}" value="${esc(value ?? "")}">`)
     .join("\n");
@@ -535,20 +635,16 @@ export async function formPage(request: Request, options: FormPageOptions): Prom
     refused.headers.set("allow", "GET, HEAD, POST");
     return refused;
   }
-  // A send comes from this page: never another site's form posting here.
-  const origin = request.headers.get("origin");
-  if (
-    request.headers.get("sec-fetch-site") === "cross-site" ||
-    (origin && origin !== "null" && origin !== url.origin)
-  ) {
+  // A send comes from this page: never another site's form, nor a sibling subdomain's.
+  if ((options.sameOrigin ?? "page") === "page" && !sameOriginPost(request.headers, url.origin)) {
     return notice(403, "Not sent", "Answers are sent from this page only.", "alert");
   }
   const type = request.headers.get("content-type") ?? "";
   if (!/^application\/x-www-form-urlencoded\b/i.test(type)) {
     return notice(415, "Not sent", "Answers are sent from this page's form.", "alert");
   }
-  const text = new TextDecoder().decode(await request.arrayBuffer());
-  if (text.length > MAX_BODY) {
+  const text = await cappedText(request, MAX_BODY);
+  if (text === null) {
     return notice(413, "Not sent", "The answers are too long to send: shorten them.", "alert");
   }
   return send(new URLSearchParams(text), isLink, slug, options);
@@ -611,6 +707,43 @@ async function show(
   });
 }
 
+/** The thanks for a send the host already took, when the form cannot be opened again. */
+const sentAlready = () =>
+  page(
+    200,
+    "Thank you",
+    `<h1>Thank you</h1>\n<p role="status">${esc("Thank you. Your answers were sent.")}</p>`,
+  );
+
+/**
+ * A link's send again (a reload after it went): the same answers, by the page's `_q`, under the
+ * page's key, so the host's stored reply answers. Null when it does not (a link used another way,
+ * or never by this page): the page then says the link cannot be used.
+ */
+async function replay(
+  posted: URLSearchParams,
+  token: string,
+  options: FormPageOptions,
+): Promise<Response | null> {
+  const key = posted.get("_key") ?? "";
+  const id = posted.get("_id") ?? "";
+  const version = Number(posted.get("_version"));
+  const questions = questionsOfSkeleton(posted.get("_q"));
+  if (!KEY.test(key) || !id || !Number.isInteger(version) || version < 1 || !questions) return null;
+  const answers = answersFrom(questions, draftFromFields(questions, (name) => posted.getAll(name)));
+  const honeypot = posted.get(HONEYPOT_FIELD);
+  try {
+    await options.client.call(
+      "x.forms.submit",
+      { id, version, answers, link: token, ...(honeypot ? { honeypot } : {}) },
+      { idempotencyKey: key },
+    );
+    return sentAlready();
+  } catch {
+    return null;
+  }
+}
+
 async function send(
   posted: URLSearchParams,
   isLink: boolean,
@@ -624,16 +757,28 @@ async function send(
   // The form as it is now, for its questions: the version the person saw is sent with the
   // answers, and the host says "load it again" when it changed.
   const opened = await open(options, isLink, slug, token);
-  if (isRefusal(opened)) return cannotOpen(opened, isLink);
+  if (isRefusal(opened)) {
+    // A link used by this very page's send (a reload of the thanks): its stored reply answers.
+    if (isLink && opened.kind === "gone" && token) {
+      const replayed = await replay(posted, token, options);
+      if (replayed) return replayed;
+    }
+    return cannotOpen(opened, isLink);
+  }
   const questions = formQuestions(opened);
   const draft = draftFromFields(questions, (name) => posted.getAll(name));
+  // The time the person was first shown the form travels with every redraw, so a quick correction
+  // is not taken for a bot and silently dropped (review of PR #461). Only a form that changed is
+  // shown afresh, with its new time.
+  const postedShown = posted.get("_shown");
   const again = (
     problem: string | null,
     errors: Readonly<Record<string, string>> = {},
     status?: number,
+    fresh = false,
   ) =>
     formPageOf({
-      opened,
+      opened: fresh || !postedShown ? opened : { ...opened, shown: postedShown },
       action: isLink ? LINK_PAGE_PATH : `${FORM_PAGE_PREFIX}${slug}`,
       ...(token ? { link: token } : {}),
       draft,
@@ -675,6 +820,7 @@ async function send(
           : refusal.message,
       refusal.kind === "answers" ? refusal.byKey : {},
       statusOf(refusal),
+      refusal.kind === "reload",
     );
   }
   const title = opened.title ?? "Form";

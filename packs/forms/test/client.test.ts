@@ -213,11 +213,11 @@ function harness() {
   };
   const calls: { name: string; input: unknown }[] = [];
   let answer: (name: string, input: unknown) => Promise<unknown> = async () => ({ received: true });
-  const queryHook = (() => ({
-    data: undefined,
-    isPending: true,
-    error: null,
-  })) as unknown as UseQuery;
+  const queries: Record<string, unknown>[] = [];
+  const queryHook = ((options: Record<string, unknown>) => {
+    queries.push(options);
+    return { data: undefined, isPending: true, error: null };
+  }) as unknown as UseQuery;
   const mutationHook: UseMutation = (options) => ({
     mutate: () => undefined,
     mutateAsync: (input) => options.mutationFn(input),
@@ -250,6 +250,7 @@ function harness() {
   return {
     hooks,
     calls,
+    queries,
     answers: (fn: typeof answer) => {
       answer = fn;
     },
@@ -261,6 +262,18 @@ function harness() {
 }
 
 describe("hooks", () => {
+  it("keeps an opened form as first opened: its shown time never restarts (review of PR #461)", () => {
+    const h = harness();
+    h.render(() => h.hooks.useForm({ slug: "ask-about-a-trial" }));
+    expect(h.queries[0]).toMatchObject({
+      queryKey: ["x.forms.form", { slug: "ask-about-a-trial" }],
+      gcTime: 0,
+      staleTime: Number.POSITIVE_INFINITY,
+      refetchOnWindowFocus: false,
+      refetchOnReconnect: false,
+    });
+  });
+
   it("gives a client only the hooks it can back", () => {
     const { hooks } = harness();
     expect(Object.keys(hooks).sort()).toEqual(["useAnswer", "useForm"]);

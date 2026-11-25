@@ -20,8 +20,9 @@ import {
   linkToken,
   type OutsideInvocationContext,
   refreshSchemaRegistry,
+  TURNSTILE_VERIFY_URL,
 } from "@composable-os/core";
-import { beforeAll, describe, expect, it } from "vitest";
+import { afterAll, beforeAll, describe, expect, it } from "vitest";
 import { formPage, formPageClient } from "../../../packs/forms/client/page.ts";
 import { integrationRuntime } from "../src/integrations/runtime.ts";
 import { setPreset } from "./automation-fixture.ts";
@@ -99,7 +100,7 @@ const post = (path: string, fields: [string, string][], cookie?: string) =>
       method: "POST",
       headers: {
         "content-type": "application/x-www-form-urlencoded",
-        origin: SITE,
+        "sec-fetch-site": "same-origin",
         ...(cookie ? { cookie } : {}),
       },
       body: new URLSearchParams(fields).toString(),
@@ -109,7 +110,12 @@ const post = (path: string, fields: [string, string][], cookie?: string) =>
 function hidden(html: string): [string, string][] {
   return [...html.matchAll(/<input type="hidden" name="([^"]+)" value="([^"]*)">/g)].map((m) => [
     m[1] as string,
-    (m[2] as string).replaceAll("&amp;", "&"),
+    (m[2] as string)
+      .replaceAll("&quot;", '"')
+      .replaceAll("&#39;", "'")
+      .replaceAll("&lt;", "<")
+      .replaceAll("&gt;", ">")
+      .replaceAll("&amp;", "&"),
   ]);
 }
 
@@ -204,6 +210,55 @@ describe("a form's own page (criterion 19)", { timeout: 60_000 }, () => {
   });
 });
 
+describe("a visitor's public form with the spam check on (review of PR #461)", { timeout: 60_000 }, () => {
+  // A Turnstile secret on this runner, and Cloudflare's siteverify stood in for: every token
+  // passes. Then the fill time is the door's real one (3 seconds from the shown time).
+  const runnerEnv = env as unknown as { TURNSTILE_SECRET_KEY?: string };
+  let realFetch: typeof fetch;
+  beforeAll(() => {
+    runnerEnv.TURNSTILE_SECRET_KEY = "a-stand-in-secret";
+    realFetch = globalThis.fetch;
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) =>
+      String(input instanceof Request ? input.url : input) === TURNSTILE_VERIFY_URL
+        ? Response.json({ success: true })
+        : realFetch(input, init)) as typeof fetch;
+  });
+  afterAll(() => {
+    runnerEnv.TURNSTILE_SECRET_KEY = "";
+    globalThis.fetch = realFetch;
+  });
+  const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+  it("keeps a send after the fill time, drops one sent at once, and keeps a quick correction", async () => {
+    const form = await makeForm({ answeredBy: "public" });
+    const turnstile: [string, string] = ["cf-turnstile-response", "a-token"];
+
+    // Sent at once: taken for a bot, answered as received, nothing kept.
+    const quick = await (await get(`/f/${form.slug}`)).text();
+    expect(quick).toContain("cf-turnstile");
+    const dropped = await post(`/f/${form.slug}`, [...hidden(quick), turnstile, ["a.score", "2"]]);
+    expect(dropped.status).toBe(200);
+    expect(await submissionsOf(form.id)).toEqual([]);
+
+    // The reviewer's case: the required question missed, the page drawn again, the answer added
+    // and sent at once. The redraw carries the first shown time, so the correction is kept.
+    const opened = await (await get(`/f/${form.slug}`)).text();
+    await wait(3_300);
+    const missed = await post(`/f/${form.slug}`, [...hidden(opened), turnstile, ["a.why", "Fun"]]);
+    expect(missed.status).toBe(422);
+    const corrected = await post(`/f/${form.slug}`, [
+      ...hidden(await missed.text()),
+      turnstile,
+      ["a.why", "Fun"],
+      ["a.score", "5"],
+    ]);
+    expect(corrected.status).toBe(200);
+    const [kept, ...more] = await submissionsOf(form.id);
+    expect(more).toEqual([]);
+    expect(kept?.values).toMatchObject({ via: "page", rating: 5 });
+  });
+});
+
 describe("a personal link's page (the security review of PR #458)", { timeout: 60_000 }, () => {
   it("sends no referrer, loads nothing from elsewhere, opening it uses nothing, and the send uses it once", async () => {
     const form = await makeForm({ answeredBy: "links", kind: "feedback" });
@@ -254,6 +309,12 @@ describe("a personal link's page (the security review of PR #458)", { timeout: 6
       certainty: "link",
       via: "link",
     });
+
+    // The browser posts the same page again (a reload of the thanks): the host's stored reply.
+    const reload = await post("/form", [...hidden(page), ["a.score", "3"]]);
+    expect(reload.status).toBe(200);
+    expect(await reload.text()).toContain("Your answers were sent");
+    expect(await submissionsOf(form.id)).toHaveLength(1);
 
     // A second send by the same link (a new page's key), and opening it again: one plain answer.
     const second = await post("/form", [

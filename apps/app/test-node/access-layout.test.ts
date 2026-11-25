@@ -114,6 +114,10 @@ describe("every route of cos-app is accounted for behind Access", () => {
     expect(bypassFor("/form")?.path).toBe("/form");
     expect(bypassFor("/f/ask-about-a-trial")?.path).toBe("/f/*");
     expect(bypassFor("/forms")).toBeNull();
+    // Open whenever Forms is installed: personal links are emailed whatever else the host serves,
+    // and behind Access a link's token would go into Access's login redirect (review of PR #461).
+    expect(bypassFor("/form")?.when).toBe("forms");
+    expect(bypassFor("/f/x")?.when).toBe("forms");
     // The feed's bypass is its own entry (it says how the feed authenticates), and nothing of the
     // staff app is under it.
     expect(bypassFor("/api/v1/staffing/feed/x.ics")?.path).toBe("/api/v1/staffing/feed/*");

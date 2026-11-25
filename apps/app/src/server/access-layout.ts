@@ -14,9 +14,10 @@ export interface BypassedPath {
   /**
    * When the bypass is needed: `always`; `customers-on-host` when customers buy on the host's own
    * pages; `mcp` when MCP clients connect; `if-used` when that provider or webhook is in use;
-   * `non-live` only outside a live environment.
+   * `forms` whenever the Forms pack is installed (its personal links are emailed whatever else the
+   * host serves); `non-live` only outside a live environment.
    */
-  when: "always" | "customers-on-host" | "mcp" | "non-live" | "if-used";
+  when: "always" | "customers-on-host" | "mcp" | "non-live" | "if-used" | "forms";
 }
 
 export interface StaffPath {
@@ -136,7 +137,7 @@ export const ACCESS_BYPASS: readonly BypassedPath[] = [
   {
     // Stage 29 step 4 (ADR 0728): what a link or a QR code to a form opens.
     path: "/f/*",
-    when: "customers-on-host",
+    when: "forms",
     authenticates:
       "A form's own page, drawn as HTML by the server: public by nature, as a form is answered " +
       "with no account. Its calls are the HTTP surface's through the client-app binding's door, " +
@@ -146,12 +147,14 @@ export const ACCESS_BYPASS: readonly BypassedPath[] = [
   },
   {
     path: "/form",
-    when: "customers-on-host",
+    when: "forms",
     authenticates:
       "A personal link's page (ADR 0723): the 32-byte random token in its address (looked up by " +
       "its SHA-256) is the only credential, for one Person and one form, used once, and only by " +
       "the send: opening the page uses nothing. Sent with no referrer and no script from " +
-      "elsewhere; the token is taken out of the address bar once the page has loaded.",
+      "elsewhere; the token is taken out of the address bar once the page has loaded. Behind " +
+      "Access, the token would go into Access's login redirect: it must be bypassed. Workers " +
+      "Logs record the address of the first request, token included.",
   },
   {
     path: "/_serverFn/*",

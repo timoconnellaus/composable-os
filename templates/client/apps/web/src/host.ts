@@ -305,23 +305,30 @@ export async function formPageRoute(request: Request, env: HostEnv): Promise<Res
   if (!page) return null;
   const method = request.method;
   if (method !== "GET" && method !== "HEAD" && method !== "POST") {
-    return refuse(405, "invalid_input", "Use GET or POST");
+    return formRefusal(405, "invalid_input", "Use GET or POST", { allow: "GET, HEAD, POST" });
   }
-  const headers: Record<string, string> = { ...customerSession(request.headers.get("cookie")) };
+  // Built afresh: the customer's cookie and the visitor's address (Cloudflare's, never one the
+  // browser sent), and for a send the form's type. Nothing else of the browser's request.
+  const headers: Record<string, string> = forVisitor(request);
   let body: string | undefined;
   if (method === "POST") {
-    // The browser's word on where the send comes from: this site's own page only. (With no
-    // referrer, a browser sends the Origin of a form's post as "null".)
+    // The browser's word that the send comes from this site's own page: an allow-list. With
+    // Sec-Fetch-Site, same-origin only (a sibling subdomain is same-site, and a customer's cookie
+    // still goes with it); without it, an Origin of this site, or "null" (the page's no-referrer
+    // policy makes a browser send that).
+    const site = request.headers.get("sec-fetch-site");
     const origin = request.headers.get("origin");
-    if (
-      request.headers.get("sec-fetch-site") === "cross-site" ||
-      (origin && origin !== "null" && origin !== url.origin)
-    ) {
-      return refuse(403, "forbidden", "Answers are sent from this site's page only");
+    const ours =
+      site !== null ? site === "same-origin" || site === "none" : origin === "null" || origin === url.origin;
+    if (!ours) return formRefusal(403, "forbidden", "Answers are sent from this site's page only");
+    const type = request.headers.get("content-type") ?? "";
+    if (!/^application\/x-www-form-urlencoded\b/i.test(type)) {
+      return formRefusal(415, "invalid_input", "Send the page's form");
     }
-    headers["content-type"] = request.headers.get("content-type") ?? "";
-    body = new TextDecoder().decode(await request.arrayBuffer());
-    if (body.length > 131_072) return refuse(413, "invalid_input", "The answers are too long");
+    const read = await bodyUpTo(request, FORM_PAGE_MAX_BODY);
+    if (read === null) return formRefusal(413, "invalid_input", "The answers are too long");
+    headers["content-type"] = type;
+    body = read;
   }
   const answer = await env.HOST.fetch(`${BOUND}${url.pathname}${url.search}`, {
     method,
@@ -340,6 +347,52 @@ export async function formPageRoute(request: Request, env: HostEnv): Promise<Res
     status: answer.status,
     headers: out,
   });
+}
+
+/** The most a form page's send may be, in bytes (the host's page takes no more). */
+const FORM_PAGE_MAX_BODY = 131_072;
+
+/** The form route's own refusals: no referrer and no cache, as its pages. */
+function formRefusal(
+  status: number,
+  code: string,
+  message: string,
+  extra: Record<string, string> = {},
+): Response {
+  return Response.json(
+    { error: { code, message } },
+    {
+      status,
+      headers: { "referrer-policy": "no-referrer", "cache-control": "no-store", ...extra },
+    },
+  );
+}
+
+/** A body as text, read only up to `max` bytes; null when it is (or says it is) longer. */
+async function bodyUpTo(request: Request, max: number): Promise<string | null> {
+  const declared = Number(request.headers.get("content-length") ?? "");
+  if (Number.isFinite(declared) && declared > max) return null;
+  if (!request.body) return "";
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    size += value.byteLength;
+    if (size > max) {
+      await reader.cancel().catch(() => undefined);
+      return null;
+    }
+    chunks.push(value);
+  }
+  const bytes = new Uint8Array(size);
+  let at = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, at);
+    at += chunk.byteLength;
+  }
+  return new TextDecoder().decode(bytes);
 }
 
 /** Where a stop link opens: the host makes each one for this site (`stopLink`, stage 30). */

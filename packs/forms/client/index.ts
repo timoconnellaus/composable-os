@@ -20,7 +20,6 @@ import {
   type PackClient,
   packHooks,
   type UseMutation,
-  type UseQuery,
 } from "@composable-os/client";
 import type { z } from "@composable-os/sdk";
 import {
@@ -377,7 +376,34 @@ export function takeLinkToken(page: {
 /** The app's `useState`. */
 export type UseState = <T>(initial: T) => [T, (next: T | ((previous: T) => T)) => void];
 
-export type { UseMutation, UseQuery } from "@composable-os/client";
+export type { UseMutation } from "@composable-os/client";
+
+/**
+ * The app's `useQuery` (TanStack Query's), as far as these hooks use it: with the options that
+ * keep an opened form as it was first opened (`staleTime`, no refetch on focus or reconnect), so
+ * the host's token of when it was shown never restarts while the person fills it in.
+ */
+export type UseQuery = <T>(options: {
+  queryKey: readonly unknown[];
+  queryFn: () => Promise<T>;
+  enabled?: boolean;
+  gcTime?: number;
+  staleTime?: number;
+  refetchOnWindowFocus?: boolean;
+  refetchOnReconnect?: boolean;
+}) => { data: T | undefined; isPending: boolean; error: unknown };
+
+/**
+ * How a form is kept once opened: never refetched while it is on the screen. A refetch would
+ * bring a new shown time, and a send within three seconds of it would be dropped as a bot's
+ * (review of PR #461); a form that changed meanwhile is the host's "load it again".
+ */
+export const OPENED_FORM_QUERY = {
+  gcTime: 0,
+  staleTime: Number.POSITIVE_INFINITY,
+  refetchOnWindowFocus: false,
+  refetchOnReconnect: false,
+} as const;
 
 /** Where a form is filled in (the submission's `via`): the business's website or its app. */
 export type Via = "site" | "app" | "page";
@@ -493,14 +519,14 @@ function allFormsHooks(react: React, api: FormsClient) {
       const options = which
         ? api.query("x.forms.form", which)
         : { queryKey: ["x.forms.form", null], queryFn: async () => undefined as never };
-      return useQuery<OpenedForm>({ ...options, enabled: which !== null, gcTime: 0 });
+      return useQuery<OpenedForm>({ ...options, enabled: which !== null, ...OPENED_FORM_QUERY });
     },
     /** The form a signed-in member's own personal link is for (Needs your attention's `linkId`). */
     useLinkedForm(linkId: string | null) {
       const options = linkId
         ? api.query("x.forms.linkedForm", { linkId })
         : { queryKey: ["x.forms.linkedForm", null], queryFn: async () => undefined as never };
-      return useQuery<OpenedForm>({ ...options, enabled: linkId !== null, gcTime: 0 });
+      return useQuery<OpenedForm>({ ...options, enabled: linkId !== null, ...OPENED_FORM_QUERY });
     },
     /**
      * Filling in a form `useForm` opened, and sending it: on the business's website (`site`) or
