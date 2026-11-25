@@ -178,8 +178,10 @@ const appointmentCloses = {
   at: "startsAt",
   minutesBefore: { field: "service.closesMinutes", setting: "appointmentClosesMinutes" },
 };
+// Counted from the appointment's anchor (ADR 0764): its own start, or, once moved, the start of the
+// one it replaced, so a move never makes a late cancel in time again.
 const appointmentLateFrom = {
-  at: "startsAt",
+  at: "lateAnchor",
   minutesBefore: { field: "service.lateMinutes", setting: "appointmentLateMinutes" },
 };
 /** Attended and no-show may be corrected, one into the other, for 7 days after the end. */
@@ -1120,7 +1122,9 @@ export default defineExtension({
       fields: {
         title: { type: "text", label: "Title" },
         service: { type: "relation", label: "Service", to: "bookings.service", required: true },
-        person: { type: "relation", label: "Client", to: "person", required: true },
+        // Required when it is made (states.create.requires); not `required`, so erasing the client
+        // keeps the appointment for pay and the business's books with the client cleared.
+        person: { type: "relation", label: "Client", to: "person" },
         // Who gives it: a coach profile holding a staff account (account required, ADR 0760).
         // Empty only once a coach has left (uncovered): a manager gives it to another coach
         // (reassignAppointment, which an AI may only ask a person to do).
@@ -1131,9 +1135,18 @@ export default defineExtension({
           to: "bookings.room",
           description: "Left empty, the host gives it the first of the service's rooms free then.",
         },
+        // Its times and service change only by a move (a new appointment, ADR 0764).
         startsAt: { type: "datetime", label: "Starts", required: true },
         endsAt: { type: "datetime", label: "Ends", required: true },
         timezone: { type: "timezone", label: "Time zone", required: true },
+        lateAnchor: {
+          type: "datetime",
+          label: "Late cancel counted from",
+          readOnly: true,
+          description:
+            "Set by the host: its start, or, when it was moved, the start of the appointment it " +
+            "replaced. The late-cancel point is counted back from it.",
+        },
         state: {
           type: "select",
           label: "State",
@@ -1222,6 +1235,8 @@ export default defineExtension({
           staffOnly: "service.staffOnly",
           // A service no longer offered: nobody books it, staff included.
           closed: "service.closed",
+          // Made for a client, by everyone, the host included.
+          requires: ["person"],
         },
         // A cancel is in time or late by the host's clock, for every caller (ADR 0503).
         requests: { cancel: ["cancelled", "late_cancelled"] },
@@ -1308,8 +1323,11 @@ export default defineExtension({
           },
         ],
         // Nobody marked it: attended, 30 minutes after it ends (the spec's decision 9). The
-        // session is kept either way, so this changes only reporting.
-        after: [{ from: "booked", to: "attended", at: "endsAt", minutesAfter: 30 }],
+        // session is kept either way, so this changes only reporting. Never one whose coach left
+        // (no coach): nobody gave it.
+        after: [
+          { from: "booked", to: "attended", at: "endsAt", minutesAfter: 30, ifSet: ["coach"] },
+        ],
       },
       // The coach's shift (stage 45, ADR 0621): one staff account is never on a class, a duty and
       // an appointment at once, the service's buffer included (ADR 0760), refused by the database
@@ -1362,7 +1380,14 @@ export default defineExtension({
           at: "startsAt",
           copy: { serviceId: "service.id" },
           local: { weekday: "weekday", minute: "minute", zone: "timezone" },
-          movedFrom: { field: "movedFrom", state: "moved" },
+          // Its times and service change only by a move, and a moved one keeps the late point of
+          // the one it replaced (ADR 0764): a used session never comes back by a change of time.
+          movedFrom: {
+            field: "movedFrom",
+            state: "moved",
+            fixed: ["startsAt", "endsAt", "service"],
+            anchor: { field: "lateAnchor", from: "startsAt" },
+          },
           paidBy: ["memberships.membership", "memberships.pass"],
           waived: "paidOtherwise",
           released: "cancelled_by_us",
@@ -1704,9 +1729,9 @@ export default defineExtension({
   grantable: ["bookings:desk", "bookings:appointments"],
   grantableLabels: {
     "bookings:desk":
-      "Front desk: find people, book anyone (walk-ins too) into any class, cancel or move their " +
-      "bookings, give a use back, and see any day's classes and full lists. For a coach who " +
-      "also works the desk.",
+      "Front desk: find people; book, cancel and move classes and one-to-one sessions for " +
+      "anyone; give a use back; mark sessions; see any day's classes and lists and every " +
+      "coach's day with its clients. For a coach who also works the desk.",
     "bookings:appointments":
       "Appointments: book one-to-one sessions for clients, move, cancel and mark them, give a " +
       "session back, give a session to another coach, and see any coach's day. For a coach who " +

@@ -98,7 +98,8 @@ describe("the appointment (manifest)", () => {
         bindsStaff: true,
         window: {
           until: {
-            at: "startsAt",
+            // Counted from the anchor: its start, or the start of the one it was moved from.
+            at: "lateAnchor",
             minutesBefore: { field: "service.lateMinutes", setting: "appointmentLateMinutes" },
           },
         },
@@ -114,9 +115,23 @@ describe("the appointment (manifest)", () => {
     expect(into("cancelled_by_us")).toEqual([
       expect.objectContaining({ by: ["host"], tools: ["cancelAppointmentByUs"] }),
     ]);
+    // Never an appointment whose coach left (no coach).
     expect(states?.after).toEqual([
-      { from: "booked", to: "attended", at: "endsAt", minutesAfter: 30 },
+      { from: "booked", to: "attended", at: "endsAt", minutesAfter: 30, ifSet: ["coach"] },
     ]);
+    // Times and service change only by a move, which keeps the late point (ADR 0764); a client
+    // is required when it is made, never by the field (erase keeps it).
+    const spends = host().manifest.objects.appointment?.allowance;
+    expect(spends).toMatchObject({
+      spends: {
+        movedFrom: {
+          fixed: ["startsAt", "endsAt", "service"],
+          anchor: { field: "lateAnchor", from: "startsAt" },
+        },
+      },
+    });
+    expect(states?.create?.requires).toEqual(["person"]);
+    expect(host().manifest.objects.appointment?.fields.person?.required).toBeUndefined();
     expect(host().manifest.settings).toMatchObject({
       appointmentOpensDays: { default: 28 },
       appointmentClosesMinutes: { default: 720 },

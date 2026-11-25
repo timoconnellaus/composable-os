@@ -14,6 +14,7 @@ import {
   type ExtensionHost,
   type InvocationContext,
   refreshSchemaRegistry,
+  runTimedMovesDue,
 } from "@composable-os/core";
 import { beforeAll, describe, expect, it } from "vitest";
 import { setPreset } from "./automation-fixture.ts";
@@ -562,6 +563,208 @@ describe("move, reassign and the coach's day (criterion 10)", () => {
   });
 });
 
+describe("a used session never comes back by a change of time (B1, ADR 0764)", () => {
+  const ai = () => staff({ actor: "assistant", origin: { surface: "assistant" } });
+
+  it("refuses a retime by record.update, for staff and an AI alike", async () => {
+    const service = await newService();
+    const { coach } = await newCoach([service]);
+    const person = await client("retime");
+    const pass = await passFor(person, { covers: ["sessions"] });
+    const t = at(0, 3);
+    const late = await tool("bookAppointment", {
+      serviceId: service,
+      startsAt: iso(t),
+      personId: person,
+      coachId: coach,
+    });
+    expect(await left(pass)).toBe(9);
+    const later = { startsAt: iso(at(5)), endsAt: iso(at(5, 1)) };
+    expect(
+      await refusal(
+        run("record.update", { object: APPT, id: late.appointmentId, values: later }, staff()),
+      ),
+    ).toMatchObject({ code: "invalid_input", details: { reason: "moves_only" } });
+    // The service is fixed too: another one is a move.
+    const other = await newService();
+    expect(
+      await refusal(
+        run(
+          "record.update",
+          { object: APPT, id: late.appointmentId, values: { service: other } },
+          staff(),
+        ),
+      ),
+    ).toMatchObject({ code: "invalid_input", details: { reason: "moves_only" } });
+    // An AI's retime is refused the same way (or, queued, is refused when a person applies it).
+    const byAi = await refusal(
+      run("record.update", { object: APPT, id: late.appointmentId, values: later }, ai()),
+    );
+    expect(["invalid_input", "pending_approval"]).toContain(byAi.code);
+    expect((await get(APPT, late.appointmentId as string)).startsAt).toBe(iso(t));
+    // Cancelling now is late: the session stays used.
+    expect(
+      await tool("cancelAppointment", { appointmentId: late.appointmentId, confirm: true }),
+    ).toMatchObject({ result: "late_cancelled" });
+    expect(await left(pass)).toBe(9);
+  });
+
+  it("a move keeps the original's late point: moved when late, cancelling it is late", async () => {
+    const service = await newService();
+    const { coach } = await newCoach([service]);
+    const person = await client("movelate");
+    const pass = await passFor(person, { covers: ["sessions"] });
+    const t = at(0, 3);
+    const late = await tool("bookAppointment", {
+      serviceId: service,
+      startsAt: iso(t),
+      personId: person,
+      coachId: coach,
+    });
+    const moved = await tool("moveAppointment", {
+      appointmentId: late.appointmentId,
+      startsAt: iso(at(8)),
+    });
+    expect(moved.result).toBe("booked");
+    expect((await get(APPT, moved.appointmentId as string)).lateAnchor).toBe(iso(t));
+    expect(await left(pass)).toBe(9);
+    expect(await tool("cancelAppointment", { appointmentId: moved.appointmentId })).toMatchObject({
+      result: "preview",
+      state: "late_cancelled",
+    });
+    expect(
+      await tool("cancelAppointment", { appointmentId: moved.appointmentId, confirm: true }),
+    ).toMatchObject({ result: "late_cancelled" });
+    expect(await left(pass)).toBe(9);
+
+    // The same as an AI: moved when late, its cancel resolves late (or waits for a person).
+    const again = await tool("bookAppointment", {
+      serviceId: service,
+      startsAt: iso(at(0, 5)),
+      personId: person,
+      coachId: coach,
+    });
+    const movedAgain = await tool("moveAppointment", {
+      appointmentId: again.appointmentId,
+      startsAt: iso(at(9)),
+    });
+    expect(await left(pass)).toBe(8);
+    const asked = await run<{ values: { state: string } }>(
+      "record.update",
+      { object: APPT, id: movedAgain.appointmentId, values: { state: "cancel" } },
+      ai(),
+    ).catch((e: { code?: string }) => ({ values: { state: e.code ?? "" } }));
+    expect(["late_cancelled", "pending_approval"]).toContain(asked.values.state);
+    expect(await left(pass)).toBe(8);
+  });
+
+  it("moved in time, it is cancelled in time until the original's late point", async () => {
+    const service = await newService();
+    const { coach } = await newCoach([service]);
+    const person = await client("moveearly");
+    const pass = await passFor(person, { covers: ["sessions"] });
+    const t = at(5);
+    const early = await tool("bookAppointment", {
+      serviceId: service,
+      startsAt: iso(t),
+      personId: person,
+      coachId: coach,
+    });
+    const moved = await tool("moveAppointment", {
+      appointmentId: early.appointmentId,
+      startsAt: iso(at(6)),
+    });
+    expect((await get(APPT, moved.appointmentId as string)).lateAnchor).toBe(iso(t));
+    expect(
+      await tool("cancelAppointment", { appointmentId: moved.appointmentId, confirm: true }),
+    ).toMatchObject({ result: "cancelled" });
+    expect(await left(pass)).toBe(10);
+  });
+});
+
+describe("erase, leaving and the host's attended mark (S1, S2, F4)", () => {
+  it("an appointment is made for a client, and erasing the client keeps it with no client", async () => {
+    const service = await newService();
+    const { coach } = await newCoach([service]);
+    expect(
+      await refusal(
+        run(
+          "record.create",
+          {
+            object: APPT,
+            values: {
+              service,
+              coach,
+              startsAt: iso(at(10)),
+              endsAt: iso(at(10, 1)),
+            },
+          },
+          staff(),
+        ),
+      ),
+    ).toMatchObject({ code: "invalid_input", details: { rule: "state_required_fields" } });
+    const person = await client("erase");
+    const past = await tool("bookAppointment", {
+      serviceId: service,
+      startsAt: iso(Date.now() - 2 * DAY),
+      personId: person,
+      coachId: coach,
+      paidAtDesk: true,
+    });
+    await tool("markAppointment", { appointmentId: past.appointmentId, mark: "attended" });
+    await run("person.erase", { id: person }, staff());
+    const kept = await get(APPT, past.appointmentId as string);
+    expect(kept).toMatchObject({ state: "attended", coach });
+    expect(kept.person ?? null).toBeNull();
+  });
+
+  it("the host marks an unmarked appointment attended 30 minutes after it ends, never one whose coach left", async () => {
+    const service = await newService();
+    const a = await newCoach([service]);
+    const leaver = await newCoach([service]);
+    const ends = Date.now() - 40 * MINUTE;
+    const done = await tool("bookAppointment", {
+      serviceId: service,
+      startsAt: iso(ends - HOUR),
+      personId: await client("attended"),
+      coachId: a.coach,
+      paidAtDesk: true,
+    });
+    // Not yet 30 minutes after its end: still booked.
+    await runTimedMovesDue(db, { clock: () => new Date(ends + 29 * MINUTE) });
+    expect((await get(APPT, done.appointmentId as string)).state).toBe("booked");
+    await runTimedMovesDue(db, { clock: () => new Date(ends + 31 * MINUTE) });
+    expect((await get(APPT, done.appointmentId as string)).state).toBe("attended");
+
+    // A leaver's appointment still to come is left with no coach (the spec's leaving: uncovered,
+    // the rosterers told), and the host never marks it attended for a session nobody gave.
+    const start = at(1);
+    const ahead = await tool("bookAppointment", {
+      serviceId: service,
+      startsAt: iso(start),
+      personId: await client("leaver"),
+      coachId: leaver.coach,
+      paidAtDesk: true,
+    });
+    const asked = await run("user.deactivate", { id: leaver.user.id }, staff()).then(
+      () => null,
+      (e: { details?: { count?: number } }) => e,
+    );
+    if (asked) {
+      await run(
+        "user.deactivate",
+        { id: leaver.user.id, confirm: Number(asked.details?.count ?? 0) },
+        staff(),
+      );
+    }
+    const uncovered = await get(APPT, ahead.appointmentId as string);
+    expect(uncovered.coach ?? null).toBeNull();
+    expect(uncovered.state).toBe("booked");
+    await runTimedMovesDue(db, { clock: () => new Date(start + 2 * HOUR) });
+    expect((await get(APPT, ahead.appointmentId as string)).state).toBe("booked");
+  });
+});
+
 describe("booking is not rostering (ADR 0764, amending ADR 0626)", () => {
   it("with Rostering installed, a member books a coach's appointment but still cannot set a class's coach", async () => {
     await run("extension.install", { id: "rostering", shipped: true }, staff());
@@ -601,5 +804,78 @@ describe("booking is not rostering (ADR 0764, amending ADR 0626)", () => {
         ),
       ),
     ).toMatchObject({ code: "forbidden", details: { rule: "rostering" } });
+  });
+
+  it("but not for a session that has started or is over, and an AI's change of coach waits", async () => {
+    const service = await newService();
+    const a = await newCoach([service]);
+    const b = await newCoach([service]);
+    const member = await createMember();
+    const asMember = staff({ user: member });
+    // A past session made now, naming who gave it: who is counted for pay is a rosterer's.
+    expect(
+      await refusal(
+        run(
+          "record.create",
+          {
+            object: APPT,
+            values: {
+              service,
+              person: await client("pastroster"),
+              coach: a.coach,
+              startsAt: iso(Date.now() - 2 * DAY),
+              endsAt: iso(Date.now() - 2 * DAY + HOUR),
+              state: "attended",
+            },
+          },
+          asMember,
+        ),
+      ),
+    ).toMatchObject({ code: "forbidden", details: { rule: "rostering" } });
+    // One that has started, made by an admin (who rosters): its coach is not a member's to change.
+    const started = await tool("bookAppointment", {
+      serviceId: service,
+      startsAt: iso(Date.now() - 10 * MINUTE),
+      personId: await client("startedroster"),
+      coachId: a.coach,
+      paidAtDesk: true,
+    });
+    expect(
+      await refusal(
+        run(
+          "record.update",
+          { object: APPT, id: started.appointmentId, values: { coach: b.coach } },
+          asMember,
+        ),
+      ),
+    ).toMatchObject({ code: "forbidden", details: { rule: "rostering" } });
+    // Still to come: a member changes it; an AI's change waits for a person.
+    const ahead = await tool("bookAppointment", {
+      serviceId: service,
+      startsAt: iso(at(11)),
+      personId: await client("aheadroster"),
+      coachId: a.coach,
+      paidAtDesk: true,
+    });
+    await run(
+      "record.update",
+      { object: APPT, id: ahead.appointmentId, values: { coach: b.coach } },
+      asMember,
+    );
+    expect((await get(APPT, ahead.appointmentId as string)).coach).toBe(b.coach);
+    expect(
+      await refusal(
+        run(
+          "record.update",
+          { object: APPT, id: ahead.appointmentId, values: { coach: a.coach } },
+          staff({ actor: "assistant", origin: { surface: "assistant" } }),
+        ),
+      ),
+    ).toMatchObject({ code: "pending_approval" });
+    expect((await get(APPT, ahead.appointmentId as string)).coach).toBe(b.coach);
+    // A person's reassignment through the tool is applied at once.
+    expect(
+      await tool("reassignAppointment", { appointmentId: ahead.appointmentId, coachId: a.coach }),
+    ).toMatchObject({ result: "booked", coachId: a.coach });
   });
 });
