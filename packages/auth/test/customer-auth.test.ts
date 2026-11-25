@@ -274,6 +274,43 @@ describe("invite only (criterion 11)", () => {
   });
 });
 
+// Stage 48 (ADR 0715, amended 2026-11-26): signing in again in place, as the account blocks do
+// before a sensitive act, ends the session the browser held, so it does not live on beside it.
+describe("signing in again in place ends the session it replaces", () => {
+  async function signInWith(email: string, cookie: string, code: string) {
+    const response = await customers.handle(
+      post("/api/customer-auth/sign-in/email-otp", { email, otp: code }, { cookie }),
+    );
+    if (!response) throw new Error("not a customer route");
+    return { response, cookie: cookieOf(response) };
+  }
+
+  it("ends the cookie's session once the new sign-in works; a wrong code ends nothing", async () => {
+    const email = address("again");
+    await inviteCustomer(db, email, admin.id);
+    const first = await signInFully(email);
+    expect((await customers.resolve(asRequest(first.cookie))).kind).toBe("customer");
+
+    // A wrong code: refused, and the session it would have replaced still works.
+    await requestCode(email);
+    const wrong = await signInWith(email, first.cookie, "000000");
+    expect(wrong.response.ok).toBe(false);
+    expect((await customers.resolve(asRequest(first.cookie))).kind).toBe("customer");
+
+    const { code } = await requestCode(email);
+    const again = await signInWith(email, first.cookie, code as string);
+    expect(again.response.status).toBe(200);
+    expect((await customers.resolve(asRequest(again.cookie))).kind).toBe("customer");
+    expect(await customers.resolve(asRequest(first.cookie))).toEqual({ kind: "public" });
+    const sessions = await env.DB.prepare(
+      "SELECT COUNT(*) AS n FROM core_customer_session WHERE customer_id = ?",
+    )
+      .bind(first.body.user.id)
+      .first<{ n: number }>();
+    expect(sessions?.n).toBe(1);
+  });
+});
+
 describe("first sign-in links the account (criterion 10)", () => {
   it("links to the one Person with the address", async () => {
     const email = address("one");

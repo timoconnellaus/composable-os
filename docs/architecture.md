@@ -3006,7 +3006,9 @@ lookup, never a rule); changing the sign-in address (`*-account-email`, under Yo
 everyone), which shows the host's preview in full and confirms only that preview, with the word
 DELETE typed (`deleteConfirmInput`). Both work in the app. When the host refuses with
 `sign_in_again`, the block signs the customer in again in place, through the app's own sign-in
-(`AccountSignIn`), and carries on with what they were doing (`sensitive`). The Memberships and
+(`AccountSignIn`), and carries on with what they were doing (`sensitive`); the host ends the
+session that sign-in replaces once it has worked (the cookie's on the web, the device session named
+by `replaces` in the app; ADR 0715 amended). The Memberships and
 Courses sections show their subscriptions through the one subscriptions part (no card button of
 their own: the card is Payment method's), Courses' section is `MyCoursesSection` (its courses and
 its subscription), Memberships' shows a linked child's memberships and passes under the child's

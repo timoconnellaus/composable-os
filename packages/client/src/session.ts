@@ -156,6 +156,10 @@ export function tokenSession(options: TokenSessionOptions) {
     /**
      * Signs in with the emailed code and keeps the device session the host answers with. A wrong,
      * used or expired code throws `forbidden` (`invalid_code`). No cookie is involved.
+     *
+     * A customer signing in again in place (a sensitive act asked for a recent sign-in) names the
+     * device session it replaces by its refresh token (`replaces`): once the new sign-in has
+     * worked, the host ends that one, so it does not live on beside it. A wrong code ends nothing.
      */
     async signInWithCode(
       email: string,
@@ -163,10 +167,12 @@ export function tokenSession(options: TokenSessionOptions) {
       deviceName: string,
       audience: SignInAudience = "customer",
     ): Promise<SignedIn> {
+      const previous = audience === "customer" ? await options.store.load() : null;
       const signedIn = await post<SignedIn>(fetcher, `${base}/api/v1/auth/${audience}/sign-in`, {
         email,
         code,
         deviceName,
+        ...(previous?.refreshToken ? { replaces: previous.refreshToken } : {}),
       });
       const { account: _account, ...tokens } = signedIn;
       await options.store.save(tokens);

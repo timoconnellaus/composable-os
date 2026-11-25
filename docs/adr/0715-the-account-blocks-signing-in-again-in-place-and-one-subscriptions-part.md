@@ -73,3 +73,26 @@ deletion is; and what "consolidated" means for the packs' sections.
   convention for an act that cannot be undone from the member's side.
 - **Each pack keeping its own subscription list with a card button.** A member with a membership
   and a course subscription saw two "update card" buttons for one card (the spec's finding 5).
+
+## Amended 2026-11-26: signing in again ends the session it replaces
+
+Found at the review of PR #467: after an in-place sign-in the session it replaced stayed valid on
+the host until it expired, and showed as a second "this device", while staff on a phone end theirs
+first (`staffSession`'s `endPrevious`). **The host now ends it, once the new sign-in has worked**
+(a wrong code ends nothing, so the member is never left signed out):
+
+- **Web.** The customer sign-in's `/sign-in/email-otp` (`customerIdentity().handle` in
+  `packages/auth`) reads the session the request's cookie names before signing in, and after a
+  successful sign-in deletes that `core_customer_session` row. The web app's `/auth/sign-in`
+  forwards the browser's cookie (`forVisitor`), so nothing changes in the template.
+- **App.** `/api/v1/auth/customer/sign-in` takes an optional `replaces`: the refresh token of the
+  device session being replaced. After the new device session is issued, the host ends that one
+  as `/auth/sign-out` would (`signOutDeviceSession`: holding its refresh token is the proof; any
+  other token ends nothing). `tokenSession.signInWithCode` in `@composable-os/client` sends it
+  from the store for a customer, so the template's `hostSession` needs no change.
+
+Host-side rather than in the templates: a copied app or an adopted site gets it without editing
+its own code, and ending the old session before the code is checked (as `endPrevious` does) would
+sign the member out on a mistyped code. Tests: `packages/auth/test/customer-auth.test.ts`,
+`apps/app/test/company-web.test.ts`, `apps/app/test/native-sign-in.test.ts`,
+`packages/client/test/client.test.ts`.

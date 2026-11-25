@@ -93,6 +93,26 @@ describe("a customer signs in on the company's own hostname", () => {
     expect((await browse("/account", { cookie: jar })).status).toBe(401);
   });
 
+  // Stage 48 (ADR 0715, amended 2026-11-26): the account blocks sign in again in place through
+  // this site's /auth/sign-in; the host ends the session the browser's cookie named.
+  it("signing in again in place ends the session the cookie held", async () => {
+    const email = await invitedPerson("Mary");
+    await browse("/auth/code", { body: { email } });
+    const first = await browse("/auth/sign-in", {
+      body: { email, code: sentCodes.get(email.toLowerCase()) },
+    });
+    const old = (first.cookies[0] as string).split(";")[0] as string;
+    await browse("/auth/code", { body: { email }, cookie: old });
+    const again = await browse("/auth/sign-in", {
+      body: { email, code: sentCodes.get(email.toLowerCase()) },
+      cookie: old,
+    });
+    expect(again.status, again.text).toBe(200);
+    const jar = (again.cookies[0] as string).split(";")[0] as string;
+    expect((await browse("/account", { cookie: jar })).status).toBe(200);
+    expect((await browse("/account", { cookie: old })).status).toBe(401);
+  });
+
   it("the operation route passes the browser's allowed calls, same origin only (ADR 0451)", async () => {
     const email = await invitedPerson("Grace");
     await browse("/auth/code", { body: { email } });

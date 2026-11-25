@@ -441,6 +441,9 @@ async function nativeRoute(
     await limitAttempts(request, env);
     const code = field(input, "code", 20);
     const deviceName = deviceNameSchema(input.deviceName);
+    // Signing in again in place (stage 48, ADR 0715 amended): the device session this one
+    // replaces, by its refresh token. Ended only once the new sign-in has worked.
+    const replaces = input.replaces === undefined ? null : field(input, "replaces", 300);
     const signedIn = await identity.signInWithCode(email, code, headers);
     if (!signedIn) throw invalidCode();
     const tokens = await issueDeviceSession(
@@ -449,6 +452,8 @@ async function nativeRoute(
       deviceName,
       now,
     );
+    // Holding the refresh token is what sign-out asks too; any other token ends nothing.
+    if (replaces) await signOutDeviceSession(db, replaces, now);
     return dataReply({ ...tokens, account: signedIn.account });
   }
   if (route === "/auth/staff/exchange") {
