@@ -46,7 +46,12 @@ import { buildRunner } from "./build.mjs";
 // to 13,002 KiB (+7,471 KiB; unminified, 7,578 to 18,409). That accident overshoots this budget by
 // about 5.8 MB at today's size, and by 7.5 MB less whatever room is left at any later size, so it
 // still fails clearly; the markers below catch it at any size.
-const MAIN_BUDGET_KIB = 7_168;
+// Raised to 7,680 KiB (2026-11-26, stage 52 step 4): main after the Owner's Today and My account's
+// follow-ups (#471, #472) plus the payout read and the Payouts report took the shipped module to
+// 7,192 KiB. All of it is packages/core and operation descriptions; no React or compiler came with
+// it, and the compiler check below is unchanged. Worth measuring what dominates again (esbuild's
+// metafile) before the next raise.
+const MAIN_BUDGET_KIB = 7_680;
 // Everything the runner uploads (the main module and its Text modules, not the source map), against
 // the platform's limit on a Worker's size. Checked 2026-11-23 at
 // https://developers.cloudflare.com/workers/platform/limits/: 64 MiB uncompressed on both plans,
