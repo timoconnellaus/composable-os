@@ -32,8 +32,11 @@ function hostWith(
 }
 
 /** A record as the in-memory host holds it. */
-const rowOf = (host: ReturnType<typeof hostWith>["host"], object: string, id: string) =>
-  host.records.get(object)?.get(id) ?? {};
+const rowOf = (
+  host: ReturnType<typeof hostWith>["host"],
+  object: string,
+  id: string,
+): Record<string, unknown> => host.records.get(object)?.get(id) ?? {};
 
 const treadmill = (extra: Record<string, unknown> = {}) => ({
   id: "itm_1",
