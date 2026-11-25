@@ -33,6 +33,7 @@ import {
   TOOL_AUDIENCES,
   TOOL_RISKS,
 } from "./contract.ts";
+import { checkObjectDiscount, discountManifestSchema } from "./discount.ts";
 import {
   checkDocumentSchema,
   DOCUMENT_MAX_BYTES,
@@ -232,6 +233,7 @@ export const objectManifestSchema = z.object({
   stock: stockManifestSchema.optional(),
   stockMoves: stockMovesManifestSchema.optional(),
   allowance: allowanceManifestSchema.optional(),
+  discount: discountManifestSchema.optional(),
   agreements: agreementsManifestSchema.optional(),
   healthNotes: healthNotesManifestSchema.optional(),
   states: statesManifestSchema.optional(),
@@ -1715,6 +1717,7 @@ export function validateManifest(
     checkObjectStock(m, name, object, contract);
     checkObjectStockMoves(m, name, object, contract);
     checkObjectAllowance(m, name, object, contract);
+    checkObjectDiscount(m, name, object, contract);
     checkObjectAgreements(m, name, object, contract);
     checkObjectHealthNotes(m, name, object, contract);
     checkObjectStates(m, name, object, contract);
