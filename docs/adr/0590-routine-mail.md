@@ -444,3 +444,17 @@ above. Two things change for email, both narrower:
   in the host's own change set for the kind. It is off until a human admin turns it on.
 
 Proof: ADR 0670's table; every test above passes unchanged.
+
+## Amended 2026-11-25, the receipt and the form-link slot (stage 29 step 5, ADR 0724)
+
+Two kinds of routine email this ADR could not send, each narrow:
+
+- **A receipt** (`receipt: true`, about an intake submission, its words showing only the form's
+  fields) goes to whoever sent the answers, and its address may carry the public's mark (a
+  visitor's typed address): the email shows nothing they typed. At most three a day to one
+  mailbox; never for answers staff entered, spam or an anonymous form.
+- **A form-link slot** (`formLink`) is filled by the host with a personal link it makes for the
+  record's own Person (ADR 0723), on the business's site; a kind with one never goes to a child's
+  own address while they have a live guardian, nor to an order's address, and goes by email only.
+
+Proof: ADR 0724's table; every test above passes unchanged.

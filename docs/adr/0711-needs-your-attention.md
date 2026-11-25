@@ -86,3 +86,11 @@ rules in the client (ADR 0401) and give each app its own cut-offs.
   `card_failing`, as the spec's table says; the block can send the payer to the subscription's
   page from there.
 - Not yet tried on a live host.
+
+## Amended 2026-11-25, `form_to_fill` (stage 29 step 5, ADR 0723)
+
+The kind the spec named for later is built: a live personal link of the caller's, or of a live
+dependant's, whose form still takes answers by link, soonest to expire first and at most ten. Its
+record is the form (by its published title), its moment the link's expiry, and its new `link` field
+the link's id, which the app sends back as `linkId` to open and answer the form; every other kind's
+`link` is null. It reads one statement for the links and two for each one listed.

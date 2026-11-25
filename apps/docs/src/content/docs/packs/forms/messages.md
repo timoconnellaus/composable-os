@@ -10,7 +10,9 @@ Routine mail is email about this pack's records that the host sends without a pe
 
 ## Routine message kinds
 
-This pack sends no routine mail.
+| Kind | Label | About | When and to whom | Values it fills |
+| --- | --- | --- | --- | --- |
+| `receipt` | Receipts | `submission` | When someone sends answers to a form whose receipt is on, a short email to the address they gave (or signed in with) saying the answers arrived, naming the form and nothing they typed. At most three a day to one address; never for an anonymous form, answers kept as spam, or answers staff entered. | `form` |
 
 ## Journey signals
 

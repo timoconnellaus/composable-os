@@ -36,6 +36,10 @@ It requires no other pack.
 - **Inbox**: the submission's states, new, in hand, done and spam.
 - **Asked to hear from us**: a submission whose "keep me updated" line was ticked. The host marks
   it; the words are the version's.
+- **Personal link**: a link the host emails one Person to answer one form once, without signing
+  in, often about one record (the class they came to: the submission's `about`). It works for a
+  week, is spent by its first answer, and is shown in the member's app under Needs your attention.
+- **Receipt**: the short email whoever sent answers gets, naming the form and nothing they typed.
 
 ## How the pieces fit
 
@@ -57,6 +61,18 @@ It requires no other pack.
 - **Spam**: the door keeps a flood from one address as spam. Moving a submission into or out of
   spam is `markSpam`'s and `notSpam`'s only, and an AI's call of either waits for a person.
 - **The hourly cap** across every form is the pack's setting, a person's to change.
+- **Personal links are the host's.** Only routine mail's form-link slot makes one, while it
+  prepares an email for a pack that declares it (Bookings' feedback after a class): one link per
+  Person, form and record, a token of its own for each email, only the token's hash kept. `form`
+  and `submit` take the token as `link` (anyone holding it, no Turnstile token) or, for a
+  signed-in member's own link from Needs your attention, its id as `linkId`. The answers are the
+  link's Person's (certainty personal link), to that form only; a used, expired or unknown link
+  is one refusal, opening one uses nothing, and of two answers at once by one link the database
+  keeps one. A form a link opens is any but a staff form or an anonymous one.
+- **The receipt is routine mail** (`receipt`), sent by the host once the pack's routine email is
+  turned on: to the signed-in member's own address, the address a personal link went to, or the
+  address a visitor typed; never for answers entered by staff, kept as spam or sent anonymously,
+  and at most three a day to one address. The form's "Send a receipt" turns it off.
 
 ## Main flows
 
@@ -72,17 +88,24 @@ It requires no other pack.
    with `markSpam` or take it back with `notSpam`.
 5. **A low rating.** When answers arrive with a rating at or under the form's level, the
    `lowRating` automation tells the answers' owner, or the admins when they have none.
+6. **A receipt.** When answers arrive to a form whose receipt is on, the `receipt` automation asks
+   the host for the receipt; the host decides who it goes to, or that none does. A person binds
+   the email connection it sends from, and turns the pack's routine email on.
+7. **Answer by a personal link.** A member opens the link from their email (or the item in their
+   app), the page asks `form` with the link and sends the answers with `submit` and the same
+   link; the submission is the member's, tied to what the link was about.
 
 ## What is built
 
 The forms and submissions, the tools above, the views (new answers, in hand, spam, asked to hear
-from us, open forms), the answers tab on a Person and on a form, the hourly cap setting and the
-low-rating notice.
+from us, open forms), the answers tab on a Person and on a form, the hourly cap setting, the
+low-rating notice, personal links (answered with `link` or `linkId`) and the receipt.
 
-Not in the code yet: the hosted page and the web and native form blocks, personal links, the
-receipt email, a record of another pack (a lead) as a destination, deleting a person's
-submissions when they are erased (erase clears the Person and the answers it recognises, not free
-text) and retention, the builder and inbox screens and the dashboard, and file uploads.
+Not in the code yet: the hosted page and the web and native form blocks (and the site's `/form`
+page a personal link opens), sending a form by personal link by hand, a record of another pack (a
+lead) as a destination, deleting a person's submissions when they are erased (erase deletes their
+personal links, and clears the Person and the answers it recognises, not free text) and
+retention, the builder and inbox screens and the dashboard, and file uploads.
 
 
 ## Reference

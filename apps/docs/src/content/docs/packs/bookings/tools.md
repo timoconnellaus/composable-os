@@ -877,6 +877,16 @@ The coaches' day for staff: for each coach (or one, with coachId), their classes
 | Trigger | dateRelative on bookings.class, field endsAt |
 | Steps | `check` Count who was booked and who was marked; `notify` Tell the admins |
 
+### feedbackAfterClass
+
+**Feedback after a class.** A few hours after a member is ticked as come (the feedback setting, 3 hours by default), when a feedback form is chosen, emails them (or a child's parents or guardians) a link to it that works once and for a week. The host makes the link, sends it at most once a month to a member, and never to someone who stopped these emails. Routine email: Feedback after a class.
+
+|  |  |
+| --- | --- |
+| Trigger | dateRelative on bookings.booking, field markedAt |
+| Steps | `compose` Check a feedback form is chosen and they came; `send` Email the member (or their guardians) the form's link |
+| Gatekeepers | `email-send` |
+
 ## Dashboards
 
 | Dashboard | Label | Widgets |

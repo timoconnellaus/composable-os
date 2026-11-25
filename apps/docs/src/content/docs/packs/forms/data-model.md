@@ -115,7 +115,7 @@ One set of answers to one version of a form, made only by the answers someone se
 | Title field | `title` |
 | Listed in | main |
 | Behaviours | [`states`](/reference/behaviours/#states), [`intake`](/reference/behaviours/#intake) |
-| Indexes | `form, createdAt`; `createdAt`; `status, createdAt`; `person` |
+| Indexes | `form, createdAt`; `createdAt`; `status, createdAt`; `person`; `about` |
 | Owner field | `owner` |
 
 ### Fields
@@ -131,6 +131,8 @@ One set of answers to one version of a form, made only by the answers someone se
 | `rating` | `number` | Rating |   |   | The first rating answered, for lists and dashboards. |
 | `marketing` | `boolean` | Asked to hear from us |   |   | They ticked a “keep me updated” line. The words they saw are the version's. |
 | `via` | `select` | Came in |   | one of `site`, `app`, `page`, `link`, `staff` |   |
+| `about` | `text` | About |   |   | The record the personal link was about (a booking's id), set by the host. |
+| `aboutObject` | `text` | About (kind) |   |   | What kind of record that is (bookings.booking), set by the host. |
 | `owner` | `user` | Owner |   |   |   |
 | `notes` | `longText` | Notes |   |   |   |
 | `status` | `select` | Status |   | one of `new`, `inHand`, `done`, `spam` |   |
@@ -211,7 +213,9 @@ One set of answers to one version of a form, made only by the answers someone se
     "spam": "spam",
     "via": "via",
     "rating": "rating",
-    "marketing": "marketing"
+    "marketing": "marketing",
+    "about": "about",
+    "aboutObject": "aboutObject"
   }
 }
 ```

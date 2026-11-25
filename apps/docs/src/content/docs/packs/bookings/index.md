@@ -90,6 +90,13 @@ the host's operations and add no rules of their own.
   attended.
 - Messages are automations that email members through the `email-send` gatekeeper on what the
   host did, as [routine mail](/packs/bookings/messages/) an admin can turn off.
+- **Feedback after a class** is routine mail too (`feedback`, a follow-up a member can stop with
+  one tap): a few hours after a member is ticked as come (`feedbackMinutes`, 3 hours by default),
+  when a Forms form is chosen (`feedbackForm`, its address), the host emails a personal link to
+  it, made for the booking's Person about that booking, good for a week. The host sends it at most
+  once a month to a member, never to a child's own address (their parents or guardians get it),
+  and never to someone who stopped follow-ups; the same link is the member's Needs your attention
+  item, and the answer is tied to the booking. It needs the Forms pack and the business's site.
 
 ## Main flows
 
@@ -124,6 +131,8 @@ the host's operations and add no rules of their own.
 10. **Tell people.** The host emails confirmations, waitlist news, changes, cancellations, a
    reminder before the class with an add-to-calendar file, and drop-in refunds; staff are told of
    a class whose list was not taken.
+11. **Ask for feedback.** Choose a Forms form in the settings; members ticked as come are asked
+   by email (`feedbackAfterClass`) and in the app, and answer once by their personal link.
 
 ## What is built
 
@@ -142,7 +151,8 @@ Stage 31a's steps 3 to 9, as the code has them:
 - appointments booked by staff (stage 49's step 5): services, appointments and their states,
   paying from a pass or at the desk, late cancels and no-shows with no fee, excusing, moving,
   reassigning and the coaches' day, under `bookings:desk` or the grantable
-  `bookings:appointments`.
+  `bookings:appointments`;
+- feedback after a class by a personal link to a Forms form (stage 29's step 5).
 
 Not in the code: `cos bookings import` (31a's step 10), and members booking appointments
 themselves, appointment emails, outside practitioners, paying per session and standing

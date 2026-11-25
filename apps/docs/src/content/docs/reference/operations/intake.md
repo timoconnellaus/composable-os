@@ -8,7 +8,7 @@ editUrl: false
 
 ## intake.open
 
-From a pack's tool: one of its forms as the caller may answer it now (published, open, within its dates and open to them; otherwise not found, whatever the reason). Returns the published version's number and content (its questions, title and thank-you words) and, for a caller who is not signed in, `shown`: the host's token of when the form was shown, which intake.submit needs to tell a person from a script. Give the form's id, or its address (`slug`) when the form object has one: a link or a QR code names a form by its address. Read-only.
+From a pack's tool: one of its forms as the caller may answer it now (published, open, within its dates and open to them; otherwise not found, whatever the reason). Returns the published version's number and content (its questions, title and thank-you words) and, for a caller who is not signed in, `shown`: the host's token of when the form was shown, which intake.submit needs to tell a person from a script. Give the form's id, or its address (`slug`) when the form object has one: a link or a QR code names a form by its address. Or give a personal link (`link`, its token, or `linkId` for a signed-in customer's own): the form it is for, if it is live; one answer whatever is wrong with it, and opening it uses nothing. Read-only.
 
 |  |  |
 | --- | --- |
@@ -24,6 +24,8 @@ From a pack's tool: one of its forms as the caller may answer it now (published,
 | `object` | string | yes | min length 1, max length 81 | The form object, e.g. forms.form |
 | `id` | string |   | min length 1, max length 64 |   |
 | `slug` | string |   | min length 1, max length 200 | The form's address, instead of id |
+| `link` | string |   | min length 1, max length 200 | A personal link's token, instead of id (ADR 0723) |
+| `linkId` | string |   | min length 1, max length 64 | A signed-in customer's own personal link, by its id, instead of id |
 
 ### Output
 
@@ -38,7 +40,7 @@ From a pack's tool: one of its forms as the caller may answer it now (published,
 
 ## intake.submit
 
-From a pack's tool: send answers to one of its forms (the public-write door, ADR 0720). The host checks the form takes answers from the caller now, a visitor's Turnstile token and shown time, the caps and the answers against the published version; then keeps one submission, matching or making the submitter's Person by the address answered (only empty fields of a Person are filled), and any destination record the form names, in one batch, and tells staff. Answers that break the version are refused naming the question's key, never the value. A submission kept as spam, or dropped by the honeypot or the fill time, is answered exactly as a kept one: { received: true }.
+From a pack's tool: send answers to one of its forms (the public-write door, ADR 0720). The host checks the form takes answers from the caller now, a visitor's Turnstile token and shown time, the caps and the answers against the published version; then keeps one submission, matching or making the submitter's Person by the address answered (only empty fields of a Person are filled), and any destination record the form names, in one batch, and tells staff. Answers that break the version are refused naming the question's key, never the value. A submission kept as spam, or dropped by the honeypot or the fill time, is answered exactly as a kept one: { received: true }. With a personal link (`link` or `linkId`, ADR 0723) the answers are the link's Person's (certainty link), to the link's own form, once: a used, expired, unknown or wrong link is one refusal, and of two answers at once by one link the database keeps one.
 
 |  |  |
 | --- | --- |
@@ -59,6 +61,8 @@ From a pack's tool: send answers to one of its forms (the public-write door, ADR
 | `turnstileToken` | string |   | max length 4096 | A visitor's Turnstile token |
 | `shown` | string |   | max length 200 | intake.open's shown token |
 | `honeypot` | string |   | max length 1000 | The hidden field a person leaves empty |
+| `link` | string |   | min length 1, max length 200 | A personal link's token (ADR 0723): the answers are the link's Person's, once; no Turnstile token or shown time is needed |
+| `linkId` | string |   | min length 1, max length 64 | A signed-in customer's own personal link (or a child's), by its id |
 
 ### Output
 
