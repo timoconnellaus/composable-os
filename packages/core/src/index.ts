@@ -203,6 +203,7 @@ export * from "./notifications/send.ts";
 export * from "./notifications/types.ts";
 export * from "./operation.ts";
 export * from "./operations/a2ui.ts";
+export { runAckDue } from "./operations/ack.ts";
 export * from "./operations/activity.ts";
 export * from "./operations/adjudicator.ts";
 export * from "./operations/affiliation.ts";

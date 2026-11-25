@@ -3,7 +3,12 @@
 // diffs and reconciles the manifest. `validateManifest` is the contract check `extension.check`
 // runs; it returns structured issues a model can act on.
 import { z } from "zod";
-import { MUST_READ_SCHEMA } from "./acknowledge.ts";
+import {
+  ACKNOWLEDGE_NOTICE_BODY_MAX,
+  ACKNOWLEDGE_NOTICE_TITLE_MAX,
+  ACKNOWLEDGE_REMINDER_MAX_DAYS,
+  MUST_READ_SCHEMA,
+} from "./acknowledge.ts";
 import {
   agreementsManifestSchema,
   checkObjectAgreements,
@@ -41,7 +46,7 @@ import {
   documentPathNode,
 } from "./document.ts";
 import { FIELD_TYPES, type FieldTypeName, formulaTypeOf } from "./field-types.ts";
-import { checkFormula, type FormulaFieldRef } from "./formula/compile.ts";
+import { checkFormula, type FormulaFieldRef, PUBLISHED_FORMULA_FIELDS } from "./formula/compile.ts";
 import { checkObjectIntake, intakeManifestSchema } from "./intake.ts";
 import { journeySignalIssues, journeySignalsManifestSchema } from "./journey-signals.ts";
 import { checkRoleMine, mineManifestSchema } from "./mine.ts";
@@ -212,7 +217,15 @@ export const stagesManifestSchema = z.object({
 });
 export type StagesManifest = z.infer<typeof stagesManifestSchema>;
 
-export const objectManifestSchema = z.object({
+export /** The words of one notice the host sends for an acknowledged object (ADR 0706). */
+const ackNotice = z
+  .object({
+    title: z.string().trim().min(1).max(ACKNOWLEDGE_NOTICE_TITLE_MAX),
+    body: z.string().trim().min(1).max(ACKNOWLEDGE_NOTICE_BODY_MAX).optional(),
+  })
+  .strict();
+
+const objectManifestSchema = z.object({
   label: z.string().min(1).max(100),
   plural: z.string().min(1).max(100),
   icon: z.string().max(60).optional(),
@@ -315,7 +328,27 @@ export const objectManifestSchema = z.object({
       date: z.string().max(40).optional(),
       publishIn: z.array(z.string().max(100)).min(1).max(20).optional(),
       acknowledge: z
-        .object({ who: z.string().max(40), manage: z.string().max(80) })
+        .object({
+          who: z.string().max(40),
+          manage: z.string().max(80),
+          // ADR 0706: more fields guarded as who must read is, who is told weekly, the words.
+          managed: z.array(z.string().max(40)).min(1).max(8).optional(),
+          owner: z.string().max(40).optional(),
+          notices: z
+            .object({
+              asked: ackNotice.optional(),
+              reminder: ackNotice
+                .extend({
+                  afterDays: z.number().int().min(1).max(ACKNOWLEDGE_REMINDER_MAX_DAYS),
+                })
+                .strict()
+                .optional(),
+              outstanding: ackNotice.optional(),
+              welcome: ackNotice.optional(),
+            })
+            .strict()
+            .optional(),
+        })
         .strict()
         .optional(),
       staffRead: z.boolean().optional(),
@@ -1143,6 +1176,23 @@ export interface ValidateOptions {
   reservedIds?: readonly string[];
 }
 
+/**
+ * The environment a formula of an object's own field compiles in, as on the host
+ * (formulaEnvironment): its fields, every record's timestamps and, on a publishable object, when
+ * its current version went live and its number (ADR 0706).
+ */
+export function objectFormulaEnvironment(object: {
+  fields: Record<string, FieldManifest>;
+  publishable?: unknown;
+}): Record<string, FormulaFieldRef> {
+  return {
+    createdAt: { type: "datetime", sql: '"created_at"' },
+    updatedAt: { type: "datetime", sql: '"updated_at"' },
+    ...(object.publishable ? PUBLISHED_FORMULA_FIELDS : {}),
+    ...formulaFields(object.fields),
+  };
+}
+
 /** Formula environment for a set of field manifests (formula fields compile on demand). */
 export function formulaFields(
   fields: Record<string, FieldManifest>,
@@ -1703,11 +1753,7 @@ export function validateManifest(
       );
     }
     // Every record's own timestamps can be read too, as on the host (formulaEnvironment).
-    const env = {
-      createdAt: { type: "datetime", sql: '"created_at"' } as FormulaFieldRef,
-      updatedAt: { type: "datetime", sql: '"updated_at"' } as FormulaFieldRef,
-      ...formulaFields(object.fields),
-    };
+    const env = objectFormulaEnvironment(object);
     checkFields(`${path}.fields`, `${m.id}.${name}`, object.fields, env);
     checkObjectBehaviour(m, name, object, contract);
     checkObjectCapacity(m, name, object, contract);
@@ -2047,6 +2093,38 @@ export function validateManifest(
         contract(
           `${path}.acknowledge`,
           "An acknowledged object is for staff: it declares no public or signedIn",
+        );
+      }
+      // ADR 0706: fields guarded as who must read is are the object's own, outside the content;
+      // the owner told each week is a user field of its own.
+      const managed = p.acknowledge.managed ?? [];
+      managed.forEach((fieldName, i) => {
+        const at = `${path}.acknowledge.managed.${i}`;
+        const f = object.fields[fieldName];
+        if (!f || f.type === "formula" || f.readOnly) {
+          contract(at, `"${fieldName}" is not a field of ${name} a person writes`);
+        } else if (p.content.includes(fieldName) || fieldName === who) {
+          contract(
+            at,
+            fieldName === who
+              ? "Who must read is guarded already: leave it out of managed"
+              : "A managed field is not content: it changes at once, not with a publish",
+          );
+        } else if (managed.indexOf(fieldName) !== i) {
+          contract(at, `"${fieldName}" is listed twice`);
+        }
+      });
+      const owner = p.acknowledge.owner;
+      if (owner !== undefined && object.fields[owner]?.type !== "user") {
+        contract(
+          `${path}.acknowledge.owner`,
+          `acknowledge.owner must name a user field of ${name}: who is told who has not confirmed`,
+        );
+      }
+      if (p.acknowledge.notices?.outstanding && owner === undefined) {
+        contract(
+          `${path}.acknowledge.notices.outstanding`,
+          "The weekly notice goes to the record's owner: name its user field in acknowledge.owner",
         );
       }
     }

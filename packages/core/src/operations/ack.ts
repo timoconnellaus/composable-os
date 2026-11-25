@@ -11,13 +11,16 @@
 // current version, by a live person's account, once. No AI actor confirms, lists, or reads who
 // has confirmed: the operations are a person's (`actors`). An extension's call of ack.confirm or
 // ack.mine counts only from a person-only tool of the shipped pack that owns the object, called
-// by the person (its verified caller, never its input); ack.status and ack.overview are a
-// person's own calls only. Pack-role
+// by the person (its verified caller, never its input); ack.status and ack.overview likewise, for
+// a person who manages, and a pack's tool reads only its own objects' (ADR 0706). Pack-role
 // accounts (a coach, a cleaner) reach ack.confirm and ack.mine (pack-roles.ts), nothing else.
 // The rows are in no `rec_*` view, so no dashboard, query or export reads them.
+import type { CrmDb } from "@composable-os/db";
 import { CompiledQuery } from "kysely";
 import { z } from "zod";
-import { ConflictError, ForbiddenError, OperationError } from "../errors.ts";
+import { ConflictError, ForbiddenError, OperationError, UnknownOperationError } from "../errors.ts";
+import type { GateFloor } from "../gate.ts";
+import { invoke } from "../invoke.ts";
 import { defineOperation, type HandlerContext } from "../operation.ts";
 import {
   type AcknowledgedObject,
@@ -34,6 +37,8 @@ import {
   personCalling,
   staffAccount,
 } from "../records/acknowledge.ts";
+import { ackDaily, ackNoticesDue } from "../records/acknowledge-notices.ts";
+import { SYSTEM_USER } from "../users.ts";
 
 const objectName = z
   .string()
@@ -220,8 +225,8 @@ export const ackStatus = defineOperation({
   description:
     "For one published record staff must read (a procedure), its current version: everyone " +
     "who must read it, who has confirmed it (and when), and who has not (and since when). For " +
-    "admins and people granted the object's manage permission; never for an AI actor. " +
-    "Read-only.",
+    "admins and people granted the object's manage permission, themselves or through a " +
+    "person-only tool of the pack that owns it; never for an AI actor. Read-only.",
   input: z.object({ object: objectName, id: recordId }),
   output: z.object({
     object: z.string(),
@@ -236,7 +241,7 @@ export const ackStatus = defineOperation({
   }),
   permission: "records:read",
   risk: "read",
-  actors: ["human"],
+  actors: ["human", "extension"],
   mcp: { expose: false },
   async handler(input, ctx) {
     const object = requireAcknowledged(input.object);
@@ -262,7 +267,8 @@ export const ackOverview = defineOperation({
   description:
     "Every published record staff must read, of the objects the caller manages: its current " +
     "version, how many must read it and how many have confirmed what counts. For admins and " +
-    "people granted an object's manage permission; never for an AI actor. Read-only.",
+    "people granted an object's manage permission, themselves or through a person-only tool of " +
+    "the pack that owns them (its own objects only); never for an AI actor. Read-only.",
   input: z.object({}),
   output: z.object({
     items: z.array(
@@ -279,7 +285,7 @@ export const ackOverview = defineOperation({
   }),
   permission: "records:read",
   risk: "read",
-  actors: ["human"],
+  actors: ["human", "extension"],
   mcp: { expose: false },
   async handler(_input, ctx) {
     const objects = await managedObjects(ctx);
@@ -311,4 +317,55 @@ export const ackOverview = defineOperation({
   },
 });
 
-export const ackOperations = [ackConfirm, ackMine, ackStatus, ackOverview] as const;
+// --- The minute cron ------------------------------------------------------------------------------
+
+const dueOutput = z.object({
+  reminders: z.number().int(),
+  outstanding: z.number().int(),
+  welcomes: z.number().int(),
+});
+
+export const ackDue = defineOperation({
+  name: "ack.due",
+  description:
+    "Platform use only (the minute cron, as the host, once a local day): the reminders to " +
+    "people who still have a record to read, the weekly notice to each record's owner of who " +
+    "has not confirmed it, and the welcome of new staff accounts with what they have to read, " +
+    "in the words each acknowledged object declares. Returns how many it wrote.",
+  input: z.object({}),
+  output: dueOutput,
+  permission: "records:write",
+  risk: "write",
+  actors: ["automation"],
+  // The host's own step: never queued for review under an approval floor on automation writes.
+  hostStep: true,
+  mcp: { expose: false },
+  auditSummary: (output) => output,
+  async handler(_input, ctx) {
+    if (ctx.origin.surface !== "system") throw new UnknownOperationError("ack.due");
+    return ackDaily(ctx);
+  },
+});
+
+/** The minute cron's read-and-understood step (ADR 0706): one `ack.due` a day, as the host. */
+export async function runAckDue(
+  db: CrmDb,
+  { floor, clock }: { floor?: GateFloor; clock?: () => Date } = {},
+): Promise<z.infer<typeof dueOutput>> {
+  const now = (clock?.() ?? new Date()).toISOString();
+  if (!(await ackNoticesDue(db.query, now))) return { reminders: 0, outstanding: 0, welcomes: 0 };
+  return (await invoke(
+    "ack.due",
+    {},
+    {
+      actor: "automation",
+      user: SYSTEM_USER,
+      origin: { surface: "system", automationId: "system.ack" },
+      db,
+      ...(floor ? { floor } : {}),
+      ...(clock ? { clock } : {}),
+    },
+  )) as z.infer<typeof dueOutput>;
+}
+
+export const ackOperations = [ackConfirm, ackMine, ackStatus, ackOverview, ackDue] as const;

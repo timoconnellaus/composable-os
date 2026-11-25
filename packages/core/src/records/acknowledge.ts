@@ -32,7 +32,7 @@ import { everPublished } from "./common.ts";
 export type AcknowledgedObject = ObjectDefinition & {
   titleField: string;
   publishable: NonNullable<ObjectDefinition["publishable"]> & {
-    acknowledge: { who: string; manage: string };
+    acknowledge: NonNullable<NonNullable<ObjectDefinition["publishable"]>["acknowledge"]>;
   };
 };
 
@@ -292,14 +292,18 @@ export async function personCalling(
 /**
  * The acknowledged objects whose confirmations the caller may read (ADR 0702): all of them for a
  * person who is an admin; for another person, those whose `manage` permission an admin granted
- * them and an installed pack still declares grantable; none for an AI actor, an extension's call
- * or an account holding a pack role (a pack role's account manages nothing, ADR 0600).
+ * them and an installed pack still declares grantable; none for an AI actor, an automation, an
+ * account holding a pack role (a pack role's account manages nothing, ADR 0600), or an
+ * extension's call other than a person-only tool of the shipped pack that owns the objects,
+ * called by the person, which reads that pack's objects only, as that person would (ADR 0706).
  */
 export async function managedObjects(ctx: HandlerContext): Promise<AcknowledgedObject[]> {
-  if (ctx.actor !== "human") return [];
-  const account = await staffAccount(ctx, ctx.user.id);
+  const own = ctx.actor === "extension" ? ctx.extension?.id : undefined;
+  const person = await personCalling(ctx, own);
+  if (!person) return [];
+  const account = await staffAccount(ctx, person);
   if (!account?.live || account.packRole !== null) return [];
-  const objects = acknowledgedObjects();
+  const objects = acknowledgedObjects().filter((o) => own === undefined || o.extension === own);
   if (account.role === "admin") return objects;
   if (!account.grants.length) return [];
   const grantable = await managedGrantable(ctx);
@@ -320,9 +324,10 @@ export async function assertManages(ctx: HandlerContext, object: AcknowledgedObj
 }
 
 /**
- * A write of who must read a record (ADR 0702): a person's only, never an AI actor's, and once
- * the record has been published, only one who manages the object's acknowledgements. Changing it
- * takes effect at once: it is not content and waits for no publish.
+ * A write of who must read a record (ADR 0702), or of a field the object guards the same way
+ * (`acknowledge.managed`, ADR 0706: a procedure's review period): a person's only, never an AI
+ * actor's, and once the record has been published, only one who manages the object's
+ * acknowledgements. Changing it takes effect at once: it is not content and waits for no publish.
  */
 export async function assertMayChangeMustRead(
   ctx: HandlerContext,
@@ -333,16 +338,21 @@ export async function assertMayChangeMustRead(
 ): Promise<void> {
   const acknowledged = acknowledgedObject(object);
   if (!acknowledged) return;
-  const who = acknowledged.publishable.acknowledge.who;
-  if (!(who in values)) return;
-  if (before && JSON.stringify(before[who] ?? null) === JSON.stringify(values[who] ?? null)) {
-    return;
-  }
+  const { who, managed = [] } = acknowledged.publishable.acknowledge;
+  const changed = [who, ...managed].filter(
+    (field) =>
+      field in values &&
+      !(before && JSON.stringify(before[field] ?? null) === JSON.stringify(values[field] ?? null)),
+  );
+  const [field] = changed;
+  if (field === undefined) return;
   if (ctx.actor !== "human") {
-    throw new ForbiddenError("Who must read is changed by a person, never by an AI actor", {
-      field: who,
-      actor: ctx.actor,
-    });
+    throw new ForbiddenError(
+      field === who
+        ? "Who must read is changed by a person, never by an AI actor"
+        : `${object.fields.find((f) => f.name === field)?.label ?? field} is changed by a person, never by an AI actor`,
+      { field, actor: ctx.actor },
+    );
   }
   if (id === null || !(await everPublished(ctx.db, object.name, id))) return;
   await assertManages(ctx, acknowledged);

@@ -505,10 +505,11 @@ describe("an AI's publish request (criterion 5, ADR 0480)", () => {
   it("the operations are a person's, reached by every staff role and pack role", () => {
     for (const name of ["ack.confirm", "ack.mine", "ack.status", "ack.overview"]) {
       const op = coreRegistry.get(name);
-      // Who has confirmed is read by a person's own call only (review of PR #340, finding 2).
-      const actors =
-        name === "ack.status" || name === "ack.overview" ? ["human"] : ["human", "extension"];
-      expect(op?.actors, name).toEqual(actors);
+      // Who has confirmed is read by a person (review of PR #340, finding 2): their own call, or
+      // since ADR 0706 a person-only tool of the shipped pack that owns the object, called by a
+      // person who manages it (Knowledge's readStatus), as confirm and mine already were
+      // (acknowledge-notices.test.ts and apps/runner/test/knowledge.test.ts hold the refusals).
+      expect(op?.actors, name).toEqual(["human", "extension"]);
       expect(op?.audiences ?? ["staff"], name).toEqual(["staff"]);
     }
   });
@@ -535,7 +536,7 @@ describe("the review of PR #340", () => {
   });
 
   it("only a person-only tool of the shipped pack that owns the object acts for the person (finding 2)", async () => {
-    const tool = (extension: string, humanOnly = true) =>
+    const tool = (extension: string, humanOnly = true, account = member.id) =>
       ({
         actor: "extension",
         user: admin,
@@ -547,7 +548,7 @@ describe("the review of PR #340", () => {
             name: "confirm",
             humanOnly,
             permission: null,
-            calledBy: { account: member.id, actor: "human" },
+            calledBy: { account, actor: "human" },
           },
         },
       }) as never;
@@ -564,8 +565,13 @@ describe("the review of PR #340", () => {
     await env.DB.prepare("UPDATE core_extensions SET source = 'shipped' WHERE id = ?")
       .bind(EXT)
       .run();
-    // And no extension reads who has confirmed, through any tool.
+    // Who has confirmed (ADR 0706): read through the owning pack's person-only tool only, as the
+    // person who called it would; never for one who does not manage, another pack's tool, or a
+    // tool anyone may call.
     expect(await managedObjects({ ...(tool(EXT) as object), user: admin } as never)).toEqual([]);
+    expect((await managedObjects(tool(EXT, true, manager.id))).map((o) => o.name)).toEqual([PROC]);
+    expect(await managedObjects(tool("someother", true, manager.id))).toEqual([]);
+    expect(await managedObjects(tool(EXT, false, manager.id))).toEqual([]);
   });
 
   it("an account holding a pack role manages nothing, whatever it is granted (finding 7)", async () => {

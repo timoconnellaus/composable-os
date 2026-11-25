@@ -12,7 +12,9 @@ import {
 } from "./automation.ts";
 import type { ViewFilter } from "./contract.ts";
 import type { FieldTypeName } from "./field-types.ts";
-import type { ExtensionManifest } from "./manifest.ts";
+import { checkFormula } from "./formula/compile.ts";
+// A function, read at call time: manifest.ts imports this file too.
+import { type ExtensionManifest, objectFormulaEnvironment } from "./manifest.ts";
 import { resolveFieldPath } from "./states.ts";
 
 /** Waits in one run (sleeps plus waitForEvent timeouts) add up to at most this. */
@@ -140,9 +142,20 @@ function fieldsOf(
   if (object.startsWith(`${m.id}.`)) {
     const own = m.objects[object.slice(m.id.length + 1)];
     if (!own) return null;
+    // A formula whose value is a date or a time counts as one (ADR 0706): a date-relative trigger
+    // on it reads its rec_* column, as on any date field (a procedure's next review).
+    const env = objectFormulaEnvironment(own);
+    const typeOf = (name: string, f: (typeof own.fields)[string]): FieldTypeName => {
+      if (f.type !== "formula") return f.type;
+      const compiled = checkFormula(f.expression ?? "", { fields: env }, name);
+      return compiled.ok &&
+        (compiled.formula.type === "date" || compiled.formula.type === "datetime")
+        ? compiled.formula.type
+        : f.type;
+    };
     return {
       ...RECORD_FIELDS,
-      ...Object.fromEntries(Object.entries(own.fields).map(([name, f]) => [name, f.type])),
+      ...Object.fromEntries(Object.entries(own.fields).map(([name, f]) => [name, typeOf(name, f)])),
     };
   }
   const core = CORE_AUTOMATION_FIELDS[object] ?? BASE_AUTOMATION_FIELDS[object];
