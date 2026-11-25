@@ -2103,7 +2103,7 @@ _Avoid_: purchase, sale, booking (a booking is a place in a class), invoice (sta
 
 **Adjustment**
 An amount taken off an order, on one line or spread over its lines in proportion, with its kind
-(`staff` today; `code`, `automatic` and `referral` with later steps of stage 34), its source (a
+(`staff`, `code`, `automatic`; `referral` with a later step of stage 34), its source (a
 discount, or the person who gave it) and why (`core_order_adjustment`, ADR 0690). Each line keeps
 its price and its share of the adjustments; the order's total is what is owed after them, and
 the checkout, the tax shares, the deposit rule and refunds all read that net. Never changed once
@@ -2116,6 +2116,29 @@ reason (`order.adjust`). Within the limit a human admin sets it applies at once;
 always when an AI asks, it waits in Approvals for a human admin, and the order cannot be paid
 until it is decided (ADR 0691).
 _Avoid_: comp, override, markdown
+
+**Discount**
+A record of an object declaring the `discount` behaviour (a pack's): what is off (a percentage,
+an amount, or a set price), on what, for whom (anyone, signed in, members, new customers, an
+organisation, a tag), when, and how often (uses in all, per person, a minimum spend). It applies
+by a **promo code** the buyer types, or **automatically** (a **member's price**, a customer
+rate), only while in a live state a person moved it to. The host works it out when it prices an
+order (ADR 0693); a caller sends at most a code, never an amount.
+_Avoid_: coupon, offer (taken: a continuation offer, a shift offer)
+
+**Promo code**
+A word a buyer types (`JANUARY`), compared without case: a discount's own word, or a code record
+of the pack belonging to a discount (one with one use is a single-use code). A code that does not
+apply gets one answer, "not valid here", whatever the reason (ADR 0693).
+_Avoid_: voucher (a gift voucher is something bought), coupon
+
+**Deal** (an order's)
+The one discount an order gets: the code or an automatic discount, whichever takes more off for
+the buyer (decision 9 of stage 34). It is written as `code` or `automatic` adjustments, and its
+**use** is held while the order is unpaid, used when it is paid, given back when it ends unpaid; a
+refund keeps it used (`core_discount_use`, limits kept by the database, ADR 0693). A staff discount
+is not a deal and goes on top. Not a **Deal** of the Deals extension.
+_Avoid_: offer
 
 **Paid another way** (an order's)
 An order paid, in whole or part, by something other than the provider's verified payment: today a

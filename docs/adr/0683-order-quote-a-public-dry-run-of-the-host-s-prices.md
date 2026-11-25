@@ -51,3 +51,12 @@ be able to see the total before signing in or giving an address.
 - **`ready` is not a promise that `order.start` will accept.** The quote checks prices, the
   channel, the delivery and stock. It does not check agreements due, one per Person, or a sold
   out capacity that is not stock; `order.start` does.
+
+## Amended 2026-11-25: the quote takes a code (stage 34 step 4, [ADR 0693](0693-the-discount-behaviour-codes-automatic-prices-one-deal-limits-held-by-the-database.md))
+`order.quote` takes an optional `code` and works out the order's deal as `order.start` does (a
+member's price by itself for a signed-in customer; the better of it and the code), through the
+same `priceOrder`. It answers with each line's `discount`, the order's `discount`, the `deal` and
+`codeApplied`, and the total after the deal; `goodsTotal` is the goods' net. A code that does not
+apply is reported in `problems` as `code_not_valid`, with the one message every reason gets. It
+still holds nothing and writes nothing: no use of the code is held. A quote by staff names no
+Person, so it shows only what anyone gets.

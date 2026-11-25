@@ -161,6 +161,12 @@
       "risk": "read"
     },
     {
+      "name": "discount.check",
+      "audiences": ["staff", "customer", "public"],
+      "risk": "read",
+      "hostInternal": true
+    },
+    {
       "name": "intake.open",
       "audiences": ["staff", "customer", "public"],
       "risk": "read",
@@ -393,6 +399,12 @@
       "toolOnly": true
     },
     {
+      "name": "order.applyCode",
+      "audiences": ["staff", "customer", "public"],
+      "risk": "write",
+      "hostInternal": true
+    },
+    {
       "name": "order.cancel",
       "audiences": ["staff", "customer"],
       "risk": "write",
@@ -429,6 +441,12 @@
       "perAddress": {
         "tier": "low"
       }
+    },
+    {
+      "name": "order.removeCode",
+      "audiences": ["staff", "customer", "public"],
+      "risk": "write",
+      "hostInternal": true
     },
     {
       "name": "order.start",

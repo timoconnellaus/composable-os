@@ -3206,6 +3206,9 @@ export interface CoreOrderDeliveryTable {
   country: string | null;
   created_at: Timestamp;
   erased_at: Defaulted<Timestamp | null>;
+  /** Migration 0953: the option's own price and its free-over amount, as priced at the start. */
+  price: Defaulted<number | null>;
+  free_over: Defaulted<number | null>;
 }
 
 export interface CoreOrderLineTable {
@@ -3252,6 +3255,29 @@ export interface CoreOrderAdjustmentTable {
   created_at: Timestamp;
   removed_at: Defaulted<Timestamp | null>;
   removed_by: Defaulted<string | null>;
+}
+
+/**
+ * A discount's use by an order (stage 34 step 4, ADR 0693, migration 0953): held from the order's
+ * start, used when it is paid, released when it ends unpaid or its code is changed. The limits are
+ * copied from the discount (and code) record so the database refuses a use past them.
+ */
+export interface CoreDiscountUseTable {
+  id: string;
+  discount_object: string;
+  discount_id: string;
+  code_object: string | null;
+  code_id: string | null;
+  kind: "code" | "automatic";
+  person_id: string | null;
+  order_id: string;
+  state: "held" | "used" | "released";
+  amount: number;
+  max_uses: number | null;
+  max_per_person: number | null;
+  code_max_uses: number | null;
+  created_at: Timestamp;
+  updated_at: Timestamp;
 }
 
 /** A record a paid order line granted (stage 27, ADR 0435, migration 0450). */
@@ -3668,6 +3694,25 @@ export interface CrmOrderAdjustmentView {
   removed_by: string | null;
   order_state: OrderState;
   currency: string;
+}
+
+/** Migration 0953: discount uses, for reports. */
+export interface CrmDiscountUseView {
+  id: string;
+  discount_object: string;
+  discount_id: string;
+  code_object: string | null;
+  code_id: string | null;
+  kind: "code" | "automatic";
+  person_id: string | null;
+  order_id: string;
+  state: "held" | "used" | "released";
+  amount: number;
+  created_at: Timestamp;
+  updated_at: Timestamp;
+  order_state: OrderState;
+  currency: string;
+  order_total: number;
 }
 
 /** Migration 0952: an order's payments by method, for reports. */
@@ -4431,6 +4476,7 @@ export interface CoreDatabase {
   core_order: CoreOrderTable;
   core_order_line: CoreOrderLineTable;
   core_order_adjustment: CoreOrderAdjustmentTable;
+  core_discount_use: CoreDiscountUseTable;
   core_order_grant: CoreOrderGrantTable;
   core_order_payment: CoreOrderPaymentTable;
   core_order_checkout: CoreOrderCheckoutTable;
@@ -4623,6 +4669,7 @@ export interface CoreDatabase {
   rec_order: CrmOrderView;
   rec_order_line: CrmOrderLineView;
   rec_order_adjustment: CrmOrderAdjustmentView;
+  rec_discount_use: CrmDiscountUseView;
   rec_order_payment: CrmOrderPaymentView;
   rec_order_refund: CrmOrderRefundView;
   rec_task_link: CrmTaskLinksView;

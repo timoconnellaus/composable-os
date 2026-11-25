@@ -754,6 +754,15 @@ class AssignmentRetry extends Error {
   override name = "AssignmentRetry";
 }
 
+/**
+ * The database refused an automatic discount's use past its limit (migration 0953, ADR 0693):
+ * another order took the last one at the same moment. The buyer typed no code for it, so the
+ * call is priced again once rather than refused.
+ */
+function isDealTaken(error: unknown): boolean {
+  return error instanceof Error && error.message.includes("core_discount_use_auto_limit");
+}
+
 export async function invokeOperation<O extends AnyOperation>(
   op: O,
   rawInput: unknown,
@@ -1545,6 +1554,9 @@ async function invokeOnce<O extends AnyOperation>(
       if (isAssignmentConflict(error) && attempt < ASSIGNMENT_RETRIES) {
         throw new AssignmentRetry();
       }
+      // An automatic discount's last use taken a moment before (ADR 0693): priced again once,
+      // the order then goes through without it. Nothing of this attempt was written.
+      if (isDealTaken(error) && attempt < 1) throw new AssignmentRetry();
       // A race the database decided: the operation may read again and say what happened.
       if (op.explainFailure) {
         const explained = await op
@@ -2163,6 +2175,18 @@ function outsideError(error: unknown): OperationError {
   ) {
     return typed;
   }
+  // A discount's last use taken by another order a moment before (migration 0953, ADR 0693): the
+  // one answer a code that does not apply gets, whatever the reason.
+  if (
+    typed.code === "invalid_input" &&
+    (typed.details as { rule?: unknown })?.rule === "code_not_valid"
+  ) {
+    return typed;
+  }
+  // An automatic price's last use taken twice in a row at the same moment: told to start again.
+  if (typed.code === "conflict" && (typed.details as { rule?: unknown })?.rule === "deal_taken") {
+    return typed;
+  }
   // The same for a continuation offer's page (migration 0532, ADR 0491): the caller's own offer.
   const offerRule = (typed.details as { rule?: unknown })?.rule;
   if (typed.code === "conflict" && (offerRule === "offer_held" || offerRule === "offer_changed")) {
@@ -2312,6 +2336,8 @@ async function invokeOutside<O extends AnyOperation>(
   op: O,
   rawInput: unknown,
   ctx: OutsideInvocationContext | DeviceInvocationContext,
+  /** Priced again once after an automatic discount's last use was taken (ADR 0693). */
+  retried = false,
 ): Promise<OperationOutput<O>> {
   const given = outsidePrincipal(ctx.principal);
   const now = (ctx.clock?.() ?? new Date()).toISOString();
@@ -2714,6 +2740,8 @@ async function invokeOutside<O extends AnyOperation>(
     try {
       await ctx.db.batch(statements);
     } catch (error) {
+      // An automatic discount's last use taken a moment before (ADR 0693): priced again once.
+      if (isDealTaken(error) && !retried) return invokeOutside(op, rawInput, ctx, true);
       // A race the database decided: the operation may read again and say what happened, as on
       // a staff call (stage 29: two first answers from one new address at once).
       if (op.explainFailure) {

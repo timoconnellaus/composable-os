@@ -1230,7 +1230,8 @@ The rules products share, declared in a manifest and enforced by the host in the
 `stages`, `states`, `capacity`, `sellable` and `publishable` exist (the last with its public
 half, and the media library beside it, since stage 28). `allowance` exists since stage 32b;
 `recurring`, capacity claimants and declared uniqueness since stage 31 (below); `staffed` since
-stage 45, `occupies` since stage 49 and `stock` since stage 37 (below). Behaviours stack:
+stage 45, `occupies` since stage 49, `stock` since stage 37 and `discount` since stage 34
+(below). Behaviours stack:
 an event is publishable, sellable and has a capacity.
 
 `stages` and `states` are two declarations on one **transition engine**
@@ -2333,8 +2334,30 @@ over it the call waits in Approvals (the operation's `reviewWhen`, judged again 
 read), an AI's always waits (and so does its `order.unadjust`), only a human admin approves, and
 the order's checkout cannot open while a person's waits. The database refuses a new total once a
 checkout is recorded, and a checkout for a price that changed meanwhile (migration 0951). A discount cannot take an
-order to nothing yet. Codes and members' prices (the `discount` behaviour) join the seam in a
-later step.
+order to nothing yet.
+
+**Codes and members' prices: the order's deal** (stage 34 step 4,
+[ADR 0693](adr/0693-the-discount-behaviour-codes-automatic-prices-one-deal-limits-held-by-the-database.md),
+`discounts/deal.ts`, `discounts/uses.ts`, `orders/codes.ts`). A pack declares discounts with the
+`discount` behaviour (below); the host works out the order's one **deal** inside `priceOrder`,
+after `priceLines` and before the goods rules: every live automatic discount the buyer qualifies
+for and the code given (the buyer's only input: a word), the one taking most off (a tie goes to
+the automatic one). A guest gets only what anyone gets; a signed-in customer and staff buying for
+a Person get members', new customers', organisation and tag prices (folded addresses as one
+person). The deal never touches a delivery, never makes an order free and never leaves less to
+pay than the order setting `minCharge` (50 minor units by default); free postage is then
+decided on the goods' net. It is written as one `code` or `automatic` adjustment per line, staff
+discounts going on top (`liveAdjustments` orders the deal first), and a **use** in
+`core_discount_use` (migration 0953): held in the order's batch, used when paid, released when it
+ends unpaid or its code changes, kept after a refund. A trigger refuses a use past the
+discount's total, a code's own, or a Person's limit (copied onto the use as the host read them),
+so of two orders at once at the last use one exists; the refusal reads as the one answer a code
+that does not apply gets ("not valid here", `rule: "code_not_valid"`, the reason for staff only).
+`order.start`, `order.startHeld` and `order.quote` take `code` (the quote holds nothing);
+`order.applyCode` / `order.removeCode` change a pending order's code before its checkout opens
+(the buyer, staff, or a guest with the token); `discount.check` checks a code against a basket,
+read-only, not for an assistant. Public operations have no rate limit yet (a platform gap);
+customers' calls are limited per account and operation.
 
 **Goods, delivery and the quote** (stage 37 step 3, ADRs
 [0682](adr/0682-goods-on-an-order-where-sold-the-channel-and-the-delivery.md),
@@ -2343,7 +2366,8 @@ later step.
 `goods: { soldIn? }` (where its records are sold: a select of `online`, `in_person`, `both`, read
 through its item) or `delivery: { kind, freeOver?, countries?, active? }` (an option of kind
 `post`, `collect` or `here`). Every order is priced by `priceOrder`: `priceLines` over the lines
-and the delivery the caller chose in `delivery` (added as the last line, quantity 1), then
+and the delivery the caller chose in `delivery` (added as the last line, quantity 1), then the
+order's deal (above; free over then counts the goods' net after it), then
 `applyGoodsRules`, which refuses goods without a delivery, a delivery without goods or among the
 lines, works out the **channel** (`online` for post and collect, `in_person` for here; written on
 `core_order.channel` once, never the caller's), refuses a goods line not sold there
@@ -2518,6 +2542,20 @@ for a person. What fed a movement cannot change afterwards, a moved record's lin
 added, changed or restored, and guards in both batches (the line's on its parent's history, the
 apply's on its lines) refuse a line written while its count is applied. A runtime extension cannot
 declare it.
+
+**`discount`** (stage 34 step 4,
+[ADR 0693](adr/0693-the-discount-behaviour-codes-automatic-prices-one-deal-limits-held-by-the-database.md),
+`packages/sdk/src/discount.ts`, `packages/core/src/discounts/`). Records that are discounts:
+`discount: { kind, percent?, amount?, live, automatic?, code?, codes?, who?, plans?,
+organisations?, tag?, objects?, records?, from?, until?, totalUses?, perPerson?, minSpend? }`, each
+a field of the object (`codes` names another object of the pack whose records are promo codes,
+with an optional use limit per code). The host reads the record when it prices an order (the
+deal, above) and enforces every rule; the pack never touches an order. A live state is entered
+only by a person: by `["host"]` through a person's tool, or by staff writing a state field that is
+`personApproves`; nothing is created live; and a non-person's change to a live discount, its
+restore from the Trash, and any write of a promo code record wait for a person
+(`records/person-approves.ts`). Not on a sellable, stocked or capacity
+object. A runtime extension may declare it.
 
 **Low stock** (stage 37 step 2, ADR 0681, `packages/core/src/stock/low.ts`). When a write takes a
 stock record's on hand to or below its reorder level (`stock.reorderAt`), the staff who hold the
