@@ -943,7 +943,7 @@
     },
     {
       "name": "ack.due",
-      "description": "Platform use only (the minute cron, as the host, once a local day): the reminders to people who still have a record to read, the weekly notice to each record's owner of who has not confirmed it, and the welcome of new staff accounts with what they have to read, in the words each acknowledged object declares. Returns how many it wrote.",
+      "description": "Platform use only (the minute cron, as the host, once a local day): the reminders to people who still have a record to read, the weekly notice to each record's owner of who has not confirmed it, and the welcome of new staff accounts with what they have to read, in the words each acknowledged object declares, at most a few hundred a run (the next tick carries on). Returns how many it wrote.",
       "risk": "write",
       "audiences": [
         "staff"
@@ -956,6 +956,12 @@
       "output": {
         "type": "object",
         "properties": {
+          "asked": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991,
+            "description": "Asked of someone never told of the version (new in must read)"
+          },
           "reminders": {
             "type": "integer",
             "minimum": -9007199254740991,
@@ -970,12 +976,18 @@
             "type": "integer",
             "minimum": -9007199254740991,
             "maximum": 9007199254740991
+          },
+          "more": {
+            "type": "boolean",
+            "description": "More is left for the day: the next tick carries on"
           }
         },
         "required": [
+          "asked",
           "reminders",
           "outstanding",
-          "welcomes"
+          "welcomes",
+          "more"
         ],
         "additionalProperties": false
       },

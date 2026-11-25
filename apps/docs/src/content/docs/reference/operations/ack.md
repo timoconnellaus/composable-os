@@ -37,7 +37,7 @@ Confirm that I have read and understood the current version of a record staff mu
 
 ## ack.due
 
-Platform use only (the minute cron, as the host, once a local day): the reminders to people who still have a record to read, the weekly notice to each record's owner of who has not confirmed it, and the welcome of new staff accounts with what they have to read, in the words each acknowledged object declares. Returns how many it wrote.
+Platform use only (the minute cron, as the host, once a local day): the reminders to people who still have a record to read, the weekly notice to each record's owner of who has not confirmed it, and the welcome of new staff accounts with what they have to read, in the words each acknowledged object declares, at most a few hundred a run (the next tick carries on). Returns how many it wrote.
 
 |  |  |
 | --- | --- |
@@ -55,9 +55,11 @@ No fields.
 
 | Field | Type | Required | Limits | Description |
 | --- | --- | --- | --- | --- |
+| `asked` | integer | yes | ≥ -9007199254740991, ≤ 9007199254740991 | Asked of someone never told of the version (new in must read) |
 | `reminders` | integer | yes | ≥ -9007199254740991, ≤ 9007199254740991 |   |
 | `outstanding` | integer | yes | ≥ -9007199254740991, ≤ 9007199254740991 |   |
 | `welcomes` | integer | yes | ≥ -9007199254740991, ≤ 9007199254740991 |   |
+| `more` | boolean | yes |   | More is left for the day: the next tick carries on |
 
 ## ack.mine
 

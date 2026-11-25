@@ -59,7 +59,8 @@ How the business does something, for staff: read by every staff account in the w
       "who": "mustRead",
       "manage": "knowledge:manage",
       "managed": [
-        "reviewEvery"
+        "reviewEvery",
+        "owner"
       ],
       "owner": "owner",
       "notices": {

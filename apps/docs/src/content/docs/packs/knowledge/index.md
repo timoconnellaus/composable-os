@@ -55,13 +55,15 @@ the assistant or by an MCP client, with a person publishing each. It requires no
   staff with a full role; a pack-role account reads its words and not its pictures.
 - **Read and understood is the host's** (ADR 0702): who must read, checked against each account's
   role, pack role and grants on the day; which confirmation counts; who may see who has confirmed
-  (admins, and those granted `knowledge:manage`, never an AI or a pack-role account). Who must read
-  and the review period are a person's to change, and once a procedure is published, only an
+  (admins, and those granted `knowledge:manage`, never an AI or a pack-role account). Who must read,
+  the owner and the review period are a person's to change, and once a procedure is published, only an
   admin's or a holder of `knowledge:manage` (ADR 0706).
 - **The notices are the pack's words, sent by the host** (ADR 0706), which alone knows who must
-  read and who has not: a version that asks tells everyone who must read it; someone who still has
-  one to read 7 days later is reminded, once; each week the owner hears who has not confirmed (a
-  count when the owner does not manage); a new staff account is sent its list.
+  read and who has not: a version that asks tells everyone who must read it (and, later, anyone
+  newly asked who was never told); someone who still has one to read 7 days after being told is
+  reminded, once; from a week after a version, each week the owner hears who has not confirmed
+  (the admins do when the owner may not see that); a new staff account is sent its list. Each
+  notice is the person's only: the assistant never reads them. Titles are the published wording.
 - **Help pages are public in their published wording** (ADR 0442): `content.get` by address,
   `content.list` and `content.search` find only published pages, and never a procedure.
 - **Writing is every member's**: a member or an admin writes procedures and help pages. A coach or
