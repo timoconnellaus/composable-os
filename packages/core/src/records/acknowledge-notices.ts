@@ -22,6 +22,7 @@ import type { HandlerContext } from "../operation.ts";
 import { jsonList } from "../records/common.ts";
 import { loadGeneralSettings } from "../settings.ts";
 import { localParts } from "../time/local.ts";
+import { visibleSource } from "../visibility/index.ts";
 import {
   type AcknowledgedObject,
   acknowledgedObject,
@@ -160,16 +161,16 @@ async function manages(
 
 /** The owner (a user field) of each record, from the object's rec_* view. */
 async function ownersOf(
-  db: Kysely<CoreDatabase>,
+  ctx: HandlerContext,
   object: AcknowledgedObject,
   ids: readonly string[],
 ): Promise<Map<string, string>> {
   const field = object.fields.find((f) => f.name === object.publishable.acknowledge.owner);
   if (!field?.column || !ids.length) return new Map();
   const rows = await sql<{ id: string; owner: string | null }>`
-    SELECT id, ${sql.ref(field.column)} AS owner FROM ${sql.table(object.source)}
-    WHERE id IN ${jsonList([...ids])}
-  `.execute(db);
+    SELECT r.id, ${sql.ref(`r.${field.column}`)} AS owner FROM ${visibleSource(ctx, object, "r")}
+    WHERE r.id IN ${jsonList([...ids])}
+  `.execute(ctx.db);
   return new Map(rows.rows.flatMap((r) => (r.owner ? [[r.id, r.owner] as const] : [])));
 }
 
@@ -217,7 +218,7 @@ export async function ackDaily(
     );
     const owners = words.outstanding
       ? await ownersOf(
-          ctx.db,
+          ctx,
           object,
           records.map((r) => r.id),
         )
