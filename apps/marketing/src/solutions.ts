@@ -49,13 +49,13 @@ export const SOLUTIONS: readonly Solution[] = [
     slug: "gyms",
     label: "For gyms and studios",
     summary:
-      "Events, online courses, training programs and your blog in one system, with class bookings and memberships still to come. Each piece says how far along it is.",
+      "Class bookings, memberships, events, online courses, training programs and your blog in one system. Each piece says how far along it is.",
     linkLabel: "See the system for gyms",
     title: "Gym and studio software, looked after · Composable OS",
     description:
-      "One system for your gym or studio: events, online courses, training programs and your blog on your own site and app. Built for you, looked after. Book a call.",
+      "One system for your gym or studio: class bookings, memberships, events, online courses, programs and your blog. Built for you, looked after. Book a call.",
     heading: "Gym and studio software, built around how you run yours",
-    lead: "Events, online courses, training programs and your blog in one system, on your own site and app, with class bookings and memberships still to come. Zero BS AI composes it for your gym, then looks after it on one subscription.",
+    lead: "Class bookings, memberships, rostering, events, online courses, training programs and your blog in one system, on your own site and app. Zero BS AI composes it for your gym, then looks after it on one subscription.",
     facts: [
       "Every member is one record, not five",
       "Your own site and app",
@@ -82,7 +82,7 @@ export const SOLUTIONS: readonly Solution[] = [
     },
     pieces: {
       heading: "The whole system, and how far along each piece is.",
-      lead: "Every piece works on the same members, payments and rules. The built ones are tested and can go into your system now; none is live at a gym yet.",
+      lead: "Every piece works on the same members, payments and rules. The built ones are tested and can go into your system now. None is live at a gym yet, and card payments and video have so far run only in test mode.",
       built: [
         {
           title: "Members and enquiries",
@@ -92,6 +92,26 @@ export const SOLUTIONS: readonly Solution[] = [
         {
           title: "Members' own account",
           body: "One place on your site and in your app where a member first sees what needs them, or their child: a waiver to sign, a card payment that failed, a pass running out. Then their orders, tickets, courses, bookings and memberships, and their details. They change the address they sign in with, or delete their account after seeing exactly what that does. In the app, the card and cancelling open your website. The app's screens are not yet tried on phones.",
+          status: "built",
+        },
+        {
+          title: "Class bookings",
+          body: "Classes made from your weekly timetable, booked and cancelled on your site and app within each class type's rules: when booking opens and closes, when a cancel is late, and classes only staff book. A full class has a waiting list: a place freed in time goes to the first person waiting who has a membership or pass to pay with, moved in on their own and paid from it then. Parents the gym has linked to their children book, cancel and join the waiting list for them, paid from the child's own membership or pass. A visitor, or a member with nothing to book with, pays for a single class on your website, no account needed, their place held while they pay and booked once the payment goes through; cancelled in time, the money goes back to their card once a member of staff approves it, and cancelled late, it is kept. Staff book anyone, walk-ins too, move a member to another class with the class it used, and cancel a class before it ends, giving everyone who booked it with a membership or pass that class back, including anyone already ticked or who cancelled late, and refunding anyone who paid for it on your website to their card once a member of staff approves it. Members, and parents about their children, are emailed when they book, with a file that adds the class to their calendar, when the gym changes the time or room or cancels their class, and with a reminder a few hours before it (3 by default, set per class type), by default your staff approve each one until the gym turns automatic emails on, and an admin can turn any of these emails off. Coaches tick who came on the class list in your app; a no-show keeps the class used. On the web, your staff work the front desk and the class list in the product's admin, and a coach signs in there to just the class list; the web screens are not yet tried on a live host. Your staff book one-to-one sessions, like personal training with one of your coaches, for a member, paid from a pass for sessions or at the desk; a coach is never booked over a class or another session, a private room is never taken twice, and a late cancel or a no-show uses the session, with no fee, unless your staff give it back. Members cannot yet book their own sessions online.",
+          status: "built",
+        },
+        {
+          title: "Memberships and passes",
+          body: "Monthly memberships, unlimited or a number of classes a week or month, and passes bought once: class packs that expire, drop-ins, an intro offer one per person, and packs of one-to-one sessions. Members see what they have left, used up as they book classes, and change plan on your website: a dearer plan at once, a cheaper one from the next billing period. Staff pause a membership for a set time, with nothing charged meanwhile.",
+          status: "built",
+        },
+        {
+          title: "Rostering",
+          body: "Which coach takes each class, and who does each shift that is not a class, like the clean after the last class. A weekly pattern makes the shifts eight weeks ahead and you change single dates; nobody is ever on two shifts at once. Staff say when they are away and offer a shift they cannot work: a colleague who may coach that class type takes it with nobody approving, and you are told. A duty like the closing clean can carry a checklist the person on the shift ticks off. Checklists also work on their own, before any roster: opening, closing and cleaning, due on set days by a set time, ticked off by whoever you choose (a cleaner or a coach too); you see how each day went, who ticked what and when, and you are told when one is missed. Members still see only the coach's public profile: name, photo and bio. For staff paid by the hour or by the class, each pay period's hours and classes are totalled from the roster and locked, with a file for payroll, and each of them can see their own; no pay rates are kept. Staff see their own shifts, take offered ones, say when they are away and get a private calendar address for their phone's calendar; you see the roster week, put people on shifts, set the regular week, who may coach what, everyone's time off and pay. Staff use the screens on the web in the product's admin, each person seeing only the ones they may use, and in the app (not yet tried on phones); the web screens are not yet tried on a live host, and the calendar address is not yet tried in phone calendars.",
+          status: "built",
+        },
+        {
+          title: "Waivers and agreements",
+          body: "Your membership terms, waiver, health questions and a parent's consent, in your own words. Members read and agree on your site or in your app, by ticking and typing their name or by drawing a signature, as you choose for each document. A visitor agrees on the way to paying for a class, and a parent agrees for their child. Nobody books a class or buys a membership or pass without agreeing first, and when you change a document you choose whether everyone agrees again before their next booking. A copy goes by email to whoever agrees online, and you can download the signed PDF at any time. Health answers are read only by the staff you allow; a coach sees a mark beside the name, never the answers. The screens in your app are built but not yet tried on phones. You can set a cooling-off period: a new member can end their membership on your website inside it, once, and what they paid in that period is refunded once a member of staff approves it (not for members moving over from another system). A member can also sign at your desk, on the gym's own tablet: someone on your staff starts a session for them, the tablet holds no sign-in, and the copy is emailed to them (not yet tried on a real tablet or a live host).",
           status: "built",
         },
         {
@@ -127,33 +147,13 @@ export const SOLUTIONS: readonly Solution[] = [
       ],
       notYet: [
         {
-          title: "Class bookings",
-          body: "Classes made from your weekly timetable, booked and cancelled on your site and app within each class type's rules: when booking opens and closes, when a cancel is late, and classes only staff book. A full class has a waiting list: a place freed in time goes to the first person waiting who has a membership or pass to pay with, moved in on their own and paid from it then. Parents the gym has linked to their children book, cancel and join the waiting list for them, paid from the child's own membership or pass. A visitor, or a member with nothing to book with, pays for a single class on your website, no account needed, their place held while they pay and booked once the payment goes through; cancelled in time, the money goes back to their card once a member of staff approves it, and cancelled late, it is kept. Staff book anyone, walk-ins too, move a member to another class with the class it used, and cancel a class before it ends, giving everyone who booked it with a membership or pass that class back, including anyone already ticked or who cancelled late, and refunding anyone who paid for it on your website to their card once a member of staff approves it. Members, and parents about their children, are emailed when they book, with a file that adds the class to their calendar, when the gym changes the time or room or cancels their class, and with a reminder a few hours before it (3 by default, set per class type), by default your staff approve each one until the gym turns automatic emails on, and an admin can turn any of these emails off. Coaches tick who came on the class list in your app; a no-show keeps the class used. On the web, your staff work the front desk and the class list in the product's admin, and a coach signs in there to just the class list; the web screens are not yet tried on a live host. Your staff book one-to-one sessions, like personal training with one of your coaches, for a member, paid from a pass for sessions or at the desk; a coach is never booked over a class or another session, a private room is never taken twice, and a late cancel or a no-show uses the session, with no fee, unless your staff give it back. Still to come: members booking their own sessions online.",
-          status: "building",
-        },
-        {
-          title: "Memberships and passes",
-          body: "Monthly memberships, unlimited or a number of classes a week or month, and passes bought once: class packs that expire, drop-ins, an intro offer one per person, and packs of one-to-one sessions. Members see what they have left, used up as they book classes, and change plan on your website: a dearer plan at once, a cheaper one from the next billing period. Staff pause a membership for a set time, with nothing charged meanwhile.",
-          status: "building",
-        },
-        {
-          title: "Rostering",
-          body: "Which coach takes each class, and who does each shift that is not a class, like the clean after the last class. A weekly pattern makes the shifts eight weeks ahead and you change single dates; nobody is ever on two shifts at once. Staff say when they are away and offer a shift they cannot work: a colleague who may coach that class type takes it with nobody approving, and you are told. A duty like the closing clean can carry a checklist the person on the shift ticks off. Checklists also work on their own, before any roster: opening, closing and cleaning, due on set days by a set time, ticked off by whoever you choose (a cleaner or a coach too); you see how each day went, who ticked what and when, and you are told when one is missed. Members still see only the coach's public profile: name, photo and bio. For staff paid by the hour or by the class, each pay period's hours and classes are totalled from the roster and locked, with a file for payroll, and each of them can see their own; no pay rates are kept. Staff see their own shifts, take offered ones, say when they are away and get a private calendar address for their phone's calendar; you see the roster week, put people on shifts, set the regular week, who may coach what, everyone's time off and pay. Staff use the screens on the web in the product's admin, each person seeing only the ones they may use, and in the app (not yet tried on phones); the web screens are not yet tried on a live host, and the calendar address is not yet tried in phone calendars.",
-          status: "building",
-        },
-        {
-          title: "Waivers and agreements",
-          body: "Your membership terms, waiver, health questions and a parent's consent, in your own words. Members read and agree on your site or in your app, by ticking and typing their name or by drawing a signature, as you choose for each document. A visitor agrees on the way to paying for a class, and a parent agrees for their child. Nobody books a class or buys a membership or pass without agreeing first, and when you change a document you choose whether everyone agrees again before their next booking. A copy goes by email to whoever agrees online, and you can download the signed PDF at any time. Health answers are read only by the staff you allow; a coach sees a mark beside the name, never the answers. The screens in your app are built but not yet tried on phones. You can set a cooling-off period: a new member can end their membership on your website inside it, once, and what they paid in that period is refunded once a member of staff approves it (not for members moving over from another system). A member can also sign at your desk, on the gym's own tablet: someone on your staff starts a session for them, the tablet holds no sign-in, and the copy is emailed to them (not yet tried on a real tablet or a live host).",
-          status: "building",
-        },
-        {
           title: "Moving from your booking system",
           body: "Your clients, visit history, passes and schedules brought across, with a time when both run side by side.",
           status: "planned",
         },
       ],
       notYetNote:
-        "Class bookings, memberships and passes, and the move from your booking system are what would replace it. None is finished yet, so until they are, your booking system stays.",
+        "Class bookings and memberships are built but not yet live at a gym, and moving your clients and passes across from your booking system is not built yet. Until it is, your booking system stays.",
       own: "The thing no software does the way your gym does it. We build that piece for you.",
     },
     first: {
@@ -165,11 +165,11 @@ export const SOLUTIONS: readonly Solution[] = [
     questions: [
       {
         q: "Can we keep our booking system for now?",
-        a: "Yes. Class bookings and memberships are being built, so your booking system stays while the rest moves. Moving from it comes after both are built.",
+        a: "Yes. Class bookings and memberships are built but not yet live at a gym, and moving your members across from your booking system is not built yet, so it stays while the rest moves.",
       },
       {
         q: "Can members use it on their phones?",
-        a: "Yes. Tickets, courses and training programs each have screens for your own app as well as your website.",
+        a: "Yes. Class bookings, tickets, courses, training programs and their own account each have screens for your own app as well as your website. The app's screens are not yet tried on real phones.",
       },
       {
         q: "Who takes the payments?",
