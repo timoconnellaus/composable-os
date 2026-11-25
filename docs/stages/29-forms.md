@@ -65,8 +65,15 @@ interview.
   settings wait for step 7 and `x.forms.ask` and `forms:manage` for step 5; the pack is not added
   to the CRM's packs. Not yet tried on a live host.
 
-- **Step 4** — in progress — branch `feat/stage-29-form-page` — Hosted page, web and native blocks,
-  headless entry.
+- **Step 4** — built — PR #461 — Hosted page, web and native blocks, headless entry: the Forms
+  pack's form page (`@composable-os/pack-forms/page`), plain HTML that works without JavaScript,
+  served by cos-app at `/f/<slug>` and `/form?t=` (Access bypass) and over the `ClientApp` binding,
+  which the template's `formPageRoute` forwards from the business's site (ADR 0728, no migration,
+  no new operation); a link's page sends no referrer, loads no outside script and drops the token
+  from the address bar, and opening it uses nothing. The `forms-form` and `forms-native-form`
+  blocks and the headless entry (`@composable-os/pack-forms/client`). Cos-app's optional
+  `TURNSTILE_SITE_KEY`. Not tried on a phone, with a real site key or on a live host; the
+  attention list that opens `LinkedFormBlock` is stage 48's.
 
 - **Step 5** — built — PR #458 — Personal links, the receipt and the form-link slot, Bookings'
   feedback, the `form_to_fill` attention kind (`feat/stage-29-personal-links`): migration 1010
