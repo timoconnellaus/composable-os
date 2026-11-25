@@ -1,0 +1,10 @@
+{
+  // The platform repository only (never in a release's client kit): the template type-checked with
+  // the blocks where they sit. In a client repo `cos create --with-mobile` has copied them into
+  // src/blocks/; here src/blocks/<block>/ is read from the repository's blocks/ (rootDirs), as the
+  // packs' block tsconfigs do. src/blocks/account-sections.gen.ts is the template's own.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "rootDirs": ["./src", "../../../.."]
+  }
+}

@@ -2,8 +2,8 @@
 // signed-in customer, or a child they act for, soonest first, each saying whose it is when it is a
 // child's, and opening where it is dealt with: a section of My account (`onSection`), the form
 // they were asked to fill in (`onFillForm`, where the app has the form's screen), or, for a
-// payment their bank waits on, the business's website (`onManage`): money in the app opens the
-// website, never the payment provider's page (ADR 0714). What needs attention is the host's
+// payment their bank waits on and for the rest of an order to pay, the business's website
+// (`onManage`): money in the app opens the website, never the payment provider's page (ADR 0714). What needs attention is the host's
 // answer (me.attention, ADR 0711); where an item leads is a lookup among the host's sections.
 import {
   type AccountHooks,
@@ -48,6 +48,8 @@ export function NeedsAttention({
   }
   const open = (target: AttentionTarget | null) => {
     if (!target) return undefined;
+    // Money owed on an order is paid on the website, never in the app (ADR 0714).
+    if (target.kind === "section" && target.order) return onManage;
     if (target.kind === "section") return () => onSection(target.key);
     // The provider's page is the website's to open, never the app's.
     if (target.kind === "page") return onManage;

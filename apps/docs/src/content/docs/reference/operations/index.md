@@ -104,6 +104,7 @@ Every operation in the core registry, grouped by the first part of its name. Any
 - [`task`](/reference/operations/task/)
 - [`teamMemory`](/reference/operations/teammemory/)
 - [`thread`](/reference/operations/thread/)
+- [`today`](/reference/operations/today/)
 - [`trash`](/reference/operations/trash/)
 - [`update`](/reference/operations/update/)
 - [`user`](/reference/operations/user/)

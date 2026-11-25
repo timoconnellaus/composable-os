@@ -244,3 +244,10 @@ refuses any `extension` or `schema` operation, called directly or approved throu
 `approval.approve`, for an admin too (`details.reason: "review_on_computer"`): a change to how the
 system is set up is made in the web admin. The
 routes, the tokens and the session table are unchanged.
+
+## Amended 2026-11-26: `replaces` on the customer sign-in
+
+`/api/v1/auth/customer/sign-in` also takes an optional `replaces`, the refresh token of the device
+session a customer's new sign-in replaces; the host ends it once the sign-in has worked
+([ADR 0715](0715-the-account-blocks-signing-in-again-in-place-and-one-subscriptions-part.md),
+amended 2026-11-26).

@@ -98,6 +98,10 @@ const DAY_MS = 86_400_000;
 /** The most passes read back through the seam: each id is a bound variable. */
 const PASSES_READ = 50;
 
+/** The most holder objects read in one statement, and the most bound variables in it (D1: 100). */
+const PASS_COLUMNS = 40;
+const PASS_PARAMETERS = 90;
+
 /** The most open orders read (soonest made first): each id is a bound variable later. */
 const ORDERS_READ = 50;
 
@@ -363,10 +367,13 @@ export async function attentionOf(
   const listed = passes.filter(
     (pass) => pass.left === 0 || (pass.ends !== null && pass.ends <= horizon && pass.left > 0),
   );
-  // Through the seam, every holder object in one statement: what the caller may see (their own,
-  // a child's only where the object opens to guardians) and the title they may read.
+  // Through the seam: what the caller may see (their own, a child's only where the object opens
+  // to guardians) and the title they may read. Each holder object is a column of one row (its
+  // visible rows as a JSON array), not a term of a compound SELECT, which D1 limits to five: one
+  // statement for every object in practice, another only past PASS_COLUMNS columns or
+  // PASS_PARAMETERS bound variables (D1 allows 100 of each).
   const visible = new Map<string, string>();
-  const parts = [];
+  const columns: { object: string; query: ReturnType<typeof sql>; parameters: number }[] = [];
   let budget = PASSES_READ;
   for (const object of [...new Set(listed.map((p) => p.object_type))]) {
     const definition = getObject(object);
@@ -378,22 +385,36 @@ export async function attentionOf(
       .slice(0, budget);
     budget -= ids.length;
     const title = listable.titleColumn ? sql.ref(listable.titleColumn) : sql`NULL`;
-    parts.push(
-      sql`SELECT ${object} AS object_type, id, ${title} AS title
-        FROM ${visibleSource(ctx, definition)} WHERE id IN (${sql.join(ids)})`,
-    );
+    const query = sql`SELECT json_group_array(json_array(id, ${title}))
+        FROM ${visibleSource(ctx, definition)} WHERE id IN (${sql.join(ids)})`;
+    columns.push({ object, query, parameters: query.compile(ctx.db).parameters.length });
   }
-  if (parts.length) {
-    const { rows } = await sql<{ object_type: string; id: string; title: unknown }>`${sql.join(
-      parts,
-      sql` UNION ALL `,
+  const statements: (typeof columns)[] = [];
+  let parameters = 0;
+  for (const column of columns) {
+    const last = statements.at(-1);
+    if (!last || last.length >= PASS_COLUMNS || parameters + column.parameters > PASS_PARAMETERS) {
+      statements.push([column]);
+      parameters = column.parameters;
+    } else {
+      last.push(column);
+      parameters += column.parameters;
+    }
+  }
+  for (const chunk of statements) {
+    const result = await sql<Record<string, string | null>>`SELECT ${sql.join(
+      chunk.map((column, n) => sql`(${column.query}) AS ${sql.ref(`c${n}`)}`),
     )}`.execute(ctx.db);
-    for (const row of rows) {
-      const label = getObject(row.object_type)?.label ?? row.object_type;
-      visible.set(
-        `${row.object_type}\u0000${row.id}`,
-        typeof row.title === "string" && row.title ? row.title : label,
-      );
+    const row = result.rows[0] ?? {};
+    for (const [n, column] of chunk.entries()) {
+      const label = getObject(column.object)?.label ?? column.object;
+      const found = JSON.parse(row[`c${n}`] ?? "[]") as [string, unknown][];
+      for (const [id, title] of found) {
+        visible.set(
+          `${column.object}\u0000${id}`,
+          typeof title === "string" && title ? title : label,
+        );
+      }
     }
   }
   for (const pass of listed) {

@@ -59,11 +59,24 @@ The shell takes `signIn`, the app's own sign-in by code (`requestCode`, `confirm
 sign-in address and deleting the account need a sign-in within the last 15 minutes; when the host
 answers `sign_in_again`, the block signs the customer in again in place and carries on. Deleting
 first shows the host's preview in full, and confirms only that preview once the customer types
-DELETE; `onDeleted` is where the app goes after. Memberships and Courses show their subscriptions
-through one subscriptions part; the card is Payment method's alone. In the mobile app the shell
-gives a pack's screen `onManage`: money opens the business's website account page
-([ADR 0714](../adr/0714-the-app-shows-money-and-opens-the-website.md),
+DELETE. Once the host has deleted the account, the hooks forget everything the app's query cache
+holds (make them with `createAccountHooks({ useQuery, useMutation, useQueryClient }, api)`), and
+the native shell's `endSession` (the app's `session.signOut`) forgets the device's tokens at once;
+`onDeleted` is where the app goes after (the web: its home page; the app: its sign-in). Memberships
+and Courses show their subscriptions through one subscriptions part; the card is Payment method's
+alone. The rest of an order to pay leads to that order in Orders: on the web its row pays it on the
+provider's page (`order.checkout`, coming back to the shell's `returnUrl`). In the mobile app the
+shell gives a pack's screen `onManage`: money, an order to pay included, opens the business's
+website account page ([ADR 0714](../adr/0714-the-app-shows-money-and-opens-the-website.md),
 [ADR 0715](../adr/0715-the-account-blocks-signing-in-again-in-place-and-one-subscriptions-part.md)).
+A `form_to_fill` item opens through the shell's `onFillForm(linkId)`: an app with Forms opens
+Forms' `LinkedFormBlock` (`LinkedFormScreen` in the app) with that id.
+
+The template mobile app's Account tab is the native shell already: `cos create --with-mobile`
+copies it with its sections. After `cos upgrade`, a pack's section whose copied block is older than
+the release's (it lacks the export the section now names) is left out of the wiring, so the app
+still compiles, and named with `cos diff <block>`; the upgrade also lists every copied block that
+changed upstream.
 
 ## Contact preferences and the one-tap stop
 

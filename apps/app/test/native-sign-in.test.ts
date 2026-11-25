@@ -220,6 +220,70 @@ describe("a customer signs in natively and never holds a cookie", () => {
     );
     expect(bearer.status).toBe(400);
   });
+
+  // Stage 48 (ADR 0715, amended 2026-11-26): the account blocks sign the customer in again in
+  // place before a sensitive act; the host ends the device session that sign-in replaces.
+  it("signing in again in place ends the device session it replaces, never on a wrong code", async () => {
+    const email = `${unique("again")}@example.com`;
+    await inviteCustomer(db, email, admin.id, new Date().toISOString());
+    const store = memoryStore();
+    const session = tokenSession({ baseUrl: ORIGIN, store, fetch: phone });
+    await session.requestCode(email);
+    await session.signInWithCode(email, sentCodes.get(email.toLowerCase()) as string, "Phone");
+    const first = store.peek() as Tokens;
+
+    // A wrong code: refused, and the session it would have replaced still refreshes.
+    await session.requestCode(email);
+    await expect(session.signInWithCode(email, "000000", "Phone")).rejects.toMatchObject({
+      details: { reason: "invalid_code" },
+    });
+    expect(store.peek()?.refreshToken).toBe(first.refreshToken);
+    const kept = await post("/api/v1/auth/refresh", { refreshToken: first.refreshToken });
+    expect(kept.status).toBe(200);
+    await store.save(kept.body.data as Tokens);
+    const current = store.peek() as Tokens;
+
+    // The right code: the new session works, and the one it replaced is ended on the host.
+    await session.signInWithCode(email, sentCodes.get(email.toLowerCase()) as string, "Phone");
+    const second = store.peek() as Tokens;
+    expect(second.sessionId).not.toBe(current.sessionId);
+    const ended = await post("/api/v1/auth/refresh", { refreshToken: current.refreshToken });
+    expect(ended.status).toBe(401);
+    const me = await call(second.accessToken, "me.get");
+    expect(me.status).toBe(200);
+    const rows = await env.DB.prepare(
+      "SELECT COUNT(*) AS n FROM core_device_session WHERE customer_id = (SELECT id FROM core_customer WHERE email = ?)",
+    )
+      .bind(email.toLowerCase())
+      .first<{ n: number }>();
+    expect(rows?.n).toBe(1);
+  });
+
+  it("a sign-in never ends another customer's session, whatever it names", async () => {
+    const emailA = `${unique("owner")}@example.com`;
+    const emailB = `${unique("other")}@example.com`;
+    await inviteCustomer(db, emailA, admin.id, new Date().toISOString());
+    await inviteCustomer(db, emailB, admin.id, new Date().toISOString());
+    const storeA = memoryStore();
+    const sessionA = tokenSession({ baseUrl: ORIGIN, store: storeA, fetch: phone });
+    await sessionA.requestCode(emailA);
+    await sessionA.signInWithCode(emailA, sentCodes.get(emailA.toLowerCase()) as string, "Phone");
+    const theirs = storeA.peek() as Tokens;
+
+    // B signs in naming A's refresh token as the session to replace.
+    const sessionB = tokenSession({ baseUrl: ORIGIN, store: memoryStore(), fetch: phone });
+    await sessionB.requestCode(emailB);
+    const signedIn = await post("/api/v1/auth/customer/sign-in", {
+      email: emailB,
+      code: sentCodes.get(emailB.toLowerCase()),
+      deviceName: "Phone",
+      replaces: theirs.refreshToken,
+    });
+    expect(signedIn.status).toBe(200);
+    // A's session is untouched.
+    const still = await post("/api/v1/auth/refresh", { refreshToken: theirs.refreshToken });
+    expect(still.status).toBe(200);
+  });
 });
 
 describe("the browser cookie flow is unchanged", () => {

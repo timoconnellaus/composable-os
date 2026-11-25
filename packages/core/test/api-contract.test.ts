@@ -226,6 +226,10 @@ describe("the committed roles file", () => {
       "record.list",
       // The screens of the admin it may open (stage 47, ADR 0660): every pack role reaches it.
       "screens.mine",
+      // Its own Today (stage 60, ADR 0874): every pack role reaches it, each item gated by what
+      // the account could already call.
+      "today.get",
+      "today.rows",
       // Today's checklists (ADR 0652): every staff account's, the host answering each with only
       // the checklists it may do.
       "x.dailychecks.day",

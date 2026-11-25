@@ -609,3 +609,42 @@ describe("statements (D1's limits)", () => {
     expect(Math.max(...ran)).toBeLessThanOrEqual(100);
   });
 });
+
+// The review of PR #467, F7: the preview counts every customer object as a column of one row, not
+// a term of a compound SELECT (D1 refuses a sixth term). Six more customer objects installed at
+// once, the caller holding an open record of each: the preview answers and counts all six.
+describe("many customer objects (D1's compound SELECT limit)", () => {
+  it("previews with six more objects declaring a customer, counting each", async () => {
+    const many = extId("acc6");
+    const kinds = ["k1", "k2", "k3", "k4", "k5", "k6"];
+    await reconcile(
+      manifest(many, {
+        objects: Object.fromEntries(
+          kinds.map((key) => [
+            key,
+            {
+              label: `Kind ${key}`,
+              plural: `Kinds ${key}`,
+              titleField: "name",
+              fields: {
+                name: { type: "text", label: "Name", required: true },
+                person: { type: "relation", label: "Person", to: "person" },
+              },
+              customer: { field: "person", read: ["name"], write: [] },
+            },
+          ]),
+        ),
+      }),
+    );
+    const buyer = await createBuyer(admin, "six");
+    for (const key of kinds) {
+      await create(`${many}.${key}`, { name: unique(key), person: buyer.principal.personId });
+    }
+    const seen = await preview(buyer);
+    expect(
+      seen.leftForStaff.records
+        .filter((r) => r.object.startsWith(`${many}.`))
+        .map((r) => [r.object, r.count]),
+    ).toEqual(kinds.map((key) => [`${many}.${key}`, 1]));
+  });
+});

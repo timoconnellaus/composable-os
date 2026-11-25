@@ -1313,7 +1313,9 @@ local day, a comparison, whether it needs attention, and what a tap opens. A **h
 (`host.takings`, `host.approvals`) is computed by the host; a **pack item** is declared by a
 shipped pack in its manifest (`todayItems`: read-only SQL over `rec_*` views returning one
 `value`, a count or a percent, never money, gated by the pack's own tools as a screen is). Runtime
-extensions declare none.
+extensions declare none. `today.get` lists the items the caller may see for the business's local
+day, each gated by what the caller could already call; `today.rows` gives the rows behind one
+(ADR 0874).
 _Avoid_: widget (a widget is a dashboard's tile), KPI (a dashboard's widget type), `today` (a pack
 role's limit to today, ADR 0553)
 
@@ -1479,7 +1481,8 @@ subscriptions, allowances and personal links: a document to agree to, a card pay
 a payment to confirm with the bank, a deposit's balance, an unfinished held order, a pass expiring
 or used up, a free trial ending, a form to fill in. How far ahead it looks is
 `account.attentionDays` (default 7). The blocks (`*-account-attention`) say whose each item is and
-lead to the section that deals with it.
+lead to the section that deals with it (money owed on an order: that order in Orders, paid there
+on the web and on the website from the app).
 _Avoid_: notifications, alerts, to-do
 
 ### Erase request
@@ -3029,7 +3032,9 @@ do, on every operation; the role's limits bind only the calls the role allows (t
 0553; only the People its holder looks after, through a pack's team, ADR 0889; only through the
 records of its pack naming its holder, its "mine" reach, ADR 0755). It also reaches a
 shipped pack's tools open to every staff account (`anyStaff`, ADR 0652: Daily checklists' today
-and tick), whose host operation decides what it may do. The door role is Ticketing's.
+and tick), whose host operation decides what it may do, and its own Today (`today.get`,
+`today.rows`, ADR 0874), each item gated by what the account could already call. The door role is
+Ticketing's.
 Stage 14a's roles and teams will extend it.
 _Avoid_: role (alone, it means admin, member or viewer), team, scope
 

@@ -16,7 +16,7 @@
 //   dependant who would be left with no other guardian. Admins are told these with the request.
 //
 // Every read here is bounded: one statement per kind of thing, the customer objects' counts in
-// one statement per fifty objects (the seam's countOwnOpenRecords), and at most
+// one statement per forty objects (the seam's countOwnOpenRecords), and at most
 // ACCOUNT_DELETE_MOST orders and subscriptions acted on (any beyond are left for staff, and the
 // preview says so).
 
