@@ -375,7 +375,9 @@ describe("a pack role's Today (proof b)", () => {
   it("a role reaching People only for those it looks after gets no item that reads them", async () => {
     const id = "todaylk";
     const m = fixture(id, { people: peopleItem(["day"]) });
-    (m.roles as Record<string, { looksAfter?: unknown }>).coach.looksAfter = { person: "self" };
+    const roles = m.roles as Record<string, { looksAfter?: unknown }>;
+    if (!roles.coach) throw new Error("no coach role");
+    roles.coach.looksAfter = { person: "self" };
     await install(m);
     forgetSchemaNames();
     try {
