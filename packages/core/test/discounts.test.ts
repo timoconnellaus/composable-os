@@ -107,7 +107,9 @@ function offers(id: string): ExtensionManifest {
             amount: { type: "currency", label: "Amount", currency: CURRENCY },
             automatic: { type: "boolean", label: "Automatic" },
             code: { type: "text", label: "Code" },
-            who: select("anyone", "signed_in", "members", "new_customers", "tag"),
+            who: select("anyone", "signed_in", "members", "new_customers", "organisation", "tag"),
+            orgs: { type: "relation", label: "Organisations", to: "organisation", many: true },
+            items: { type: "relation", label: "Items", to: `${SHOP}.class`, many: true },
             tag: { type: "text", label: "Tag" },
             plans: { type: "relation", label: "Plans", to: `${SHOP}.plan`, many: true },
             on: {
@@ -141,6 +143,8 @@ function offers(id: string): ExtensionManifest {
             codes: { object: "code", discount: "discount", word: "word", uses: "uses" },
             who: "who",
             tag: "tag",
+            organisations: "orgs",
+            records: ["items"],
             plans: "plans",
             objects: "on",
             from: "from",
@@ -1127,5 +1131,205 @@ describe("a runtime extension (criterion 24)", () => {
     );
     expect(asked.code).toBe("pending_approval");
     expect((await buy([{ id: yoga }], { code })).discount).toBe(1_200);
+  });
+});
+
+// --- The review of PR #454 ----------------------------------------------------------------------
+
+describe("an AI or an automation cannot hand out a discount (review M1)", () => {
+  for (const preset of ["balanced", "autonomous"] as const) {
+    it(`codes and a restored discount wait for a person (${preset})`, async () => {
+      await setPreset(preset);
+      const id = await discount({ kind: "percent", percent: 50 });
+      for (const actor of ["assistant", "automation"] as const) {
+        const word1 = word("AIWORD");
+        const made = await refusal(
+          run(
+            "record.create",
+            { object: CODE, values: { word: word1, discount: id } },
+            staff(admin, { actor }),
+          ),
+        );
+        expect(made.code, actor).toBe("pending_approval");
+        const many = await refusal(
+          run(
+            "record.createMany",
+            { object: CODE, records: [{ word: word("AIMANY"), discount: id }] },
+            staff(admin, { actor }),
+          ),
+        );
+        expect(many.code, actor).toBe("pending_approval");
+        // Meanwhile no order gets the deal.
+        expect((await refusal(buy([{ id: yoga }], { code: word1 }))).message).toBe(NOT_VALID);
+      }
+      // A single-use code a person made: an AI raising its uses waits.
+      const once = word("AIONCE");
+      const codeId = await create(CODE, { word: once, discount: id, uses: 1 });
+      const raised = await refusal(
+        run(
+          "record.update",
+          { object: CODE, id: codeId, values: { uses: 1000 } },
+          staff(admin, { actor: "assistant" }),
+        ),
+      );
+      expect(raised.code).toBe("pending_approval");
+      expect((await buy([{ id: yoga }], { code: once })).discount).toBe(6_000);
+      expect((await refusal(buy([{ id: yoga }], { code: once }))).message).toBe(NOT_VALID);
+      // A person stops a live discount by deleting it; an AI restoring it waits.
+      const live = word("AIRESTORE");
+      const gone = await discount({ kind: "percent", percent: 30, code: live });
+      await run("record.delete", { object: DISCOUNT, id: gone }, staff());
+      const restored = await refusal(
+        run("record.restore", { object: DISCOUNT, id: gone }, staff(admin, { actor: "assistant" })),
+      );
+      expect(restored.code).toBe("pending_approval");
+      expect((await refusal(buy([{ id: yoga }], { code: live }))).message).toBe(NOT_VALID);
+      await setPreset("balanced");
+    });
+  }
+});
+
+describe("a late payment honoured (review F3)", () => {
+  it("takes the use again while one is left, and is refused with words saying so when none is", async () => {
+    const code = word("LATEOK");
+    await discount({ kind: "percent", percent: 10, code, totalUses: 1 });
+    const late = await buy([{ id: yoga }], { code });
+    await checkout(late);
+    await run("fixture.moveOrderAs", { id: late.id, to: "expired", by: "host" }, staff());
+    await providerPays(late.id);
+    await run("order.honourLate", { id: late.id }, staff());
+    expect((await usesOf(late.id)).map((u) => u.state)).toEqual(["released", "used"]);
+
+    const gone = word("LATEGONE");
+    await discount({ kind: "percent", percent: 10, code: gone, totalUses: 1 });
+    const lapsed = await buy([{ id: yoga }], { code: gone });
+    await checkout(lapsed);
+    await run("fixture.moveOrderAs", { id: lapsed.id, to: "expired", by: "host" }, staff());
+    const taken = await buy([{ id: mat }], { code: gone });
+    await checkout(taken);
+    await providerPays(taken.id);
+    await providerPays(lapsed.id);
+    const refused = await refusal(run("order.honourLate", { id: lapsed.id }, staff()));
+    expect(refused.details).toMatchObject({ rule: "discount_used_up", reason: "had_since" });
+    expect(refused.message).toMatch(/Refund the payment/);
+    expect((await usesOf(lapsed.id)).map((u) => u.state)).toEqual(["released"]);
+  });
+});
+
+describe("the smallest amount that can be charged (review F4, rule 5)", () => {
+  it("a deal leaving less than the setting is not valid; an automatic one is not applied", async () => {
+    const code = word("NEARLY");
+    await discount({ kind: "percent", percent: 99.99, code });
+    // 99.99% of 120.00 leaves 0.02: under the 0.50 default.
+    expect((await refusal(buy([{ id: yoga }], { code }))).message).toBe(NOT_VALID);
+    const settings = await run<{ minCharge: number }>("order.settings.get", {}, staff());
+    expect(settings.minCharge).toBe(50);
+    // Lowered by a person, it applies.
+    await run("order.settings.update", { minCharge: 1 }, context(admin));
+    expect((await buy([{ id: yoga }], { code })).total).toBe(2);
+    await run("order.settings.update", { minCharge: 50 }, context(admin));
+    // Changing it is a person's.
+    const byAi = await refusal(
+      run("order.settings.update", { minCharge: 1 }, staff(admin, { actor: "assistant" })),
+    );
+    expect(byAi.code).toBe("forbidden");
+
+    const cheap = await create(CLASS, { name: unique("Towel"), price: 1.5 });
+    await discount({ kind: "amount", amount: 1.2, automatic: true, items: [cheap] });
+    const order = await buy([{ id: cheap }]);
+    expect(order).toMatchObject({ total: 150, discount: 0, deal: null });
+  });
+});
+
+describe("automatic discounts past the cap (review F5)", () => {
+  it("out-of-date ones never crowd out one that applies", async () => {
+    const item = await create(CLASS, { name: unique("Busy"), price: 50 });
+    const yesterday = new Date(Date.now() - 86_400_000).toISOString().slice(0, 10);
+    for (let i = 0; i < 27; i++) {
+      await discount({
+        kind: "amount",
+        amount: 1,
+        automatic: true,
+        items: [item],
+        until: yesterday,
+      });
+    }
+    await discount({ kind: "amount", amount: 5, automatic: true, items: [item] });
+    expect((await buy([{ id: item }])).discount).toBe(500);
+  });
+});
+
+describe("races and limits the review found untested", () => {
+  it("an automatic price's last use taken at once: the other order goes through without it (F8)", async () => {
+    const item = await create(CLASS, { name: unique("Race"), price: 30 });
+    await discount({ kind: "amount", amount: 5, automatic: true, items: [item], totalUses: 1 });
+    const results = await Promise.allSettled([buy([{ id: item }]), buy([{ id: item }])]);
+    expect(results.map((r) => r.status)).toEqual(["fulfilled", "fulfilled"]);
+    const discounts = results
+      .map((r) => (r as PromiseFulfilledResult<OrderOut>).value.discount)
+      .sort((a, b) => a - b);
+    expect(discounts).toEqual([0, 500]);
+  });
+
+  it("a code record's own limit is kept by the database (code_max_uses)", async () => {
+    const id = await discount({ kind: "amount", amount: 5 });
+    const once = word("RACEONE");
+    const codeId = await create(CODE, { word: once, discount: id, uses: 1 });
+    const results = await Promise.allSettled([
+      buy([{ id: yoga }], { code: once }),
+      buy([{ id: mat }], { code: once }),
+    ]);
+    expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1);
+    const winner = (
+      results.find((r) => r.status === "fulfilled") as PromiseFulfilledResult<OrderOut>
+    ).value;
+    await expect(
+      env.DB.prepare(
+        "INSERT INTO core_discount_use (id, discount_object, discount_id, code_object, code_id, kind, order_id, state, amount, code_max_uses, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 'code', ?, 'held', 1, 1, 't', 't')",
+      )
+        .bind(unique("dcu"), DISCOUNT, id, CODE, codeId, winner.id)
+        .run(),
+    ).rejects.toThrow(/core_discount_use_limit/);
+  });
+
+  it("a merge moves uses to the survivor; an erase leaves them with no Person", async () => {
+    const code = word("MERGE");
+    await discount({ kind: "percent", percent: 10, code, perPerson: 1 });
+    const merged = await createBuyer(admin, "dm1");
+    const survivor = await createBuyer(admin, "dm2");
+    const order = await buy([{ id: yoga }], { code }, as(merged));
+    await run("customer.disable", { id: merged.principal.customerId }, staff());
+    await run(
+      "person.merge",
+      { survivorId: survivor.principal.personId, mergedId: merged.principal.personId },
+      staff(),
+    );
+    expect((await usesOf(order.id)).map((u) => u.person_id)).toEqual([survivor.principal.personId]);
+    expect((await refusal(buy([{ id: mat }], { code }, as(survivor)))).message).toBe(NOT_VALID);
+    await run("person.erase", { id: survivor.principal.personId }, staff());
+    expect((await usesOf(order.id)).map((u) => u.person_id)).toEqual([null]);
+  });
+
+  it("the organisation and tag audiences", async () => {
+    const org = (
+      await run<{ id: string }>("organisation.create", { name: unique("Acme") }, staff())
+    ).id;
+    const at = await createBuyer(admin, "atorg");
+    const other = await createBuyer(admin, "elsewhere");
+    await run(
+      "affiliation.create",
+      { personId: at.principal.personId, organisationId: org },
+      staff(),
+    );
+    const rate = word("ACME");
+    await discount({ kind: "percent", percent: 20, code: rate, who: "organisation", orgs: [org] });
+    expect((await buy([{ id: yoga }], { code: rate }, as(at))).discount).toBe(2_400);
+    expect((await refusal(buy([{ id: yoga }], { code: rate }, as(other)))).message).toBe(NOT_VALID);
+    const vip = unique("vip").toLowerCase();
+    await run("person.update", { id: other.principal.personId, tags: [vip] }, staff());
+    const tagged = word("VIP");
+    await discount({ kind: "percent", percent: 15, code: tagged, who: "tag", tag: vip });
+    expect((await buy([{ id: yoga }], { code: tagged }, as(other))).discount).toBe(1_800);
+    expect((await refusal(buy([{ id: yoga }], { code: tagged }, as(at)))).message).toBe(NOT_VALID);
   });
 });

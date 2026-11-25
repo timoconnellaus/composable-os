@@ -14,7 +14,9 @@
 //   4. A percentage is rounded down per line; an amount is spread over the lines it applies to in
 //      proportion; a set price takes off the difference per unit, never below nothing.
 //   5. A deal never makes the order free: one that would take every line but the delivery to
-//      nothing does not apply (a code that would is not valid here).
+//      nothing does not apply (a code that would is not valid here); nor one that leaves less to
+//      pay than the order setting `minCharge` (0.50 by default), which stands in for the
+//      provider's minimum charge.
 //   7. Limits are read here and held by the database in the order's batch (discounts/uses.ts).
 //   8. A delivery is never discounted; its free postage is decided after the deal, on the goods'
 //      net (orders/goods.ts).
@@ -27,7 +29,7 @@ import { samePeople } from "../customers/accounts.ts";
 import { getObject, listObjects } from "../fields/index.ts";
 import type { DiscountDefinition, ObjectDefinition } from "../fields/types.ts";
 import { percentOff } from "../orders/adjustments.ts";
-import { toMinorUnits } from "../orders/settings.ts";
+import { loadMinCharge, toMinorUnits } from "../orders/settings.ts";
 import { splitInProportion } from "../orders/tax.ts";
 import { viewColumnOf } from "../records/columns.ts";
 import { type AnyRow, orgReader, visibleSource } from "../visibility/index.ts";
@@ -85,7 +87,8 @@ export type CodeRefusal =
   | "used_up"
   | "min_spend"
   | "nothing_here"
-  | "free";
+  | "free"
+  | "min_charge";
 
 export type CodeOutcome =
   | { given: false }
@@ -357,6 +360,7 @@ async function weigh(
   currency: string,
   uses: Map<string, number>,
   personUses: Map<string, number>,
+  minCharge: number,
 ): Promise<Weighed | Refused> {
   const declared = record.object.discount;
   const v = record.values;
@@ -425,6 +429,10 @@ async function weigh(
   if (!off || amount <= 0) return { ok: false, reason: "nothing_here" };
   const goods = lines.filter((line) => !line.delivery).reduce((sum, line) => sum + line.total, 0);
   if (amount >= goods) return { ok: false, reason: "free" };
+  // Something left to pay, but less than can be charged (the spec's rule 5, the order setting
+  // standing in for the provider's minimum): not applied.
+  const owed = lines.reduce((sum, line) => sum + line.total, 0) - amount;
+  if (owed < minCharge) return { ok: false, reason: "min_charge" };
   const title = record.object.titleField ? v[record.object.titleField] : null;
   return {
     ok: true,
@@ -443,19 +451,48 @@ async function weigh(
   };
 }
 
-/** Live automatic discounts of every discount object, at most CANDIDATES_PER_OBJECT each. */
-async function automaticOnes(db: Kysely<CoreDatabase>): Promise<DiscountRecord[]> {
+/**
+ * Live automatic discounts of every discount object that could apply now: in their dates, and
+ * for a guest only those for anyone with no per-person limit. Filtered before the cap, newest
+ * first, so discounts out of date never crowd out one that applies (the review of PR #454). At
+ * most CANDIDATES_PER_OBJECT each; `weigh` judges every rule again.
+ */
+async function automaticOnes(
+  db: Kysely<CoreDatabase>,
+  now: string,
+  guest: boolean,
+): Promise<DiscountRecord[]> {
   const found: DiscountRecord[] = [];
+  const today = now.slice(0, 10);
+  const empty = (col: string) => sql<boolean>`(${sql.ref(col)} IS NULL OR ${sql.ref(col)} = '')`;
   for (const object of discountObjects()) {
     const declared = object.discount;
     const auto = column(object, declared.automatic);
     const state = column(object, object.states?.field);
     if (!auto || !state) continue;
-    const rows = (await any(db)
+    const from = column(object, declared.from);
+    const until = column(object, declared.until);
+    const who = column(object, declared.who);
+    const perPerson = column(object, declared.perPerson);
+    let query = any(db)
       .selectFrom(visibleSource(orgReader(db), object))
       .selectAll()
       .where(auto, "=", 1)
-      .where(state, "in", [...declared.live])
+      .where(state, "in", [...declared.live]);
+    // A date is from the start of its day (`<=` the moment); a datetime is a moment.
+    if (from) query = query.where(sql<boolean>`(${empty(from)} OR ${sql.ref(from)} <= ${now})`);
+    // A date runs through its day (`>=` today); a datetime until its moment.
+    if (until) {
+      query = query.where(
+        sql<boolean>`(${empty(until)} OR (length(${sql.ref(until)}) = 10 AND ${sql.ref(until)} >= ${today}) OR ${sql.ref(until)} >= ${now})`,
+      );
+    }
+    if (guest) {
+      if (who) query = query.where(sql<boolean>`(${empty(who)} OR ${sql.ref(who)} = 'anyone')`);
+      if (perPerson) query = query.where(sql<boolean>`${sql.ref(perPerson)} IS NULL`);
+    }
+    const rows = (await query
+      .orderBy("created_at", "desc")
       .orderBy("id")
       .limit(CANDIDATES_PER_OBJECT)
       .execute()) as AnyRow[];
@@ -554,7 +591,8 @@ export async function workOutDeal(
     };
   }
   const facts = new BuyerFacts(db, buyer);
-  const automatic = await automaticOnes(db);
+  const minCharge = await loadMinCharge(db);
+  const automatic = await automaticOnes(db, now, !facts.proved);
   const matches = code === undefined ? [] : await codeMatches(db, code);
   const records = [...automatic, ...matches.map((m) => m.record)];
   const uses = await usesOf(db, records, options.excludeOrderId);
@@ -592,6 +630,7 @@ export async function workOutDeal(
       currency,
       uses,
       personUses,
+      minCharge,
     );
     if (weighed.ok && better(weighed.deal)) best = weighed.deal;
   }
@@ -611,6 +650,7 @@ export async function workOutDeal(
       currency,
       uses,
       personUses,
+      minCharge,
     );
     if (weighed.ok) {
       if (!codeDeal || weighed.deal.amount > codeDeal.amount) codeDeal = weighed.deal;

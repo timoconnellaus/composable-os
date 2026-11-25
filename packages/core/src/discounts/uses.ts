@@ -10,6 +10,10 @@
 //     is paid (order.applyCode, order.removeCode). A refund keeps it used;
 //   - a late payment honoured on an expired order takes it again, judged by the limits again: the
 //     batch fails when it is past one (staff refund instead).
+import type { CoreDatabase } from "@composable-os/db";
+import type { Selectable } from "kysely";
+import { samePeople } from "../customers/accounts.ts";
+import { ConflictError } from "../errors.ts";
 import { newId } from "../ids.ts";
 import type { HandlerContext } from "../operation.ts";
 import { type MoveHook, onRecordMove } from "../records/lifecycle.ts";
@@ -68,6 +72,38 @@ export function queueMergeDiscountUses(
   );
 }
 
+type UseRow = Selectable<CoreDatabase["core_discount_use"]>;
+
+/** Whether taking `use` again would pass one of the limits copied onto it (the trigger's rules). */
+async function pastLimit(ctx: HandlerContext, use: UseRow): Promise<boolean> {
+  const taken = (filter: "discount" | "code" | "person") => {
+    let query = ctx.db
+      .selectFrom("core_discount_use")
+      .select((eb) => eb.fn.countAll<number>().as("n"))
+      .where("state", "in", ["held", "used"]);
+    if (filter === "code") {
+      query = query.where("code_id", "=", use.code_id as string);
+    } else {
+      query = query
+        .where("discount_object", "=", use.discount_object)
+        .where("discount_id", "=", use.discount_id);
+    }
+    if (filter === "person") {
+      query = query.where("person_id", "in", samePeople(ctx.db, use.person_id as string));
+    }
+    return query.executeTakeFirst().then((row) => Number(row?.n ?? 0));
+  };
+  if (use.max_uses !== null && (await taken("discount")) >= use.max_uses) return true;
+  if (use.code_max_uses !== null && use.code_id && (await taken("code")) >= use.code_max_uses) {
+    return true;
+  }
+  return (
+    use.max_per_person !== null &&
+    use.person_id !== null &&
+    (await taken("person")) >= use.max_per_person
+  );
+}
+
 const orderUses: MoveHook = async (ctx, move) => {
   const from = move.from?.id ?? null;
   const to = move.to.id;
@@ -103,6 +139,16 @@ const orderUses: MoveHook = async (ctx, move) => {
       .limit(1)
       .executeTakeFirst();
     if (!released) return;
+    // Past a limit since the order expired (another order took the last use): refused with words
+    // for the person honouring it, before anything is written, as once.ts does. The trigger stays
+    // the backstop for one taken at the same moment.
+    if (await pastLimit(ctx, released)) {
+      throw new ConflictError(
+        "This late payment cannot be honoured: its discount has been used up since the order " +
+          "expired (another order took the last use). Refund the payment instead",
+        { rule: "discount_used_up", reason: "had_since", order: move.id },
+      );
+    }
     ctx.write(
       ctx.db.insertInto("core_discount_use").values({
         ...released,

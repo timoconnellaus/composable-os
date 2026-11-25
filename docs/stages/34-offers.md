@@ -120,7 +120,13 @@ module (the till): whichever is built first builds it once, to this design.
   tries slowed": public operations have no rate limit yet; customers have the per-account limit);
   rule 5's provider minimum is "never takes every line but the delivery to nothing". Left for
   later: subscriptions and `subscription.start`'s code (6), `invite` (9), blocks, screens and e2e
-  (10).
+  (10). After the PR's review: any non-person write of a promo code record, and restoring a
+  discount, waits for a person; a late payment honoured past a limit is refused with words saying
+  so; the order setting `minCharge` (50 by default) is rule 5's minimum; automatic discounts are
+  filtered by dates and audience before the cap; a race lost on an automatic price prices the
+  order again rather than naming a code; erase blanks a use's Person. Until the platform's
+  per-address limit for public operations exists, no shipped pack declares `discount` (it gates
+  step 5).
 
 - **Step 5** — not built — needs: step 1 — The Offers pack's spine: discount, promo code, member
   price and customer rate, tools, views, settings, permissions.

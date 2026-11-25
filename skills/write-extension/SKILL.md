@@ -166,7 +166,9 @@ extension declares it; it never implements it. Each behaviour the platform has i
   the order's batch; never compute a price or a discount in a tool or a block. Declare every move
   into a live state `by: ["host"], tools: [...]` (a person's tool) or `by: ["staff"]` with the
   state field `personApproves: true`, never `create.in` a live state; an AI's change to a live
-  discount waits for a person. See `DiscountSpec` in `packages/sdk/src/discount.ts` and ADR 0693.
+  discount, and any write of a promo code record by anyone but a person (your pack's tools
+  included), waits for a person. Not in a shipped pack until public operations have a
+  per-address rate limit (ADR 0693). See `DiscountSpec` in `packages/sdk/src/discount.ts` and ADR 0693.
 - **`unique`** on an object: `unique: [{ fields: [<up to 4 fields>], states?: [<states>] }]`, no
   two live records in those states share the fields (one active booking per Person per class).
   The database refuses the second, however many write at once (`conflict`, `rule: "unique"`).

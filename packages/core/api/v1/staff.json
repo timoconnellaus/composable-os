@@ -61446,6 +61446,10 @@
             "additionalProperties": false,
             "description": "How much staff may take off one order on their own (order.adjust). Above it, a discount waits for an admin. Nothing (0) until a human admin sets it."
           },
+          "minCharge": {
+            "type": "number",
+            "description": "The smallest amount an order can be charged, in minor units (0.50 by default): a discount that would leave an order with something to pay but less than this does not apply. It stands in for the payment provider's own minimum."
+          },
           "recordedPaymentNotice": {
             "type": "number",
             "description": "Admins are told of a payment recorded by hand (order.recordPayment) for more than this, in minor units. 0 until a human admin sets it: every one is told."
@@ -61493,6 +61497,7 @@
           "tax",
           "taxCodes",
           "discountLimit",
+          "minCharge",
           "recordedPaymentNotice",
           "taxObjects"
         ],
@@ -61502,7 +61507,7 @@
     },
     {
       "name": "order.settings.update",
-      "description": "Change the order settings: the currency every order is in, the minutes an unpaid order lasts, the least part payment, the sites a buyer may come back to after paying, whether the payment provider calculates tax at checkout, the product tax code of an object for sale, how much staff may take off an order on their own, or above what a payment recorded by hand tells admins. Only what you pass changes. Orders already started keep the currency they were started in; turning tax on or off changes only payments made from then on. Admins only, and only a human can call it: AI assistants, MCP clients, automations and extensions are refused.",
+      "description": "Change the order settings: the currency every order is in, the minutes an unpaid order lasts, the least part payment, the sites a buyer may come back to after paying, whether the payment provider calculates tax at checkout, the product tax code of an object for sale, how much staff may take off an order on their own, or above what a payment recorded by hand tells admins, or the smallest amount an order can be charged after a discount. Only what you pass changes. Orders already started keep the currency they were started in; turning tax on or off changes only payments made from then on. Admins only, and only a human can call it: AI assistants, MCP clients, automations and extensions are refused.",
       "risk": "write",
       "audiences": [
         "staff"
@@ -61572,6 +61577,12 @@
               "amount"
             ],
             "additionalProperties": false
+          },
+          "minCharge": {
+            "description": "The smallest amount an order can be charged (minor units): a discount leaving less does not apply",
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100000000
           },
           "recordedPaymentNotice": {
             "description": "Tell admins of a payment recorded by hand for more than this (minor units)",
@@ -61643,6 +61654,10 @@
             "additionalProperties": false,
             "description": "How much staff may take off one order on their own (order.adjust). Above it, a discount waits for an admin. Nothing (0) until a human admin sets it."
           },
+          "minCharge": {
+            "type": "number",
+            "description": "The smallest amount an order can be charged, in minor units (0.50 by default): a discount that would leave an order with something to pay but less than this does not apply. It stands in for the payment provider's own minimum."
+          },
           "recordedPaymentNotice": {
             "type": "number",
             "description": "Admins are told of a payment recorded by hand (order.recordPayment) for more than this, in minor units. 0 until a human admin sets it: every one is told."
@@ -61709,6 +61724,10 @@
                 "additionalProperties": false,
                 "description": "How much staff may take off one order on their own (order.adjust). Above it, a discount waits for an admin. Nothing (0) until a human admin sets it."
               },
+              "minCharge": {
+                "type": "number",
+                "description": "The smallest amount an order can be charged, in minor units (0.50 by default): a discount that would leave an order with something to pay but less than this does not apply. It stands in for the payment provider's own minimum."
+              },
               "recordedPaymentNotice": {
                 "type": "number",
                 "description": "Admins are told of a payment recorded by hand (order.recordPayment) for more than this, in minor units. 0 until a human admin sets it: every one is told."
@@ -61722,6 +61741,7 @@
               "tax",
               "taxCodes",
               "discountLimit",
+              "minCharge",
               "recordedPaymentNotice"
             ],
             "additionalProperties": false
@@ -61735,6 +61755,7 @@
           "tax",
           "taxCodes",
           "discountLimit",
+          "minCharge",
           "recordedPaymentNotice",
           "previous"
         ],

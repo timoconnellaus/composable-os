@@ -309,6 +309,15 @@ export function toOperationError(error: unknown): OperationError {
       field: "code",
     });
   }
+  // An automatic discount's last use (a member's price) taken by another order a moment before
+  // (migration 0953): the pipeline prices the call again once (it then goes through without that
+  // price); if it is taken again, the buyer is told to start again, never that a code is invalid.
+  if (message.includes("core_discount_use_auto_limit")) {
+    return new ConflictError(
+      "A price on this order was used up by another order at the same moment. Start again.",
+      { rule: "deal_taken" },
+    );
+  }
   // Two events for one subscription granting at once (migration 0580, ADR 0510): the other one
   // granted it. Nothing of this one was applied; the provider delivers it again.
   if (message.includes("UNIQUE constraint failed: core_subscription_grant")) {

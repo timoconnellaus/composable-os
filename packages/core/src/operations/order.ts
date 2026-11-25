@@ -85,6 +85,7 @@ import {
   currencySchema,
   discountLimitSchema,
   loadDiscountLimit,
+  loadMinCharge,
   loadMinPartPayment,
   loadOrderCurrency,
   loadOrderExpiryMinutes,
@@ -92,10 +93,12 @@ import {
   loadOrderTaxCodes,
   loadRecordedPaymentNotice,
   loadReturnOrigins,
+  minChargeSchema,
   minPartPaymentSchema,
   ORDER_CURRENCY_SETTING,
   ORDER_DISCOUNT_LIMIT_SETTING,
   ORDER_EXPIRY_SETTING,
+  ORDER_MIN_CHARGE_SETTING,
   ORDER_MIN_PART_SETTING,
   ORDER_RECORDED_NOTICE_SETTING,
   ORDER_RETURN_ORIGINS_SETTING,
@@ -1769,6 +1772,13 @@ const orderSettings = z.object({
     "How much staff may take off one order on their own (order.adjust). Above it, a discount " +
       "waits for an admin. Nothing (0) until a human admin sets it.",
   ),
+  minCharge: z
+    .number()
+    .describe(
+      "The smallest amount an order can be charged, in minor units (0.50 by default): a " +
+        "discount that would leave an order with something to pay but less than this does not " +
+        "apply. It stands in for the payment provider's own minimum.",
+    ),
   recordedPaymentNotice: z
     .number()
     .describe(
@@ -1787,6 +1797,7 @@ async function loadSettings(ctx: HandlerContext) {
     taxCodes: await loadOrderTaxCodes(ctx.db),
     discountLimit: await loadDiscountLimit(ctx.db),
     recordedPaymentNotice: await loadRecordedPaymentNotice(ctx.db),
+    minCharge: await loadMinCharge(ctx.db),
   };
 }
 
@@ -1837,7 +1848,8 @@ export const orderSettingsUpdate = defineOperation({
     "lasts, the least part payment, the sites a buyer may come back to after paying, whether " +
     "the payment provider calculates tax at checkout, the product tax code of an object for " +
     "sale, how much staff may take off an order on their own, or above what a payment recorded " +
-    "by hand tells admins. Only what you pass changes. Orders already started keep the currency they were " +
+    "by hand tells admins, or the smallest amount an order can be charged after a discount. " +
+    "Only what you pass changes. Orders already started keep the currency they were " +
     "started in; turning tax on or off changes only payments made from then on. Admins only, " +
     "and only a human can call it: AI assistants, MCP clients, automations and extensions are " +
     "refused.",
@@ -1870,6 +1882,11 @@ export const orderSettingsUpdate = defineOperation({
         "How much staff may take off one order without an admin's approval: at most this " +
           "percentage of the order and at most this amount (minor units), both at once.",
       ),
+    minCharge: minChargeSchema
+      .optional()
+      .describe(
+        "The smallest amount an order can be charged (minor units): a discount leaving less does not apply",
+      ),
     recordedPaymentNotice: recordedPaymentNoticeSchema
       .optional()
       .describe("Tell admins of a payment recorded by hand for more than this (minor units)"),
@@ -1882,7 +1899,7 @@ export const orderSettingsUpdate = defineOperation({
   async handler(input, ctx) {
     if (Object.values(input).every((value) => value === undefined)) {
       throw new ValidationError(
-        "Pass currency, expiryMinutes, minPartPayment, returnOrigins, tax, taxCodes, discountLimit or recordedPaymentNotice",
+        "Pass currency, expiryMinutes, minPartPayment, returnOrigins, tax, taxCodes, discountLimit, recordedPaymentNotice or minCharge",
       );
     }
     for (const object of Object.keys(input.taxCodes ?? {})) {
@@ -1905,6 +1922,7 @@ export const orderSettingsUpdate = defineOperation({
       taxCodes: input.taxCodes ?? previous.taxCodes,
       discountLimit: input.discountLimit ?? previous.discountLimit,
       recordedPaymentNotice: input.recordedPaymentNotice ?? previous.recordedPaymentNotice,
+      minCharge: input.minCharge ?? previous.minCharge,
     };
     const store = (key: string, field: keyof typeof next) => {
       const value = JSON.stringify(next[field]);
@@ -1931,6 +1949,7 @@ export const orderSettingsUpdate = defineOperation({
     if (input.tax !== undefined) store(ORDER_TAX_SETTING, "tax");
     if (input.taxCodes !== undefined) store(ORDER_TAX_CODES_SETTING, "taxCodes");
     if (input.discountLimit !== undefined) store(ORDER_DISCOUNT_LIMIT_SETTING, "discountLimit");
+    if (input.minCharge !== undefined) store(ORDER_MIN_CHARGE_SETTING, "minCharge");
     if (input.recordedPaymentNotice !== undefined) {
       store(ORDER_RECORDED_NOTICE_SETTING, "recordedPaymentNotice");
     }

@@ -2344,7 +2344,8 @@ after `priceLines` and before the goods rules: every live automatic discount the
 for and the code given (the buyer's only input: a word), the one taking most off (a tie goes to
 the automatic one). A guest gets only what anyone gets; a signed-in customer and staff buying for
 a Person get members', new customers', organisation and tag prices (folded addresses as one
-person). The deal never touches a delivery and never makes an order free; free postage is then
+person). The deal never touches a delivery, never makes an order free and never leaves less to
+pay than the order setting `minCharge` (50 minor units by default); free postage is then
 decided on the goods' net. It is written as one `code` or `automatic` adjustment per line, staff
 discounts going on top (`liveAdjustments` orders the deal first), and a **use** in
 `core_discount_use` (migration 0953): held in the order's batch, used when paid, released when it
@@ -2551,8 +2552,9 @@ a field of the object (`codes` names another object of the pack whose records ar
 with an optional use limit per code). The host reads the record when it prices an order (the
 deal, above) and enforces every rule; the pack never touches an order. A live state is entered
 only by a person: by `["host"]` through a person's tool, or by staff writing a state field that is
-`personApproves`; nothing is created live; and any change by a non-person to a discount while
-live waits for a person (`records/person-approves.ts`). Not on a sellable, stocked or capacity
+`personApproves`; nothing is created live; and a non-person's change to a live discount, its
+restore from the Trash, and any write of a promo code record wait for a person
+(`records/person-approves.ts`). Not on a sellable, stocked or capacity
 object. A runtime extension may declare it.
 
 **Low stock** (stage 37 step 2, ADR 0681, `packages/core/src/stock/low.ts`). When a write takes a

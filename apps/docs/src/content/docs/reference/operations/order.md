@@ -1252,6 +1252,7 @@ No fields.
 | `discountLimit` | object | yes |   | How much staff may take off one order on their own (order.adjust). Above it, a discount waits for an admin. Nothing (0) until a human admin sets it. |
 | `discountLimit.percent` | number | yes | ≥ 0, ≤ 100 | At most this percentage of the order |
 | `discountLimit.amount` | integer | yes | ≥ 0, ≤ 100000000 | And at most this much, in the currency's minor unit |
+| `minCharge` | number | yes |   | The smallest amount an order can be charged, in minor units (0.50 by default): a discount that would leave an order with something to pay but less than this does not apply. It stands in for the payment provider's own minimum. |
 | `recordedPaymentNotice` | number | yes |   | Admins are told of a payment recorded by hand (order.recordPayment) for more than this, in minor units. 0 until a human admin sets it: every one is told. |
 | `taxObjects` | array of object | yes |   |   |
 | `taxObjects[].object` | string | yes |   |   |
@@ -1262,7 +1263,7 @@ No fields.
 
 ## order.settings.update
 
-Change the order settings: the currency every order is in, the minutes an unpaid order lasts, the least part payment, the sites a buyer may come back to after paying, whether the payment provider calculates tax at checkout, the product tax code of an object for sale, how much staff may take off an order on their own, or above what a payment recorded by hand tells admins. Only what you pass changes. Orders already started keep the currency they were started in; turning tax on or off changes only payments made from then on. Admins only, and only a human can call it: AI assistants, MCP clients, automations and extensions are refused.
+Change the order settings: the currency every order is in, the minutes an unpaid order lasts, the least part payment, the sites a buyer may come back to after paying, whether the payment provider calculates tax at checkout, the product tax code of an object for sale, how much staff may take off an order on their own, or above what a payment recorded by hand tells admins, or the smallest amount an order can be charged after a discount. Only what you pass changes. Orders already started keep the currency they were started in; turning tax on or off changes only payments made from then on. Admins only, and only a human can call it: AI assistants, MCP clients, automations and extensions are refused.
 
 |  |  |
 | --- | --- |
@@ -1285,6 +1286,7 @@ Change the order settings: the currency every order is in, the minutes an unpaid
 | `discountLimit` | object |   |   | How much staff may take off one order without an admin's approval: at most this percentage of the order and at most this amount (minor units), both at once. |
 | `discountLimit.percent` | number | yes | ≥ 0, ≤ 100 | At most this percentage of the order |
 | `discountLimit.amount` | integer | yes | ≥ 0, ≤ 100000000 | And at most this much, in the currency's minor unit |
+| `minCharge` | integer |   | ≥ 0, ≤ 100000000 | The smallest amount an order can be charged (minor units): a discount leaving less does not apply |
 | `recordedPaymentNotice` | integer |   | ≥ 0, ≤ 100000000 | Tell admins of a payment recorded by hand for more than this (minor units) |
 
 ### Output
@@ -1300,6 +1302,7 @@ Change the order settings: the currency every order is in, the minutes an unpaid
 | `discountLimit` | object | yes |   | How much staff may take off one order on their own (order.adjust). Above it, a discount waits for an admin. Nothing (0) until a human admin sets it. |
 | `discountLimit.percent` | number | yes | ≥ 0, ≤ 100 | At most this percentage of the order |
 | `discountLimit.amount` | integer | yes | ≥ 0, ≤ 100000000 | And at most this much, in the currency's minor unit |
+| `minCharge` | number | yes |   | The smallest amount an order can be charged, in minor units (0.50 by default): a discount that would leave an order with something to pay but less than this does not apply. It stands in for the payment provider's own minimum. |
 | `recordedPaymentNotice` | number | yes |   | Admins are told of a payment recorded by hand (order.recordPayment) for more than this, in minor units. 0 until a human admin sets it: every one is told. |
 | `previous` | object | yes |   |   |
 | `previous.currency` | string or null | yes |   | The one currency every order is in (ISO 4217). Null: not set, nothing can be sold. |
@@ -1311,6 +1314,7 @@ Change the order settings: the currency every order is in, the minutes an unpaid
 | `previous.discountLimit` | object | yes |   | How much staff may take off one order on their own (order.adjust). Above it, a discount waits for an admin. Nothing (0) until a human admin sets it. |
 | `previous.discountLimit.percent` | number | yes | ≥ 0, ≤ 100 | At most this percentage of the order |
 | `previous.discountLimit.amount` | integer | yes | ≥ 0, ≤ 100000000 | And at most this much, in the currency's minor unit |
+| `previous.minCharge` | number | yes |   | The smallest amount an order can be charged, in minor units (0.50 by default): a discount that would leave an order with something to pay but less than this does not apply. It stands in for the payment provider's own minimum. |
 | `previous.recordedPaymentNotice` | number | yes |   | Admins are told of a payment recorded by hand (order.recordPayment) for more than this, in minor units. 0 until a human admin sets it: every one is told. |
 
 ## order.start

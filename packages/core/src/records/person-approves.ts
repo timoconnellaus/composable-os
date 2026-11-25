@@ -63,6 +63,21 @@ async function isLiveDiscount(
   return definition.discount.live.includes(String(row?.state ?? ""));
 }
 
+/** The record operations that write an extension record named by `input.object`. */
+const RECORD_WRITES: ReadonlySet<string> = new Set([
+  "record.create",
+  "record.createMany",
+  "record.update",
+  "record.restore",
+  "record.restoreVersion",
+  "record.import",
+]);
+
+/** Whether `object` holds some discount's promo codes (its `codes.object`). */
+function isCodeObject(object: string): boolean {
+  return listObjects().some((o) => o.discount?.codes?.object === object);
+}
+
 /** The fields of `object` a recurring series copies onto it (ADR 0500's `copy` targets). */
 function copiedFieldsOf(object: string): string[] {
   return listObjects().flatMap((o) =>
@@ -77,6 +92,14 @@ export async function touchesPersonApproves(
   input: unknown,
 ): Promise<boolean> {
   if (!isValues(input)) return false;
+  // Promo codes (ADR 0693, the review of PR #454): a code is a way into its discount, so any
+  // write of one by anyone but a person (a new word, more uses, switched back on, pointed at
+  // another discount, restored from the Trash) waits for a person, whatever its discount's state.
+  // A discount restored from the Trash may be live again: the same.
+  if (RECORD_WRITES.has(operation) && typeof input.object === "string") {
+    if (isCodeObject(input.object)) return true;
+    if (operation === "record.restore" && getObject(input.object)?.discount) return true;
+  }
   switch (operation) {
     case "record.create":
     case "recurring.change":

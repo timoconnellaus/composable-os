@@ -23,7 +23,8 @@ CREATE TABLE core_discount_use (
   code_object TEXT,
   code_id TEXT,
   kind TEXT NOT NULL CHECK (kind IN ('code', 'automatic')),
-  -- The order's Person; null for a guest (who never gets a per-person discount).
+  -- The order's Person; null for a guest (who never gets a per-person discount) and once the
+  -- Person is erased (their order loses its Person too).
   person_id TEXT,
   order_id TEXT NOT NULL REFERENCES core_order(id),
   state TEXT NOT NULL CHECK (state IN ('held', 'used', 'released')),
@@ -35,7 +36,6 @@ CREATE TABLE core_discount_use (
   code_max_uses INTEGER CHECK (code_max_uses IS NULL OR code_max_uses >= 0),
   created_at TEXT NOT NULL,
   updated_at TEXT NOT NULL,
-  CHECK (max_per_person IS NULL OR person_id IS NOT NULL),
   CHECK ((code_object IS NULL) = (code_id IS NULL)),
   CHECK (code_max_uses IS NULL OR code_id IS NOT NULL)
 );
@@ -47,10 +47,11 @@ CREATE INDEX core_discount_use_order_idx ON core_discount_use (order_id);
 CREATE INDEX core_discount_use_person_idx
   ON core_discount_use (person_id, discount_object, discount_id) WHERE person_id IS NOT NULL;
 
--- The limits, in the batch that holds the use.
+-- The limits, in the batch that holds the use: a code's (its discount's, its own record's, a
+-- person's).
 CREATE TRIGGER core_discount_use_limit
 BEFORE INSERT ON core_discount_use
-WHEN NEW.state IN ('held', 'used') AND (
+WHEN NEW.state IN ('held', 'used') AND NEW.kind = 'code' AND (
   (NEW.max_uses IS NOT NULL AND (
     SELECT count(*) FROM core_discount_use u
     WHERE u.discount_object = NEW.discount_object AND u.discount_id = NEW.discount_id
@@ -92,8 +93,55 @@ BEGIN
   SELECT RAISE(ABORT, 'core_discount_use_limit');
 END;
 
+-- The same for an automatic discount (a member's price), with its own message: the buyer typed
+-- no code, so the host prices the order again without it (pipeline.ts) rather than tell them a
+-- code is not valid (the review of PR #454).
+CREATE TRIGGER core_discount_use_auto_limit
+BEFORE INSERT ON core_discount_use
+WHEN NEW.state IN ('held', 'used') AND NEW.kind = 'automatic' AND (
+  (NEW.max_uses IS NOT NULL AND (
+    SELECT count(*) FROM core_discount_use u
+    WHERE u.discount_object = NEW.discount_object AND u.discount_id = NEW.discount_id
+      AND u.state IN ('held', 'used')
+  ) >= NEW.max_uses)
+  OR (NEW.code_max_uses IS NOT NULL AND (
+    SELECT count(*) FROM core_discount_use u
+    WHERE u.code_object = NEW.code_object AND u.code_id = NEW.code_id
+      AND u.state IN ('held', 'used')
+  ) >= NEW.code_max_uses)
+  OR (NEW.max_per_person IS NOT NULL AND (
+    SELECT count(*) FROM core_discount_use u
+    WHERE u.discount_object = NEW.discount_object AND u.discount_id = NEW.discount_id
+      AND u.state IN ('held', 'used')
+      AND u.person_id IN (
+        SELECT NEW.person_id
+        UNION
+        SELECT theirs.person_id FROM core_person_emails mine
+        JOIN core_person_emails theirs ON (
+          CASE
+            WHEN instr(theirs.email, '+') > 1 AND instr(theirs.email, '+') < instr(theirs.email, '@')
+            THEN substr(theirs.email, 1, instr(theirs.email, '+') - 1)
+              || substr(theirs.email, instr(theirs.email, '@'))
+            ELSE theirs.email
+          END
+        ) = (
+          CASE
+            WHEN instr(mine.email, '+') > 1 AND instr(mine.email, '+') < instr(mine.email, '@')
+            THEN substr(mine.email, 1, instr(mine.email, '+') - 1)
+              || substr(mine.email, instr(mine.email, '@'))
+            ELSE mine.email
+          END
+        )
+        WHERE mine.person_id = NEW.person_id
+      )
+  ) >= NEW.max_per_person)
+)
+BEGIN
+  SELECT RAISE(ABORT, 'core_discount_use_auto_limit');
+END;
+
 -- A use moves once: held to used, or held to released. Nothing else about it changes, but its
--- Person (a merge moves it to the survivor). A use given back is a new row if it is taken again
+-- Person (a merge moves it to the survivor; an erase blanks it). A use given back is a new row if it is taken again
 -- (a late payment honoured), judged by the limits again.
 CREATE TRIGGER core_discount_use_fixed
 BEFORE UPDATE ON core_discount_use
