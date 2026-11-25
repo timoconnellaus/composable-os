@@ -74,7 +74,7 @@ gym's rooms on the same calendar, which stage 43 did not cover.
   rosterer's act (ADR 0626 amended) and carries no staff warnings or roster notices. Platform only:
   no Bookings object declares `open` yet (step 5), so nothing calls `staffing.free` outside tests.
 
-- **Step 5** — not built — needs: step 1, step 2 — The pack spine, staff-booked: services, appointments,
+- **Step 5** — in progress — branch `feat/stage-49-pack-spine` — The pack spine, staff-booked: services, appointments,
   states, passes paying, desk payment, late cancel and no-show, excuse, reassign, the coach's day;
   Memberships' services.
 
