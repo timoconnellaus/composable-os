@@ -112,6 +112,14 @@ export const portal: AccountPortal = {
     { key: "payment", pack: null, label: "Payment method", order: 85, web: null, native: null },
     { key: "details", pack: null, label: "Your details", order: 90, web: null, native: null },
     {
+      key: "contact",
+      pack: null,
+      label: "Contact preferences",
+      order: 92,
+      web: null,
+      native: null,
+    },
+    {
       key: "devices",
       pack: null,
       label: "Sign-in and devices",
@@ -119,6 +127,74 @@ export const portal: AccountPortal = {
       web: null,
       native: null,
     },
+  ],
+};
+
+// --- Contact preferences (stage 30): `me.contact.choices` ---------------------------------------
+
+const channel = (
+  name: "email" | "text" | "push",
+  value: "on" | "off" | "yes" | "no",
+  extra: { fixed?: boolean; stopped?: boolean } = {},
+) => ({
+  channel: name,
+  value,
+  fixed: extra.fixed ?? false,
+  stopped: extra.stopped ?? false,
+  since: value === "on" || value === "no" ? null : at("08:10"),
+});
+
+const bookingLines = (child: boolean) => [
+  {
+    scope: "bookings.confirmation",
+    label: "Booking confirmations",
+    description: "When a class is booked, and when a booking is cancelled.",
+    purpose: "account" as const,
+    essential: true,
+    channels: [channel("email", "on", { fixed: true }), channel("push", "on")],
+  },
+  {
+    scope: "bookings.reminder",
+    label: "Class reminders",
+    description: "A reminder a few hours before a booked class.",
+    purpose: "account" as const,
+    essential: false,
+    channels: [channel("email", child ? "on" : "off"), channel("push", "on")],
+  },
+  {
+    scope: "follow_up",
+    label: "Follow-ups",
+    description: "A welcome, a check-in when we have not seen you, a request for a review.",
+    purpose: "follow_up" as const,
+    essential: false,
+    channels: [
+      channel("email", "on"),
+      channel("text", "off", { stopped: true }),
+      channel("push", "on"),
+    ],
+  },
+];
+
+export const contactChoices: Out<"me.contact.choices"> = {
+  people: [
+    {
+      personId: HANNAH,
+      name: "Hannah Okafor",
+      self: true,
+      child: false,
+      lines: [
+        ...bookingLines(false),
+        {
+          scope: "news_and_offers",
+          label: "News and offers",
+          description: "News, offers and promotions. Only with your yes.",
+          purpose: "news_and_offers",
+          essential: false,
+          channels: [channel("email", "yes"), channel("text", "no"), channel("push", "no")],
+        },
+      ],
+    },
+    { personId: LEO, name: "Leo Okafor", self: false, child: true, lines: bookingLines(true) },
   ],
 };
 
@@ -547,6 +623,7 @@ export function accountHooks(current: "browser" | "device") {
       "me.get": me,
       "me.birthday.get": birthday,
       "me.sessions.list": sessions(current),
+      "me.contact.choices": contactChoices,
       "me.family": family,
       "my.list": myList,
       "subscription.list": subscriptions,

@@ -415,6 +415,71 @@ No fields.
 | `algorithm.periodSeconds` | number | yes |   |   |
 | `algorithm.digits` | number | yes |   |   |
 
+## me.contact.choices
+
+Your contact preferences, as a signed-in customer, and those of each child you act for: each kind of message you may get, on each channel it goes by (email, text, push), with what is in force. Messages about something booked or paid for are always emailed (fixed); follow-ups and news and offers are per channel. Read-only.
+
+|  |  |
+| --- | --- |
+| Permission | `records:read` |
+| Risk | `read` |
+| Audiences | `customer` |
+| Also | host-internal (`hostInternal`); not offered to MCP clients (`mcp.expose: false`) |
+
+### Input
+
+No fields.
+
+### Output
+
+| Field | Type | Required | Limits | Description |
+| --- | --- | --- | --- | --- |
+| `people` | array of object | yes |   |   |
+| `people[].personId` | string | yes |   |   |
+| `people[].name` | string | yes |   |   |
+| `people[].self` | boolean | yes |   | The caller's own Person (false: a child they act for) |
+| `people[].child` | boolean | yes |   | A child: news and offers never go to them |
+| `people[].lines` | array of object | yes |   |   |
+| `people[].lines[].scope` | string | yes |   |   |
+| `people[].lines[].label` | string | yes |   |   |
+| `people[].lines[].description` | string | yes |   |   |
+| `people[].lines[].purpose` | `"account"`, `"follow_up"`, `"news_and_offers"` | yes |   |   |
+| `people[].lines[].essential` | boolean | yes |   | Its email always goes |
+| `people[].lines[].channels` | array of object | yes |   |   |
+| `people[].lines[].channels[].channel` | `"email"`, `"text"`, `"push"` | yes |   |   |
+| `people[].lines[].channels[].value` | `"on"`, `"off"`, `"yes"`, `"no"` | yes |   | What is in force (a default when unset) |
+| `people[].lines[].channels[].fixed` | boolean | yes |   | Cannot be changed here: an essential kind's email always goes |
+| `people[].lines[].channels[].stopped` | boolean | yes |   | Stopped by a stop link or a STOP reply |
+| `people[].lines[].channels[].since` | string or null | yes |   | When the choice in force was made; null: the default |
+
+## me.contact.setChoices
+
+Changes your contact preferences, as a signed-in customer, or those of a child you act for (personId). Each choice is a kind of message, a channel and on or off (news_and_offers: yes or no, with the words you were shown). A booking's or a payment's email cannot be turned off. You may turn back on what you stopped by a link or a STOP reply.
+
+|  |  |
+| --- | --- |
+| Permission | `records:write` |
+| Risk | `write` |
+| Audiences | `customer` |
+| Also | host-internal (`hostInternal`); not offered to MCP clients (`mcp.expose: false`) |
+
+### Input
+
+| Field | Type | Required | Limits | Description |
+| --- | --- | --- | --- | --- |
+| `personId` | string |   | min length 1, max length 64 | A child you act for; default you |
+| `choices` | array of object | yes | at least 1, at most 40 |   |
+| `choices[].scope` | string | yes | min length 1, max length 80 | A kind of message: a routine message kind (bookings.reminder), follow_up, or news_and_offers |
+| `choices[].channel` | `"email"`, `"text"`, `"push"` | yes |   |   |
+| `choices[].value` | `"on"`, `"off"`, `"yes"`, `"no"` | yes |   | on or off; for news_and_offers, yes or no |
+| `wording` | string |   | max length 1000 | For a yes to news and offers: the words you were shown |
+
+### Output
+
+| Field | Type | Required | Limits | Description |
+| --- | --- | --- | --- | --- |
+| `changed` | integer | yes | ≥ -9007199254740991, ≤ 9007199254740991 |   |
+
 ## me.deleteAccount
 
 Delete your customer account and ask for your personal data to be erased, signed in within the last 15 minutes (else sign_in_again, for the preview too). Without `confirm` it changes nothing and says what will happen: each subscription you pay ends when the period already paid for ends (nothing refunded, nothing more charged), or with a cooling off you asked for; one that cannot be ended that way (an end date set later, or waiting for payment, unpaid or paused) is left for staff and may charge until they end it. Your unpaid orders are cancelled, and your bookings, tickets and other records stay for staff to decide when they erase your data. With `confirm: true` and the preview's `expect` it does that: you are signed out everywhere at once and can no longer sign in, and staff erase your data, or tell you by email why some of it must be kept, by the due date returned. A preview that changed meanwhile is a conflict: ask for it again.

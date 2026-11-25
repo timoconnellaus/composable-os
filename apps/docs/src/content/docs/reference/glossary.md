@@ -1616,14 +1616,33 @@ text past it is `over_limit` and its email goes; admins are told once that day, 
 month. 0 sends no texts. The business pays its own text provider account (ADR 0672).
 _Avoid_: SMS budget, credits
 
+### Purpose
+
+What a message is for, as far as consent goes: `account` (about something the person has or did:
+a booking, a ticket, a payment), `follow_up` (automatic, neither that nor an offer: a welcome, a
+review's ask; always stoppable) or `news_and_offers` (promotional: only with a recorded yes, per
+channel, and never to or about a child) (ADR 0675).
+_Avoid_: category, marketing flag
+
+### Consent register
+
+The record of a Person's contact choices (`core_contact_choice`): per channel and scope (a purpose,
+or a routine message kind), on or off (news and offers: yes or no), with when, how and by whom, and
+the words shown for a yes. Never rewritten: the latest choice is in force, the earlier ones its
+history. Every sender asks it through one question at the moment of sending
+(`contactDecision`); a refusal is final, never held for a person. Beside it the **suppression
+list**: salted hashes of addresses and numbers that asked to stop, kept after erase (ADR 0675).
+_Avoid_: preferences table, opt-out list
+
 ### Stop
 
-(by text)
-
-A reply of STOP (or a usual synonym) to the business's texts: every text to that number stops,
-whoever it is on, until a START from it. Kept as a salted hash, past an erase. HELP gets a fixed
-answer with the business's name (ADR 0672).
-_Avoid_: opt-out, unsubscribe (by text)
+A person's own "no more of these": the one-tap stop link a stoppable email carries (and its
+List-Unsubscribe header), which turns that one kind off on that channel without signing in; a
+reply of STOP to the business's texts, which stops every text to that number, whoever it is on,
+until a START from it (kept as a salted hash, past an erase; HELP gets a fixed answer with the
+business's name); or turning it off in their account. Only the person lifts a stop (their account,
+or START), never staff or an AI (ADRs 0672, 0675).
+_Avoid_: opt-out, unsubscribe
 
 ### Routine mail kind
 

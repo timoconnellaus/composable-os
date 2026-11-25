@@ -1,5 +1,5 @@
-// This web app's Worker: the sign-in routes, the browser's operation route, the media route and
-// the signed agreements' PDFs (src/host.ts) first, then TanStack Start for pages.
+// This web app's Worker: the sign-in routes, the one-tap stop, the browser's operation route, the
+// media route and the signed agreements' PDFs (src/host.ts) first, then TanStack Start for pages.
 import { env } from "cloudflare:workers";
 import handler from "@tanstack/react-start/server-entry";
 import {
@@ -8,6 +8,7 @@ import {
   type HostEnv,
   mediaRoute,
   operationRoute,
+  stopRoute,
   withSessionKept,
 } from "./host.ts";
 
@@ -17,13 +18,16 @@ import {
  * directly (customerApi) and need no entry here. The agreements ones are the agreement pages'
  * (routes/before-you-go-on.tsx, routes/agreements.tsx) and the agreement blocks' (cos add
  * web-agree): a visitor reads what they are asked with agreement.guestVersions. The account ones
- * are My account's (routes/account.tsx, and the account blocks: cos add web-account).
+ * are My account's (routes/account.tsx, and the account blocks: cos add web-account), its
+ * contact preferences included.
  */
 const BROWSER_OPERATIONS = [
   "me.get",
   "me.update",
   "me.sessions.list",
   "me.sessions.revoke",
+  "me.contact.choices",
+  "me.contact.setChoices",
   "me.family",
   "my.list",
   "subscription.list",
@@ -42,6 +46,9 @@ export default {
     const host = env as unknown as HostEnv;
     const auth = await authRoute(request, host);
     if (auth) return auth;
+    // The one-tap stop a stoppable email links to (/stop?t=…, stage 30).
+    const stop = await stopRoute(request, host);
+    if (stop) return stop;
     const call = await operationRoute(request, host, { allow: BROWSER_OPERATIONS });
     if (call) return call;
     // The pictures published content shows (a post's cover, a rich text picture): /api/media/<id>.

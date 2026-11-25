@@ -31,6 +31,7 @@ Every operation in the core registry, grouped by the first part of its name. Any
 - [`code`](/reference/operations/code/)
 - [`connectedApp`](/reference/operations/connectedapp/)
 - [`connection`](/reference/operations/connection/)
+- [`contact`](/reference/operations/contact/)
 - [`content`](/reference/operations/content/)
 - [`conversation`](/reference/operations/conversation/)
 - [`customer`](/reference/operations/customer/)

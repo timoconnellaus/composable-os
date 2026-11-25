@@ -31,6 +31,7 @@ import { checklistOperations } from "./checklist.ts";
 import { checklistDayOperations } from "./checklist-days.ts";
 import { codeOperations } from "./code.ts";
 import { connectedAppOperations } from "./connected-app.ts";
+import { contactOperations } from "./contact.ts";
 import { contentOperations } from "./content.ts";
 import { countOperations } from "./count.ts";
 import { customerOperations } from "./customer.ts";
@@ -205,6 +206,7 @@ export const coreOperations = [
   ...customerOperations,
   ...meOperations,
   ...mePhoneOperations,
+  ...contactOperations,
   ...meAttentionOperations,
   ...mePortalOperations,
   ...personLinkOperations,

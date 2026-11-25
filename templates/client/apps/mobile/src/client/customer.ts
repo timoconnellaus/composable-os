@@ -37,6 +37,14 @@ export type Operations = {
     output: { object: string; id: string; status: ("available") | ("low") | ("sold_out"); available?: (number) | (null); places?: (number) | (null); held?: number; taken?: number; show?: ("exact") | ("low") | ("availability"); lowAt?: (number) | (null); pool?: ({ object: string; id: string; places: (number) | (null); held: number; taken: number; available: (number) | (null) }) | (null) };
   };
   /**
+   * The one-tap stop in an email: turns off the one kind of message, on the one channel, that the link's token names, for the one Person it names. It can only turn something off. The answer is the same whether the token was good or not.
+   */
+  "contact.stop": {
+    kind: "mutation";
+    input: { token: string };
+    output: { done: true };
+  };
+  /**
    * Read one published record of a content object (a blog post) by its slug, as the public reads it: its published version, with only the fields the object lets the public read. An old slug of a record whose slug changed answers `redirect` with the slug it has now. A draft, an unpublished record and an unknown slug are all not found. Read-only.
    */
   "content.get": {
@@ -163,6 +171,22 @@ export type Operations = {
     kind: "mutation";
     input: Record<string, never>;
     output: { codes: ({ givenName: (string) | (null); own: boolean; payload: string; secret: (string) | (null) })[]; refreshAt: string; algorithm: { kind: "totp"; hash: "SHA-1"; periodSeconds: number; digits: number } };
+  };
+  /**
+   * Your contact preferences, as a signed-in customer, and those of each child you act for: each kind of message you may get, on each channel it goes by (email, text, push), with what is in force. Messages about something booked or paid for are always emailed (fixed); follow-ups and news and offers are per channel. Read-only.
+   */
+  "me.contact.choices": {
+    kind: "query";
+    input: Record<string, never>;
+    output: { people: ({ personId: string; name: string; self: boolean; child: boolean; lines: ({ scope: string; label: string; description: string; purpose: ("account") | ("follow_up") | ("news_and_offers"); essential: boolean; channels: ({ channel: ("email") | ("text") | ("push"); value: ("on") | ("off") | ("yes") | ("no"); fixed: boolean; stopped: boolean; since: (string) | (null) })[] })[] })[] };
+  };
+  /**
+   * Changes your contact preferences, as a signed-in customer, or those of a child you act for (personId). Each choice is a kind of message, a channel and on or off (news_and_offers: yes or no, with the words you were shown). A booking's or a payment's email cannot be turned off. You may turn back on what you stopped by a link or a STOP reply.
+   */
+  "me.contact.setChoices": {
+    kind: "mutation";
+    input: { personId?: string; choices: ({ scope: string; channel: ("email") | ("text") | ("push"); value: ("on") | ("off") | ("yes") | ("no") })[]; wording?: string };
+    output: { changed: number };
   };
   /**
    * Delete your customer account and ask for your personal data to be erased, signed in within the last 15 minutes (else sign_in_again, for the preview too). Without `confirm` it changes nothing and says what will happen: each subscription you pay ends when the period already paid for ends (nothing refunded, nothing more charged), or with a cooling off you asked for; one that cannot be ended that way (an end date set later, or waiting for payment, unpaid or paused) is left for staff and may charge until they end it. Your unpaid orders are cancelled, and your bookings, tickets and other records stay for staff to decide when they erase your data. With `confirm: true` and the preview's `expect` it does that: you are signed out everywhere at once and can no longer sign in, and staff erase your data, or tell you by email why some of it must be kept, by the due date returned. A preview that changed meanwhile is a conflict: ask for it again.
@@ -468,36 +492,39 @@ export const operations = {
   "allowance.get": { kind: "query", invalidates: [] },
   "allowance.list": { kind: "query", invalidates: [] },
   "capacity.get": { kind: "query", invalidates: [] },
+  "contact.stop": { kind: "mutation", invalidates: [] },
   "content.get": { kind: "query", invalidates: [] },
   "content.list": { kind: "query", invalidates: [] },
   "content.preview": { kind: "query", invalidates: [] },
   "content.search": { kind: "query", invalidates: [] },
-  "me.agreements.accept": { kind: "mutation", invalidates: ["me.agreements.due","me.agreements.get","me.agreements.list","me.agreements.pdf","me.attention","me.birthday.get","me.calendarFeed.status","me.family","me.get","me.portal","me.sessions.list","my.get","my.list"] },
+  "me.agreements.accept": { kind: "mutation", invalidates: ["me.agreements.due","me.agreements.get","me.agreements.list","me.agreements.pdf","me.attention","me.birthday.get","me.calendarFeed.status","me.contact.choices","me.family","me.get","me.portal","me.sessions.list","my.get","my.list"] },
   "me.agreements.due": { kind: "query", invalidates: [] },
   "me.agreements.get": { kind: "query", invalidates: [] },
   "me.agreements.list": { kind: "query", invalidates: [] },
   "me.agreements.pdf": { kind: "query", invalidates: [] },
   "me.attention": { kind: "query", invalidates: [] },
   "me.birthday.get": { kind: "query", invalidates: [] },
-  "me.birthday.set": { kind: "mutation", invalidates: ["me.agreements.due","me.agreements.get","me.agreements.list","me.agreements.pdf","me.attention","me.birthday.get","me.calendarFeed.status","me.family","me.get","me.portal","me.sessions.list","my.get","my.list"] },
-  "me.calendarFeed.revoke": { kind: "mutation", invalidates: ["me.agreements.due","me.agreements.get","me.agreements.list","me.agreements.pdf","me.attention","me.birthday.get","me.calendarFeed.status","me.family","me.get","me.portal","me.sessions.list","my.get","my.list"] },
-  "me.calendarFeed.rotate": { kind: "mutation", invalidates: ["me.agreements.due","me.agreements.get","me.agreements.list","me.agreements.pdf","me.attention","me.birthday.get","me.calendarFeed.status","me.family","me.get","me.portal","me.sessions.list","my.get","my.list"] },
+  "me.birthday.set": { kind: "mutation", invalidates: ["me.agreements.due","me.agreements.get","me.agreements.list","me.agreements.pdf","me.attention","me.birthday.get","me.calendarFeed.status","me.contact.choices","me.family","me.get","me.portal","me.sessions.list","my.get","my.list"] },
+  "me.calendarFeed.revoke": { kind: "mutation", invalidates: ["me.agreements.due","me.agreements.get","me.agreements.list","me.agreements.pdf","me.attention","me.birthday.get","me.calendarFeed.status","me.contact.choices","me.family","me.get","me.portal","me.sessions.list","my.get","my.list"] },
+  "me.calendarFeed.rotate": { kind: "mutation", invalidates: ["me.agreements.due","me.agreements.get","me.agreements.list","me.agreements.pdf","me.attention","me.birthday.get","me.calendarFeed.status","me.contact.choices","me.family","me.get","me.portal","me.sessions.list","my.get","my.list"] },
   "me.calendarFeed.status": { kind: "query", invalidates: [] },
-  "me.code": { kind: "mutation", invalidates: ["me.agreements.due","me.agreements.get","me.agreements.list","me.agreements.pdf","me.attention","me.birthday.get","me.calendarFeed.status","me.family","me.get","me.portal","me.sessions.list","my.get","my.list"] },
-  "me.deleteAccount": { kind: "mutation", invalidates: ["me.agreements.due","me.agreements.get","me.agreements.list","me.agreements.pdf","me.attention","me.birthday.get","me.calendarFeed.status","me.family","me.get","me.portal","me.sessions.list","my.get","my.list"] },
-  "me.email.change": { kind: "mutation", invalidates: ["me.agreements.due","me.agreements.get","me.agreements.list","me.agreements.pdf","me.attention","me.birthday.get","me.calendarFeed.status","me.family","me.get","me.portal","me.sessions.list","my.get","my.list"] },
-  "me.email.confirm": { kind: "mutation", invalidates: ["me.agreements.due","me.agreements.get","me.agreements.list","me.agreements.pdf","me.attention","me.birthday.get","me.calendarFeed.status","me.family","me.get","me.portal","me.sessions.list","my.get","my.list"] },
+  "me.code": { kind: "mutation", invalidates: ["me.agreements.due","me.agreements.get","me.agreements.list","me.agreements.pdf","me.attention","me.birthday.get","me.calendarFeed.status","me.contact.choices","me.family","me.get","me.portal","me.sessions.list","my.get","my.list"] },
+  "me.contact.choices": { kind: "query", invalidates: [] },
+  "me.contact.setChoices": { kind: "mutation", invalidates: ["me.agreements.due","me.agreements.get","me.agreements.list","me.agreements.pdf","me.attention","me.birthday.get","me.calendarFeed.status","me.contact.choices","me.family","me.get","me.portal","me.sessions.list","my.get","my.list"] },
+  "me.deleteAccount": { kind: "mutation", invalidates: ["me.agreements.due","me.agreements.get","me.agreements.list","me.agreements.pdf","me.attention","me.birthday.get","me.calendarFeed.status","me.contact.choices","me.family","me.get","me.portal","me.sessions.list","my.get","my.list"] },
+  "me.email.change": { kind: "mutation", invalidates: ["me.agreements.due","me.agreements.get","me.agreements.list","me.agreements.pdf","me.attention","me.birthday.get","me.calendarFeed.status","me.contact.choices","me.family","me.get","me.portal","me.sessions.list","my.get","my.list"] },
+  "me.email.confirm": { kind: "mutation", invalidates: ["me.agreements.due","me.agreements.get","me.agreements.list","me.agreements.pdf","me.attention","me.birthday.get","me.calendarFeed.status","me.contact.choices","me.family","me.get","me.portal","me.sessions.list","my.get","my.list"] },
   "me.family": { kind: "query", invalidates: [] },
   "me.get": { kind: "query", invalidates: [] },
-  "me.phone.check": { kind: "mutation", invalidates: ["me.agreements.due","me.agreements.get","me.agreements.list","me.agreements.pdf","me.attention","me.birthday.get","me.calendarFeed.status","me.family","me.get","me.portal","me.sessions.list","my.get","my.list"] },
-  "me.phone.startCheck": { kind: "mutation", invalidates: ["me.agreements.due","me.agreements.get","me.agreements.list","me.agreements.pdf","me.attention","me.birthday.get","me.calendarFeed.status","me.family","me.get","me.portal","me.sessions.list","my.get","my.list"] },
-  "me.pin.clear": { kind: "mutation", invalidates: ["me.agreements.due","me.agreements.get","me.agreements.list","me.agreements.pdf","me.attention","me.birthday.get","me.calendarFeed.status","me.family","me.get","me.portal","me.sessions.list","my.get","my.list"] },
-  "me.pin.set": { kind: "mutation", invalidates: ["me.agreements.due","me.agreements.get","me.agreements.list","me.agreements.pdf","me.attention","me.birthday.get","me.calendarFeed.status","me.family","me.get","me.portal","me.sessions.list","my.get","my.list"] },
+  "me.phone.check": { kind: "mutation", invalidates: ["me.agreements.due","me.agreements.get","me.agreements.list","me.agreements.pdf","me.attention","me.birthday.get","me.calendarFeed.status","me.contact.choices","me.family","me.get","me.portal","me.sessions.list","my.get","my.list"] },
+  "me.phone.startCheck": { kind: "mutation", invalidates: ["me.agreements.due","me.agreements.get","me.agreements.list","me.agreements.pdf","me.attention","me.birthday.get","me.calendarFeed.status","me.contact.choices","me.family","me.get","me.portal","me.sessions.list","my.get","my.list"] },
+  "me.pin.clear": { kind: "mutation", invalidates: ["me.agreements.due","me.agreements.get","me.agreements.list","me.agreements.pdf","me.attention","me.birthday.get","me.calendarFeed.status","me.contact.choices","me.family","me.get","me.portal","me.sessions.list","my.get","my.list"] },
+  "me.pin.set": { kind: "mutation", invalidates: ["me.agreements.due","me.agreements.get","me.agreements.list","me.agreements.pdf","me.attention","me.birthday.get","me.calendarFeed.status","me.contact.choices","me.family","me.get","me.portal","me.sessions.list","my.get","my.list"] },
   "me.portal": { kind: "query", invalidates: [] },
   "me.sessions.list": { kind: "query", invalidates: [] },
-  "me.sessions.revoke": { kind: "mutation", invalidates: ["me.agreements.due","me.agreements.get","me.agreements.list","me.agreements.pdf","me.attention","me.birthday.get","me.calendarFeed.status","me.family","me.get","me.portal","me.sessions.list","my.get","my.list"] },
-  "me.signOut": { kind: "mutation", invalidates: ["me.agreements.due","me.agreements.get","me.agreements.list","me.agreements.pdf","me.attention","me.birthday.get","me.calendarFeed.status","me.family","me.get","me.portal","me.sessions.list","my.get","my.list"] },
-  "me.update": { kind: "mutation", invalidates: ["me.agreements.due","me.agreements.get","me.agreements.list","me.agreements.pdf","me.attention","me.birthday.get","me.calendarFeed.status","me.family","me.get","me.portal","me.sessions.list","my.get","my.list"] },
+  "me.sessions.revoke": { kind: "mutation", invalidates: ["me.agreements.due","me.agreements.get","me.agreements.list","me.agreements.pdf","me.attention","me.birthday.get","me.calendarFeed.status","me.contact.choices","me.family","me.get","me.portal","me.sessions.list","my.get","my.list"] },
+  "me.signOut": { kind: "mutation", invalidates: ["me.agreements.due","me.agreements.get","me.agreements.list","me.agreements.pdf","me.attention","me.birthday.get","me.calendarFeed.status","me.contact.choices","me.family","me.get","me.portal","me.sessions.list","my.get","my.list"] },
+  "me.update": { kind: "mutation", invalidates: ["me.agreements.due","me.agreements.get","me.agreements.list","me.agreements.pdf","me.attention","me.birthday.get","me.calendarFeed.status","me.contact.choices","me.family","me.get","me.portal","me.sessions.list","my.get","my.list"] },
   "media.play": { kind: "query", invalidates: [] },
   "media.serve": { kind: "query", invalidates: [] },
   "my.get": { kind: "query", invalidates: [] },

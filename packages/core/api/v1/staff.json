@@ -25828,6 +25828,208 @@
       ]
     },
     {
+      "name": "contact.forPerson",
+      "description": "A Person's contact choices: each kind of message they may get on each channel with what is in force, and the history of every choice (when, how, by whom, why). Read-only.",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "personId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          }
+        },
+        "required": [
+          "personId"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "child": {
+            "type": "boolean"
+          },
+          "lines": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "scope": {
+                  "type": "string"
+                },
+                "label": {
+                  "type": "string"
+                },
+                "description": {
+                  "type": "string"
+                },
+                "purpose": {
+                  "type": "string",
+                  "enum": [
+                    "account",
+                    "follow_up",
+                    "news_and_offers"
+                  ]
+                },
+                "essential": {
+                  "type": "boolean",
+                  "description": "Its email always goes"
+                },
+                "channels": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "channel": {
+                        "type": "string",
+                        "enum": [
+                          "email",
+                          "text",
+                          "push"
+                        ]
+                      },
+                      "value": {
+                        "type": "string",
+                        "enum": [
+                          "on",
+                          "off",
+                          "yes",
+                          "no"
+                        ],
+                        "description": "What is in force (a default when unset)"
+                      },
+                      "fixed": {
+                        "type": "boolean",
+                        "description": "Cannot be changed here: an essential kind's email always goes"
+                      },
+                      "stopped": {
+                        "type": "boolean",
+                        "description": "Stopped by a stop link or a STOP reply"
+                      },
+                      "since": {
+                        "description": "When the choice in force was made; null: the default",
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "channel",
+                      "value",
+                      "fixed",
+                      "stopped",
+                      "since"
+                    ],
+                    "additionalProperties": false
+                  }
+                }
+              },
+              "required": [
+                "scope",
+                "label",
+                "description",
+                "purpose",
+                "essential",
+                "channels"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "history": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "scope": {
+                  "type": "string"
+                },
+                "channel": {
+                  "type": "string",
+                  "enum": [
+                    "email",
+                    "text",
+                    "push"
+                  ]
+                },
+                "value": {
+                  "type": "string",
+                  "enum": [
+                    "on",
+                    "off",
+                    "yes",
+                    "no"
+                  ]
+                },
+                "at": {
+                  "type": "string"
+                },
+                "how": {
+                  "type": "string",
+                  "enum": [
+                    "member",
+                    "staff_on_request",
+                    "staff_from_paper",
+                    "form",
+                    "checkout",
+                    "stop_link",
+                    "stop_reply",
+                    "start_reply",
+                    "import",
+                    "merge"
+                  ]
+                },
+                "by": {
+                  "description": "The staff user or customer account who made it, if any",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "reason": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "wording": {
+                  "description": "The words shown when they said yes",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "scope",
+                "channel",
+                "value",
+                "at",
+                "how",
+                "by",
+                "reason",
+                "wording"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "child",
+          "lines",
+          "history"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
       "name": "content.get",
       "description": "Read one published record of a content object (a blog post) by its slug, as the public reads it: its published version, with only the fields the object lets the public read. An old slug of a record whose slug changed answers `redirect` with the slug it has now. A draft, an unpublished record and an unknown slug are all not found. Read-only.",
       "risk": "read",
@@ -65267,6 +65469,111 @@
           "ended",
           "started",
           "activityId"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "person.get",
+        "person.link.list",
+        "person.link.mergePlan",
+        "person.list"
+      ]
+    },
+    {
+      "name": "person.contact.record",
+      "description": "Records a member's contact choice they gave by phone or on paper: a kind of message, a channel and on or off (news_and_offers: yes or no, with the words they agreed to). Says why. A person only, never an AI. It cannot turn back on what the member stopped themselves.",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "personId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "choices": {
+            "minItems": 1,
+            "maxItems": 40,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "scope": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 80,
+                  "description": "A kind of message: a routine message kind (bookings.reminder), follow_up, or news_and_offers"
+                },
+                "channel": {
+                  "type": "string",
+                  "enum": [
+                    "email",
+                    "text",
+                    "push"
+                  ]
+                },
+                "value": {
+                  "type": "string",
+                  "enum": [
+                    "on",
+                    "off",
+                    "yes",
+                    "no"
+                  ],
+                  "description": "on or off; for news_and_offers, yes or no"
+                }
+              },
+              "required": [
+                "scope",
+                "channel",
+                "value"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "how": {
+            "type": "string",
+            "enum": [
+              "staff_on_request",
+              "staff_from_paper"
+            ],
+            "description": "They asked (by phone, at the desk), or on a paper form"
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 500,
+            "description": "Why, in a few words"
+          },
+          "wording": {
+            "description": "For a yes to news and offers: the words they agreed to",
+            "type": "string",
+            "maxLength": 1000
+          }
+        },
+        "required": [
+          "personId",
+          "choices",
+          "how",
+          "reason"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "changed": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": [
+          "changed"
         ],
         "additionalProperties": false
       },

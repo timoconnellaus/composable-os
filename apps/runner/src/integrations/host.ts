@@ -953,7 +953,7 @@ export class IntegrationHost extends DurableObject<Env> {
    * and the gatekeeper whether the host decided it routine. Org connections only, the row's own.
    */
   async sendRoutineMail(input: { id: string; resource: string }): Promise<{
-    status: "sent" | "waiting" | "denied" | "failed" | "skipped" | "off";
+    status: "sent" | "waiting" | "denied" | "failed" | "skipped" | "off" | "stopped";
     pendingActionId?: string;
     error?: string;
   }> {
@@ -962,8 +962,8 @@ export class IntegrationHost extends DurableObject<Env> {
     const db = createCrmDb(this.env.DB).query;
     const row = await claimRoutineMail(db, input.id, meta.connectionId);
     if (!row) return { status: "skipped" };
-    // Turned off since it was prepared (F2): nothing is sent.
-    if (row === "off") return { status: "off" };
+    // Turned off since it was prepared (F2), or stopped by the person (ADR 0675): nothing is sent.
+    if (row === "off" || row === "stopped") return { status: row };
     const settings = await loadRoutineMailSettings(db);
     const caller: QueueCaller = {
       kind: "system",

@@ -86,6 +86,7 @@ describe("sections", () => {
       "family",
       "payment",
       "details",
+      "contact",
       "devices",
     ]);
     expect(accountSections([], ["payment"]).map((s) => s.key)).not.toContain("payment");

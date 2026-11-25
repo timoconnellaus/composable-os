@@ -12,6 +12,7 @@ import {
 } from "../agreements/people.ts";
 import { queueMergeAllowances } from "../allowance/people.ts";
 import { assignOwner, recordAssignment } from "../assignment/index.ts";
+import { mergeChoiceStatements } from "../contact/register.ts";
 import { queueMergeCustomers } from "../customers/merge.ts";
 import { checkPerson } from "../duplicates/check.ts";
 import { personNameKey } from "../duplicates/normalise.ts";
@@ -1289,6 +1290,8 @@ export const personMerge = defineOperation({
     );
     // Acceptances follow the Person, after merged_into_id is set (the trigger checks it, ADR 0642).
     queueMergeAgreements(ctx, survivor.id, merged.id);
+    // Contact choices follow the Person (ADR 0675): the later wins, a stop or a no always stays.
+    ctx.write(...(await mergeChoiceStatements(ctx.db, survivor.id, merged.id, ctx.now)));
     // One primary affiliation per person: the survivor's wins.
     if (survivor.primaryAffiliation) {
       ctx.write(
