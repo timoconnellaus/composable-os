@@ -27,6 +27,7 @@ import {
   runAgreementsDue,
   runChecklistDue,
   runDuplicateCron,
+  runPayoutsDue,
   runPublishDue,
   runRecurringDue,
   runReindexDue,
@@ -313,6 +314,7 @@ export async function minuteTick(env: Env, at: Date) {
       notifications: null,
       duplicates: null,
       orders: null,
+      payouts: null,
       publishing: null,
       reindex: null,
       recurring: null,
@@ -351,6 +353,17 @@ export async function minuteTick(env: Env, at: Date) {
   );
   // Orders (stage 25, ADR 0429): expire unpaid orders, apply verified payments left over.
   const orders = await minuteStep("orders", () => runOrdersTick(env, at));
+  // Payouts (stage 52 step 4, ADR 0793): once a business day, the payouts the provider sent to
+  // the bank are read through the payments gatekeeper, a bounded number of calls a minute until a
+  // backlog is read. A quiet minute is one read by key (or, before the first read, whether a
+  // payment account is bound); a failing provider is retried later and holds nothing else up.
+  const payouts = await minuteStep("payouts", () =>
+    runPayoutsDue(createCrmDb(env.DB), {
+      integrations: integrationRuntime(env),
+      clock: () => at,
+      floor: parseFloor(env.APPROVAL_FLOOR),
+    }),
+  );
   // Content (stage 28, ADR 0441): scheduled publishes whose time has come go live.
   const publishing = await minuteStep("publishing", () =>
     runPublishDue(createCrmDb(env.DB), {
@@ -455,6 +468,7 @@ export async function minuteTick(env: Env, at: Date) {
     notifications,
     duplicates,
     orders,
+    payouts,
     publishing,
     reindex,
     recurring,

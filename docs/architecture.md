@@ -2574,11 +2574,12 @@ open offer on a plan object, or a subscription from one that has not ended, gets
 (`subscription.offer.list`, `.export`; the Subscriptions section's Continuation offers) lists who
 took theirs and when they are charged from.
 
-**Finance** (stage 52, steps 1 to 3 built: ADRs [0790](adr/0790-finance-periods-the-business-day-and-the-monthly-close.md),
+**Finance** (stage 52, steps 1 to 4 built: ADRs [0790](adr/0790-finance-periods-the-business-day-and-the-monthly-close.md),
 [0791](adr/0791-the-figures-for-the-books-book-entries.md),
+[0793](adr/0793-payout-reads-through-the-payments-gatekeeper.md),
 [0794](adr/0794-finance-read-and-finance-close.md) and
 [0796](adr/0796-day-summaries-and-the-first-reports.md), `packages/core/src/finance/`, migrations
-1150 and 1153).
+1150, 1151 and 1153).
 Core, not a pack: the figures for the books are read from orders, payments, refunds, payouts and
 stored value. Every date is a business day, local in the organisation's zone (`finance/day.ts`). The
 business closes each calendar month (`finance.close`, a person with `finance:close`) once it has
@@ -2604,8 +2605,23 @@ business day money moved (`money_in:provider` and `money_out:provider` against `
 add up to the reports. `finance.report` reads a closed version's rows or previews an open month or
 any span of days; `finance.entries` lists a closed version's entries, paged (never a preview's);
 `finance.export` (a person only) is one CSV per report (`finance/files.ts`, `csvText` shared in
-`packages/core/src/csv.ts` with the pay export). Payouts, Money owed, Unearned, Members, held
-balances and the screens are the stage's later steps.
+`packages/core/src/csv.ts` with the pay export). **Payouts** (step 4, [ADR
+0793](adr/0793-payout-reads-through-the-payments-gatekeeper.md), migration 1151): once a business
+day the minute cron's `finance.payouts.sync` (the host's step) reads the provider's payouts and
+what each settled through the payments gatekeeper (`listPayouts`, `payoutLines`: read only, the
+host's own `callAsHost`, the bank destination never read) into `core_payout`, `core_payout_line`
+and `core_payout_failure`, once each by the provider's ids and never rewritten (triggers), at most
+20 provider calls a run, a backlog carried on from `core_payout_sync`'s marker (per provider and
+account, reading from before the last pass that read everything, so no outage loses a payout); a
+quiet minute is one keyed read. A payout the bank returned is recorded as failed whenever it fails,
+from the `payout_reversal` line of the payout that pays it again. `finance/payouts.ts` matches each
+line to a payment the books counted or a confirmed refund by the provider's reference and amount
+(what matches nothing is listed with the reason, on `unmatched`; a payout's difference from its
+lines on `payout_difference`), and makes one balanced `payout` entry per payout on its arrival day
+and the Payouts report (with what is not yet paid out); a payout read after its month closed is
+counted late in the next. A closed version keeps each payout's row and its unmatched lines; matched
+lines are read from `core_payout_line`. Money owed, Unearned,
+Members, held balances and the screens are the stage's later steps.
 
 **`capacity`** (stage 26, ADRs 0430 to 0433). An object names its places field and, optionally, a
 pool (a relation to a parent object with a capacity, one level). The host keeps a counter per record

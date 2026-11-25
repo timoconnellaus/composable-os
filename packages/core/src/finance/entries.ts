@@ -63,6 +63,8 @@ const HEADINGS: readonly RegExp[] = [
   /^disputes$/,
   /^adjustments$/,
   /^unmatched$/,
+  // A payout's difference from its lines (ADR 0791 as amended for stage 52 step 4, ADR 0793).
+  /^payout_difference$/,
 ];
 
 export function isHeading(heading: string): boolean {

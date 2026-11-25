@@ -583,6 +583,97 @@ export interface PaymentsEventHook {
   receiveEvent(event: PaymentsEvent): Promise<void>;
 }
 
+/**
+ * A payout: money the provider sent from the account's balance to its bank (stage 52 step 4, ADR
+ * 0793). Read only; its bank destination is never read. Amounts in minor units.
+ */
+export interface PaymentsPayout {
+  provider: PaymentsProviderName;
+  /** The provider's id of the payout. */
+  ref: string;
+  /** What reached (or is to reach) the bank: the lines' amounts less their fees. */
+  amount: number;
+  currency: string;
+  /** The day the provider says it arrives in the bank, `YYYY-MM-DD`. */
+  arrivalDate: string;
+  /** `paid`: it arrived. A paid payout can still fail later (the money goes back to the balance). */
+  status: "paid" | "pending" | "in_transit" | "failed" | "canceled";
+  createdAt: string;
+  /**
+   * False when the provider cannot list what the payout settled (a payout made by hand at the
+   * provider): it has no lines, and the host shows the whole amount as matching nothing.
+   */
+  itemised: boolean;
+}
+
+/** One movement a payout settled (stage 52 step 4): a payment, refund, dispute, adjustment or fee. */
+export interface PaymentsPayoutLine {
+  /** The provider's id of the movement (a balance transaction): in one payout only. */
+  ref: string;
+  /**
+   * `payout_reversal`: an earlier payout came back from the bank (it failed or was cancelled), its
+   * money back in the balance; `reversalOf` names that payout.
+   */
+  kind: "payment" | "refund" | "dispute" | "adjustment" | "fee" | "payout_reversal";
+  /** Into the balance (positive) or out of it (negative), before the fee, minor units. */
+  amount: number;
+  /** The provider's fee on it (positive: charged; negative: given back), minor units. */
+  fee: number;
+  currency: string;
+  /** The payment it is for (a payment, a refund or a dispute of one), as the host stores it. */
+  paymentRef: string | null;
+  /** A refund's own reference, as the host stores it. */
+  refundRef: string | null;
+  /** A `payout_reversal`'s payout: the provider's id of the payout that came back. */
+  reversalOf?: string | null;
+  occurredAt: string;
+}
+
+/** What `listPayouts()` and `payoutLines()` answer when the connection may not read payouts. */
+export interface PaymentsPayoutsUnavailable {
+  unavailable: true;
+  /** Why, in the provider's words for the kind of refusal (never its message). */
+  reason: string;
+}
+
+/**
+ * What the session answers when the provider could not be read (a 5xx, a refused key, a cursor it
+ * does not know): an answer, not a thrown error, so a failing read leaves no rejection behind on
+ * the RPC hops. The host treats it as a failure and tries again later.
+ */
+export interface PaymentsPayoutsFailed {
+  failed: string;
+}
+
+/** A page of payouts, arriving on or after `since`. */
+export type PaymentsPayoutPage =
+  | { unavailable?: undefined; payouts: PaymentsPayout[]; next: string | null }
+  | PaymentsPayoutsUnavailable;
+
+/** A page of one payout's lines. */
+export type PaymentsPayoutLinePage =
+  | {
+      unavailable?: undefined;
+      lines: PaymentsPayoutLine[];
+      next: string | null;
+      /** Lines on this page the gatekeeper could not read: left out, and counted here. */
+      unreadable?: number;
+    }
+  | PaymentsPayoutsUnavailable;
+
+export interface PaymentsListPayoutsInput {
+  /** The first arrival day to list, `YYYY-MM-DD`. */
+  since: string;
+  /** The `next` of the page before; absent for the first page. */
+  after?: string | null;
+}
+
+export interface PaymentsPayoutLinesInput {
+  payoutRef: string;
+  /** The `next` of the page before; absent for the first page. */
+  after?: string | null;
+}
+
 /** The session a payment account grants. */
 /** What `getSubscriptionCheckout()` answers. */
 export interface PaymentsSubscriptionCheckoutStatus {
@@ -667,6 +758,16 @@ export interface PaymentsSession {
   removeReader(input: PaymentsRemoveReaderInput): Promise<PaymentsReaderChangeReceipt>;
   /** The account's readers, at most 100. Records an observation first. The host's own call only. */
   listReaders(): Promise<PaymentsReader[]>;
+  /**
+   * The account's payouts arriving on or after `since`, a page at a time (at most 100). Records
+   * an observation first. Read only: nothing moves, and the bank destination is never read. The
+   * host's own call only (stage 52 step 4).
+   */
+  listPayouts(input: PaymentsListPayoutsInput): Promise<PaymentsPayoutPage | PaymentsPayoutsFailed>;
+  /** One payout's lines, a page at a time (at most 100). As `listPayouts`. */
+  payoutLines(
+    input: PaymentsPayoutLinesInput,
+  ): Promise<PaymentsPayoutLinePage | PaymentsPayoutsFailed>;
   /**
    * Puts a payment of the order's amount on a reader. Records an observation first. No approval:
    * no money moves until the buyer's card does. Refused while the reader has another payment on it.

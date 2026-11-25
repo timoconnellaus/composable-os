@@ -23,6 +23,35 @@ declare global {
         codeFor(to: string): Promise<string | null>;
         refuse(to: string, refuse: boolean): Promise<void>;
       };
+      /** The fake payment provider's payouts (packages/gatekeeper-payments, vitest.config.ts). */
+      TEST_PAYMENTS: Fetcher & {
+        makePayout(options?: {
+          currency?: string;
+          arrivalDate?: string;
+          status?: "paid" | "pending" | "in_transit";
+          only?: string[];
+          none?: boolean;
+          extra?: {
+            kind: "payment" | "refund" | "dispute" | "adjustment" | "fee";
+            amount: number;
+            fee?: number;
+            paymentRef?: string | null;
+            refundRef?: string | null;
+          }[];
+          skew?: number;
+          itemised?: boolean;
+        }): Promise<{ ref: string; amount: number; arrivalDate: string } | null>;
+        makePayouts(
+          list: { arrivalDate?: string; none?: boolean; extra?: unknown[]; currency?: string }[],
+        ): Promise<{ ref: string }[]>;
+        failPayout(ref: string): Promise<unknown>;
+        configurePayoutReads(change: {
+          reads?: "ok" | "unavailable" | "error";
+          pageSize?: number;
+          auto?: boolean;
+        }): Promise<unknown>;
+        payoutState(): Promise<{ payouts: { ref: string }[]; reads: number }>;
+      };
       /** The text gatekeeper's vendor; its fetch serves the provider's webhook. */
       GATEKEEPER_TEXT: Fetcher;
       /** The fake booking system's controls (packages/gatekeeper-booking-system, vitest.config.ts). */

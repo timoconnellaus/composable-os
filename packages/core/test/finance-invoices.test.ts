@@ -423,5 +423,7 @@ describe("mixed rates and credit notes (second review, item 1)", () => {
     expect(settledByMoney).toBeGreaterThan(0);
     // Measured 2026-11-26: 287 acts, 36 settlements exact, 1 whose last payment was too small.
     expect(clamped).toBeLessThan(settledByMoney);
-  });
+    // About 290 operations in one test: the default 20 s is too tight on a slow CI runner
+    // (it timed out on main, 2026-11-25).
+  }, 120_000);
 });

@@ -95,7 +95,7 @@ Download one finance report as a CSV file for the business's accountant: a close
 
 | Field | Type | Required | Limits | Description |
 | --- | --- | --- | --- | --- |
-| `report` | `"sales"`, `"tax"`, `"refunds"` | yes |   | sales (by kind of sale and item, and by day), tax (by code and country) or refunds |
+| `report` | `"sales"`, `"tax"`, `"refunds"`, `"payouts"` | yes |   | sales (by kind of sale and item, and by day), tax (by code and country), refunds, or payouts (each payout the provider sent to the bank, line by line) |
 | `month` | string |   | pattern `^\d{4}-(0[1-9]\|1[0-2])$` | A month: its closed version, or a preview while it is open |
 | `version` | integer |   | ≥ 1, ≤ 9007199254740991 | A month's closed (or since reopened) version; left out, its latest closed one |
 | `start` | string |   | pattern `^\d{4}-\d{2}-\d{2}$` | A span of days to preview instead of a month: its first |
@@ -110,6 +110,34 @@ Download one finance report as a CSV file for the business's accountant: a close
 | `csv` | string | yes |   |   |
 | `preview` | boolean | yes |   |   |
 | `version` | integer or null | yes |   |   |
+
+## finance.payouts.sync
+
+Platform use only (the minute cron, as the host, once a business day): reads the payouts the payment provider sent to the bank, and what each settled, through the payments gatekeeper, and keeps them as the provider reported them, each once by the provider's id. Read only at the provider: nothing moves. A bounded number of provider calls a run; a backlog is read over several runs. Returns what it read.
+
+|  |  |
+| --- | --- |
+| Permission | `finance:read` |
+| Risk | `write` |
+| Audiences | `staff` |
+| Actors | `automation` |
+| Also | a host step: never queued for review when the host itself calls it (`hostStep`); not offered to MCP clients (`mcp.expose: false`) |
+
+### Input
+
+No fields.
+
+### Output
+
+| Field | Type | Required | Limits | Description |
+| --- | --- | --- | --- | --- |
+| `provider` | string or null | yes |   |   |
+| `calls` | integer | yes | ≥ -9007199254740991, ≤ 9007199254740991 | Provider calls this run made (pages of payouts or lines) |
+| `recorded` | integer | yes | ≥ -9007199254740991, ≤ 9007199254740991 | Payouts recorded |
+| `lines` | integer | yes | ≥ -9007199254740991, ≤ 9007199254740991 | Payout lines read |
+| `failed` | integer | yes | ≥ -9007199254740991, ≤ 9007199254740991 | Recorded payouts the provider now reports failed |
+| `state` | `"ok"`, `"unavailable"`, `"failing"`, `"not_connected"`, `"not_due"` | yes |   |   |
+| `more` | boolean | yes |   | The pass is not finished: the next tick carries on |
 
 ## finance.periods
 
@@ -181,7 +209,7 @@ Reopen a closed month, with why: its closed version and files are kept as they w
 
 ## finance.report
 
-One finance report for a month (its closed version as it was closed, or a preview while it is open) or a preview of any span of days: sales (per kind of sale and item, and by day: sold, discounts, refunded, net, the tax inside and net of tax), tax (per tax code and country, refunds' tax as reported or estimated, untaxed sales beside) or refunds (each refund confirmed: date, order, items, amount, tax given back, who asked and approved, the customer's name). Amounts are integers in the currency's minor units, on the business's days in its own time zone. Each row lists the orders it came from. Needs finance:read.
+One finance report for a month (its closed version as it was closed, or a preview while it is open) or a preview of any span of days: sales (per kind of sale and item, and by day: sold, discounts, refunded, net, the tax inside and net of tax), tax (per tax code and country, refunds' tax as reported or estimated, untaxed sales beside) or refunds (each refund confirmed: date, order, items, amount, tax given back, who asked and approved, the customer's name) or payouts (each payout the payment provider sent to the bank arriving in the span: its amount, payments, refunds, disputes, adjustments, fees, what matches nothing and any difference; each line and the order it matched; payouts the bank returned; and what the provider received that is not yet paid out). Amounts are integers in the currency's minor units, on the business's days in its own time zone. Each row lists the orders it came from. Needs finance:read.
 
 |  |  |
 | --- | --- |
@@ -193,7 +221,7 @@ One finance report for a month (its closed version as it was closed, or a previe
 
 | Field | Type | Required | Limits | Description |
 | --- | --- | --- | --- | --- |
-| `report` | `"sales"`, `"tax"`, `"refunds"` | yes |   | sales (by kind of sale and item, and by day), tax (by code and country) or refunds |
+| `report` | `"sales"`, `"tax"`, `"refunds"`, `"payouts"` | yes |   | sales (by kind of sale and item, and by day), tax (by code and country), refunds, or payouts (each payout the provider sent to the bank, line by line) |
 | `month` | string |   | pattern `^\d{4}-(0[1-9]\|1[0-2])$` | A month: its closed version, or a preview while it is open |
 | `version` | integer |   | ≥ 1, ≤ 9007199254740991 | A month's closed (or since reopened) version; left out, its latest closed one |
 | `start` | string |   | pattern `^\d{4}-\d{2}-\d{2}$` | A span of days to preview instead of a month: its first |
@@ -203,7 +231,7 @@ One finance report for a month (its closed version as it was closed, or a previe
 
 | Field | Type | Required | Limits | Description |
 | --- | --- | --- | --- | --- |
-| `report` | `"sales"`, `"tax"`, `"refunds"` | yes |   |   |
+| `report` | `"sales"`, `"tax"`, `"refunds"`, `"payouts"` | yes |   |   |
 | `month` | string or null | yes |   |   |
 | `start` | string | yes |   |   |
 | `end` | string | yes |   |   |

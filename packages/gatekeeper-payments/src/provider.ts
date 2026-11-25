@@ -9,8 +9,12 @@ import type {
   PaymentsCheckoutInput,
   PaymentsCustomerEmailInput,
   PaymentsEvent,
+  PaymentsListPayoutsInput,
   PaymentsPauseSubscriptionInput,
   PaymentsPayment,
+  PaymentsPayoutLinePage,
+  PaymentsPayoutLinesInput,
+  PaymentsPayoutPage,
   PaymentsPortalInput,
   PaymentsPresentation,
   PaymentsPresentInput,
@@ -108,6 +112,14 @@ export interface PaymentProvider {
   presentPayment(input: PaymentsPresentInput): Promise<Omit<PaymentsPresentation, "provider">>;
   /** Clears the payment on the reader, if any. */
   cancelPresented(readerRef: string): Promise<void>;
+  /**
+   * Payouts arriving on or after `since`, a page at a time (stage 52 step 4, ADR 0793). Read only;
+   * the bank destination is never read. Answers `unavailable` (never throws) when the account's
+   * key may not read payouts; throws on anything else (a network failure, a 5xx).
+   */
+  listPayouts(input: PaymentsListPayoutsInput): Promise<PaymentsPayoutPage>;
+  /** One payout's lines, a page at a time. As `listPayouts`. */
+  payoutLines(input: PaymentsPayoutLinesInput): Promise<PaymentsPayoutLinePage>;
   /** Verifies a webhook delivery; returns the typed events it carries (possibly none), or a rejection reason. */
   verifyWebhook(
     headers: Record<string, string>,

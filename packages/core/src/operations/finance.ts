@@ -3,24 +3,27 @@
 // public, ADR 0402):
 //
 //   finance.periods          staff (finance:read)                  the current month and 24 before
-//   finance.report           staff (finance:read)                  Sales, Tax or Refunds: closed or preview
+//   finance.report           staff (finance:read)                  Sales, Tax, Refunds or Payouts
 //   finance.entries          staff (finance:read)                  a closed version's book entries, paged
 //   finance.export           staff (finance:read, a person)        one report as a CSV file
 //   finance.close            staff (finance:close, a person)       close an ended month
 //   finance.reopen           staff (finance:close, a person)       reopen a closed month, with why
 //   finance.settings.get     staff (finance:read)                  the year's first month, …
 //   finance.settings.update  staff (settings:manage, a person)     change them
+//   finance.payouts.sync     the host (the minute cron)            read the provider's payouts (ADR 0793)
 //
 // Closing, reopening and the settings are a person's at the screen (`actors: ["human"]`): an AI
 // may read figures for an account that holds `finance:read`, and never closes, reopens or changes
 // anything here, whatever is granted (decision 7). No figure reaches the audit log or an error's
 // text: the audit rows say which month and version.
+import type { CrmDb } from "@composable-os/db";
 import { CompiledQuery } from "kysely";
 import { z } from "zod";
-import { ConflictError, ValidationError } from "../errors.ts";
+import { ConflictError, UnknownOperationError, ValidationError } from "../errors.ts";
 import { closePlan, periodBook, readGuards } from "../finance/close.ts";
 import { addMonths } from "../finance/day.ts";
 import { reportCsv, reportFilename } from "../finance/files.ts";
+import { payoutsDue, syncPayouts } from "../finance/payout-sync.ts";
 import {
   anyVersion,
   FINANCE_SETTINGS,
@@ -34,8 +37,12 @@ import {
   versionsOf,
 } from "../finance/periods.ts";
 import { BUILT_REPORTS, ENTRIES_PAGE, readEntries, readReport } from "../finance/reports.ts";
+import type { GateFloor } from "../gate.ts";
 import { newId } from "../ids.ts";
+import type { IntegrationRuntime } from "../integrations/runtime.ts";
+import { invoke } from "../invoke.ts";
 import { defineOperation, type HandlerContext } from "../operation.ts";
+import { SYSTEM_USER } from "../users.ts";
 
 const month = z
   .string()
@@ -447,7 +454,10 @@ const localDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "a date, YYYY-MM-DD");
 const reportInput = z.object({
   report: z
     .enum(BUILT_REPORTS)
-    .describe("sales (by kind of sale and item, and by day), tax (by code and country) or refunds"),
+    .describe(
+      "sales (by kind of sale and item, and by day), tax (by code and country), refunds, or " +
+        "payouts (each payout the provider sent to the bank, line by line)",
+    ),
   month: month.optional().describe("A month: its closed version, or a preview while it is open"),
   version: z
     .number()
@@ -484,7 +494,10 @@ export const financeReport = defineOperation({
     "sold, discounts, refunded, net, the tax inside and net of tax), tax (per tax code and " +
     "country, refunds' tax as reported or estimated, untaxed sales beside) or refunds (each " +
     "refund confirmed: date, order, items, amount, tax given back, who asked and approved, the " +
-    "customer's name). Amounts are integers in the currency's minor units, on the business's " +
+    "customer's name) or payouts (each payout the payment provider sent to the bank arriving in " +
+    "the span: its amount, payments, refunds, disputes, adjustments, fees, what matches nothing " +
+    "and any difference; each line and the order it matched; payouts the bank returned; and what " +
+    "the provider received that is not yet paid out). Amounts are integers in the currency's minor units, on the business's " +
     "days in its own time zone. Each row lists the orders it came from. Needs finance:read.",
   input: reportInput,
   output: reportOutput,
@@ -609,6 +622,75 @@ export const financeExport = defineOperation({
   },
 });
 
+// --- The daily payout read (stage 52 step 4, ADR 0793) --------------------------------------------
+
+const syncOutput = z.object({
+  provider: z.string().nullable(),
+  calls: z.number().int().describe("Provider calls this run made (pages of payouts or lines)"),
+  recorded: z.number().int().describe("Payouts recorded"),
+  lines: z.number().int().describe("Payout lines read"),
+  failed: z.number().int().describe("Recorded payouts the provider now reports failed"),
+  state: z.enum(["ok", "unavailable", "failing", "not_connected", "not_due"]),
+  more: z.boolean().describe("The pass is not finished: the next tick carries on"),
+});
+
+export const financePayoutsSync = defineOperation({
+  name: "finance.payouts.sync",
+  description:
+    "Platform use only (the minute cron, as the host, once a business day): reads the payouts " +
+    "the payment provider sent to the bank, and what each settled, through the payments " +
+    "gatekeeper, and keeps them as the provider reported them, each once by the provider's id. " +
+    "Read only at the provider: nothing moves. A bounded number of provider calls a run; a " +
+    "backlog is read over several runs. Returns what it read.",
+  input: z.object({}),
+  output: syncOutput,
+  permission: "finance:read",
+  // It writes the host's copy of the provider's payouts (and its own marker), never an order,
+  // a payment or a refund: a write in the pipeline's terms, where a read may write nothing.
+  risk: "write",
+  actors: ["automation"],
+  // The host's own step: never queued for review under an approval floor on automation writes.
+  hostStep: true,
+  mcp: { expose: false },
+  auditSummary: (output) => ({
+    provider: output.provider,
+    calls: output.calls,
+    recorded: output.recorded,
+    state: output.state,
+    more: output.more,
+  }),
+  async handler(_input, ctx) {
+    if (ctx.origin.surface !== "system") throw new UnknownOperationError("finance.payouts.sync");
+    return syncPayouts(ctx);
+  },
+});
+
+/** The minute cron's payouts step: one `finance.payouts.sync` when a run is due, as the host. */
+export async function runPayoutsDue(
+  db: CrmDb,
+  {
+    integrations,
+    floor,
+    clock,
+  }: { integrations?: IntegrationRuntime; floor?: GateFloor; clock?: () => Date } = {},
+): Promise<z.infer<typeof syncOutput> | null> {
+  const now = (clock?.() ?? new Date()).toISOString();
+  if (!(await payoutsDue(db.query, now))) return null;
+  return (await invoke(
+    "finance.payouts.sync",
+    {},
+    {
+      actor: "automation",
+      user: SYSTEM_USER,
+      origin: { surface: "system", automationId: "system.finance" },
+      db,
+      ...(integrations ? { integrations } : {}),
+      ...(floor ? { floor } : {}),
+      ...(clock ? { clock } : {}),
+    },
+  )) as z.infer<typeof syncOutput>;
+}
+
 export const financeOperations = [
   financePeriods,
   financeReport,
@@ -618,4 +700,5 @@ export const financeOperations = [
   financeReopen,
   financeSettingsGet,
   financeSettingsUpdate,
+  financePayoutsSync,
 ] as const;

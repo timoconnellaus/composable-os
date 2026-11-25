@@ -548,6 +548,12 @@ export function toOperationError(error: unknown): OperationError {
       rule: "finance_period_fixed",
     });
   }
+  // A payout the provider reported is kept as it reported it (migration 1151, ADR 0793).
+  if (message.includes("core_payout_fixed")) {
+    return new ConflictError("A recorded payout never changes, so nothing was changed.", {
+      rule: "payout_fixed",
+    });
+  }
   // A checklist run closed (done, missed or cancelled) never changes (migration 0815, ADR 0650),
   // for any writer: its ticks, its steps and its state stay as they were. The answer names no note.
   if (message.includes("core_checklist_closed")) {
