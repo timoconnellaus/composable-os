@@ -15,7 +15,9 @@
 //   <MyAccount account={account} agreements={agreements} sections={sections} … />
 //
 // so the page names no pack. "Needs your attention" sits at the top (me.attention, ADR 0711), each
-// item leading to the section that deals with it. Changing the sign-in address (under Your
+// item leading to the section that deals with it (money owed on an order: the order's row in
+// Orders, which pays it with order.checkout). A base section the host lists that this copy draws
+// nothing for (added to the platform later) is left out (`portalSections`' `base`). Changing the sign-in address (under Your
 // details) and Delete my account need a recent sign-in: when the host asks for one, they sign the
 // customer in again in place through `signIn` and carry on (ADR 0712).
 import {
@@ -86,6 +88,7 @@ type Hooks = Pick<
   | "useOrders"
   | "useSubscriptions"
   | "useBillingPortal"
+  | "useCheckoutOrder"
   | "usePortal"
   | "useAttention"
   | "useChangeEmail"
@@ -121,10 +124,9 @@ export function MyAccount({
   const me = account.useMe();
   const portal = account.usePortal();
   const packs = new Map(sections.map((s) => [s.key, s]));
-  const shown = portalSections(portal.data, sections);
 
   const base: Record<string, () => ReactNode> = {
-    orders: () => <YourOrders account={account} />,
+    orders: () => <YourOrders account={account} returnUrl={returnUrl} />,
     agreements: () => <MyAgreements agreements={agreements} />,
     family: () => <YourFamily account={account} />,
     payment: () => <PaymentMethod account={account} returnUrl={returnUrl} />,
@@ -133,6 +135,9 @@ export function MyAccount({
     devices: () => <SignInAndDevices account={account} onSignOut={onSignOut} />,
     delete: () => <DeleteAccount account={account} signIn={signIn} onDeleted={onDeleted} />,
   };
+  // Only the base sections drawn here: one a newer host lists that this copy has no part for is
+  // left out, never shown empty.
+  const shown = portalSections(portal.data, sections, Object.keys(base));
 
   return (
     <main className="mx-auto grid max-w-3xl gap-8 p-4" aria-label="My account">
@@ -143,8 +148,12 @@ export function MyAccount({
       <NeedsAttention
         account={account}
         sections={shown}
-        onSection={(key) =>
-          document.getElementById(anchor(key))?.scrollIntoView({ behavior: "smooth" })
+        // An order with money owed opens at its row in Orders, where it is paid.
+        onSection={(key, order) =>
+          (
+            (order && document.getElementById(orderAnchor(order))) ||
+            document.getElementById(anchor(key))
+          )?.scrollIntoView({ behavior: "smooth" })
         }
         onFillForm={onFillForm}
       />
@@ -179,3 +188,5 @@ export function MyAccount({
 
 /** A section's anchor on the page: `account-orders`, `account-memberships-memberships`. */
 const anchor = (key: string) => `account-${key.replace(/\./g, "-")}`;
+/** An order's row in Orders (web-account-orders gives each row this id). */
+const orderAnchor = (id: string) => `account-order-${id}`;

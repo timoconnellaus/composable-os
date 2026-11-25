@@ -8,10 +8,16 @@
 //
 // When the host says `sign_in_again`, the block signs the customer in again in place and asks
 // for the preview again.
+//
+// Once the host has deleted the account (and ended every session), the block calls `endSession`
+// at once (the app's `session.signOut`: it forgets the tokens in the secure store), and the hooks
+// forget the app's query cache when made with its `useQueryClient`. What the app must still do,
+// in `onDeleted`: go back to its sign-in screen (the device is already signed out).
 import {
   type AccountHooks,
   type AccountSignIn,
   accountErrorWords,
+  confirmDelete,
   DELETE_WORD,
   type DeletePreview,
   deleteConfirmInput,
@@ -39,12 +45,18 @@ type Step =
 export function DeleteAccount({
   account,
   signIn,
+  endSession,
   onDeleted,
 }: {
   account: Hooks;
   /** Signs the customer in again in place, when the host asks for a fresh sign-in. */
   signIn: AccountSignIn;
-  /** The account is deleted and this device signed out: back to sign-in. */
+  /**
+   * Ends this device's session and forgets its stored tokens (the mobile app's
+   * `session.signOut`): called as soon as the host has deleted the account.
+   */
+  endSession: () => Promise<unknown>;
+  /** The account is deleted and this device's tokens forgotten: back to sign-in. */
   onDeleted: () => void;
 }) {
   const me = account.useMe();
@@ -53,8 +65,6 @@ export function DeleteAccount({
   const [typed, setTyped] = useState("");
   const [problem, setProblem] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
-  if (!me.data) return null;
-  const email = me.data.signInEmail;
 
   async function preview(changed = false) {
     setProblem(null);
@@ -77,7 +87,9 @@ export function DeleteAccount({
       return;
     }
     setBusy(true);
-    const outcome = await sensitive(() => remove.mutateAsync(input));
+    // The host ended every session; this device forgets its own tokens at once (`endSession`),
+    // so a relaunch before "Leave" is pressed finds no session.
+    const outcome = await confirmDelete(() => remove.mutateAsync(input), endSession);
     setBusy(false);
     if (outcome.kind === "sign_in_again") setStep({ kind: "sign_in_again" });
     else if (outcome.kind === "failed") {
@@ -94,6 +106,19 @@ export function DeleteAccount({
     </Text>
   ) : null;
 
+  // Deleted: said first, as the account's own reads now find nobody.
+  if (step.kind === "done") {
+    return (
+      <View style={styles.part}>
+        <Text style={styles.body}>{step.words}</Text>
+        <Button label="Leave" onPress={onDeleted} />
+      </View>
+    );
+  }
+
+  if (!me.data) return null;
+  const email = me.data.signInEmail;
+
   if (step.kind === "sign_in_again") {
     return (
       <SignInAgain
@@ -102,15 +127,6 @@ export function DeleteAccount({
         onCancel={() => setStep({ kind: "idle" })}
         onSignedIn={() => void preview()}
       />
-    );
-  }
-
-  if (step.kind === "done") {
-    return (
-      <View style={styles.part}>
-        <Text style={styles.body}>{step.words}</Text>
-        <Button label="Leave" onPress={onDeleted} />
-      </View>
     );
   }
 

@@ -350,6 +350,18 @@ export type AccountOperations = {
     input: { id: string };
     output: { id: string; requested: true };
   };
+  // Paying the customer's own order on the provider's page: the web's Orders only (ADR 0714).
+  "order.checkout": {
+    kind: "mutation";
+    input: { id: string; returnUrl: string };
+    output: {
+      url: string;
+      amount: number;
+      currency: string;
+      kind: "full" | "deposit" | "balance" | "part";
+      expiresAt: string | null;
+    };
+  };
   // A read at the host; opening the provider's page is an action here, as in Courses' hooks.
   "subscription.portal": {
     kind: "mutation";
@@ -533,15 +545,22 @@ export function accountSections(
  * pack's only when the app has its block (`packs`, from `account-sections.gen.ts`), so a pack
  * installed at the host before the app copied its block shows nothing rather than an empty
  * section. Until the host answers, the base sections without Payment method.
+ *
+ * A shell passes `base`, the base sections it draws: a base section a newer host lists that the
+ * shell has no part for (one added to the platform after the shell was copied, as Contact
+ * preferences and Delete my account were) is left out too, rather than shown as a heading with
+ * nothing under it. Without `base`, every base section the host lists is kept.
  */
 export function portalSections(
   portal: AccountPortal | undefined,
   packs: readonly AccountSection[] = [],
+  base?: readonly string[],
 ): AccountSection[] {
-  if (!portal) return accountSections([], ["payment"]);
+  const drawn = (key: string) => !base || base.includes(key);
+  if (!portal) return accountSections([], ["payment"]).filter((s) => drawn(s.key));
   const copied = new Set(packs.map((s) => s.key));
   return portal.sections
-    .filter((s) => s.pack === null || copied.has(s.key))
+    .filter((s) => (s.pack === null ? drawn(s.key) : copied.has(s.key)))
     .map((s) => ({ key: s.key, label: s.label, order: s.order }));
 }
 
@@ -667,6 +686,34 @@ export function orderMoney(
     out.push({ key: "taxRefunded", label: "Tax refunded", value: money(order.taxRefunded) });
   }
   return out;
+}
+
+/**
+ * Whether an order's row offers to pay: it waits for payment, or has the rest of a deposit still
+ * to pay. Display only: what is charged, and whether it may be paid at all, is the host's
+ * (`order.checkout` refuses otherwise and says so).
+ */
+export function showsPay(order: AccountOrder): boolean {
+  return order.state === "pending" || (order.state === "part_paid" && order.balance > 0);
+}
+
+/** What an order's pay button says: the rest of a deposit, or the whole order. */
+export function payWords(order: AccountOrder): string {
+  return order.state === "part_paid" ? "Pay the rest" : "Pay now";
+}
+
+/** What an order's row in the app says instead: paying is on the website (ADR 0714). */
+export const PAY_ON_WEBSITE_WORDS = "Pay on the website";
+
+/**
+ * Whether an address the host gave (a provider's page to confirm a payment, a checkout) may be
+ * followed: an `https:` address, or a path on this site. Anything else (`javascript:`, `data:`,
+ * plain `http:`, `//elsewhere`) is not followed.
+ */
+export function followableUrl(url: string | null | undefined): boolean {
+  if (!url) return false;
+  if (/\s/.test(url)) return false;
+  return /^\/(?![/\\])/.test(url) || /^https:\/\/[^/\\?#@]/i.test(url);
 }
 
 /** What a paid order's row says about its receipt until the host has a receipt document. */
@@ -1086,6 +1133,24 @@ export function deleteConfirmInput(
   return { confirm: true, expect: preview.expect };
 }
 
+/**
+ * Confirms the deletion (`act`: the confirming call) as a sensitive act, and once the host has
+ * deleted the account runs `forget` before answering: in the app, ending this device's session
+ * and forgetting its stored tokens (`session.signOut`), so a relaunch finds no session even if
+ * the person never leaves the screen. A `forget` that fails (offline) is not the deletion's
+ * failure: the host has already ended every session.
+ */
+export async function confirmDelete(
+  act: () => Promise<DeletePreview | DeleteDone>,
+  forget?: () => Promise<unknown>,
+): Promise<SensitiveOutcome<DeletePreview | DeleteDone>> {
+  const outcome = await sensitive(act);
+  if (outcome.kind === "done" && outcome.value.deleted && forget) {
+    await forget().catch(() => {});
+  }
+  return outcome;
+}
+
 /** Whether a confirm was refused because what deleting does changed since the preview. */
 export function isPreviewChanged(error: unknown): boolean {
   return (
@@ -1199,13 +1264,13 @@ export function attentionWords(
       return words(
         `The rest to pay for ${title}`,
         [money, day ? `due by ${day}` : ""].filter(Boolean).join(", "),
-        "See the order",
+        "Pay the rest",
       );
     case "finish_paying":
       return words(
         `Finish paying for ${title}`,
         item.at ? `Held for you until ${accountTime(item.at, locale)}` : "Held for you for now",
-        "See the order",
+        "Finish paying",
       );
     case "pass_expiring":
       return words(
@@ -1236,9 +1301,13 @@ export function attentionWords(
   }
 }
 
-/** Where an attention item is dealt with: a section of My account, a page, or a form to open. */
+/**
+ * Where an attention item is dealt with: a section of My account (for money owed on an order, the
+ * order in Orders, `order`: the web pays it there, the app opens the website), a page, or a form
+ * to open.
+ */
 export type AttentionTarget =
-  | { kind: "section"; key: string }
+  | { kind: "section"; key: string; order?: string }
   | { kind: "page"; url: string }
   | { kind: "form"; link: string };
 
@@ -1248,8 +1317,8 @@ const packOf = (object: string): string | null =>
 
 /**
  * Where to send the customer for an item, among the sections shown (`shown`, the host's sections
- * the app has): agreements for a document, Payment method for a failed card, Orders for an
- * order, the pack's section for its pass or its plan's trial, the provider's page for a payment
+ * the app has): agreements for a document, Payment method for a failed card, the order itself in
+ * Orders for money owed on it (where the web pays it), the pack's section for its pass or its plan's trial, the provider's page for a payment
  * the bank waits on (from the subscription the host listed), the form by its link. Null where
  * nothing shown deals with it: the item is still listed. A lookup, never a rule.
  */
@@ -1272,10 +1341,13 @@ export function attentionTarget(
     case "card_failing":
       return section("payment");
     case "confirm_payment":
-      return sub?.actionUrl ? { kind: "page", url: sub.actionUrl } : section("payment");
+      // The provider's page only at an address that may be followed (`followableUrl`).
+      return sub?.actionUrl && followableUrl(sub.actionUrl)
+        ? { kind: "page", url: sub.actionUrl }
+        : section("payment");
     case "balance_due":
     case "finish_paying":
-      return section("orders");
+      return has("orders") ? { kind: "section", key: "orders", order: item.record.id } : null;
     case "pass_expiring":
     case "pass_used_up":
       return packSection(packOf(item.record.object));
@@ -1313,26 +1385,31 @@ export const ACCOUNT_HOOKS_CALL = {
   useCancelSubscription: ["subscription.cancel"],
   useResumeSubscription: ["subscription.resume"],
   useBillingPortal: ["subscription.portal"],
+  useCheckoutOrder: ["order.checkout"],
   useContactChoices: ["me.contact.choices"],
   useSetContactChoices: ["me.contact.setChoices"],
 } as const;
 
 /**
- * Hooks for a React or React Native app:
- * `const account = createAccountHooks({ useQuery, useMutation }, api)`, with the customer's
- * generated client. The hooks it cannot back are not there.
+ * The app's React functions, as far as these hooks use them. `useQueryClient` (TanStack Query's)
+ * lets a deletion forget what the app's cache holds of the account at once (`useDeleteAccount`).
  */
-export function createAccountHooks<C extends ClientHolding>(
-  react: { useQuery: AccountUseQuery; useMutation: AccountUseMutation },
-  client: C,
-) {
+export interface AccountReact {
+  useQuery: AccountUseQuery;
+  useMutation: AccountUseMutation;
+  useQueryClient?: () => { removeQueries(): unknown };
+}
+
+/**
+ * Hooks for a React or React Native app:
+ * `const account = createAccountHooks({ useQuery, useMutation, useQueryClient }, api)`, with the
+ * customer's generated client. The hooks it cannot back are not there.
+ */
+export function createAccountHooks<C extends ClientHolding>(react: AccountReact, client: C) {
   return packHooks(client, ACCOUNT_HOOKS_CALL, (api: AccountClient) => allAccountHooks(react, api));
 }
 
-function allAccountHooks(
-  react: { useQuery: AccountUseQuery; useMutation: AccountUseMutation },
-  api: AccountClient,
-) {
+function allAccountHooks(react: AccountReact, api: AccountClient) {
   const { useQuery, useMutation } = react;
   return {
     /** Which sections of My account they have, in order, and whether they pay a subscription. */
@@ -1356,10 +1433,22 @@ function allAccountHooks(
     },
     /**
      * Delete the account: with `{}` the host says what it will do; with `deleteConfirmInput`
-     * (the preview's `expect`) it does that. After a recent sign-in, else `sign_in_again`.
+     * (the preview's `expect`) it does that. After a recent sign-in, else `sign_in_again`. Once
+     * the host has deleted it, every query the app's cache holds is forgotten at once (with the
+     * app's `useQueryClient` given): nothing of the account stays in memory until the app leaves.
      */
     useDeleteAccount() {
-      return useMutation({ ...api.mutation("me.deleteAccount"), gcTime: 0 });
+      const cache = react.useQueryClient?.();
+      const call = api.mutation("me.deleteAccount");
+      return useMutation({
+        ...call,
+        mutationFn: async (input: AccountOperations["me.deleteAccount"]["input"]) => {
+          const answer = await call.mutationFn(input);
+          if (answer.deleted) cache?.removeQueries();
+          return answer;
+        },
+        gcTime: 0,
+      });
     },
     /** The signed-in customer's own Person and sign-in address. */
     useMe() {
@@ -1412,6 +1501,13 @@ function allAccountHooks(
     /** The provider's page for their card and past invoices (web only, never in a frame). */
     useBillingPortal() {
       return useMutation(api.mutation("subscription.portal"));
+    },
+    /**
+     * Pay one of their own orders on the provider's page (web only, ADR 0714): the host says what
+     * is charged (the order, its deposit or the rest) and answers the page's address.
+     */
+    useCheckoutOrder() {
+      return useMutation(api.mutation("order.checkout"));
     },
     /** Their contact preferences, and each child's they act for (stage 30). */
     useContactChoices() {

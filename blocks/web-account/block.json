@@ -18,6 +18,7 @@
     "my.list",
     "subscription.list",
     "subscription.portal",
+    "order.checkout",
     "me.agreements.due",
     "me.agreements.list",
     "me.agreements.get",

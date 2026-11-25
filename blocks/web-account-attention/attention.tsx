@@ -3,8 +3,9 @@
 // failed, a payment their bank waits on, the rest of a deposit, an order they started paying for,
 // a pass about to run out or used up, a free trial about to end, a form they were asked to fill
 // in. Each says whose it is when it is a child's, and leads to where it is dealt with: a section
-// of the page (`onSection`), the provider's page for a payment to confirm, or the form
-// (`onFillForm`, where the app has the form's page). An item goes once the host says its cause is
+// of the page (`onSection`; money owed on an order, the order's row in Orders, where it is paid),
+// the provider's page for a payment to confirm (only an `https:` address, `followableUrl`), or the
+// form (`onFillForm`, where the app has the form's page). An item goes once the host says its cause is
 // fixed. What needs attention is the host's answer (me.attention, ADR 0711): nothing is worked out
 // here, and where an item leads is a lookup among the sections the host lists.
 import {
@@ -13,6 +14,7 @@ import {
   type AttentionTarget,
   attentionTarget,
   attentionWords,
+  followableUrl,
 } from "@composable-os/client";
 import { Button } from "../ui-button/button.tsx";
 
@@ -27,8 +29,8 @@ export function NeedsAttention({
   account: Hooks;
   /** The sections the page shows, as the host listed them. */
   sections: readonly AccountSection[];
-  /** Goes to a section of the page. */
-  onSection: (key: string) => void;
+  /** Goes to a section of the page; for money owed on an order, to that order in it. */
+  onSection: (key: string, order?: string) => void;
   /** Opens a form the customer was asked to fill in, by its personal link's id. */
   onFillForm?: (linkId: string) => void;
 }) {
@@ -40,9 +42,10 @@ export function NeedsAttention({
   }
   const items = attention.data.items;
   const go = (target: AttentionTarget) => {
-    if (target.kind === "section") onSection(target.key);
-    else if (target.kind === "page") window.location.assign(target.url);
-    else onFillForm?.(target.link);
+    if (target.kind === "section") onSection(target.key, target.order);
+    else if (target.kind === "page") {
+      if (followableUrl(target.url)) window.location.assign(target.url);
+    } else onFillForm?.(target.link);
   };
   return (
     <section
