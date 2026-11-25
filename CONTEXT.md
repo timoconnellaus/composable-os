@@ -1454,6 +1454,18 @@ write takes it there, the staff who keep stock (the pack's `stock.notify` permis
 admins) are told once; again only after it has risen above and fallen again (one **crossing**)
 (ADR 0681).
 
+**Item** and **variant** (the Shop)
+An **item** is a thing in the shop (a club hoodie), with its pictures, its category and where it is
+sold (online, in person or both); only a published item is public. A **variant** is one version of
+it that is bought and counted (the large black one), with its price, stock, reorder level and usual
+supplier. An item with one version still has one variant. "Product" is not used for these: it is
+the platform's word for a composition (ADR 0400) (stage 37, ADR 0689).
+
+**Shipment**
+What a paid post or collect order gives staff to do, granted by the host when the order is paid:
+packed, then sent (with a tracking reference) or ready to collect, then collected. The buyer reads
+their own; a take-it-now order has none (stage 37, ADR 0689).
+
 **Goods**
 Records handed over or sent (a variant of an item in a shop), declared `sellable.goods` by their
 object, with where each is sold (`soldIn`: online, in person or both, often read through the item).
@@ -2349,7 +2361,9 @@ condition on a state of the record or of the record it points to (an event while
 ticket type while its event is). Nothing is public by default, and a record that does not meet
 the condition is not found. A signed-in customer reads it too. The public reaches it only through
 a pack's tool (`public.list`, `public.get`), and buys only what it may read. Stage 28's
-`publishable` adds being published as another condition.
+`publishable` adds being published as another condition. Several conditions may be declared, all
+holding, and one may be that the record it points to is itself public (a variant while it is
+active and its item is published; ADR 0689).
 _Avoid_: published (stage 28's word for a version), visible (the seam's word for any scope)
 
 **Pack role**
