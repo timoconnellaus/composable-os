@@ -379,7 +379,9 @@ export async function doubleBooked(
  */
 function rosterFields(object: ObjectDefinition, creating: boolean): string[] {
   const fields: string[] = [];
-  if (object.staffed) fields.push(object.staffed.who.field);
+  // A shift booked at free times (an appointment, `staffed.open`) is booked, not rostered: whoever
+  // may write it names its provider, the warnings and the claim deciding the rest (ADR 0764).
+  if (object.staffed && !object.staffed.open) fields.push(object.staffed.who.field);
   for (const o of listObjects()) {
     const def = o.staffed;
     if (!def) continue;

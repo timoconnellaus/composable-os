@@ -715,9 +715,21 @@ describe("the customer's check", () => {
   });
 
   it("a service that needs a room: one of its rooms, free then", async () => {
-    expect(
-      await book({ service: roomed, coach: m.id, startsAt: T["11:00"], endsAt: T["12:00"] }),
-    ).toMatchObject({ ok: false, error: { details: { rule: "not_free_time", field: "room" } } });
+    // Naming none, the host gives it the first of the service's rooms free then (stage 49 step
+    // 5, ADR 0764), and the check holds it as if it were named.
+    const chosen = await book({
+      service: roomed,
+      coach: m.id,
+      startsAt: T["11:00"],
+      endsAt: T["12:00"],
+    });
+    expect(chosen).toMatchObject({ ok: true });
+    const chosenId = (chosen as { value: { id: string } }).value.id;
+    const stored = (await invoke("record.get", { object: APPT, id: chosenId }, staff())) as {
+      values: Record<string, unknown>;
+    };
+    expect(stored.values.room).toBe(room);
+    expect(await move(chosenId, { state: "cancelled" })).toMatchObject({ ok: true });
     expect(
       await book({ service: roomed, coach: m.id, room, startsAt: T["11:00"], endsAt: T["12:00"] }),
     ).toMatchObject({ ok: true });
