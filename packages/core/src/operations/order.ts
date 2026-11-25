@@ -607,13 +607,13 @@ export const orderQuote = defineOperation({
             message: `${line.title} is sold out`,
             line: line.position,
           });
-        } else if (line.quantity > available) {
+        } else if (line.quantity > available && view.available !== undefined) {
+          // Only a caller who is shown the count is told a quantity is too many: for anyone
+          // else each answer would narrow the count down (ADR 0683). order.start still
+          // refuses at the database.
           problems.push({
             rule: "not_enough",
-            message:
-              view.available !== undefined
-                ? `Only ${available} of ${line.title} left`
-                : `Not that many of ${line.title} left`,
+            message: `Only ${available} of ${line.title} left`,
             line: line.position,
           });
         }
@@ -694,32 +694,30 @@ export const orderDeliveryGet = defineOperation({
   async handler(input, ctx) {
     const row = await orderForPaying(ctx, input.id, input.token);
     const delivery = await ctx.db
-      .selectFrom("core_order_delivery as d")
-      .innerJoin("core_order_line as l", "l.id", "d.line_id")
+      .selectFrom("core_order_delivery")
       .select([
-        "d.kind",
-        "d.line_id",
-        "d.name",
-        "d.line1",
-        "d.line2",
-        "d.city",
-        "d.region",
-        "d.postcode",
-        "d.country",
-        "d.erased_at",
-        "l.object_type",
-        "l.record_id",
-        "l.title",
+        "kind",
+        "line_id",
+        "name",
+        "line1",
+        "line2",
+        "city",
+        "region",
+        "postcode",
+        "country",
+        "erased_at",
       ])
-      .where("d.order_id", "=", row.id)
+      .where("order_id", "=", row.id)
       .executeTakeFirst();
     if (!delivery) throw new NotFoundError("order delivery", row.id);
+    const line = (await linesOf(ctx, row.id)).find((l) => l.id === delivery.line_id);
+    if (!line) throw new NotFoundError("order delivery", row.id);
     return {
       orderId: row.id,
       channel: row.channel ?? null,
       kind: delivery.kind,
       lineId: delivery.line_id,
-      option: { object: delivery.object_type, recordId: delivery.record_id, title: delivery.title },
+      option: { object: line.object, recordId: line.recordId, title: line.title },
       address:
         delivery.kind === "post" && delivery.erased_at === null && delivery.country
           ? {

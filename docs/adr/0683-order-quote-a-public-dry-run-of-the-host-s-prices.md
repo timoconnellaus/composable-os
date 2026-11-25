@@ -43,3 +43,11 @@ be able to see the total before signing in or giving an address.
   which `stock.get` and the records' public reads already tell them. Nothing else is opened.
 - The quote's statements grow with the lines (bounded by `priceLines`), not constant; making
   `priceLines` read all lines at once is open work for the pricing seam, not this step.
+- **A quantity that is too many is told only to a caller who is shown the count** (review of
+  PR #450). Where `show` gives an outsider no number, the quote reports `sold_out` and never
+  `not_enough`: otherwise asking with different quantities would find the count, for free and
+  without signing in. `order.start` still refuses such an order at the database; each try there
+  makes a pending order and a hold, so it is a costly way to learn the same thing.
+- **`ready` is not a promise that `order.start` will accept.** The quote checks prices, the
+  channel, the delivery and stock. It does not check agreements due, one per Person, or a sold
+  out capacity that is not stock; `order.start` does.

@@ -65,3 +65,7 @@ address is new personal data on the host.
   would be dropped by 0950's on a fresh database. It is read by platform code (and
   `order.delivery.get`); a later migration after 0950 may add it to the view.
 - Postage by weight, carriers and stock in several places are later steps of stage 37.
+- **"Take it now" is the buyer's word.** Choosing a `here` delivery proves nothing about where
+  the buyer is: a guest on the website can pick it and buy an item sold in person only. That is
+  the design (a member pays on their own phone at the fridge). A business that minds does not
+  publish its `here` option on the public shop.

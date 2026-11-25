@@ -101,6 +101,19 @@ function shopManifest(id: string): ExtensionManifest {
         stock: { show: "exact" },
         public: { read: ["name", "item", "price"] },
       },
+      // Stock with the default `show`: outsiders are told in stock or sold out, never a count.
+      quiet: {
+        label: "Quiet item",
+        plural: "Quiet items",
+        titleField: "name",
+        fields: {
+          name: { type: "text", label: "Name", required: true },
+          price: { type: "currency", label: "Price", currency: CURRENCY },
+        },
+        sellable: { price: "price", goods: {}, tax: { code: GOODS_CODE } },
+        stock: {},
+        public: { read: ["name", "price"] },
+      },
       pass: {
         label: "Pass",
         plural: "Passes",
@@ -652,6 +665,49 @@ describe("order.quote", () => {
     // Sold out: order.start refuses it.
     expect(await refusal(start([{ object: VARIANT, id: gone }], option.here))).toMatchObject({
       details: { rule: "stock" },
+    });
+  });
+
+  it("never tells a caller who is not shown the count that a quantity is too many", async () => {
+    const QUIET = `${ext}.quiet`;
+    const quiet = await create(QUIET, { name: unique("Quiet"), price: 20 });
+    await run("stock.opening", { object: QUIET, id: quiet, quantity: 7 }, context(admin));
+    // Asking for more than there is, and for less, reads the same: the count cannot be
+    // searched for one quote at a time (ADR 0683). order.start still refuses at the database.
+    for (const quantity of [1, 7, 8, 20]) {
+      const quoted = await quote([{ object: QUIET, id: quiet, quantity }], option.here);
+      expect(quoted.problems).toEqual([]);
+      expect(quoted.lines[0]?.availability).toEqual({ status: "in_stock" });
+    }
+    expect(
+      await refusal(start([{ object: QUIET, id: quiet, quantity: 8 }], option.here)),
+    ).toMatchObject({ details: { rule: "stock" } });
+    // Staff are shown the count, and are told.
+    const asStaff = await quote(
+      [{ object: QUIET, id: quiet, quantity: 8 }],
+      option.here,
+      context(member),
+    );
+    expect(asStaff.problems.map((p) => p.rule)).toEqual(["not_enough"]);
+    // Sold out is what `show` already says.
+    const gone = await create(QUIET, { name: unique("Quiet"), price: 20 });
+    const empty = await quote([{ object: QUIET, id: gone }], option.here);
+    expect(empty.problems.map((p) => p.rule)).toEqual(["sold_out"]);
+  });
+
+  it("counts only goods towards free postage", async () => {
+    // A 60 hoodie and a 150 pass: the goods are under the 100 that posts free.
+    const quoted = await quote(
+      [
+        { object: VARIANT, id: hoodie },
+        { object: PASS, id: pass },
+      ],
+      post(),
+    );
+    expect(quoted).toMatchObject({
+      goodsTotal: 6000,
+      delivery: { kind: "post", free: false, charged: 1000 },
+      total: 22000,
     });
   });
 

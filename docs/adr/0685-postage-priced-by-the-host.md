@@ -31,3 +31,6 @@ The owner wants a fixed price for each way of sending first, and free postage ov
 ## Consequences
 - The delivery line is an ordinary order line: refunds, tax shares and the finance reports treat
   it as one. Whether postage is taxed is the option's tax code, for the business to confirm.
+- **Free postage is decided on the goods' prices before a staff discount.** A discount staff
+  give afterwards can take the goods below "free over" and the postage stays free. Only staff
+  can do it.
