@@ -29,6 +29,14 @@ import { FIELD_TYPE_REGISTRY } from "../fields/field-types.ts";
 import { getObject } from "../fields/index.ts";
 import type { ObjectSignal } from "../fields/types.ts";
 import {
+  type AgreeSide,
+  type AgreeTables,
+  agreeClashQuery,
+  agreeIndexColumns,
+  createAgreeTriggers,
+  dropAgreeTriggers,
+} from "../locations/sql.ts";
+import {
   createOccupiesTriggers,
   dropOccupiesTriggers,
   dropClaims as dropThingClaims,
@@ -115,6 +123,7 @@ export interface ReconcileIssue {
     | "grants_conflict"
     | "staffed_conflict"
     | "occupies_conflict"
+    | "agree_conflict"
     | "stock_change"
     | "restricted_change";
   path: string;
@@ -477,6 +486,21 @@ async function dataIssues(
         });
       }
     }
+    // Two paths that must agree (ADR 0911) over live records that already name two locations,
+    // once the plan's located fields are filled: refused, naming them, before the triggers exist.
+    const agree = agreeTables(next, object);
+    if (agree) {
+      const clash = await sql
+        .raw<{ id: string }>(agreeClashQuery(agree, presence(current, next)))
+        .execute(db);
+      if (clash.rows.length) {
+        issues.push({
+          code: "agree_conflict",
+          path: `objects.${object.localName}.agree`,
+          message: `${object.name}: these live records name two different locations: ${clash.rows.map((r) => r.id).join(", ")}. Change them first.`,
+        });
+      }
+    }
     // What a plan's subscriptions grant (ADR 0510) cannot be dropped or changed while a
     // subscription still running holds a record of it: its records would stop following it and
     // keep what they give for good. End those first, or keep the declaration.
@@ -611,6 +635,8 @@ export function planFromState(
       ...(object.staffed ? { staffed: object.staffed } : {}),
       ...(object.workedOn ? { workedOn: object.workedOn } : {}),
       ...(object.occupies ? { occupies: object.occupies } : {}),
+      ...(object.located ? { located: object.located } : {}),
+      ...(object.agree?.length ? { agree: object.agree } : {}),
       ...(object.calendarEntry ? { calendarEntry: object.calendarEntry } : {}),
       ...(object.intake ? { intake: object.intake } : {}),
       ...(object.checklists ? { checklists: object.checklists } : {}),
@@ -900,14 +926,21 @@ export function planFromState(
         );
         // A time zone added to records that already exist is the deployment's zone, as a new
         // record's is (ADR 0460): no record is left without one, so a required zone never makes
-        // an unrelated edit fail. The setting is read in the batch, so it is the zone then.
+        // an unrelated edit fail. The setting is read in the batch, so it is the zone then. A
+        // located record's is its location's (ADR 0911).
         if (spec.type === "timezone" && !spec.default) {
+          const at = declaring ? locatedZoneExpr(current, next, target, declaring, table) : null;
           dataStatements.push(
             CompiledQuery.raw(
-              `UPDATE ${table} SET ${ident(column)} = COALESCE((SELECT json_extract(value, '$') FROM core_settings WHERE key = ?), 'UTC') WHERE ${ident(column)} IS NULL`,
+              `UPDATE ${table} SET ${ident(column)} = COALESCE(${at ? `${at}, ` : ""}(SELECT json_extract(value, '$') FROM core_settings WHERE key = ?), 'UTC') WHERE ${ident(column)} IS NULL`,
               [ORG_TIMEZONE_SETTING],
             ),
           );
+        }
+        // A located field added to records that already exist is the main location (ADR 0911):
+        // every record is at a location from the start, as a new one is while there is one.
+        if (declaring?.located?.field === local) {
+          dataStatements.push(locationFill(table, column));
         }
       }
       next.fields.push({
@@ -926,6 +959,19 @@ export function planFromState(
       });
       changes.push({ kind: "add_field", object: target, field: name });
     }
+  }
+  // A located declaration new on a field that already held records: its empty ones are the main
+  // location (ADR 0911). One statement per object; a field added in this plan is filled above.
+  for (const [local, object] of Object.entries(manifest.objects)) {
+    const field = object.located?.field;
+    if (!field) continue;
+    const name = `${ext}.${local}`;
+    const was = current.objects.find((o) => o.name === name && o.status === "active");
+    const column = current.fields.find(
+      (f) => f.object === name && f.extensionId === ext && f.localName === field && f.columnName,
+    );
+    if (!was || !column?.columnName || was.definition.located?.field === field) continue;
+    dataStatements.push(locationFill(column.tableName, column.columnName));
   }
   for (const field of next.fields) {
     if (field.extensionId !== ext || field.status !== "active") continue;
@@ -1037,6 +1083,15 @@ export function planFromState(
         `CREATE INDEX IF NOT EXISTS ${name} ON ${ident(object.tableName)} (${ident(column)}) WHERE deleted_at IS NULL`,
       );
     }
+    // What the agree triggers on a room find its classes by (ADR 0911).
+    const agree = agreeTables(next, object);
+    for (const column of agree ? agreeIndexColumns(agree) : []) {
+      const name = ident(`${object.tableName}__agree_${column}`);
+      wanted.set(
+        name,
+        `CREATE INDEX IF NOT EXISTS ${name} ON ${ident(object.tableName)} (${ident(column)}) WHERE deleted_at IS NULL`,
+      );
+    }
     const existing = (current.indexes ?? []).filter(
       (index) => index.table === object.tableName && index.name.startsWith(`${object.tableName}__`),
     );
@@ -1057,12 +1112,22 @@ export function planFromState(
   // The claim on a thing (ADR 0765) the same way.
   const staffed = staffedPlan(current, next, ext);
   const occupies = occupiesPlan(current, next, ext, now);
+  // The agree rules (ADR 0911) the same way: dropped before, built after, the table changes.
+  const agree = agreePlan(current, next, ext);
   return finishPlan(
     db,
     ext,
     current,
     next,
-    [...staffed.drops, ...occupies.drops, ...tableDdl, ...staffed.creates, ...occupies.creates],
+    [
+      ...staffed.drops,
+      ...occupies.drops,
+      ...agree.drops,
+      ...tableDdl,
+      ...staffed.creates,
+      ...occupies.creates,
+      ...agree.creates,
+    ],
     [
       ...dataStatements,
       ...staffed.statements,
@@ -1728,6 +1793,128 @@ function occupiesPlan(current: SchemaState, next: SchemaState, ext: string, at: 
     if (!now.has(object.name)) statements.push(dropThingClaims(object.name));
   }
   return { drops, creates, statements };
+}
+
+/**
+ * The main location into a located column's empty rows (ADR 0911): one statement for the whole
+ * table, with no bound values. It runs inside the reconcile's batch, so the column and its fill
+ * land together, and runs again without change (only empty rows are written).
+ */
+function locationFill(table: string, column: string): CompiledQuery {
+  return raw(
+    `UPDATE ${ident(table)} SET ${ident(column)} = (SELECT id FROM core_location WHERE main = 1) WHERE ${ident(column)} IS NULL`,
+  );
+}
+
+/**
+ * The zone of the location a row of `table` is at, as SQL over that table's row, for a declaring
+ * object that is located through columns that hold records already; null otherwise. A located
+ * field added in the same plan is the main location, whose zone is the organisation's, so the
+ * organisation's zone (the fall-back) is the same.
+ */
+function locatedZoneExpr(
+  current: SchemaState,
+  next: SchemaState,
+  object: string,
+  declaring: ObjectManifest,
+  table: string,
+): string | null {
+  const located = declaring.located;
+  const at = located?.field ?? located?.path;
+  if (!at) return null;
+  const [first, second] = at.split(".") as [string, string | undefined];
+  const existing = (o: string, local: string) =>
+    current.fields.find(
+      (f) => f.object === o && f.localName === local && f.status === "active" && f.columnName,
+    );
+  const own = existing(object, first);
+  if (!own?.columnName) return null;
+  const row = `${ident(table)}.${ident(own.columnName)}`;
+  if (second === undefined) {
+    return `(SELECT l.timezone FROM core_location l WHERE l.id = ${row})`;
+  }
+  const via = next.objects.find((o) => o.name === own.definition.to && o.status === "active");
+  const target = via ? existing(via.name, second) : undefined;
+  if (!via || !target?.columnName) return null;
+  return `(SELECT l.timezone FROM core_location l WHERE l.id = (SELECT v.${ident(target.columnName)} FROM ${ident(target.tableName)} v WHERE v.id = ${row}))`;
+}
+
+/**
+ * The tables and columns an object's agree rules read (locations/sql.ts), from a schema state, or
+ * null when it declares none or a field a rule names has no column.
+ */
+function agreeTables(state: SchemaState, object: ObjectState): AgreeTables | null {
+  const declared = object.definition.agree;
+  if (!declared?.length) return null;
+  const field = (o: ObjectState, local: string) =>
+    state.fields.find(
+      (f) =>
+        f.object === o.name &&
+        f.extensionId === o.extensionId &&
+        f.localName === local &&
+        f.tableName === o.tableName &&
+        f.status === "active",
+    );
+  const side = (path: string): AgreeSide | null => {
+    const [first, second] = path.split(".") as [string, string | undefined];
+    const own = field(object, first);
+    if (!own?.columnName) return null;
+    if (second === undefined) return { column: own.columnName };
+    const via = state.objects.find((o) => o.name === own.definition.to && o.status === "active");
+    const column = via ? field(via, second)?.columnName : undefined;
+    if (!via || !column) return null;
+    return { column, via: { column: own.columnName, table: via.tableName } };
+  };
+  const rules: { a: AgreeSide; b: AgreeSide }[] = [];
+  for (const rule of declared) {
+    const a = side(rule.a);
+    const b = side(rule.b);
+    if (!a || !b) return null;
+    rules.push({ a, b });
+  }
+  return { table: object.tableName, rules };
+}
+
+/**
+ * Whether a column holds data before a reconcile, for the agree check (ADR 0911): a column that
+ * exists (`exists`, or `filled` when it is a located field, whose empty rows the plan fills), or
+ * one this plan adds (`main` when it is a located field, `absent` otherwise).
+ */
+function presence(current: SchemaState, next: SchemaState) {
+  const located = (table: string, column: string) => {
+    const f = next.fields.find((x) => x.tableName === table && x.columnName === column);
+    const o = f
+      ? next.objects.find((x) => x.name === f.object && x.status === "active")
+      : undefined;
+    return Boolean(f && o && o.definition.located?.field === f.localName);
+  };
+  return (table: string, column: string): "exists" | "filled" | "main" | "absent" => {
+    const exists = current.fields.some(
+      (f) => f.tableName === table && f.columnName === column && f.status === "active",
+    );
+    if (exists) return located(table, column) ? "filled" : "exists";
+    return located(table, column) ? "main" : "absent";
+  };
+}
+
+/**
+ * What a reconcile of `ext` does to the agree rules (ADR 0911): drop the triggers of every object
+ * that declared `agree` (by the names they had), and build them again for every active object
+ * that declares it.
+ */
+function agreePlan(current: SchemaState, next: SchemaState, ext: string) {
+  const drops: string[] = [];
+  const creates: string[] = [];
+  for (const object of current.objects.filter((o) => o.extensionId === ext)) {
+    const t = agreeTables(current, object);
+    if (t) drops.push(...dropAgreeTriggers(t));
+  }
+  for (const object of next.objects) {
+    if (object.extensionId !== ext || object.status !== "active") continue;
+    const t = agreeTables(next, object);
+    if (t) creates.push(...createAgreeTriggers(t));
+  }
+  return { drops, creates };
 }
 
 /** Applies a plan atomically (one D1 batch). Refuses plans with issues. */

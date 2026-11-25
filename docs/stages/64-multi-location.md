@@ -50,8 +50,17 @@ as best practice without asking, below). Build may start.
   open operation). Not yet: the coverage choices in `location.create` (step 4), a closed location
   refusing new classes (step 2), what a pack-role account reads of locations (step 5), screens.
 
-- **Step 2** — not built — needs: step 1 — `located`, `agree`, the reconciler fill, the located zone
-  default.
+- **Step 2** — built — PR #TBD — `located`, `agree`, the reconciler fill, the located zone default
+  (`feat/stage-64-located`; ADR 0911, which amends ADR 0460; no migration): `location` a relation
+  target; `located` (a required relation to one location, or `relation.field` one relation away)
+  and `agree` in the SDK and checked by `cos ext check`; a new located record at the only open
+  location, a located record's empty zone its location's (`record.create`, `recurring`, the
+  reconciler), the reconciler's fill of a new or newly located field with the main location (one
+  statement per field); `agree` refused by triggers on the declaring table and the table a path
+  passes through (`location_mismatch`: a used room keeps its location), read first in the write
+  path, and an install over disagreeing records refused; a closed location takes no new located
+  record and its series make nothing. Not yet: any shipped pack located (steps 4 and 6), the zone
+  readers (step 3).
 
 - **Step 3** — not built — needs: step 2 — Zone readers made location-aware; `core_staff_hours.location`
   (1393); the dashboard filter and day.

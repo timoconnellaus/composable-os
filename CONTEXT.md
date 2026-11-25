@@ -943,7 +943,17 @@ _Avoid_: site (a site is a client app), branch (except in trades), the location 
 
 **Main location**
 The first location, made by migration 1390 from the organisation's name and zone. Its zone is the
-organisation's (pay periods and the books) and changes only with it, in Settings → General.
+organisation's (pay periods and the books) and changes only with it, in Settings → General. The
+reconciler fills it into records that existed before their object became located.
+
+**Located**
+An object whose records are each at one location, by a declaration (`located`, ADR 0911): a
+required relation to one location (a room, a class), or `relation.field` reaching one (a booking's
+`class.location`). With one open location the host fills it; a located record's empty zone is its
+location's; a closed location takes no new located record. A pack never filters by location in
+its own code. **Agree**: two paths of a record that must name the same location (a class's and its
+room's), refused in the database for every writer (`location_mismatch`); a room's location is fixed
+while a live class names it.
 
 **Location hint**
 Where a new install asks Cloudflare to create its D1 database and R2 buckets (`oc` is Oceania),

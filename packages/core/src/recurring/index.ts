@@ -36,6 +36,7 @@ import { addDaysToDate } from "../automations/cron.ts";
 import { ConflictError, NotFoundError, ValidationError } from "../errors.ts";
 import { getObject, listObjects } from "../fields/index.ts";
 import type { ObjectDefinition, RecurringDefinition } from "../fields/types.ts";
+import { atClosedLocation, defaultZoneOf } from "../locations/index.ts";
 import { thingNotApplied, thingsTaken, withoutThings } from "../occupies/index.ts";
 import type { HandlerContext } from "../operation.ts";
 import { followersOn } from "../records/follows.ts";
@@ -460,14 +461,22 @@ export async function generateSeries(
   if (!def) throw new ValidationError(`${object.label} has no recurring schedule`);
   await guardSeries(ctx, object.name, id);
   const now = Date.parse(ctx.now);
-  const { timezone } = await loadGeneralSettings(ctx.db);
   const series = await records().load(ctx, object, id);
+  // A located series' empty zone is its location's, else the organisation's (ADR 0911).
+  const timezone = series
+    ? await defaultZoneOf(ctx, object, series)
+    : (await loadGeneralSettings(ctx.db)).timezone;
   const zone = series ? (ruleOf(def, series, timezone)?.zone ?? timezone) : timezone;
   const today = localParts(now, zone).date;
   const nextDaily = iso(
     wallClockToInstant(wallClockOf(addDaysToDate(today, 1), DAILY_RUN_MINUTE), zone),
   );
-  const rule = series && !isEnded(def, series) ? ruleOf(def, series, timezone) : null;
+  // A series at a closed location makes nothing new (ADR 0911): what it made already stays, and
+  // it makes again once the location reopens.
+  const rule =
+    series && !isEnded(def, series) && !(await atClosedLocation(ctx, object, series))
+      ? ruleOf(def, series, timezone)
+      : null;
   if (!series || !rule) {
     ctx.write(armSeriesStatement(object.name, id, nextDaily, ctx.now));
     noteSeriesBump(ctx, object.name, id);
@@ -830,7 +839,7 @@ export async function followSeries(
       { rule: "recurring_past" },
     );
   }
-  const { timezone } = await loadGeneralSettings(ctx.db);
+  const timezone = await defaultZoneOf(ctx, seriesObject, series);
   const rule = isEnded(def, series) ? null : ruleOf(def, series, timezone);
   if (!rule || !ruleIncludes(rule, occurrence.local_date)) {
     throw new ConflictError(
@@ -1002,12 +1011,16 @@ export async function seriesChanged(
   batch.seriesValues.set(recordKey(object.name, id), after);
   if (!changed) return;
   const generated = generatedOf(def);
-  const { timezone } = await loadGeneralSettings(ctx.db);
+  // Each side's empty zone is its location's, else the organisation's (ADR 0911).
+  const [timezone, wasZone] = await Promise.all([
+    defaultZoneOf(ctx, object, after),
+    defaultZoneOf(ctx, object, before),
+  ]);
   const ended = options.trashed || isEnded(def, after);
   const rule = ended ? null : ruleOf(def, after, timezone);
   const now = Date.parse(ctx.now);
   // Today in either zone (a change of zone moves it), or the date the change applies from.
-  const zones = [ruleOf(def, before, timezone)?.zone ?? timezone, rule?.zone ?? timezone];
+  const zones = [ruleOf(def, before, wasZone)?.zone ?? wasZone, rule?.zone ?? timezone];
   const today = zones.map((z) => localParts(now, z).date).sort()[0] as string;
   const first =
     options.from && parseLocalDate(options.from) && options.from > today ? options.from : today;

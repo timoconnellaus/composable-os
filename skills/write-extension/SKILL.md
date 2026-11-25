@@ -266,6 +266,17 @@ extension declares it; it never implements it. Each behaviour the platform has i
   `title: "<a text or select field, or relation.field of one of your objects>"` (never the
   client's name; left out, the object's label). See `OccupiesSpec` in
   `packages/sdk/src/occupies.ts` and ADRs 0765 and 0844.
+- **`located`** on an object whose records are each at one of the business's locations (a room, a
+  series, a class, a duty shift): `located: { field: "<a required relation to one location>" }`
+  (`{ type: "relation", to: "location", required: true }`), or `located: { path:
+  "<relation>.<field>" }` when the record is at its related record's location (a booking's
+  `klass.location`; one relation away, to another of your objects). The host fills it while there
+  is one open location, gives an empty `timezone` the location's zone, and refuses a new record at
+  a closed location. Never filter by location in a tool: the host reads this declaration. Add
+  `agree: [{ a: "location", b: "room.location" }]` where two relations must name the same location
+  (a class and its room); the database refuses a write that would leave them apart
+  (`location_mismatch`), and a room's location is fixed while a live record names it. See
+  `LocatedSpec` and `AgreeSpec` in `packages/sdk/src/located.ts` and ADR 0911.
 - **`calendarEntry`** (shipped packs only) on an object with a `customer` whose records are a
   customer's appointments (a booking, a ticket): `calendarEntry: { starts, ends: "<datetime
   paths>", title, place?: "<text paths>", live: [<states in which it shows>] }`. A path is a
