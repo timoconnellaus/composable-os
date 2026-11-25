@@ -60,6 +60,9 @@ const OPENED = [
   "me.calendarFeed.status",
   // Stage 51 step 3 (ADR 0783): the caller's own check-in code and PIN.
   "me.code",
+  // Stage 30 step 5 (ADR 0675): the caller's own contact preferences and their dependants'.
+  "me.contact.choices",
+  "me.contact.setChoices",
   "me.deleteAccount",
   // Stage 48 (ADR 0712): changing the sign-in address.
   "me.email.change",
@@ -111,6 +114,8 @@ describe("what this step opens", () => {
           "me.calendarFeed.rotate",
           "me.calendarFeed.status",
           "me.code",
+          "me.contact.choices",
+          "me.contact.setChoices",
           "me.deleteAccount",
           "me.email.change",
           "me.email.confirm",

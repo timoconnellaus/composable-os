@@ -99,3 +99,47 @@ describe("the routine kind", () => {
     expect(submissions).toHaveLength(1);
   });
 });
+
+describe("the one-tap stop (ADR 0675)", () => {
+  const link = `${SITE}/stop?t=v1.abc.def`;
+  const stoppable = {
+    ...routine,
+    text: `${routine.text}\n\nTo stop getting these emails: ${link}`,
+  };
+
+  it("the host's routine mail sets List-Unsubscribe and List-Unsubscribe-Post to its stop link", async () => {
+    const h = await host({ hostRoutine: { siteOrigin: SITE } });
+    const receipt = await send(h, { ...stoppable, listUnsubscribe: link });
+    expect(kindOf()).toBe("email.routine");
+    await h.apply(receipt.id);
+    expect(sentEmails[0]?.headers).toEqual({
+      "List-Unsubscribe": `<${link}>`,
+      "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
+    });
+  });
+
+  it("any other queue, or a link off the site's stop route, is refused", async () => {
+    const cases: [{ hostRoutine?: { siteOrigin: string | null } }, string][] = [
+      [{}, link],
+      [{ hostRoutine: { siteOrigin: SITE } }, "https://evil.test/stop?t=x"],
+      [{ hostRoutine: { siteOrigin: SITE } }, `${SITE}/login?t=x`],
+      [{ hostRoutine: { siteOrigin: SITE } }, `${link}>, <mailto:x@evil.test`],
+      [{ hostRoutine: { siteOrigin: null } }, link],
+    ];
+    for (const [options, value] of cases) {
+      resetFakes();
+      const h = await host(options);
+      await expect(send(h, { ...stoppable, listUnsubscribe: value })).rejects.toThrow(
+        /listUnsubscribe is set only by the host's routine mail/,
+      );
+      expect(submissions).toEqual([]);
+    }
+  });
+
+  it("an email without one has no such header", async () => {
+    const h = await host({ hostRoutine: { siteOrigin: SITE } });
+    const receipt = await send(h, routine);
+    await h.apply(receipt.id);
+    expect(sentEmails[0]?.headers).toBeUndefined();
+  });
+});

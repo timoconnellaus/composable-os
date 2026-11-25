@@ -772,3 +772,195 @@ describe("the cost of one message on every channel", { timeout: 60_000 }, () => 
     expect(all.count() - emailOnly.count()).toBeLessThanOrEqual(3);
   });
 });
+
+// Consent to be contacted (stage 30 step 5, ADR 0675): the routine path asks the register when it
+// prepares each row and again when it sends one; a refusal is `stopped`, never held.
+describe("consent to be contacted", { timeout: 60_000 }, () => {
+  const PUBLIC = { kind: "public" } as const;
+  /** The org email connection's sender, as the integration host names it. */
+  const sender = async () => {
+    const row = await env.DB.prepare(
+      "SELECT resources FROM core_integration_connection WHERE id = ?",
+    )
+      .bind(mailConnection)
+      .first<{ resources: string }>();
+    return (JSON.parse(row?.resources ?? "[]") as { key: string }[])[0]?.key as string;
+  };
+  const reminder = async (b: { bookingId: string; who: { personId: string } }) => {
+    const runId = await runOf("classReminder", b.bookingId, "dateRelative");
+    await prepare(
+      "classReminder",
+      runId,
+      { kind: "reminder", record: b.bookingId },
+      { reach: reachOf(new Set(), new Set([b.who.personId])), now: middayNow() },
+    );
+    return rowsOf(b.bookingId, runId);
+  };
+  const channels = (rows: Row[]) => rows.map((r) => [r.channel, r.status]);
+
+  it("a member turns off class reminders by text: the next comes by email only; a cancellation's email cannot be turned off", async () => {
+    const b = await booking("prefs");
+    expect(channels(await reminder(b))).toEqual([
+      ["email", "ready"],
+      ["push", "no_channel"],
+      ["text", "ready"],
+    ]);
+    await run(
+      "me.contact.setChoices",
+      { choices: [{ scope: "bookings.reminder", channel: "text", value: "off" }] },
+      as(b.who),
+    );
+    const rows = await reminder(b);
+    expect(channels(rows)).toEqual([
+      ["email", "ready"],
+      ["push", "no_channel"],
+      ["text", "stopped"],
+    ]);
+    // Final, and nothing of the number or the words is kept on it.
+    expect(rows.find((r) => r.channel === "text")).toMatchObject({
+      recipient: "",
+      body: null,
+      error: "they turned these off by text",
+    });
+    await expect(
+      run(
+        "me.contact.setChoices",
+        { choices: [{ scope: "bookings.cancellation", channel: "email", value: "off" }] },
+        as(b.who),
+      ),
+    ).rejects.toMatchObject({ code: "invalid_input" });
+  });
+
+  it("a reminder's email carries its one-tap stop in its words and its List-Unsubscribe header; the stop turns the next one's email off, without signing in", async () => {
+    const b = await booking("stoplink");
+    const runId = await runOf("classReminder", b.bookingId, "dateRelative");
+    await prepare(
+      "classReminder",
+      runId,
+      { kind: "reminder", record: b.bookingId },
+      { now: middayNow() },
+    );
+    const email = (await rowsOf(b.bookingId, runId)).find((r) => r.channel === "email");
+    const link = /To stop getting these emails: (https:\/\/gym\.example\/stop\?t=\S+)$/.exec(
+      email?.body ?? "",
+    )?.[1];
+    expect(link).toBeTruthy();
+    // Sent through the gatekeeper: the header names the same link, one-click.
+    const sent = await integrations.sendRoutineMessage?.({
+      connectionId: mailConnection,
+      resource: await sender(),
+      id: email?.id as string,
+    });
+    expect(sent?.status).toBe("sent");
+    const out = (
+      (await env.TEST_EMAIL_OUTBOX.list()) as {
+        to: string[];
+        subject: string;
+        headers?: Record<string, string>;
+      }[]
+    ).filter((m) => m.to.includes(b.who.email) && m.subject.startsWith("Reminder"));
+    expect(out.at(-1)?.headers).toEqual({
+      "List-Unsubscribe": `<${link}>`,
+      "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
+    });
+    // The member taps it, signed out.
+    const token = new URL(link as string).searchParams.get("t");
+    expect(await run("contact.stop", { token }, { principal: PUBLIC, db })).toEqual({
+      done: true,
+    });
+    expect(channels(await reminder(b))).toEqual([
+      ["email", "stopped"],
+      ["push", "no_channel"],
+      ["text", "ready"],
+    ]);
+    // A confirmation is essential: it carries no stop, and still goes.
+    const confirm = await runOf("bookingConfirmed", b.bookingId, "record");
+    await prepare(
+      "bookingConfirmed",
+      confirm,
+      { kind: "confirmation", record: b.bookingId, message: "booked" },
+      { now: middayNow() },
+    );
+    const confirmation = (await rowsOf(b.bookingId, confirm)).find((r) => r.channel === "email");
+    expect(confirmation?.status).toBe("ready");
+    expect(confirmation?.body).not.toContain("/stop?t=");
+  });
+
+  it("a stop taken after a reminder was prepared stops it when it is sent", async () => {
+    const b = await booking("late-stop");
+    const runId = await runOf("classReminder", b.bookingId, "dateRelative");
+    await prepare(
+      "classReminder",
+      runId,
+      { kind: "reminder", record: b.bookingId },
+      { now: middayNow() },
+    );
+    const email = (await rowsOf(b.bookingId, runId)).find((r) => r.channel === "email");
+    expect(email?.status).toBe("ready");
+    await run(
+      "me.contact.setChoices",
+      { choices: [{ scope: "bookings.reminder", channel: "email", value: "off" }] },
+      as(b.who),
+    );
+    const sent = await integrations.sendRoutineMessage?.({
+      connectionId: mailConnection,
+      resource: await sender(),
+      id: email?.id as string,
+    });
+    expect(sent?.status).toBe("stopped");
+    expect((await rowsOf(b.bookingId, runId)).find((r) => r.channel === "email")).toMatchObject({
+      status: "stopped",
+      body: null,
+    });
+  });
+
+  it("a held reminder the member stopped while it waited is skipped when a person approves it", async () => {
+    const k = await klass();
+    const b = await booking("held-stop", k);
+    // An AI renamed the class: the reminder is held for a person.
+    await run(
+      "record.update",
+      { object: CLASS, id: k, values: { title: "Strength, renamed" } },
+      mcp(),
+    );
+    const runId = await runOf("classReminder", b.bookingId, "dateRelative");
+    await prepare(
+      "classReminder",
+      runId,
+      { kind: "reminder", record: b.bookingId },
+      { now: middayNow() },
+    );
+    const email = (await rowsOf(b.bookingId, runId)).find((r) => r.channel === "email");
+    expect(email).toMatchObject({ status: "ready", routine: 0 });
+    const queued = await integrations.sendRoutineMessage?.({
+      connectionId: mailConnection,
+      resource: await sender(),
+      id: email?.id as string,
+    });
+    expect(queued?.status).toBe("waiting");
+    await run(
+      "me.contact.setChoices",
+      { choices: [{ scope: "bookings.reminder", channel: "email", value: "off" }] },
+      as(b.who),
+    );
+    const decided = await run<{ results: { status: string; statusReason: string | null }[] }>(
+      "approval.approve",
+      { actionIds: [queued?.pendingActionId] },
+      staff(),
+    );
+    expect(decided.results).toEqual([
+      expect.objectContaining({
+        status: "skipped",
+        statusReason: "Skipped: they turned these off by email",
+      }),
+    ]);
+    expect((await rowsOf(b.bookingId, runId)).find((r) => r.channel === "email")).toMatchObject({
+      status: "stopped",
+      body: null,
+    });
+    const out = (
+      (await env.TEST_EMAIL_OUTBOX.list()) as { to: string[]; subject: string }[]
+    ).filter((m) => m.to.includes(b.who.email) && m.subject.startsWith("Reminder"));
+    expect(out).toEqual([]);
+  });
+});
