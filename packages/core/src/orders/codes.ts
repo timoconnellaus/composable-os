@@ -125,6 +125,8 @@ export async function changeOrderCode(
   const buyer: DealBuyer = { personId: row.person_id, placedAs: row.placed_as };
   const worked = await workOutDeal(ctx.db, lines, buyer, code ?? undefined, ctx.now, row.currency, {
     excludeOrderId: row.id,
+    // Wrong codes per client address (ADR 0940): checked first, a wrong one counted.
+    guesses: ctx.guesses,
   });
   if (worked.code.given && !worked.code.valid) {
     throw new ValidationError(CODE_NOT_VALID, {

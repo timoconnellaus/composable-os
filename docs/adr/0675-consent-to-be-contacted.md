@@ -117,3 +117,11 @@ message (deleted with its Person).
 - The register is not a record: no `rec_*` view reads it, so query.sql, exports, search and the
   assistant's bulk reads never see it. `contact.forPerson` shows staff a Person's choices and
   history through the visibility seam.
+
+## Amended 2026-11-25 ([ADR 0940](0940-a-rate-limit-per-client-address-for-public-operations.md))
+`contact.stop` is rate limited, but not per call: one-click unsubscribes come from a mail
+provider's few servers, so only tokens that are not valid count against the client address, at the
+flood level (120 a minute). A valid token always stops. The template's stop route says "done" only
+when the host said yes; otherwise its page shows an error and keeps the button, and a mail app's
+one-click POST gets the host's status. The sentence above saying it is not rate limited is no longer
+true.

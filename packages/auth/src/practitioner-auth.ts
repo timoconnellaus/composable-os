@@ -87,6 +87,8 @@ export interface PractitionerAuthOptions {
   codeRateLimit?: RateLimitBinding | undefined;
   /** Code requests per client address, keyed by a keyed hash of it. */
   codeAddressRateLimit?: RateLimitBinding | undefined;
+  /** What the address is keyed with (`clientAddressSecret`): one count for every kind of sign-in. */
+  addressSecret?: string | undefined;
   /** Whether codes can be sent at all: null when they can, or why not. */
   ready?: (() => Promise<string | null>) | undefined;
 }
@@ -111,6 +113,7 @@ export function createPractitionerAuth(options: PractitionerAuthOptions) {
         await beforeCodeRequest(ctx, {
           ready: options.ready,
           secret: options.secret,
+          addressSecret: options.addressSecret,
           codeRateLimit: options.codeRateLimit,
           codeAddressRateLimit: options.codeAddressRateLimit,
           what: "Practitioner sign-in",

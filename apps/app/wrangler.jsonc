@@ -92,11 +92,13 @@
       "namespace_id": "4105",
       "simple": { "limit": 3, "period": 60 }
     },
-    // Customer sign-in code requests, per client address, keyed by a hash of it (stage 23).
+    // Sign-in code requests and attempts, per client address, keyed by a hash of it (stage 23):
+    // one count for staff, customer and practitioner sign-in (ADR 0940), at a level a gym's own
+    // network does not reach; the per-mailbox limit does the real work.
     {
       "name": "CUSTOMER_CODE_ADDRESS_RATE_LIMIT",
       "namespace_id": "4106",
-      "simple": { "limit": 10, "period": 60 }
+      "simple": { "limit": 60, "period": 60 }
     },
     // Customer sign-in codes sent to new addresses that only "anyone starting a subscription"
     // lets sign in, for the whole host: one key (ADR 0459).
@@ -134,7 +136,51 @@
     },
     // Calls to the desk origin (the enrolled tablet, ADR 0649) per client address: a tablet makes
     // a few a minute; codes and enrolment codes are guessed nowhere near fast enough.
-    { "name": "DESK_RATE_LIMIT", "namespace_id": "4151", "simple": { "limit": 60, "period": 60 } }
+    { "name": "DESK_RATE_LIMIT", "namespace_id": "4151", "simple": { "limit": 60, "period": 60 } },
+    // The limits on calls from outside the org to operations open to the public (ADR 0940,
+    // packages/core/src/public-limits.ts). Per client address, keyed by a hash of the address (an
+    // IPv6 address by its /64) and the operation: for floods only, set high, since many people
+    // share one address (a venue's wifi, a gym's network, a carrier's NAT).
+    // read: 600 a minute per address and operation.
+    {
+      "name": "PUBLIC_RATE_LIMIT",
+      "namespace_id": "4110",
+      "simple": { "limit": 600, "period": 60 }
+    },
+    // write: 120 a minute per address and operation.
+    {
+      "name": "PUBLIC_WRITE_RATE_LIMIT",
+      "namespace_id": "4111",
+      "simple": { "limit": 120, "period": 60 }
+    },
+    // Per caller, tight: order starts, order.checkout, subscription.start, code checks and form
+    // answers, per signed-in account or a guest's order or personal link (10 a minute per caller
+    // and group). cos-runner binds it in the same namespace, for a pack tool's calls.
+    {
+      "name": "PUBLIC_CALLER_RATE_LIMIT",
+      "namespace_id": "4112",
+      "simple": { "limit": 10, "period": 60 }
+    },
+    // A client app's Worker that names no visitor (an older template): one bucket for the client
+    // app per operation, at a level a whole site's traffic does not reach.
+    {
+      "name": "PUBLIC_SHARED_RATE_LIMIT",
+      "namespace_id": "4113",
+      "simple": { "limit": 6000, "period": 60 }
+    },
+    // asset: pictures and video (media.serve, media.play), 1,200 a minute per address.
+    {
+      "name": "PUBLIC_ASSET_RATE_LIMIT",
+      "namespace_id": "4114",
+      "simple": { "limit": 1200, "period": 60 }
+    },
+    // Host-wide, used only while wrong promo codes are over the hour's ceiling: code checks for
+    // everyone at 30 every 10 seconds until the hour ends. cos-runner binds it too.
+    {
+      "name": "PUBLIC_CODE_SURGE_RATE_LIMIT",
+      "namespace_id": "4115",
+      "simple": { "limit": 30, "period": 10 }
+    }
   ],
   "vars": {
     // better-auth (default) or cloudflare-access. See docs/deploying.md.

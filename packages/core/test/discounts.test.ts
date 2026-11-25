@@ -14,9 +14,12 @@
 //     order.applyCode and order.removeCode, discount.check, and a runtime extension (criterion 24).
 import { env } from "cloudflare:workers";
 import {
+  CODE_ALPHABET,
   defineExtension,
   defineTool,
   type ExtensionManifest,
+  foldCode,
+  randomCodes,
   toManifest,
   z,
 } from "@composable-os/sdk";
@@ -27,6 +30,7 @@ import {
   type InvocationContext,
   loadOrderRow,
   memoryEventSink,
+  memoryRateLimit,
 } from "../src/index.ts";
 import { discountCheck } from "../src/operations/discount.ts";
 import {
@@ -35,7 +39,7 @@ import {
   orderStartHeld,
   orderStartInput,
 } from "../src/operations/order.ts";
-import { extId, manifest, reconcile } from "./extension-helpers.ts";
+import { extId, manifest, plan as planOf, reconcile } from "./extension-helpers.ts";
 import { context, createUser, db, setPreset, unique } from "./helpers.ts";
 import {
   type Buyer,
@@ -1333,3 +1337,222 @@ describe("races and limits the review found untested", () => {
     expect((await refusal(buy([{ id: yoga }], { code: tagged }, as(at)))).message).toBe(NOT_VALID);
   });
 });
+
+// ADR 0940: codes as the host keeps them, and wrong codes counted per caller.
+describe("promo codes kept folded, looked up by index, and guessed no faster than the limit", () => {
+  const guessLimits = () => ({
+    read: memoryRateLimit(10_000),
+    write: memoryRateLimit(10_000),
+    asset: memoryRateLimit(10_000),
+    shared: memoryRateLimit(10_000),
+    caller: memoryRateLimit(10_000),
+    codeSurge: memoryRateLimit(10_000),
+  });
+  const wifi = { key: "the-gyms-wifi", shared: false };
+  const limited = (
+    principal: Buyer["principal"] | typeof PUBLIC = PUBLIC,
+    address: { key: string; shared: boolean } = wifi,
+    limits = guessLimits(),
+  ) =>
+    outside(principal, {
+      integrations: runtime,
+      events,
+      publicLimits: limits,
+      clientAddress: address,
+    });
+  const check = (code: string, ctx: ReturnType<typeof guest> | ReturnType<typeof staff>) =>
+    run<{ valid: boolean; message: string | null }>(
+      "discount.check",
+      { code, lines: [{ object: CLASS, id: yoga }] },
+      ctx,
+    );
+
+  it("after 20 wrong codes a member is refused codes, a right one too; another member on the same wifi is not", async () => {
+    const right = word("RIGHT");
+    await discount({ kind: "percent", percent: 10, code: right });
+    const guesser = await createBuyer(admin, "guesser");
+    for (let n = 0; n < 20; n += 1) {
+      expect((await check(word("WRONG"), limited(guesser.principal))).valid).toBe(false);
+    }
+    // The 21st try from that account, right or wrong: refused, the same answer either way.
+    const wrong21 = await refusal(check(word("WRONG"), limited(guesser.principal)));
+    const right21 = await refusal(check(right, limited(guesser.principal)));
+    expect(wrong21).toMatchObject({ code: "rate_limited", details: { retryAfterSeconds: 900 } });
+    expect({ code: right21.code, message: right21.message }).toEqual({
+      code: wrong21.code,
+      message: wrong21.message,
+    });
+    // An order start with a code counts in the same group, and is refused too.
+    expect(
+      await refusal(buy([{ id: yoga }], { code: right }, limited(guesser.principal))),
+    ).toMatchObject({ code: "rate_limited" });
+    // Another member on the same wifi, and a guest there, are not affected.
+    const other = await createBuyer(admin, "other");
+    expect((await check(right, limited(other.principal))).valid).toBe(true);
+    expect((await check(right, limited())).valid).toBe(true);
+    // Staff are never counted.
+    expect((await check(right, staff())).valid).toBe(true);
+  });
+
+  it("a guest's wrong codes on an order lock that order only", async () => {
+    const right = word("ORDERCODE");
+    await discount({ kind: "percent", percent: 10, code: right });
+    const first = await buy([{ id: mat }], {}, limited());
+    const second = await buy([{ id: mat }], {}, limited());
+    const apply = (order: OrderOut, code: string) =>
+      run("order.applyCode", { id: order.id, token: order.token, code }, limited());
+    for (let n = 0; n < 20; n += 1) {
+      expect((await refusal(apply(first, word("NOPE")))).message).toBe(NOT_VALID);
+    }
+    expect(await refusal(apply(first, right))).toMatchObject({ code: "rate_limited" });
+    // Another guest's order from the same address takes the right code.
+    expect(await apply(second, right)).toMatchObject({ codeApplied: true });
+  });
+
+  it("a guest naming no order is counted per address, at 50", async () => {
+    const address = { key: unique("guest-address"), shared: false };
+    for (let n = 0; n < 50; n += 1) {
+      await refusal(buy([{ id: yoga }], { code: word("NOPE") }, limited(PUBLIC, address)));
+    }
+    expect(await refusal(check(word("ANY"), limited(PUBLIC, address)))).toMatchObject({
+      code: "rate_limited",
+    });
+    // A web app's shared bucket is never locked.
+    const shared = { key: "client-app", shared: true };
+    for (let n = 0; n < 60; n += 1) {
+      expect((await check(word("NOPE"), limited(PUBLIC, shared))).valid).toBe(false);
+    }
+  });
+
+  it("10 code checks a minute per signed-in account", async () => {
+    const limits = { ...guessLimits(), caller: memoryRateLimit(10) };
+    const member = await createBuyer(admin, "fast");
+    const right = word("FAST");
+    await discount({ kind: "percent", percent: 10, code: right });
+    for (let n = 0; n < 10; n += 1) await check(right, limited(member.principal, wifi, limits));
+    expect(await refusal(check(right, limited(member.principal, wifi, limits)))).toMatchObject({
+      code: "rate_limited",
+    });
+  });
+
+  it("a code is kept folded: typed in any case or with spaces, and with non-ASCII letters", async () => {
+    const tag = unique("x").toLowerCase();
+    const id = await discount({ kind: "percent", percent: 10, code: `été ${tag}` });
+    const row = await env.DB.prepare(`SELECT * FROM ${await viewOf(DISCOUNT)} WHERE id = ?`)
+      .bind(id)
+      .first<Record<string, unknown>>();
+    expect(Object.values(row ?? {})).toContain(`ÉTÉ${tag.toUpperCase()}`);
+    expect((await check(`ÉTÉ${tag}`, guest())).valid).toBe(true);
+    expect((await check(` Été ${tag.toUpperCase()} `, guest())).valid).toBe(true);
+    // A code record's word too.
+    const owner = await discount({ kind: "percent", percent: 5, code: word("OWNER") });
+    const single = `straße${unique("s").toLowerCase()}`;
+    await create(CODE, { word: single, discount: owner, uses: 1 });
+    expect((await check(single.toUpperCase(), guest())).valid).toBe(true);
+  });
+
+  it("a code word is at least 6 characters, and one word names one live record", async () => {
+    const short = await refusal(create(DISCOUNT, { name: unique("Deal"), code: "SALE" }));
+    expect(short).toMatchObject({ code: "invalid_input", details: { rule: "code_length" } });
+    const taken = word("TAKEN");
+    await create(DISCOUNT, { name: unique("Deal"), code: taken });
+    const again = await refusal(
+      create(DISCOUNT, { name: unique("Deal"), code: taken.toLowerCase() }),
+    );
+    expect(again).toMatchObject({ code: "conflict", details: { rule: "code_taken" } });
+    // The database holds it too, whatever wrote it: a unique index on the folded word.
+    const { results } = await env.DB.prepare(
+      "SELECT sql FROM sqlite_master WHERE type = 'index' AND name LIKE '%\\_\\_code' ESCAPE '\\'",
+    ).all<{ sql: string }>();
+    expect(results.length).toBeGreaterThanOrEqual(2);
+    expect(results.every((r) => /CREATE UNIQUE INDEX/.test(r.sql))).toBe(true);
+  });
+
+  it("a guess is looked up by the index, not by reading every code", async () => {
+    const { results } = await env.DB.prepare(
+      "SELECT name, tbl_name FROM sqlite_master WHERE type = 'index' AND name LIKE '%\\_\\_code' ESCAPE '\\'",
+    ).all<{ name: string; tbl_name: string }>();
+    expect(results.length).toBeGreaterThanOrEqual(2);
+    for (const index of results) {
+      const column = index.name.slice(`${index.tbl_name}__`.length, -"__code".length);
+      const plan = await env.DB.prepare(
+        `EXPLAIN QUERY PLAN SELECT id FROM ${index.tbl_name} WHERE deleted_at IS NULL AND ${column} = ?`,
+      )
+        .bind("ANYCODE")
+        .all<{ detail: string }>();
+      expect(plan.results.map((r) => r.detail).join(" "), index.name).toContain(index.name);
+    }
+  });
+
+  it("words already there are folded before the unique index is built; two that fold to one stop it, named (F4)", async () => {
+    const id = extId("offerswords");
+    const m = offers(id);
+    await reconcile(m);
+    const table = await viewOf(`${id}.discount`);
+    const column = (
+      await env.DB.prepare(
+        "SELECT column_name FROM core_extension_fields WHERE object = ? AND name = 'code'",
+      )
+        .bind(`${id}.discount`)
+        .first<{ column_name: string }>()
+    )?.column_name as string;
+    const index = `${table}__${column}__code`;
+    // As a client extension's records were before the index: unfolded, and two alike.
+    await env.DB.prepare(`DROP INDEX ${index}`).run();
+    const now = new Date().toISOString();
+    const insert = (rid: string, word: string) =>
+      env.DB.prepare(
+        `INSERT INTO ${table} (id, created_at, updated_at, created_by, name, ${column}) VALUES (?, ?, ?, ?, ?, ?)`,
+      )
+        .bind(rid, now, now, admin.id, "Old", word)
+        .run();
+    await insert("rec_fold_a", "summer 26x");
+    await insert("rec_fold_b", "SUMMER26X");
+    await insert("rec_fold_c", "winter26x");
+    const clash = await planOf(m);
+    expect(clash.issues.map((i) => i.code)).toContain("code_word_conflict");
+    expect(clash.issues.find((i) => i.code === "code_word_conflict")?.message).toMatch(
+      /SUMMER26X \(rec_fold_a, rec_fold_b\)/,
+    );
+    await env.DB.prepare(`UPDATE ${table} SET deleted_at = ? WHERE id = 'rec_fold_b'`)
+      .bind(now)
+      .run();
+    await reconcile(m);
+    const kept = await env.DB.prepare(
+      `SELECT id, ${column} AS word FROM ${table} WHERE id LIKE 'rec_fold_%' ORDER BY id`,
+    ).all();
+    expect(kept.results).toEqual([
+      { id: "rec_fold_a", word: "SUMMER26X" },
+      { id: "rec_fold_b", word: "SUMMER26X" },
+      { id: "rec_fold_c", word: "WINTER26X" },
+    ]);
+    const built = await env.DB.prepare("SELECT name FROM sqlite_master WHERE name = ?")
+      .bind(index)
+      .first();
+    expect(built).toBeTruthy();
+  });
+
+  it("foldCode drops invisible characters a pasted code may carry (F5)", () => {
+    expect(foldCode("sum\u200bmer\u00ad26")).toBe("SUMMER26");
+    expect(foldCode("\ufeffWINTER 26")).toBe("WINTER26");
+  });
+
+  it("randomCodes: 16 characters of an alphabet with no 0, 1, I or O, from getRandomValues", () => {
+    const codes = randomCodes(500);
+    expect(new Set(codes).size).toBe(500);
+    for (const code of codes) {
+      expect(code).toMatch(/^[2-9A-HJ-NP-Z]{16}$/);
+      expect(foldCode(code)).toBe(code);
+    }
+    expect(CODE_ALPHABET).toHaveLength(32);
+    expect(() => randomCodes(1, 8)).toThrow();
+  });
+});
+
+/** The table of an extension object's records, as the registry names it. */
+async function viewOf(object: string): Promise<string> {
+  const row = await env.DB.prepare("SELECT table_name FROM core_extension_objects WHERE name = ?")
+    .bind(object)
+    .first<{ table_name: string }>();
+  return row?.table_name ?? "";
+}

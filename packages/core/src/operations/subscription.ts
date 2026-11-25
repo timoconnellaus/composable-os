@@ -257,6 +257,9 @@ export const subscriptionStart = defineOperation({
   permission: "records:write",
   risk: "write",
   audiences: ["staff", "customer", "public"],
+  // Per signed-in account (ADR 0940): each opens the payment provider's page. A guest names
+  // nothing yet: counted per address at the flood level.
+  publicLimit: { tier: "write", perCaller: {}, group: "subscription.start" },
   // Naming another holder is staff's until the family link (ADR 0487, amended).
   staffInput: ["holderPersonId"],
   hostInternal: true,

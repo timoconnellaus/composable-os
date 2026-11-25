@@ -52,6 +52,9 @@ export const discountCheck = defineOperation({
   permission: "records:read",
   risk: "read",
   audiences: ["staff", "customer", "public"],
+  // Code guessing (ADR 0940): 10 a minute per signed-in account with order.applyCode, and wrong
+  // codes counted per caller (a guest naming no order, per address).
+  publicLimit: { tier: "read", perCaller: {}, group: "code", guesses: "code" },
   hostInternal: true,
   // Not offered to an assistant (the spec): a person, or a buyer's own page, checks a code.
   actors: ["human"],
@@ -72,6 +75,8 @@ export const discountCheck = defineOperation({
       input.code,
       ctx.now,
       currency,
+      // Wrong codes per client address (ADR 0940): checked first, a wrong one counted.
+      { guesses: ctx.guesses },
     );
     const code = worked.code;
     if (!code.given || !code.valid) {

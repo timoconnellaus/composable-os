@@ -161,3 +161,34 @@ they are new), shared across candidates: a bounded number of statements per call
   `invite` and the `referral` kind are step 9; blocks and screens are step 10.
 - A live discount's terms and every promo code can be written only by a person; a shipped pack's
   tool that writes one waits for a person too (its write is the extension's).
+
+## Amended 2026-11-25 ([ADR 0940](0940-a-rate-limit-per-client-address-for-public-operations.md))
+**The gate is lifted: a shipped pack may declare `discount`.** What it waited for is built:
+- **Limits per caller.** `discount.check` and `order.applyCode` share one count, 10 a minute per
+  signed-in account (a guest's `applyCode` per order); the order starts likewise. Per client address
+  only flood limits (600 reads, 120 writes a minute), since many people share one address.
+- **Wrong codes counted per caller** (`core_wrong_guess`, migration 1450): per account and per guest
+  order 20, per address for a guest naming no order 50, in a quarter-hour; past that, that account,
+  order or address is refused codes for 15 minutes, right or wrong, with the same 429 (criterion 3).
+  A guess is reserved before the lookup, so parallel guesses cannot overshoot. A client app's shared
+  bucket is never locked. A host-wide ceiling (2,000 wrong codes an hour) slows code checks for
+  everyone until the hour ends and tells the admins. A wrong code given to `order.start`,
+  `order.startHeld` or `order.quote` counts too. Staff are not counted.
+- **Code words kept folded and looked up by index.** A discount's `code` and a codes object's
+  `word` are stored as `foldCode` makes them (NFKC, no white space or invisible characters, upper
+  case: the SDK, one function for the host and packs), whoever writes the record; a buyer's word is
+  folded the same way, so `ÉTÉ` and `été` match (finding F6). The reconciler keeps a unique index on
+  each such column over the live records, and folds existing words before building it, refusing
+  (naming the records) two that fold to one word. One word names one live record of an object; a
+  guess is one indexed read (F1). Unique within an object only.
+- **A least length**: 6 characters after folding, refused at write (`rule: "code_length"`). A typed
+  word shorter than that is looked up nowhere and answered as any wrong code.
+- **Random single-use codes**: `randomCodes(count, length = 16)` in the SDK, from
+  `crypto.getRandomValues`, of 32 characters with no 0, 1, I or O: 80 bits for 16. Writing them
+  still waits for a person (above).
+
+What remains (F2): **a code's existence can still be told from how long the answer takes.** The body
+is the same, but a known word makes more reads than an unknown one. Looking words up by index
+narrows the gap (no scan that grows with the codes) but does not close it. What bounds it is the
+wrong-code limit per caller and the host-wide ceiling. Decided and recorded; making every lookup do
+the same reads is left open.

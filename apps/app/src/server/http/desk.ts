@@ -46,7 +46,7 @@ import {
 import { createCrmDb } from "@composable-os/db";
 import { type DeskEnv, deskOrigin } from "../desk.ts";
 import { type SupportEnv, supportPrincipal } from "../support.ts";
-import { type ApiEnv, outsideContext } from "./api.ts";
+import { type ApiEnv, connectionAddress, outsideContext } from "./api.ts";
 
 export const DEVICE_COOKIE = "__Host-cos-desk-device";
 export const SESSION_COOKIE = "__Host-cos-desk-session";
@@ -215,7 +215,13 @@ export async function handleDesk(
       address,
       issue: (set) => Object.assign(issued, set),
     };
-    const ctx = await outsideContext(env, createCrmDb(env.DB), PUBLIC, null);
+    const ctx = await outsideContext(
+      env,
+      createCrmDb(env.DB),
+      PUBLIC,
+      null,
+      await connectionAddress(request, env),
+    );
     const desk = {
       secret: env.DESK_SECRET,
       origin: deskOrigin(env, url.origin),

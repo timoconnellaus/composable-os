@@ -1064,7 +1064,8 @@ or `device` alone (stage 51, [ADR 0781](adr/0781-a-device-as-a-caller-the-device
 - A **customer** is a Person with a sign-in. An object says which relation field is its customer;
   the visibility seam limits a customer to their own records. Customers never reach the admin, MCP,
   Code Mode, `query.sql`, dashboards or exports.
-- **Public** callers have no account. Public operations are few, low risk and rate limited.
+- **Public** callers have no account. Public operations are few, low risk and rate limited per
+  client address ([ADR 0940](adr/0940-a-rate-limit-per-client-address-for-public-operations.md)).
 - A **device** is the business's own enrolled tablet holding a device role, signed in as nobody.
   It calls only on the desk origin, and only its role's tools and `device.heartbeat`.
 - A **practitioner** is an outside person the business invited (a physiotherapist, a dietitian),
@@ -1169,8 +1170,14 @@ As built (stage 22; ADRs [0410](adr/0410-the-seams-first-door-as-built.md),
   people have an active one, and links a `needs_merge` account the merge resolves.
 - **Limits:** a customer's calls per account and operation, and code requests per address asked
   for (`customers/limits.ts`, Workers Rate Limiting); address changes per account and per mailbox,
-  reserved by one conditional insert of their row. Per client address only at the edge, and no
-  address is stored.
+  reserved by one conditional insert of their row. Every call to an operation open to the public,
+  a customer's included (`public-limits.ts`, ADR 0940): per client address for floods only (600
+  reads, 120 writes, 1,200 pictures a minute, keyed by an HMAC the adapter makes, an IPv6 address
+  by its /64), and per caller on what is costly or guessable (`perCaller`: 10 a minute per account,
+  a guest's order or personal link; at the door and inside a pack's tool); wrong promo codes per
+  caller in `core_wrong_guess` (`guesses.ts`: reserved before the lookup, a 15-minute lock past 20,
+  a host-wide ceiling). When a binding is missing or failing, calls go through and the admins are
+  told. No address is stored: only keyed hashes.
 
 The HTTP routes that mount customer sign-in and carry these calls are stage 23's.
 
@@ -1205,8 +1212,10 @@ As built (stage 23; ADRs [0415](adr/0415-the-http-surface-as-built.md),
   staff cookie (Better Auth's, Access's, hosted support's) is used only from the host's own pages,
   on every route that reads one (`staffCookieAllowed`, `apps/app/src/server/staff-origin.ts`,
   ADR 0660); customers are limited per account and
-  operation by `CUSTOMER_RATE_LIMIT`. Public calls need a Cloudflare rate limiting rule at the
-  edge (`docs/deploying.md`).
+  operation by `CUSTOMER_RATE_LIMIT`. Every call to a public operation is limited by the pipeline
+  (ADR 0940), per client address for floods and per caller where it counts: the connection's
+  `cf-connecting-ip` here, and over the client-app binding a forwarded `cf-connecting-ip`, else the
+  visitor its Worker names (`cos-visitor-address`), else one shared bucket for the client app.
 - **The contract** (`packages/core/src/http/contract.ts`) is the manifest per audience, committed
   as `packages/core/api/v1/<audience>.json`; a test fails while it and the registry differ. A
   version below the oldest served answers `upgrade_required`.
@@ -3010,7 +3019,8 @@ As built so far (stage 24; ADRs [0420](adr/0420-packs-as-packages-as-built.md),
   answers with a host-only customer cookie, which the web app passes through, so the browser keeps
   it for the web app's hostname. `CUSTOMER_AUTH_URL` is the web app's origin. Staff cookies stay on
   the host's address. `customerSession` in `@composable-os/client` forwards the customer cookie
-  and no other.
+  and no other; `forVisitor` that and the visitor's address (`cos-visitor-address`), which only
+  this binding reads, for the limit per client address (ADR 0940).
 
 ### Skills
 

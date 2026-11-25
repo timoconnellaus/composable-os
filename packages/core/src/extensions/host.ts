@@ -29,6 +29,12 @@ export interface ToolCaller {
    */
   principal?: CustomerPrincipal | PublicPrincipal;
   /**
+   * With `principal`: the caller's address key (ADR 0940), so the run's strict calls (an order
+   * start, a form's answers, a code check) are counted against the same client address. A keyed
+   * hash, never an address.
+   */
+  clientAddress?: import("../public-limits.ts").ClientAddress;
+  /**
    * Set when an enrolled device holding a device role called the tool (ADR 0781): who started
    * it, for the tool to record (`ctx.caller`). The run's operation calls are the extension's, as
    * for staff, and no account is "me" in them.

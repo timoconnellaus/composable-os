@@ -16,7 +16,9 @@
 // `write`), gets no raw database and no write queue unless the operation is `hostInternal`, and is
 // applied or refused, never queued. Opening an operation to practitioners is a reviewed change,
 // listed in open-operations.json, as opening one to customers is.
+
 import type { Principal, RiskClass } from "./principals.ts";
+import { type PublicLimit, publicLimitOf } from "./public-limits.ts";
 
 export const AUDIENCES = ["staff", "customer", "public", "device", "practitioner"] as const;
 export type Audience = (typeof AUDIENCES)[number];
@@ -39,6 +41,7 @@ export interface AudienceDeclaration {
   readonly hostInternal?: boolean | undefined;
   readonly toolOnly?: boolean | undefined;
   readonly deskOnly?: boolean | undefined;
+  readonly publicLimit?: PublicLimit | undefined;
 }
 
 export function audiencesOf(op: Pick<AudienceDeclaration, "audiences">): readonly Audience[] {
@@ -112,6 +115,11 @@ export interface OpenOperation {
   toolOnly?: true;
   /** Present and true when only the desk origin's own handler reaches it (ADR 0649). */
   deskOnly?: true;
+  /**
+   * Open to the public: its limit per client address (ADR 0940), declared or its risk class's
+   * default. So a tier or group changed is a line in the diff too.
+   */
+  perAddress?: PublicLimit;
   /** The pack whose tool it is (`x.<pack>.<tool>`); absent for a core operation. */
   pack?: string;
 }
@@ -128,6 +136,12 @@ export const OPEN_OPERATIONS_COMMENT =
   "`pnpm --filter @composable-os/core open-operations`. " +
   "A new line here opens the host to people outside the org, so review it as such.";
 
+/** The limit per address an open operation is listed with (none when not open to the public). */
+function perAddressOf(op: AudienceDeclaration): { perAddress?: PublicLimit } {
+  const limit = publicLimitOf(op);
+  return limit ? { perAddress: { ...limit } } : {};
+}
+
 /** Every operation in `operations` open to anyone but staff, by name. */
 export function openOperations(operations: readonly AudienceDeclaration[]): OpenOperationsFile {
   return {
@@ -141,6 +155,7 @@ export function openOperations(operations: readonly AudienceDeclaration[]): Open
         ...(op.hostInternal ? { hostInternal: true as const } : {}),
         ...(op.toolOnly ? { toolOnly: true as const } : {}),
         ...(op.deskOnly ? { deskOnly: true as const } : {}),
+        ...perAddressOf(op),
       }))
       .sort((a, b) => a.name.localeCompare(b.name)),
   };

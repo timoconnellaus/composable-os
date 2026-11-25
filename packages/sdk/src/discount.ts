@@ -36,6 +36,59 @@ export const DISCOUNT_WHO = [
 export type DiscountWho = (typeof DISCOUNT_WHO)[number];
 
 /**
+ * A promo code as the host keeps and compares it (ADR 0940): Unicode-normalised (NFKC), with no
+ * white space and no invisible characters (zero-width spaces, soft hyphens: Unicode's default
+ * ignorables), in upper case, so `été 26`, `ÉTÉ26` and `Été26` are one code, and non-ASCII letters
+ * match however they are typed. The host stores a code word folded when a record is written, and
+ * folds what a buyer types the same way before it looks the word up by its index. One function,
+ * here, for both.
+ */
+export function foldCode(word: string): string {
+  return word
+    .normalize("NFKC")
+    .replace(/[\s\p{Default_Ignorable_Code_Point}]+/gu, "")
+    .toUpperCase()
+    .normalize("NFKC");
+}
+
+/** The least length of a code word, in characters after folding (ADR 0940): no `SALE`, no `A1`. */
+export const CODE_MIN_LENGTH = 6;
+/** The longest code word (and the longest a buyer may type). */
+export const CODE_MAX_LENGTH = 64;
+
+/**
+ * The letters a generated code is made of: 32, with no 0, 1, I or O, so nothing is misread and
+ * each character is 5 bits exactly (no bias from the random bytes).
+ */
+export const CODE_ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
+
+/**
+ * `count` random single-use codes (ADR 0940), each `length` characters of CODE_ALPHABET from
+ * `crypto.getRandomValues`: 16 by default, 80 bits, which no rate of guessing reaches. Already
+ * folded. For a pack's tool that makes a batch of codes; a person still approves writing them
+ * (ADR 0693).
+ */
+export function randomCodes(count: number, length = 16): string[] {
+  if (!Number.isInteger(count) || count < 1 || count > 10_000) {
+    throw new Error("randomCodes makes 1 to 10,000 codes");
+  }
+  if (!Number.isInteger(length) || length < 12 || length > CODE_MAX_LENGTH) {
+    throw new Error(`A generated code is 12 to ${CODE_MAX_LENGTH} characters (60 bits or more)`);
+  }
+  // The Web Crypto global of every runtime the SDK runs in (Workers, browsers, Node 20+); the SDK
+  // is typed without DOM or Workers types, so it is named here.
+  const { crypto } = globalThis as unknown as {
+    crypto: { getRandomValues(array: Uint8Array): Uint8Array };
+  };
+  const codes = new Set<string>();
+  while (codes.size < count) {
+    const bytes = crypto.getRandomValues(new Uint8Array(length));
+    codes.add(Array.from(bytes, (b: number) => CODE_ALPHABET[b & 31]).join(""));
+  }
+  return [...codes];
+}
+
+/**
  * Codes kept as records of another object of this extension (a promo code belongs to a
  * discount): `discount` is that object's relation field (one record) to this object, `word` its
  * text field holding what the buyer types (compared without case), `uses` an optional number field

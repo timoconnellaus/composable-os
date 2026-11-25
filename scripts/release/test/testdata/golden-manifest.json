@@ -506,7 +506,7 @@
           "name": "CUSTOMER_CODE_ADDRESS_RATE_LIMIT",
           "namespace_id": "4106",
           "simple": {
-            "limit": 10,
+            "limit": 60,
             "period": 60
           },
           "type": "ratelimit"
@@ -562,6 +562,60 @@
           "simple": {
             "limit": 60,
             "period": 60
+          },
+          "type": "ratelimit"
+        },
+        {
+          "name": "PUBLIC_RATE_LIMIT",
+          "namespace_id": "4110",
+          "simple": {
+            "limit": 600,
+            "period": 60
+          },
+          "type": "ratelimit"
+        },
+        {
+          "name": "PUBLIC_WRITE_RATE_LIMIT",
+          "namespace_id": "4111",
+          "simple": {
+            "limit": 120,
+            "period": 60
+          },
+          "type": "ratelimit"
+        },
+        {
+          "name": "PUBLIC_CALLER_RATE_LIMIT",
+          "namespace_id": "4112",
+          "simple": {
+            "limit": 10,
+            "period": 60
+          },
+          "type": "ratelimit"
+        },
+        {
+          "name": "PUBLIC_SHARED_RATE_LIMIT",
+          "namespace_id": "4113",
+          "simple": {
+            "limit": 6000,
+            "period": 60
+          },
+          "type": "ratelimit"
+        },
+        {
+          "name": "PUBLIC_ASSET_RATE_LIMIT",
+          "namespace_id": "4114",
+          "simple": {
+            "limit": 1200,
+            "period": 60
+          },
+          "type": "ratelimit"
+        },
+        {
+          "name": "PUBLIC_CODE_SURGE_RATE_LIMIT",
+          "namespace_id": "4115",
+          "simple": {
+            "limit": 30,
+            "period": 10
           },
           "type": "ratelimit"
         },
@@ -908,7 +962,7 @@
           "source": "user"
         }
       ],
-      "sha256": "5c9a2c36e7bdae16801de6ef07a532cb4bdbb9ef9f77b72688be5b8c17b75e7f"
+      "sha256": "48b05ccac5e2940155dd58de70e35079ceb8fb7150e60fde717f56df1d1cfea2"
     },
     {
       "bindings": [
@@ -986,6 +1040,24 @@
           "simple": {
             "limit": 60,
             "period": 60
+          },
+          "type": "ratelimit"
+        },
+        {
+          "name": "PUBLIC_CALLER_RATE_LIMIT",
+          "namespace_id": "4112",
+          "simple": {
+            "limit": 10,
+            "period": 60
+          },
+          "type": "ratelimit"
+        },
+        {
+          "name": "PUBLIC_CODE_SURGE_RATE_LIMIT",
+          "namespace_id": "4115",
+          "simple": {
+            "limit": 30,
+            "period": 10
           },
           "type": "ratelimit"
         },
@@ -1141,7 +1213,7 @@
           "source": "user"
         }
       ],
-      "sha256": "9dd8d4f472c91373bb9f728d59dc75dfa07e6c91131049531b115f71d5d04916"
+      "sha256": "6cb8c4c8ef6d7db728f0e1352a80613d2fd4d0de0bdf4ff0676d617c37d07d6e"
     },
     {
       "bindings": [],

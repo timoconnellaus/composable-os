@@ -6,13 +6,19 @@
       "audiences": ["staff", "customer", "public"],
       "risk": "read",
       "hostInternal": true,
-      "toolOnly": true
+      "toolOnly": true,
+      "perAddress": {
+        "tier": "read"
+      }
     },
     {
       "name": "agreement.guestVersions",
       "audiences": ["customer", "public"],
       "risk": "read",
-      "hostInternal": true
+      "hostInternal": true,
+      "perAddress": {
+        "tier": "read"
+      }
     },
     {
       "name": "allowance.get",
@@ -29,86 +35,126 @@
     {
       "name": "capacity.get",
       "audiences": ["staff", "customer", "public"],
-      "risk": "read"
+      "risk": "read",
+      "perAddress": {
+        "tier": "read"
+      }
     },
     {
       "name": "contact.stop",
       "audiences": ["customer", "public"],
       "risk": "write",
-      "hostInternal": true
+      "hostInternal": true,
+      "perAddress": {
+        "tier": "write",
+        "addressCounts": "invalid"
+      }
     },
     {
       "name": "content.get",
       "audiences": ["staff", "customer", "public"],
       "risk": "read",
-      "hostInternal": true
+      "hostInternal": true,
+      "perAddress": {
+        "tier": "read"
+      }
     },
     {
       "name": "content.list",
       "audiences": ["staff", "customer", "public"],
       "risk": "read",
-      "hostInternal": true
+      "hostInternal": true,
+      "perAddress": {
+        "tier": "read"
+      }
     },
     {
       "name": "content.preview",
       "audiences": ["staff", "customer", "public"],
       "risk": "read",
-      "hostInternal": true
+      "hostInternal": true,
+      "perAddress": {
+        "tier": "read"
+      }
     },
     {
       "name": "content.search",
       "audiences": ["staff", "customer", "public"],
       "risk": "read",
-      "hostInternal": true
+      "hostInternal": true,
+      "perAddress": {
+        "tier": "read"
+      }
     },
     {
       "name": "desk.accept",
       "audiences": ["public"],
       "risk": "write",
       "hostInternal": true,
-      "deskOnly": true
+      "deskOnly": true,
+      "perAddress": {
+        "tier": "write"
+      }
     },
     {
       "name": "desk.claim",
       "audiences": ["public"],
       "risk": "write",
       "hostInternal": true,
-      "deskOnly": true
+      "deskOnly": true,
+      "perAddress": {
+        "tier": "write"
+      }
     },
     {
       "name": "desk.documents",
       "audiences": ["public"],
       "risk": "write",
       "hostInternal": true,
-      "deskOnly": true
+      "deskOnly": true,
+      "perAddress": {
+        "tier": "write"
+      }
     },
     {
       "name": "desk.finish",
       "audiences": ["public"],
       "risk": "write",
       "hostInternal": true,
-      "deskOnly": true
+      "deskOnly": true,
+      "perAddress": {
+        "tier": "write"
+      }
     },
     {
       "name": "desk.heartbeat",
       "audiences": ["public"],
       "risk": "write",
       "hostInternal": true,
-      "deskOnly": true
+      "deskOnly": true,
+      "perAddress": {
+        "tier": "write"
+      }
     },
     {
       "name": "desk.status",
       "audiences": ["public"],
       "risk": "read",
       "hostInternal": true,
-      "deskOnly": true
+      "deskOnly": true,
+      "perAddress": {
+        "tier": "read"
+      }
     },
     {
       "name": "device.claim",
       "audiences": ["public"],
       "risk": "write",
       "hostInternal": true,
-      "deskOnly": true
+      "deskOnly": true,
+      "perAddress": {
+        "tier": "write"
+      }
     },
     {
       "name": "device.heartbeat",
@@ -119,21 +165,37 @@
       "name": "discount.check",
       "audiences": ["staff", "customer", "public"],
       "risk": "read",
-      "hostInternal": true
+      "hostInternal": true,
+      "perAddress": {
+        "tier": "read",
+        "perCaller": {},
+        "group": "code",
+        "guesses": "code"
+      }
     },
     {
       "name": "intake.open",
       "audiences": ["staff", "customer", "public"],
       "risk": "read",
       "hostInternal": true,
-      "toolOnly": true
+      "toolOnly": true,
+      "perAddress": {
+        "tier": "read"
+      }
     },
     {
       "name": "intake.submit",
       "audiences": ["staff", "customer", "public"],
       "risk": "write",
       "hostInternal": true,
-      "toolOnly": true
+      "toolOnly": true,
+      "perAddress": {
+        "tier": "write",
+        "perCaller": {
+          "by": "link"
+        },
+        "group": "intake.submit"
+      }
     },
     {
       "name": "me.agreements.accept",
@@ -304,13 +366,19 @@
       "name": "media.play",
       "audiences": ["staff", "customer", "public"],
       "risk": "read",
-      "hostInternal": true
+      "hostInternal": true,
+      "perAddress": {
+        "tier": "asset"
+      }
     },
     {
       "name": "media.serve",
       "audiences": ["staff", "customer", "public"],
       "risk": "read",
-      "hostInternal": true
+      "hostInternal": true,
+      "perAddress": {
+        "tier": "asset"
+      }
     },
     {
       "name": "my.create",
@@ -344,7 +412,15 @@
       "name": "order.applyCode",
       "audiences": ["staff", "customer", "public"],
       "risk": "write",
-      "hostInternal": true
+      "hostInternal": true,
+      "perAddress": {
+        "tier": "write",
+        "perCaller": {
+          "by": "id"
+        },
+        "group": "code",
+        "guesses": "code"
+      }
     },
     {
       "name": "order.cancel",
@@ -356,13 +432,23 @@
       "name": "order.checkout",
       "audiences": ["staff", "customer", "public"],
       "risk": "write",
-      "hostInternal": true
+      "hostInternal": true,
+      "perAddress": {
+        "tier": "write",
+        "perCaller": {
+          "by": "id"
+        },
+        "group": "order.checkout"
+      }
     },
     {
       "name": "order.delivery.get",
       "audiences": ["staff", "customer", "public"],
       "risk": "read",
-      "hostInternal": true
+      "hostInternal": true,
+      "perAddress": {
+        "tier": "read"
+      }
     },
     {
       "name": "order.get",
@@ -373,32 +459,54 @@
       "name": "order.quote",
       "audiences": ["staff", "customer", "public"],
       "risk": "read",
-      "hostInternal": true
+      "hostInternal": true,
+      "perAddress": {
+        "tier": "read",
+        "guesses": "code"
+      }
     },
     {
       "name": "order.removeCode",
       "audiences": ["staff", "customer", "public"],
       "risk": "write",
-      "hostInternal": true
+      "hostInternal": true,
+      "perAddress": {
+        "tier": "write"
+      }
     },
     {
       "name": "order.start",
       "audiences": ["staff", "customer", "public"],
       "risk": "write",
-      "hostInternal": true
+      "hostInternal": true,
+      "perAddress": {
+        "tier": "write",
+        "perCaller": {},
+        "group": "order.start",
+        "guesses": "code"
+      }
     },
     {
       "name": "order.startHeld",
       "audiences": ["staff", "customer", "public"],
       "risk": "write",
       "hostInternal": true,
-      "toolOnly": true
+      "toolOnly": true,
+      "perAddress": {
+        "tier": "write",
+        "perCaller": {},
+        "group": "order.start",
+        "guesses": "code"
+      }
     },
     {
       "name": "order.view",
       "audiences": ["staff", "customer", "public"],
       "risk": "read",
-      "hostInternal": true
+      "hostInternal": true,
+      "perAddress": {
+        "tier": "read"
+      }
     },
     {
       "name": "practitioner.me",
@@ -410,20 +518,29 @@
       "name": "public.get",
       "audiences": ["customer", "public"],
       "risk": "read",
-      "toolOnly": true
+      "toolOnly": true,
+      "perAddress": {
+        "tier": "read"
+      }
     },
     {
       "name": "public.list",
       "audiences": ["customer", "public"],
       "risk": "read",
-      "toolOnly": true
+      "toolOnly": true,
+      "perAddress": {
+        "tier": "read"
+      }
     },
     {
       "name": "staffing.free",
       "audiences": ["staff", "customer", "public"],
       "risk": "read",
       "hostInternal": true,
-      "toolOnly": true
+      "toolOnly": true,
+      "perAddress": {
+        "tier": "read"
+      }
     },
     {
       "name": "state.resolve",
@@ -435,7 +552,10 @@
     {
       "name": "stock.get",
       "audiences": ["staff", "customer", "public"],
-      "risk": "read"
+      "risk": "read",
+      "perAddress": {
+        "tier": "read"
+      }
     },
     {
       "name": "subscription.cancel",
@@ -493,7 +613,12 @@
       "name": "subscription.start",
       "audiences": ["staff", "customer", "public"],
       "risk": "write",
-      "hostInternal": true
+      "hostInternal": true,
+      "perAddress": {
+        "tier": "write",
+        "perCaller": {},
+        "group": "subscription.start"
+      }
     },
     {
       "name": "waitlist.position",
@@ -511,6 +636,9 @@
       "name": "x.bookings.buy",
       "audiences": ["customer", "public"],
       "risk": "write",
+      "perAddress": {
+        "tier": "write"
+      },
       "pack": "bookings"
     },
     {
@@ -523,6 +651,9 @@
       "name": "x.bookings.classGet",
       "audiences": ["customer", "public"],
       "risk": "read",
+      "perAddress": {
+        "tier": "read"
+      },
       "pack": "bookings"
     },
     {
@@ -547,30 +678,45 @@
       "name": "x.bookings.timetable",
       "audiences": ["customer", "public"],
       "risk": "read",
+      "perAddress": {
+        "tier": "read"
+      },
       "pack": "bookings"
     },
     {
       "name": "x.content.categories",
       "audiences": ["staff", "customer", "public"],
       "risk": "read",
+      "perAddress": {
+        "tier": "read"
+      },
       "pack": "content"
     },
     {
       "name": "x.courses.buy",
       "audiences": ["customer", "public"],
       "risk": "write",
+      "perAddress": {
+        "tier": "write"
+      },
       "pack": "courses"
     },
     {
       "name": "x.courses.catalogue",
       "audiences": ["customer", "public"],
       "risk": "read",
+      "perAddress": {
+        "tier": "read"
+      },
       "pack": "courses"
     },
     {
       "name": "x.courses.course",
       "audiences": ["customer", "public"],
       "risk": "read",
+      "perAddress": {
+        "tier": "read"
+      },
       "pack": "courses"
     },
     {
@@ -589,6 +735,9 @@
       "name": "x.courses.plans",
       "audiences": ["customer", "public"],
       "risk": "read",
+      "perAddress": {
+        "tier": "read"
+      },
       "pack": "courses"
     },
     {
@@ -607,6 +756,9 @@
       "name": "x.forms.form",
       "audiences": ["customer", "public"],
       "risk": "read",
+      "perAddress": {
+        "tier": "read"
+      },
       "pack": "forms"
     },
     {
@@ -619,6 +771,9 @@
       "name": "x.forms.submit",
       "audiences": ["customer", "public"],
       "risk": "write",
+      "perAddress": {
+        "tier": "write"
+      },
       "pack": "forms"
     },
     {
@@ -631,12 +786,18 @@
       "name": "x.knowledge.helpTopics",
       "audiences": ["staff", "customer", "public"],
       "risk": "read",
+      "perAddress": {
+        "tier": "read"
+      },
       "pack": "knowledge"
     },
     {
       "name": "x.memberships.buy",
       "audiences": ["customer", "public"],
       "risk": "write",
+      "perAddress": {
+        "tier": "write"
+      },
       "pack": "memberships"
     },
     {
@@ -649,12 +810,18 @@
       "name": "x.memberships.passTypes",
       "audiences": ["customer", "public"],
       "risk": "read",
+      "perAddress": {
+        "tier": "read"
+      },
       "pack": "memberships"
     },
     {
       "name": "x.memberships.plans",
       "audiences": ["customer", "public"],
       "risk": "read",
+      "perAddress": {
+        "tier": "read"
+      },
       "pack": "memberships"
     },
     {
@@ -715,6 +882,9 @@
       "name": "x.ticketing.eventsOnSale",
       "audiences": ["customer", "public"],
       "risk": "read",
+      "perAddress": {
+        "tier": "read"
+      },
       "pack": "ticketing"
     },
     {
@@ -727,6 +897,9 @@
       "name": "x.ticketing.orderStart",
       "audiences": ["customer", "public"],
       "risk": "write",
+      "perAddress": {
+        "tier": "write"
+      },
       "pack": "ticketing"
     }
   ]

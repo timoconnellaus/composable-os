@@ -23,19 +23,24 @@
 //
 // A code that does not apply gets one answer whatever the reason (unknown, not live, outside its
 // dates, used up, not for this buyer, not for these lines): the reason is kept for staff only.
+
 import type { CoreDatabase } from "@composable-os/db";
+import { foldCode } from "@composable-os/sdk";
 import { type Kysely, sql } from "kysely";
 import { samePeople } from "../customers/accounts.ts";
 import { getObject, listObjects } from "../fields/index.ts";
 import type { DiscountDefinition, ObjectDefinition } from "../fields/types.ts";
+import type { Guesses } from "../guesses.ts";
 import { percentOff } from "../orders/adjustments.ts";
 import { loadMinCharge, toMinorUnits } from "../orders/settings.ts";
 import { splitInProportion } from "../orders/tax.ts";
 import { viewColumnOf } from "../records/columns.ts";
 import { type AnyRow, orgReader, visibleSource } from "../visibility/index.ts";
+import { possibleCode } from "./words.ts";
 
-/** The longest code a caller may type. */
-export const CODE_MAX_LENGTH = 64;
+/** The longest code a caller may type (the SDK's, one for the host and packs). */
+export { CODE_MAX_LENGTH } from "@composable-os/sdk";
+
 /** How many automatic discounts of one object are weighed for one order, and codes matched. */
 const CANDIDATES_PER_OBJECT = 25;
 const CODES_MATCHED = 5;
@@ -103,9 +108,9 @@ export interface DealOutcome {
 /** The one answer a caller outside the org gets for a code that does not apply. */
 export const CODE_NOT_VALID = "This code is not valid here";
 
-/** A code as compared: trimmed, without case. */
+/** A code as compared and kept (ADR 0940): `foldCode`, so non-ASCII letters match too. */
 export function normaliseCode(code: string): string {
-  return code.trim().toLowerCase();
+  return foldCode(code);
 }
 
 /** Every object declaring the discount behaviour. */
@@ -511,7 +516,8 @@ interface CodeMatch {
 /** The discounts a typed code names: a discount's own word, or a code record's. */
 async function codeMatches(db: Kysely<CoreDatabase>, typed: string): Promise<CodeMatch[]> {
   const word = normaliseCode(typed);
-  if (!word) return [];
+  // Words are kept folded and at least CODE_MIN_LENGTH long (words.ts): nothing else is one.
+  if (!possibleCode(word)) return [];
   const matches: CodeMatch[] = [];
   for (const object of discountObjects()) {
     const declared = object.discount;
@@ -520,7 +526,8 @@ async function codeMatches(db: Kysely<CoreDatabase>, typed: string): Promise<Cod
       const rows = (await any(db)
         .selectFrom(visibleSource(orgReader(db), object))
         .selectAll()
-        .where(sql`lower(trim(${sql.ref(own)}))`, "=", word)
+        // By the reconciler's unique index on the live records' folded words: no scan.
+        .where(own, "=", word)
         .orderBy("id")
         .limit(CODES_MATCHED)
         .execute()) as AnyRow[];
@@ -540,7 +547,7 @@ async function codeMatches(db: Kysely<CoreDatabase>, typed: string): Promise<Cod
     const rows = (await any(db)
       .selectFrom(visibleSource(orgReader(db), codeObject))
       .selectAll()
-      .where(sql`lower(trim(${sql.ref(wordCol)}))`, "=", word)
+      .where(wordCol, "=", word)
       .orderBy("id")
       .limit(CODES_MATCHED)
       .execute()) as AnyRow[];
@@ -581,7 +588,32 @@ export async function workOutDeal(
   code: string | undefined,
   now: string,
   currency: string,
-  options: { excludeOrderId?: string | undefined } = {},
+  options: {
+    excludeOrderId?: string | undefined;
+    /**
+     * On a call from outside the org (ADR 0940): checked (and the guess reserved) before a code
+     * is looked at, so the right code is refused too once this caller gave too many wrong ones.
+     */
+    guesses?: Guesses | undefined;
+  } = {},
+): Promise<DealOutcome> {
+  if (code !== undefined) await options.guesses?.check();
+  const outcome = await dealFor(db, lines, buyer, code, now, currency, options);
+  if (outcome.code.given) {
+    // The guess was reserved by check(): a right code gives it back, a wrong one keeps it.
+    await (outcome.code.valid ? options.guesses?.right() : options.guesses?.wrong());
+  }
+  return outcome;
+}
+
+async function dealFor(
+  db: Kysely<CoreDatabase>,
+  lines: readonly DealLine[],
+  buyer: DealBuyer,
+  code: string | undefined,
+  now: string,
+  currency: string,
+  options: { excludeOrderId?: string | undefined },
 ): Promise<DealOutcome> {
   if (!discountObjects().length) {
     return {
