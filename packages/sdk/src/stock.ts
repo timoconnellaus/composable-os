@@ -51,8 +51,8 @@ export type StockMovementKind = (typeof STOCK_MOVEMENT_KINDS)[number];
  * - `notify` is one of this extension's tool permissions: when a write takes a record's on hand to
  *   or below its reorder level, the staff who hold it are told, once until it rises above again
  *   (ADR 0681). Without it, the admins are told. It needs `reorderAt`.
- * - The object is sellable, or the object a `stockMoves` of this extension moves (a part nobody
- *   sells still has stock).
+ * - The object is sellable goods (`sellable.goods`, ADR 0682), or the object a `stockMoves` of
+ *   this extension moves (a part nobody sells still has stock).
  *
  * An object with stock is not also a capacity (its counter is the stock's), and is not bought by
  * deposit, by subscription or by moving a record (`sellable.deposit`, `recurring`, `moves`).
@@ -143,10 +143,17 @@ export function checkObjectStock(
   const moved = Object.values(m.objects).some(
     (other) => other.stockMoves && relationTarget(m, other, other.stockMoves.on) === name,
   );
+  if (sellable && !sellable.goods) {
+    // A thing in stock that is sold is goods (ADR 0682): its orders have a channel and a delivery.
+    contract(
+      `objects.${name}.sellable.goods`,
+      `${name} has stock and is sold: declare sellable.goods (where it is sold)`,
+    );
+  }
   if (!sellable && !moved) {
     contract(
       path,
-      `${name} has stock but is neither sellable nor moved by a stockMoves of this extension`,
+      `${name} has stock but is neither sellable goods nor moved by a stockMoves of this extension`,
     );
   }
 }
