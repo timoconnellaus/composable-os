@@ -78,7 +78,9 @@ questions at the end refine later steps and block none of the first ones.
   of a count's apply with its lines both ways; a line cannot be restored under an applied count; a
   crossing is marked told (it outlives the notices' purge); a fixed role is told only of objects
   it reads. Left: steps 3 to 14.
-- **Step 3, goods, delivery and `order.quote`** (`feat/stage-37-goods-delivery`; migration 0932,
+
+- **Step 3** — in progress — branch `feat/stage-37-goods-delivery` — Goods and delivery, and
+  `order.quote` (migration 0932,
   ADRs 0682, 0683 and 0685, which amend ADRs 0428, 0435 and 0479): the SDK declarations
   `sellable.goods: { soldIn? }` (a select of `online`, `in_person`, `both`, through the item's
   relation; empty is both) and `sellable.delivery: { kind, freeOver?, countries?, active? }` and
@@ -105,10 +107,6 @@ questions at the end refine later steps and block none of the first ones.
   `order.quote`'s statements are bounded by `priceLines`' per-line reads (at most three a line,
   under 250 at 50 lines), not constant. Not tried for real: the provider's tax by the delivery
   address (only the gatekeeper's test double), a basket block. Left: steps 4 to 14.
-
-- **Step 3** — in progress — branch `feat/stage-37-goods-delivery` — Goods and delivery:
-  `sellable.goods` with `soldIn`, `sellable.delivery`, `core_order_delivery`, postage,
-  `order.quote`
 
 - **Step 4** — not built — needs: step 1, step 3 — Returns and line refunds (`order.return`)
 
