@@ -27,3 +27,6 @@ Stage 64 ([ADR 0910](0910-locations-a-base-record-inside-the-one-organisation.md
 **locations**: the places one organisation works from (a gym's second studio), as a base record
 inside it. A location is never a tenant: nothing is keyed by it, and the deployment stays the
 isolation boundary. Separately owned businesses that share a brand are still separate deployments.
+
+> Note, 2026-11-26 ([ADR 0950](0950-two-targets-cloudflare-and-aws.md)): a deployment may also run on
+> AWS, a second target. What this record says about Cloudflare stands for the Cloudflare target.

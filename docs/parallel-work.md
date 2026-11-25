@@ -91,6 +91,7 @@ here is what made parallel PRs conflict.
 | CA | 1410–1429 | 0920–0929 | Stage 65, Booking system connection (spec `docs/stages/65-booking-system-connection.md`): migrations 1410 and 1411, ADRs 0920 to 0925 named in the spec | specced |
 | CB | — | 0930–0939 | The docs site (`apps/docs`, `feat/docs-site`): ADR 0930; no migrations | in flight |
 | CC | 1450–1469 | 0940–0949 | A rate limit for public operations (`feat/public-rate-limit`): the per-client-address limit, the visitor's address through the client-app binding, wrong guesses counted, promo codes looked up by index | in flight |
+| CD | 1470–1489 | 0950–0959 | A second target, AWS (specs `docs/stages/67-postgres.md` to `74-live-screens.md`, `docs/aws-target`): ADR 0950 written; the stages' build steps take the block's other ADRs and its migrations | specced |
 
 **`core_write_guard` remakes come in order.** Each kind added drops and recreates the table and its
 trigger, carrying every earlier kind. Stage 44 step 2's remake (migration 0851, kind `agreements`)
