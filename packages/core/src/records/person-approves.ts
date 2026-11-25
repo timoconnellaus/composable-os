@@ -6,10 +6,13 @@
 // is the change being made by a person.
 //
 // The same holds for a merge of People where either has a live family link (ADR 0540): who may act
-// for whom is identity, and a merge moves, ends or deletes links.
+// for whom is identity, and a merge moves, ends or deletes links; and for any change to a discount
+// in a state it applies in (ADR 0693): what buyers are charged is a person's to change.
 import type { CoreDatabase } from "@composable-os/db";
 import type { Kysely } from "kysely";
 import { getObject, listObjects } from "../fields/index.ts";
+import { orgReader, visibleSource } from "../visibility/index.ts";
+import { viewColumnOf } from "./columns.ts";
 import { hasLiveLink } from "./person-links.ts";
 
 type Values = Record<string, unknown>;
@@ -27,6 +30,32 @@ function setsPersonApproves(object: unknown, values: unknown): boolean {
   );
 }
 
+/**
+ * Whether the record is a discount in a state it applies in (ADR 0693): its terms are what buyers
+ * are charged, so a change to it by anyone but a person (loosening a limit, raising what it takes
+ * off) waits for a person, as moving it live does.
+ */
+async function isLiveDiscount(
+  db: Kysely<CoreDatabase>,
+  object: unknown,
+  id: unknown,
+): Promise<boolean> {
+  if (typeof object !== "string" || typeof id !== "string") return false;
+  const definition = getObject(object);
+  const stateField = definition?.states?.field;
+  if (!definition?.discount || !stateField) return false;
+  const field = definition.fields.find((f) => f.name === stateField);
+  const column = field ? viewColumnOf(field) : null;
+  if (!column) return false;
+  // biome-ignore lint/suspicious/noExplicitAny: the source is a registry-driven view, not a key of the typed schema.
+  const row = (await (db as Kysely<any>)
+    .selectFrom(visibleSource(orgReader(db), definition))
+    .select(`${column} as state`)
+    .where("id", "=", id)
+    .executeTakeFirst()) as { state?: unknown } | undefined;
+  return definition.discount.live.includes(String(row?.state ?? ""));
+}
+
 /** The fields of `object` a recurring series copies onto it (ADR 0500's `copy` targets). */
 function copiedFieldsOf(object: string): string[] {
   return listObjects().flatMap((o) =>
@@ -42,8 +71,12 @@ export async function touchesPersonApproves(
 ): Promise<boolean> {
   if (!isValues(input)) return false;
   switch (operation) {
-    case "record.create":
     case "record.update":
+      return (
+        setsPersonApproves(input.object, input.values) ||
+        (await isLiveDiscount(db, input.object, input.id))
+      );
+    case "record.create":
     case "recurring.change":
     case "recurring.close":
       return setsPersonApproves(input.object, input.values);

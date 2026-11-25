@@ -300,6 +300,15 @@ export function toOperationError(error: unknown): OperationError {
       { rule: "once_per_person", reason: "held" },
     );
   }
+  // A discount's use past its limit (migration 0953, ADR 0693): another order took the last use
+  // a moment before. Nothing of this one was recorded. The same answer as a code used up when it
+  // was read, so a race tells a caller nothing a read would not.
+  if (message.includes("core_discount_use_limit")) {
+    return new ValidationError("This code is not valid here", {
+      rule: "code_not_valid",
+      field: "code",
+    });
+  }
   // Two events for one subscription granting at once (migration 0580, ADR 0510): the other one
   // granted it. Nothing of this one was applied; the provider delivers it again.
   if (message.includes("UNIQUE constraint failed: core_subscription_grant")) {

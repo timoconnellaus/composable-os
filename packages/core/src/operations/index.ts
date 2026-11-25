@@ -39,6 +39,7 @@ import { customerSettingsOperations } from "./customer-settings.ts";
 import { dashboardOperations } from "./dashboard.ts";
 import { deviceOperations } from "./device.ts";
 import { deviceSessionOperations } from "./device-session.ts";
+import { discountOperations } from "./discount.ts";
 import { duplicateOperations } from "./duplicate.ts";
 import { enrichmentOperations } from "./enrichment.ts";
 import { eraseRequestOperations } from "./erase-request.ts";
@@ -213,6 +214,7 @@ export const coreOperations = [
   ...carerOperations,
   ...personCodeOperations,
   ...orderOperations,
+  ...discountOperations,
   ...subscriptionOperations,
   ...subscriptionOfferOperations,
   ...myOperations,

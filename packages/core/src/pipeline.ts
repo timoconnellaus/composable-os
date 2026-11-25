@@ -2120,6 +2120,14 @@ function outsideError(error: unknown): OperationError {
   ) {
     return typed;
   }
+  // A discount's last use taken by another order a moment before (migration 0953, ADR 0693): the
+  // one answer a code that does not apply gets, whatever the reason.
+  if (
+    typed.code === "invalid_input" &&
+    (typed.details as { rule?: unknown })?.rule === "code_not_valid"
+  ) {
+    return typed;
+  }
   // The same for a continuation offer's page (migration 0532, ADR 0491): the caller's own offer.
   const offerRule = (typed.details as { rule?: unknown })?.rule;
   if (typed.code === "conflict" && (offerRule === "offer_held" || offerRule === "offer_changed")) {
