@@ -325,6 +325,14 @@ export type Operations = {
     output: { url: string; amount: number; currency: string; kind: ("full") | ("deposit") | ("balance") | ("part"); expiresAt: (string) | (null) };
   };
   /**
+   * How one order's goods get to the buyer: the delivery option chosen, its kind (post, collect, or here: taken now in person), whether the order is online or in person, and for a post delivery the address. One order at a time: addresses are in no list, view, export or search. Staff read any order's (each read is on record in the audit log); a signed-in customer their own; a guest with the order's token. An order without goods has none (not found). Read-only.
+   */
+  "order.delivery.get": {
+    kind: "query";
+    input: { id: string; token?: string };
+    output: { orderId: string; channel: (("online") | ("in_person")) | (null); kind: ("post") | ("collect") | ("here"); lineId: string; option: { object: string; recordId: string; title: string }; address: ({ name: string; line1: string; line2: (string) | (null); city: (string) | (null); region: (string) | (null); postcode: (string) | (null); country: string }) | (null); erased: boolean };
+  };
+  /**
    * Get one order with its lines: its state, amounts (in the currency's minor unit), what has been paid, the balance and when it is due. A signed-in customer gets their own orders only; anyone else's is not found. Read-only.
    */
   "order.get": {
@@ -333,11 +341,19 @@ export type Operations = {
     output: { id: string; state: ("pending") | ("part_paid") | ("paid") | ("cancelled") | ("expired") | ("refunded"); currency: string; total: number; paid: number; balance: number; refunded: number; pay: ("full") | ("deposit"); deposit: (number) | (null); balanceDueAt: (string) | (null); expiresAt: (string) | (null); paidAt: (string) | (null); createdAt: string; taxAmount: number; taxRefunded: number; taxCountry: (string) | (null); discount: number; lines: { id: string; position: number; object: string; recordId: string; title: string; quantity: number; unitPrice: number; total: number; taxAmount: number; discount: number }[]; adjustments?: ({ id: string; lineId: (string) | (null); kind: ("code") | ("automatic") | ("staff") | ("referral"); amount: number; percent: (number) | (null); reason: (string) | (null); givenBy: (string) | (null); approval: (string) | (null); createdAt: string })[]; personId?: (string) | (null); email?: (string) | (null); placedAs?: ("customer") | ("public") | ("staff") };
   };
   /**
-   * Start an order for one or more records that are for sale, as a signed-in customer, a guest (with an email address) or staff. The host prices it from the records: a caller never sends a price or a total. The order starts pending and is not paid: paying happens on the payment provider's page (order.checkout), and only the provider's confirmation marks it paid. An unpaid order expires after a few minutes. Nobody buys without the agreements the business needs for what is bought: refused with rule agreements_due and the documents while any is due (a guest passes their acceptances in `agreements`; a signed-in customer agrees first; staff send a link, sign at the desk or record paper). Returns the order with its lines and amounts in the currency's minor unit; a guest also gets `token`, shown once, which is the only way back to the order (order.view).
+   * Price a basket without starting an order: the host's price of each line, the delivery (its postage, nothing when the goods reach the option's free-over amount), the total and what is available, exactly as order.start would charge. Holds nothing and writes nothing: stock is held only once an order is started. Refuses what order.start refuses (not for sale, not sold that way, an address outside the option's countries) and reports, in `problems`, what the buyer still has to do (choose a delivery, give an address) and what is sold out or short; `ready` is true when none is left. Amounts are in the currency's minor unit. Read-only.
+   */
+  "order.quote": {
+    kind: "query";
+    input: { lines: { object: string; id: string; quantity?: number }[]; delivery?: { object: string; id: string; address?: { name: string; line1: string; line2?: string; city?: string; region?: string; postcode?: string; country: string } } };
+    output: { currency: string; channel: (("online") | ("in_person")) | (null); lines: ({ position: number; object: string; recordId: string; title: string; quantity: number; unitPrice: number; total: number; goods: boolean; availability: ({ status: ("in_stock") | ("low") | ("sold_out"); available?: number; onHand?: number; held?: number }) | (null) })[]; delivery: ({ object: string; recordId: string; title: string; kind: ("post") | ("collect") | ("here"); price: number; freeOver: (number) | (null); free: boolean; charged: number }) | (null); goodsTotal: number; total: number; ready: boolean; problems: ({ rule: ("delivery_needed") | ("address_needed") | ("sold_out") | ("not_enough"); message: string; line?: number })[] };
+  };
+  /**
+   * Start an order for one or more records that are for sale, as a signed-in customer, a guest (with an email address) or staff. The host prices it from the records: a caller never sends a price or a total. The order starts pending and is not paid: paying happens on the payment provider's page (order.checkout), and only the provider's confirmation marks it paid. An unpaid order expires after a few minutes. Nobody buys without the agreements the business needs for what is bought: refused with rule agreements_due and the documents while any is due (a guest passes their acceptances in `agreements`; a signed-in customer agrees first; staff send a link, sign at the desk or record paper). Goods (things posted, collected or taken now) need a `delivery`: the host adds it as the last line, priced by the host, and refuses goods not sold that way (rule not_sold_here), a post delivery with no address or one outside the option's countries, and what is sold out. order.quote gives the same prices without starting anything. Returns the order with its lines and amounts in the currency's minor unit; a guest also gets `token`, shown once, which is the only way back to the order (order.view).
    */
   "order.start": {
     kind: "mutation";
-    input: { lines: { object: string; id: string; quantity?: number }[]; pay?: ("full") | ("deposit"); email?: string; agreements?: { versionId: string; typedName: string; signature?: { width: 1000; height: 400; strokes: [number, number][][] }; answers?: { key: string; yes: boolean; note?: string }[] }[] };
+    input: { lines: { object: string; id: string; quantity?: number }[]; pay?: ("full") | ("deposit"); email?: string; agreements?: { versionId: string; typedName: string; signature?: { width: 1000; height: 400; strokes: [number, number][][] }; answers?: { key: string; yes: boolean; note?: string }[] }[]; delivery?: { object: string; id: string; address?: { name: string; line1: string; line2?: string; city?: string; region?: string; postcode?: string; country: string } } };
     output: { id: string; state: ("pending") | ("part_paid") | ("paid") | ("cancelled") | ("expired") | ("refunded"); currency: string; total: number; paid: number; balance: number; refunded: number; pay: ("full") | ("deposit"); deposit: (number) | (null); balanceDueAt: (string) | (null); expiresAt: (string) | (null); paidAt: (string) | (null); createdAt: string; taxAmount: number; taxRefunded: number; taxCountry: (string) | (null); discount: number; lines: { id: string; position: number; object: string; recordId: string; title: string; quantity: number; unitPrice: number; total: number; taxAmount: number; discount: number }[]; adjustments?: ({ id: string; lineId: (string) | (null); kind: ("code") | ("automatic") | ("staff") | ("referral"); amount: number; percent: (number) | (null); reason: (string) | (null); givenBy: (string) | (null); approval: (string) | (null); createdAt: string })[]; personId?: (string) | (null); email?: (string) | (null); placedAs?: ("customer") | ("public") | ("staff"); token: (string) | (null) };
   };
   /**
@@ -486,10 +502,12 @@ export const operations = {
   "media.serve": { kind: "query", invalidates: [] },
   "my.get": { kind: "query", invalidates: [] },
   "my.list": { kind: "query", invalidates: [] },
-  "order.cancel": { kind: "mutation", invalidates: ["order.get","order.view"] },
-  "order.checkout": { kind: "mutation", invalidates: ["order.get","order.view"] },
+  "order.cancel": { kind: "mutation", invalidates: ["order.delivery.get","order.get","order.quote","order.view"] },
+  "order.checkout": { kind: "mutation", invalidates: ["order.delivery.get","order.get","order.quote","order.view"] },
+  "order.delivery.get": { kind: "query", invalidates: [] },
   "order.get": { kind: "query", invalidates: [] },
-  "order.start": { kind: "mutation", invalidates: ["order.get","order.view"] },
+  "order.quote": { kind: "query", invalidates: [] },
+  "order.start": { kind: "mutation", invalidates: ["order.delivery.get","order.get","order.quote","order.view"] },
   "order.view": { kind: "query", invalidates: [] },
   "stock.get": { kind: "query", invalidates: [] },
   "subscription.cancel": { kind: "mutation", invalidates: ["subscription.coolingOff","subscription.get","subscription.list","subscription.offer.mine","subscription.portal"] },
