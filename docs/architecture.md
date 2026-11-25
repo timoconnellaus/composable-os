@@ -424,8 +424,24 @@ Stage 6a ([ADR 0110](adr/0110-integration-host-per-connection.md) to
   the month's limit in one statement on `core_text_spend` (past it, `over_limit`; admins told once
   a day, and at 80% once a month) and within its number's five a day; the minute cron hands ready
   texts over (one pool of 500 pending at the gatekeeper; a full pool leaves them ready). Verified
-  receipts settle a row `delivered` or `failed`; STOP and START, read at the gatekeeper, keep
-  `core_text_stop` (salted hashes, kept after erase).
+  receipts settle a row `delivered` or `failed`; STOP and START, read at the gatekeeper, keep the
+  number on the suppression list (`core_contact_suppression`: salted hashes, kept after erase).
+- **Consent to be contacted** ([ADR 0675](adr/0675-consent-to-be-contacted.md), stage 30 step
+  5): one register (`core_contact_choice`, append-only: the latest row per Person, channel and
+  scope is in force), one suppression list, and one question every sender asks at the moment of
+  sending, `contactDecision` (`packages/core/src/contact/`): the register for the kind and its
+  purpose (`account`, `follow_up`, `news_and_offers`, which needs a recorded yes and never goes to
+  a child), the suppression list, where it goes (an address, the textable number, a device), its
+  moment and quiet hours. A refusal is final: the row is `stopped`, never held for a person.
+  Routine messages ask it for each recipient and channel when a row is prepared and ask the
+  register again when an email or a text is claimed; Journeys and the inbox use the same. A
+  stoppable email (an optional kind's, a follow-up's) ends with the host's stop link
+  (`stopLink`: one Person, channel and scope, signed, no expiry, on the business's site) and, when
+  routine, carries it as `List-Unsubscribe` with one-click, which the email gatekeeper takes from
+  the host's routine mail only. The public `contact.stop` takes the token and can only turn that
+  scope off; the client web app's `/stop` route shows one button and posts it. Members change
+  their choices in My account's Contact preferences (`me.contact.*`); staff record a member's on
+  request or from paper (`person.contact.record`, a person only), never lifting a stop.
 - **Gatekeepers we wrote**: `gatekeeper-email-send`, `gatekeeper-slack-post`, `gatekeeper-webhook`,
   `gatekeeper-text` (texts, above).
   `gatekeeper-accounting` (stage 61, ADR 0880) is the **accounting contract** every accounting
