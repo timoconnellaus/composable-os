@@ -16880,6 +16880,19 @@
                               "type": "null"
                             }
                           ]
+                        },
+                        "contactBlocked": {
+                          "default": null,
+                          "anyOf": [
+                            {
+                              "type": "integer",
+                              "minimum": -9007199254740991,
+                              "maximum": 9007199254740991
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
                         }
                       },
                       "required": [
@@ -16895,7 +16908,8 @@
                         "actionKind",
                         "autoApprovable",
                         "implementsRevert",
-                        "check"
+                        "check",
+                        "contactBlocked"
                       ],
                       "additionalProperties": false
                     },
@@ -18064,6 +18078,19 @@
                                     "type": "null"
                                   }
                                 ]
+                              },
+                              "contactBlocked": {
+                                "default": null,
+                                "anyOf": [
+                                  {
+                                    "type": "integer",
+                                    "minimum": -9007199254740991,
+                                    "maximum": 9007199254740991
+                                  },
+                                  {
+                                    "type": "null"
+                                  }
+                                ]
                               }
                             },
                             "required": [
@@ -18079,7 +18106,8 @@
                               "actionKind",
                               "autoApprovable",
                               "implementsRevert",
-                              "check"
+                              "check",
+                              "contactBlocked"
                             ],
                             "additionalProperties": false
                           },

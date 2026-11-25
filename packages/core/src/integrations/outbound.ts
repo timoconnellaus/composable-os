@@ -4,11 +4,19 @@
 // `outbound` pending action in the caller's change set; approval later calls the facet's
 // `applyAction(n)` (approval.ts), in action order per facet. The gatekeeper journals and replays
 // the action itself, so nothing is re-run through the pipeline.
-import type { CrmDb } from "@composable-os/db";
-import type { Compilable } from "kysely";
+import type { CoreDatabase, CrmDb } from "@composable-os/db";
+import type { Compilable, Kysely } from "kysely";
 import { OUTBOUND_OPERATION } from "../approvals/describe.ts";
 import { addDays, DEFAULT_APPROVAL_EXPIRY_DAYS, targetChangeSet } from "../approvals/queue.ts";
-import type { PendingApproval } from "../errors.ts";
+import {
+  checkSend,
+  PURPOSE_REQUIRED_MESSAGE,
+  RECIPIENT_STOPPED_MESSAGE,
+  recipientsOfFields,
+  type SenderStanding,
+  type SendPurpose,
+} from "../contact/senders.ts";
+import { type PendingApproval, ValidationError } from "../errors.ts";
 import { evaluateGate, type GateDecision, type GateFloor } from "../gate.ts";
 import { findIds, findProvisionalIds, newId } from "../ids.ts";
 import {
@@ -82,6 +90,99 @@ export interface OutboundSubmission {
    * Anything else from that queue, a held one included, always waits for a person.
    */
   routineMail?: { routine: boolean; ordinary?: boolean } | undefined;
+  /**
+   * Consent to be contacted (ADR 0678): how the host checked a caller's message to people when it
+   * was submitted (`contactAtSubmit`), kept on a pending one so approving it asks again. Set only
+   * by the integration host.
+   */
+  contact?: OutboundContact | undefined;
+}
+
+/** How a caller's message to people was checked for consent (ADR 0678), and is asked again. */
+export interface OutboundContact {
+  channel: "email";
+  sender: SenderStanding;
+  purpose: SendPurpose | null;
+}
+
+/**
+ * Kinds whose recipients the consent check leaves alone: mail only to colleagues (every address
+ * at the business's own domains, as the gatekeeper decided it) and drafts, which send nothing.
+ */
+export const CONTACT_EXEMPT_KINDS: ReadonlySet<string> = new Set([
+  "email.internal",
+  "fake.internal",
+  "draftCreate",
+  "draftUpdate",
+  "draftDelete",
+  "outlook.drafts",
+]);
+
+/**
+ * The consent check of a caller's outbound action as it is submitted (ADR 0678), at the one place
+ * every gatekeeper's send passes. Null when it sends nothing to anyone (or only to colleagues).
+ * A send whose recipients the queue's own `contactCheck` vouched for just now (the gatekeeper
+ * asked, dropped who may not be contacted and added the stop links) keeps that check's purpose;
+ * any other (a gatekeeper that did not ask) is checked here with no purpose, and refused when a
+ * recipient may not be contacted: thrown, so the gatekeeper queues nothing.
+ */
+export async function contactAtSubmit(
+  db: CrmDb,
+  input: {
+    description: OutboundDescription;
+    sender: SenderStanding;
+    /** The addresses the queue's `contactCheck` allowed in this session, with their purpose. */
+    vouched: ReadonlyMap<string, SendPurpose | null>;
+    at: string;
+  },
+): Promise<OutboundContact | null> {
+  const tag = input.description.actionKind?.tag;
+  if (tag && CONTACT_EXEMPT_KINDS.has(tag)) return null;
+  const recipients = recipientsOfFields(input.description.fields ?? []);
+  if (!recipients.length) return null;
+  const purposes = new Set(recipients.map((r) => input.vouched.get(r)));
+  const [purpose] = purposes;
+  if (
+    purposes.size === 1 &&
+    purpose !== undefined &&
+    recipients.every((r) => input.vouched.has(r))
+  ) {
+    return { channel: "email", sender: input.sender, purpose };
+  }
+  const answer = await checkSend(db.query, {
+    channel: "email",
+    recipients,
+    sender: input.sender,
+    purpose: null,
+    at: input.at,
+  });
+  if (answer.purposeRequired) throw new ValidationError(PURPOSE_REQUIRED_MESSAGE);
+  if (answer.dropped > 0) throw new ValidationError(RECIPIENT_STOPPED_MESSAGE);
+  return { channel: "email", sender: input.sender, purpose: null };
+}
+
+/**
+ * How many recipients of a waiting outbound action may not be contacted now (ADR 0678): asked
+ * when the approvals inbox shows it and again when a person approves it, so a stop taken while it
+ * waited holds. 0 for an action the host did not check at submit (not a message to people).
+ */
+export async function contactBlocked(
+  db: Kysely<CoreDatabase>,
+  input: Partial<OutboundInput>,
+  at: string,
+): Promise<number> {
+  const contact = input.contact;
+  if (!contact || !Array.isArray(input.fields)) return 0;
+  const recipients = recipientsOfFields(input.fields);
+  if (!recipients.length) return 0;
+  const answer = await checkSend(db, {
+    channel: contact.channel,
+    recipients,
+    sender: contact.sender,
+    purpose: contact.purpose,
+    at,
+  });
+  return answer.purposeRequired ? recipients.length : answer.dropped;
 }
 
 /**
@@ -155,6 +256,8 @@ export interface OutboundInput {
   autoApprovable: boolean;
   implementsRevert: boolean;
   descriptionIsComplete: boolean;
+  /** How the host checked it for consent at submit (ADR 0678); absent: not a message to people. */
+  contact?: OutboundContact;
 }
 
 /** Bounds what a gatekeeper can make us store (a description is untrusted input). */
@@ -188,6 +291,7 @@ export function outboundInput(s: OutboundSubmission): OutboundInput {
     autoApprovable: d.autoApprovable === true,
     implementsRevert: d.implementsRevert === true,
     descriptionIsComplete: d.descriptionIsComplete === true,
+    ...(s.contact ? { contact: s.contact } : {}),
   };
 }
 

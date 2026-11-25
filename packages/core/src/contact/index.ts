@@ -43,16 +43,42 @@ export {
   valueProblem,
 } from "./register.ts";
 export {
+  checkSend,
+  isSendPurpose,
+  PURPOSE_REQUIRED,
+  PURPOSE_REQUIRED_MESSAGE,
+  RECIPIENT_STOPPED,
+  RECIPIENT_STOPPED_MESSAGE,
+  recipientsOfFields,
+  SEND_PURPOSES,
+  type SendAnswer,
+  type SenderStanding,
+  type SendPurpose,
+  type SendQuestion,
+  type SendRecipient,
+  STOP_LINK_NEEDS_SITE_MESSAGE,
+  type StoppableRecipient,
+  withStopLinks,
+} from "./senders.ts";
+export {
   readStopToken,
   STOP_PARAM,
   STOP_PATH,
   type StopScope,
   stopLink,
   stopToken,
+  stopTokens,
   stopUrl,
   tokenOfLink,
 } from "./stop.ts";
-export { addressHash, saltedHash, suppress, suppressed, unsuppress } from "./suppression.ts";
+export {
+  addressHash,
+  saltedHash,
+  suppress,
+  suppressed,
+  suppressedAmong,
+  unsuppress,
+} from "./suppression.ts";
 
 /**
  * A form's or a checkout's consent question (stage 29, orders), for host code only: the answer to

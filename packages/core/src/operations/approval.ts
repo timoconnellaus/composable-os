@@ -39,6 +39,7 @@ import {
 import { isProvisionalId, newId, replaceIds } from "../ids.ts";
 import {
   ACCOUNTING_VOID_KINDS,
+  contactBlocked,
   type OutboundInput,
   outboundAppliedAudit,
   READER_KINDS,
@@ -200,6 +201,13 @@ export const pendingActionSchema = z.object({
         })
         .nullable()
         .default(null),
+      /**
+       * Consent to be contacted (ADR 0678), for a pending message to people, asked as the inbox
+       * shows it: how many of its recipients may not be contacted now (a stop taken while it
+       * waited). Approving then sends nothing. Null when all may be, or for anyone but a human
+       * approver; never why.
+       */
+      contactBlocked: z.number().int().nullable().default(null),
     })
     .nullable(),
   /**
@@ -365,7 +373,8 @@ async function withVerdicts(
     ctx.db,
     actions.map((a) => a.id),
   );
-  return actions.map((a) => ({ ...a, adjudication: verdicts.get(a.id) ?? null }));
+  const contacted = await withContact(ctx.db, actions, ctx.now);
+  return contacted.map((a) => ({ ...a, adjudication: verdicts.get(a.id) ?? null }));
 }
 
 function outboundView(row: PendingRow): PendingActionView["outbound"] {
@@ -392,7 +401,32 @@ function outboundView(row: PendingRow): PendingActionView["outbound"] {
           lines: outboundCheckLines(check),
         }
       : null,
+    contactBlocked: null,
   };
+}
+
+/** Why an approved message to people was not sent (ADR 0678): the same words whatever the cause. */
+const CONTACT_BLOCKED_REASON =
+  "a recipient cannot be contacted this way, so nothing was sent (approving cannot override it)";
+
+/**
+ * For human approvers: each pending message to people says how many of its recipients may not be
+ * contacted now (ADR 0678), asked as it is shown.
+ */
+async function withContact(
+  db: Kysely<CoreDatabase>,
+  actions: PendingActionView[],
+  now: string,
+): Promise<PendingActionView[]> {
+  return Promise.all(
+    actions.map(async (a) => {
+      if (!a.outbound || a.status !== "pending") return a;
+      const input = a.input as Partial<OutboundInput>;
+      if (!input.contact) return a;
+      const blocked = await contactBlocked(db, input, now);
+      return blocked > 0 ? { ...a, outbound: { ...a.outbound, contactBlocked: blocked } } : a;
+    }),
+  );
 }
 
 async function loadActions(
@@ -1317,9 +1351,14 @@ async function approveActions(
       // A held routine message whose person stopped it (or whose address or number was
       // suppressed) while it waited (ADR 0675): nobody may approve around a stop. Skipped, and
       // dropped on its facet.
+      // Any other message to people (ADR 0678): a recipient who may not be contacted now (a stop
+      // taken while it waited) means it is not sent at all; approving cannot override it.
       const stopped =
         action.connection_id !== null
-          ? await stopHeldRoutineMessage(ctx.db, action.id, ctx.now)
+          ? ((await stopHeldRoutineMessage(ctx.db, action.id, ctx.now)) ??
+            ((await contactBlocked(ctx.db, parse(action.input, {}), ctx.now)) > 0
+              ? CONTACT_BLOCKED_REASON
+              : null))
           : null;
       if (stopped) {
         failed.add(action.id);

@@ -57,6 +57,35 @@ export async function stopToken(db: Db, scope: StopScope, now = new Date().toISO
   return token;
 }
 
+/** Rows per statement in `stopTokens`: five values each, and D1 binds at most 100. */
+const TOKENS_PER_STATEMENT = 18;
+
+/**
+ * Makes a token for each of `scopes` and keeps their hashes, in one statement per 18: what a
+ * send to many recipients asks for at once (ADR 0678). The tokens, in the order asked. Every
+ * Person must exist.
+ */
+export async function stopTokens(
+  db: Db,
+  scopes: readonly StopScope[],
+  now = new Date().toISOString(),
+): Promise<string[]> {
+  const tokens = scopes.map(() => base64url(crypto.getRandomValues(new Uint8Array(32))));
+  for (let i = 0; i < scopes.length; i += TOKENS_PER_STATEMENT) {
+    const rows = await Promise.all(
+      scopes.slice(i, i + TOKENS_PER_STATEMENT).map(async (scope, j) => ({
+        token_hash: await sha256Hex(tokens[i + j] as string),
+        person_id: scope.person,
+        channel: scope.channel,
+        scope: scope.scope,
+        created_at: now,
+      })),
+    );
+    await db.insertInto("core_contact_stop_token").values(rows).execute();
+  }
+  return tokens;
+}
+
 /** The stop link at a token on the business's site (`https://gym.example`). */
 export function stopUrl(siteOrigin: string, token: string): string {
   const url = new URL(STOP_PATH, siteOrigin);

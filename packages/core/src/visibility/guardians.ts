@@ -257,6 +257,50 @@ export async function hasLiveGuardian(
   return rows.length > 0;
 }
 
+/** Addresses per statement in `peopleAtAddresses`: D1 binds at most 100 values. */
+const ADDRESSES_PER_STATEMENT = 90;
+
+/** A live Person who holds an address, and whether they are a live dependant (a child). */
+export interface AddressHolder {
+  id: string;
+  child: boolean;
+}
+
+/**
+ * Who an address a message is sent to belongs to, for consent to be contacted (ADR 0678): by
+ * each address's folded form (ADR 0692: the `+tag` dropped, `foldAddress`), the live People with
+ * a live address of that form, and whether each has a live guardian. One statement per 90
+ * addresses, whatever the batch: the host asks it once for every recipient of a send.
+ */
+export async function peopleAtAddresses(
+  db: Kysely<CoreDatabase>,
+  folded: readonly string[],
+): Promise<Map<string, AddressHolder[]>> {
+  const out = new Map<string, AddressHolder[]>();
+  const all = [...new Set(folded)];
+  const e = sql.ref("e.email");
+  // The same expression as migration 0955's index (`foldedSql` in customers/accounts.ts).
+  const form = sql<string>`(CASE WHEN instr(${e}, '+') > 1 AND instr(${e}, '+') < instr(${e}, '@') THEN substr(${e}, 1, instr(${e}, '+') - 1) || substr(${e}, instr(${e}, '@')) ELSE ${e} END)`;
+  for (let i = 0; i < all.length; i += ADDRESSES_PER_STATEMENT) {
+    const chunk = all.slice(i, i + ADDRESSES_PER_STATEMENT);
+    const { rows } = await sql<{
+      folded: string;
+      id: string;
+      child: number;
+    }>`SELECT ${form} AS folded, p.id AS id, EXISTS (SELECT 1 FROM core_person_link l JOIN core_person g ON g.id = l.guardian_id AND g.deleted_at IS NULL WHERE l.dependant_id = p.id AND l.kind = ${GUARDIAN_LINK} AND l.ended_at IS NULL) AS child FROM core_person_emails e JOIN core_person p ON p.id = e.person_id AND p.deleted_at IS NULL WHERE e.live = 1 AND ${form} IN (${sql.join(chunk)})`.execute(
+      db,
+    );
+    for (const row of rows) {
+      const holders = out.get(row.folded) ?? [];
+      if (!holders.some((h) => h.id === row.id)) {
+        holders.push({ id: row.id, child: Number(row.child) === 1 });
+      }
+      out.set(row.folded, holders);
+    }
+  }
+  return out;
+}
+
 /**
  * The live Person a host-made link names now (a stop link, ADR 0675): itself, or the Person it
  * was merged into (followed a few hops); null for one erased, or in the Trash and not merged.
