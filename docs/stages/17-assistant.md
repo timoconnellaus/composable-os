@@ -584,9 +584,9 @@ One bullet per piece of the scope (W1 to W10), in the order of "Dependencies and
 
 - **Step W6** — built — PR #69 — A2UI cards, saved producers and the two-step approval card.
 
-- **Step W7** — not built — needs: step W4, step W5, step W6 — Plugins and the marketplace.
+- **Step W7** — superseded — dropped by the owner on 2026-11-25: it predates the platform, where packs and extensions are how capability is shipped; the paused branch `origin/stage-17-w7-plugins` is kept as reference; if the need returns, packs contribute assistant skills, with no marketplace — Plugins and the marketplace.
 
-- **Step W8** — not built — needs: step W5 — Connected assistants: no PR or code for it on main (no `agent.message` placement).
+- **Step W8** — superseded — dropped for now by the owner on 2026-11-25; nothing depends on it — Connected assistants: no PR or code for it on main (no `agent.message` placement).
 
 - **Step W9** — built — PR #68 — Voice and dictation.
 

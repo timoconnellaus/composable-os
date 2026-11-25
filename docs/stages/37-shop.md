@@ -79,7 +79,7 @@ questions at the end refine later steps and block none of the first ones.
   crossing is marked told (it outlives the notices' purge); a fixed role is told only of objects
   it reads. Left: steps 3 to 14.
 
-- **Step 3** — in progress — branch `feat/stage-37-goods-delivery` — Goods and delivery, and
+- **Step 3** — built — PR #450 — Goods and delivery, and
   `order.quote` (migration 0932,
   ADRs 0682, 0683 and 0685, which amend ADRs 0428, 0435 and 0479): the SDK declarations
   `sellable.goods: { soldIn? }` (a select of `online`, `in_person`, `both`, through the item's
