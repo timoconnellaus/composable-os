@@ -32,7 +32,7 @@ Web. The events on sale, and one event's details, for a site's events page (stag
 
 Web. A signed-in customer's tickets, for a site (stage 27). [The block](/reference/blocks/ticketing-my-tickets/).
 
-<img class="cos-screen" src="/screens/ticketing-my-tickets.png" alt="ticketing-my-tickets, drawn with dummy data" width="640" height="256" loading="lazy" decoding="async" />
+<img class="cos-screen" src="/screens/ticketing-my-tickets.png" alt="ticketing-my-tickets, drawn with dummy data" width="640" height="532" loading="lazy" decoding="async" />
 
 ### ticketing-native-my-tickets
 

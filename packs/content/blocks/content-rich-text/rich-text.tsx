@@ -19,6 +19,13 @@ import {
 import type { ReactNode } from "react";
 import { Button } from "../ui-button/button.tsx";
 
+/** A body heading's size by its level: larger than the text, smaller than the post's title. */
+const HEADING_SIZE: Record<number, string> = {
+  2: "text-2xl",
+  3: "text-xl",
+  4: "text-lg",
+};
+
 /** A block's own element, to replace the default one for its type. */
 export type BlockRenderer<T extends Block["type"]> = (props: {
   block: Extract<Block, { type: T }>;
@@ -125,7 +132,12 @@ function DefaultBlock({
       const level = Math.min(Math.max(block.level + 1, 2), 6);
       const Tag = `h${level}` as "h2" | "h3" | "h4" | "h5" | "h6";
       return (
-        <Tag id={anchor} data-block="heading" data-level={block.level} className="font-semibold">
+        <Tag
+          id={anchor}
+          data-block="heading"
+          data-level={block.level}
+          className={`mt-2 font-semibold ${HEADING_SIZE[level] ?? "text-base"}`}
+        >
           <Runs content={block.content} />
         </Tag>
       );
