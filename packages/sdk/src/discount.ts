@@ -70,10 +70,15 @@ export function randomCodes(count: number, length = 16): string[] {
   if (!Number.isInteger(length) || length < 12 || length > CODE_MAX_LENGTH) {
     throw new Error(`A generated code is 12 to ${CODE_MAX_LENGTH} characters (60 bits or more)`);
   }
+  // The Web Crypto global of every runtime the SDK runs in (Workers, browsers, Node 20+); the SDK
+  // is typed without DOM or Workers types, so it is named here.
+  const { crypto } = globalThis as unknown as {
+    crypto: { getRandomValues(array: Uint8Array): Uint8Array };
+  };
   const codes = new Set<string>();
   while (codes.size < count) {
     const bytes = crypto.getRandomValues(new Uint8Array(length));
-    codes.add(Array.from(bytes, (b) => CODE_ALPHABET[b & 31]).join(""));
+    codes.add(Array.from(bytes, (b: number) => CODE_ALPHABET[b & 31]).join(""));
   }
   return [...codes];
 }
