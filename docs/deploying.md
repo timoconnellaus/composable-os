@@ -106,6 +106,10 @@ and it needs Wrangler 4.36.0 or later.
 | `STAFF_FEED_ADDRESS_RATE_LIMIT` | client address, hashed | 120 per 60 s | calendar feed fetches from one address, before any token is looked up (a calendar provider fetches many people's feeds from few addresses) |
 | `CUSTOMER_FEED_RATE_LIMIT` | a customer's calendar feed, by a hash of its token | 10 per 60 s | fetches of a customer's calendar feed (ADR 0890): 429 with `Retry-After` when over |
 | `CUSTOMER_FEED_ADDRESS_RATE_LIMIT` | client address, hashed | 120 per 60 s | customer calendar feed fetches from one address, before any token is looked up |
+| `PUBLIC_RATE_LIMIT` | client address (hashed, an IPv6 address by its /64) and operation | 120 per 60 s | a call from outside the org to a public read (ADR 0940) |
+| `PUBLIC_WRITE_RATE_LIMIT` | client address and operation | 30 per 60 s | a public write, `order.quote`, `intake.open` |
+| `PUBLIC_STRICT_RATE_LIMIT` | client address and group | 10 per 60 s | order starts, code checks (`discount.check` with `order.applyCode`), `contact.stop`, `intake.submit`; also bound by cos-runner (same namespace) for a pack tool's calls |
+| `PUBLIC_SHARED_RATE_LIMIT` | the client app, and the operation or group | 1200 per 60 s | calls over the client-app binding whose Worker names no visitor address (an older template) |
 | `CUSTOMER_CODE_NEW_RATE_LIMIT` | one key for the whole host | 20 per 60 s | codes sent to addresses that only "anyone starting a subscription" lets sign in (ADR 0459); over it, nothing is sent, the answer is unchanged and admins are told once an hour. **Unlike the others, a missing binding sends no such code** (shut, not open) |
 
 To change a limit, edit its `simple.limit` (any positive integer) or `simple.period` (`10` or
@@ -113,16 +117,23 @@ To change a limit, edit its `simple.limit` (any positive integer) or `simple.per
 syncs counts eventually, so a client can briefly go over, and a client whose requests reach
 several locations gets roughly the limit in each. That is enough to stop a runaway agent; it is
 not an exact quota. Each `namespace_id` must be an integer that is unique in your account
-(`4101`–`4109` by default): change them if another Worker in the account already uses those ids,
+(`4101`–`4113` by default): change them if another Worker in the account already uses those ids,
 since bindings that share a namespace share counters. If a binding is missing, requests are not
-limited and the Worker logs a warning. Rate-limited requests show up in Workers Logs as 429s.
+limited and the Worker logs a warning, except the four `PUBLIC_*` ones: without them a public read
+is allowed and every public write, order start and code check is refused (ADR 0940). Rate-limited
+requests show up in Workers Logs as 429s.
 
-#### Public calls: a rule at the edge
+#### Public calls: the host's limit, and a rule at the edge
 
-The host does not limit callers with no account (the public) on the HTTP surface: it has no
-account to key on and keeps no client address. A deployment that sells to the public, or opens any
-operation to it, needs a Cloudflare rate limiting rule on its zone (Security → WAF → Rate limiting
-rules), which counts per IP at the edge and stores nothing in the deployment:
+The host limits every call to an operation open to the public per client address (ADR 0940), with
+the four `PUBLIC_*` bindings above: on the HTTP surface the address is the connection's; over the
+client-app binding it is the visitor's, which the web app passes in `cos-visitor-address` (the
+template does). Wrong promo codes are also counted per address and hour, in D1: from the 21st in an
+hour every code from that address is refused. Nothing needs setting up for this.
+
+A rule at the edge is still worth adding for volume, since it stops a flood before it reaches the
+Worker. A Cloudflare rate limiting rule on the zone (Security → WAF → Rate limiting rules) counts
+per IP at the edge and stores nothing in the deployment:
 
 | Setting | Value |
 | --- | --- |
@@ -132,8 +143,8 @@ rules), which counts per IP at the edge and stores nothing in the deployment:
 | Requests | 30 |
 | Action | Block, for 10 seconds (the client gets 429) |
 
-A deployment on a `workers.dev` hostname has no zone and cannot add the rule: put a custom
-hostname in front before opening anything to the public.
+A deployment on a `workers.dev` hostname has no zone and cannot add the rule; the host's own
+limit holds there too.
 
 #### Forms: Turnstile
 
@@ -206,14 +217,17 @@ may be a subdomain (`admin.example.com`), and staff sign in there.
    and makes `CUSTOMER_AUTH_SECRET` once per deployment ([below](#customer-sign-in-on-the-web-apps-hostname));
    the customer mail connection is set as in [Customer sign-in](#customer-sign-in).
 3. The web app forwards its sign-in form to `HOST.fetch("https://host/api/customer-auth/...")`
-   with the browser's `Origin` and `cf-connecting-ip`, and passes the `Set-Cookie` it gets back to
-   the browser unchanged: the cookie is host-only, so it is kept for the web app's hostname. Its
+   with the browser's `Origin` and its visitor's address, and passes the `Set-Cookie` it gets back
+   to the browser unchanged: the cookie is host-only, so it is kept for the web app's hostname. Its
    operation calls go through the typed client with `fetch: (url, init) => env.HOST.fetch(url,
-   init)` and `headers: () => customerSession(request.headers.get("cookie"))` from
-   `@composable-os/client`, which forwards the customer cookie and no other.
-4. Put the [edge rule for public calls](#public-calls-a-rule-at-the-edge) on the web app's zone
-   too: calls over a binding do not pass the host's zone, so the host's rule does not see them.
-   Signed-in customers are still limited per account by the host. **Scope it to the routes that
+   init)` and `headers: () => forVisitor(request)` from `@composable-os/client`, which forwards
+   the customer cookie (and no other) and the visitor's address in `cos-visitor-address`, which
+   the host's limit per client address keys on (ADR 0940). A web app that sends no address is
+   one shared bucket for all its visitors.
+4. If you add the optional [edge rule for public calls](#public-calls-the-hosts-limit-and-a-rule-at-the-edge),
+   add it on the web app's zone too: calls over a binding do not pass the host's zone, so the
+   host's rule does not see them. The host's own limit per client address holds either way.
+   **Scope it to the routes that
    reach the host** (the sign-in route, `/auth/` in the template, and the operation route,
    `/api/v1/op/` by default; `web.routes` in `product.ts` names others), which is the rule `cos`
    prints. A rule over the whole of `/api/` would, on a site with its own API, throttle the site's

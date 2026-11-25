@@ -126,7 +126,12 @@ module (the till): whichever is built first builds it once, to this design.
   filtered by dates and audience before the cap; a race lost on an automatic price prices the
   order again rather than naming a code; erase blanks a use's Person. Until the platform's
   per-address limit for public operations exists, no shipped pack declares `discount` (it gates
-  step 5).
+  step 5). Since the platform slice (`feat/public-rate-limit`, ADR 0940, migration 1450): the
+  deviation is closed and the gate lifted. Code checks are limited per client address (10 a
+  minute for `discount.check` with `order.applyCode`, order starts 10 a minute, `order.quote` 30)
+  and wrong codes counted (criterion 3: from the 21st in an hour, every code from that address is
+  refused); code words are kept folded (non-ASCII letters match), at least 6 characters, unique
+  per object and looked up by index; `randomCodes` makes single-use codes.
 
 - **Step 5** — not built — needs: step 1 — The Offers pack's spine: discount, promo code, member
   price and customer rate, tools, views, settings, permissions.
@@ -688,8 +693,9 @@ spends through gift vouchers, never as a payment, so it needs no change to the s
    is asked for all equal the discounted prices; the adjustment names the discount.
 2. With tax at checkout on, the provider's shares are the net line amounts and sum to the charge.
 3. A code given by a caller who is not eligible (a guest on a members-only code, a used-up code,
-   an ended one, an unknown one) gets the same answer; 20 wrong tries from one connection are
-   slowed.
+   an ended one, an unknown one) gets the same answer; 20 wrong tries from one client address
+   in an hour are slowed: from the 21st, every code from that address is refused, right or wrong,
+   until the hour ends (ADR 0940).
 4. A code with one use left: two orders started at once, one gets it.
 5. A use held by an unpaid order is released when it expires; a paid order's use stays after a
    full refund.

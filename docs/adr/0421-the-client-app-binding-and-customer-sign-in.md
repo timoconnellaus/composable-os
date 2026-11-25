@@ -144,3 +144,10 @@ moves the account's address and makes it the Person's primary email, removing th
 address from the Person. Staff may start a change (`customer.changeEmail`) but never finish one.
 `signInEmail` stays the one address to link by; a client that linked its records by the old one
 re-reads `me.get`.
+
+## Amended 2026-11-25 ([ADR 0940](0940-a-rate-limit-per-client-address-for-public-operations.md))
+A bound Worker names its visitor's address in `cos-visitor-address` (the typed client's
+`visitorAddress` and `forVisitor`, used by every route in the template's `src/host.ts`). The host
+reads it only over the binding, to count the call against the visitor's address in the limit on
+public operations and on sign-in; it never names a caller. A bound Worker that sends none (an older
+template) is counted as one shared bucket for the client app.

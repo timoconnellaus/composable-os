@@ -43,19 +43,24 @@ not (it is limited per device, ADR 0781, and the desk origin per address).
 
   | Operations | Tier, group |
   | --- | --- |
-  | `order.start`, `order.startHeld` | `strict`, one group `order.start` |
+  | `order.start`, `order.startHeld` | `strict`, one group `order.start`; a code given counts as a guess |
+  | `discount.check`, `order.applyCode` | `strict`, one group `code`; wrong codes counted |
   | `contact.stop` | `strict` |
   | `intake.submit` | `strict` (beside its caps, ADR 0722) |
-  | `discount.check`, `order.applyCode` | `strict`, one group `code`, and wrong guesses counted |
-  | `order.quote`, `intake.open` | `low` |
+  | `order.quote` | `low`; a code given counts as a guess |
+  | `intake.open` | `low`, counted inside the Forms pack's tool (`inTools`) |
+
+  `open-operations.json` lists each public operation's limit (`perAddress`), so a change to one is a
+  line in the review diff.
 
 - **A `strict` operation is counted wherever it is called**: at the door, and inside a pack's tool
-  (the runner applies it to the tool's own calls with the caller's address, which the host hands
-  the run). Other tiers count the outside call once, at the door, as today: a tool's own reads are
-  part of the call that started it.
+  (the runner applies it to the tool's own calls with the caller's address key, which the host
+  hands the run), and so is one declaring `inTools`. Other operations count the outside call once,
+  at the door, as today: a tool's own reads are part of the call that started it.
 - **Wrong guesses** (`packages/core/src/guesses.ts`): an operation that checks a code reads, before
-  it checks, how many wrong codes this address gave in the current hour, and refuses at 20; a wrong
-  code adds one. The binding cannot be read without counting, and a guess limit that counts only
+  it checks, how many wrong codes this address gave in the current hour (fixed windows on the
+  hour), and refuses at 20; a wrong code adds one. One group, `code`, for every operation that
+  takes a promo code. The binding cannot be read without counting, and a guess limit that counts only
   wrong ones must refuse the right code too once it is reached, or it tells the guesser which one
   was right. So the count is a D1 row: one indexed read per code check, one upsert per wrong code
   (the honest buyer rarely pays it). The 21st try in the hour from that address is refused, right
@@ -88,9 +93,21 @@ not (it is limited per device, ADR 0781, and the desk origin per address).
   record loosens them, so no AI can. A human changes a binding's `simple.limit` in
   `wrangler.jsonc` and redeploys (`docs/deploying.md`, Rate limits).
 
+- **Promo codes** (amending [ADR 0693](0693-the-discount-behaviour-codes-automatic-prices-one-deal-limits-held-by-the-database.md),
+  whose gate on shipped packs declaring `discount` is lifted): a code word is kept folded
+  (`foldCode` in the SDK: NFKC, no white space, upper case, so non-ASCII letters match), at least
+  6 characters, and unique among the live records of its object, by a unique index the reconciler
+  keeps on the column; a guess is looked up by that index. `randomCodes` (SDK) makes single-use
+  codes of 16 characters from `crypto.getRandomValues` in an alphabet with no 0, 1, I or O
+  (80 bits).
+
 ## Decided here, open to the owner's override
 - The numbers: 120, 30 and 10 a minute; 1,200 a minute shared; 20 wrong codes an hour per address
-  (200 for the shared bucket). A shop's checkout makes a quote on each basket change and one start;
+  (200 for the shared bucket); a code word of at least 6 characters; 16 characters for a
+  generated code.
+- A code word is stored in upper case (as folded), not as typed: staff see `JANUARY` for
+  `january`.
+- A strict operation counted inside a pack's tool as at the door; other tiers only at the door. A shop's checkout makes a quote on each basket change and one start;
   a person types a code a few times.
 - Reads stay open when the binding is down; writes and strict operations close.
 - The Cloudflare edge rule (`docs/deploying.md`) is no longer required. It is still worth adding

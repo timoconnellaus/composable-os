@@ -13,7 +13,9 @@ Every operation declares its audiences ([ADR 0402](../adr/0402-staff-and-custome
 
 - **staff**, the default: the business's users, with roles and permissions;
 - **customer**: a Person with a sign-in, limited to their own records;
-- **public**: callers with no account. Public operations are few, low risk and rate limited;
+- **public**: callers with no account. Public operations are few, low risk and rate limited per
+  client address (every one has a limit: 120 a minute for a read, 30 for a write, 10 for an order
+  start, a code check or a stop link, [ADR 0940](../adr/0940-a-rate-limit-per-client-address-for-public-operations.md));
 - **practitioner**: an outside person the business invited (a physiotherapist, a dietitian),
   signed in to their own practitioner account
   ([ADR 0581](../adr/0581-the-practitioner-principal-accounts-and-sign-in.md)). One operation is

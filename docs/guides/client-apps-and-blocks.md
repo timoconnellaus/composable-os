@@ -16,6 +16,19 @@ registry, over the HTTP surface: one route per operation, for staff, customers a
 [ADR 0418](../adr/0418-the-typed-client-as-built.md)). Client code never opens the database. A
 web app on Cloudflare reaches its host by a service binding; the mobile app by HTTP.
 
+## The visitor's address
+
+The host limits every call to a public operation, and sign-in, per client address
+([ADR 0940](../adr/0940-a-rate-limit-per-client-address-for-public-operations.md)). Over the
+service binding every call comes from the web app, so the web app names its visitor in the
+`cos-visitor-address` header: `forVisitor(request)` from `@composable-os/client` gives the
+customer's session cookie and that header together, and `visitorAddress(request.headers)` the
+header alone (for a call made as the public, such as the stop route's). Every route in the
+template's `src/host.ts` sends it. The host reads the header only over the binding; on the public
+HTTP surface (the mobile app's) the address is the connection's and the header is ignored. A web
+app that sends none, built from an older template, is counted as one shared bucket: all its
+visitors share one limit (1,200 a minute per operation), so update its `src/host.ts`.
+
 ## Blocks
 
 A block is a screen, or part of one, in a web or a native skin: a folder with a `block.json`

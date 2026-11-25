@@ -117,3 +117,9 @@ message (deleted with its Person).
 - The register is not a record: no `rec_*` view reads it, so query.sql, exports, search and the
   assistant's bulk reads never see it. `contact.forPerson` shows staff a Person's choices and
   history through the visibility seam.
+
+## Amended 2026-11-25 (ADR 0940)
+`contact.stop` is now rate limited: 10 calls a minute per client address (the `strict` tier of the
+host's limit on public operations), the visitor's address passed by the client web app's stop
+route over the binding. A refused call stops nothing and is answered with the same 429 whatever the
+token was. The sentence above saying it is not rate limited is no longer true.

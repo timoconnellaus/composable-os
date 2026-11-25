@@ -161,3 +161,33 @@ they are new), shared across candidates: a bounded number of statements per call
   `invite` and the `referral` kind are step 9; blocks and screens are step 10.
 - A live discount's terms and every promo code can be written only by a person; a shipped pack's
   tool that writes one waits for a person too (its write is the extension's).
+
+## Amended 2026-11-25 ([ADR 0940](0940-a-rate-limit-per-client-address-for-public-operations.md))
+**The gate is lifted: a shipped pack may declare `discount`.** What it waited for is built:
+- **A limit per client address.** `discount.check` and `order.applyCode` share one count, 10 a
+  minute per address; `order.start` and `order.startHeld` 10 a minute; `order.quote` 30. Wrong
+  codes are counted per address and hour (`core_wrong_guess`, migration 1450): once an address
+  gave 20, every code from it is refused, right or wrong, until the hour ends, with the same 429
+  (criterion 3). A wrong code given to `order.start`, `order.startHeld` or `order.quote` counts
+  too. Staff are not counted.
+- **Code words kept folded and looked up by index.** A discount's `code` and a codes object's
+  `word` are stored as `foldCode` makes them (NFKC, no white space, upper case: the SDK, one
+  function for the host and packs), whoever writes the record; a buyer's word is folded the same
+  way, so `ÉTÉ` and `été` match (finding F6). The reconciler keeps a unique index on each such
+  column over the live records: one word names one live record of an object, and a guess is one
+  indexed read, not a scan of every code (F1).
+- **A least length**: 6 characters after folding, refused at write (`rule: "code_length"`). A
+  typed word shorter than that is looked up nowhere and answered as any wrong code.
+- **Random single-use codes**: `randomCodes(count, length = 16)` in the SDK, from
+  `crypto.getRandomValues`, of 32 characters with no 0, 1, I or O: 80 bits for 16. A pack's tool
+  that makes a batch calls it; writing them still waits for a person (above).
+
+What remains (F2): **a code's existence can still be told from how long the answer takes.** The
+body is the same, but a known word makes more reads than an unknown one (its discount, its uses,
+the buyer's facts). Looking words up by index narrows the gap (an unknown word no longer costs a
+scan that grows with the codes, and a known one no longer costs two), but does not close it. What
+bounds it is the limit: 20 wrong words an hour per address, so finding a word by timing is as slow
+as finding it by guessing. Decided and recorded; making every lookup do the same reads is left open.
+Existing code words written before this change are not folded by the reconciler (no shipped pack
+declared `discount`); one that is not already in folded form will not match until it is saved
+again.

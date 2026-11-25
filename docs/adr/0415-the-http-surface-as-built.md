@@ -97,3 +97,10 @@ an `Origin` naming another site, an `Origin` of `null` without `Sec-Fetch-Site: 
 no `Origin` and a `Sec-Fetch-Site` other than `same-origin` (except a top-level GET navigation)
 refuses the staff session. That covers the adapter's own `/auth/token`, which now also takes only
 `application/json`, and media and the agreement PDFs beside the surface.
+
+## Amended 2026-11-25 ([ADR 0940](0940-a-rate-limit-per-client-address-for-public-operations.md))
+**Public calls are limited by the host**, per client address, in the pipeline: every operation
+open to the public has a limit (120 a minute for a read, 30 for a write, 10 for an order start, a
+code check, `contact.stop` and `intake.submit`), keyed by a hash of `cf-connecting-ip`, and a
+signed-in customer is counted per address as well as per account. The edge rule above is no longer
+required; it is still worth adding for volume.

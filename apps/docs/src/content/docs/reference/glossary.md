@@ -1369,7 +1369,19 @@ the repo's platform version (stage 24, ADR 0422).
 
 cos-app's entrypoint a company's web app binds to: customer sign-in and the HTTP surface for
 customers and the public only, the caller decided from the customer's verified session cookie,
-never staff (stage 24, ADR 0421).
+never staff (stage 24, ADR 0421). The web app names its visitor's address in `cos-visitor-address`
+for the **public limit** (ADR 0940).
+
+### Public limit
+
+(the limit per client address)
+
+The host's rate limit on every call to an operation open to the public, per client address and
+operation or group (ADR 0940): 120 a minute for a read, 30 for a write, 10 for the guessable or
+costly ones (order starts, code checks, the stop link, a form's answers), in the Workers Rate
+Limiting binding, keyed by a hash of the address (an IPv6 address by its /64). A signed-in customer
+is counted per address too. Over it: `rate_limited`, HTTP 429.
+_Avoid_: edge rule (that is the deployment's own, optional, at Cloudflare's zone)
 
 ### Audience
 
@@ -2600,7 +2612,9 @@ _Avoid_: coupon, offer (taken: a continuation offer, a shift offer)
 
 A word a buyer types (`JANUARY`), compared without case: a discount's own word, or a code record
 of the pack belonging to a discount (one with one use is a single-use code). A code that does not
-apply gets one answer, "not valid here", whatever the reason (ADR 0693).
+apply gets one answer, "not valid here", whatever the reason (ADR 0693). The host keeps the word
+folded (upper case, no spaces, non-ASCII letters matching), at least 6 characters and one per word,
+and refuses every code from a client address that gave 20 wrong ones in the hour (ADR 0940).
 _Avoid_: voucher (a gift voucher is something bought), coupon
 
 ### Deal
