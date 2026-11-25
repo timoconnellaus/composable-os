@@ -63,23 +63,19 @@
       "namespace_id": "4201",
       "simple": { "limit": 60, "period": 60 }
     },
-    // The limit per client address on public operations (ADR 0940): a pack tool's strict calls
-    // (an order start, a form's answers, a code check) and `intake.open` count here. The same
-    // namespaces as cos-app's bindings of the same names, so the two Workers share each count.
+    // The limits on public operations (ADR 0940): a pack tool's calls are counted per caller
+    // (order starts, form answers, code checks), and code checks pass the host-wide surge rate
+    // while wrong codes are over the ceiling. The same namespaces as cos-app's bindings of the
+    // same names, so the two Workers share each count.
     {
-      "name": "PUBLIC_WRITE_RATE_LIMIT",
-      "namespace_id": "4111",
-      "simple": { "limit": 30, "period": 60 }
-    },
-    {
-      "name": "PUBLIC_STRICT_RATE_LIMIT",
+      "name": "PUBLIC_CALLER_RATE_LIMIT",
       "namespace_id": "4112",
       "simple": { "limit": 10, "period": 60 }
     },
     {
-      "name": "PUBLIC_SHARED_RATE_LIMIT",
-      "namespace_id": "4113",
-      "simple": { "limit": 1200, "period": 60 }
+      "name": "PUBLIC_CODE_SURGE_RATE_LIMIT",
+      "namespace_id": "4115",
+      "simple": { "limit": 30, "period": 10 }
     }
   ],
   // Worker Loader: the Dynamic Workers that run extension code (ADR 0006). Repeat code (tools,

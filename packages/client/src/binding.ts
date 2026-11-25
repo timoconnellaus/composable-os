@@ -45,9 +45,11 @@ export function customerSession(cookieHeader: string | null | undefined): Record
 /**
  * The header a web app names its visitor's address in, on every call over the binding (ADR 0940).
  * The host limits calls to public operations, and sign-in, per client address; over the binding
- * every call comes from the web app, so the host takes the visitor's address from this header,
- * and only over the binding (on the public HTTP surface it is the connection's, and this header is
- * ignored). A web app that sends none is counted as one shared bucket: its visitors share it.
+ * every call comes from the web app, so the host takes the visitor's address from a forwarded
+ * `cf-connecting-ip`, else from this header, and only over the binding (on the public HTTP surface
+ * it is the connection's, and this header is ignored). A web app that sends none is counted as one
+ * shared bucket: its visitors share it. Never forward the browser's own request headers as they
+ * came with this header in them: a browser could then name any address.
  */
 export const VISITOR_ADDRESS_HEADER = "cos-visitor-address";
 
@@ -59,6 +61,8 @@ export const VISITOR_ADDRESS_HEADER = "cos-visitor-address";
 export function visitorAddress(
   requestHeaders: { get(name: string): string | null } | null | undefined,
 ): Record<string, string> {
+  // Only Cloudflare's own header: a `cos-visitor-address` the browser sent is never read or passed
+  // on (a bound Worker that forwarded it would let a browser choose its own limit, ADR 0940).
   const address = requestHeaders?.get("cf-connecting-ip")?.trim();
   return address ? { [VISITOR_ADDRESS_HEADER]: address } : {};
 }

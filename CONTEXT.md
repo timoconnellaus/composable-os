@@ -1154,12 +1154,12 @@ customers and the public only, the caller decided from the customer's verified s
 never staff (stage 24, ADR 0421). The web app names its visitor's address in `cos-visitor-address`
 for the **public limit** (ADR 0940).
 
-**Public limit** (the limit per client address)
-The host's rate limit on every call to an operation open to the public, per client address and
-operation or group (ADR 0940): 120 a minute for a read, 30 for a write, 10 for the guessable or
-costly ones (order starts, code checks, the stop link, a form's answers), in the Workers Rate
-Limiting binding, keyed by a hash of the address (an IPv6 address by its /64). A signed-in customer
-is counted per address too. Over it: `rate_limited`, HTTP 429.
+**Public limit**
+The host's rate limits on calls to operations open to the public (ADR 0940): per client address for
+floods only, set high (600 reads, 120 writes a minute), since many people share one address; and
+per caller, tight (10 a minute per signed-in account or guest order), on order starts, checkout,
+code checks and form answers. In the Workers Rate Limiting binding, keyed by a hash of the address
+(an IPv6 address by its /64). Over either: `rate_limited`, HTTP 429.
 _Avoid_: edge rule (that is the deployment's own, optional, at Cloudflare's zone)
 
 **Audience**
@@ -2140,7 +2140,7 @@ A word a buyer types (`JANUARY`), compared without case: a discount's own word, 
 of the pack belonging to a discount (one with one use is a single-use code). A code that does not
 apply gets one answer, "not valid here", whatever the reason (ADR 0693). The host keeps the word
 folded (upper case, no spaces, non-ASCII letters matching), at least 6 characters and one per word,
-and refuses every code from a client address that gave 20 wrong ones in the hour (ADR 0940).
+and refuses codes for 15 minutes to an account or guest order that gave 20 wrong ones (ADR 0940).
 _Avoid_: voucher (a gift voucher is something bought), coupon
 
 **Deal** (an order's)

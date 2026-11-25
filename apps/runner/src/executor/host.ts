@@ -74,13 +74,11 @@ export interface HostEnv {
    */
   TURNSTILE_SECRET_KEY?: string;
   /**
-   * The limit per client address (ADR 0940): a tool's strict calls (an order start, a form's
-   * answers, a code check) are counted here, in the same namespaces as cos-app's.
+   * The limits on public operations (ADR 0940): a tool's calls are counted per caller here (an
+   * order start, a form's answers, a code check), in the same namespaces as cos-app's.
    */
-  PUBLIC_RATE_LIMIT?: RateLimitBinding;
-  PUBLIC_WRITE_RATE_LIMIT?: RateLimitBinding;
-  PUBLIC_STRICT_RATE_LIMIT?: RateLimitBinding;
-  PUBLIC_SHARED_RATE_LIMIT?: RateLimitBinding;
+  PUBLIC_CALLER_RATE_LIMIT?: RateLimitBinding;
+  PUBLIC_CODE_SURGE_RATE_LIMIT?: RateLimitBinding;
 }
 
 /** A Code Mode run (ADR 0042): the script acts as the connected user, not as an extension. */
@@ -403,7 +401,7 @@ export class RunHost extends RpcTarget {
           await invokeByName(operation, input ?? {}, {
             principal: run.outside.principal,
             tool: { extension: run.extensionId, tool: run.outside.tool },
-            // Counted per the caller's client address, on the strict operations (ADR 0940).
+            // Counted per caller, and wrong codes per caller (ADR 0940).
             publicLimits: publicLimitBindings(this.#env),
             ...(run.outside.clientAddress ? { clientAddress: run.outside.clientAddress } : {}),
             origin: this.#toolOrigin(),

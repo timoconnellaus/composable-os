@@ -148,6 +148,8 @@ re-reads `me.get`.
 ## Amended 2026-11-25 ([ADR 0940](0940-a-rate-limit-per-client-address-for-public-operations.md))
 A bound Worker names its visitor's address in `cos-visitor-address` (the typed client's
 `visitorAddress` and `forVisitor`, used by every route in the template's `src/host.ts`). The host
-reads it only over the binding, to count the call against the visitor's address in the limit on
-public operations and on sign-in; it never names a caller. A bound Worker that sends none (an older
-template) is counted as one shared bucket for the client app.
+reads, over the binding only, a forwarded `cf-connecting-ip` first (a browser cannot set it), then
+that header, to count the call against the visitor's address in the flood limits and in sign-in's;
+it never names a caller. A bound Worker must never pass on a `cos-visitor-address` the browser
+sent. One that sends no address (an older template) is counted as one shared bucket for the client
+app, never locked out of codes, and the admins are told once a day.

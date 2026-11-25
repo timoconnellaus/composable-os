@@ -40,6 +40,7 @@ import {
   type Principal,
   requestStaffCode,
   staffSignInWithCode,
+  validClientAddress,
 } from "@composable-os/auth";
 import {
   type AnyInvocationContext,
@@ -97,12 +98,6 @@ export interface ApiEnv extends OperationsEnv, IdentityEnv, CustomerIdentityEnv,
 
 const PUBLIC: PublicPrincipal = Object.freeze({ kind: "public" });
 
-/** Something that reads as an IPv4 or IPv6 address, or null: never a key made from junk. */
-function readableAddress(value: string | null | undefined): string | null {
-  const address = value?.trim().split("%")[0] ?? "";
-  return /^[0-9a-f:.]{2,45}$/i.test(address) && /[.:]/.test(address) ? address : null;
-}
-
 /**
  * A client address as the pipeline's limit sees it (ADR 0940): a keyed hash of its bucket (an
  * IPv6 address's /64), made here and never stored as given. Null when there is none to read.
@@ -111,7 +106,8 @@ export async function clientAddressOf(
   value: string | null | undefined,
   env: ApiEnv,
 ): Promise<ClientAddress | null> {
-  const address = readableAddress(value);
+  // A malformed or over-long value is no address (validClientAddress): never keyed as given.
+  const address = validClientAddress(value);
   if (!address) return null;
   return { key: await addressKey(address, clientAddressSecret(env)), shared: false };
 }

@@ -71,9 +71,6 @@ export const intakeOpen = defineOperation({
   permission: "records:read",
   risk: "read",
   audiences: ["staff", "customer", "public"],
-  // Tighter than a read's default (ADR 0940): each open makes a shown-time token. Reached only
-  // through a pack's tool, so counted there.
-  publicLimit: { tier: "low", inTools: true },
   toolOnly: true,
   hostInternal: true,
   mcp: { expose: false },
@@ -159,8 +156,9 @@ export const intakeSubmit = defineOperation({
   permission: "records:write",
   risk: "write",
   audiences: ["staff", "customer", "public"],
-  // Per client address (ADR 0940), before the caps per deployment and per form (ADR 0722).
-  publicLimit: { tier: "strict" },
+  // Per caller (ADR 0940): a signed-in account, a guest's personal link; beside the caps per
+  // deployment and per form (ADR 0722), which bound guests naming no link.
+  publicLimit: { tier: "write", perCaller: { by: "link" }, group: "intake.submit" },
   toolOnly: true,
   hostInternal: true,
   mcp: { expose: false },

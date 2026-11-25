@@ -34,17 +34,21 @@
 // - It is never a customer (or practitioner) who has not signed in: no header, claim or body field names the
 //   caller. The customer is whoever the verified cookie says, and the visibility seam gives them
 //   their own rows only.
-// - The visitor's address is the bound Worker's word (ADR 0940): `cos-visitor-address`, which the
-//   typed client's `visitorAddress` sets from the browser's request (an older template sent only
-//   `cf-connecting-ip`, on its sign-in steps, and that is still read). It keys the limit per
-//   client address on public operations and on sign-in, and nothing else: it names no caller.
-//   On the public surface the address is the connection's and this header is never read. A
-//   bound Worker that passes none is counted in one shared bucket for the client app, never
-//   unlimited.
+// - The visitor's address is the bound Worker's word (ADR 0940): a forwarded `cf-connecting-ip`
+//   first (a browser cannot set it), then `cos-visitor-address`, which the typed client's
+//   `visitorAddress` sets from the browser's request. It keys the per-address flood limits and
+//   sign-in's, and nothing else: it names no caller. On the public surface the address is the
+//   connection's and this header is never read. A bound Worker that passes none is counted in
+//   one shared bucket for the client app (never unlimited, never locked out of codes), and the
+//   admins are told once a day.
 // - `Origin` on the sign-in routes is forwarded for Better Auth's cross-site check, which
 //   protects the customer's browser; nothing about the caller is decided from it.
 import { WorkerEntrypoint } from "cloudflare:workers";
-import { CUSTOMER_COOKIE_PREFIX, PRACTITIONER_COOKIE_PREFIX } from "@composable-os/auth";
+import {
+  CUSTOMER_COOKIE_PREFIX,
+  PRACTITIONER_COOKIE_PREFIX,
+  validClientAddress,
+} from "@composable-os/auth";
 import {
   type ClientAddress,
   coreInvoker,
@@ -55,6 +59,7 @@ import {
   isMediaPath,
   type OutsideInvocationContext,
   type PublicPrincipal,
+  tellAdmins,
 } from "@composable-os/core";
 import { createCrmDb } from "@composable-os/db";
 import { type MediaEnv, mediaResizerFor, mediaStoreFor } from "../media.ts";
@@ -80,27 +85,64 @@ export const VISITOR_ADDRESS_HEADER = "cos-visitor-address";
 const CLIENT_APP_SHARED: ClientAddress = Object.freeze({ key: "client-app", shared: true });
 
 /**
- * Who a call over the binding is counted as: the visitor the client app's Worker names, or, from
- * an older template, the `cf-connecting-ip` it forwarded; else the client app's shared bucket.
+ * Who a call over the binding is counted as (ADR 0940, review of PR #459 M2): a `cf-connecting-ip`
+ * the client app's Worker forwarded first (Cloudflare's edge sets it on the browser's request and a
+ * browser cannot, so a Worker passing the request's headers on as they came still names the real
+ * visitor), then the visitor it names in `cos-visitor-address`; else the client app's shared
+ * bucket, and the admins are told the client app should be updated.
  */
 export async function boundAddress(request: Request, env: ApiEnv): Promise<ClientAddress> {
-  return (
-    (await clientAddressOf(request.headers.get(VISITOR_ADDRESS_HEADER), env)) ??
+  const named =
     (await clientAddressOf(request.headers.get("cf-connecting-ip"), env)) ??
-    CLIENT_APP_SHARED
+    (await clientAddressOf(request.headers.get(VISITOR_ADDRESS_HEADER), env));
+  if (named) return named;
+  await noVisitorNotice(env);
+  return CLIENT_APP_SHARED;
+}
+
+const NOTICE_EVERY_MS = 60 * 60 * 1000;
+let noticeAt = 0;
+
+/** The dedupe key prefix of the admins' daily notice that a client app names no visitor. */
+export const NO_VISITOR_NOTICE = "public_limit.no_visitor:";
+
+/** Tells the admins, once a day (tried at most once an hour per isolate), that no visitor came. */
+async function noVisitorNotice(env: ApiEnv): Promise<void> {
+  const at = Date.now();
+  if (at - noticeAt < NOTICE_EVERY_MS) return;
+  noticeAt = at;
+  const now = new Date(at).toISOString();
+  console.error("client app calls name no visitor address: they share one rate limit (ADR 0940)");
+  await tellAdmins(
+    createCrmDb(env.DB),
+    "Your web app does not pass on its visitors' addresses",
+    "Calls from your web app over its binding name no visitor's address, so all its visitors " +
+      "share one rate limit. Update its src/host.ts: send `headers: () => forVisitor(request)` " +
+      "(from @composable-os/client) on every call to the host, as the client template does " +
+      "(docs/guides/client-apps-and-blocks.md, The visitor's address).",
+    `${NO_VISITOR_NOTICE}${now.slice(0, 10)}`,
+    now,
   );
 }
 
+/** Lets the tests see the notice again. */
+export function resetNoVisitorNotice(): void {
+  noticeAt = 0;
+}
+
 /**
- * A sign-in step as Better Auth's per-address limit reads it (`cf-connecting-ip`): the visitor the
- * client app names, when it names one. The limit is the sign-in's; nothing else reads the header.
+ * A sign-in step as Better Auth's per-address limit reads it (`cf-connecting-ip`): a forwarded
+ * `cf-connecting-ip`, else the visitor the client app names, when either is an address. The limit
+ * is the sign-in's; nothing else reads the header.
  */
 function signInWithVisitor(request: Request): Request {
-  const visitor = request.headers.get(VISITOR_ADDRESS_HEADER);
-  if (!visitor) return request;
   const headers = new Headers(request.headers);
-  headers.set("cf-connecting-ip", visitor);
+  const address =
+    validClientAddress(request.headers.get("cf-connecting-ip")) ??
+    validClientAddress(request.headers.get(VISITOR_ADDRESS_HEADER));
   headers.delete(VISITOR_ADDRESS_HEADER);
+  if (address) headers.set("cf-connecting-ip", address);
+  else headers.delete("cf-connecting-ip");
   return new Request(request, { headers });
 }
 

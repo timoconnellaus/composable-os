@@ -361,6 +361,12 @@ export interface HandlerContext {
    * against the same address. Never an address.
    */
   readonly clientAddress?: import("./public-limits.ts").ClientAddress;
+  /**
+   * On a call from outside the org to a core `hostInternal` operation declaring
+   * `publicLimit.addressCounts: "invalid"` (ADR 0940): counts one refused call (an invalid token)
+   * against the client address, and refuses it when the address is over its flood limit.
+   */
+  readonly refused?: () => Promise<void>;
 }
 
 /**
@@ -800,13 +806,19 @@ export function operationProblems(op: AnyOperation): string[] {
     if (limit.group !== undefined && !/^[a-z][a-zA-Z0-9.]{1,60}$/.test(limit.group)) {
       problems.push("publicLimit.group is a name like order.start");
     }
-    if (limit.inTools !== undefined && limit.inTools !== true) {
-      problems.push("publicLimit.inTools is true or left out");
-    }
-    if (limit.guesses !== undefined) {
+    if (limit.guesses !== undefined || limit.addressCounts !== undefined) {
       if (op.hostInternal !== true || op.name?.startsWith("x.")) {
-        problems.push("publicLimit.guesses is for a core hostInternal operation");
+        problems.push(
+          "publicLimit.guesses and addressCounts are for a core hostInternal operation",
+        );
       }
+    }
+    if (limit.addressCounts !== undefined && limit.addressCounts !== "invalid") {
+      problems.push('publicLimit.addressCounts is "invalid" or left out');
+    }
+    const by = limit.perCaller?.by;
+    if (by !== undefined && !/^[a-z][a-zA-Z0-9]{0,40}$/.test(by)) {
+      problems.push("publicLimit.perCaller.by names an input field");
     }
   }
   if (isOpenOutside(op) && op.alwaysReview) {

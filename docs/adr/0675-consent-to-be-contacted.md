@@ -118,8 +118,10 @@ message (deleted with its Person).
   assistant's bulk reads never see it. `contact.forPerson` shows staff a Person's choices and
   history through the visibility seam.
 
-## Amended 2026-11-25 (ADR 0940)
-`contact.stop` is now rate limited: 10 calls a minute per client address (the `strict` tier of the
-host's limit on public operations), the visitor's address passed by the client web app's stop
-route over the binding. A refused call stops nothing and is answered with the same 429 whatever the
-token was. The sentence above saying it is not rate limited is no longer true.
+## Amended 2026-11-25 ([ADR 0940](0940-a-rate-limit-per-client-address-for-public-operations.md))
+`contact.stop` is rate limited, but not per call: one-click unsubscribes come from a mail
+provider's few servers, so only tokens that are not valid count against the client address, at the
+flood level (120 a minute). A valid token always stops. The template's stop route says "done" only
+when the host said yes; otherwise its page shows an error and keeps the button, and a mail app's
+one-click POST gets the host's status. The sentence above saying it is not rate limited is no longer
+true.

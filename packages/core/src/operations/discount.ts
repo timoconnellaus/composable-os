@@ -52,9 +52,9 @@ export const discountCheck = defineOperation({
   permission: "records:read",
   risk: "read",
   audiences: ["staff", "customer", "public"],
-  // Code guessing (ADR 0940): 10 a minute per client address with order.applyCode, and once an
-  // address gave 20 wrong codes in an hour every check from it is refused, right or wrong.
-  publicLimit: { tier: "strict", group: "code", guesses: "code" },
+  // Code guessing (ADR 0940): 10 a minute per signed-in account with order.applyCode, and wrong
+  // codes counted per caller (a guest naming no order, per address).
+  publicLimit: { tier: "read", perCaller: {}, group: "code", guesses: "code" },
   hostInternal: true,
   // Not offered to an assistant (the spec): a person, or a buyer's own page, checks a code.
   actors: ["human"],

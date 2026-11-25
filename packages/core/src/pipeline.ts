@@ -79,7 +79,7 @@ import {
   type GateFloor,
   type GateResult,
 } from "./gate.ts";
-import { guessCounter } from "./guesses.ts";
+import { guessCounter, tellAdmins } from "./guesses.ts";
 import { findProvisionalIds, newId } from "./ids.ts";
 import type { IntakeRuntime } from "./intake/runtime.ts";
 import type { BlobStore, IntegrationRuntime } from "./integrations/runtime.ts";
@@ -136,10 +136,17 @@ import {
   staffPrincipal,
 } from "./principals.ts";
 import {
+  addressBinding,
+  addressCountKey,
   type ClientAddress,
   checkPublicLimit,
+  countHit,
+  guestHandle,
+  type LimitedCaller,
+  PUBLIC_LIMIT_DOWN_NOTICE,
   type PublicLimitBindings,
   publicLimitOf,
+  UNKNOWN_ADDRESS,
 } from "./public-limits.ts";
 import type { RateLimitBinding } from "./rate-limit.ts";
 import type { MediaStore } from "./records/media.ts";
@@ -290,6 +297,11 @@ export interface InvocationContext {
    * auth secret by the adapter. Absent: codes, cards and PINs are refused. Nested calls inherit it.
    */
   personCodes?: PersonCodeKeys;
+  /**
+   * Never set on a staff call (staff codes are not counted, ADR 0940); here only so the dry run's
+   * classing of every runtime is tested.
+   */
+  guesses?: import("./guesses.ts").Guesses;
   /**
    * The public-write door's runtime (stage 29, ADR 0722). A staff call skips the spam check, so
    * nothing uses it there; a dry run refuses it as any runtime.
@@ -1109,6 +1121,7 @@ async function invokeOnce<O extends AnyOperation>(
     ...(ctx.desk ? { desk: { secret: ctx.desk.secret, origin: ctx.desk.origin } } : {}),
     ...(ctx.personCodes ? { personCodes: ctx.personCodes } : {}),
     ...(ctx.intake ? { intake: ctx.intake } : {}),
+    ...(ctx.guesses ? { guesses: ctx.guesses } : {}),
     pipeline: {
       crm: ctx.db,
       resolve: (name) => ctx.resolveOperation?.(name),
@@ -2309,14 +2322,82 @@ async function auditDeviceRefusal(
   }
 }
 
+/** Who a call is counted as per caller (public-limits.ts). */
+function limitedCaller(principal: OutsidePrincipal | DevicePrincipal): LimitedCaller {
+  if (principal.kind === "customer") return { kind: "customer", customerId: principal.customerId };
+  if (principal.kind === "practitioner") {
+    return { kind: "practitioner", practitionerId: principal.practitionerId };
+  }
+  return { kind: "public" };
+}
+
+const NOTICE_EVERY_MS = 60 * 60 * 1000;
+let downNoticeAt = 0;
+
+/**
+ * A count the rate limiting binding could not make (the call went through, ADR 0940): the admins
+ * are told once a day, tried at most once an hour per isolate. Never fails the call.
+ */
+function limiterDown(ctx: OutsideInvocationContext | DeviceInvocationContext, now: string) {
+  return (what: string) => {
+    const at = Date.now();
+    if (at - downNoticeAt < NOTICE_EVERY_MS) return;
+    downNoticeAt = at;
+    void tellAdmins(
+      ctx.db,
+      "Rate limits are not working",
+      `Calls from outside (${what} and others) could not be counted against the rate limits, so ` +
+        "they are going through unlimited. A rate limiting binding (PUBLIC_*_RATE_LIMIT) is " +
+        "missing from this deployment or failing: see the status page and docs/deploying.md, " +
+        "Rate limits. Wrong promo codes are still counted.",
+      `${PUBLIC_LIMIT_DOWN_NOTICE}${now.slice(0, 10)}`,
+      now,
+    );
+  };
+}
+
 /** `ctx.guesses` for an operation that declares `publicLimit.guesses` (ADR 0940). */
 function guessesFor(
   op: AnyOperation,
   ctx: OutsideInvocationContext | DeviceInvocationContext,
+  principal: OutsidePrincipal | DevicePrincipal,
+  rawInput: unknown,
   now: string,
 ): { guesses?: ReturnType<typeof guessCounter> } {
-  const group = publicLimitOf(op)?.guesses;
-  return group ? { guesses: guessCounter(ctx.db, ctx.clientAddress, group, now) } : {};
+  const limit = publicLimitOf(op);
+  if (!limit?.guesses) return {};
+  return {
+    guesses: guessCounter(
+      ctx.db,
+      {
+        caller: limitedCaller(principal),
+        address: ctx.clientAddress,
+        order: guestHandle(limit.perCaller?.by, rawInput),
+      },
+      limit.guesses,
+      now,
+      { surge: ctx.publicLimits?.codeSurge, onDown: limiterDown(ctx, now) },
+    ),
+  };
+}
+
+/** `ctx.refused` (ADR 0940): one hit on the operation's per-address count, refused when over. */
+function refusedCounter(
+  op: AnyOperation,
+  ctx: OutsideInvocationContext | DeviceInvocationContext,
+  now: string,
+): () => Promise<void> {
+  return async () => {
+    const limit = publicLimitOf(op);
+    if (!limit || !ctx.publicLimits) return;
+    const who = ctx.clientAddress ?? UNKNOWN_ADDRESS;
+    await countHit(
+      addressBinding(ctx.publicLimits, who, limit),
+      addressCountKey(who, op),
+      op.name,
+      limiterDown(ctx, now),
+    );
+  };
 }
 
 /**
@@ -2390,11 +2471,19 @@ async function invokeOutside<O extends AnyOperation>(
   // Counted once the call is one this caller may make at all, and before any work is done for it.
   // A tool's own calls are part of the one call that started the tool.
   if (!ctx.tool) await checkOutsideRateLimit(ctx.rateLimit, principal, op.name);
-  // And per client address, on an operation open to the public (ADR 0940): a customer too, never
-  // an enrolled device (limited per device above, and the desk origin per address). Inside a
-  // pack's tool only a strict operation is counted again.
-  if (principal.kind !== "device") {
-    await checkPublicLimit(ctx.publicLimits, ctx.clientAddress, op, { inTool: Boolean(ctx.tool) });
+  // And on an operation open to the public (ADR 0940): per client address for floods (a
+  // customer too; never an enrolled device, limited per device above and the desk origin per
+  // address), and tightly per caller on what is costly or guessable. Inside a pack's tool only the
+  // per-caller count. Priced again after a race (`retried`), it is not counted twice.
+  if (principal.kind !== "device" && !retried) {
+    await checkPublicLimit(
+      ctx.publicLimits,
+      ctx.clientAddress,
+      op,
+      limitedCaller(principal),
+      rawInput,
+      { inTool: Boolean(ctx.tool), onDown: limiterDown(ctx, now) },
+    );
   }
   // An option only staff may pass is not the customer's or the public's to send (it is not in
   // their contract either).
@@ -2583,11 +2672,16 @@ async function invokeOutside<O extends AnyOperation>(
           : {}),
         // The pack tool whose run made this call (ADR 0414), from the runner.
         ...(ctx.tool ? { callingTool: { ...ctx.tool } } : {}),
-        // A tool's run counts its strict calls against the caller's address (ADR 0940).
+        // A tool's run counts its calls against the caller's address too (ADR 0940).
         ...(hostTool && ctx.clientAddress ? { clientAddress: ctx.clientAddress } : {}),
-        // A code check counts wrong codes per address (ADR 0940, guesses.ts).
-        ...(op.hostInternal === true && !op.name.startsWith("x.") && ctx.publicLimits
-          ? guessesFor(op, ctx, now)
+        // A code check counts wrong codes per caller (ADR 0940, guesses.ts); once per call, not
+        // again when priced again after a race.
+        ...(op.hostInternal === true && !op.name.startsWith("x.") && ctx.publicLimits && !retried
+          ? guessesFor(op, ctx, principal, rawInput, now)
+          : {}),
+        // An operation counting only refused calls per address (contact.stop's invalid tokens).
+        ...(op.hostInternal === true && ctx.publicLimits && publicLimitOf(op)?.addressCounts
+          ? { refused: refusedCounter(op, ctx, now) }
           : {}),
         // The public-write door's runtime, for its own operations only (ADR 0722).
         ...(op.name.startsWith("intake.") && ctx.intake ? { intake: ctx.intake } : {}),

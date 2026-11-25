@@ -465,9 +465,9 @@ export const orderStart = defineOperation({
   permission: "records:write",
   risk: "write",
   audiences: ["staff", "customer", "public"],
-  // Per client address, with order.startHeld: one count for both (ADR 0940). Each start holds stock
-  // and places until it expires.
-  publicLimit: { tier: "strict", group: "order.start", guesses: "code" },
+  // Per caller, with order.startHeld: one count for both (ADR 0940). Each start holds stock and
+  // places until it expires. A guest names no order yet: counted per address at the flood level.
+  publicLimit: { tier: "write", perCaller: {}, group: "order.start", guesses: "code" },
   hostInternal: true,
   mcp: { expose: false },
   // What a visitor typed, drew and answered never reaches the audit log.
@@ -616,8 +616,8 @@ export const orderQuote = defineOperation({
   permission: "records:read",
   risk: "read",
   audiences: ["staff", "customer", "public"],
-  // Tighter than a read's default (ADR 0940): each quote prices every line.
-  publicLimit: { tier: "low", guesses: "code" },
+  // A code given counts toward the caller's wrong codes (ADR 0940).
+  publicLimit: { tier: "read", guesses: "code" },
   hostInternal: true,
   mcp: { idempotent: true },
   redact: ["address"],
@@ -1104,6 +1104,8 @@ export const orderCheckout = defineOperation({
   permission: "records:write",
   risk: "write",
   audiences: ["staff", "customer", "public"],
+  // Per caller (ADR 0940): each opens the payment provider's page. A guest by the order.
+  publicLimit: { tier: "write", perCaller: { by: "id" }, group: "order.checkout" },
   hostInternal: true,
   mcp: { expose: false },
   redact: ["token"],
@@ -1716,9 +1718,9 @@ export const orderApplyCode = defineOperation({
   permission: "records:write",
   risk: "write",
   audiences: ["staff", "customer", "public"],
-  // Code guessing (ADR 0940): one count per client address with discount.check, and wrong codes
-  // counted: 20 in an hour and every code from that address is refused, right or wrong.
-  publicLimit: { tier: "strict", group: "code", guesses: "code" },
+  // Code guessing (ADR 0940): per caller with discount.check (a guest by the order), and wrong
+  // codes counted per caller: 20 in a quarter-hour and that order's codes are refused for 15 minutes.
+  publicLimit: { tier: "write", perCaller: { by: "id" }, group: "code", guesses: "code" },
   hostInternal: true,
   mcp: { expose: false },
   redact: ["token"],
@@ -2016,8 +2018,8 @@ export const orderStartHeld = defineOperation({
   permission: "records:write",
   risk: "write",
   audiences: ["staff", "customer", "public"],
-  // Per client address, with order.start: one count for both (ADR 0940).
-  publicLimit: { tier: "strict", group: "order.start", guesses: "code" },
+  // Per caller, with order.start: one count for both (ADR 0940).
+  publicLimit: { tier: "write", perCaller: {}, group: "order.start", guesses: "code" },
   hostInternal: true,
   toolOnly: true,
   mcp: { expose: false },

@@ -591,15 +591,18 @@ export async function workOutDeal(
   options: {
     excludeOrderId?: string | undefined;
     /**
-     * On a call from outside the org (ADR 0940): checked before a code is looked at, so the right
-     * code is refused too once this address gave too many wrong ones; a wrong one is counted.
+     * On a call from outside the org (ADR 0940): checked (and the guess reserved) before a code
+     * is looked at, so the right code is refused too once this caller gave too many wrong ones.
      */
     guesses?: Guesses | undefined;
   } = {},
 ): Promise<DealOutcome> {
   if (code !== undefined) await options.guesses?.check();
   const outcome = await dealFor(db, lines, buyer, code, now, currency, options);
-  if (outcome.code.given && !outcome.code.valid) await options.guesses?.wrong();
+  if (outcome.code.given) {
+    // The guess was reserved by check(): a right code gives it back, a wrong one keeps it.
+    await (outcome.code.valid ? options.guesses?.right() : options.guesses?.wrong());
+  }
   return outcome;
 }
 

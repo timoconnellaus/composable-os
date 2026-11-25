@@ -72,8 +72,9 @@ client's address.
   of step 7, with the purge.
 
 ## Amended 2026-11-25 ([ADR 0940](0940-a-rate-limit-per-client-address-for-public-operations.md))
-Step 1 is now the host's own: the pipeline counts `intake.submit` per client address (10 a minute)
-and `intake.open` (30 a minute), inside the Forms pack's tool too, before the checks here, with the
-visitor's address the client app passes over the binding. The door itself is still never given an
-address: the pipeline counts a keyed hash of it in the rate limiting binding, and nothing about it
-is stored by the door or in a submission. The caps here stay.
+Step 1 is now also the host's own: the pipeline counts `intake.submit` per caller (10 a minute per
+signed-in account or personal link, inside the Forms pack's tool too) and every public call per
+client address at the flood level, with the visitor's address the client app passes over the
+binding. The door itself is still never given an address: the pipeline counts a keyed hash of it in
+the rate limiting binding, and nothing about it is stored by the door or in a submission. The caps
+here stay, and bound guests who name no link.

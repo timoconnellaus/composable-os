@@ -1,18 +1,22 @@
-// The rate limit per client address on operations open to the public (ADR 0940): every one has a
-// limit (the registry walk, shipped packs' tools included), the named ones their tighter ones, and
-// the pipeline counts a call before any work: over the limit it is refused with the same answer
-// whatever was asked, and changes nothing; another address is not affected; a customer is counted
-// per address too; a strict operation is counted inside a pack's tool; and when the store is down a
-// read passes and a strict operation or a write does not.
+// The limits on calls to operations open to the public (ADR 0940): every one has a limit (the
+// registry walk, shipped packs' tools included), the named ones their declared ones; per client
+// address for floods, set high, and per caller (an account, a guest's order) on what is costly or
+// guessable; a refusal is the same answer whatever was asked; contact.stop counts only tokens that
+// are not valid; a pack tool's calls are counted per caller only; when the store is down calls go
+// through and it is reported; and wrong promo codes are counted per caller, reserved before the
+// lookup, locked for 15 minutes past 20, never on a shared bucket, with a host-wide ceiling.
 import { env } from "cloudflare:workers";
-import { beforeAll, describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 import {
   type ActingUser,
   type AnyOperation,
   type ClientAddress,
+  CODE_LOCK_MS,
   checkPublicLimit,
   coreRegistry,
+  type GuessCaller,
   guessCounter,
+  HOST_WRONG_CODES_PER_HOUR,
   invokeByName,
   memoryRateLimit,
   type OutsideInvocationContext,
@@ -23,7 +27,8 @@ import {
   purgeWrongGuesses,
   type RateLimitBinding,
   stopToken,
-  WRONG_GUESSES_PER_HOUR,
+  WRONG_CODES_PER_ADDRESS,
+  WRONG_CODES_PER_CALLER,
 } from "../src/index.ts";
 import { context, createUser, db, refusal, unique } from "./helpers.ts";
 import { releasePackTools } from "./release-packs.ts";
@@ -34,16 +39,19 @@ const PUBLIC = { kind: "public" } as const;
 const everything: AnyOperation[] = [...coreRegistry.list(), ...releasePackTools];
 const openToPublic = everything.filter((op) => op.audiences?.includes("public"));
 
-/** The operations given a tighter limit than their risk class's default (ADR 0940). */
+/** The operations declaring their own limits (ADR 0940). */
 const DECLARED: Record<string, PublicLimit> = {
-  "order.start": { tier: "strict", group: "order.start", guesses: "code" },
-  "order.startHeld": { tier: "strict", group: "order.start", guesses: "code" },
-  "order.quote": { tier: "low", guesses: "code" },
-  "discount.check": { tier: "strict", group: "code", guesses: "code" },
-  "order.applyCode": { tier: "strict", group: "code", guesses: "code" },
-  "contact.stop": { tier: "strict" },
-  "intake.submit": { tier: "strict" },
-  "intake.open": { tier: "low", inTools: true },
+  "order.start": { tier: "write", perCaller: {}, group: "order.start", guesses: "code" },
+  "order.startHeld": { tier: "write", perCaller: {}, group: "order.start", guesses: "code" },
+  "order.checkout": { tier: "write", perCaller: { by: "id" }, group: "order.checkout" },
+  "subscription.start": { tier: "write", perCaller: {}, group: "subscription.start" },
+  "order.quote": { tier: "read", guesses: "code" },
+  "discount.check": { tier: "read", perCaller: {}, group: "code", guesses: "code" },
+  "order.applyCode": { tier: "write", perCaller: { by: "id" }, group: "code", guesses: "code" },
+  "contact.stop": { tier: "write", addressCounts: "invalid" },
+  "intake.submit": { tier: "write", perCaller: { by: "link" }, group: "intake.submit" },
+  "media.serve": { tier: "asset" },
+  "media.play": { tier: "asset" },
 };
 
 /** Operations open to the public with no limit to count them against. */
@@ -59,8 +67,8 @@ describe("every operation open to the public has a limit (the registry walk)", (
     expect(openToPublic.some((op) => op.name.startsWith("x."))).toBe(true);
     expect(
       unlimited(everything),
-      "An operation open to the public has no limit per client address: give it a publicLimit, " +
-        "or a default for its risk class in PUBLIC_LIMIT_DEFAULTS (ADR 0940).",
+      "An operation open to the public has no limit: give it a publicLimit, or a default for its " +
+        "risk class in PUBLIC_LIMIT_DEFAULTS (ADR 0940).",
     ).toEqual([]);
   });
 
@@ -69,7 +77,7 @@ describe("every operation open to the public has a limit (the registry walk)", (
     expect(unlimited([bare as unknown as AnyOperation])).toEqual(["fixture.bare"]);
   });
 
-  it("the guessable and costly ones keep their tighter limits", () => {
+  it("the costly and guessable ones keep their declared limits", () => {
     for (const [name, limit] of Object.entries(DECLARED)) {
       const op = coreRegistry.get(name);
       expect(op, name).toBeDefined();
@@ -77,22 +85,29 @@ describe("every operation open to the public has a limit (the registry walk)", (
     }
   });
 
-  it("the defaults are standard for a read and low for a write", () => {
-    expect(PUBLIC_LIMIT_DEFAULTS).toEqual({ read: { tier: "standard" }, write: { tier: "low" } });
+  it("the defaults are the flood tiers: read for a read, write for a write", () => {
+    expect(PUBLIC_LIMIT_DEFAULTS).toEqual({ read: { tier: "read" }, write: { tier: "write" } });
   });
 });
 
-/** In-memory bindings, one per tier, exact per key (rate-limit.ts). */
-function bindings(limits: { strict?: number; low?: number; standard?: number; shared?: number }) {
+/** In-memory bindings, exact per key (rate-limit.ts). */
+function bindings(limits: Partial<Record<keyof PublicLimitBindings, number>> = {}) {
   return {
-    standard: memoryRateLimit(limits.standard ?? 120),
-    low: memoryRateLimit(limits.low ?? 30),
-    strict: memoryRateLimit(limits.strict ?? 10),
-    shared: memoryRateLimit(limits.shared ?? 1200),
+    read: memoryRateLimit(limits.read ?? 600),
+    write: memoryRateLimit(limits.write ?? 120),
+    asset: memoryRateLimit(limits.asset ?? 1200),
+    shared: memoryRateLimit(limits.shared ?? 6000),
+    caller: memoryRateLimit(limits.caller ?? 10),
+    codeSurge: memoryRateLimit(limits.codeSurge ?? 30),
   };
 }
 
 const at = (key: string): ClientAddress => ({ key, shared: false });
+const customer = () => ({
+  kind: "customer" as const,
+  customerId: unique("cus_"),
+  personId: unique("per_"),
+});
 
 const outside = (
   limits: PublicLimitBindings,
@@ -131,100 +146,140 @@ const choices = async (person: string) =>
       .first<{ n: number }>()
   )?.n ?? 0;
 
-describe("the pipeline counts each public call per client address", () => {
-  it("the 11th contact.stop in a minute from one address is refused; another address is not", async () => {
-    const limits = bindings({});
+describe("per client address: floods only", () => {
+  it("a public read past its limit is refused with 429's shape; another address is not", async () => {
+    const limits = bindings({ read: 2 });
     const a = at(unique("addr"));
-    for (let n = 0; n < 10; n += 1) {
-      await invokeByName("contact.stop", { token: "not-a-token" }, outside(limits, a));
+    for (let n = 0; n < 2; n += 1) {
+      expect((await refusal(invokeByName("stock.get", {}, outside(limits, a)))).code).toBe(
+        "invalid_input",
+      );
     }
-    const refused = await refusal(
-      invokeByName("contact.stop", { token: "not-a-token" }, outside(limits, a)),
-    );
-    expect(refused).toMatchObject({
+    expect(await refusal(invokeByName("stock.get", {}, outside(limits, a)))).toMatchObject({
       code: "rate_limited",
-      details: { retryAfterSeconds: 60, rule: "client_address" },
+      details: { retryAfterSeconds: 60, rule: "rate_limited" },
     });
-    expect(
-      await invokeByName("contact.stop", { token: "not-a-token" }, outside(limits, at("other"))),
-    ).toEqual({ done: true });
-  });
-
-  it("a refused call changes nothing, and is answered the same whatever it asked about", async () => {
-    const limits = bindings({ strict: 0 });
-    const a = at(unique("addr"));
-    const real = await stopFor();
-    const before = await choices(real.person);
-    const audited = async () =>
-      (
-        await env.DB.prepare(
-          "SELECT count(*) AS n FROM core_audit WHERE operation = 'contact.stop'",
-        ).first<{ n: number }>()
-      )?.n ?? 0;
-    const auditedBefore = await audited();
-    const pendingBefore = await env.DB.prepare(
-      "SELECT count(*) AS n FROM core_pending_action",
-    ).first<{
-      n: number;
-    }>();
-    const good = await refusal(
-      invokeByName("contact.stop", { token: real.token }, outside(limits, a)),
+    expect((await refusal(invokeByName("stock.get", {}, outside(limits, at("b"))))).code).toBe(
+      "invalid_input",
     );
-    const bad = await refusal(
-      invokeByName("contact.stop", { token: "made-up" }, outside(limits, a)),
-    );
-    expect(good).toMatchObject({ code: "rate_limited" });
-    expect({ code: good.code, message: good.message, details: good.details }).toEqual({
-      code: bad.code,
-      message: bad.message,
-      details: bad.details,
-    });
-    // The stop was not made, nothing was audited and nothing queued.
-    expect(await choices(real.person)).toBe(before);
-    expect(await audited()).toBe(auditedBefore);
-    expect(
-      await env.DB.prepare("SELECT count(*) AS n FROM core_pending_action").first<{ n: number }>(),
-    ).toEqual(pendingBefore);
-    // Unlimited, the same token stops: so the refusal above is what held it back.
-    await invokeByName("contact.stop", { token: real.token }, outside(bindings({}), a));
-    expect(await choices(real.person)).toBe(before + 1);
   });
 
   it("a signed-in customer is counted per address too, in the same count as the public", async () => {
-    const limits = bindings({ strict: 2 });
+    const limits = bindings({ read: 2 });
     const a = at(unique("addr"));
-    const customer = {
-      kind: "customer" as const,
-      customerId: unique("cus_"),
-      personId: unique("per_"),
-    };
-    await invokeByName("contact.stop", { token: "x" }, outside(limits, a));
-    await invokeByName("contact.stop", { token: "x" }, outside(limits, a, customer));
+    await refusal(invokeByName("stock.get", {}, outside(limits, a)));
+    await refusal(invokeByName("stock.get", {}, outside(limits, a, customer())));
     expect(
-      await refusal(invokeByName("contact.stop", { token: "x" }, outside(limits, a, customer))),
+      await refusal(invokeByName("stock.get", {}, outside(limits, a, customer()))),
     ).toMatchObject({ code: "rate_limited" });
   });
 
   it("an operation not open to the public is not counted here", async () => {
-    const limits = bindings({ standard: 0, low: 0, strict: 0, shared: 0 });
-    const customer = {
-      kind: "customer" as const,
-      customerId: unique("cus_"),
-      personId: unique("per_"),
-    };
-    // me.get is open to customers only: the per-account limit is its, not this one.
-    const error = await refusal(invokeByName("me.get", {}, outside(limits, at("a"), customer)));
+    const limits = bindings({ read: 0, write: 0, asset: 0, shared: 0, caller: 0 });
+    const error = await refusal(invokeByName("me.get", {}, outside(limits, at("a"), customer())));
     expect(error.code).not.toBe("rate_limited");
   });
 
   it("with no address the call is counted in the shared bucket, never unlimited", async () => {
     const limits = bindings({ shared: 1 });
-    await invokeByName("contact.stop", { token: "x" }, outside(limits, undefined));
+    await refusal(invokeByName("stock.get", {}, outside(limits, undefined)));
+    expect(await refusal(invokeByName("stock.get", {}, outside(limits, undefined)))).toMatchObject({
+      code: "rate_limited",
+    });
+    expect(limits.shared.hits("public:app:unknown:stock.get")).toBe(2);
+    expect(limits.read.hits("public:app:unknown:stock.get")).toBe(0);
+  });
+});
+
+describe("contact.stop: only tokens that are not valid count (review of PR #459, M1)", () => {
+  it("a mail provider's server sending many valid stops is never refused", async () => {
+    const limits = bindings({ write: 1 });
+    const server = at(unique("mail-server"));
+    for (let n = 0; n < 5; n += 1) {
+      const real = await stopFor();
+      const before = await choices(real.person);
+      expect(
+        await invokeByName("contact.stop", { token: real.token }, outside(limits, server)),
+      ).toEqual({ done: true });
+      expect(await choices(real.person)).toBe(before + 1);
+    }
+  });
+
+  it("tokens that are not valid count per address, and past the flood level are refused", async () => {
+    const limits = bindings({ write: 2 });
+    const a = at(unique("addr"));
+    await invokeByName("contact.stop", { token: "made-up-1" }, outside(limits, a));
+    await invokeByName("contact.stop", { token: "made-up-2" }, outside(limits, a));
     expect(
-      await refusal(invokeByName("contact.stop", { token: "x" }, outside(limits, undefined))),
+      await refusal(invokeByName("contact.stop", { token: "made-up-3" }, outside(limits, a))),
     ).toMatchObject({ code: "rate_limited" });
-    expect(limits.shared.hits("public:app:unknown:contact.stop")).toBe(2);
-    expect(limits.strict.hits("public:app:unknown:contact.stop")).toBe(0);
+    // A valid token from that address still stops.
+    const real = await stopFor();
+    await invokeByName("contact.stop", { token: real.token }, outside(limits, a));
+    expect(await choices(real.person)).toBe(1);
+  });
+});
+
+describe("per caller: the tight limits", () => {
+  const start = { name: "order.start", risk: "write", audiences: ["public"] } as const;
+  const startLimit = {
+    ...start,
+    publicLimit: { tier: "write", perCaller: {}, group: "order.start" },
+  } as const;
+  const checkout = {
+    name: "order.checkout",
+    risk: "write",
+    audiences: ["public"],
+    publicLimit: { tier: "write", perCaller: { by: "id" }, group: "order.checkout" },
+  } as const;
+
+  it("a signed-in customer by account, whatever address they come from", async () => {
+    const limits = bindings({ caller: 2 });
+    const who = { kind: "customer" as const, customerId: unique("cus_") };
+    await checkPublicLimit(limits, at("home"), startLimit, who, {});
+    await checkPublicLimit(limits, at("work"), startLimit, who, {});
+    await expect(checkPublicLimit(limits, at("cafe"), startLimit, who, {})).rejects.toMatchObject({
+      code: "rate_limited",
+    });
+    // Another member on the same network is not affected.
+    const other = { kind: "customer" as const, customerId: unique("cus_") };
+    await checkPublicLimit(limits, at("home"), startLimit, other, {});
+  });
+
+  it("a guest by the order the call names; a guest naming nothing only per address", async () => {
+    const limits = bindings({ caller: 1, write: 1000 });
+    const wifi = at(unique("venue-wifi"));
+    await checkPublicLimit(limits, wifi, checkout, PUBLIC, { id: "ord_a" });
+    await expect(
+      checkPublicLimit(limits, wifi, checkout, PUBLIC, { id: "ord_a" }),
+    ).rejects.toMatchObject({ code: "rate_limited" });
+    // Another guest's order on the same wifi is not affected.
+    await checkPublicLimit(limits, wifi, checkout, PUBLIC, { id: "ord_b" });
+    // 200 guests starting orders on one wifi: no caller count, only the address's flood level.
+    for (let n = 0; n < 200; n += 1) await checkPublicLimit(limits, wifi, startLimit, PUBLIC, {});
+  });
+
+  it("inside a pack's tool only the per-caller count is made", async () => {
+    const limits = bindings({ caller: 1, write: 0, read: 0 });
+    const read = { name: "public.list", risk: "read", audiences: ["public"] } as const;
+    await checkPublicLimit(limits, at("t"), read, PUBLIC, {}, { inTool: true });
+    const who = { kind: "customer" as const, customerId: unique("cus_") };
+    await checkPublicLimit(limits, at("t"), startLimit, who, {}, { inTool: true });
+    await expect(
+      checkPublicLimit(limits, at("t"), startLimit, who, {}, { inTool: true }),
+    ).rejects.toMatchObject({ code: "rate_limited" });
+  });
+
+  it("an order start past the per-account limit is refused before anything is written", async () => {
+    const limits = bindings({ caller: 0 });
+    const before = await env.DB.prepare("SELECT count(*) AS n FROM core_order").first<{
+      n: number;
+    }>();
+    const error = await refusal(
+      invokeByName("order.start", { lines: [] }, outside(limits, at("a"), customer())),
+    );
+    expect(error.code).toBe("rate_limited");
+    expect(await env.DB.prepare("SELECT count(*) AS n FROM core_order").first()).toEqual(before);
   });
 });
 
@@ -234,25 +289,32 @@ const throwing: RateLimitBinding = {
   },
 };
 
-describe("when the store is down", () => {
-  it("a public read passes; a strict operation and a write are refused", async () => {
-    const down = { standard: throwing, low: throwing, strict: throwing, shared: throwing };
-    // stock.get is a read: it passes the limiter (and fails on its empty input after it).
-    const read = await refusal(invokeByName("stock.get", {}, outside(down, at("a"))));
-    expect(read.code).toBe("invalid_input");
-    const strict = await refusal(
-      invokeByName("contact.stop", { token: "x" }, outside(down, at("a"))),
+describe("when the limiter is unavailable, calls go through and it is reported (M4)", () => {
+  it("every tier passes; the error is logged and the pipeline told", async () => {
+    const down = {
+      read: throwing,
+      write: throwing,
+      asset: throwing,
+      shared: throwing,
+      caller: throwing,
+    };
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    const told: string[] = [];
+    const startLimit = {
+      name: "order.start",
+      risk: "write",
+      audiences: ["public"],
+      publicLimit: { tier: "write", perCaller: {}, group: "order.start" },
+    } as const;
+    const who = { kind: "customer" as const, customerId: unique("cus_") };
+    await checkPublicLimit(down, at("a"), startLimit, who, {}, { onDown: (w) => told.push(w) });
+    // A deploy that left the bindings out is the store being down, the same way.
+    await checkPublicLimit({}, at("a"), startLimit, who, {}, { onDown: (w) => told.push(w) });
+    expect(told).toEqual(["order.start", "order.start", "order.start", "order.start"]);
+    expect((await refusal(invokeByName("stock.get", {}, outside(down, at("a"))))).code).toBe(
+      "invalid_input",
     );
-    expect(strict).toMatchObject({ code: "rate_limited", details: { rule: "limit_unavailable" } });
-    // A deploy that left the bindings out is the store being down.
-    const missing = await refusal(
-      invokeByName("contact.stop", { token: "x" }, outside({}, at("a"))),
-    );
-    expect(missing).toMatchObject({ code: "rate_limited", details: { rule: "limit_unavailable" } });
-    const write = { name: "x.shop.buy", risk: "write", audiences: ["public"] } as const;
-    await expect(checkPublicLimit({}, at("a"), write)).rejects.toMatchObject({
-      code: "rate_limited",
-    });
+    error.mockRestore();
   });
 
   it("an adapter that keeps no limiter counts nothing (a test, a script)", async () => {
@@ -262,72 +324,132 @@ describe("when the store is down", () => {
   });
 });
 
-describe("inside a pack's tool", () => {
-  const strict = { name: "order.startHeld", risk: "write", audiences: ["public"] } as const;
-  const read = { name: "public.list", risk: "read", audiences: ["public"] } as const;
-
-  it("a strict operation is counted again; a read is part of the call that started the tool", async () => {
-    const limits = bindings({ strict: 1, standard: 0 });
-    await checkPublicLimit(limits, at("t"), read, { inTool: true });
-    expect(limits.standard.hits("public:addr:t:public.list")).toBe(0);
-    const startHeld = { ...strict, publicLimit: { tier: "strict", group: "order.start" } } as const;
-    await checkPublicLimit(limits, at("t"), startHeld, { inTool: true });
-    await expect(
-      checkPublicLimit(limits, at("t"), startHeld, { inTool: true }),
-    ).rejects.toMatchObject({ code: "rate_limited" });
-    // order.start shares the group's count.
-    const start = { ...startHeld, name: "order.start" };
-    await expect(checkPublicLimit(limits, at("t"), start)).rejects.toMatchObject({
-      code: "rate_limited",
-    });
+describe("wrong promo codes (guesses.ts)", () => {
+  const now = () => new Date().toISOString();
+  const asCustomer = (): GuessCaller => ({
+    caller: { kind: "customer", customerId: unique("cus_") },
+    address: at("shared-gym-wifi"),
+    order: null,
   });
 
-  it("an operation declaring inTools is counted there too", async () => {
-    const limits = bindings({ low: 0 });
-    const open = {
-      name: "intake.open",
-      risk: "read",
-      audiences: ["public"],
-      publicLimit: { tier: "low", inTools: true },
-    } as const;
-    await expect(checkPublicLimit(limits, at("t"), open, { inTool: true })).rejects.toMatchObject({
-      code: "rate_limited",
-    });
-  });
-});
-
-describe("wrong guesses (guesses.ts)", () => {
-  it("the 21st check in the hour from one address is refused, right or wrong; another address is not", async () => {
-    const now = new Date().toISOString();
-    const a = guessCounter(db, at(unique("guesser")), "code", now);
-    for (let n = 0; n < WRONG_GUESSES_PER_HOUR; n += 1) {
-      await a.check();
-      await a.wrong();
+  it("after 20 wrong, that account is refused codes, right or wrong; another account is not", async () => {
+    const who = asCustomer();
+    const counter = () => guessCounter(db, who, "code", now());
+    for (let n = 0; n < WRONG_CODES_PER_CALLER; n += 1) {
+      const c = counter();
+      await c.check();
+      await c.wrong();
     }
-    await expect(a.check()).rejects.toMatchObject({
-      code: "rate_limited",
-      details: { rule: "client_address" },
-    });
-    await guessCounter(db, at(unique("buyer")), "code", now).check();
-    // Another group is its own count.
-    await guessCounter(db, at("guesser"), "giftCard", now).check();
+    const locked = await refusal(counter().check());
+    expect(locked).toMatchObject({ code: "rate_limited", details: { rule: "rate_limited" } });
+    expect((locked.details as { retryAfterSeconds: number }).retryAfterSeconds).toBe(
+      CODE_LOCK_MS / 1000,
+    );
+    // Another member on the same wifi is not affected.
+    await guessCounter(db, asCustomer(), "code", now()).check();
   });
 
-  it("keeps no address or key, only a hash with the hour, and the purge removes ended hours", async () => {
-    const key = unique("keep");
-    const hourAgo = new Date(Date.now() - 2 * 60 * 60 * 1000).toISOString();
-    await guessCounter(db, at(key), "code", hourAgo).wrong();
-    const rows = await env.DB.prepare("SELECT guess_key, window_start FROM core_wrong_guess").all<{
-      guess_key: string;
-      window_start: string;
-    }>();
-    expect(rows.results.every((row) => /^[0-9a-f]{64}$/.test(row.guess_key))).toBe(true);
-    expect(rows.results.some((row) => row.guess_key.includes(key))).toBe(false);
-    await purgeWrongGuesses(db, new Date());
-    const left = await env.DB.prepare(
-      "SELECT count(*) AS n FROM core_wrong_guess WHERE window_start < ?",
+  it("a guest by their order; a guest naming none by address, at 50; a shared bucket never", async () => {
+    const wifi = at(unique("wifi"));
+    const order = (id: string) =>
+      guessCounter(db, { caller: PUBLIC, address: wifi, order: id }, "code", now());
+    for (let n = 0; n < WRONG_CODES_PER_CALLER; n += 1) {
+      const c = order("ord_1");
+      await c.check();
+      await c.wrong();
+    }
+    await expect(order("ord_1").check()).rejects.toMatchObject({ code: "rate_limited" });
+    await order("ord_2").check();
+    const plain = () =>
+      guessCounter(db, { caller: PUBLIC, address: wifi, order: null }, "code", now());
+    for (let n = 0; n < WRONG_CODES_PER_ADDRESS; n += 1) {
+      const c = plain();
+      await c.check();
+      await c.wrong();
+    }
+    await expect(plain().check()).rejects.toMatchObject({ code: "rate_limited" });
+    const shared = () =>
+      guessCounter(
+        db,
+        { caller: PUBLIC, address: { key: "client-app", shared: true }, order: null },
+        "code",
+        now(),
+      );
+    for (let n = 0; n < WRONG_CODES_PER_ADDRESS + 10; n += 1) {
+      const c = shared();
+      await c.check();
+    }
+  });
+
+  it("a right code gives its reservation back", async () => {
+    const who = asCustomer();
+    for (let n = 0; n < WRONG_CODES_PER_CALLER + 10; n += 1) {
+      const c = guessCounter(db, who, "code", now());
+      await c.check();
+      await c.right();
+    }
+    await guessCounter(db, who, "code", now()).check();
+  });
+
+  it("parallel guesses cannot overshoot: a guess is reserved before the lookup (F1)", async () => {
+    const who = asCustomer();
+    for (let n = 0; n < WRONG_CODES_PER_CALLER - 1; n += 1) {
+      const c = guessCounter(db, who, "code", now());
+      await c.check();
+      await c.wrong();
+    }
+    const results = await Promise.allSettled(
+      Array.from({ length: 15 }, () => guessCounter(db, who, "code", now()).check()),
+    );
+    expect(results.filter((r) => r.status === "fulfilled")).toHaveLength(1);
+  });
+
+  it("past the host-wide ceiling, code checks pass a short host-wide rate; admins are told", async () => {
+    const group = unique("ceiling");
+    const hour = new Date(Math.floor(Date.now() / 3_600_000) * 3_600_000).toISOString();
+    await env.DB.prepare(
+      "INSERT INTO core_wrong_guess (guess_key, window_start, wrong) VALUES (?, ?, ?)",
     )
-      .bind(new Date(Date.now() - 60 * 60 * 1000).toISOString())
+      .bind(`host\n${group}\n${hour}`, hour, HOST_WRONG_CODES_PER_HOUR - 1)
+      .run();
+    const surge = memoryRateLimit(1);
+    const someone = asCustomer();
+    const c = guessCounter(db, someone, group, now(), { surge });
+    await c.check();
+    await c.wrong();
+    const notice = await env.DB.prepare(
+      "SELECT count(*) AS n FROM core_notifications WHERE dedupe_key = ?",
+    )
+      .bind(`public_limit.code_ceiling:${hour}`)
+      .first<{ n: number }>();
+    expect(notice?.n).toBeGreaterThan(0);
+    await guessCounter(db, asCustomer(), group, now(), { surge }).check();
+    expect(
+      await refusal(guessCounter(db, asCustomer(), group, now(), { surge }).check()),
+    ).toMatchObject({ code: "rate_limited", details: { retryAfterSeconds: 10 } });
+  });
+
+  it("keeps no address or account, only hashes; the purge removes every ended row", async () => {
+    const key = unique("keep");
+    const old = new Date(Date.now() - 3 * 60 * 60 * 1000).toISOString();
+    for (let n = 0; n < 3; n += 1) {
+      await guessCounter(
+        db,
+        { caller: PUBLIC, address: at(`${key}${n}`), order: null },
+        "code",
+        old,
+      ).check();
+    }
+    const rows = await env.DB.prepare("SELECT guess_key FROM core_wrong_guess").all<{
+      guess_key: string;
+    }>();
+    expect(rows.results.some((row) => row.guess_key.includes(key))).toBe(false);
+    const { deleted } = await purgeWrongGuesses(db, new Date(), { chunk: 1 });
+    expect(deleted).toBeGreaterThanOrEqual(3);
+    const left = await env.DB.prepare(
+      "SELECT count(*) AS n FROM core_wrong_guess WHERE window_start < ? AND (locked_until IS NULL OR locked_until < ?)",
+    )
+      .bind(new Date(Date.now() - 60 * 60 * 1000).toISOString(), new Date().toISOString())
       .first<{ n: number }>();
     expect(left?.n).toBe(0);
   });

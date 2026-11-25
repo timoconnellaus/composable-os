@@ -37,13 +37,18 @@ export type DiscountWho = (typeof DISCOUNT_WHO)[number];
 
 /**
  * A promo code as the host keeps and compares it (ADR 0940): Unicode-normalised (NFKC), with no
- * white space, in upper case, so `été 26`, `ÉTÉ26` and `Été26` are one code, and non-ASCII letters
+ * white space and no invisible characters (zero-width spaces, soft hyphens: Unicode's default
+ * ignorables), in upper case, so `été 26`, `ÉTÉ26` and `Été26` are one code, and non-ASCII letters
  * match however they are typed. The host stores a code word folded when a record is written, and
  * folds what a buyer types the same way before it looks the word up by its index. One function,
  * here, for both.
  */
 export function foldCode(word: string): string {
-  return word.normalize("NFKC").replace(/\s+/gu, "").toUpperCase().normalize("NFKC");
+  return word
+    .normalize("NFKC")
+    .replace(/[\s\p{Default_Ignorable_Code_Point}]+/gu, "")
+    .toUpperCase()
+    .normalize("NFKC");
 }
 
 /** The least length of a code word, in characters after folding (ADR 0940): no `SALE`, no `A1`. */

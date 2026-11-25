@@ -127,9 +127,11 @@ const CONTEXT_KEYS = {
   intake: "runtime",
   callingTool: "data",
   anonymise: "data",
-  // Outside calls only (ADR 0940): a code check's wrong-guess count, and a tool run's address key.
-  // Never on a staff call, the only kind a dry run makes, so there is nothing here to guard.
-  guesses: "data",
+  // Outside calls only (ADR 0940): a code check's wrong-guess count (it writes D1: every method is
+  // refused in a dry run); a tool run's address key; a refused call's count (an in-memory rate
+  // limit hit, no record or row, and never on a staff call).
+  guesses: "runtime",
+  refused: "data",
   clientAddress: "data",
 } as const satisfies Record<keyof HandlerContext, "database" | "runtime" | "data">;
 
@@ -167,6 +169,7 @@ const RUNTIMES = {
   hostMail: { label: "the host's mail", reads: ["signInMailProblem"] },
   widgetCache: { label: "the dashboard cache", reads: ["get"] },
   intake: { label: "the spam check", reads: [] },
+  guesses: { label: "the wrong-code count", reads: [] },
 } as const satisfies Record<RuntimeKey, { label: string; reads: readonly string[] }>;
 
 export type DryRunRuntime = keyof typeof RUNTIMES;

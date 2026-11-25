@@ -16,6 +16,7 @@ import {
   type ExtensionManifest,
   type FieldManifest,
   type FieldTypeName,
+  foldCode,
   isLosslessChange,
   isRestrictedField,
   type ObjectManifest,
@@ -109,6 +110,7 @@ export interface ReconcileIssue {
     | "foreign_object"
     | "seed"
     | "unique_conflict"
+    | "code_word_conflict"
     | "claims_conflict"
     | "grants_conflict"
     | "staffed_conflict"
@@ -210,7 +212,68 @@ export async function planReconcile(
   const current = await loadSchemaState(db);
   const plan = planFromState(db, current, manifest, options.now, timezone);
   plan.issues.push(...(await dataIssues(db, current, plan.next, manifest.id, options.now, plan)));
+  // Promo code words already there, before their unique index is built (ADR 0940, review of PR
+  // #459 F4): folded in place first; two that fold to one word stop the plan, naming them.
+  const words = await codeWordData(db, current, plan.next, manifest.id);
+  plan.issues.push(...words.issues);
+  plan.statements.unshift(...words.statements);
   return plan;
+}
+
+/**
+ * The live records' code words of every code-word index about to be built: folded in place (one
+ * UPDATE per record not already folded), or, when two would fold to one word, an issue naming them.
+ */
+async function codeWordData(
+  db: Kysely<CoreDatabase>,
+  current: SchemaState,
+  next: SchemaState,
+  ext: string,
+): Promise<{ issues: ReconcileIssue[]; statements: CompiledQuery[] }> {
+  const issues: ReconcileIssue[] = [];
+  const statements: CompiledQuery[] = [];
+  for (const object of next.objects) {
+    if (object.extensionId !== ext || object.status !== "active") continue;
+    const before = current.objects.find(
+      (o) => o.name === object.name && o.tableName === object.tableName && o.status === "active",
+    );
+    if (!before) continue; // A new object has no records.
+    for (const index of codeWordIndexes(next, object, ext)) {
+      if ((current.indexes ?? []).some((i) => i.name === index.name)) continue;
+      const exists = current.fields.some(
+        (f) => f.tableName === object.tableName && f.columnName === index.column,
+      );
+      if (!exists) continue; // A new field: no record has a word yet.
+      const rows = await sql<{ id: string; word: string }>`
+        SELECT id, ${sql.ref(index.column)} AS word FROM ${sql.table(object.tableName)}
+        WHERE deleted_at IS NULL AND ${sql.ref(index.column)} IS NOT NULL`.execute(db);
+      const byWord = new Map<string, string[]>();
+      for (const row of rows.rows) {
+        const folded = foldCode(String(row.word));
+        byWord.set(folded, [...(byWord.get(folded) ?? []), row.id]);
+        if (folded !== row.word) {
+          statements.push(
+            CompiledQuery.raw(
+              `UPDATE ${ident(object.tableName)} SET ${ident(index.column)} = ? WHERE id = ?`,
+              [folded === "" ? null : folded, row.id],
+            ),
+          );
+        }
+      }
+      const clashes = [...byWord].filter(([word, ids]) => word !== "" && ids.length > 1);
+      if (clashes.length) {
+        issues.push({
+          code: "code_word_conflict",
+          path: `objects.${object.localName}`,
+          message: `${object.name}: live records share a promo code once it is compared without case or spaces, and a code must name one record: ${clashes
+            .slice(0, 5)
+            .map(([word, ids]) => `${word} (${ids.join(", ")})`)
+            .join("; ")}. Change or delete all but one of each first.`,
+        });
+      }
+    }
+  }
+  return { issues, statements };
 }
 
 /** A declared uniqueness rule's partial index (ADR 0502): its name, columns and condition. */
@@ -273,6 +336,7 @@ function codeWordIndexes(state: SchemaState, object: ObjectState, ext: string) {
     return [
       {
         name,
+        column,
         ddl: `CREATE UNIQUE INDEX IF NOT EXISTS ${name} ON ${ident(object.tableName)} (${col}) WHERE deleted_at IS NULL AND ${col} IS NOT NULL`,
       },
     ];

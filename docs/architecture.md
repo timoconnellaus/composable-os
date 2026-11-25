@@ -1171,11 +1171,13 @@ As built (stage 22; ADRs [0410](adr/0410-the-seams-first-door-as-built.md),
 - **Limits:** a customer's calls per account and operation, and code requests per address asked
   for (`customers/limits.ts`, Workers Rate Limiting); address changes per account and per mailbox,
   reserved by one conditional insert of their row. Every call to an operation open to the public,
-  a customer's included, per client address (`public-limits.ts`, ADR 0940): the operation's
-  declared `publicLimit` or its risk class's default, in one of three tiers (120, 30 or 10 a
-  minute), keyed by a hash the adapter makes (an IPv6 address by its /64); a strict operation is
-  counted inside a pack's tool too; wrong promo codes per address and hour in `core_wrong_guess`
-  (`guesses.ts`). No address is stored: only keyed hashes, the wrong-guess rows for an hour.
+  a customer's included (`public-limits.ts`, ADR 0940): per client address for floods only (600
+  reads, 120 writes, 1,200 pictures a minute, keyed by an HMAC the adapter makes, an IPv6 address
+  by its /64), and per caller on what is costly or guessable (`perCaller`: 10 a minute per account,
+  a guest's order or personal link; at the door and inside a pack's tool); wrong promo codes per
+  caller in `core_wrong_guess` (`guesses.ts`: reserved before the lookup, a 15-minute lock past 20,
+  a host-wide ceiling). When a binding is missing or failing, calls go through and the admins are
+  told. No address is stored: only keyed hashes.
 
 The HTTP routes that mount customer sign-in and carry these calls are stage 23's.
 
@@ -1210,10 +1212,10 @@ As built (stage 23; ADRs [0415](adr/0415-the-http-surface-as-built.md),
   staff cookie (Better Auth's, Access's, hosted support's) is used only from the host's own pages,
   on every route that reads one (`staffCookieAllowed`, `apps/app/src/server/staff-origin.ts`,
   ADR 0660); customers are limited per account and
-  operation by `CUSTOMER_RATE_LIMIT`. Every call to a public operation is limited per client
-  address by the pipeline (ADR 0940): the connection's `cf-connecting-ip` here, and over the
-  client-app binding the visitor's address its Worker names (`cos-visitor-address`), or one shared
-  bucket for the client app when it names none.
+  operation by `CUSTOMER_RATE_LIMIT`. Every call to a public operation is limited by the pipeline
+  (ADR 0940), per client address for floods and per caller where it counts: the connection's
+  `cf-connecting-ip` here, and over the client-app binding a forwarded `cf-connecting-ip`, else the
+  visitor its Worker names (`cos-visitor-address`), else one shared bucket for the client app.
 - **The contract** (`packages/core/src/http/contract.ts`) is the manifest per audience, committed
   as `packages/core/api/v1/<audience>.json`; a test fails while it and the registry differ. A
   version below the oldest served answers `upgrade_required`.

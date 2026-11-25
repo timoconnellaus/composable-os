@@ -29,6 +29,7 @@ export {
   type BetterAuthOptions,
   betterAuthProvider,
   type CodeRequestRefusal,
+  clientAddressBucket,
   clientAddressSecret,
   codeRequestRefusal,
   createBetterAuth,
@@ -38,6 +39,7 @@ export {
   STAFF_CODE_TTL_SECONDS,
   type StaffCodes,
   staffSignInWithCode,
+  validClientAddress,
 } from "./better-auth.ts";
 export {
   ACCESS_JWT_HEADER,

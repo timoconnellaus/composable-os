@@ -1066,10 +1066,12 @@ export interface CoreNativeHandoffTable {
 
 /** Wrong guesses per client address, group and hour (migration 1450, ADR 0940). */
 export interface CoreWrongGuessTable {
-  /** SHA-256 of the address's key, the group and the hour: never an address. */
+  /** SHA-256 of who (an account, or an address's key), the order and the group: never an address. */
   guess_key: string;
   window_start: string;
   wrong: Generated<number>;
+  /** Set when the caller went over: their codes are refused until then. */
+  locked_until: string | null;
 }
 
 export interface CoreIdempotencyClaimTable {

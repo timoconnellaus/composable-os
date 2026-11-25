@@ -12,8 +12,24 @@ export const BOUND_CUSTOMER_SECRET = "customer-secret-for-the-binding-789";
 /** Codes the host would have emailed, by address (lower case). */
 export const sentCodes = new Map<string, string>();
 
-/** The strict tier's binding for calls over the binding (ADR 0940), for tests to read. */
-export const boundStrictLimit = memoryRateLimit(10_000);
+/** A rate limit the tests can watch and close: counts hits per key, refuses while `closed`. */
+export function switchableLimit() {
+  const hits = new Map<string, number>();
+  const state = { closed: false };
+  return {
+    state,
+    hits: (key: string) => hits.get(key) ?? 0,
+    async limit({ key }: { key: string }) {
+      hits.set(key, (hits.get(key) ?? 0) + 1);
+      return { success: !state.closed };
+    },
+  };
+}
+
+/** The flood tiers' bindings for calls over the binding (ADR 0940), for tests to read and close. */
+export const boundReadLimit = switchableLimit();
+export const boundWriteLimit = switchableLimit();
+export const boundSharedLimit = switchableLimit();
 
 let cached: ApiEnv | null = null;
 
@@ -29,10 +45,12 @@ export function boundTestEnv(base: object): ApiEnv {
     // Codes to new addresses (ADR 0459): without the binding none is sent, so the tests bind one.
     CUSTOMER_CODE_NEW_RATE_LIMIT: memoryRateLimit(10_000),
     // The limit per client address (ADR 0940): exact, and high enough for every test.
-    PUBLIC_RATE_LIMIT: memoryRateLimit(10_000),
-    PUBLIC_WRITE_RATE_LIMIT: memoryRateLimit(10_000),
-    PUBLIC_STRICT_RATE_LIMIT: boundStrictLimit,
-    PUBLIC_SHARED_RATE_LIMIT: memoryRateLimit(10_000),
+    PUBLIC_RATE_LIMIT: boundReadLimit,
+    PUBLIC_WRITE_RATE_LIMIT: boundWriteLimit,
+    PUBLIC_ASSET_RATE_LIMIT: memoryRateLimit(10_000),
+    PUBLIC_SHARED_RATE_LIMIT: boundSharedLimit,
+    PUBLIC_CALLER_RATE_LIMIT: memoryRateLimit(10_000),
+    PUBLIC_CODE_SURGE_RATE_LIMIT: memoryRateLimit(10_000),
     CUSTOMER_AUTH_SECRET: BOUND_CUSTOMER_SECRET,
     CUSTOMER_AUTH_URL: WEB_ORIGIN,
   } as unknown as ApiEnv;

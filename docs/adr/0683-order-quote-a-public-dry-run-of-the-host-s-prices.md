@@ -61,8 +61,7 @@ apply is reported in `problems` as `code_not_valid`, with the one message every 
 still holds nothing and writes nothing: no use of the code is held. A quote by staff names no
 Person, so it shows only what anyone gets.
 
-## Amended 2026-11-25 (ADR 0940)
-`order.quote` is limited per client address: 30 a minute (the `low` tier, tighter than a read's
-default of 120, since each quote prices every line), and, when a code is given, it counts toward
-the wrong-guess limit of 20 an hour shared with `discount.check`, `order.applyCode` and the order
-starts. Before this the host did not limit it for the public at all.
+## Amended 2026-11-25 ([ADR 0940](0940-a-rate-limit-per-client-address-for-public-operations.md))
+`order.quote` is limited per client address at the flood level for reads (600 a minute), and, when
+a code is given, it counts toward the caller's wrong promo codes, shared with `discount.check`,
+`order.applyCode` and the order starts. Before this the host did not limit it for the public.

@@ -1,99 +1,235 @@
-// Wrong guesses per client address (ADR 0940): an operation that checks a code someone could guess
-// (a promo code) refuses every check, right or wrong, once this address gave 20 wrong codes in the
-// current hour, in the operation's group (`publicLimit.guesses`). The pipeline hands such an
-// operation's handler `ctx.guesses` on a call from outside the org; staff are not counted.
+// Wrong promo codes (ADR 0940). An operation that checks a code someone could guess is given
+// `ctx.guesses` on a call from outside the org (staff are never counted):
 //
-// Why D1 and not the rate limiting binding: the binding counts on every look, and a limit that
-// counts only wrong codes has to be read before the code is checked, so that the right code is
-// refused too once the limit is reached (else the refusals would tell the guesser which one was
-// right). The cost is one indexed read per code check, and one upsert per wrong code.
+// - Per caller: a signed-in customer's account; a guest by the order the call names (20 wrong
+//   codes), or, naming none, by their client address (50). Wrong codes are counted in fixed
+//   quarter-hour windows; the 21st (or 51st) locks that caller out of codes for 15 minutes from
+//   then, right or wrong, so the refusals never tell which code was right. A client app's shared
+//   bucket (its Worker named no visitor) is never locked: one attacker would lock every buyer out.
+// - Host-wide: past HOST_WRONG_CODES_PER_HOUR wrong codes in an hour (many addresses at once),
+//   code checks for everyone pass a short host-wide rate (`codeSurge`, 30 every 10 seconds) until
+//   the hour ends, rather than any valid code being refused for long; the admins are told.
 //
-// A row's key is a SHA-256 of the address's key (already a keyed hash: no address reaches here),
-// the group and the hour; the daily maintenance run deletes it once its hour has ended.
+// A check reserves its guess before the code is looked up, in one statement (`wrong = wrong + 1
+// ... RETURNING`), so parallel guesses cannot overshoot; a right code gives the reservation back.
+// So every check is one write, and a wrong one a second (the host-wide count). This is D1, so it
+// holds when the rate limiting binding is down.
+//
+// A row's key is a SHA-256 of who (an account id, or an address's key: already a keyed hash, so
+// no address reaches here), the order and the group. The daily maintenance run deletes rows whose
+// window and lock have passed.
 import type { CrmDb } from "@composable-os/db";
 import { sql } from "kysely";
 import { sha256Hex } from "./digest.ts";
 import { RateLimitedError } from "./errors.ts";
-import { type ClientAddress, UNKNOWN_ADDRESS } from "./public-limits.ts";
+import { notifyStatements } from "./notifications/send.ts";
+import {
+  type ClientAddress,
+  countHit,
+  type LimitedCaller,
+  type LimiterDown,
+  UNKNOWN_ADDRESS,
+} from "./public-limits.ts";
+import type { RateLimitBinding } from "./rate-limit.ts";
 
-/** Wrong codes one client address may give in an hour, per group. */
-export const WRONG_GUESSES_PER_HOUR = 20;
-/** For a client app's shared bucket (its Worker passed no visitor address). */
-export const SHARED_WRONG_GUESSES_PER_HOUR = 200;
+/** Wrong codes an account, or a guest's order, may give in a quarter-hour. */
+export const WRONG_CODES_PER_CALLER = 20;
+/** Wrong codes a guest naming no order may give from one address in a quarter-hour. */
+export const WRONG_CODES_PER_ADDRESS = 50;
+/** How long a caller is refused codes once over. */
+export const CODE_LOCK_MS = 15 * 60 * 1000;
+/** Wrong codes host-wide in an hour before code checks are slowed for everyone. */
+export const HOST_WRONG_CODES_PER_HOUR = 2000;
 
+const WINDOW_MS = 15 * 60 * 1000;
 const HOUR_MS = 60 * 60 * 1000;
 
-/** What a code-checking handler is given: check before looking at the code, count a wrong one. */
+/** What a code-checking handler is given. */
 export interface Guesses {
-  /** Refuses (`rate_limited`) once this address's wrong codes this hour reach the limit. */
+  /** Before the code is looked up: refuses a locked caller, reserves this guess. */
   check(): Promise<void>;
-  /** Counts one wrong code, at once and outside the call's batch, so a refusal keeps it. */
+  /** The code was right: the reservation is given back. */
+  right(): Promise<void>;
+  /** The code was wrong: the reservation stands, and the host-wide count goes up. */
   wrong(): Promise<void>;
 }
 
-function windowOf(now: string): { start: string; endsAt: number } {
-  const at = Date.parse(now);
-  const start = Math.floor(at / HOUR_MS) * HOUR_MS;
-  return { start: new Date(start).toISOString(), endsAt: start + HOUR_MS };
+/** Who a guess is counted against: an account, a guest's order, a guest's address, or nobody. */
+export interface GuessCaller {
+  caller: LimitedCaller;
+  address: ClientAddress | undefined;
+  /** The order a guest's call names, if any. */
+  order: string | null;
 }
 
-async function guessKey(address: ClientAddress, group: string, windowStart: string) {
-  return sha256Hex(`${address.shared ? "app" : "addr"}\n${address.key}\n${group}\n${windowStart}`);
+const windowStart = (at: number, size: number) =>
+  new Date(Math.floor(at / size) * size).toISOString();
+
+async function identityOf(
+  who: GuessCaller,
+  group: string,
+): Promise<{ key: string; limit: number } | null> {
+  const { caller } = who;
+  if (caller.kind === "customer") {
+    return {
+      key: await sha256Hex(`acct\n${caller.customerId}\n${group}`),
+      limit: WRONG_CODES_PER_CALLER,
+    };
+  }
+  if (caller.kind === "practitioner") {
+    return {
+      key: await sha256Hex(`prac\n${caller.practitionerId}\n${group}`),
+      limit: WRONG_CODES_PER_CALLER,
+    };
+  }
+  const address = who.address ?? UNKNOWN_ADDRESS;
+  // A shared bucket is everyone's: never locked (the host-wide ceiling still holds).
+  if (address.shared) return null;
+  if (who.order) {
+    return {
+      key: await sha256Hex(`order\n${address.key}\n${who.order}\n${group}`),
+      limit: WRONG_CODES_PER_CALLER,
+    };
+  }
+  return { key: await sha256Hex(`addr\n${address.key}\n${group}`), limit: WRONG_CODES_PER_ADDRESS };
 }
 
-/** The counter for one call: this address (or shared bucket), this group, this hour. */
+function refuse(retryAfterSeconds: number): never {
+  throw new RateLimitedError(`Too many calls; retry in ${retryAfterSeconds}s`, {
+    retryAfterSeconds,
+    rule: "rate_limited",
+  });
+}
+
+/** The counter for one call. `surge`: the host-wide binding used past the ceiling. */
 export function guessCounter(
   db: CrmDb,
-  address: ClientAddress | undefined,
+  who: GuessCaller,
   group: string,
   now: string,
+  options: { surge?: RateLimitBinding | undefined; onDown?: LimiterDown } = {},
 ): Guesses {
-  const who = address ?? UNKNOWN_ADDRESS;
-  const window = windowOf(now);
-  const limit = who.shared ? SHARED_WRONG_GUESSES_PER_HOUR : WRONG_GUESSES_PER_HOUR;
-  const key = guessKey(who, group, window.start);
+  const at = Date.parse(now);
+  const quarter = windowStart(at, WINDOW_MS);
+  const hour = windowStart(at, HOUR_MS);
+  const hostKey = `host\n${group}\n${hour}`;
+  let identity: Promise<{ key: string; limit: number } | null> | null = null;
+  let reserved = false;
+  const id = () => {
+    identity ??= identityOf(who, group);
+    return identity;
+  };
   return {
     async check() {
-      const row = await db.query
+      // Many addresses at once: past the ceiling, everyone's checks pass a short host-wide rate.
+      const host = await db.query
         .selectFrom("core_wrong_guess")
         .select("wrong")
-        .where("guess_key", "=", await key)
+        .where("guess_key", "=", hostKey)
         .executeTakeFirst();
-      if ((row?.wrong ?? 0) >= limit) {
-        const retryAfterSeconds = Math.max(1, Math.ceil((window.endsAt - Date.parse(now)) / 1000));
-        // The same refusal as the per-address limit's, whatever the code was.
-        throw new RateLimitedError(`Too many calls; retry in ${retryAfterSeconds}s`, {
-          retryAfterSeconds,
-          rule: "client_address",
-        });
+      if ((host?.wrong ?? 0) >= HOST_WRONG_CODES_PER_HOUR) {
+        try {
+          await countHit(options.surge, `code-surge:${group}`, "code surge", options.onDown);
+        } catch {
+          refuse(10);
+        }
+      }
+      const mine = await id();
+      if (!mine || reserved) return;
+      const row = await sql<{ wrong: number; locked_until: string | null }>`
+        INSERT INTO core_wrong_guess (guess_key, window_start, wrong, locked_until)
+        VALUES (${mine.key}, ${quarter}, 1, NULL)
+        ON CONFLICT (guess_key) DO UPDATE SET
+          wrong = CASE WHEN window_start = excluded.window_start THEN wrong + 1 ELSE 1 END,
+          window_start = excluded.window_start
+        RETURNING wrong, locked_until`.execute(db.query);
+      reserved = true;
+      const { wrong = 1, locked_until = null } = row.rows[0] ?? {};
+      if (locked_until && Date.parse(locked_until) > at) {
+        refuse(Math.max(1, Math.ceil((Date.parse(locked_until) - at) / 1000)));
+      }
+      if (wrong > mine.limit) {
+        const until = new Date(at + CODE_LOCK_MS).toISOString();
+        await sql`UPDATE core_wrong_guess SET locked_until = ${until} WHERE guess_key = ${mine.key}`.execute(
+          db.query,
+        );
+        refuse(CODE_LOCK_MS / 1000);
       }
     },
-    async wrong() {
+    async right() {
+      const mine = await id();
+      if (!mine || !reserved) return;
       await sql`
-        INSERT INTO core_wrong_guess (guess_key, window_start, wrong)
-        VALUES (${await key}, ${window.start}, 1)
-        ON CONFLICT (guess_key) DO UPDATE SET wrong = wrong + 1`.execute(db.query);
+        UPDATE core_wrong_guess SET wrong = wrong - 1
+        WHERE guess_key = ${mine.key} AND wrong > 0 AND window_start = ${quarter}`.execute(
+        db.query,
+      );
+    },
+    async wrong() {
+      const row = await sql<{ wrong: number }>`
+        INSERT INTO core_wrong_guess (guess_key, window_start, wrong) VALUES (${hostKey}, ${hour}, 1)
+        ON CONFLICT (guess_key) DO UPDATE SET wrong = wrong + 1
+        RETURNING wrong`.execute(db.query);
+      if (row.rows[0]?.wrong === HOST_WRONG_CODES_PER_HOUR) {
+        await tellAdmins(
+          db,
+          "Many wrong promo codes",
+          `${HOST_WRONG_CODES_PER_HOUR} wrong promo codes were tried within an hour, from many ` +
+            "addresses: someone may be guessing codes. Until the hour ends, code checks are slowed " +
+            "for everyone (right codes still work). Consider ending a short shared code word.",
+          `public_limit.code_ceiling:${hour}`,
+          now,
+        );
+      }
     },
   };
 }
 
-/** The daily purge: rows whose hour has ended, in chunks. */
+/** Tells the admins once per key, outside the call's batch; never fails the call. */
+export async function tellAdmins(
+  db: CrmDb,
+  title: string,
+  body: string,
+  dedupeKey: string,
+  now: string,
+): Promise<void> {
+  try {
+    const plan = await notifyStatements(
+      db.query,
+      {
+        to: [{ role: "admin" }],
+        type: "system.message",
+        title,
+        body,
+        dedupeKey,
+        source: { actor: "system" },
+      },
+      now,
+    );
+    for (const statement of plan.statements) await db.query.executeQuery(statement.compile());
+  } catch (error) {
+    console.error("rate limit notice not written", String((error as Error)?.message ?? error));
+  }
+}
+
+/** The daily purge: rows whose window and lock have passed, in chunks, until none is left. */
 export async function purgeWrongGuesses(
   db: CrmDb,
   now: Date,
-  { chunk = 500, maxChunks = 20 }: { chunk?: number; maxChunks?: number } = {},
-): Promise<{ deleted: number; more: boolean }> {
+  { chunk = 500 }: { chunk?: number } = {},
+): Promise<{ deleted: number }> {
   const cutoff = new Date(now.getTime() - HOUR_MS).toISOString();
+  const at = now.toISOString();
   let deleted = 0;
-  for (let i = 0; ; i += 1) {
-    if (i >= maxChunks) return { deleted, more: true };
+  for (;;) {
     const result = await sql`
       DELETE FROM core_wrong_guess WHERE guess_key IN (
         SELECT guess_key FROM core_wrong_guess
-        WHERE window_start < ${cutoff} ORDER BY window_start LIMIT ${chunk}
+        WHERE window_start < ${cutoff} AND (locked_until IS NULL OR locked_until < ${at})
+        ORDER BY window_start LIMIT ${chunk}
       )`.execute(db.query);
     const n = Number(result.numAffectedRows ?? 0);
     deleted += n;
-    if (n < chunk) return { deleted, more: false };
+    if (n < chunk) return { deleted };
   }
 }

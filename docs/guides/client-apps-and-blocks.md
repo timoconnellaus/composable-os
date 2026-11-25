@@ -18,16 +18,23 @@ web app on Cloudflare reaches its host by a service binding; the mobile app by H
 
 ## The visitor's address
 
-The host limits every call to a public operation, and sign-in, per client address
+The host limits calls to public operations, and sign-in, per client address for floods
 ([ADR 0940](../adr/0940-a-rate-limit-per-client-address-for-public-operations.md)). Over the
-service binding every call comes from the web app, so the web app names its visitor in the
-`cos-visitor-address` header: `forVisitor(request)` from `@composable-os/client` gives the
-customer's session cookie and that header together, and `visitorAddress(request.headers)` the
-header alone (for a call made as the public, such as the stop route's). Every route in the
-template's `src/host.ts` sends it. The host reads the header only over the binding; on the public
-HTTP surface (the mobile app's) the address is the connection's and the header is ignored. A web
-app that sends none, built from an older template, is counted as one shared bucket: all its
-visitors share one limit (1,200 a minute per operation), so update its `src/host.ts`.
+service binding every call comes from the web app, so the web app names its visitor:
+`forVisitor(request)` from `@composable-os/client` gives the customer's session cookie and the
+`cos-visitor-address` header (made from Cloudflare's `cf-connecting-ip` on the browser's request)
+together, and `visitorAddress(request.headers)` the header alone (for a call made as the public,
+such as the stop route's). Every route in the template's `src/host.ts` sends it.
+
+- **Never pass the browser's request headers on as they came** (`env.HOST.fetch(request)`, or
+  copying every header): a `cos-visitor-address` the browser sent would then reach the host. The
+  host reads a forwarded `cf-connecting-ip` before the header, so such a proxy still counts the real
+  visitor, but build your headers afresh as the template does.
+- On the public HTTP surface (the mobile app's) the address is the connection's and the header is
+  ignored.
+- A web app that sends no address, built from an older template, puts all its visitors in one
+  shared bucket (6,000 calls a minute per operation, never locked out of promo codes), and the
+  admins are told once a day. Update its `src/host.ts` (`cos upgrade` replaces an unedited one).
 
 ## Blocks
 
