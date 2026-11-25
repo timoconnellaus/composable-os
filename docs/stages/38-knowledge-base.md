@@ -679,8 +679,8 @@ None open. The six questions this spec raised were decided by the coordinator (d
   pack. Left: blocks and screens (step 6); pack-role accounts are not served a procedure's
   pictures and cannot read section names.
 
-- **Step 6** — not built — needs: step 5, stage 47 — Blocks: help centre, procedure reader, to
-  read, confirm, read status; the declared screens
+- **Step 6** — in progress — branch `feat/stage-38-knowledge-blocks` — Blocks: help centre,
+  procedure reader, to read, confirm, read status; the declared screens
 
 - **Step 7** — not built — needs: step 1 — Passages and the assistant: chunking at headings,
   passage vectors, `content.passages`, citations
