@@ -111122,6 +111122,796 @@
       "pack": "deals"
     },
     {
+      "name": "x.equipment.item",
+      "description": "One item of the register: its details, state (and why and since when it is out of service), keeper, who has it, supplier, purchase cost, warranty and renewal dates, and its faults newest first, each saying whether the item was under warranty when it was reported. Costs are for every staff member. Read-only. (Extension tool from Equipment 0.1.0.)",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "itemId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          }
+        },
+        "required": [
+          "itemId"
+        ],
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "tag": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "category": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "place": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "make": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "model": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "serial": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "state": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "in_service",
+                  "out_of_service",
+                  "retired"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "outSince": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "outReason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "keeper": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "issuedTo": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "supplierId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "supplier": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "boughtOn": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "warrantyUntil": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "warrantyNotes": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "renewalDue": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "listForMembers": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "notes": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "costs": {
+            "type": "object",
+            "properties": {
+              "purchase": {
+                "description": "What it cost to buy, in the base currency",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "purchase"
+            ],
+            "additionalProperties": false
+          },
+          "faults": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "description": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "severity": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "enum": [
+                        "safety_risk",
+                        "not_working",
+                        "worn"
+                      ]
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "state": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "enum": [
+                        "reported",
+                        "acknowledged",
+                        "fixed",
+                        "not_a_fault",
+                        "duplicate"
+                      ]
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "reportedBy": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "reportedByName": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "closedWhy": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "reportedAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "underWarranty": {
+                  "type": "boolean",
+                  "description": "The item's warranty had not ended on the day it was reported"
+                }
+              },
+              "required": [
+                "id",
+                "title",
+                "description",
+                "severity",
+                "state",
+                "reportedBy",
+                "reportedByName",
+                "closedWhy",
+                "reportedAt",
+                "underWarranty"
+              ],
+              "additionalProperties": false
+            },
+            "description": "Newest first, at most 50"
+          },
+          "moreFaults": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "tag",
+          "category",
+          "place",
+          "make",
+          "model",
+          "serial",
+          "state",
+          "outSince",
+          "outReason",
+          "keeper",
+          "issuedTo",
+          "supplierId",
+          "supplier",
+          "boughtOn",
+          "warrantyUntil",
+          "warrantyNotes",
+          "renewalDue",
+          "listForMembers",
+          "notes",
+          "costs",
+          "faults",
+          "moreFaults"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [],
+      "pack": "equipment"
+    },
+    {
+      "name": "x.equipment.putBack",
+      "description": "Put an item that is out of service back in service, once it is safe to use: a manager's own act (equipment:manage), never the assistant's or an automation's (decision 4). Its reason and time out of service are cleared; the state history keeps them. (Extension tool from Equipment 0.1.0.)",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "itemId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          }
+        },
+        "required": [
+          "itemId"
+        ],
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "itemId": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string",
+            "const": "in_service"
+          }
+        },
+        "required": [
+          "itemId",
+          "state"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "x.equipment.item",
+        "x.equipment.register"
+      ],
+      "pack": "equipment"
+    },
+    {
+      "name": "x.equipment.register",
+      "description": "The equipment register: items with their tag, category, place, state (in service, out of service with why and since when, retired), keeper, supplier, warranty end and how many faults are open. Out-of-service items and those with open safety risks come first. Retired items are left out unless state is retired. Narrow it with state, category, place or q (a name, tag, make, model or serial). Read-only. (Extension tool from Equipment 0.1.0.)",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "state": {
+            "type": "string",
+            "enum": [
+              "in_service",
+              "out_of_service",
+              "retired"
+            ]
+          },
+          "category": {
+            "type": "string",
+            "maxLength": 80
+          },
+          "place": {
+            "type": "string",
+            "maxLength": 200,
+            "description": "Only items whose place contains this"
+          },
+          "q": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          }
+        },
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "tag": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "category": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "place": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "state": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "enum": [
+                        "in_service",
+                        "out_of_service",
+                        "retired"
+                      ]
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "outSince": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "outReason": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "keeper": {
+                  "description": "The keeper's account id; empty means the managers",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "issuedTo": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "supplier": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "warrantyUntil": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "openFaults": {
+                  "type": "number",
+                  "description": "Faults reported or acknowledged, not yet closed"
+                },
+                "safetyRisks": {
+                  "type": "number",
+                  "description": "Of the open faults, those reported as a safety risk"
+                }
+              },
+              "required": [
+                "id",
+                "name",
+                "tag",
+                "category",
+                "place",
+                "state",
+                "outSince",
+                "outReason",
+                "keeper",
+                "issuedTo",
+                "supplier",
+                "warrantyUntil",
+                "openFaults",
+                "safetyRisks"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "truncated": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "items",
+          "truncated"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [],
+      "pack": "equipment"
+    },
+    {
+      "name": "x.equipment.reportFault",
+      "description": "Report a fault on an item: what is wrong (never an injury: that goes on the incident form) and how bad (safety_risk, not_working, worn). The report is recorded as the caller's. With takeOut, the item is also taken out of service in the same call, with the reason given: for a staff member who sees something unsafe (decision 3). Nothing takes an item out by itself. The answer says whether it was taken out, the item's state and whether it is under warranty. A person's act: the assistant, an MCP client or an automation may ask, and it waits for a person to approve it. (Extension tool from Equipment 0.1.0.)",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "itemId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "description": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 4000
+          },
+          "severity": {
+            "type": "string",
+            "enum": [
+              "safety_risk",
+              "not_working",
+              "worn"
+            ]
+          },
+          "takeOut": {
+            "type": "object",
+            "properties": {
+              "reason": {
+                "type": "string",
+                "minLength": 3,
+                "maxLength": 500
+              }
+            },
+            "required": [
+              "reason"
+            ],
+            "additionalProperties": {},
+            "description": "Also take the item out of service, with why it must not be used"
+          }
+        },
+        "required": [
+          "itemId",
+          "description",
+          "severity"
+        ],
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "faultId": {
+            "type": "string"
+          },
+          "itemId": {
+            "type": "string"
+          },
+          "takenOut": {
+            "type": "boolean",
+            "description": "This call took the item out of service"
+          },
+          "itemState": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "in_service",
+                  "out_of_service",
+                  "retired"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "underWarranty": {
+            "type": "boolean"
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "faultId",
+          "itemId",
+          "takenOut",
+          "itemState",
+          "underWarranty",
+          "message"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "x.equipment.item",
+        "x.equipment.register"
+      ],
+      "pack": "equipment"
+    },
+    {
+      "name": "x.equipment.retire",
+      "description": "Retire an item for good (worn out, replaced, sold, lost), with why: it leaves the register's usual list, is no longer listed for members, and cannot come back. Its faults and history stay. A manager's (equipment:manage); the assistant, an MCP client or an automation may ask, and it waits for a person to approve it. (Extension tool from Equipment 0.1.0.)",
+      "risk": "destructive",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "itemId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 500
+          }
+        },
+        "required": [
+          "itemId",
+          "reason"
+        ],
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "itemId": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string",
+            "const": "retired"
+          }
+        },
+        "required": [
+          "itemId",
+          "state"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "x.equipment.item",
+        "x.equipment.register"
+      ],
+      "pack": "equipment"
+    },
+    {
+      "name": "x.equipment.takeOut",
+      "description": "Take an item out of service, with why it must not be used: any staff member may (decision 4). Only from in service; an item already out of service or retired is refused with its state. Only a manager puts it back (putBack). A person's act: the assistant, an MCP client or an automation may ask, and it waits for a person to approve it. (Extension tool from Equipment 0.1.0.)",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "itemId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 500
+          }
+        },
+        "required": [
+          "itemId",
+          "reason"
+        ],
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "itemId": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string",
+            "const": "out_of_service"
+          },
+          "outSince": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "itemId",
+          "state",
+          "outSince"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "x.equipment.item",
+        "x.equipment.register"
+      ],
+      "pack": "equipment"
+    },
+    {
+      "name": "x.equipment.triage",
+      "description": "Triage a fault: acknowledge it (seen, being dealt with), or close it as fixed, not a fault or a duplicate, with why (what fixed it, or which report it repeats). A manager's (equipment:manage); the assistant, an MCP client or an automation may ask, and it waits for a person to approve it. A closed fault stays closed. It does not put the item back in service: that is putBack. (Extension tool from Equipment 0.1.0.)",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "faultId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "action": {
+            "type": "string",
+            "enum": [
+              "acknowledge",
+              "fixed",
+              "not_a_fault",
+              "duplicate"
+            ]
+          },
+          "why": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 1000,
+            "description": "Why it is closed. Needed to close one; optional to acknowledge"
+          }
+        },
+        "required": [
+          "faultId",
+          "action"
+        ],
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "faultId": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "reported",
+              "acknowledged",
+              "fixed",
+              "not_a_fault",
+              "duplicate"
+            ]
+          }
+        },
+        "required": [
+          "faultId",
+          "state"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "x.equipment.item",
+        "x.equipment.register"
+      ],
+      "pack": "equipment"
+    },
+    {
       "name": "x.forms.enter",
       "description": "Enter answers on someone's behalf (a phone call, a paper form) or fill in a staff form (an incident report), for any published form. The submission is marked as entered by staff, and the person is found or made from the email answered, filling only their empty fields. Staff cannot tick a 'keep me updated' line for someone: only the person can. (Extension tool from Forms 0.1.0.)",
       "risk": "write",

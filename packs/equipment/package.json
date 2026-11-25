@@ -1,0 +1,30 @@
+{
+  "name": "@composable-os/pack-equipment",
+  "version": "0.1.0",
+  "license": "FSL-1.1-ALv2",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./index.ts"
+  },
+  "description": "Equipment: the register of what a business owns and looks after (items with their tag, supplier, cost and warranty), faults reported by staff, and items taken out of service by any staff member and put back by a manager (stage 59). Installed in every deployment of a product that lists it. Bundled as source into cos-runner.",
+  "composableOs": {
+    "optional": true,
+    "label": "Equipment",
+    "description": "A register of your equipment, with tags, suppliers, costs and warranties, faults reported from the floor, and machines taken out of service in one tap and put back by a manager."
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@composable-os/sdk": "workspace:*"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-plugin": "1.5.1",
+    "@cloudflare/workers-types": "5.20261104.1",
+    "@composable-os/config": "workspace:*",
+    "typescript": "6.0.3",
+    "vitest": "5.1.0"
+  }
+}

@@ -206,6 +206,25 @@
       "operations": ["x.courses.endEnrolment", "x.courses.enrol"]
     },
     {
+      "permission": "equipment:manage",
+      "pack": "equipment",
+      "label": "Equipment: put items back in service, retire them, and acknowledge and close faults",
+      "restricted": true,
+      "operations": ["x.equipment.putBack", "x.equipment.retire", "x.equipment.triage"]
+    },
+    {
+      "permission": "equipment:report",
+      "pack": "equipment",
+      "label": "Equipment: see the register, report a fault and take an item out of service. For a coach, a cleaner or anyone with another role who works on the floor.",
+      "restricted": false,
+      "operations": [
+        "x.equipment.item",
+        "x.equipment.register",
+        "x.equipment.reportFault",
+        "x.equipment.takeOut"
+      ]
+    },
+    {
       "permission": "knowledge:manage",
       "pack": "knowledge",
       "label": "See who has read and confirmed each procedure, and change who must read one once published",

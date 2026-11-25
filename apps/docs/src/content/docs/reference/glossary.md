@@ -1788,7 +1788,8 @@ An **item** is a thing in the shop (a club hoodie), with its pictures, its categ
 sold (online, in person or both); only a published item is public. A **variant** is one version of
 it that is bought and counted (the large black one), with its price, stock, reorder level and usual
 supplier. An item with one version still has one variant. "Product" is not used for these: it is
-the platform's word for a composition (ADR 0400) (stage 37, ADR 0689).
+the platform's word for a composition (ADR 0400) (stage 37, ADR 0689). The Equipment pack's
+**item** is something owned and looked after, not sold (below).
 
 ### Shipment
 
@@ -3272,6 +3273,36 @@ An answer to a customer's common question on the business's website (`knowledge.
 "where do I park", "how do I pause my membership". Read by anyone, signed in or not, in its
 published wording, found by address, in its **help topic**, or by searching its published words.
 _Avoid_: FAQ entry, article, knowledge base article, support doc
+
+### Item
+
+(the Equipment pack; stage 59, ADR 0862)
+
+One thing a business owns and looks after (`equipment.item`): a treadmill, a rack, the sauna, a
+drill, a van. It has a **tag**, the code on its sticker, which no other live item shares; a place, a
+supplier (an Organisation), what it cost, when its warranty ends, and its **keeper**, the staff
+account who looks after it (empty means the managers). It is in service, **out of service** (why,
+and since when) or retired. Not the Shop's item, which is something sold.
+_Avoid_: asset (fine in prose), equipment (the pack's name, not one record), machine (only some are)
+
+### Out of service
+
+(stage 59, ADR 0862)
+
+An item's state while it must not be used. Any staff member who may report faults takes an item
+out, with why, on its own or in the same call as a fault report; only a manager
+(`equipment:manage`) puts it back, and only a person, never an AI. Nothing takes an item out by
+itself.
+_Avoid_: broken (a fault's word), out of order (what members are shown)
+
+### Fault
+
+(stage 59, ADR 0862)
+
+A report that something is wrong with an item (`equipment.fault`): what is wrong and how bad (a
+safety risk, not working, worn or cosmetic), by whom. Reported, then acknowledged, then closed by a
+manager as fixed, not a fault or a duplicate, each with why. An injury to a person is not a fault.
+_Avoid_: ticket (Ticketing's), issue, incident
 
 ### Confirmation
 

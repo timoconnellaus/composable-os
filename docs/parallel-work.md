@@ -85,6 +85,7 @@ here is what made parallel PRs conflict.
 | BR | 1230–1249 | 0830–0839 | Stage 56, Client notes (spec `docs/stages/56-client-notes.md`) | specced |
 | BS | 1250–1269 | 0840–0849 | Stage 57, Events and venue hire (spec `docs/stages/57-events-venue-hire.md`) | specced |
 | BT | 1270–1289 | 0850–0859 | Stage 58, Timesheets and leave (spec `docs/stages/58-timesheets-leave.md`) | specced |
+| BU | 1290–1309 | 0860–0869 | Stage 59, Equipment (spec `docs/stages/59-equipment.md`; what each step used is in its Status section) | in flight |
 | BV | 1310–1329 | 0870–0879 | Stage 60, Owner's Today (spec `docs/stages/60-owners-today.md`) | step 1 built (ADR 0871 used; no migration) |
 | BW | 1330–1349 | 0880–0889 | Stage 61, Accounting sync (spec `docs/stages/61-accounting-sync.md`; step 1, `feat/stage-61-accounting-contract`: the contract, the fake and the conformance suite, ADR 0880, no migration) | in flight |
 | BY | 1370–1389 | 0900–0909 | Stage 63, App publishing (spec `docs/stages/63-app-publishing.md`) | specced |
