@@ -72,8 +72,11 @@ interview.
   no new operation); a link's page sends no referrer, loads no outside script and drops the token
   from the address bar, and opening it uses nothing. The `forms-form` and `forms-native-form`
   blocks and the headless entry (`@composable-os/pack-forms/client`). Cos-app's optional
-  `TURNSTILE_SITE_KEY`. Not tried on a phone, with a real site key or on a live host; the
-  attention list that opens `LinkedFormBlock` is stage 48's.
+  `TURNSTILE_SITE_KEY`. After review: a redraw keeps the first shown time, sends only from the
+  page's own origin, the visitor's address on the page's calls (ADR 0940), `/f/*` and `/form`
+  bypassed whenever Forms is installed, a link's reload answered from the host's store, the
+  deploy refusing Turnstile's test keys. Not tried on a phone, with a real site key or on a live
+  host; the template's plain account pages cannot open `LinkedFormBlock` (no Forms operations).
 
 - **Step 5** — built — PR #458 — Personal links, the receipt and the form-link slot, Bookings'
   feedback, the `form_to_fill` attention kind (`feat/stage-29-personal-links`): migration 1010
