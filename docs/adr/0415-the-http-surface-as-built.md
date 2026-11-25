@@ -97,3 +97,11 @@ an `Origin` naming another site, an `Origin` of `null` without `Sec-Fetch-Site: 
 no `Origin` and a `Sec-Fetch-Site` other than `same-origin` (except a top-level GET navigation)
 refuses the staff session. That covers the adapter's own `/auth/token`, which now also takes only
 `application/json`, and media and the agreement PDFs beside the surface.
+
+## Amended 2026-11-25 ([ADR 0940](0940-a-rate-limit-per-client-address-for-public-operations.md))
+**Public calls are limited by the host**, in the pipeline: per client address for floods (600 reads,
+120 writes, 1,200 pictures a minute, keyed by a hash of `cf-connecting-ip`), and per caller on what
+is costly or guessable (10 a minute per signed-in account or guest order: order starts, checkout,
+`subscription.start`, code checks, form answers), with wrong promo codes counted per caller. A
+signed-in customer is counted per address as well as per account. The edge rule above is no longer
+required; it is still worth adding for volume.

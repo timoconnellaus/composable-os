@@ -200,6 +200,7 @@ export function toolOperation(
                   actor: ctx.principal.kind,
                   userId: ctx.principal.kind === "customer" ? ctx.principal.customerId : "",
                   principal: ctx.principal,
+                  ...(ctx.clientAddress ? { clientAddress: ctx.clientAddress } : {}),
                 },
       });
       if (!result.ok) {

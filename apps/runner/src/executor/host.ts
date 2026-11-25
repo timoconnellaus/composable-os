@@ -12,6 +12,7 @@
 import { RpcTarget } from "cloudflare:workers";
 import {
   type ActingUser,
+  type ClientAddress,
   type CodeCaller,
   coreOperations,
   type EventSink,
@@ -29,7 +30,9 @@ import {
   type Permission,
   parseFloor,
   prepareRoutineMail,
+  publicLimitBindings,
   queueEventSink,
+  type RateLimitBinding,
   refreshSchemaRegistry,
   resolveExtensionOperation,
   sendReadyTexts,
@@ -70,6 +73,12 @@ export interface HostEnv {
    * forms take no answers from the public.
    */
   TURNSTILE_SECRET_KEY?: string;
+  /**
+   * The limits on public operations (ADR 0940): a tool's calls are counted per caller here (an
+   * order start, a form's answers, a code check), in the same namespaces as cos-app's.
+   */
+  PUBLIC_CALLER_RATE_LIMIT?: RateLimitBinding;
+  PUBLIC_CODE_SURGE_RATE_LIMIT?: RateLimitBinding;
 }
 
 /** A Code Mode run (ADR 0042): the script acts as the connected user, not as an extension. */
@@ -147,7 +156,7 @@ export interface RunState {
    * principal. Its operation calls go through the pipeline's outside path, and it has no host
    * module but `ops`, `storage` and `log`.
    */
-  outside?: { principal: OutsidePrincipal; tool: string };
+  outside?: { principal: OutsidePrincipal; tool: string; clientAddress?: ClientAddress };
   /** The tool this run is, from the installed manifest (ADR 0513); absent for automations. */
   tool?: {
     name: string;
@@ -392,6 +401,9 @@ export class RunHost extends RpcTarget {
           await invokeByName(operation, input ?? {}, {
             principal: run.outside.principal,
             tool: { extension: run.extensionId, tool: run.outside.tool },
+            // Counted per caller, and wrong codes per caller (ADR 0940).
+            publicLimits: publicLimitBindings(this.#env),
+            ...(run.outside.clientAddress ? { clientAddress: run.outside.clientAddress } : {}),
             origin: this.#toolOrigin(),
             db: createCrmDb(this.#env.DB),
             floor: parseFloor(this.#env.APPROVAL_FLOOR),

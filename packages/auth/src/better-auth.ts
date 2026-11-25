@@ -50,6 +50,8 @@ export interface BetterAuthOptions {
   codeRateLimit?: RateLimitBinding | undefined;
   /** Code requests per client address, keyed by a keyed hash of it. */
   codeAddressRateLimit?: RateLimitBinding | undefined;
+  /** What the address is keyed with (`clientAddressSecret`): one count for every kind of sign-in. */
+  addressSecret?: string | undefined;
   clock?: () => Date;
 }
 
@@ -87,12 +89,15 @@ export function randomId(): string {
 export function clientAddressBucket(address: string): string {
   const ip = address.trim().toLowerCase().split("%")[0] ?? "";
   if (!ip.includes(":")) return ip;
+  // An IPv4 address written as IPv6 (`::ffff:192.0.2.1`) is that IPv4 address: its own bucket,
+  // not the /64 every such address shares (review of PR #459, F3).
+  const mapped = /^(?:0{0,4}:){0,5}(?::|0{0,4}:)?ffff:(\d{1,3}(?:\.\d{1,3}){3})$/.exec(ip);
+  if (mapped?.[1] && isIpv4(mapped[1])) return mapped[1];
   const [head = "", tail, extra] = ip.split("::");
   if (extra !== undefined) return ip; // more than one "::": not an address
   const groups = (part: string) => (part ? part.split(":") : []);
   const left = groups(head);
   const right = groups(tail ?? "");
-  // An embedded IPv4 tail (::ffff:192.0.2.1) is in the low 64 bits, which are dropped anyway.
   const all =
     tail === undefined
       ? left
@@ -102,13 +107,86 @@ export function clientAddressBucket(address: string): string {
   return `${prefix.map((g) => Number.parseInt(g, 16).toString(16)).join(":")}::/64`;
 }
 
+function isIpv4(value: string): boolean {
+  const parts = value.split(".");
+  return parts.length === 4 && parts.every((p) => /^\d{1,3}$/.test(p) && Number(p) <= 255);
+}
+
+function isIpv6(value: string): boolean {
+  if (value.length > 45 || !/^[0-9a-f:.]+$/.test(value)) return false;
+  const halves = value.split("::");
+  if (halves.length > 2) return false;
+  const groups = halves.flatMap((h) => (h ? h.split(":") : []));
+  const last = groups.at(-1) ?? "";
+  // An IPv4 tail (`::ffff:192.0.2.1`) counts as two groups.
+  const v4 = last.includes(".");
+  if (v4 && !isIpv4(last)) return false;
+  const hex = v4 ? groups.slice(0, -1) : groups;
+  if (hex.some((g) => !/^[0-9a-f]{1,4}$/.test(g))) return false;
+  const count = hex.length + (v4 ? 2 : 0);
+  return halves.length === 2 ? count < 8 : count === 8;
+}
+
 /**
- * A client address as a rate-limit key: its bucket (an IPv6 address's /64), hashed with a
- * secret, so no address is passed on.
+ * A client address as given (`cf-connecting-ip`, or a client app's word over the binding) when it
+ * is a well-formed IPv4 or IPv6 address, else null: a malformed or over-long value is no address,
+ * and is counted in a shared bucket, never keyed as given.
+ */
+export function validClientAddress(value: string | null | undefined): string | null {
+  const ip = value?.trim().toLowerCase() ?? "";
+  if (!ip || ip.length > 45) return null;
+  return isIpv4(ip) || isIpv6(ip) ? ip : null;
+}
+
+let isolateSecret: string | null = null;
+
+/**
+ * The one secret client addresses are keyed with (ADR 0940): sign-in for staff, customers and
+ * practitioners, and the pipeline's limits, so an address has one count whichever door it uses.
+ * Derived from the staff secret, or the customer one on a host without it. A host with neither
+ * gets a random key for the isolate's life, logged: never an empty one, which would let a key be
+ * reversed to its IPv4 address by trying them all.
+ */
+export function clientAddressSecret(env: {
+  BETTER_AUTH_SECRET?: string | undefined;
+  CUSTOMER_AUTH_SECRET?: string | undefined;
+}): string {
+  const secret = env.BETTER_AUTH_SECRET || env.CUSTOMER_AUTH_SECRET;
+  if (secret) return `client-address\n${secret}`;
+  if (!isolateSecret) {
+    const bytes = crypto.getRandomValues(new Uint8Array(32));
+    isolateSecret = `client-address\nisolate\n${[...bytes].map((b) => b.toString(16).padStart(2, "0")).join("")}`;
+    console.error(
+      "No BETTER_AUTH_SECRET or CUSTOMER_AUTH_SECRET: client addresses are keyed with a random key " +
+        "for this isolate only, so rate limit counts do not carry across isolates",
+    );
+  }
+  return isolateSecret;
+}
+
+const hmacKeys = new Map<string, Promise<CryptoKey>>();
+
+/**
+ * A client address as a rate-limit key: an HMAC-SHA256 of its bucket (an IPv6 address's /64, an
+ * IPv4-mapped one's IPv4 address) under `secret`, so no address is passed on.
  */
 export async function addressKey(address: string, secret: string): Promise<string> {
-  const data = new TextEncoder().encode(`${secret}\n${clientAddressBucket(address)}`);
-  const digest = await crypto.subtle.digest("SHA-256", data);
+  let key = hmacKeys.get(secret);
+  if (!key) {
+    key = crypto.subtle.importKey(
+      "raw",
+      new TextEncoder().encode(secret),
+      { name: "HMAC", hash: "SHA-256" },
+      false,
+      ["sign"],
+    );
+    hmacKeys.set(secret, key);
+  }
+  const digest = await crypto.subtle.sign(
+    "HMAC",
+    await key,
+    new TextEncoder().encode(clientAddressBucket(address)),
+  );
   return [...new Uint8Array(digest).slice(0, 16)]
     .map((b) => b.toString(16).padStart(2, "0"))
     .join("");
@@ -123,6 +201,8 @@ export async function beforeCodeRequest(
   options: {
     ready?: (() => Promise<string | null>) | undefined;
     secret: string;
+    /** The secret the client address is keyed with: one for every kind of sign-in (ADR 0940). */
+    addressSecret?: string | undefined;
     codeRateLimit?: RateLimitBinding | undefined;
     codeAddressRateLimit?: RateLimitBinding | undefined;
     what: string;
@@ -139,7 +219,7 @@ export async function beforeCodeRequest(
   if (address && options.codeAddressRateLimit) {
     const limited = await rateLimit(
       options.codeAddressRateLimit,
-      `code-from:${await addressKey(address, options.secret)}`,
+      `code-from:${await addressKey(address, options.addressSecret ?? options.secret)}`,
     );
     if (!limited.ok) {
       throw new APIError("TOO_MANY_REQUESTS", {
@@ -205,6 +285,7 @@ export function createBetterAuth(options: BetterAuthOptions) {
         await beforeCodeRequest(ctx, {
           ready,
           secret: options.secret,
+          addressSecret: options.addressSecret,
           codeRateLimit: options.codeRateLimit,
           codeAddressRateLimit: options.codeAddressRateLimit,
           what: "Sign-in by code",

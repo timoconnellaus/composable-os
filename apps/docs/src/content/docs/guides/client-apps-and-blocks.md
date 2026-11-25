@@ -18,6 +18,26 @@ registry, over the HTTP surface: one route per operation, for staff, customers a
 [ADR 0418](https://github.com/timoconnellaus/composable-os/blob/main/docs/adr/0418-the-typed-client-as-built.md)). Client code never opens the database. A
 web app on Cloudflare reaches its host by a service binding; the mobile app by HTTP.
 
+## The visitor's address
+
+The host limits calls to public operations, and sign-in, per client address for floods
+([ADR 0940](https://github.com/timoconnellaus/composable-os/blob/main/docs/adr/0940-a-rate-limit-per-client-address-for-public-operations.md)). Over the
+service binding every call comes from the web app, so the web app names its visitor:
+`forVisitor(request)` from `@composable-os/client` gives the customer's session cookie and the
+`cos-visitor-address` header (made from Cloudflare's `cf-connecting-ip` on the browser's request)
+together, and `visitorAddress(request.headers)` the header alone (for a call made as the public,
+such as the stop route's). Every route in the template's `src/host.ts` sends it.
+
+- **Never pass the browser's request headers on as they came** (`env.HOST.fetch(request)`, or
+  copying every header): a `cos-visitor-address` the browser sent would then reach the host. The
+  host reads a forwarded `cf-connecting-ip` before the header, so such a proxy still counts the real
+  visitor, but build your headers afresh as the template does.
+- On the public HTTP surface (the mobile app's) the address is the connection's and the header is
+  ignored.
+- A web app that sends no address, built from an older template, puts all its visitors in one
+  shared bucket (6,000 calls a minute per operation, never locked out of promo codes), and the
+  admins are told once a day. Update its `src/host.ts` (`cos upgrade` replaces an unedited one).
+
 ## Blocks
 
 A block is a screen, or part of one, in a web or a native skin: a folder with a `block.json`

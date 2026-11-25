@@ -475,6 +475,8 @@ export const mediaServe = defineOperation({
   permission: "records:read",
   risk: "read",
   audiences: ["staff", "customer", "public"],
+  // A page shows many pictures: the asset tier (ADR 0940).
+  publicLimit: { tier: "asset" },
   // It reads which records reference the item (core_published_media) beside the records.
   hostInternal: true,
   mcp: { expose: false },
