@@ -13,7 +13,6 @@ import {
 import { queueMergeAllowances } from "../allowance/people.ts";
 import { assignOwner, recordAssignment } from "../assignment/index.ts";
 import { mergeChoiceStatements } from "../contact/register.ts";
-import { mergeLinkStatement } from "../intake/links.ts";
 import { queueMergeCustomers } from "../customers/merge.ts";
 import { checkPerson } from "../duplicates/check.ts";
 import { personNameKey } from "../duplicates/normalise.ts";
@@ -24,6 +23,7 @@ import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from ".
 import { getObject } from "../fields/index.ts";
 import { personObject } from "../fields/person.ts";
 import { newId } from "../ids.ts";
+import { mergeLinkStatement } from "../intake/links.ts";
 import {
   assertMayChangeBirthday,
   assertMergeKeepsMemberBirthday,

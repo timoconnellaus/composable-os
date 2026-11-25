@@ -56,9 +56,7 @@ export function intakeHostFields(object: ObjectDefinition): Set<string> {
       i.marketing,
       i.about,
       i.aboutObject,
-    ].filter(
-      (f): f is string => typeof f === "string",
-    ),
+    ].filter((f): f is string => typeof f === "string"),
   );
 }
 

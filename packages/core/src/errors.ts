@@ -449,9 +449,12 @@ export function toOperationError(error: unknown): OperationError {
     );
   }
   if (message.includes("core_intake_link_fixed")) {
-    return new ConflictError("A personal link never changes what it is for, so nothing was changed.", {
-      rule: "personal_link_fixed",
-    });
+    return new ConflictError(
+      "A personal link never changes what it is for, so nothing was changed.",
+      {
+        rule: "personal_link_fixed",
+      },
+    );
   }
   // An offer of a shift left `open` meanwhile (migration 0812, ADR 0623): taken by someone else a
   // moment before, withdrawn, cancelled or lapsed. Of the writes racing for it exactly one landed.

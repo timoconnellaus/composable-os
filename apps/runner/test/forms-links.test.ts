@@ -418,7 +418,9 @@ describe("the link is used once (criterion 13, proof a)", { timeout: 90_000 }, (
   });
 });
 
-describe("a link answers only its own form, as its own Person (proof b)", { timeout: 90_000 }, () => {
+describe("a link answers only its own form, as its own Person (proof b)", {
+  timeout: 90_000,
+}, () => {
   it("cannot answer another form, nor be used by a signed-in stranger by its id", async () => {
     const who = await member("bound");
     await givePass(who.personId);
@@ -562,11 +564,7 @@ describe("the receipt (criterion 15)", { timeout: 90_000 }, () => {
       receipt: false,
     });
     const who = await member("quiet");
-    await run(
-      "x.forms.submit",
-      { id: quiet.id, version: 1, answers: { score: 3 } },
-      outside(who),
-    );
+    await run("x.forms.submit", { id: quiet.id, version: 1, answers: { score: 3 } }, outside(who));
     for (const s of [...(await submissionsOf(desk.id)), ...(await submissionsOf(quiet.id))]) {
       await finished("forms.receipt", s.id);
     }

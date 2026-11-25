@@ -72,7 +72,9 @@ describe("used once, by the database (proof a)", () => {
     for (const r of results) {
       if (r.status === "rejected") expect(String(r.reason)).toMatch(/core_intake_link_used/);
     }
-    const row = await env.DB.prepare("SELECT used_at, submission_id FROM core_intake_link WHERE id = ?")
+    const row = await env.DB.prepare(
+      "SELECT used_at, submission_id FROM core_intake_link WHERE id = ?",
+    )
       .bind(id)
       .first<{ used_at: string; submission_id: string }>();
     expect(row?.used_at).toBeTruthy();

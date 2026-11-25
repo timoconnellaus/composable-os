@@ -267,4 +267,3 @@ export function isLinkUsedError(error: unknown): boolean {
   const message = error instanceof Error ? error.message : String(error ?? "");
   return message.includes("core_intake_link_used");
 }
-

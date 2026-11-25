@@ -84,7 +84,10 @@ const feedback = (over: object = {}) => ({
     ask: {
       subject: "How was {class}?",
       text: "How was {class}? Tell us:\n{form}",
-      guardian: { subject: "How was {class}? ({member})", text: "How was it for {member}?\n{form}" },
+      guardian: {
+        subject: "How was {class}? ({member})",
+        text: "How was it for {member}?\n{form}",
+      },
     },
   },
   ...over,
@@ -135,7 +138,9 @@ describe("the form-link slot (ADR 0723)", () => {
     });
     expect(subject.join("\n")).toMatch(/not in a subject/);
     const optional = issues({
-      feedback: feedback({ messages: { ask: { subject: "How was it?", text: "[Tell us: {form}]" } } }),
+      feedback: feedback({
+        messages: { ask: { subject: "How was it?", text: "[Tell us: {form}]" } },
+      }),
     });
     expect(optional.join("\n")).toMatch(/not in an optional part/);
   });
@@ -160,11 +165,15 @@ describe("the form-link slot (ADR 0723)", () => {
     const long = validateManifest(
       gym({
         feedback: feedback({
-          slots: { form: { formLink: { object: "forms.form", setting: "feedbackForm", days: 90 } } },
+          slots: {
+            form: { formLink: { object: "forms.form", setting: "feedbackForm", days: 90 } },
+          },
         }),
       }),
     );
-    expect(long.issues.map((i) => i.path)).toContain("routineMail.feedback.slots.form.formLink.days");
+    expect(long.issues.map((i) => i.path)).toContain(
+      "routineMail.feedback.slots.form.formLink.days",
+    );
   });
 });
 

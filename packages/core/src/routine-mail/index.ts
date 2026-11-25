@@ -822,7 +822,9 @@ async function planLink(
 ): Promise<{ linkId: string; site: string } | { skip: true } | { failed: string }> {
   const site = siteOriginOf(p.settings.siteOrigin);
   if (!site) {
-    return { failed: "a personal link is on the business's site: set it in Settings → Routine email" };
+    return {
+      failed: "a personal link is on the business's site: set it in Settings → Routine email",
+    };
   }
   const slug = text(p.packSettings[slot.setting]);
   if (!slug) return { failed: `no form is chosen (the ${slot.setting} setting)` };
@@ -1777,14 +1779,13 @@ async function prepareRows(db: Db, p: Prepare): Promise<PreparedRoutineMail> {
       idempotency_key: key,
       routine: live && packOn && !reasons.length ? 1 : 0,
       ordinary: live && !packOn ? 1 : 0,
-      held_reason:
-        !live
-          ? null
-          : !packOn
-            ? "routine email is not turned on for this pack: decided by the approval policy"
-            : reasons.length
-              ? reasons.join("; ").slice(0, 1000)
-              : null,
+      held_reason: !live
+        ? null
+        : !packOn
+          ? "routine email is not turned on for this pack: decided by the approval policy"
+          : reasons.length
+            ? reasons.join("; ").slice(0, 1000)
+            : null,
       // An address the host cannot send to is kept, failed with the reason, in the log staff
       // read (Settings → Routine email), never dropped in silence (the fourth review).
       // One the person stopped (or whose address is suppressed) is `stopped`: kept in the log,
