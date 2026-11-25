@@ -341,7 +341,13 @@ export class Executor {
       logs: [],
       operations: [],
       ...(input.caller.principal
-        ? { outside: { principal: input.caller.principal, tool: input.tool } }
+        ? {
+            outside: {
+              principal: input.caller.principal,
+              tool: input.tool,
+              ...(input.caller.clientAddress ? { clientAddress: input.caller.clientAddress } : {}),
+            },
+          }
         : {}),
       // The caller's pack role limit to today, from the pipeline (ADR 0553).
       ...(input.caller.roleToday ? { roleToday: input.caller.roleToday } : {}),

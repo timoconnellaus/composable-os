@@ -60,3 +60,8 @@ same `priceOrder`. It answers with each line's `discount`, the order's `discount
 apply is reported in `problems` as `code_not_valid`, with the one message every reason gets. It
 still holds nothing and writes nothing: no use of the code is held. A quote by staff names no
 Person, so it shows only what anyone gets.
+
+## Amended 2026-11-25 ([ADR 0940](0940-a-rate-limit-per-client-address-for-public-operations.md))
+`order.quote` is limited per client address at the flood level for reads (600 a minute), and, when
+a code is given, it counts toward the caller's wrong promo codes, shared with `discount.check`,
+`order.applyCode` and the order starts. Before this the host did not limit it for the public.

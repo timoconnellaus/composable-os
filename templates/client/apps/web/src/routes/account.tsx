@@ -1,5 +1,6 @@
-// My account (stage 48), plain: the signed-in customer's orders, agreements, family, payment
-// method (for someone who pays a subscription), details and where they are signed in, in the
+// My account (stage 48), plain: what needs the signed-in customer's attention, then their orders,
+// agreements, family, payment method (for someone who pays a subscription), details (with
+// changing the sign-in address), where they are signed in and deleting the account, in the
 // order the account entry gives (`accountSections` in @composable-os/client). Every figure and
 // list is the host's answer; nothing here works out what is owed or allowed. For a styled page
 // with the packs' sections, copy the web-account block (cos add web-account).
@@ -9,21 +10,32 @@ import {
   type AccountOrder,
   type AccountSession,
   type AccountSubscription,
+  type AttentionItem,
   accountClient,
   accountDay,
   accountErrorWords,
   accountSections,
+  attentionWords,
+  DELETE_WORD,
+  type DeletePreview,
   type DetailsForm,
+  deleteConfirmInput,
+  deletePreviewWords,
   detailsForm,
   detailsInput,
   detailsProblems,
+  emailChangeErrorWords,
+  emailChangeProblem,
   formatMinor,
   hiddenSections,
+  isDeletePreview,
+  isSignInAgain,
   loadOrders,
   orderedSessions,
   orderMoney,
   orderStateWords,
   RECEIPT_EMAILED_WORDS,
+  SIGN_IN_AGAIN_WORDS,
   sessionWords,
   showsReceiptNote,
 } from "@composable-os/client";
@@ -47,6 +59,7 @@ interface Loaded {
   family: AccountFamily;
   orders: AccountOrder[];
   subscriptions: AccountSubscription[];
+  attention: AttentionItem[];
 }
 
 async function signOut() {
@@ -61,12 +74,13 @@ function Account() {
   const load = useCallback(async () => {
     const api = browserApi();
     try {
-      const [me, sessions, family, orders, subscriptions] = await Promise.all([
+      const [me, sessions, family, orders, subscriptions, attention] = await Promise.all([
         api.call("me.get", {}),
         api.call("me.sessions.list", {}),
         api.call("me.family", {}),
         loadOrders(accountClient(api)),
         api.call("subscription.list", { limit: 50 }),
+        api.call("me.attention", {}).catch(() => ({ days: 7, items: [] })),
       ]);
       setData({
         me,
@@ -74,6 +88,7 @@ function Account() {
         family,
         orders: orders.orders,
         subscriptions: subscriptions.items,
+        attention: attention.items,
       });
     } catch (error) {
       if (signedOut(error)) window.location.assign("/sign-in");
@@ -92,13 +107,36 @@ function Account() {
     agreements: () => <Link to="/agreements">Your agreements</Link>,
     family: () => <Family family={data.family} />,
     payment: () => <Payment />,
-    details: () => <Details me={data.me} onSaved={load} />,
+    details: () => (
+      <>
+        <Details me={data.me} onSaved={load} />
+        <ChangeAddress me={data.me} onChanged={load} />
+      </>
+    ),
     devices: () => <Devices sessions={data.sessions} onChanged={load} />,
+    delete: () => <Delete me={data.me} />,
   };
   return (
     <main>
       <h1>My account</h1>
       <p>{data.me.displayName}</p>
+      <section aria-label="Needs your attention">
+        <h2>Needs your attention</h2>
+        {data.attention.length ? (
+          <ul>
+            {data.attention.map((item) => {
+              const words = attentionWords(item);
+              return (
+                <li key={item.key}>
+                  {[words.whose, words.title, words.detail].filter(Boolean).join(": ")}
+                </li>
+              );
+            })}
+          </ul>
+        ) : (
+          <p>Nothing needs your attention.</p>
+        )}
+      </section>
       {accountSections([], hiddenSections(data.subscriptions)).map((section) => (
         <section key={section.key} aria-label={section.label}>
           <h2>{section.label}</h2>
@@ -208,6 +246,190 @@ function Details({ me, onSaved }: { me: AccountMe; onSaved: () => Promise<void> 
       <button type="submit">Save</button>
       {said ? <p role="status">{said}</p> : null}
     </form>
+  );
+}
+
+async function post(path: string, body: unknown): Promise<boolean> {
+  const response = await fetch(path, {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify(body),
+  });
+  return response.ok;
+}
+
+/**
+ * Signing in again in place when the host asks for a recent sign-in (`sign_in_again`, ADR 0712):
+ * a code to their own sign-in address through this app's /auth routes, then `onDone`.
+ */
+function SignInAgain({ email, onDone }: { email: string; onDone: () => void }) {
+  const [code, setCode] = useState("");
+  const [sent, setSent] = useState(false);
+  const [said, setSaid] = useState<string | null>(null);
+  return (
+    <form
+      onSubmit={async (event) => {
+        event.preventDefault();
+        if (!sent) setSent(await post("/auth/code", { email }));
+        else if (await post("/auth/sign-in", { email, code: code.trim() })) onDone();
+        else setSaid("That code did not work. Check it, or ask for a new one.");
+      }}
+    >
+      <p>{SIGN_IN_AGAIN_WORDS}</p>
+      {sent ? (
+        <label>
+          The code we emailed you
+          <input inputMode="numeric" value={code} onChange={(e) => setCode(e.target.value)} />
+        </label>
+      ) : null}
+      <button type="submit">{sent ? "Sign in and carry on" : "Email me a code"}</button>
+      {said ? <p role="alert">{said}</p> : null}
+    </form>
+  );
+}
+
+/** Changing the sign-in address: a code to the new address, entered here (ADR 0712). */
+function ChangeAddress({ me, onChanged }: { me: AccountMe; onChanged: () => Promise<void> }) {
+  const [email, setEmail] = useState("");
+  const [code, setCode] = useState("");
+  const [sent, setSent] = useState<string | null>(null);
+  const [again, setAgain] = useState<(() => void) | null>(null);
+  const [said, setSaid] = useState<string | null>(null);
+  async function run(act: () => Promise<void>) {
+    setSaid(null);
+    try {
+      await act();
+    } catch (error) {
+      if (isSignInAgain(error)) setAgain(() => () => void run(act));
+      else setSaid(emailChangeErrorWords(error));
+    }
+  }
+  if (again) {
+    return (
+      <SignInAgain
+        email={me.signInEmail}
+        onDone={() => {
+          setAgain(null);
+          again();
+        }}
+      />
+    );
+  }
+  return (
+    <form
+      onSubmit={(event) => {
+        event.preventDefault();
+        if (sent) {
+          void run(async () => {
+            const done = await browserApi().call("me.email.confirm", { code: code.trim() });
+            setSent(null);
+            setSaid(`You now sign in with ${done.signInEmail}.`);
+            await onChanged();
+          });
+          return;
+        }
+        const problem = emailChangeProblem(email, me.signInEmail);
+        if (problem) return setSaid(problem);
+        void run(async () => {
+          setSent((await browserApi().call("me.email.change", { email: email.trim() })).newEmail);
+        });
+      }}
+      style={{ display: "grid", gap: 8, maxWidth: 360 }}
+    >
+      {sent ? (
+        <label style={{ display: "grid" }}>
+          {`The code we emailed to ${sent}`}
+          <input inputMode="numeric" value={code} onChange={(e) => setCode(e.target.value)} />
+        </label>
+      ) : (
+        <label style={{ display: "grid" }}>
+          New sign-in address
+          <input type="email" value={email} onChange={(e) => setEmail(e.target.value)} />
+        </label>
+      )}
+      <button type="submit">{sent ? "Change my sign-in address" : "Email me a code"}</button>
+      {said ? <p role="status">{said}</p> : null}
+    </form>
+  );
+}
+
+/**
+ * Deleting the account: the host's preview shown in full, then DELETE typed to confirm exactly
+ * that (ADR 0713). Nothing is deleted without the preview (`deleteConfirmInput`).
+ */
+function Delete({ me }: { me: AccountMe }) {
+  const [preview, setPreview] = useState<DeletePreview | null>(null);
+  const [typed, setTyped] = useState("");
+  const [again, setAgain] = useState(false);
+  const [said, setSaid] = useState<string | null>(null);
+  async function look() {
+    setSaid(null);
+    try {
+      const answer = await browserApi().call("me.deleteAccount", {});
+      if (isDeletePreview(answer)) setPreview(answer);
+    } catch (error) {
+      if (isSignInAgain(error)) setAgain(true);
+      else setSaid(accountErrorWords(error));
+    }
+  }
+  async function confirm() {
+    const input = deleteConfirmInput(preview, typed);
+    if (!input) return setSaid(`Type ${DELETE_WORD} to confirm`);
+    try {
+      await browserApi().call("me.deleteAccount", input);
+      window.location.assign("/");
+    } catch (error) {
+      if (isSignInAgain(error)) setAgain(true);
+      else {
+        setPreview(null);
+        setSaid(accountErrorWords(error));
+      }
+    }
+  }
+  if (again) {
+    return (
+      <SignInAgain
+        email={me.signInEmail}
+        onDone={() => {
+          setAgain(false);
+          void look();
+        }}
+      />
+    );
+  }
+  if (!preview) {
+    return (
+      <>
+        <button type="button" onClick={() => void look()}>
+          See what deleting my account does
+        </button>
+        {said ? <p role="alert">{said}</p> : null}
+      </>
+    );
+  }
+  const words = deletePreviewWords(preview);
+  return (
+    <>
+      <ul>
+        {[...words.ends, ...words.cancelled].map((line) => (
+          <li key={line}>{line}</li>
+        ))}
+      </ul>
+      {words.left.length ? <p>{`Left for the business: ${words.left.join("; ")}`}</p> : null}
+      <p>{words.erase}</p>
+      <label>
+        {`To confirm, type ${DELETE_WORD}`}
+        <input value={typed} onChange={(e) => setTyped(e.target.value)} />
+      </label>
+      <button
+        type="button"
+        disabled={!deleteConfirmInput(preview, typed)}
+        onClick={() => void confirm()}
+      >
+        Delete my account
+      </button>
+      {said ? <p role="alert">{said}</p> : null}
+    </>
   );
 }
 

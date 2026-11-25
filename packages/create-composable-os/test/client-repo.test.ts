@@ -1281,7 +1281,9 @@ describe("blocks (criterion 10)", () => {
     const again = await cos("add", "web-account");
     expect(again.code, again.output).toBe(0);
     expect(existsSync(join(blocks, "courses-my-courses", "my-courses.tsx"))).toBe(true);
-    expect(wiring()).toContain('import { MyCourses } from "./courses-my-courses/my-courses.tsx";');
+    expect(wiring()).toContain(
+      'import { MyCoursesSection } from "./courses-my-courses/my-courses.tsx";',
+    );
     expect(wiring()).toContain('key: "courses.courses"');
 
     // cos upgrade writes it again.
@@ -1593,12 +1595,20 @@ describe("cos init in a repo shaped like the first client's (criterion 2)", () =
       },
     };
     const site = await run("src/lib/account.ts");
-    expect(await site.displayName(host, "theme=dark; cos-customer.session_token=abc.sig")).toBe(
-      "Ada Lovelace",
-    );
+    // The browser's request: its cookies, Cloudflare's address for it, and a forged visitor.
+    const browser = new Headers({
+      cookie: "theme=dark; cos-customer.session_token=abc.sig",
+      "cf-connecting-ip": "198.51.100.7",
+      "cos-visitor-address": "192.0.2.1",
+    });
+    expect(await site.displayName(host, { headers: browser })).toBe("Ada Lovelace");
+    // Only the customer's cookie and Cloudflare's address go to the host (ADR 0940).
     expect(sent[0]).toMatchObject({
       url: "https://host/api/v1/op/me.get",
-      headers: { cookie: "cos-customer.session_token=abc.sig" },
+      headers: {
+        cookie: "cos-customer.session_token=abc.sig",
+        "cos-visitor-address": "198.51.100.7",
+      },
     });
     const mobile = await run("mobile/src/account.ts");
     expect(

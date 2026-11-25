@@ -1151,7 +1151,16 @@ the repo's platform version (stage 24, ADR 0422).
 **`ClientApp` (the client-app binding)**
 cos-app's entrypoint a company's web app binds to: customer sign-in and the HTTP surface for
 customers and the public only, the caller decided from the customer's verified session cookie,
-never staff (stage 24, ADR 0421).
+never staff (stage 24, ADR 0421). The web app names its visitor's address in `cos-visitor-address`
+for the **public limit** (ADR 0940).
+
+**Public limit**
+The host's rate limits on calls to operations open to the public (ADR 0940): per client address for
+floods only, set high (600 reads, 120 writes a minute), since many people share one address; and
+per caller, tight (10 a minute per signed-in account or guest order), on order starts, checkout,
+code checks and form answers. In the Workers Rate Limiting binding, keyed by a hash of the address
+(an IPv6 address by its /64). Over either: `rate_limited`, HTTP 429.
+_Avoid_: edge rule (that is the deployment's own, optional, at Cloudflare's zone)
 
 **Audience**
 Who may call an operation: `staff`, `customer` or `public` (stage 22, ADR 0402), `practitioner`
@@ -1215,15 +1224,16 @@ _Avoid_: user (a user is staff), login
 
 **My account**
 The customer's own area on the business's website and in its app (stage 48): one shell copied
-into the client app (`web-account`, `native-account`) with base sections (orders, agreements,
-family, payment method, details, sign-in and devices) and each installed pack's section. What each
+into the client app (`web-account`, `native-account`) with Needs your attention at the top, base
+sections (orders, agreements, family, payment method, details with changing the sign-in address,
+contact preferences, sign-in and devices, delete my account) and each installed pack's section. What each
 shows is the host's answer; in the app, money opens the website (ADR 0714). "Portal" is only the
 name of the manifest key and the operation (`portal`, `me.portal`).
 _Avoid_: customer portal, dashboard
 
 **Account section**
-One part of My account: a base one (orders, agreements, family, payment method, details, sign-in
-and devices) or a shipped pack's, declared under `portal` in its manifest with its web and native
+One part of My account: a base one (orders, agreements, family, payment method, details, contact
+preferences, sign-in and devices, delete my account) or a shipped pack's, declared under `portal` in its manifest with its web and native
 blocks and `has`, the objects whose records mean the customer has something there (ADR 0710). The
 host lists the sections a customer has (`me.portal`): a pack's only when they, or a child linked
 to them where the object opens to guardians, hold one of those records. `cos add` writes a client
@@ -1232,10 +1242,12 @@ _Avoid_: portal section, widget, tab
 
 **Needs your attention**
 The top of My account: what a customer, or a child they act for, has to do now, answered by the
-host (`me.attention`, ADR 0711) as items of eight kinds worked out in core from agreements, orders,
-subscriptions and allowances: a document to agree to, a card payment that failed, a payment to
-confirm with the bank, a deposit's balance, an unfinished held order, a pass expiring or used up,
-a free trial ending. How far ahead it looks is `account.attentionDays` (default 7).
+host (`me.attention`, ADR 0711) as items of nine kinds worked out in core from agreements, orders,
+subscriptions, allowances and personal links: a document to agree to, a card payment that failed,
+a payment to confirm with the bank, a deposit's balance, an unfinished held order, a pass expiring
+or used up, a free trial ending, a form to fill in. How far ahead it looks is
+`account.attentionDays` (default 7). The blocks (`*-account-attention`) say whose each item is and
+lead to the section that deals with it.
 _Avoid_: notifications, alerts, to-do
 
 **Erase request**
@@ -2129,7 +2141,9 @@ _Avoid_: coupon, offer (taken: a continuation offer, a shift offer)
 **Promo code**
 A word a buyer types (`JANUARY`), compared without case: a discount's own word, or a code record
 of the pack belonging to a discount (one with one use is a single-use code). A code that does not
-apply gets one answer, "not valid here", whatever the reason (ADR 0693).
+apply gets one answer, "not valid here", whatever the reason (ADR 0693). The host keeps the word
+folded (upper case, no spaces, non-ASCII letters matching), at least 6 characters and one per word,
+and refuses codes for 15 minutes to an account or guest order that gave 20 wrong ones (ADR 0940).
 _Avoid_: voucher (a gift voucher is something bought), coupon
 
 **Deal** (an order's)

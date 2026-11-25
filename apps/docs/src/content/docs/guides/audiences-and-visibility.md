@@ -15,7 +15,9 @@ Every operation declares its audiences ([ADR 0402](https://github.com/timoconnel
 
 - **staff**, the default: the business's users, with roles and permissions;
 - **customer**: a Person with a sign-in, limited to their own records;
-- **public**: callers with no account. Public operations are few, low risk and rate limited;
+- **public**: callers with no account. Public operations are few, low risk and rate limited:
+  per client address for floods (600 reads, 120 writes a minute), and per caller on order starts,
+  checkout, code checks and form answers ([ADR 0940](https://github.com/timoconnellaus/composable-os/blob/main/docs/adr/0940-a-rate-limit-per-client-address-for-public-operations.md));
 - **practitioner**: an outside person the business invited (a physiotherapist, a dietitian),
   signed in to their own practitioner account
   ([ADR 0581](https://github.com/timoconnellaus/composable-os/blob/main/docs/adr/0581-the-practitioner-principal-accounts-and-sign-in.md)). One operation is

@@ -8,6 +8,8 @@
 //
 // One statement per OBJECTS_PER_STATEMENT objects, each object costing two bound variables (the
 // Person id, twice); state names and object names are the registry's own, written as literals.
+// Each object's count is a column of one row, not a term of a compound SELECT: D1 limits a
+// compound's terms (as me.portal's reads, stage 48 step 7 found it with many packs installed).
 import { sql } from "kysely";
 import { listObjects } from "../fields/index.ts";
 import type { ObjectDefinition } from "../fields/types.ts";
@@ -64,7 +66,7 @@ export async function countOwnOpenRecords(ctx: Reader): Promise<OwnOpenRecords[]
         : sql``;
     parts.push({
       object,
-      query: sql`SELECT ${sql.lit(object.name)} AS object, count(*) AS n FROM ${sql.table(
+      query: sql`SELECT count(*) FROM ${sql.table(
         object.source,
       )} WHERE ${sql.ref(scope.column)} = ${principal.personId} ${open} AND id NOT IN (SELECT g.record_id FROM core_subscription_grant g JOIN core_subscription s ON s.id = g.subscription_id WHERE g.object_type = ${sql.lit(object.name)} AND s.payer_person_id = ${principal.personId})`,
     });
@@ -72,14 +74,14 @@ export async function countOwnOpenRecords(ctx: Reader): Promise<OwnOpenRecords[]
   const out: OwnOpenRecords[] = [];
   for (let i = 0; i < parts.length; i += OBJECTS_PER_STATEMENT) {
     const chunk = parts.slice(i, i + OBJECTS_PER_STATEMENT);
-    const result = await sql<{ object: string; n: number }>`${sql.join(
-      chunk.map((part) => part.query),
-      sql` UNION ALL `,
+    const result = await sql<Record<string, number>>`SELECT ${sql.join(
+      chunk.map((part, n) => sql`(${part.query}) AS ${sql.ref(`c${n}`)}`),
     )}`.execute(ctx.db);
-    for (const row of result.rows) {
-      const count = Number(row.n);
-      const object = chunk.find((part) => part.object.name === row.object)?.object;
-      if (!count || !object) continue;
+    const row = result.rows[0] ?? {};
+    for (const [n, part] of chunk.entries()) {
+      const count = Number(row[`c${n}`] ?? 0);
+      const object = part.object;
+      if (!count) continue;
       out.push({
         object: object.name,
         label: count === 1 ? object.label : (object.plural ?? object.label),

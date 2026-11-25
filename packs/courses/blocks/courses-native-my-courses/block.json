@@ -2,10 +2,11 @@
   "name": "courses-native-my-courses",
   "pack": "courses",
   "skin": "native",
-  "operations": ["x.courses.myCourses"],
+  "operations": ["x.courses.myCourses", "subscription.list"],
   "files": ["my-courses-screen.tsx", "LICENSE"],
-  "dependsOn": ["native-base"],
+  "dependsOn": ["native-base", "native-account-subscriptions"],
   "packages": {
+    "@composable-os/client": "*",
     "@composable-os/pack-courses": "*"
   },
   "noPurchase": true

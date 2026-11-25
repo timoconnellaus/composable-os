@@ -6,7 +6,7 @@ import {
 } from "../../../blocks/web-account/account.tsx";
 import { MyMemberships } from "../../../packs/memberships/blocks/memberships-mine/mine.tsx";
 import { react } from "../src/fake.ts";
-import { accountHooks, agreementsHooks, membershipsClient } from "./data/account.ts";
+import { accountHooks, agreementsHooks, membershipsClient, signIn } from "./data/account.ts";
 
 const account = accountHooks("browser");
 const agreements = agreementsHooks();
@@ -32,7 +32,9 @@ export default function Preview() {
       agreements={agreements}
       sections={sections}
       returnUrl={returnUrl}
+      signIn={signIn}
       onSignOut={() => {}}
+      onDeleted={() => {}}
     />
   );
 }

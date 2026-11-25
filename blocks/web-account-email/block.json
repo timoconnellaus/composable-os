@@ -1,0 +1,11 @@
+{
+  "name": "web-account-email",
+  "pack": null,
+  "skin": "web",
+  "operations": ["me.get", "me.email.change", "me.email.confirm"],
+  "files": ["email.tsx", "LICENSE"],
+  "dependsOn": ["ui-button", "ui-input", "ui-label"],
+  "packages": {
+    "@composable-os/client": "*"
+  }
+}

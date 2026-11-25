@@ -285,11 +285,19 @@ export const contactStop = defineOperation({
   permission: "records:write",
   risk: "write",
   audiences: ["customer", "public"],
+  // Not counted per call (ADR 0940): a mail provider's few servers send everyone's one-click
+  // stops. Only tokens that are not valid count against the client address, at the flood level.
+  publicLimit: { tier: "write", addressCounts: "invalid" },
   hostInternal: true,
   mcp: { expose: false },
   async handler(input, ctx) {
     const named = await readStopToken(ctx.db, input.token);
-    if (!named) return { done: true as const };
+    if (!named) {
+      // A token that is not valid counts against the address (ADR 0940); over the flood level, the
+      // same refusal any limited call gets. Otherwise the answer is a good token's.
+      await ctx.refused?.();
+      return { done: true as const };
+    }
     // An essential kind's email always goes: no link stops it (the host makes none for it).
     if (!isPurposeScope(named.scope)) {
       const kind = (await routineKinds(ctx.db)).find((k) => k.id === named.scope);

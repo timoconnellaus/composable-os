@@ -1,0 +1,11 @@
+{
+  "name": "native-account-delete",
+  "pack": null,
+  "skin": "native",
+  "operations": ["me.get", "me.deleteAccount"],
+  "files": ["delete.tsx", "LICENSE"],
+  "dependsOn": ["native-account-email", "native-base"],
+  "packages": {
+    "@composable-os/client": "*"
+  }
+}

@@ -11,7 +11,7 @@ const bookings = createBookingsHooks(
   react,
   fakeClient<BookingsOperations>(BOOKINGS_HOOKS_CALL, {
     "x.bookings.timetable": week,
-    "x.bookings.family": justMe,
+    "me.family": justMe,
     "x.bookings.mine": myWeek,
   }),
 );

@@ -1,0 +1,11 @@
+{
+  "name": "native-account-attention",
+  "pack": null,
+  "skin": "native",
+  "operations": ["me.attention", "subscription.list"],
+  "files": ["attention.tsx", "LICENSE"],
+  "dependsOn": ["native-base"],
+  "packages": {
+    "@composable-os/client": "*"
+  }
+}

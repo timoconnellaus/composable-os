@@ -67,20 +67,22 @@ export function hostRoutes(product?: Pick<ClientProductDefinition, "web">): stri
 }
 
 /**
- * The edge rule a web app open to the public needs (ADR 0415, ADR 0421), as a step to do. It names
- * only the routes that reach the host (the sign-in route and the operation route), so on a site
- * with its own API it does not throttle the site's own routes for everyone behind one address.
+ * The edge rule worth adding for a web app open to the public (ADR 0415, ADR 0421, ADR 0940), as a
+ * step to do. The host limits calls itself, per visitor and per caller; this stops floods before
+ * they reach the Workers, at a level a shared network does not reach. It names only the routes that
+ * reach the host (the sign-in route and the operation route), so on a site with its own API it
+ * does not throttle the site's own routes for everyone behind one address.
  */
 export function edgeRuleStep(product?: Pick<ClientProductDefinition, "web">): string {
   const expression = hostRoutes(product)
     .map((route) => `starts_with(http.request.uri.path, "${route}")`)
     .join(" or ");
-  return `Before you open the web app to the public, add a rate limiting rule on its zone
-(Security > WAF > Rate limiting rules). Calls over the binding do not pass the host's zone, so the
-host's own rule does not cover them. It names only the routes that reach the host (web.routes in
+  return `The host limits calls from the web app itself, per visitor (ADR 0940). Against floods, also
+add a rate limiting rule on the web app's zone (Security > WAF > Rate limiting rules): calls over
+the binding do not pass the host's zone. It names only the routes that reach the host (web.routes in
 product.ts), so the site's own pages and API are not limited by it:
   Expression:  (${expression})
-  Counting:    IP (ip.src), 30 requests per 10 seconds; action Block for 10 seconds`;
+  Counting:    IP (ip.src), 300 requests per 10 seconds; action Block for 10 seconds`;
 }
 
 /** Where the client kit's files are inside it. */

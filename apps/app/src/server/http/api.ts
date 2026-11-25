@@ -27,6 +27,7 @@ import {
   CUSTOMER_COOKIE_PREFIX,
   type CustomerIdentity,
   type CustomerIdentityEnv,
+  clientAddressSecret,
   codeRequestRefusal,
   createIdentityProvider,
   getBetterAuth,
@@ -39,9 +40,11 @@ import {
   type Principal,
   requestStaffCode,
   staffSignInWithCode,
+  validClientAddress,
 } from "@composable-os/auth";
 import {
   type AnyInvocationContext,
+  type ClientAddress,
   type CustomerPrincipal,
   coreInvoker,
   createHttpSurface,
@@ -54,9 +57,11 @@ import {
   loadCustomer,
   type OutsideInvocationContext,
   type PractitionerPrincipal,
+  type PublicLimitEnv,
   type PublicPrincipal,
   parseAllowedOrigins,
   parseFloor,
+  publicLimitBindings,
   type RateLimitBinding,
   RateLimitedError,
   rateLimit,
@@ -66,6 +71,7 @@ import {
   resolveAccessToken,
   resolveActingUser,
   signOutDeviceSession,
+  UNKNOWN_ADDRESS,
   ValidationError,
 } from "@composable-os/core";
 import { type CrmDb, createCrmDb } from "@composable-os/db";
@@ -82,7 +88,7 @@ import { personCodeKeysEntry } from "../person-codes.ts";
 import { staffCookieAllowed, staffCrossOrigin } from "../staff-origin.ts";
 import { type SupportEnv, supportPrincipal } from "../support.ts";
 
-export interface ApiEnv extends OperationsEnv, IdentityEnv, CustomerIdentityEnv {
+export interface ApiEnv extends OperationsEnv, IdentityEnv, CustomerIdentityEnv, PublicLimitEnv {
   COS_SUPPORT_PUBLIC_KEY?: string;
   /** Origins a browser may call the API from, comma separated (a client app's site). */
   API_ALLOWED_ORIGINS?: string;
@@ -91,6 +97,30 @@ export interface ApiEnv extends OperationsEnv, IdentityEnv, CustomerIdentityEnv 
 }
 
 const PUBLIC: PublicPrincipal = Object.freeze({ kind: "public" });
+
+/**
+ * A client address as the pipeline's limit sees it (ADR 0940): a keyed hash of its bucket (an
+ * IPv6 address's /64), made here and never stored as given. Null when there is none to read.
+ */
+export async function clientAddressOf(
+  value: string | null | undefined,
+  env: ApiEnv,
+): Promise<ClientAddress | null> {
+  // A malformed or over-long value is no address (validClientAddress): never keyed as given.
+  const address = validClientAddress(value);
+  if (!address) return null;
+  return { key: await addressKey(address, clientAddressSecret(env)), shared: false };
+}
+
+/**
+ * The address of a call on the public HTTP surface: the connection's, `cf-connecting-ip`, which
+ * Cloudflare sets and a client cannot. A header naming a visitor (`cos-visitor-address`) is never
+ * read here: only a client app's Worker, over the binding, may say who its visitor is (bound.ts).
+ * No address (local development): the shared unknown bucket.
+ */
+export async function connectionAddress(request: Request, env: ApiEnv): Promise<ClientAddress> {
+  return (await clientAddressOf(request.headers.get("cf-connecting-ip"), env)) ?? UNKNOWN_ADDRESS;
+}
 
 /** Customer sign-in for this env, or null when CUSTOMER_AUTH_SECRET is not set. */
 export function customers(env: ApiEnv): CustomerIdentity | null {
@@ -170,12 +200,17 @@ function bearer(request: Request): string | null {
   return match[1] as string;
 }
 
-/** The context of a customer's or the public's call. Also the client-app binding's (bound.ts). */
+/**
+ * The context of a customer's or the public's call. Also the client-app binding's (bound.ts) and
+ * the desk's. `clientAddress` is who the call is counted as per address (ADR 0940): the
+ * connection's on the public surface, the client app's word over the binding.
+ */
 export async function outsideContext(
   env: ApiEnv,
   db: CrmDb,
   principal: CustomerPrincipal | PublicPrincipal | PractitionerPrincipal,
   sessionId: string | null,
+  clientAddress: ClientAddress,
 ): Promise<OutsideInvocationContext> {
   await ensureShippedExtensions(env);
   const extensionHost = extensionHostFor(env);
@@ -187,6 +222,9 @@ export async function outsideContext(
     origin: { surface: "client", ...(sessionId ? { sessionId } : {}) },
     floor: parseFloor(env.APPROVAL_FLOOR),
     ...(env.CUSTOMER_RATE_LIMIT ? { rateLimit: env.CUSTOMER_RATE_LIMIT } : {}),
+    // Every call from outside to an operation open to the public, per client address (ADR 0940).
+    publicLimits: publicLimitBindings(env),
+    clientAddress,
     ...(events ? { events } : {}),
     // A pack's tool open to this caller runs in cos-runner, as them (ADR 0414).
     ...(extensionHost ? { extensionHost } : {}),
@@ -201,7 +239,13 @@ const ended = (reason: string) =>
   new ForbiddenError("This session has ended: sign in again", { reason, httpStatus: 401 });
 
 /** A device session's caller: refused when its account is no longer one that may call. */
-async function deviceContext(env: ApiEnv, db: CrmDb, token: string, url: URL) {
+async function deviceContext(
+  env: ApiEnv,
+  db: CrmDb,
+  token: string,
+  url: URL,
+  address: ClientAddress,
+) {
   const device = await resolveAccessToken(db, token, new Date());
   if (device.audience === "customer") {
     const account = await loadCustomer(db.query, device.subjectId);
@@ -213,7 +257,7 @@ async function deviceContext(env: ApiEnv, db: CrmDb, token: string, url: URL) {
       customerId: account.id,
       personId: account.personId,
     });
-    return outsideContext(env, db, principal, device.sessionId);
+    return outsideContext(env, db, principal, device.sessionId, address);
   }
   const user = await db.query
     .selectFrom("core_user")
@@ -234,8 +278,9 @@ async function deviceContext(env: ApiEnv, db: CrmDb, token: string, url: URL) {
 /** The context of one API call, from the request's credential. */
 export async function apiContext(request: Request, env: ApiEnv): Promise<AnyInvocationContext> {
   const db = createCrmDb(env.DB);
+  const address = await connectionAddress(request, env);
   const token = bearer(request);
-  if (token) return deviceContext(env, db, token, new URL(request.url));
+  if (token) return deviceContext(env, db, token, new URL(request.url), address);
   const staff = await staffSession(request, env);
   oneHat(request, Boolean(staff));
   if (staff) {
@@ -252,13 +297,14 @@ export async function apiContext(request: Request, env: ApiEnv): Promise<AnyInvo
       db,
       resolved?.principal ?? PUBLIC,
       resolved?.principal ? resolved.sessionId : null,
+      address,
     );
   }
   const identity = customers(env);
   const { principal, sessionId } = identity
     ? await identity.resolveSession(request)
     : { principal: PUBLIC, sessionId: null };
-  return outsideContext(env, db, principal, sessionId);
+  return outsideContext(env, db, principal, sessionId, address);
 }
 
 const deviceNameSchema = (value: unknown): string => {
@@ -323,7 +369,7 @@ async function limitAttempts(request: Request, env: ApiEnv): Promise<void> {
   if (!address || !env.CUSTOMER_CODE_ADDRESS_RATE_LIMIT) return;
   const limited = await rateLimit(
     env.CUSTOMER_CODE_ADDRESS_RATE_LIMIT,
-    `auth-from:${await addressKey(address, env.BETTER_AUTH_SECRET ?? "")}`,
+    `auth-from:${await addressKey(address, clientAddressSecret(env))}`,
   );
   if (!limited.ok) {
     throw new RateLimitedError(

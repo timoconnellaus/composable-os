@@ -1,0 +1,11 @@
+{
+  "name": "native-account-email",
+  "pack": null,
+  "skin": "native",
+  "operations": ["me.get", "me.email.change", "me.email.confirm"],
+  "files": ["email.tsx", "LICENSE"],
+  "dependsOn": ["native-base"],
+  "packages": {
+    "@composable-os/client": "*"
+  }
+}
