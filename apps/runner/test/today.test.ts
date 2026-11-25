@@ -1,14 +1,13 @@
 // Stage 60 step 3 (ADR 0874): Today in the real host, with Programs, Bookings, Memberships,
-// Ticketing and Rostering installed. Bookings is installed with two Today items added to its
+// Ticketing, Rostering and the Shop installed. Bookings is installed with two Today items added to its
 // manifest (classes today and who came; the pack declares its own in step 4), so the host runs a
 // shipped pack's items, gated by its tools, beside the host's items that read the packs' records:
 // shifts with nobody on them (a class with no coach, a duty shift with nobody) and checklists.
 //
 // - (a) an item's count equals its rows, for an admin and for the coach's narrower reach;
-// - (b) a coach (`bookings.coach`) gets only the items its role's tools open: no money, no
-//   approvals, no roster or checklist, no inbox, no other pack's; its rows name only today's
-//   people the coach could already read on the class lists, and link only the classes it reads; a
-//   door account and a cleaner get nothing;
+// - (b) a coach (`bookings.coach`) gets only the items its role's tools open over objects it
+//   reads, today's and with no other day's figure: no money, approvals, roster, checklist or inbox,
+//   no other pack's, no bookings or People; a door account, a cleaner and the stockroom get nothing;
 // - (d) today.get's statement count is the same with few records and many.
 //
 // Clocks: the tools read the real clock, so today's class is placed a little after now (or before,
@@ -81,6 +80,7 @@ const PACKS: Record<string, Record<string, string>> = {
   memberships: packFiles("memberships"),
   ticketing: packFiles("ticketing"),
   rostering: packFiles("rostering"),
+  shop: packFiles("shop"),
 };
 
 const shippedHost: ExtensionHost = {
@@ -117,7 +117,13 @@ const asUser = (user: ActingUser, extra: Partial<InvocationContext> = {}) =>
 const create = async (object: string, values: Record<string, unknown>) =>
   (await run<{ id: string }>("record.create", { object, values }, staff())).id;
 
-type Item = { key: string; value: number; state: string; target: { kind: string } };
+type Item = {
+  key: string;
+  value: number;
+  state: string;
+  compare: { against: string; value: number } | null;
+  target: { kind: string };
+};
 type Answer = { day: string; zone: string; items: Item[] };
 type Rows = {
   items: { label: string; detail: string | null; record: { object: string } | null }[];
@@ -314,40 +320,34 @@ describe("an admin's Today with the gym's packs", () => {
 });
 
 describe("a coach's Today (proof b)", () => {
-  it("holds only the items its role's tools open, today's, and nothing it could not read", async () => {
+  it("holds only the items its role's tools open over what it reads, today's, with no other day", async () => {
     const answer = await today(asUser(coach));
-    expect(keys(answer)).toEqual(["bookings.cameToday", "bookings.classesToday"]);
+    // Classes today: the role reads classes, on today only (ADR 0553), so it is shown in today's
+    // window with no comparison. Came today reads bookings, which the role does not read (its
+    // class list is a tool's answer, not a read of bookings): hidden.
+    expect(keys(answer)).toEqual(["bookings.classesToday"]);
+    expect(answer.items[0]).toMatchObject({ compare: null });
     for (const key of [
       "host.takings",
       "host.approvals",
       "host.uncovered",
       "host.checklists",
       "host.notices",
+      "bookings.cameToday",
     ]) {
       expect((await refusal(rowsOf(asUser(coach), key))).code, key).toBe("not_found");
     }
-    // (a) for the narrower reach: each count is its rows.
-    for (const item of answer.items) {
-      expect((await rowsOf(asUser(coach), item.key)).items.length, item.key).toBe(item.value);
-    }
-    // Its rows name today's people only, each one on a class list the coach already reads, and
-    // link only the classes its role reads (never a Person).
-    const names = (await rowsOf(asUser(coach), "bookings.cameToday")).items;
-    expect(names.map((r) => r.label)).not.toContain(TOMORROW);
-    expect(names.every((r) => r.record === null)).toBe(true);
-    const roster = await run<{ bookings: { name?: string; displayName?: string }[] }>(
-      "x.bookings.roster",
-      { classId: todays },
-      asUser(coach),
-    );
-    const onList = JSON.stringify(roster);
-    for (const r of names) expect(onList).toContain(r.label);
+    // (a) for the narrower reach: the count is its rows, today's classes, each a class it reads.
     const classes = (await rowsOf(asUser(coach), "bookings.classesToday")).items;
+    expect(classes.length).toBe(answer.items[0]?.value);
     expect(classes.every((r) => r.record?.object === CLASS)).toBe(true);
+    // An admin sees the comparison the coach does not.
+    const admins = (await today(staff())).items.find((i) => i.key === "bookings.classesToday");
+    expect(admins?.compare).toMatchObject({ against: "yesterday" });
   });
 
-  it("a door account and a cleaner have no item at all", async () => {
-    for (const role of ["ticketing.door", "rostering.team"]) {
+  it("a door account, a cleaner and the stockroom have no item at all", async () => {
+    for (const role of ["ticketing.door", "rostering.team", "shop.stockroom"]) {
       const user = await fixedRole(unique("Staff "), role);
       expect(keys(await today(asUser(user))), role).toEqual([]);
     }

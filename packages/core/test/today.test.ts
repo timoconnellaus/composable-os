@@ -12,6 +12,7 @@ import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import {
   type ActingUser,
   type Actor,
+  addressHash,
   coreRegistry,
   forgetSchemaNames,
   type InvocationContext,
@@ -19,11 +20,20 @@ import {
   loadPackRole,
   memoryWidgetCache,
   newId,
+  suppress,
   type WidgetCache,
 } from "../src/index.ts";
-import { PACK_ROLE_TODAY, packRoleReaches } from "../src/pack-roles.ts";
+import {
+  PACK_ROLE_CORE_READS,
+  PACK_ROLE_OWN,
+  PACK_ROLE_READS,
+  PACK_ROLE_STAFF_READS,
+  packRoleReaches,
+} from "../src/pack-roles.ts";
+import { APPROVALS_READ } from "../src/today/host.ts";
 import { windowsOf } from "../src/today/items.ts";
-import { chunksOf, ITEM_COLUMNS } from "../src/today/pack.ts";
+import { chunksOf, forgetFailedItems, ITEM_COLUMNS } from "../src/today/pack.ts";
+import { reconcile } from "./extension-helpers.ts";
 import { context, createUser, db, unique } from "./helpers.ts";
 
 const BRISBANE = "Australia/Brisbane";
@@ -174,24 +184,122 @@ let admin: ActingUser;
 let member: ActingUser;
 const FX = "todayfx";
 
+// The fixture's own object, a visit at a moment, for its roles to read.
+const VISIT = `${FX}.visit`;
+const VISIT_OBJECTS = {
+  visit: {
+    label: "Visit",
+    plural: "Visits",
+    titleField: "name",
+    fields: {
+      name: { type: "text", label: "Name" },
+      at: { type: "datetime", label: "At" },
+      person: { type: "relation", label: "Person", to: "person" },
+    },
+  },
+};
+const IN_TODAY_VISITS = "v.at >= :today_from AND v.at < :today_to";
+const visitsItem = (opens: string[], extra: Record<string, unknown> = {}) => ({
+  label: "Visits today",
+  format: "count",
+  sql: `SELECT count(*) AS value FROM rec_x_${FX}_visit v WHERE ${IN_TODAY_VISITS}`,
+  rows: {
+    sql: `SELECT v.name AS what, v.id AS visit_id FROM rec_x_${FX}_visit v WHERE ${IN_TODAY_VISITS} ORDER BY v.at LIMIT 50`,
+    label: "what",
+    record: { object: VISIT, id: "visit_id" },
+  },
+  opens,
+  ...extra,
+});
+/**
+ * The fixture's roles: `coach` reads visits; `daycoach` reads them on today only (ADR 0553);
+ * `carer` reaches them only for the People it looks after (ADR 0889); `probe`, the review's,
+ * reads nothing and reaches People only on today.
+ */
+const FX_ROLES = {
+  coach: { label: "Coach", description: "Fixture.", permissions: [`${FX}:coach`], read: [VISIT] },
+  daycoach: {
+    label: "Day coach",
+    description: "Fixture.",
+    permissions: [`${FX}:coach`],
+    read: [VISIT],
+    today: { [VISIT]: "at" },
+  },
+  carer: {
+    label: "Carer",
+    description: "Fixture.",
+    permissions: [`${FX}:coach`],
+    read: [VISIT],
+    looksAfter: { [VISIT]: "person" },
+  },
+  probe: {
+    label: "Probe",
+    description: "Fixture.",
+    permissions: [`${FX}:coach`],
+    read: [],
+    today: { person: "createdAt" },
+  },
+};
+
 beforeAll(async () => {
   admin = await createUser("admin");
   member = await createUser("member");
   await setSetting("org_timezone", BRISBANE);
+  // Its views first (objects only), then the manifest as installed.
+  await reconcile(fixture(FX, {}, { objects: VISIT_OBJECTS, roles: {} }));
   await install(
-    fixture(FX, {
-      people: peopleItem(["desk"], { order: 30 }),
-      coachPeople: peopleItem(["day"], {
-        label: "New people so far",
-        sql: PEOPLE_SO_FAR,
-        rows: ROWS_SO_FAR,
-        compare: "lastWeek",
-      }),
-      anyone: peopleItem(["all"], { label: "Anyone's" }),
-      hot: peopleItem(["desk"], { label: "Busy", attention: { above: 2 }, order: 200 }),
-    }),
+    fixture(
+      FX,
+      {
+        people: peopleItem(["desk"], { order: 30 }),
+        coachPeople: peopleItem(["day"], {
+          label: "New people so far",
+          sql: PEOPLE_SO_FAR,
+          rows: ROWS_SO_FAR,
+          compare: "lastWeek",
+        }),
+        anyone: peopleItem(["all"], { label: "Anyone's" }),
+        hot: peopleItem(["desk"], { label: "Busy", attention: { above: 2 }, order: 200 }),
+        visits: visitsItem(["day"], { order: 40 }),
+        allVisits: visitsItem(["day"], {
+          label: "Every visit",
+          sql: `SELECT count(*) AS value FROM rec_x_${FX}_visit v`,
+          compare: "none",
+        }),
+        visitPeople: visitsItem(["day"], {
+          label: "Visitors",
+          rows: {
+            sql: `SELECT p.display_name AS who, p.id AS person_id FROM rec_x_${FX}_visit v JOIN rec_person p ON p.id = v.person WHERE ${IN_TODAY_VISITS} LIMIT 50`,
+            label: "who",
+            record: { object: "person", id: "person_id" },
+          },
+        }),
+        probePeople: peopleItem(["day"], { label: "People (probe)", compare: "lastWeek" }),
+        // Rows over visits only, each naming the visit's Person: records the coach does not read.
+        visitWho: visitsItem(["day"], {
+          label: "Who visits",
+          rows: {
+            sql: `SELECT v.name AS what, v.person AS person_id FROM rec_x_${FX}_visit v WHERE ${IN_TODAY_VISITS} LIMIT 50`,
+            label: "what",
+            record: { object: "person", id: "person_id" },
+          },
+        }),
+      },
+      { objects: VISIT_OBJECTS, roles: FX_ROLES },
+    ),
   );
   forgetSchemaNames();
+  for (const [when, name] of [
+    ["2031-06-14T12:00:00.000Z", "Yesterday's visit"], // 22:00 on 14 June local
+    ["2031-06-14T16:00:00.000Z", "Morning visit"], // 02:00 on 15 June local
+    ["2031-06-14T20:00:00.000Z", "Early visit"], // 06:00 on 15 June local
+  ] as const) {
+    await invokeByName(
+      "record.create",
+      { object: VISIT, values: { name, at: when } },
+      context(admin, { clock: () => new Date(MORNING) }),
+    );
+  }
   for (const when of [
     "2031-06-07T15:00:00.000Z", // 01:00 on 8 June local: a week ago, before 07:30
     "2031-06-07T22:00:00.000Z", // 08:00 on 8 June local: a week ago, after 07:30
@@ -279,17 +387,23 @@ describe("an item's count equals its rows (proof a)", () => {
     const coach = await account("member", `${FX}.coach`);
     for (const [user, key] of [
       [admin, `${FX}.people`],
-      [coach, `${FX}.coachPeople`],
+      [admin, `${FX}.visits`],
+      [coach, `${FX}.visits`],
     ] as const) {
       const value = itemOf(await today(user), key)?.value;
       const rows = await rowsOf(user, key);
       expect(rows.items.length, key).toBe(value);
     }
-    // The coach's rows name the people but link no record: the role reads no Person.
-    expect((await rowsOf(coach, `${FX}.coachPeople`)).items.every((r) => r.record === null)).toBe(
-      true,
-    );
-    // An admin's rows open the Person.
+    // Today's two visits (02:00 and 06:00 local), and yesterday's at 22:00.
+    expect(itemOf(await today(coach), `${FX}.visits`)).toMatchObject({
+      value: 2,
+      compare: { against: "yesterday", value: 1 },
+    });
+    // The coach's rows open the visits its role reads; an admin's open the Person.
+    expect((await rowsOf(coach, `${FX}.visits`)).items.map((r) => r.record)).toEqual([
+      expect.objectContaining({ object: VISIT }),
+      expect.objectContaining({ object: VISIT }),
+    ]);
     expect((await rowsOf(admin, `${FX}.people`)).items[0]?.record).toMatchObject({
       object: "person",
     });
@@ -332,28 +446,157 @@ describe("an item's count equals its rows (proof a)", () => {
     await expect(rowsOf(viewer, "host.approvals")).rejects.toMatchObject({ code: "not_found" });
     expect(itemOf(await today(admin), "host.approvals")?.state).toBe("attention");
   });
+
+  it("counts only what this person can approve and that would go out", async () => {
+    const set = newId("changeSet");
+    const now = new Date(MORNING).toISOString();
+    await env.DB.prepare(
+      "INSERT INTO core_change_set (id, user_id, actor, origin, created_at, updated_at) VALUES (?, ?, 'assistant', '{}', ?, ?)",
+    )
+      .bind(set, member.id, now, now)
+      .run();
+    const ids: Record<string, string> = {};
+    const action = async (
+      name: string,
+      operation: string,
+      input: unknown,
+      connection: string | null = null,
+    ) => {
+      ids[name] = newId("pendingAction");
+      await env.DB.prepare(
+        `INSERT INTO core_pending_action (id, change_set_id, operation, risk, input, reason, actor,
+           user_id, origin, preview, simulated, created_at, expires_at, connection_id)
+         VALUES (?, ?, ?, 'write', ?, 'review', 'assistant', ?, '{}', '[]', '{}', ?, '2099-01-01T00:00:00.000Z', ?)`,
+      )
+        .bind(ids[name], set, operation, JSON.stringify(input), member.id, now, connection)
+        .run();
+    };
+    const before = {
+      admin: itemOf(await today(admin), "host.approvals")?.value ?? 0,
+      member: itemOf(await today(member), "host.approvals")?.value ?? 0,
+    };
+    // A runtime extension's restricted tool (ADR 0625): an admin's, never a member's.
+    const rt = "todayrt";
+    const runtime = fixture(
+      rt,
+      {},
+      { tools: { assign: tool(`${rt}:assign`) }, restricted: [`${rt}:assign`], roles: {} },
+    );
+    await install(runtime, "active", "runtime");
+    await action("restricted", `x.${rt}.assign`, {});
+    // The member's own mailbox, and an AI's draft from it: only the member sends it (ADR 0678).
+    const mailbox = newId("connection");
+    await env.DB.prepare(
+      "INSERT INTO core_integration_connection (id, vendor, scope, owner_user_id, title, created_at, updated_at) VALUES (?, 'fake', 'personal', ?, 'Mailbox', ?, ?)",
+    )
+      .bind(mailbox, member.id, now, now)
+      .run();
+    const to = (email: string) => [{ label: "To", value: email }];
+    await action(
+      "draft",
+      "integration.outbound",
+      { vendor: "fake", fields: to(`${unique("ok")}@x.test`), contact: { personal: true } },
+      mailbox,
+    );
+    // A message to a suppressed address (a stop): approving sends nothing, so it is not counted.
+    const stopped = `${unique("stopped")}@x.test`;
+    await suppress(
+      db.query,
+      "email",
+      await addressHash(db.query, stopped),
+      "provider_unsubscribed",
+      now,
+    );
+    await action(
+      "blocked",
+      "integration.outbound",
+      { vendor: "fake", fields: to(stopped), contact: { sender: "staff" } },
+      mailbox,
+    );
+    try {
+      const a = itemOf(await today(admin), "host.approvals")?.value ?? 0;
+      const m = itemOf(await today(member), "host.approvals")?.value ?? 0;
+      // The admin: the restricted tool only (not another person's draft, not the blocked one).
+      expect(a - before.admin).toBe(1);
+      // The member: their own draft only (not the restricted tool, not the blocked one).
+      expect(m - before.member).toBe(1);
+    } finally {
+      await env.DB.prepare("DELETE FROM core_pending_action WHERE change_set_id = ?")
+        .bind(set)
+        .run();
+      await env.DB.prepare("DELETE FROM core_extensions WHERE id = ?").bind(rt).run();
+    }
+  });
+
+  it("says when more are waiting than it counts (500+), never a silently smaller number", async () => {
+    const set = newId("changeSet");
+    const now = new Date(MORNING).toISOString();
+    await env.DB.prepare(
+      "INSERT INTO core_change_set (id, user_id, actor, origin, created_at, updated_at) VALUES (?, ?, 'assistant', '{}', ?, ?)",
+    )
+      .bind(set, member.id, now, now)
+      .run();
+    const values = Array.from(
+      { length: 20 },
+      () =>
+        "(?, ?, 'person.update', 'write', '{}', 'review', 'assistant', ?, '{}', '[]', '{}', ?, '2099-01-01T00:00:00.000Z')",
+    ).join(", ");
+    for (let i = 0; i < 26; i++) {
+      await env.DB.prepare(
+        `INSERT INTO core_pending_action (id, change_set_id, operation, risk, input, reason, actor, user_id, origin, preview, simulated, created_at, expires_at) VALUES ${values}`,
+      )
+        .bind(
+          ...Array.from({ length: 20 }, () => [newId("pendingAction"), set, member.id, now]).flat(),
+        )
+        .run();
+    }
+    try {
+      const item = itemOf(await today(admin), "host.approvals");
+      expect(item?.value).toBe(APPROVALS_READ);
+      expect(item?.detail).toBe(`${APPROVALS_READ}+ waiting: the oldest ${APPROVALS_READ} counted`);
+    } finally {
+      await env.DB.prepare("DELETE FROM core_pending_action WHERE change_set_id = ?")
+        .bind(set)
+        .run();
+    }
+  });
 });
 
 // --- (b) A pack role's Today ------------------------------------------------------------------------
 
 describe("a pack role's Today (proof b)", () => {
-  it("reaches today.get and today.rows beside what it reached, and nothing else new", async () => {
+  const notFound = async (user: ActingUser, key: string) =>
+    expect(rowsOf(user, key), key).rejects.toMatchObject({ code: "not_found" });
+
+  it("reaches today.get and today.rows beside what it reached, and no other core operation", async () => {
     const coach = await account("member", `${FX}.coach`);
     const role = await loadPackRole(db.query, coach.id);
     if (!role) throw new Error("no role");
-    const reached = coreRegistry
+    const core = coreRegistry
       .list()
       .filter((op) => packRoleReaches(role, op))
       .map((op) => op.name)
-      .filter((n) => PACK_ROLE_TODAY.includes(n));
-    expect(reached.sort()).toEqual(["today.get", "today.rows"]);
+      .sort();
+    expect(core).toEqual(
+      [
+        ...PACK_ROLE_READS,
+        ...PACK_ROLE_CORE_READS,
+        ...PACK_ROLE_OWN,
+        ...PACK_ROLE_STAFF_READS,
+        "today.get",
+        "today.rows",
+      ].sort(),
+    );
   });
 
-  it("holds only its own pack's items its role's tools open: no money, approvals, inbox or other pack", async () => {
+  it("an item its role opens reads only what the role reads: no money, approvals, inbox, People or other pack", async () => {
     const coach = await account("member", `${FX}.coach`);
     const answer = await today(coach);
-    // Its role's tool opens the coach's item; `desk` (a member's tool) and an every-staff tool do not.
-    expect(keys(answer)).toEqual([`${FX}.coachPeople`]);
+    // Its role's tool opens the visits' items (the role reads visits); not those over People
+    // (the role reads no Person), nor `desk`'s (a member's tool), nor an every-staff tool's.
+    expect(keys(answer).sort()).toEqual(
+      [`${FX}.allVisits`, `${FX}.visitPeople`, `${FX}.visits`, `${FX}.visitWho`].sort(),
+    );
     for (const key of [
       "host.takings",
       "host.approvals",
@@ -362,9 +605,17 @@ describe("a pack role's Today (proof b)", () => {
       "host.checklists",
       `${FX}.people`,
       `${FX}.anyone`,
+      `${FX}.coachPeople`,
+      `${FX}.probePeople`,
     ]) {
-      await expect(rowsOf(coach, key), key).rejects.toMatchObject({ code: "not_found" });
+      await notFound(coach, key);
     }
+    // Rows naming People the role does not read: the count alone, no names.
+    expect(itemOf(answer, `${FX}.visitPeople`)?.value).toBe(2);
+    expect((await rowsOf(coach, `${FX}.visitPeople`)).items).toEqual([]);
+    // Rows that name records of an object the role does not read: none either.
+    expect((await rowsOf(coach, `${FX}.visitWho`)).items).toEqual([]);
+    expect((await rowsOf(admin, `${FX}.visitWho`)).items.length).toBe(2);
     // A member holds the pack's tools as any staff read (the coach's too), and the inbox.
     const m = keys(await today(member));
     expect(m).toEqual(
@@ -372,21 +623,67 @@ describe("a pack role's Today (proof b)", () => {
     );
   });
 
-  it("a role reaching People only for those it looks after gets no item that reads them", async () => {
-    const id = "todaylk";
-    const m = fixture(id, { people: peopleItem(["day"]) });
-    const roles = m.roles as Record<string, { looksAfter?: unknown }>;
-    if (!roles.coach) throw new Error("no coach role");
-    roles.coach.looksAfter = { person: "self" };
-    await install(m);
+  it("a role limited to today gets today's window only, never another day's figure", async () => {
+    const day = await account("member", `${FX}.daycoach`);
+    const answer = await today(day);
+    // Every visit is not bound to today's window: hidden. Today's are shown with no comparison.
+    expect(keys(answer).sort()).toEqual(
+      [`${FX}.visitPeople`, `${FX}.visits`, `${FX}.visitWho`].sort(),
+    );
+    expect(itemOf(answer, `${FX}.visits`)).toMatchObject({ value: 2, compare: null });
+    expect((await rowsOf(day, `${FX}.visits`)).items.map((r) => r.label).sort()).toEqual([
+      "Early visit",
+      "Morning visit",
+    ]);
+    await notFound(day, `${FX}.allVisits`);
+  });
+
+  it("the review's probe: a role reading nothing, reaching People on today only, gets no value from another day and no names", async () => {
+    const probe = await account("member", `${FX}.probe`);
+    const role = await loadPackRole(db.query, probe.id);
+    expect(role?.today).toEqual({ person: "createdAt" });
+    expect(role?.read).toEqual([]);
+    // Its own tool opens the item over People, compared with last week: nothing of it.
+    const answer = await today(probe);
+    expect(keys(answer)).toEqual([]);
+    await notFound(probe, `${FX}.probePeople`);
+  });
+
+  it("a role reaching visits only for the People it looks after gets no item that reads them", async () => {
+    const carer = await account("member", `${FX}.carer`);
+    const role = await loadPackRole(db.query, carer.id);
+    expect(role?.looksAfter?.reach).toEqual({ [VISIT]: "person" });
+    expect(keys(await today(carer))).toEqual([]);
+  });
+
+  it("a limited role holding a grant is held to the limit too (a grant of another pack's tool)", async () => {
+    const gr = "todaygr";
+    await install(
+      fixture(
+        gr,
+        {
+          grVisits: visitsItem(["desk"], { label: "Visits (granted)" }),
+          grPeople: peopleItem(["desk"], { label: "People (granted)" }),
+        },
+        { tools: { desk: tool(`${gr}:desk`) }, grantable: [`${gr}:desk`], roles: {} },
+      ),
+    );
     forgetSchemaNames();
     try {
-      const coach = await account("member", `${id}.coach`);
-      const role = await loadPackRole(db.query, coach.id);
-      expect(role?.looksAfter?.reach).toEqual({ person: "self" });
-      expect(keys(await today(coach))).toEqual([]);
+      const carer = await account("member", `${FX}.carer`, [`${gr}:desk`]);
+      const day = await account("member", `${FX}.daycoach`, [`${gr}:desk`]);
+      // The grant opens its pack's items: over People (no limit of the role is about them), as a
+      // count with no names (the role reads no Person); over visits, never for the carer, whose
+      // role reaches visits only for the People it looks after, and for the day coach only as
+      // today's, with no comparison.
+      const c = await today(carer);
+      expect(keys(c).sort()).toEqual([`${gr}.grPeople`]);
+      expect((await rowsOf(carer, `${gr}.grPeople`)).items).toEqual([]);
+      await notFound(carer, `${gr}.grVisits`);
+      const d = await today(day);
+      expect(itemOf(d, `${gr}.grVisits`)).toMatchObject({ value: 2, compare: null });
     } finally {
-      await env.DB.prepare("DELETE FROM core_extensions WHERE id = ?").bind(id).run();
+      await env.DB.prepare("DELETE FROM core_extensions WHERE id = ?").bind(gr).run();
     }
   });
 });
@@ -625,6 +922,44 @@ describe("cost (criterion 13, proof d)", () => {
     const chunks = chunksOf(Array.from({ length: 200 }, (_, i) => item(i)));
     expect(chunks.length).toBeLessThanOrEqual(Math.ceil(200 / ITEM_COLUMNS) + 1);
     expect(Math.max(...chunks.map((c) => c.length))).toBeLessThanOrEqual(ITEM_COLUMNS);
+  });
+
+  it("an item that fails when read costs one failed statement, is left out, and is shown to admins", async () => {
+    const id = "todaybad";
+    // Passes every check (it is SQL over no view), and fails when SQLite runs it.
+    const BAD = "SELECT abs(-9223372036854775807 - 1) AS value";
+    await install(
+      fixture(id, {
+        bad: { label: "Broken", format: "count", sql: BAD, opens: ["desk"] },
+        good: peopleItem(["desk"], { label: "Still fine" }),
+      }),
+    );
+    forgetFailedItems();
+    try {
+      const shared = memoryWidgetCache();
+      const first = await statementsOf(admin, shared);
+      const second = await statementsOf(admin, shared);
+      const third = await statementsOf(admin, shared);
+      // The first call finds it (the statement fails, each item is read alone once); after that
+      // it is left out: one statement of the others, then the cache.
+      expect(first.statements).toBeGreaterThan(second.statements + 2);
+      expect(second.statements).toBe(third.statements + 1);
+      expect(keys(third.answer)).toContain(`${id}.good`);
+      expect(keys(third.answer)).not.toContain(`${id}.bad`);
+      // Never silently gone: an admin sees it listed; a member does not.
+      expect(itemOf(third.answer, "host.unreadable")).toMatchObject({
+        value: 1,
+        detail: "Broken",
+        state: "attention",
+      });
+      expect((await rowsOf(admin, "host.unreadable")).items).toEqual([
+        { label: "Broken", detail: `${id}.bad`, record: null },
+      ]);
+      expect(keys(await today(member))).not.toContain("host.unreadable");
+    } finally {
+      await env.DB.prepare("DELETE FROM core_extensions WHERE id = ?").bind(id).run();
+      forgetFailedItems();
+    }
   });
 
   it("a second call within 60 seconds is served from the cache for the same viewer, not another", async () => {

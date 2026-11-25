@@ -46,6 +46,8 @@ nothing.
   rules, now `approvals/approvers.ts`), `host.uncovered`, `host.checklists`, `host.notices`; pack
   items as columns of one statement; every pack role reaches both (`PACK_ROLE_TODAY`).
   `host.paymentsFailing` waits for stage 52 step 5. ADR 0874, no migration.
+  Note for stage 66 (one host, many clients): the widget cache key and `host.takings`'s cache key
+  carry no organisation (one deployment is one organisation today); stage 66 step 5 must add it.
 
 - **Step 4** — not built — needs: step 3 — Packs declare items
 

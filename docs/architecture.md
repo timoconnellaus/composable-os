@@ -2979,9 +2979,13 @@ AI actor gets the pack items and the money its user may see, never approvals, ch
 roster or the inbox. The visible pack items are columns of one statement (`json_array` of today's
 value and the compared one, at most 90 a statement, nine parameters), run through
 `runReadOnlySql`; the statement and the takings are cached 60 seconds, the person's own items read
-on every call. Every pack role reaches both (`PACK_ROLE_TODAY`): no host item reaches it, a pack
-item only by its role's or a grant's tools (never an every-staff tool), not one reading an object
-its role reaches only for some People, and a row's record linked only when the role reads it.
+on every call (one failing item is left out for a minute and listed to admins). Every pack role
+reaches both (`PACK_ROLE_TODAY`): no host item reaches it; a pack item only by its role's or a
+grant's tools (never an every-staff tool); one its role opens reads only views of objects the role
+reads; whatever opened it, one reading an object the role reaches only for some People is hidden,
+and one over an object it reaches only on today is read in today's window with no comparison;
+rows only over objects the role reads (`roleReach`, crossed with every shipped item and role in
+`today-reach.test.ts`).
 
 **My account** (stage 48, [spec](stages/48-my-account.md)) is base-layer blocks over a base
 headless entry in the typed client's runtime (`packages/client/src/account.ts`:

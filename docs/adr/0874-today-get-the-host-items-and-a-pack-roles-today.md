@@ -49,44 +49,71 @@ no core read but its own screens and read-and-understood list.
     midnight (`salesTotal` in `finance/reports.ts`: the book `finance.report` reads, totalled the
     same way), with the number of payments, compared with the same time last week; its rows are
     Sales' items. Nothing in `today/` sums an order or a payment;
-  - changes waiting are the pending, unexpired actions (at most 500 read) that pass the approver
-    rules: one table in `approvals/approvers.ts`, which `approval.approve` now holds too (the same
-    rules, the same order, the same refusals), the restricted-tool rule (ADR 0625), and the
-    roster's (ADR 0626): for someone who does not roster, an update or restore of a staffed object
-    is left out without reading the shift (`approval.approve` decides it on the record). A setup
-    change is counted and its row says "Review on a computer" (ADR 0872);
+  - changes waiting are the pending, unexpired actions this person can approve and that would
+    apply: those passing the approver rules (one table in `approvals/approvers.ts`, which
+    `approval.approve` now holds too: the same rules, the same order, the same refusals), the
+    restricted-tool rule (ADR 0625, any installed extension's tool, a runtime one's too), and the
+    roster's (ADR 0626: for someone who does not roster, an update or restore of a staffed object
+    is left out without reading the shift; `approval.approve` decides it on the record); and not a
+    message approving would not send: one to a recipient who may not be contacted now (asked
+    together, as the approvals inbox asks), nor an AI's draft from another person's own mailbox
+    (`othersPersonalDraft`, the question approving asks, ADR 0678). At most 500 are read; with
+    more waiting the item says "500+ waiting: the oldest 500 counted". A held routine message is
+    judged by its own path when approved (as the inbox shows it). A setup change is counted and
+    its row says "Review on a computer" (ADR 0872);
   - shifts with nobody on them are `uncoveredShifts` over the roster's window, attention when one
     starts within 24 hours; checklists are the shifts' runs missed today and still open past
-    their end, attention when one was missed; notices are `unreadCount`.
+    their end, attention when one was missed (at most 200 counted; more say "200+"); notices are
+    `unreadCount`.
   - `host.paymentsFailing` waits for Finance reports' Money owed (stage 52 step 5, the failing
     renewal's amount due kept): declared (`HOST_ITEMS_WAITING`) and listed for nobody until then.
 - **An AI actor** (the assistant, MCP) gets the pack items and the money its user's rights and its
   scopes allow, never a person's own items: changes waiting, checklists, shifts with nobody on them
   and the inbox. Approving stays `actors: ["human"]`.
 - **Every pack role reaches `today.get` and `today.rows`** (`PACK_ROLE_TODAY` in `pack-roles.ts`,
-  passing the looks-after and "mine" limits, which Today holds itself). They answer for the account
-  itself, and a pack role gains nothing else through them:
-  - no money (`finance:read` is never a fixed role's, ADR 0600), no approvals, no roster or
-    checklist, no inbox (none of the gating operations is a pack role's);
+  passing the today, looks-after and "mine" limits, which Today holds itself). They answer for the
+  account itself. SQL cannot carry a role's limits, so the host decides from the views an item's
+  SQL reads (`roleReach` in `today/pack.ts`):
+  - no host item: no money (`finance:read` is never a fixed role's, ADR 0600), no approvals, no
+    roster or checklist, no inbox (none of the gating operations is a pack role's);
   - a pack item only when every tool of its gate is allowed by the role or a grant, an every-staff
     tool (`anyStaff`, ADR 0652) counting for nothing: its host operation decides by its own rule;
-  - not an item the role allows that reads the view of an object the role reaches only for the
-    People its holder looks after (ADR 0889) or through the records naming it (ADR 0755): SQL
-    cannot carry those limits;
-  - a row's record linked only when the role reads that object (`record.get`); else the row is a
-    name and a line.
+  - an item the role itself opens reads only views of objects in the role's `read`; any other
+    view (another object of its pack, a Person, an order) hides it;
+  - whatever opened the item (the role, or a grant: a limited role's grant is held to the limit,
+    as the pipeline holds a tool's nested calls), one reading a view of an object the role reaches
+    only for the People its holder looks after (ADR 0889) or through the records naming it
+    (ADR 0755) is hidden, and one reading an object the role reaches only on today (ADR 0553) is
+    shown only when its SQL binds today's window (`:today_from` and `:today_to`), and never with
+    its comparison, which reads another day;
+  - its rows only when they name records of an object the role reads and read only views of
+    objects it reads (and bind today's window over a today-limited one); otherwise the item is its
+    count alone and `today.rows` gives no rows.
+  The views are judged by name: what an item's SQL does with a view it may read (a filter that
+  is not today's) is the pack's reviewed code. `packages/core/test/today-reach.test.ts` crosses every shipped
+  pack's item with every shipped pack role. No exception is declared on an item: an item a role
+  should see over an object it does not read needs the role to read it, or a reviewed exception
+  added to the declaration then.
+  - Notices are not a pack role's: `notification.list` is not reached by one (its own inbox is
+    read in the admin it signs in to, ADR 0660, and not through a role client), so the spec's
+    "everyone" holds for every staff account without a pack role.
 - **Cost.** `today.get` makes a bounded number of statements whatever the data: the zone, the
   account's rights and the shipped manifests; the pack items as columns of one statement (each a
   `json_array` of its value today and the value compared, at most 90 items and 90,000 characters a
   statement, the same nine parameters whatever it holds; `validateReadOnlySql` takes a longer limit
   only for SQL the host combined from checked parts, `MAX_COMBINED_SQL_LENGTH`); and each host
   item's own few reads (Finance's for takings, one per staffed object for the shifts). An item that
-  fails at run time is read alone and only it is left out.
+  fails at run time is read alone once and left out for 60 seconds (in the isolate, as the cache
+  may be a no-op), its error logged once and listed to admins (`host.unreadable`): one bad item
+  costs one failed statement, not one per item on every call. A Today item's SQL has no `;`,
+  checked at install, and the comparison is built from the checked SQL.
 - **The cache.** The pack items' statement and the takings are kept 60 seconds (the widget cache,
   ADR 0057): the statement by its SQL (which names exactly the items the caller may see), the
   windows, the zone and the caller's visibility scope; takings by the day and zone, for
   `finance:read` holders. The person's own items (changes waiting, the inbox, the roster and
-  checklists) are read on every call, so a decision shows at once.
+  checklists) are read on every call, so a decision shows at once. Neither key holds the
+  organisation: one deployment is one organisation (ADR 0001). Stage 66 (one host, many clients)
+  must add it (its step 5, module-level caches).
 - **Audit.** `today.get` is not audited one by one; `today.rows` of a money item writes the read's
   audit row naming the item and the number of rows, never a figure.
 

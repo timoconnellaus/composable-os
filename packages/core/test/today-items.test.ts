@@ -94,7 +94,16 @@ describe("a Today item's SQL (criterion 12)", () => {
       await issues({
         visits: item("SELECT 1 AS value; DELETE FROM rec_x_todaypk_visit"),
       }),
-    ).toEqual(["todayItems.visits.sql: only one statement is allowed"]);
+    ).toEqual(["todayItems.visits.sql: A Today item's query has no semicolon, even at its end"]);
+    // Not even last (ADR 0874): Today reads an item as one column of a statement of many.
+    expect(
+      await issues({ visits: item("SELECT count(*) AS value FROM rec_x_todaypk_visit;") }),
+    ).toEqual(["todayItems.visits.sql: A Today item's query has no semicolon, even at its end"]);
+    expect(
+      await issues({
+        visits: item("SELECT count(*) AS value FROM rec_x_todaypk_visit -- a note; not a second"),
+      }),
+    ).toEqual([]);
     expect(
       await issues({
         visits: item("WITH t AS (SELECT 1) INSERT INTO rec_x_todaypk_visit SELECT * FROM t"),

@@ -12,7 +12,11 @@ import type { Kysely } from "kysely";
 import { z } from "zod";
 import { ADJUDICATOR_PRINCIPAL } from "../adjudicator/review.ts";
 import { loadVerdicts, verdictViewSchema } from "../adjudicator/run.ts";
-import { assertApproverAfterRoster, assertApproverBeforeRoster } from "../approvals/approvers.ts";
+import {
+  assertApproverAfterRoster,
+  assertApproverBeforeRoster,
+  othersPersonalDraft,
+} from "../approvals/approvers.ts";
 import { actionTitle, outboundTitle, verbOf } from "../approvals/describe.ts";
 import { combinedStep, DEFAULT_PHRASE_THRESHOLD } from "../approvals/high-risk.ts";
 import { ApprovalStateError, objectOfId } from "../approvals/queue.ts";
@@ -1190,7 +1194,11 @@ async function approveActions(
               ? CONTACT_BLOCKED_REASON
               : // An AI's one-to-one draft from a person's mailbox is theirs alone to send.
                 outboundInput.contact?.personal &&
-                  (await connectionOwner(ctx.db, action.connection_id)) !== approver
+                  othersPersonalDraft(
+                    outboundInput,
+                    await connectionOwner(ctx.db, action.connection_id),
+                    approver,
+                  )
                 ? PERSONAL_OWNER_REASON
                 : null))
           : null;

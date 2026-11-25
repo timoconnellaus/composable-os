@@ -8,8 +8,19 @@ import { z } from "zod";
 import { NotFoundError } from "../errors.ts";
 import { defineOperation } from "../operation.ts";
 import { HOST_ITEMS } from "../today/host.ts";
-import { inOrder, loadViewer, type PlacedItem, type TodayRow } from "../today/items.ts";
-import { packItemRows, packItemValues, visiblePackItems } from "../today/pack.ts";
+import {
+  inOrder,
+  loadViewer,
+  type PlacedItem,
+  type TodayRow,
+  type Viewer,
+} from "../today/items.ts";
+import {
+  packItemRows,
+  packItemValues,
+  type VisiblePackItem,
+  visiblePackItems,
+} from "../today/pack.ts";
 
 const target = z.discriminatedUnion("kind", [
   z.object({ kind: z.literal("rows") }).describe("Its rows: today.rows with its key"),
@@ -45,6 +56,30 @@ const rowSchema = z.object({
   record: z.object({ object: z.string(), id: z.string() }).nullable(),
 });
 
+/** The admin's note of the pack items left out because they failed when read (ADR 0874). */
+const UNREADABLE = "host.unreadable";
+
+/** Whether the viewer looks after the installed packs: a person who is an admin, no pack role. */
+const mayManage = (viewer: Viewer) =>
+  viewer.person && !viewer.rights.packRole && viewer.ctx.user.role === "admin";
+
+/** Pack items that could not be read, for an admin: never silently gone. */
+function unreadableItem(viewer: Viewer, items: readonly VisiblePackItem[]): PlacedItem | null {
+  if (!items.length || !mayManage(viewer)) return null;
+  return {
+    key: UNREADABLE,
+    label: "Items that could not be read",
+    format: "count",
+    value: items.length,
+    currency: null,
+    detail: items.map((i) => i.spec.label).join(", "),
+    compare: null,
+    state: "attention",
+    target: { kind: "rows" },
+    order: 1000,
+  };
+}
+
 export const todayGet = defineOperation({
   name: "today.get",
   description:
@@ -74,8 +109,10 @@ export const todayGet = defineOperation({
     ]);
     const items: PlacedItem[] = [
       ...host.filter((item): item is PlacedItem => item !== null),
-      ...packs,
+      ...packs.items,
     ];
+    const unreadable = unreadableItem(viewer, packs.unreadable);
+    if (unreadable) items.push(unreadable);
     return { day: viewer.windows.today.day.date, zone: viewer.zone, items: inOrder(items) };
   },
 });
@@ -100,6 +137,11 @@ export const todayRows = defineOperation({
       rows = await host.rows(viewer);
       // Who looked at the money's rows (the spec's audit), naming the item, never a figure.
       if (rows && host.money) ctx.auditRead?.({ todayItem: host.key, rows: rows.length });
+    } else if (input.key === UNREADABLE) {
+      const { unreadable } = await packItemValues(viewer);
+      if (mayManage(viewer)) {
+        rows = unreadable.map((i) => ({ label: i.spec.label, detail: i.key, record: null }));
+      }
     } else {
       const item = (await visiblePackItems(viewer)).find((i) => i.key === input.key);
       if (item) rows = await packItemRows(viewer, item);

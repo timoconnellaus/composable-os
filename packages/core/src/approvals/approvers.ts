@@ -232,3 +232,16 @@ export function approverRulesAllow(approver: Approver, target: ApproverTarget): 
     (rule) => !rule.matches(target, kind) || rule.refuse(approver, target) === null,
   );
 }
+
+/**
+ * An AI's one-to-one draft from a person's own mailbox (ADR 0678), which only that mailbox's
+ * owner may send: approved by anyone else it is skipped, never sent. `approval.approve` and
+ * Today's count ask the same question.
+ */
+export function othersPersonalDraft(
+  input: { contact?: { personal?: unknown } | null | undefined },
+  owner: string | null,
+  approver: string,
+): boolean {
+  return !!input.contact?.personal && owner !== approver;
+}

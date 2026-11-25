@@ -17,14 +17,18 @@
 // Cost: a bounded number of statements each, whatever the data: one read per item (two for
 // takings' windows, through Finance's own reads), one per staffed object for the uncovered
 // shifts, and the rosterer's check once a call.
+
+import type { ExtensionManifest } from "@composable-os/sdk";
 import { sql } from "kysely";
-import { approverRulesAllow } from "../approvals/approvers.ts";
+import { approverRulesAllow, othersPersonalDraft } from "../approvals/approvers.ts";
 import { actionTitle } from "../approvals/describe.ts";
 import { declaredObjects } from "../checklists/index.ts";
 import { cacheApiWidgetCache, widgetCacheKey } from "../dashboards/cache.ts";
 import { toolOperation } from "../extensions/tools.ts";
 import { getObject, listObjects } from "../fields/index.ts";
 import { salesTotal } from "../finance/reports.ts";
+import { contactBlockedMany } from "../integrations/consent.ts";
+import type { OutboundInput } from "../integrations/outbound.ts";
 import { notificationLinkSchema } from "../notifications/types.ts";
 import type { AnyOperation } from "../operation.ts";
 import { approvalApprove } from "../operations/approval.ts";
@@ -33,6 +37,8 @@ import { financeReport } from "../operations/finance.ts";
 import { notificationList, unreadCount } from "../operations/notification.ts";
 import { staffingUncovered } from "../operations/staffing.ts";
 import { staffAuthority } from "../pack-roles.ts";
+import type { Actor, Origin } from "../principals.ts";
+import { jsonList } from "../records/common.ts";
 import { touchesRoster } from "../staffing/approvals.ts";
 import { uncoveredShifts } from "../staffing/due.ts";
 import { setsRosterFields } from "../staffing/index.ts";
@@ -150,6 +156,8 @@ type Waiting = {
   input: string | null;
   preview: string | null;
   bulk_size: number;
+  actor: string;
+  origin: string | null;
 };
 
 const parse = <T>(text: string | null, fallback: T): T => {
@@ -172,19 +180,31 @@ function mightChangeRoster(operation: string, input: unknown): boolean {
   return !!object.staffed || setsRosterFields(object, every);
 }
 
-/** The pending actions the viewer may approve, oldest first. */
-async function mayApprove(viewer: Viewer): Promise<Waiting[] | null> {
+/** The pending actions the viewer may approve and that would apply, oldest first. */
+async function mayApprove(viewer: Viewer): Promise<{ waiting: Waiting[]; more: boolean } | null> {
   // Approving is a person's (`approval.approve` is `actors: ["human"]`): an AI gets no item.
   if (!viewer.person || !mayCall(viewer, approvalApprove as AnyOperation)) return null;
   const { ctx } = viewer;
-  const rows = await ctx.db
+  const read = await ctx.db
     .selectFrom("core_pending_action")
-    .select(["id", "operation", "risk", "connection_id", "input", "preview", "bulk_size"])
+    .select([
+      "id",
+      "operation",
+      "risk",
+      "connection_id",
+      "input",
+      "preview",
+      "bulk_size",
+      "actor",
+      "origin",
+    ])
     .where("status", "=", "pending")
     .where("expires_at", ">", ctx.now)
     .orderBy("id")
-    .limit(APPROVALS_READ)
+    .limit(APPROVALS_READ + 1)
     .execute();
+  const more = read.length > APPROVALS_READ;
+  const rows = read.slice(0, APPROVALS_READ);
   const approver = {
     actor: ctx.actor,
     user: ctx.user,
@@ -192,18 +212,45 @@ async function mayApprove(viewer: Viewer): Promise<Waiting[] | null> {
     // Listed on the phone too, saying "review on a computer" (ADR 0872): counted.
     staffDevice: false,
   };
-  const tools = new Map<string, AnyOperation | null>();
+  // Any installed extension's tool, a runtime one's too, as `assertRosterApprover` resolves it:
+  // the shipped packs are read already; the rest, if any action names one, in one statement.
+  const known = new Map(
+    viewer.packs.map((p) => [p.id, { manifest: p.manifest, source: "shipped" as const }]),
+  );
+  const others = [
+    ...new Set(
+      rows
+        .filter((r) => r.operation.startsWith("x."))
+        .map((r) => r.operation.split(".")[1] ?? "")
+        .filter((id) => id && !known.has(id)),
+    ),
+  ];
+  if (others.length) {
+    for (const row of await ctx.db
+      .selectFrom("core_extensions")
+      .select(["id", "manifest", "source"])
+      .where("id", "in", jsonList(others))
+      .execute()) {
+      try {
+        known.set(row.id, {
+          manifest: JSON.parse(row.manifest) as ExtensionManifest,
+          source: row.source as "shipped",
+        });
+      } catch {
+        // Unreadable: its tools resolve to nothing, as `resolveExtensionOperation` would fail.
+      }
+    }
+  }
   const toolOf = (name: string): AnyOperation | null => {
-    if (tools.has(name)) return tools.get(name) ?? null;
     const [, pack, tool] = name.split(".");
-    const manifest = viewer.packs.find((p) => p.id === pack)?.manifest;
+    const found = pack ? known.get(pack) : undefined;
     const spec =
-      tool && manifest && Object.hasOwn(manifest.tools ?? {}, tool) ? manifest.tools[tool] : null;
-    const op = spec && manifest && tool ? toolOperation(manifest, tool, spec, "shipped") : null;
-    tools.set(name, op);
-    return op;
+      tool && found && Object.hasOwn(found.manifest.tools ?? {}, tool)
+        ? found.manifest.tools[tool]
+        : null;
+    return spec && found && tool ? toolOperation(found.manifest, tool, spec, found.source) : null;
   };
-  const allowed = rows.filter((row) => {
+  let allowed = rows.filter((row) => {
     if (!approverRulesAllow(approver, row)) return false;
     // A restricted pack tool's call (ADR 0625): only someone who could call it approves it.
     if (row.operation.startsWith("x.")) {
@@ -215,6 +262,42 @@ async function mayApprove(viewer: Viewer): Promise<Waiting[] | null> {
     }
     return true;
   });
+  // A message to people that approving would not send (ADR 0678): a recipient who may not be
+  // contacted now, asked together as the approvals inbox asks it; and an AI's draft from another
+  // person's own mailbox, which only its owner may send (`othersPersonalDraft`, as approving
+  // decides it).
+  const outbound = allowed.filter((r) => r.connection_id !== null);
+  if (outbound.length) {
+    const inputs = new Map(outbound.map((r) => [r.id, parse<Partial<OutboundInput>>(r.input, {})]));
+    const [blocked, owners] = await Promise.all([
+      contactBlockedMany(
+        ctx.db,
+        outbound.map((r) => ({
+          id: r.id,
+          input: inputs.get(r.id) ?? {},
+          actor: r.actor as Actor,
+          origin: parse<Partial<Origin>>(r.origin, {}),
+        })),
+        ctx.now,
+      ),
+      outbound.some((r) => inputs.get(r.id)?.contact?.personal)
+        ? connectionOwners(
+            ctx,
+            outbound.flatMap((r) => (r.connection_id ? [r.connection_id] : [])),
+          )
+        : Promise.resolve(new Map<string, string | null>()),
+    ]);
+    allowed = allowed.filter(
+      (r) =>
+        r.connection_id === null ||
+        (!blocked.has(r.id) &&
+          !othersPersonalDraft(
+            inputs.get(r.id) ?? {},
+            owners.get(r.connection_id) ?? null,
+            ctx.user.id,
+          )),
+    );
+  }
   // A roster change (ADR 0626) is a rosterer's, where a pack declares who rosters. Without the
   // shift's own read, an update or restore of a staffed object might be one: a non-rosterer's
   // count leaves it out (`approval.approve` decides it on the record either way).
@@ -222,25 +305,40 @@ async function mayApprove(viewer: Viewer): Promise<Waiting[] | null> {
   if (roster.length && ctx.user.role !== "admin") {
     if ((await rosteringDeclared(ctx.db)) && !(await viewer.rosterer())) {
       const out = new Set(roster.map((r) => r.id));
-      return allowed.filter((r) => !out.has(r.id));
+      return { waiting: allowed.filter((r) => !out.has(r.id)), more };
     }
   }
-  return allowed;
+  return { waiting: allowed, more };
 }
+
+/** The owner of each connection (a person's own mailbox), in one statement. */
+async function connectionOwners(viewer: Viewer["ctx"], ids: readonly string[]) {
+  const rows = await viewer.db
+    .selectFrom("core_integration_connection")
+    .select(["id", "owner_user_id"])
+    .where("id", "in", jsonList([...new Set(ids)]))
+    .execute();
+  return new Map(rows.map((r) => [r.id, r.owner_user_id]));
+}
+
+/** "500+" when more are waiting than were read: never a silently smaller number. */
+const atLeast = (more: boolean, cap: number) =>
+  more ? `${cap}+ waiting: the oldest ${cap} counted` : null;
 
 const approvalsItem: HostItem = {
   key: "host.approvals",
   money: false,
   async item(viewer) {
-    const waiting = await mayApprove(viewer);
-    if (!waiting) return null;
+    const found = await mayApprove(viewer);
+    if (!found) return null;
+    const { waiting, more } = found;
     return {
       key: "host.approvals",
       label: "Waiting for you",
       format: "count",
       value: waiting.length,
       currency: null,
-      detail: null,
+      detail: atLeast(more, APPROVALS_READ),
       compare: null,
       state: waiting.length > 0 ? "attention" : "ok",
       target: { kind: "approvals" },
@@ -248,9 +346,9 @@ const approvalsItem: HostItem = {
     };
   },
   async rows(viewer) {
-    const waiting = await mayApprove(viewer);
-    if (!waiting) return null;
-    return waiting.slice(0, TODAY_ROWS_MAX).map((row) => ({
+    const found = await mayApprove(viewer);
+    if (!found) return null;
+    return found.waiting.slice(0, TODAY_ROWS_MAX).map((row) => ({
       label: actionTitle(
         row.operation,
         parse(row.preview, []),
@@ -336,17 +434,22 @@ async function checklistRunsOf(viewer: Viewer): Promise<RunRow[] | null> {
       SELECT r.id, r.object_type, r.record_id, r.name, r.state, r.opens, u.name AS person
       FROM core_checklist_run r LEFT JOIN core_user u ON u.id = r.account_id
       WHERE r.state = 'open' AND r.closes < ${now} AND r.object_type != 'checklist.day'
-    ) ORDER BY opens, id LIMIT ${TODAY_ROWS_MAX * 4}
+    ) ORDER BY opens, id LIMIT ${CHECKLISTS_READ + 1}
   `.execute(viewer.ctx.db);
   return result.rows;
 }
+
+/** At most this many runs are counted; more are said to be more ("200+"). */
+export const CHECKLISTS_READ = 200;
 
 const checklistsItem: HostItem = {
   key: "host.checklists",
   money: false,
   async item(viewer) {
-    const runs = await checklistRunsOf(viewer);
-    if (!runs) return null;
+    const read = await checklistRunsOf(viewer);
+    if (!read) return null;
+    const more = read.length > CHECKLISTS_READ;
+    const runs = read.slice(0, CHECKLISTS_READ);
     const missed = runs.filter((r) => r.state === "missed").length;
     return {
       key: "host.checklists",
@@ -354,7 +457,9 @@ const checklistsItem: HostItem = {
       format: "count",
       value: runs.length,
       currency: null,
-      detail: `${missed} missed, ${runs.length - missed} still open`,
+      detail: more
+        ? `${CHECKLISTS_READ}+: the first ${CHECKLISTS_READ} counted, ${missed} of them missed`
+        : `${missed} missed, ${runs.length - missed} still open`,
       compare: null,
       state: missed > 0 ? "attention" : "ok",
       target: { kind: "rows" },

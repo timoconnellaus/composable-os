@@ -78,13 +78,20 @@ export const PACK_ROLE_OWN: readonly string[] = ["ack.mine", "ack.confirm"];
 
 /**
  * The account's own Today (stage 60, ADR 0874), which every pack role reaches: `today.get` and
- * `today.rows` answer with the items the account itself may see, and nothing else. Each item is
- * gated by what the account could already call (a pack item by its pack's tools, through the
- * role or a grant, never an every-staff tool; a host item by the operation that reads it in
- * full), so a pack role gains no record, figure or person through them: no money
- * (`finance:read` is never a fixed role's), no approvals, no roster or checklist (a rosterer's),
- * no inbox (`notification.list` is not a pack role's), and a row's record is linked only when
- * the role reads that object.
+ * `today.rows` answer with the items the account itself may see, and nothing else. What holds
+ * (today/pack.ts, `roleReach`, and today/host.ts):
+ *   - no host item: each is gated by a core operation no pack role reaches (`finance.report`,
+ *     `approval.approve`, `staffing.uncovered`, `checklist.runs`, `notification.list`);
+ *   - a pack item only when the role or a grant opens every tool of its gate, an every-staff tool
+ *     (`anyStaff`) opening nothing;
+ *   - an item the role itself opens reads only views of objects in the role's `read`;
+ *   - whatever opened it, an item reading a view of an object the role reaches only for the
+ *     People its holder looks after, or through the records naming it, is hidden; one reading an
+ *     object the role reaches only on today is shown only when its SQL binds today's window, and
+ *     never with its comparison;
+ *   - its rows only over objects the role reads (else the count alone).
+ * The views are judged by name: what an item's SQL does with them is the pack's code, reviewed
+ * with it (its rows return only the columns they declare, ADR 0870).
  */
 export const PACK_ROLE_TODAY: readonly string[] = ["today.get", "today.rows"];
 

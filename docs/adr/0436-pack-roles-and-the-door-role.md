@@ -215,6 +215,7 @@ crew role will declare it (stage 39 step 5). See
 **Amended 2026-11-26 (stage 60 step 3):** every pack role also reaches its own Today
 (`today.get`, `today.rows`: `PACK_ROLE_TODAY`), whose items are each gated by what the account
 could already call: a pack item only when the role or a grant opens every tool of its gate (an
-every-staff tool counting for nothing), no host item a pack role cannot otherwise read (no money,
-approvals, roster, checklist or inbox), and a row's record linked only when the role reads that
-object. See [ADR 0874](0874-today-get-the-host-items-and-a-pack-roles-today.md).
+every-staff tool counting for nothing); one the role opens reading only views of objects the role
+reads; one over an object the role reaches only for some People hidden, and one over an object it
+reaches only on today read in today's window with no comparison, whatever opened it; its rows only
+over objects the role reads; and no host item (no money, approvals, roster, checklist or inbox). See [ADR 0874](0874-today-get-the-host-items-and-a-pack-roles-today.md).

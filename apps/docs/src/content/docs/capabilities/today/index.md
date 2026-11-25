@@ -44,14 +44,18 @@ The phone's owner's client and the web admin both read it.
   rosters; notices need the inbox.
 - **Reads**: takings is Finance reports' Sales net (sold less refunded) for the local day, with the
   number of payments, against the same time last week; changes waiting are the pending actions the
-  approver rules let this person approve; shifts with nobody on them are the roster's window, with
+  approver rules let this person approve and that would go out; shifts with nobody on them are the roster's window, with
   how many start within 24 hours; checklists are runs missed today and runs still open past their
   end; notices are the unread count.
 - **An AI actor** (the assistant, an MCP client) gets the pack items and the money its user may
   see, never the changes waiting, checklists, shifts or the inbox.
-- **A pack role's account** (a coach, the door, a cleaner) reaches Today too, and sees no host item
-  and only the pack items its role's tools open; a row opens a record only where the role reads
-  that object.
+- **A pack role's account** (a coach, the door, a cleaner) reaches Today too. It sees no host
+  item, and only the pack items its role's tools open over the objects the role reads. An object
+  the role reaches only on today is shown for today with no comparison; one it reaches only for
+  some People hides the item. Rows are given only over objects the role reads; otherwise the item
+  is its count alone.
+- **An item that fails** when read is left out for a minute and listed to admins as
+  "Items that could not be read".
 - **Cost**: a few statements whatever the data. The pack items are read as columns of one
   statement, and kept 60 seconds with the takings; the person's own items are read on every call.
 
