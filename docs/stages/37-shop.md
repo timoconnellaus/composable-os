@@ -110,7 +110,7 @@ questions at the end refine later steps and block none of the first ones.
 
 - **Step 4** — not built — needs: step 1, step 3 — Returns and line refunds (`order.return`)
 
-- **Step 5** — not built — needs: step 1, step 3 — The Shop pack's spine: items, variants,
+- **Step 5** — in progress — branch `feat/stage-37-shop-pack` — The Shop pack's spine: items, variants,
   delivery options, shipments, supplier fields, the stockroom role
 
 - **Step 6** — not built — needs: step 5 — Purchase orders, receipts, quick stock-in, counts,
