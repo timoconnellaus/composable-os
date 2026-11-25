@@ -69,3 +69,12 @@ written to D1, where `query.sql`, backups, Time Travel and the audit log would a
 > Secrets Store and replaces any existing key under `default`, instead of posting the provider
 > config itself. AI Gateway custom providers take a slug and store their key under
 > `custom-<slug>` (BYOK only). Keys still never reach D1.
+
+## Amended 2026-11-23: a deployment that serves many clients
+[ADR 0611](0611-one-host-a-database-per-client.md) and stage 66's decision 8 (the owner's answer
+of 2026-11-23). On a deployment that serves many clients there is no Worker per client to hold a
+client's secrets. There, auth secrets are derived per client from one secret in the host's
+environment and are stored nowhere; a secret a client gives (payment keys, its own sign-in
+provider, its own AI keys) is stored encrypted in the host's registry, under a key only the
+host's environment holds, written only by the operator's command and never readable by an
+operation, an extension or the assistant. A deployment for one organisation is unchanged.
