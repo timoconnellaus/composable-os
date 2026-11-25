@@ -16,6 +16,10 @@
 //   Daily checklists pack, ADR 0651). Step 8 is the first client's set-up.
 // - Agreements: stage 44 steps 1 to 8 and the follow-ups (the ticket and course checkouts, issue
 //   #292). Step 9 waits for outside practitioners (stage 43) and step 10 is the first client's.
+// - Knowledge: stage 38 steps 1, 2, 3, 5 and 6 (published-text search, staff read, read and
+//   understood, the pack with its notices and review reminder, the blocks and admin screens).
+//   Not built, and the card says so: the roster warning (4), the assistant's answers (7), a
+//   checklist's "how to" (8) and training (10).
 // The last card is the piece built only for this business.
 import { STATUS } from "../status.ts";
 import Icon from "./Icon.astro";
@@ -67,6 +71,11 @@ const pieces = [
     soon: BUILT,
     title: "Agreements",
     body: "Terms, waivers, health questions and a parent's consent, written by the business and agreed to on the web or in the app, with a typed name or a drawn signature. Visitors agree on the way to paying, parents agree for their children, and nobody books a class or buys a membership, a pass, a ticket or a course without agreeing first to what the business asks there. A copy goes by email to whoever agrees online, and the business can download the signed PDF at any time. The app's screens are built but not yet tried on phones. The business can set a cooling-off period: a new member can end their membership on the website inside it, once, and what they paid in that period is refunded once a member of staff approves it (not for members moving over from another system). A member can also sign at the desk, on the business's own tablet: someone on the staff starts a session for them, the tablet holds no sign-in, and the copy is emailed to them (not yet tried on a real tablet or a live host).",
+  },
+  {
+    soon: BUILT,
+    title: "Knowledge",
+    body: "How the business does things, written down once. Procedures are read by staff on the web and in the app, always in the wording last published, never a draft. Whoever must read one (everyone, or some roles) confirms it with one tap, and is asked again when a change that matters is published; managers see who has confirmed and who has not, and anyone still to read one is reminded after a week. Help pages answer customers' common questions on the business's own website and app, with a search box. Staff use the screens in the product's admin, a coach or a cleaner too, though they see a procedure's words and not yet its pictures, and in the app (not yet tried on phones); the web screens are not yet tried on a live host. Not built yet: a warning on the roster for someone still to read one, the assistant answering from procedures, and training courses for staff.",
   },
 ];
 ---
