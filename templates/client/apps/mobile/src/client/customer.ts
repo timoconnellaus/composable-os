@@ -125,12 +125,12 @@ export type Operations = {
     output: { filename: string; document: { business: string; title: string; versionNumber: number; versionHash: string; body: { blocks: unknown[] }; tickLabel: string; questions?: { key: string; text: string }[]; answers?: ({ key: string; yes: boolean; note?: string }[]) | ("in-app") | ("withheld"); record?: { label: string; value: string }[]; signature?: { width: number; height: number; strokes: number[][][] }; acceptanceId?: string; blank?: boolean } };
   };
   /**
-   * What needs your attention, as a signed-in customer, soonest first: a document to agree to (for you or a child linked to you), a card payment that failed, a payment waiting for you to confirm with your bank, the rest of a deposit to pay, an order you started paying for and did not finish, a pass about to expire with uses left or with none left (yours or a child's), and a free trial about to end. `days` is how far ahead it looks for a pass or a trial ending. An item goes once its cause is fixed. Read-only.
+   * What needs your attention, as a signed-in customer, soonest first: a document to agree to (for you or a child linked to you), a card payment that failed, a payment waiting for you to confirm with your bank, the rest of a deposit to pay, an order you started paying for and did not finish, a pass about to expire with uses left or with none left (yours or a child's), a free trial about to end, and a form you were asked to answer (yours or a child's). `days` is how far ahead it looks for a pass or a trial ending. An item goes once its cause is fixed. Read-only.
    */
   "me.attention": {
     kind: "query";
     input: Record<string, unknown>;
-    output: { days: number; items: ({ key: string; kind: ("agree") | ("card_failing") | ("confirm_payment") | ("balance_due") | ("finish_paying") | ("pass_expiring") | ("pass_used_up") | ("trial_ending"); person: { id: string; name: string; self: boolean }; record: { object: string; id: string; title: string }; at: (string) | (null); amount: (number) | (null); currency: (string) | (null); usesLeft: (number) | (null) })[] };
+    output: { days: number; items: ({ key: string; kind: ("agree") | ("card_failing") | ("confirm_payment") | ("balance_due") | ("finish_paying") | ("pass_expiring") | ("pass_used_up") | ("trial_ending") | ("form_to_fill"); person: { id: string; name: string; self: boolean }; record: { object: string; id: string; title: string }; at: (string) | (null); amount: (number) | (null); currency: (string) | (null); usesLeft: (number) | (null); link: (string) | (null) })[] };
   };
   /**
    * Your birthday as the business has it, as a signed-in customer: day and month only, or null when none is recorded. Read-only.

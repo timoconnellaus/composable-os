@@ -234,7 +234,7 @@ The signed PDF of one of your acceptances, as a signed-in customer, or a linked 
 
 ## me.attention
 
-What needs your attention, as a signed-in customer, soonest first: a document to agree to (for you or a child linked to you), a card payment that failed, a payment waiting for you to confirm with your bank, the rest of a deposit to pay, an order you started paying for and did not finish, a pass about to expire with uses left or with none left (yours or a child's), and a free trial about to end. `days` is how far ahead it looks for a pass or a trial ending. An item goes once its cause is fixed. Read-only.
+What needs your attention, as a signed-in customer, soonest first: a document to agree to (for you or a child linked to you), a card payment that failed, a payment waiting for you to confirm with your bank, the rest of a deposit to pay, an order you started paying for and did not finish, a pass about to expire with uses left or with none left (yours or a child's), a free trial about to end, and a form you were asked to answer (yours or a child's). `days` is how far ahead it looks for a pass or a trial ending. An item goes once its cause is fixed. Read-only.
 
 |  |  |
 | --- | --- |
@@ -254,19 +254,20 @@ No fields.
 | `days` | number | yes |   | How many days ahead a pass or trial ending is listed |
 | `items` | array of object | yes |   |   |
 | `items[].key` | string | yes |   | Stable for the same cause: kind, record and Person |
-| `items[].kind` | `"agree"`, `"card_failing"`, `"confirm_payment"`, `"balance_due"`, `"finish_paying"`, `"pass_expiring"`, `"pass_used_up"`, `"trial_ending"` | yes |   | agree: a document to agree to (me.agreements.due has it). card_failing: a card payment for a subscription you pay failed. confirm_payment: a payment waits for you to confirm it with your bank. balance_due: the rest of a deposit to pay. finish_paying: an order holding places you started paying for and did not finish. pass_expiring: a pass about to expire with uses still on it. pass_used_up: a pass with no uses left. trial_ending: a free trial about to end. |
+| `items[].kind` | `"agree"`, `"card_failing"`, `"confirm_payment"`, `"balance_due"`, `"finish_paying"`, `"pass_expiring"`, `"pass_used_up"`, `"trial_ending"`, `"form_to_fill"` | yes |   | agree: a document to agree to (me.agreements.due has it). card_failing: a card payment for a subscription you pay failed. confirm_payment: a payment waits for you to confirm it with your bank. balance_due: the rest of a deposit to pay. finish_paying: an order holding places you started paying for and did not finish. pass_expiring: a pass about to expire with uses still on it. pass_used_up: a pass with no uses left. trial_ending: a free trial about to end. form_to_fill: a form the business asked you (or a child linked to you) to answer, such as feedback after a class, until it is answered or its link expires. |
 | `items[].person` | object | yes |   | Whose it is: you (self), or a child linked to you |
 | `items[].person.id` | string | yes |   |   |
 | `items[].person.name` | string | yes |   |   |
 | `items[].person.self` | boolean | yes |   |   |
-| `items[].record` | object | yes |   | What it is about: an agreement document, a subscription, an order, or a pass by its object |
+| `items[].record` | object | yes |   | What it is about: an agreement document, a subscription, an order, a pass by its object, or the form to answer |
 | `items[].record.object` | string | yes |   |   |
 | `items[].record.id` | string | yes |   |   |
 | `items[].record.title` | string | yes |   |   |
-| `items[].at` | string or null | yes |   | The moment it is about: the version taking effect, the first failed payment, the payment started, the balance due, the held order expiring, the pass or trial ending |
+| `items[].at` | string or null | yes |   | The moment it is about: the version taking effect, the first failed payment, the payment started, the balance due, the held order expiring, the pass or trial ending, the form's link expiring |
 | `items[].amount` | number or null | yes |   | Money due or to be charged, in the currency's minor unit; null where none |
 | `items[].currency` | string or null | yes |   |   |
 | `items[].usesLeft` | number or null | yes |   | A pass's uses left; null for other kinds |
+| `items[].link` | string or null | yes |   | form_to_fill: the personal link's id, sent back as linkId to open and answer the form (signed in only); null for other kinds |
 
 ## me.birthday.get
 

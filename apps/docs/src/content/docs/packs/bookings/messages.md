@@ -18,6 +18,7 @@ Routine mail is email about this pack's records that the host sends without a pe
 | `cancellation` | Class cancellations | `booking` | When the gym cancels a class (staff, a closure, or a series ended). To everyone whose booking it cancelled and their parents or guardians: the reason, that nothing was used or that a paid drop-in's money goes back once approved, with a file that takes it off their calendar. | `class`, `when`, `room`, `link`, `day`, `time`, `short`, `reason`, `money` |
 | `reminder` | Class reminders | `booking` | Before each scheduled class (3 hours by default: the class type's reminder, else the organisation's). To everyone booked and their parents or guardians, and a visitor who paid for a place staff have not yet confirmed. | `class`, `when`, `room`, `link`, `day`, `time`, `short` |
 | `dropIn` | Drop-in payments and refunds | `order` | When a visitor pays for a class that staff still have to confirm, and when a paid drop-in's refund has been made. About the order: to the address that paid it, never anyone else. | `what`, `link` |
+| `feedback` | Feedback after a class | `booking` | A few hours after a member is ticked as come (3 by default), when a feedback form is chosen in the settings: a short email asking how the class was, with a link to the form that works once and for a week. At most once a month to a member; a child's goes to their parent or guardian. Members can stop these emails with one tap. | `class`, `day`, `form` |
 
 ## Journey signals
 

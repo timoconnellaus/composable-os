@@ -23,6 +23,7 @@ import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from ".
 import { getObject } from "../fields/index.ts";
 import { personObject } from "../fields/person.ts";
 import { newId } from "../ids.ts";
+import { mergeLinkStatement } from "../intake/links.ts";
 import {
   assertMayChangeBirthday,
   assertMergeKeepsMemberBirthday,
@@ -1292,6 +1293,8 @@ export const personMerge = defineOperation({
     queueMergeAgreements(ctx, survivor.id, merged.id);
     // Contact choices follow the Person (ADR 0675): the later wins, a stop or a no always stays.
     ctx.write(...(await mergeChoiceStatements(ctx.db, survivor.id, merged.id, ctx.now)));
+    // Personal links follow the Person too (ADR 0723): a live one stays answerable, by the survivor.
+    ctx.write(mergeLinkStatement(survivor.id, merged.id));
     // One primary affiliation per person: the survivor's wins.
     if (survivor.primaryAffiliation) {
       ctx.write(

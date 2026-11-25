@@ -90,6 +90,10 @@ const settingsOutput = z.object({
     .int()
     .describe("Routine emails the organisation sends in a day before the rest wait for a person"),
   retentionMonths: z.number().int().describe("Months the log is kept"),
+  receiptDailyCap: z
+    .number()
+    .int()
+    .describe("Receipts the organisation sends in a day, apart from the routine email limit"),
   siteOrigin: z
     .string()
     .nullable()
@@ -169,6 +173,7 @@ export const routineMailGet = defineOperation({
     return {
       packs: [...packs.values()],
       orgDailyCap: settings.orgDailyCap,
+      receiptDailyCap: settings.receiptDailyCap,
       retentionMonths: settings.retentionMonths,
       kinds: kinds.map((k) => {
         const of = (status: string[]) =>
@@ -355,7 +360,7 @@ export const routineMailSettingsUpdate = defineOperation({
     "(kinds: { 'bookings.reminder': false }: off sends " +
     "nothing and queues nothing), or set the business's own site, the only place routine email " +
     "links to (siteOrigin, an https origin; null removes the links), the organisation's daily " +
-    "limit (orgDailyCap) or how long the log is kept (retentionMonths). Switch a kind's text or push " +
+    "limit (orgDailyCap), the receipts' own daily limit (receiptDailyCap) or how long the log is kept (retentionMonths). Switch a kind's text or push " +
     "on (channels: { 'bookings.reminder': { push: true } }, only channels the kind declares), " +
     "whether a member reached by push is also texted (textOnlyWithoutApp), or quiet hours, when " +
     "texts and pushes wait (quietHours: { start: '21:00', end: '07:00' }; the same start and end: " +
@@ -372,6 +377,7 @@ export const routineMailSettingsUpdate = defineOperation({
     kinds: z.record(z.string().max(80), z.boolean()).optional(),
     siteOrigin: z.string().max(200).nullable().optional(),
     orgDailyCap: z.number().int().min(1).max(100_000).optional(),
+    receiptDailyCap: z.number().int().min(1).max(100_000).optional(),
     retentionMonths: z.number().int().min(1).max(84).optional(),
     channels: z
       .record(
@@ -392,6 +398,7 @@ export const routineMailSettingsUpdate = defineOperation({
     kinds: z.record(z.string(), z.boolean()),
     siteOrigin: z.string().nullable(),
     orgDailyCap: z.number().int(),
+    receiptDailyCap: z.number().int(),
     retentionMonths: z.number().int(),
     channels: z.record(
       z.string(),
@@ -454,6 +461,7 @@ export const routineMailSettingsUpdate = defineOperation({
       kinds: { ...previous.kinds, ...(input.kinds ?? {}) },
       siteOrigin: siteOrigin === undefined ? previous.siteOrigin : siteOrigin,
       orgDailyCap: input.orgDailyCap ?? previous.orgDailyCap,
+      receiptDailyCap: input.receiptDailyCap ?? previous.receiptDailyCap,
       retentionMonths: input.retentionMonths ?? previous.retentionMonths,
       channels: Object.fromEntries(
         [...new Set([...Object.keys(previous.channels), ...Object.keys(input.channels ?? {})])].map(
