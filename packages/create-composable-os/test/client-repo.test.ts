@@ -1410,6 +1410,24 @@ describe("blocks (criterion 10)", () => {
     ]);
   });
 
+  it("copies Content's rich text with Knowledge's blocks, though Content is not listed (ADR 0708)", async () => {
+    await publish("1.0.0");
+    const dir = await created();
+    // Knowledge requires no other pack: the renderer it draws with calls no operation.
+    setPacks(dir, ["knowledge"]);
+    const added = await cos("add", "knowledge-help-page");
+    expect(added.code, added.output).toBe(0);
+    expect(existsSync(join(dir, "apps/web/src/blocks/content-rich-text/rich-text.tsx"))).toBe(true);
+    expect(existsSync(join(dir, "apps/web/src/blocks/knowledge-help-page/help-page.tsx"))).toBe(
+      true,
+    );
+    expect(added.output).toMatch(/@composable-os\/pack-content@1\.0\.0/);
+    // Content's own blocks, asked for by name or calling the host, still need Content listed.
+    const post = await cos("add", "content-post");
+    expect(post.code).toBe(1);
+    expect(post.output).toContain("the content pack, which product.ts does not list");
+  });
+
   it("refuses a block of a pack the product does not list", async () => {
     await publish("1.0.0", (files) => {
       files["blocks/deal-card/block.json"] = JSON.stringify({

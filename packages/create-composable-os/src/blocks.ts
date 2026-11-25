@@ -396,7 +396,12 @@ export function copyBlocks(
         `${block} is a ${manifest.skin} block and this repo has no ${manifest.skin === "web" ? "web" : "mobile"} app in product.ts.`,
       );
     }
-    if (manifest.pack && !packs.includes(manifest.pack)) {
+    // A block another block brings with it that calls no operation (Content's rich text
+    // renderer, which Knowledge's blocks draw with, ADR 0708) needs nothing of its pack on the
+    // host: it is copied whatever product.ts lists. Asked for by name, or calling the host, its
+    // pack must be listed.
+    const renderer = trail.length > 0 && manifest.operations.length === 0;
+    if (manifest.pack && !packs.includes(manifest.pack) && !renderer) {
       throw new CliError(
         `${block} is a block of the ${manifest.pack} pack, which product.ts does not list.`,
       );
