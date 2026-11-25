@@ -233,6 +233,8 @@ const messageSchema = z
     agreement: agreementSchema.optional(),
     // The one-tap stop (ADR 0675): only the host's routine mail may carry it (worker.ts).
     listUnsubscribe: z.string().max(600).optional(),
+    // What it is for, as consent to be contacted goes (ADR 0678): the host asks with it.
+    purpose: z.enum(["follow_up", "news_and_offers"]).optional(),
   })
   .refine((message) => message.text !== undefined || message.html !== undefined, {
     message: "needs a text or html body",
@@ -281,6 +283,7 @@ export function parseMessage(input: unknown): ParsedMessage {
       : {}),
     ...(message.agreement ? { agreement: agreementOf(message.agreement) } : {}),
     ...(message.listUnsubscribe !== undefined ? { listUnsubscribe: message.listUnsubscribe } : {}),
+    ...(message.purpose !== undefined ? { purpose: message.purpose } : {}),
   };
 }
 

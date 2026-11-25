@@ -56,6 +56,7 @@ function calendarsOf(message: ParsedMessage): EmailCalendarEvent[] {
 }
 
 import type { SenderConfiguratorRpc } from "./configurator/sender-configurator-types";
+import { askContact, htmlWithStop, STOP_WORDS, textWithStop } from "./consent";
 import {
   AGREEMENT_KEY_PREFIX,
   HOST_PRIVATE_CLASSES,
@@ -71,6 +72,10 @@ import {
   unsubscribeHeaders,
 } from "./routine";
 import { assertSenderAllowed, SENDER_URL_PATTERN, senderFromUrl, senderUrl } from "./sender";
+
+/** The one plain refusal when nobody is left to send to (ADR 0678): never why. */
+const RECIPIENT_STOPPED =
+  "Refused: recipient_stopped. The recipient cannot be contacted this way; nothing was sent or queued.";
 
 import { isHostSignInMail, isSignInCodeMessage, SIGN_IN_KIND } from "./sign-in";
 import {
@@ -195,6 +200,13 @@ type StoredEmail = {
    * suffix), by which the host scrubs it once the acceptance is erased (ADR 0646).
    */
   copy?: string;
+  /**
+   * A stoppable email (ADR 0678): each recipient's own stop link, by address, from the host. The
+   * email then goes to each recipient on their own, ending with theirs. Never shown or listed.
+   */
+  stops?: Record<string, string>;
+  /** How many recipients the host left out (they cannot be contacted this way). */
+  dropped?: number;
 };
 
 type Actions = {
@@ -245,6 +257,26 @@ function describeSend(email: StoredEmail, internal: boolean) {
   if (message.html !== undefined) builder.verbatim("HTML body", message.html, "html");
   if (message.relatedRecords) builder.list("Related records", message.relatedRecords);
   if (message.listUnsubscribe) builder.inline("One-tap stop", message.listUnsubscribe);
+  // A stoppable email (ADR 0678): what it is for, and that each copy ends with its recipient's
+  // own stop link (the links themselves are never shown: a link stops a person's messages).
+  if (message.purpose) {
+    builder.inline(
+      "Purpose",
+      message.purpose === "news_and_offers" ? "News and offers" : "Follow-up",
+    );
+  }
+  if (email.stops && Object.keys(email.stops).length) {
+    builder.inline(
+      "Stop link",
+      `Each recipient gets their own copy, ending with "${STOP_WORDS}" and their own one-tap stop link.`,
+    );
+  }
+  if (email.dropped) {
+    builder.inline(
+      "Not sent to",
+      `${email.dropped} ${email.dropped === 1 ? "recipient who cannot" : "recipients who cannot"} be contacted this way`,
+    );
+  }
   // Everything the calendar file will say, so the approver reviews all of it (ADR 0571).
   for (const event of calendarsOf(message)) {
     builder.inline("Calendar file", calendarSummary(event));
@@ -414,6 +446,40 @@ class EmailSendSessionImpl extends RpcTarget implements EmailSendSession {
       if (known === "busy") throw new Error("A send with this idempotency key is in progress.");
       if (known !== null) return this.#again(known, queueClass);
     }
+    // Consent to be contacted (ADR 0678): a caller's email asks the host first, who may be sent
+    // to and, for a stoppable one, each Person's own stop link. The host's own mail is asked on
+    // its own paths (routine mail at claim) or is essential (a sign-in code, a copy, an order's).
+    let outgoing = parsed;
+    let stops: Record<string, string> | undefined;
+    let dropped = 0;
+    if (queueClass === "caller" && kind !== "sendInternal") {
+      if (parsed.purpose !== undefined && (parsed.cc || parsed.bcc)) {
+        throw new TypeError(
+          "Invalid email: an email with a purpose goes to each recipient on their own: put every recipient in to, with no cc or bcc.",
+        );
+      }
+      const answer = await askContact(this.#queue, {
+        to: recipientsOf(parsed),
+        purpose: parsed.purpose,
+      });
+      if (answer) {
+        const allowed = new Set(answer.allowed.map((a) => a.to.toLowerCase()));
+        const keep = (list: string[] | undefined) =>
+          list?.filter((a) => allowed.has(a.toLowerCase()));
+        const to = keep(parsed.to) ?? [];
+        // Nobody left to address it to: the one plain refusal, nothing queued.
+        if (!to.length) throw new Error(RECIPIENT_STOPPED);
+        const cc = keep(parsed.cc);
+        const bcc = keep(parsed.bcc);
+        const { cc: _cc, bcc: _bcc, ...rest } = parsed;
+        outgoing = { ...rest, to, ...(cc?.length ? { cc } : {}), ...(bcc?.length ? { bcc } : {}) };
+        dropped = answer.dropped;
+        const links = answer.allowed.filter((a) => a.stop !== null);
+        if (links.length) {
+          stops = Object.fromEntries(links.map((a) => [a.to.toLowerCase(), a.stop as string]));
+        }
+      }
+    }
     // Each pool's own limit: callers' sends never crowd out the host's independent mail.
     const independent = INDEPENDENT_CLASSES.has(queueClass);
     if (
@@ -427,7 +493,14 @@ class EmailSendSessionImpl extends RpcTarget implements EmailSendSession {
     try {
       id = await this.#backend.submit(
         this.#queue,
-        { from: sender, message: parsed, queue: queueClass, ...(copy ? { copy } : {}) },
+        {
+          from: sender,
+          message: outgoing,
+          queue: queueClass,
+          ...(copy ? { copy } : {}),
+          ...(stops ? { stops } : {}),
+          ...(dropped ? { dropped } : {}),
+        },
         kind,
       );
     } catch (error) {
@@ -436,7 +509,11 @@ class EmailSendSessionImpl extends RpcTarget implements EmailSendSession {
     }
     if (key && space) this.#backend.remember(space, key, id);
     // An auto-approved send may already have been applied while the submission was in flight.
-    return { status: this.#backend.wasSent(id) ? "sent" : "pending", id };
+    return {
+      status: this.#backend.wasSent(id) ? "sent" : "pending",
+      id,
+      ...(dropped ? { dropped } : {}),
+    };
   }
 
   /**
@@ -546,6 +623,11 @@ export class EmailSendGatekeeper
       throw new ActionApplyError("Refused: this copy's agreement was erased, and it is not sent.");
     }
     const { message } = email;
+    // A stoppable email (ADR 0678): one copy per recipient, each ending with its own stop link.
+    if (email.stops && Object.keys(email.stops).length) {
+      await this.#deliverEach(id, email, email.stops);
+      return;
+    }
     let messageId: string;
     try {
       // The binding is structurally an EmailTransport; tests bind EMAIL to a fake with send().
@@ -597,6 +679,58 @@ export class EmailSendGatekeeper
       throw new ActionOutcomeUnknownError(
         `Email Service failed while sending, so the email may or may not have gone out: ${detail}`,
       );
+    }
+    this.#record(id, email, { status: "sent", sentAt: new Date().toISOString(), messageId });
+  }
+
+  /**
+   * A stoppable email's copies (ADR 0678): to each recipient on their own (it has no cc or bcc),
+   * each with its own stop link at the end when the host gave one. Once one copy went, a failure
+   * of a later one leaves the outcome unknown, so the send is never tried again whole.
+   */
+  async #deliverEach(id: number, email: StoredEmail, stops: Record<string, string>): Promise<void> {
+    const { message } = email;
+    const transport: EmailTransport = this.env.EMAIL;
+    let messageId = "";
+    let sent = 0;
+    for (const to of message.to) {
+      const stop = stops[to.toLowerCase()];
+      try {
+        ({ messageId } = await sendEmail(transport, {
+          from: email.from,
+          to: [to],
+          subject: message.subject,
+          ...(message.text !== undefined
+            ? { text: stop ? textWithStop(message.text, stop) : message.text }
+            : {}),
+          ...(message.html !== undefined
+            ? { html: stop ? htmlWithStop(message.html, stop) : message.html }
+            : {}),
+          ...(message.replyTo ? { replyTo: message.replyTo } : {}),
+          ...(calendarsOf(message).length
+            ? {
+                attachments: calendarsOf(message).map((event) => ({
+                  disposition: "attachment" as const,
+                  filename: event.cancelled ? CANCEL_FILENAME : CALENDAR_FILENAME,
+                  type: `text/calendar; charset=utf-8; method=${event.cancelled ? "CANCEL" : "PUBLISH"}`,
+                  content: calendarFile(event, { address: email.from, to: [to] }, new Date()),
+                })),
+              }
+            : {}),
+        }));
+        sent += 1;
+      } catch (error) {
+        const detail = error instanceof Error ? error.message : String(error);
+        if (sent === 0 && isRetryableRefusal(error)) {
+          throw new Error(`Email Service refused for now: ${detail}`);
+        }
+        if (sent === 0 && isRefusedBeforeSending(error)) {
+          throw new ActionApplyError(`Email Service refused this email: ${detail}`);
+        }
+        throw new ActionOutcomeUnknownError(
+          `Email Service failed after ${sent} of ${message.to.length} copies, so some may not have gone out: ${detail}`,
+        );
+      }
     }
     this.#record(id, email, { status: "sent", sentAt: new Date().toISOString(), messageId });
   }
