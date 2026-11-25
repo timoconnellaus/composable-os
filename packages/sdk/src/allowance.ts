@@ -109,6 +109,12 @@ export interface AllowanceHolderSpec {
  *   A record created into a spend state with it set takes the use of the record it names: in the
  *   same batch the host moves that record to `state` (a return state) and spends from the same
  *   holder, so a move never fails for want of a use the member already had.
+ *   - `fixed` (ADR 0764): fields of its own that change only by such a move, never by an update,
+ *     for every caller but the host (an appointment's times and service): a session a late cancel
+ *     used never comes back by moving its time first.
+ *   - `anchor` (ADR 0764): `{ field, from }`, a read-only datetime field the host sets at create:
+ *     the moved record's, or else its own `from` (its start). A window may count from it, so a
+ *     moved record keeps the late point of the one it replaced. It is fixed too.
  * - `paidBy`: holders of other extensions that may pay for it, by object (`memberships.pass`) or
  *   by extension (`memberships`). Left out, only this extension's holders. A holder naming a
  *   spender of another extension that does not list it is refused at install.
@@ -134,7 +140,12 @@ export interface AllowanceSpenderSpec {
   at?: string;
   copy?: Readonly<Record<string, string>>;
   local?: { weekday?: string; minute?: string; zone?: string };
-  movedFrom?: { field: string; state: string };
+  movedFrom?: {
+    field: string;
+    state: string;
+    fixed?: readonly string[];
+    anchor?: { field: string; from: string };
+  };
   paidBy?: readonly string[];
   waived?: string;
   released?: string;
@@ -198,7 +209,15 @@ export const allowanceManifestSchema = z.union([
             })
             .strict()
             .optional(),
-          movedFrom: z.object({ field: fieldName, state: stateValue }).strict().optional(),
+          movedFrom: z
+            .object({
+              field: fieldName,
+              state: stateValue,
+              fixed: z.array(fieldName).min(1).max(10).optional(),
+              anchor: z.object({ field: fieldName, from: fieldName }).strict().optional(),
+            })
+            .strict()
+            .optional(),
           paidBy: z.array(path).min(1).max(20).optional(),
           waived: fieldName.optional(),
           released: stateValue.optional(),
@@ -556,6 +575,23 @@ export function checkObjectAllowance(
         `${sp}.movedFrom.field`,
         `"${s.movedFrom.field}" must be a relation field (one record) to ${m.id}.${name}`,
       );
+    }
+    for (const f of s.movedFrom.fixed ?? []) {
+      if (!fieldOf(object, f))
+        contract(`${sp}.movedFrom.fixed`, `"${f}" is not a field of ${name}`);
+    }
+    if (s.movedFrom.anchor) {
+      const { field, from } = s.movedFrom.anchor;
+      const a = fieldOf(object, field);
+      if (a?.type !== "datetime" || a.many || !a.readOnly) {
+        contract(
+          `${sp}.movedFrom.anchor.field`,
+          `"${field}" must be a read-only datetime field of ${name}: the host sets it`,
+        );
+      }
+      if (fieldOf(object, from)?.type !== "datetime") {
+        contract(`${sp}.movedFrom.anchor.from`, `"${from}" must be a datetime field of ${name}`);
+      }
     }
     if (!s.returnIn.includes(s.movedFrom.state)) {
       contract(
