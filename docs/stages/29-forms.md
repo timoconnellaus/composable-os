@@ -67,8 +67,21 @@ interview.
 
 - **Step 4** — not built — needs: step 2 — Hosted page, web and native blocks, headless entry.
 
-- **Step 5** — in progress — branch `feat/stage-29-personal-links` — Personal links, the receipt
-  and the form-link slot, Bookings' feedback, the `form_to_fill` attention kind.
+- **Step 5** — built — PR #458 — Personal links, the receipt and the form-link slot, Bookings'
+  feedback, the `form_to_fill` attention kind (`feat/stage-29-personal-links`): migration 1010
+  (`core_intake_link`, one SHA-256 per email's token in `core_intake_link_token`, used once by a
+  trigger in the answers' batch), ADRs 0723 and 0724 (amending ADR 0590). Routine mail's
+  form-link slot is the only maker (32 random bytes, no signing key); `intake.open` and
+  `intake.submit` (and `x.forms.form`, `x.forms.submit`) take `link` or, signed in, `linkId`;
+  `form_to_fill` carries the link's id. The receipt (`receipt: true`, `forms.receipt`) goes to
+  the sign-in, link or typed address, three a day per mailbox at most. Bookings' `feedback` and
+  `feedbackAfterClass` (`feedbackForm`, `feedbackMinutes`), once a month, a child's to the
+  guardian. Erase deletes links (the cascade); merge moves them. Decided while building:
+  `intake.link` and `x.forms.ask` (and `forms:manage`) wait for a host-side ask, so no token sits
+  in an approval; what a link was about is the submission's host-only `about` and `aboutObject`,
+  not a relation Bookings adds; the receipt names the form, not the business; none for answers
+  staff entered; feedback counts from the tick (`markedAt`). Not yet tried on a live host; the
+  client's `/form` page is step 4's.
 
 - **Step 6** — not built — needs: step 2 — Leads as a destination.
 
