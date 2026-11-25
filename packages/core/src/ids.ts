@@ -57,6 +57,8 @@ export const ID_PREFIXES = {
   execution: "exe",
   /** A customer account (stage 22, ADR 0402): a Person who can sign in. Never a core_user. */
   customer: "cus",
+  /** A practitioner account (stage 43, ADR 0581): an outside person the business invited. */
+  practitioner: "prc",
   /** A request to erase a Person, made when a customer deletes their account (stage 22). */
   eraseRequest: "erq",
   /** An order and one of its lines (stage 25, ADR 0426). */

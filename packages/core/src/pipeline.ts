@@ -625,13 +625,14 @@ function activityStatements(
       occurred_at: activity.occurredAt ?? now,
       author_user_id: author.userId,
       // core_activity.author_actor predates the extension actor; extension posts are `system`,
-      // and so are posts from a customer's, the public's or a device's call (no staff user wrote
-      // them).
+      // and so are posts from a customer's, the public's, a device's or a practitioner's call (no
+      // staff user wrote them).
       author_actor:
         author.actor === "extension" ||
         author.actor === "customer" ||
         author.actor === "public" ||
-        author.actor === "device"
+        author.actor === "device" ||
+        author.actor === "practitioner"
           ? "system"
           : author.actor,
       created_at: now,
@@ -2023,7 +2024,12 @@ const ID = /^[A-Za-z0-9_-]{1,64}$/;
 
 /** The principal as a plain, frozen value of a known kind, or a refusal. */
 function outsidePrincipal(value: unknown): OutsidePrincipal | DeviceCaller {
-  const p = (value ?? {}) as { kind?: unknown; customerId?: unknown; personId?: unknown };
+  const p = (value ?? {}) as {
+    kind?: unknown;
+    customerId?: unknown;
+    practitionerId?: unknown;
+    personId?: unknown;
+  };
   if (p.kind === "public") return Object.freeze({ kind: "public" });
   // Which device is the pipeline's to say, from the credential (ADR 0781): nothing else is read.
   if (p.kind === "device") return Object.freeze({ kind: "device" });
@@ -2036,7 +2042,22 @@ function outsidePrincipal(value: unknown): OutsidePrincipal | DeviceCaller {
   ) {
     return Object.freeze({ kind: "customer", customerId: p.customerId, personId: p.personId });
   }
-  throw new OperationError("internal", "Not a customer or public principal");
+  // A practitioner (ADR 0581): their account and their own Person, nothing else. Only these two
+  // members are read, so a value that also says `customerId` is still only a practitioner.
+  if (
+    p.kind === "practitioner" &&
+    typeof p.practitionerId === "string" &&
+    typeof p.personId === "string" &&
+    ID.test(p.practitionerId) &&
+    ID.test(p.personId)
+  ) {
+    return Object.freeze({
+      kind: "practitioner",
+      practitionerId: p.practitionerId,
+      personId: p.personId,
+    });
+  }
+  throw new OperationError("internal", "Not a customer, practitioner or public principal");
 }
 
 /**
@@ -2173,7 +2194,10 @@ interface OutsideAudit {
   id: string;
   op: AnyOperation;
   actor: OutsideActor;
-  /** The customer account, the enrolled device (dev_…), or null for the public. */
+  /**
+   * The customer account, the enrolled device (dev_…), the practitioner account (prc_…), or null
+   * for the public.
+   */
   subjectId: string | null;
   origin: Origin;
   input: unknown;
@@ -2345,9 +2369,12 @@ async function invokeOutside<O extends AnyOperation>(
       ? principal.customerId
       : principal.kind === "device"
         ? principal.deviceId
-        : null;
+        : principal.kind === "practitioner"
+          ? principal.practitionerId
+          : null;
   const origin = originSchema.parse(ctx.origin ?? { surface: "client" });
-  // `{ $relative: "me" }` in a customer's filter is their own Person.
+  // `{ $relative: "me" }` in a customer's filter is their own Person. A practitioner's own Person
+  // is never one of their clients (ADR 0581), so for them it names no one.
   const me = principal.kind === "customer" ? principal.personId : "";
   const input: unknown = resolveInputFilter(op.name, parsed.data, me, now);
   await refreshSchemaRegistry(ctx.db.query);
@@ -2403,7 +2430,8 @@ async function invokeOutside<O extends AnyOperation>(
     get pipeline() {
       return staffOnly("pipeline");
     },
-    // Record code stamps who wrote a row: the customer account, or `public`.
+    // Record code stamps who wrote a row: the customer account, the practitioner account, or
+    // `public`.
     user: { id: subjectId ?? "public", email: "", name: actor, role: "viewer" },
     // The host's own reads while it writes (the row before, a relation's target) are org-wide.
     principal: orgReader(ctx.db.query).principal,
@@ -2584,7 +2612,8 @@ async function invokeOutside<O extends AnyOperation>(
     changeRows.push({ o: change.object, r: change.id, a: change.action, d: JSON.stringify(diff) });
     marked.push(markedChange(change, diff));
   }
-  // A customer's own writes are theirs; the public's, an unauthenticated buyer's (ADR 0590).
+  // A customer's own writes are theirs; the public's, an unauthenticated buyer's (ADR 0590). A
+  // practitioner's carry the public's standing, the weakest (ADR 0581): no customer's own say.
   if (!isRead && marked.length) {
     statements.push(
       ...(await markStatements(

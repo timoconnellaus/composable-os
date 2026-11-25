@@ -85,10 +85,10 @@ describe("audiences on operations", () => {
     const problems = (audiences: unknown) =>
       operationProblems({ ...unmarked, audiences } as unknown as AnyOperation);
     expect(problems([])).toEqual([
-      "audiences must list at least one of staff, customer, public, device",
+      "audiences must list at least one of staff, customer, public, device, practitioner",
     ]);
     expect(problems(["admin"])).toEqual([
-      "audiences must be a subset of staff, customer, public, device",
+      "audiences must be a subset of staff, customer, public, device, practitioner",
     ]);
     expect(problems(["staff", "staff"])).toEqual(["audiences lists one twice"]);
     // A device's operations are its own (ADR 0781).

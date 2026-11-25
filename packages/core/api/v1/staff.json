@@ -19291,7 +19291,8 @@
               "extension",
               "customer",
               "public",
-              "device"
+              "device",
+              "practitioner"
             ]
           },
           "operation": {
@@ -68870,6 +68871,504 @@
       "invalidates": [
         "policy.get"
       ]
+    },
+    {
+      "name": "practitioner.end",
+      "description": "End an outside practitioner's account, with the reason: they can no longer sign in, and every session of theirs ends at once. An invite not yet accepted is withdrawn the same way. Needs practitioners:manage, and only a person can call it. Returns the account.",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "Practitioner account id (prc_…)"
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500,
+            "description": "Why the account ends"
+          }
+        },
+        "required": [
+          "id",
+          "reason"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "personId": {
+            "type": "string"
+          },
+          "email": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "discipline": {
+            "type": "string"
+          },
+          "practiceId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "invited",
+              "active",
+              "ended"
+            ]
+          },
+          "invitedBy": {
+            "type": "string"
+          },
+          "invitedAt": {
+            "type": "string"
+          },
+          "activatedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "endedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "endedBy": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "endedReason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "lastSignInAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "personId",
+          "email",
+          "name",
+          "discipline",
+          "practiceId",
+          "status",
+          "invitedBy",
+          "invitedAt",
+          "activatedAt",
+          "endedAt",
+          "endedBy",
+          "endedReason",
+          "lastSignInAt"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "practitioner.get",
+        "practitioner.list"
+      ]
+    },
+    {
+      "name": "practitioner.get",
+      "description": "One outside practitioner's account by id (prc_…): name, sign-in address, discipline, practice, state, who invited and ended it and why. Needs practitioners:manage, and only a person can call it. Read-only.",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "Practitioner account id (prc_…)"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "personId": {
+            "type": "string"
+          },
+          "email": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "discipline": {
+            "type": "string"
+          },
+          "practiceId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "invited",
+              "active",
+              "ended"
+            ]
+          },
+          "invitedBy": {
+            "type": "string"
+          },
+          "invitedAt": {
+            "type": "string"
+          },
+          "activatedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "endedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "endedBy": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "endedReason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "lastSignInAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "personId",
+          "email",
+          "name",
+          "discipline",
+          "practiceId",
+          "status",
+          "invitedBy",
+          "invitedAt",
+          "activatedAt",
+          "endedAt",
+          "endedBy",
+          "endedReason",
+          "lastSignInAt"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
+      "name": "practitioner.invite",
+      "description": "Invite an outside practitioner (a physiotherapist, a dietitian) to their own practitioner account, by email, with their name, discipline and optionally the practice (an Organisation) they work for. They accept by signing in with a code emailed to that address. The account is apart from any staff or customer account the same address has, and reaches nothing about any client until that client agrees. The address's Person is used, or made when there is none. Inviting an address whose invite is not yet accepted updates and resends it; an address with an active or ended practitioner account cannot be invited. Needs practitioners:manage, and only a person can call it.",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 254,
+            "description": "Their email address"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "description": "Their name"
+          },
+          "discipline": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80,
+            "description": "What they do, as a label (\"Physiotherapist\", \"Dietitian\")"
+          },
+          "practiceId": {
+            "description": "The practice they work for: an Organisation's id (org_…)",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          }
+        },
+        "required": [
+          "email",
+          "name",
+          "discipline"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "personId": {
+            "type": "string"
+          },
+          "email": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "discipline": {
+            "type": "string"
+          },
+          "practiceId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "invited",
+              "active",
+              "ended"
+            ]
+          },
+          "invitedBy": {
+            "type": "string"
+          },
+          "invitedAt": {
+            "type": "string"
+          },
+          "activatedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "endedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "endedBy": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "endedReason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "lastSignInAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "invitationEmail": {
+            "type": "string",
+            "enum": [
+              "sent",
+              "pending",
+              "not_sent"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "personId",
+          "email",
+          "name",
+          "discipline",
+          "practiceId",
+          "status",
+          "invitedBy",
+          "invitedAt",
+          "activatedAt",
+          "endedAt",
+          "endedBy",
+          "endedReason",
+          "lastSignInAt",
+          "invitationEmail"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "practitioner.get",
+        "practitioner.list"
+      ]
+    },
+    {
+      "name": "practitioner.list",
+      "description": "List the outside practitioners (physiotherapists, dietitians and the like) the business has invited: each one's name, sign-in address, discipline, practice, whether they are invited (not yet signed in), active or ended, and who invited and ended them. Needs practitioners:manage, and only a person can call it. Read-only.",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "description": "Only accounts in this state",
+            "type": "string",
+            "enum": [
+              "invited",
+              "active",
+              "ended"
+            ]
+          }
+        }
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "personId": {
+                  "type": "string"
+                },
+                "email": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "discipline": {
+                  "type": "string"
+                },
+                "practiceId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "invited",
+                    "active",
+                    "ended"
+                  ]
+                },
+                "invitedBy": {
+                  "type": "string"
+                },
+                "invitedAt": {
+                  "type": "string"
+                },
+                "activatedAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "endedAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "endedBy": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "endedReason": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "lastSignInAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "personId",
+                "email",
+                "name",
+                "discipline",
+                "practiceId",
+                "status",
+                "invitedBy",
+                "invitedAt",
+                "activatedAt",
+                "endedAt",
+                "endedBy",
+                "endedReason",
+                "lastSignInAt"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": []
     },
     {
       "name": "query.sql",

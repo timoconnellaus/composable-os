@@ -135,6 +135,16 @@ export interface HostMail {
     to: string;
     invitedBy: string;
   }): Promise<"sent" | "pending" | "not_sent">;
+  /**
+   * Sends a practitioner's invite notice (stage 43, ADR 0581), which holds no secret: who invited
+   * them, the business, and what the account is for. Sent, waiting for review, or not. Never
+   * throws. Absent: not sent.
+   */
+  sendPractitionerInvite?(message: {
+    to: string;
+    invitedBy: string;
+    discipline: string;
+  }): Promise<"sent" | "pending" | "not_sent">;
   /** Null when a sign-in code would go out at once now, or why not (ADR 0456). */
   signInMailProblem(): Promise<string | null>;
   /** Sends one code as the host's sign-in mail to a staff address; throws unless sent (ADR 0457). */
@@ -153,6 +163,35 @@ export function staffInviteEmail(
       `${invitedBy} invited you to ${productLabel}.\n\n` +
       `To accept, go to ${signInUrl}, enter this email address and ask for a sign-in code. ` +
       `The invite works for ${INVITE_TTL_DAYS} days.\n\n` +
+      "If you did not expect it, ignore this email.",
+  };
+}
+
+/**
+ * A practitioner's invite notice (stage 43, ADR 0581): the business, who invited them, and what
+ * the account is for. Plain text, nothing secret: the code that accepts it goes only to the
+ * address. `signInUrl` is the business's web app, where practitioners sign in, when the host
+ * knows it.
+ */
+export function practitionerInviteEmail(
+  business: string,
+  invitedBy: string,
+  discipline: string,
+  signInUrl: string | null,
+): { subject: string; text: string } {
+  const where = signInUrl
+    ? `go to ${signInUrl}, choose to sign in as a practitioner, enter this email address and ask ` +
+      "for a sign-in code."
+    : `sign in as a practitioner on ${business}'s website with this email address: you will be ` +
+      "sent a sign-in code.";
+  return {
+    subject: `${invitedBy} invited you to work with clients of ${business}`,
+    text:
+      `${invitedBy} invited you to ${business} as a practitioner (${discipline}).\n\n` +
+      "This account is for working with the business's clients who agree to it, one by one. " +
+      "You will see nothing about anyone until they agree. It is apart from any other account " +
+      `you may have with ${business}.\n\n` +
+      `To accept, ${where}\n\n` +
       "If you did not expect it, ignore this email.",
   };
 }
