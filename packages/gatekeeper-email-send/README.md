@@ -37,7 +37,8 @@ send(message: {
   text?: string; html?: string;                   // at least one; each ≤ 32 KiB
   replyTo?: string;
   relatedRecords?: string[];                      // ≤ 20 CRM ids, provisional ones (per_pending_…) fine
-}): Promise<{ status: "pending" | "sent"; id: number }>;
+  purpose?: "follow_up" | "news_and_offers";      // what it is for, for consent (ADR 0678)
+}): Promise<{ status: "pending" | "sent"; id: number; dropped?: number }>;
 listSent(): Promise<Array<{ id: number; to: string[]; subject: string;
   status: "pending" | "sent" | "rejected"; sentAt?: string }>>;
 getSender(): Promise<string>;
@@ -47,6 +48,16 @@ Every input is validated explicitly (zod, strict objects, bounded sizes). We use
 decorators, because the CRM app's Vite dev server does not transform them. `listSent()` calls
 `authorizeObservation()` before it returns. It shows sends still awaiting approval as `pending`
 (simulation from the action journal), then the last 200 sent or rejected ones.
+
+**Consent to be contacted** (ADR 0678): before a caller's email is queued (any queue that is not
+one of the host's own, and not mail only to colleagues), the gatekeeper asks the host
+(`contactCheck` on the approval queue, `src/consent.ts`) with every recipient and the declared
+`purpose`. The host leaves out who may not be contacted (the receipt's `dropped` counts them, never
+who) and refuses with `recipient_stopped` when nobody is left. A send with a purpose takes `to`
+only; each recipient gets their own copy, ending with the stop link the host made for them, which
+is kept in the journal until it is sent and never shown in the approval's words, `listSent()` or
+the receipt. A queue that cannot answer (an older host) still has the host's own check at submit,
+but a send with a purpose is refused there, as its stop links cannot be made.
 
 One more session method is the host's alone and is not in the agent-facing types:
 `scrubAgreementCopy({ key })` (ADR 0646). Only a session whose queue is the host's agreements mail
