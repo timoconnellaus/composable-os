@@ -81,7 +81,10 @@ merge; step 4 builds on, or builds, stage 34's shared step "an order paid anothe
   wait for a person names the version read; a refund rejected or expired is owed and asked again
   (`creditNote.askRefundAgain`); reversals to nothing put the invoice back to unpaid; account
   deletion and erase never cancel an invoice's order; each payment and refund carries its share of
-  the document's tax (stage 52's book); an open payment page holds credits and recorded payments
+  the document's tax (stage 52's book); an open payment page holds credits and recorded payments.
+  After the second review: tax worked from the documents on mixed rates with credit notes; the
+  invoice's version moves with every money act; REPLACE guarded; a refund that may have reached the
+  provider asked again as the same refund; one unconfirmed in five days owed and staff told
 
 - **Step 6** — not built — needs: step 2 — Quotes and acceptance (the deposit invoice needs step 3)
 

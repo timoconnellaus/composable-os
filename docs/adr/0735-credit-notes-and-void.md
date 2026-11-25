@@ -67,6 +67,17 @@ provider refund of the same order must never both give the same money back.
   notes owe back is never given back by another: a later credit note can give back only what was
   paid less what is given back, asked for or owed back. The event log says what went back
   (`refund_confirmed`, `paid_back`) and nothing else, so until then it never says money went back.
+- **Asked again without refunding twice** (the second review of PR #460). A refund that never left
+  the approval (rejected, or its approval expired) is asked for as a new refund. One that may have
+  reached the provider (it failed when it was applied, or the provider has not confirmed it within
+  five days of its approval, `CREDIT_REFUND_CONFIRM_DAYS`: a provider's refund is confirmed in
+  seconds and its webhook is retried for up to three days) is asked again under the **same refund
+  id**, the provider's idempotency key, so a refund that did happen is answered as the same one,
+  never made twice. Each owed one says why (`not_paid_back`, `rejected`, `expired`, `failed`,
+  `unconfirmed`), and the admins are told once per attempt of one unconfirmed (the minute cron,
+  `tellUnconfirmedCreditRefunds`).
+- **A credit note's refund carries its own tax** (ADR 0731's `invoiceTaxFor`): giving back a
+  GST-free line gives back no tax.
 - **A payment that never applied is refunded in any state.** `order.refund` gives back a late or
   unmatched payment on an invoice's order whatever the order's state (it is not what was paid).
 - **The invoice's state after it is credited in full and everything paid goes back** stays `paid`

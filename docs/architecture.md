@@ -2827,8 +2827,8 @@ is what was asked. The order (`core_order.invoice_id`) never expires, is due on 
 date and is listed overdue after it; `order.*` refuses to move it (`rule: "invoice_order"`),
 triggers hold its price, currency, tax and lines for any writer and refuse deleting it, and
 deleting the customer's account or erasing the bill-to never cancels it. Reversals that leave
-nothing paid put it back to pending. The invoice's state follows its order's moves (a move hook,
-`invoices/hooks.ts`), and part payments online are only what the invoice allows
+nothing paid put it back to pending. The invoice moves with every change to its order (its version, and its state following;
+`invoiceFollows` in `orders/orders.ts`), and part payments online are only what the invoice allows
 (`invoice.allowPartPayments`). **Recorded payments** (step 4,
 [ADR 0733](adr/0733-recording-a-payment-on-an-invoice.md)): `invoice.recordPayment` and
 `invoice.reversePayment` (`invoices:payments`, restricted, human only) on stage 34's shared step;

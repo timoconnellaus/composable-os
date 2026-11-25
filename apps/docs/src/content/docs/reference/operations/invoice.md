@@ -1289,6 +1289,7 @@ Void an issued invoice nothing has been paid on: a credit note for everything st
 | `refunds[].refundId` | string or null | yes |   | The refund asked for (provider) or recorded (paid back); null: still owed |
 | `refunds[].paidBackAt` | string or null | yes |   |   |
 | `refunds[].attempt` | number | yes |   | 1, or how many times a provider's refund was asked for |
+| `refunds[].why` | `"not_paid_back"`, `"rejected"`, `"expired"`, `"failed"`, `"unconfirmed"` or null | yes |   | Why an owed one is owed: not paid back yet (recorded), or the provider's refund was rejected, its approval expired, it failed when applied, or the provider has not confirmed it within five days |
 | `refunds[].state` | `"given_back"`, `"asked"`, `"owed"` | yes |   | given_back: confirmed or recorded paid back; asked: waits for approval or the provider; owed: not given back (a person pays a recorded one back; a provider's rejected, expired or failed is asked for again with creditNote.askRefundAgain) |
 | `owedBack` | number | yes |   | What it still owes back: not given back, nor waiting |
 | `version` | number | yes |   |   |

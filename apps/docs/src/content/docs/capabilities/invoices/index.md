@@ -47,8 +47,7 @@ business to confirm with its accountant.
 ## How the pieces fit
 
 - **Platform code** in `packages/core/src/invoices/`: `drafts.ts` (drafts and their lines),
-  `issue.ts` (an invoice issued as an order), `credit.ts` (credit notes and void), `hooks.ts` (the
-  invoice's state following its order), `tax.ts`, `numbering.ts`, `events.ts`, `settings.ts`.
+  `issue.ts` (an invoice issued as an order), `credit.ts` (credit notes and void), `tax.ts`, `numbering.ts`, `events.ts`, `settings.ts`.
   Money moves only through the order code in `packages/core/src/orders/`: `createOrder` starts the
   order, stage 34's `applyOtherPayment` records a payment, and the existing refund approval gives
   money back.

@@ -48,6 +48,13 @@ the invoice (ADR 0731).
   a credit note, while a payment page opened in the last day has had no payment is refused
   (`checkout_open`): that page asks for the old amount.
 
+- **Recorded as decided** (the coordinator, 2026-11-26, the second review of PR #460):
+  `checkout_open` may stop staff recording a transfer, crediting or voiding for up to a day after a
+  payment page is opened, because the host cannot close a provider's page; an expire-page action at
+  the payments gatekeeper is a follow-up. A bounced recorded payment leaves a ticket or pass valid
+  until staff void the invoice (ADR 0694's "what it gave stays"); paying again does not grant twice.
+  The database lets only an invoice's order move from paid or part paid back to pending.
+
 ## Consequences
 - No other caller can record or reverse one: an AI, an MCP client, an automation, an extension and
   an import are refused by the operation's actors, a member without the grant by its permission.
