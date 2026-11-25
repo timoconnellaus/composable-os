@@ -46,12 +46,15 @@ pack. A pack only says what kind of sale each of its sellable objects is
   order's, marked as an estimate. The provider's own tax report is the authority.
 - **Payout**: money the payment provider sent to the bank, counted on the day it arrives, with its
   **lines**: the payments, refunds, disputes, adjustments and fees it settled. Each payment and
-  refund line is matched to what the host recorded by the provider's reference; what matches
-  nothing is listed apart, never guessed. Each payout is one book entry (`bank` and
-  `fees:provider` against `money_in:provider`, `money_out:provider`, `disputes`, `adjustments` and
-  `unmatched`). A payout the bank returned later is an entry of its own. **Not yet paid out** is
-  the provider's money received that no payout has settled yet. A payment recorded by hand (a
-  transfer, cash) never reaches the provider and is in no payout.
+  refund line is matched by the provider's reference to a payment the books counted or a confirmed
+  refund, for the amount the host recorded; anything else matches nothing and is listed apart with
+  the reason, never guessed. Each payout is one book entry (`bank` and `fees:provider` against
+  `money_in:provider`, `money_out:provider`, `disputes`, `adjustments`, `unmatched`, and
+  `payout_difference` for a payout that does not sum to its lines). A payout the bank returned is
+  an entry of its own, whenever it fails: the later payout that pays its money again says which.
+  **Not yet paid out** is the provider's money received that no payout has settled yet, with what
+  is older than 92 days counted beside it. A payment recorded by hand (a transfer, cash) never
+  reaches the provider and is in no payout.
 
 ## How the pieces fit
 
@@ -68,8 +71,10 @@ pack. A pack only says what kind of sale each of its sellable objects is
   its own rows. Nothing in finance writes to an order, a payment or a refund.
 - **The payments gatekeeper**: once a business day the minute cron reads the provider's payouts
   (`listPayouts`, `payoutLines`: read only, the host's own call, the bank account never read), at
-  most 20 calls a run, carrying a backlog on from its place the next minute. A key that may not
-  read payouts makes the report say so; a failing provider is tried again later.
+  most 20 calls a run, carrying a backlog on from its place the next minute, from before the last
+  read that read everything, so an outage of any length loses no payout. A key that lacks the
+  permission makes the report say so; a failing provider or a refused key is tried again later,
+  and the report says the connection needs attention, in a month closed meanwhile too.
 - **Who**: `finance:read` (see the reports, the entries and download the files) and `finance:close`
   (close and reopen). Both are admins' by default and can be granted one by one. The assistant may
   read figures for an account with `finance:read`. Closing, reopening, downloading and the settings

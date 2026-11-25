@@ -616,6 +616,15 @@ export interface PaymentsPayoutsUnavailable {
   reason: string;
 }
 
+/**
+ * What the session answers when the provider could not be read (a 5xx, a refused key, a cursor it
+ * does not know): an answer, not a thrown error, so a failing read leaves no rejection behind on
+ * the RPC hops. The host treats it as a failure and tries again later.
+ */
+export interface PaymentsPayoutsFailed {
+  failed: string;
+}
+
 /** A page of payouts, arriving on or after `since`. */
 export type PaymentsPayoutPage =
   | { unavailable?: undefined; payouts: PaymentsPayout[]; next: string | null }
@@ -734,9 +743,11 @@ export interface PaymentsSession {
    * an observation first. Read only: nothing moves, and the bank destination is never read. The
    * host's own call only (stage 52 step 4).
    */
-  listPayouts(input: PaymentsListPayoutsInput): Promise<PaymentsPayoutPage>;
+  listPayouts(input: PaymentsListPayoutsInput): Promise<PaymentsPayoutPage | PaymentsPayoutsFailed>;
   /** One payout's lines, a page at a time (at most 100). As `listPayouts`. */
-  payoutLines(input: PaymentsPayoutLinesInput): Promise<PaymentsPayoutLinePage>;
+  payoutLines(
+    input: PaymentsPayoutLinesInput,
+  ): Promise<PaymentsPayoutLinePage | PaymentsPayoutsFailed>;
   /**
    * Puts a payment of the order's amount on a reader. Records an observation first. No approval:
    * no money moves until the buyer's card does. Refused while the reader has another payment on it.

@@ -108,7 +108,10 @@ describe("the fake provider's payouts", () => {
       unavailable: true,
     });
     await ledger.configurePayoutReads({ reads: "error" });
-    await expect(h.call("listPayouts", [{ since: "2026-04-01" }])).rejects.toThrow();
+    // A failure is answered, not thrown over RPC (no rejection left behind on the hops).
+    expect(await h.call("listPayouts", [{ since: "2026-04-01" }])).toMatchObject({
+      failed: expect.stringMatching(/5xx/),
+    });
     await ledger.configurePayoutReads({ reads: "ok" });
   });
 
@@ -367,8 +370,8 @@ describe("the fake provider's failures and cursors", () => {
 
   it("an unknown cursor is refused, never answered with the first page again", async () => {
     const h = await host();
-    await expect(
-      h.call("listPayouts", [{ since: "2026-01-01", after: "fpo_unknown" }]),
-    ).rejects.toThrow(/cursor/);
+    expect(await h.call("listPayouts", [{ since: "2026-01-01", after: "fpo_unknown" }])).toMatchObject(
+      { failed: expect.stringMatching(/cursor/) },
+    );
   });
 });

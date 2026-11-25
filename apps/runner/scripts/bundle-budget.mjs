@@ -46,11 +46,13 @@ import { buildRunner } from "./build.mjs";
 // to 13,002 KiB (+7,471 KiB; unminified, 7,578 to 18,409). That accident overshoots this budget by
 // about 5.8 MB at today's size, and by 7.5 MB less whatever room is left at any later size, so it
 // still fails clearly; the markers below catch it at any size.
-// Raised to 7,680 KiB (2026-11-26, stage 52 step 4): main after the Owner's Today and My account's
-// follow-ups (#471, #472) plus the payout read and the Payouts report took the shipped module to
-// 7,192 KiB. All of it is packages/core and operation descriptions; no React or compiler came with
-// it, and the compiler check below is unchanged. Worth measuring what dominates again (esbuild's
-// metafile) before the next raise.
+// Raised to 7,680 KiB (2026-11-26, stage 52 step 4, PR #474): `origin/main` alone measured
+// 7,161 KiB at 10f86c53, 7 KiB under the old budget, so the next change of any size would have
+// failed it. This PR adds its own finance code (the payout read and the Payouts report, about
+// 40 KiB shipped after its review: 7,201 KiB), no new dependency; no React or compiler came with
+// it, and the compiler check below is unchanged. packages/core has doubled since 2026-11-22
+// (2,461 to 4,956 KiB unminified on main, operations/ 2,237 of it): issue #475 tracks the growth,
+// to measure (esbuild's metafile) before the next raise.
 const MAIN_BUDGET_KIB = 7_680;
 // Everything the runner uploads (the main module and its Text modules, not the source map), against
 // the platform's limit on a Worker's size. Checked 2026-11-23 at

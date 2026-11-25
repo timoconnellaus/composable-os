@@ -76,6 +76,7 @@ import type {
   PaymentsPayoutLinePage,
   PaymentsPayoutLinesInput,
   PaymentsPayoutPage,
+  PaymentsPayoutsFailed,
   PaymentsPortal,
   PaymentsPortalInput,
   PaymentsPresentation,
@@ -684,6 +685,15 @@ async function requireHostReaderQueue(queue: unknown): Promise<void> {
   }
 }
 
+/** A provider's payout read, its failure answered as `{ failed }` rather than thrown over RPC. */
+async function payoutRead<T>(read: () => Promise<T>): Promise<T | PaymentsPayoutsFailed> {
+  try {
+    return await read();
+  } catch (error) {
+    return { failed: (error instanceof Error ? error.message : String(error)).slice(0, 300) };
+  }
+}
+
 /** Payouts are the host's own read only (stage 52 step 4, ADR 0793). */
 async function requireHostPayoutsQueue(queue: unknown): Promise<void> {
   if (!(await isHostOrdersQueue(queue))) {
@@ -985,7 +995,9 @@ class PaymentsSessionImpl extends RpcTarget implements PaymentsSession {
   // other caller (Code Mode, an extension's tool, MCP, the assistant) reads them here. The bank
   // destination of a payout is never read.
 
-  async listPayouts(input: PaymentsListPayoutsInput): Promise<PaymentsPayoutPage> {
+  async listPayouts(
+    input: PaymentsListPayoutsInput,
+  ): Promise<PaymentsPayoutPage | PaymentsPayoutsFailed> {
     const parsed = parseListPayoutsInput(input);
     await requireHostPayoutsQueue(this.#queue);
     const provider = this.#backend.open();
@@ -993,10 +1005,12 @@ class PaymentsSessionImpl extends RpcTarget implements PaymentsSession {
       title: "Read payouts",
       description: `Read the payouts ${PROVIDER_TITLES[provider.name]} sent to the bank arriving from ${parsed.since}: amounts, dates and status, never the bank account.`,
     });
-    return provider.listPayouts(parsed);
+    return payoutRead(() => provider.listPayouts(parsed));
   }
 
-  async payoutLines(input: PaymentsPayoutLinesInput): Promise<PaymentsPayoutLinePage> {
+  async payoutLines(
+    input: PaymentsPayoutLinesInput,
+  ): Promise<PaymentsPayoutLinePage | PaymentsPayoutsFailed> {
     const parsed = parsePayoutLinesInput(input);
     await requireHostPayoutsQueue(this.#queue);
     const provider = this.#backend.open();
@@ -1004,7 +1018,7 @@ class PaymentsSessionImpl extends RpcTarget implements PaymentsSession {
       title: "Read a payout's lines",
       description: `Read what payout \`${parsed.payoutRef}\` on ${PROVIDER_TITLES[provider.name]} settled: its payments, refunds, disputes, adjustments and fees, by reference.`,
     });
-    return provider.payoutLines(parsed);
+    return payoutRead(() => provider.payoutLines(parsed));
   }
 
   async presentPayment(input: PaymentsPresentInput): Promise<PaymentsPresentation> {

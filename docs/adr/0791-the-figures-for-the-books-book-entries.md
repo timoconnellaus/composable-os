@@ -67,3 +67,8 @@ sign. No heading is added. A recorded payout the provider later reports failed i
 entry, keyed `payout:<id>:failed` (the key's form, `payout:` and the provider's id, is unchanged),
 on the day the host saw it. A payout read after its month closed goes in the first open month's
 `late` entry for that month, whose lines are summed with the late day lines'.
+
+Amended again the same day (the review of PR #474): one heading is added, **`payout_difference`**:
+the difference between a payout and the sum of its lines, which the provider reported and the host
+never adjusts. It has a heading of its own so it cannot be taken for lines matching nothing
+(`unmatched`) in the entries Accounting sync sends.

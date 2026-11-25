@@ -36,7 +36,7 @@ charge carries billing details).
   `reporting_category` (`charge` a payment, `refund`, `dispute` and `dispute_reversal` a dispute,
   `fee` a fee, `payout` left out as the payout's own, anything else an adjustment). Only an
   automatic payout can be itemised (Stripe lists balance transactions by payout for those only); a
-  manual payout is recorded with no lines. A key that may not read them (HTTP 401 or 403: a
+  manual payout is recorded with no lines. A key that may not read them (HTTP 403: a
   restricted key needs **Payouts: read** and **Balance: read**, and Charges and Disputes read for
   the expansion) is answered `{ unavailable: true, reason }`, never thrown; a full secret key reads
   them, so a business connected with one need not reconnect.
@@ -145,8 +145,84 @@ key), when it is recorded.
 - "Not yet paid out" looks back 92 days: a provider payment still not paid out after that drops out
   of the figure (it is not normal; the provider's own balance report is the authority). A payment
   in a payout that later failed counts as paid out; the failure shows beside it.
-- A failure is noticed only while its payout is within the 14 days each pass re-reads.
+- A failure is noticed by the payout's status within the 14 days each pass re-reads, and at any
+  time by the reversal line that pays its money again (amended below).
 - Stage 61 step 5 reads `core_payout` (id, arrival day, amount), `core_payout_line` (amount, fee,
   kind, references) and `core_payout_failure`, or the closed `payout` entries; a payout whose
   `lines_net` differs from its `amount` is the one to hold.
 - Disputes are only a payout line here (#245 decides what a dispute does).
+
+## Amended 2026-11-26 (the review of PR #474, before merge)
+Migration 1151 was edited in place (unmerged). Where this section and the text above differ, this
+section holds.
+
+- **No payout lost to an outage.** A pass reads from 14 days before `last_ok_date`, the day of the
+  last pass that read everything (a new account: the first month finance counts), not the last
+  pass attempted. A key without the permission, one that lists payouts but not their lines
+  (Payouts: read without Balance: read), or a refused key, for any length of time, is read in full
+  once it works again, over as many runs as the 20-call cap needs. The review proved the loss
+  (40 daily payouts during an outage, 15 recorded); `finance-payouts-outage.test.ts` now records
+  all 40, and fails with the old start.
+- **A revoked key is a failure, not "unavailable".** Only Stripe's 403 (the key lacks the
+  permission) is answered `unavailable`, with the scopes to add. A 401 (revoked, expired or wrong)
+  is thrown as "the connection needs attention": the sync is `failing`, keeps its place, retries,
+  and the report says the connection needs attention. The gatekeeper answers a provider's failure
+  as `{ failed }` rather than throwing it over RPC (a thrown error left unhandled rejections on
+  the hops); the host treats it as a failure.
+- **Failed payouts, whenever they fail.** Stripe's `payout_failure` balance transaction
+  (`reporting_category` `payout_reversal`, its source the failed payout) is a line of its own kind,
+  `payout_reversal`, with `reversalOf`. When the sync reads one: the failed payout, if recorded,
+  gets its failure (however long after it arrived); if never recorded (it failed before it
+  arrived, or before it was read), it is read with its lines and recorded `failed` (arrival day:
+  the reversal's day), with its failure, so the payments it settled are explained and leave "not
+  yet paid out". Its money, paid again, is the reversal line on `adjustments`, against the
+  failure's `adjustments` debit: the bank shows what landed (the review's example: 25,000 that fails
+  and is paid again shows 25,000, not 50,000). A payout listed as `failed` or `canceled` within the
+  lookback is handled the same way. `core_payout.status` is `paid` or `failed`.
+- **Matching only what the books counted.** A payment line matches a provider payment the books
+  counted (applied, or a late payment staff honoured), for the amount and currency the host
+  recorded; a refund line a confirmed refund, likewise. Anything else is carried on `unmatched`,
+  its row naming the reason: `no_record`, `not_counted` (a late or mismatched payment never
+  honoured, a refund not confirmed), `amount_differs`, `currency_differs`, `already_settled` (a
+  second claim). "Not yet paid out" counts only what the books counted. The late payment in the
+  April fixture is now an unmatched line.
+- **The difference has a heading of its own**, `payout_difference` (ADR 0791 amended), so it is
+  never mistaken for lines matching nothing in the entries Accounting sync sends.
+- **A page cursor that does not move** fails the run (`failing`, "the provider answered a page
+  cursor that did not move"), so no run calls without end; the fake refuses a cursor it does not
+  know rather than answering page one again.
+- **One history per account.** `core_payout_sync` is keyed by provider and account (the
+  connection and the resource it binds). Another account starts from its own first month; the
+  marker of an account no longer bound is retired (a `next_at` of 9999-12-31), so it is not due
+  every minute; a switch is picked up when the old marker is next due (within a day).
+- **A month closed while the read is behind says so.** What the read says of itself (refused,
+  failing, part-way through a backlog or pending reads) is a `note` row of the Payouts report: in a
+  preview as it is now, in a closed version as it was when the month closed.
+- **Older money counted.** Beside "not yet paid out", the provider's counted payments and
+  confirmed refunds older than the 92-day window and still in no payout are counted (a number and a
+  total, one aggregate read over those older index entries).
+- **A line in another currency than its payout's** matches nothing (`currency_differs`).
+- **A line the gatekeeper cannot read** is counted, never dropped silently: the gatekeeper counts
+  each balance transaction it cannot map (the payout's own excepted) in the page's `unreadable`, the
+  host adds lines it cannot read, and the payout keeps the number (`unreadable_lines`), shown on its
+  row and in the mismatch notice (which a payout with any is sent).
+- **The close's size.** A closed version keeps one row per payout and the lines that matched
+  nothing, as they stood; a matched line stays in `core_payout_line` and is read from there by the
+  closed report (a recorded line never changes, and a match cannot: it settles a payment the books
+  counted or a confirmed refund, for its amount). So a month's rows grow with its payouts and
+  exceptions, not with every line, and a month of 60,000 provider transactions closes. A month
+  whose rows still pass `MAX_CLOSE_LINES` (100,000 unmatched lines) is refused, plainly
+  (`finance_too_large`: "This month holds more than 100,000 lines, rows or payments, the most one
+  close writes, so it was not closed"), never cut short.
+- **Not detected**: a provider changing a recorded payout other than by failing it (Stripe does not
+  change a paid payout's amount). The arrival day stays the provider's calendar day; that it is
+  always 00:00 UTC is for the test-mode run to confirm (runbook section 10).
+- The mismatch notice stays readable to a `finance:read` holder's assistant: it holds business
+  figures, not a person's (the coordinator's decision).
+- Proof added: `finance-payouts-outage.test.ts` (each outage, the close while failing, the stuck
+  cursor, the account switch), `finance-payouts-failures.test.ts` (a failure 21 days after arrival
+  and one before arrival through reversal lines, the bank at what landed, every match rule, unreadable
+  lines, older money), the gatekeeper's 401 and reversal and unknown-cursor cases, and
+  `apps/runner/test/finance-payouts-real-path.test.ts` (a checkout and a subscription period paid on
+  the fake's own pages and a refund confirmed by webhook, paid out by the fake's defaults, every line
+  matched by the references the host stored).

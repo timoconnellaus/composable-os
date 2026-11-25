@@ -156,6 +156,7 @@ const STATUSES = new Set(["paid", "pending", "in_transit", "failed", "canceled"]
 /** A payout page as the gatekeeper answered it, checked: what is not readable is left out. */
 function payoutPage(value: unknown): PayoutPage | Unavailable {
   const v = (value ?? {}) as Record<string, unknown>;
+  if (typeof v.failed === "string") throw new Error(v.failed);
   if (v.unavailable === true) {
     return { unavailable: true, reason: String(v.reason ?? "").slice(0, 200) };
   }
@@ -186,6 +187,8 @@ function payoutPage(value: unknown): PayoutPage | Unavailable {
  */
 function linePage(value: unknown): LinePage | Unavailable {
   const v = (value ?? {}) as Record<string, unknown>;
+  // The gatekeeper answers a provider's failure, rather than throwing it over RPC.
+  if (typeof v.failed === "string") throw new Error(v.failed);
   if (v.unavailable === true) {
     return { unavailable: true, reason: String(v.reason ?? "").slice(0, 200) };
   }

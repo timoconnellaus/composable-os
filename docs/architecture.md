@@ -2604,11 +2604,16 @@ day the minute cron's `finance.payouts.sync` (the host's step) reads the provide
 what each settled through the payments gatekeeper (`listPayouts`, `payoutLines`: read only, the
 host's own `callAsHost`, the bank destination never read) into `core_payout`, `core_payout_line`
 and `core_payout_failure`, once each by the provider's ids and never rewritten (triggers), at most
-20 provider calls a run, a backlog carried on from `core_payout_sync`'s marker; a quiet minute is
-one keyed read. `finance/payouts.ts` matches each line to the payment or refund the host recorded
-by the provider's reference (what matches nothing is listed, on `unmatched`), and makes one
-balanced `payout` entry per payout on its arrival day and the Payouts report (with what is not yet
-paid out); a payout read after its month closed is counted late in the next. Money owed, Unearned,
+20 provider calls a run, a backlog carried on from `core_payout_sync`'s marker (per provider and
+account, reading from before the last pass that read everything, so no outage loses a payout); a
+quiet minute is one keyed read. A payout the bank returned is recorded as failed whenever it fails,
+from the `payout_reversal` line of the payout that pays it again. `finance/payouts.ts` matches each
+line to a payment the books counted or a confirmed refund by the provider's reference and amount
+(what matches nothing is listed with the reason, on `unmatched`; a payout's difference from its
+lines on `payout_difference`), and makes one balanced `payout` entry per payout on its arrival day
+and the Payouts report (with what is not yet paid out); a payout read after its month closed is
+counted late in the next. A closed version keeps each payout's row and its unmatched lines; matched
+lines are read from `core_payout_line`. Money owed, Unearned,
 Members, held balances and the screens are the stage's later steps.
 
 **`capacity`** (stage 26, ADRs 0430 to 0433). An object names its places field and, optionally, a

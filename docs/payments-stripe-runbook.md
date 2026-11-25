@@ -195,6 +195,17 @@ provider.
 4. **Check 27:** record which balance transactions (subscription invoices, credit notes, checkout
    with tax, Terminal) did not resolve to a payment the host stored, and fix their `payment_ref`
    or the mapping before the first real month is closed.
+5. **Check 28:** a payout's `arrival_date` is a calendar day at 00:00 UTC, and the report shows
+   that day (the host keeps the provider's day, not the business's zone's).
+6. **Check 29:** with a restricted key missing **Balance: read**, Stripe answers 403 (the report
+   says payouts are not available); with a revoked key it answers 401 (the read fails and the
+   report says the connection needs attention). Restore the key: every payout of the outage is
+   read.
+7. **Check 30:** fail a test payout (Stripe's test bank account numbers that fail payouts): its
+   `payout_failure` balance transaction (`reporting_category` `payout_reversal`, source the failed
+   `po_…`) lands in a later payout, the report shows the failure and the bank at what landed.
+8. **Check 31:** an account that settles in a currency other than the organisation's shows every
+   payout apart, summed nowhere: confirm the account's settlement currency at setup.
 
 ## Afterwards
 Uninstall the box office extension if you installed it for this run, and delete the test-mode
