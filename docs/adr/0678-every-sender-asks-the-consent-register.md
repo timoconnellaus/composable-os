@@ -65,6 +65,10 @@ someone who stopped".
 | `microsoft` | `calendar.responses` | `Organizer` | invitation |
 | `mcp` | every tool call submitted as an action | every email address and international number (+…) in its title, description and arguments | scan |
 
+An email's recipients are always listed under `To`, `Cc` or `Bcc` by these gatekeepers: a
+description with none of those fields is not one of their sends, and one whose fields hold no
+address the host can read is a send it cannot see into, refused for anyone but a person.
+
 **Exempt** (keyed by vendor and kind, never a bare tag): email-send's `email.internal` (the
 gatekeeper checks every address is at `INTERNAL_DOMAINS`), the fake's `fake.internal` (every
 address at the outbox's own domain), Gmail's `draftCreate`, `draftUpdate`, `draftDelete` and

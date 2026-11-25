@@ -79,7 +79,14 @@ function field(d: DescribedAction, label: string): DescriptionField | undefined 
   return (d.fields ?? []).find((f) => f.label.trim().toLowerCase() === label.toLowerCase());
 }
 
-function mail(d: DescribedAction, shape: "outbox" | "mailbox"): PeopleSend {
+/**
+ * An email's recipients. Every one of these gatekeepers lists them under `To` (and `Cc`, `Bcc`):
+ * a description with none of those fields is not one of their sends; one whose fields hold no
+ * address the host can read is a send it cannot see into (`complete: false`, refused for a
+ * machine).
+ */
+function mail(d: DescribedAction, shape: "outbox" | "mailbox"): PeopleSend | null {
+  if (!field(d, "To") && !field(d, "Cc") && !field(d, "Bcc")) return null;
   const to = labelled(d, ["to"]);
   const copies = labelled(d, ["cc", "bcc"]);
   const emails = [...new Set([...to, ...copies])];
