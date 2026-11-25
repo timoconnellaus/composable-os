@@ -71,6 +71,13 @@ function recordReads(text: string): string[] {
 }
 
 const WHY = {
+  /**
+   * Consent to be contacted (stage 30 step 5, ADR 0675): whether a Person the host already has (a
+   * recipient it chose, the caller's own or a live dependant, one staff named) is a child, their
+   * primary address, and that they still exist before a choice is written. Never a list of anyone
+   * else.
+   */
+  contact: "consent: a Person the host already has, a child or not, their address, still there",
   /** SQL text run by `query.sql`, dashboards and routines. Stage 14a rewrites it at the seam's second door. */
   sql: "door 2 (stage 14a): SQL text run by query.sql, dashboards and routines",
   /** Reads for a caller that get their scope in stage 14a: summaries, duplicates, memory. */
@@ -297,6 +304,12 @@ const REMAINING: Record<string, [reads: number, why: Why]> = {
   // Texts (stage 30 step 3, ADR 0673): the host reads the recipient's phones to find their
   // textable mobile, for a routine message it is preparing (no caller reads them back).
   "routine-mail/texts.ts": [1, WHY.org],
+  // Consent to be contacted (stage 30 step 5, ADR 0675): the one question reads whether its
+  // Person is a child and their primary address; a choice is written only while its Person
+  // exists; the member's own Contact preferences list themselves and their live dependants.
+  "contact/decide.ts": [2, WHY.contact],
+  "contact/register.ts": [1, WHY.contact],
+  "operations/contact.ts": [3, WHY.contact],
   // The roster (stage 45 step 3, ADRs 0623 and 0624): the host reads the shifts' titles, times and
   // person fields (never a booking or a Person) to answer an offer, list uncovered shifts and take
   // a leaver off their future shifts and patterns (writes are staff's, in the operation's batch).
