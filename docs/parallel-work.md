@@ -22,7 +22,7 @@ here is what made parallel PRs conflict.
 | F | 0270–0279 | 0255–0259 | Core fixes (erase, automations) | merged |
 | G | 0280–0289 | 0260–0269 (free) | Stage 12, Import (migrations only) | specced |
 | H | 0290–0299 | 0270–0279 (free) | Stage 13, Email (migrations only) | specced |
-| I | 0300–0309 | 0280–0289 (free) | Stage 14, Teams and permissions (migrations only) | specced |
+| I | 0300–0309 | 0280–0289 (free) | Stage 14, Teams and permissions (migrations only); released 2026-11-25, the re-spec uses block CC (these numbers sort before the tables it changes) | released |
 | J | 0310–0319 | 0290–0299 (free) | Stage 15, Leads: the Leads and lifecycle extensions, assignment rules (migration 0310 used; no ADRs, ADR 0246 amended) | in flight |
 | K | 0320–0329 | 0300–0309 (free) | Stage 16, Duplicates (migration 0320 used; ADR 0247 from block D) | in flight |
 | L | 0330–0339 | 0320–0329 | Erase completeness (every store) | in flight |
@@ -90,6 +90,7 @@ here is what made parallel PRs conflict.
 | BY | 1370–1389 | 0900–0909 | Stage 63, App publishing (spec `docs/stages/63-app-publishing.md`) | specced |
 | CA | 1410–1429 | 0920–0929 | Stage 65, Booking system connection (spec `docs/stages/65-booking-system-connection.md`): migrations 1410 and 1411, ADRs 0920 to 0925 named in the spec | specced |
 | CB | — | 0930–0939 | The docs site (`apps/docs`, `feat/docs-site`): ADR 0930; no migrations | in flight |
+| CC | 1450–1469 | 0940–0949 | Stage 14, Teams and permissions (re-spec 2026-11-25, `docs/stage-14-respec`; spec `docs/stages/14-teams-permissions.md`): migrations 1450 to 1453 and ADRs 0940 to 0945 named in the spec. Migration 1430 is stage 36's, outside its block | specced |
 
 **`core_write_guard` remakes come in order.** Each kind added drops and recreates the table and its
 trigger, carrying every earlier kind. Stage 44 step 2's remake (migration 0851, kind `agreements`)

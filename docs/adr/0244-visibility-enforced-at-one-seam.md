@@ -79,3 +79,22 @@ not `crm_*`. Staff have the scope `all`, so nothing changed for them. What was b
 onto the seam and what is still listed as outside it is in
 [ADR 0410](0410-the-seams-first-door-as-built.md). Doors 2 and 3, staff scopes and the
 registry-wide test for staff are still stage 14a's, on the same seam.
+
+## Note, 2026-11-25: re-specced for the platform (stage 14, proposal)
+Stage 14 was re-specced for the platform as it is ([the spec](../stages/14-teams-permissions.md)).
+The decision stands: one seam, three doors, caches and stored output keyed by scope, nothing added
+when every policy is Everyone. What the re-spec changes, once it is agreed and built:
+- **The predicate** is a subquery on `core_team_member` binding only the caller's id, not a list of
+  owner ids bound through `json_each(?)`: a large team stays inside D1's 100 bound values, and the
+  scope is never stale. The pipeline's one staff statement reads the policies with the account's
+  rights, so a host that restricts nothing makes no extra statement.
+- **The views are `rec_*`** (ADR 0410's note above); the validator refuses user CTEs named `rec_…`
+  or `__vis_…`.
+- **One rule for how limits combine.** The staff scope is one of four limits (the object's policy,
+  the account's locations, a pack role's own reach, the object's row rules such as note levels);
+  they intersect, and a permission never widens one, except ADR 0600's grant over a pack role's
+  own reach. Admins are outside policies and locations.
+- **The ratchet** (ADR 0410): stage 14 moves every read listed as `sql`, `later` or `part` onto the
+  seam and deletes those reasons. The reads with no caller, a write's own checks and host code stay
+  listed with their reasons; "empties the list" now means that.
+The build records this in ADR 0940 (block CC).

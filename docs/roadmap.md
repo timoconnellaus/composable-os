@@ -24,7 +24,7 @@ edit the rows here, so parallel PRs do not conflict on them.
 | 11 | Jev as the typed judge | The judge seam beside the model registry, Jev through AI Gateway, labelled sets and `eval:calibrate` with replay; placements: authoring intent, the adjudicator's Jev reviewer, summary statements, outbound messages, job-change signatures, widget shape, eval graders (`docs/jev.md`) | done (PRs #52, #55, #56, #58) |
 | 12 | Import and migration | One generic AI importer for CSV, XLSX and multi-file CRM exports (file roles, links by source ids, owner, pipeline, stage, picklist and currency mapping, new custom fields through schema approval); mapping screen; skip / update empty / overwrite matching; up to 100k rows as a Workflow job; one approval and one undo; activity history; fixtures for plain CSV, HubSpot, Pipedrive, Salesforce | spec proposed |
 | 13 | Email from the CRM | Compose and reply from the timeline through the person's own Gmail or Outlook; templates and merge fields; scheduled send; sequences that stop on reply, with approval of each new sequence version and provider send limits; AI drafts; opt-in approximate open and click tracking | spec proposed |
-| 14 | Teams and permissions | Roles (Admin, Manager, Member, Read-only), teams, invites; owner-based visibility per object (everyone, own, own team) enforced at one seam across lists, search, SQL, dashboards, exports, summaries, MCP and the assistant (14a); SSO and SCIM (14b) | spec proposed |
+| 14 | Teams and permissions | Re-specced for the platform 2026-11-25 ([spec](stages/14-teams-permissions.md)): the staff half of the visibility seam (doors 2 and 3, the ratchet's caller reads moved in); Manager and Read-only beside the pack roles, teams, invites with teams; owner-based visibility per object (everyone, own team, own); location limits for full roles; one rule for how limits combine (14a); SSO and SCIM deferred until a customer needs them (14b) | spec proposed (re-spec, four questions for the owner) |
 | 15 | Leads | Leads as a shipped extension (inbox, statuses, sources, convert to deal with nothing copied); optional lifecycle stage extension; core assignment rules (round-robin, field values with lists and ranges, fallback owner) | built |
 | 16 | Duplicates | Warnings at creation and import, and a nightly scan by plain rules (email, domain, normalised name) with reasons; review page and bulk merge through the existing merge operations; merge re-points extension relations | built |
 | 17 | One proactive assistant | One thread per user that never resets (Agents SDK Durable Object), cost-based compaction with a learned cache lifetime, inline Jev-checked memory, personal routines, background agents that stage changes, approvals by tap, typing or voice, A2UI cards, plugins with a reviewed marketplace, connected assistants under a contract, voice and dictation; `packages/agent-*` under MIT ([spec](stages/17-assistant.md), ADRs 0340–0351) | spec agreed |
@@ -71,8 +71,8 @@ an email); there are no invented metrics or scores, and matching and assignment 
 5. **14b** (SSO and SCIM) whenever an enterprise customer needs it.
 
 Migration ranges are claimed in [`parallel-work.md`](parallel-work.md) so parallel sessions do not
-collide: 12 uses 0280–0289 (block G), 13 0290–0299 (H), 14 0300–0309 (I), 15 0310–0319 (J), 16
-0320–0329 (K). ADRs 0240–0247 are taken by these specs (block D); 0248–0249 are free.
+collide: 12 uses 0280–0289 (block G), 13 0290–0299 (H), 14 1450–1469 (CC, from the 2026-11-25
+re-spec; block I is released), 15 0310–0319 (J), 16 0320–0329 (K). ADRs 0240–0247 are taken by these specs (block D); 0248–0249 are free.
 
 ### Which suit an extension and parallel sessions
 

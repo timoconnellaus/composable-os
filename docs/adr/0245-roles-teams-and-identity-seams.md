@@ -50,3 +50,20 @@ Before this stage was built, stage 27 added one fixed role a pack declares, the 
 its own check in the pipeline ([ADR 0436](0436-pack-roles-and-the-door-role.md)): a staff
 account may hold one pack role (`core_user.pack_role`), and while it does, the pipeline allows
 exactly what the role lists. Stage 14a builds its roles and scopes on that check, not beside it.
+
+## Note, 2026-11-25: re-specced for the platform (stage 14, proposal)
+Stage 14 was re-specced ([the spec](../stages/14-teams-permissions.md)). Once agreed and built, it
+changes this ADR as follows (the build records it in ADR 0943, block CC):
+1. **Roles:** still Admin, Manager, Member and Read-only (stored `viewer`), beside the fixed pack
+   roles as built. **`core_user` is not rebuilt.** D1 enforces foreign keys, and dropping it fires
+   the `ON DELETE` actions of the 42 keys that reference it (sessions and device sessions are
+   deleted by cascade). A new column `core_user.staff_role` carries the four roles; `role` is kept
+   as a mirror in which `manager` reads as `member`, so code still reading it sees less, never
+   more. `core_user_invite`, which nothing references, is remade.
+2. **Permissions:** `teams:manage` (admins, not grantable). `records:import` moves to stage 12,
+   which owns importing; the decision that members' importing is off by default goes with it.
+3. **Teams** as decided, flat, managed by human admins only, not on MCP.
+4. **Invites** are ADR 0455's, with a Manager role and teams added.
+5. **The identity seams are not built now.** `Principal.groups`, `external_id`, `managed_by` and
+   the group mapping table come with 14b, which waits until a customer needs SSO or SCIM.
+No composed custom roles: grants (ADR 0449) stay the unit, one account and one permission.
