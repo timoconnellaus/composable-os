@@ -185,7 +185,8 @@ async function gym() {
   write("apps/mobile/assets/splash.png", png(200, 200, true));
   for (const [file, text] of Object.entries(LISTING))
     write(`apps/mobile/store/en-AU/${file}`, text);
-  // The template's Account tab has "Delete my account" (stage 48 step 7): nothing to add.
+  // The template's Account tab is My account's native shell, which cos create copied with its
+  // "Delete my account" section (stage 48): nothing to add.
   const generated = await cos(["client", "generate"]);
   expect(generated.code, generated.output).toBe(0);
   return platform;
@@ -399,19 +400,18 @@ describe("cos app check (criterion 2)", () => {
       /buy.ts:2 names useBuy/,
       () => rmSync(join(dir, buys)),
     );
-    undo = keep("apps/mobile/App.tsx");
-    await refused(
-      () =>
-        write(
-          "apps/mobile/App.tsx",
-          readFileSync(join(dir, "apps/mobile/App.tsx"), "utf8").replaceAll(
-            '"me.deleteAccount"',
-            '"me.get"',
-          ),
-        ),
-      /has no "Delete my account"/,
-      undo,
-    );
+    // The Account tab is the native shell, whose delete block calls me.deleteAccount through the
+    // account hooks: without that copied block, nothing in the app deletes an account.
+    const deleteBlock = "apps/mobile/src/blocks/native-account-delete/delete.tsx";
+    undo = keep(deleteBlock);
+    await refused(() => rmSync(join(dir, deleteBlock)), /has no "Delete my account"/, undo);
+    // The app's own code calling the operation counts too.
+    write("apps/mobile/src/delete.ts", 'export const DELETE = "me.deleteAccount";\n');
+    rmSync(join(dir, deleteBlock));
+    const own = await cos(["app", "check"], { env: NO_TOKEN });
+    expect(own.output).not.toMatch(/has no "Delete my account"/);
+    undo();
+    rmSync(join(dir, "apps/mobile/src/delete.ts"));
     await refused(
       () => write("apps/mobile/AuthKey_ABC123.p8", "key"),
       /AuthKey_ABC123.p8 looks like a signing or store key/,

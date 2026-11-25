@@ -124,3 +124,11 @@ address. And the client template is generated per product: a client without Form
   client without Forms, and two pages would each have to keep the three rules.
 - **Turnstile on a personal link's page**: the host already skips it for a link, and it is the
   third-party script the review rules out.
+
+## Amended 2026-11-26: opening a form from Needs your attention, tried
+
+The guidance above (a client app with Forms passes My account's shell an `onFillForm(linkId)`
+that opens `LinkedFormBlock` with that id) was tried in the platform's own development page
+(`/blocks`): its `onFillForm` mounts the block that exports `LinkedFormBlock` with the link's id,
+found by its export so the page names no pack. It holds as written. Test:
+`apps/app/e2e/my-account.spec.ts` (a member fills in a form they were asked to).

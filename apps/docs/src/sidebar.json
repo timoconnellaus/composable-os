@@ -512,6 +512,30 @@
         ]
       },
       {
+        "label": "Consent to be contacted",
+        "collapsed": true,
+        "items": [
+          {
+            "slug": "capabilities/contact"
+          },
+          {
+            "slug": "capabilities/contact/operations"
+          },
+          {
+            "slug": "capabilities/contact/permissions"
+          },
+          {
+            "slug": "capabilities/contact/behaviours"
+          },
+          {
+            "slug": "capabilities/contact/screens"
+          },
+          {
+            "slug": "capabilities/contact/decisions"
+          }
+        ]
+      },
+      {
         "label": "Finance",
         "collapsed": true,
         "items": [
@@ -532,6 +556,30 @@
           },
           {
             "slug": "capabilities/finance/decisions"
+          }
+        ]
+      },
+      {
+        "label": "Invoices",
+        "collapsed": true,
+        "items": [
+          {
+            "slug": "capabilities/invoices"
+          },
+          {
+            "slug": "capabilities/invoices/operations"
+          },
+          {
+            "slug": "capabilities/invoices/permissions"
+          },
+          {
+            "slug": "capabilities/invoices/behaviours"
+          },
+          {
+            "slug": "capabilities/invoices/screens"
+          },
+          {
+            "slug": "capabilities/invoices/decisions"
           }
         ]
       },
@@ -580,6 +628,30 @@
           },
           {
             "slug": "capabilities/outside/decisions"
+          }
+        ]
+      },
+      {
+        "label": "Today",
+        "collapsed": true,
+        "items": [
+          {
+            "slug": "capabilities/today"
+          },
+          {
+            "slug": "capabilities/today/operations"
+          },
+          {
+            "slug": "capabilities/today/permissions"
+          },
+          {
+            "slug": "capabilities/today/behaviours"
+          },
+          {
+            "slug": "capabilities/today/screens"
+          },
+          {
+            "slug": "capabilities/today/decisions"
           }
         ]
       }
@@ -682,6 +754,9 @@
           },
           {
             "slug": "reference/operations/conversation"
+          },
+          {
+            "slug": "reference/operations/creditnote"
           },
           {
             "slug": "reference/operations/customer"
@@ -889,6 +964,9 @@
           },
           {
             "slug": "reference/operations/thread"
+          },
+          {
+            "slug": "reference/operations/today"
           },
           {
             "slug": "reference/operations/trash"

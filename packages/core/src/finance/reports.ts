@@ -8,12 +8,18 @@ import { ConflictError, NotFoundError, ValidationError } from "../errors.ts";
 import type { HandlerContext } from "../operation.ts";
 import { loadOrderCurrency } from "../orders/settings.ts";
 import { COVERS_NOTE, moneyBook, TAX_NOTE } from "./book.ts";
-import { closedBefore, type Report } from "./close.ts";
+import { closedBefore, type Report, type ReportRow } from "./close.ts";
 import { type LocalRange, midnightOf, nextDate } from "./day.ts";
+import { closedPayoutRows, PAYOUTS_NOTE, payoutBook } from "./payouts.ts";
 import { financeClock, type PeriodRow, rangeOf, versionsOf } from "./periods.ts";
 
-/** The reports this step builds; the others land with their steps (4 to 6 and 8). */
-export const BUILT_REPORTS = ["sales", "tax", "refunds"] as const satisfies readonly Report[];
+/** The reports built so far (steps 3 and 4); the others land with their steps (5, 6 and 8). */
+export const BUILT_REPORTS = [
+  "sales",
+  "tax",
+  "refunds",
+  "payouts",
+] as const satisfies readonly Report[];
 export type BuiltReport = (typeof BUILT_REPORTS)[number];
 
 /** The longest span of days a preview covers. */
@@ -52,6 +58,7 @@ const NOTES: Record<BuiltReport, string[]> = {
   sales: [COVERS_NOTE],
   tax: [TAX_NOTE, COVERS_NOTE],
   refunds: [TAX_NOTE, COVERS_NOTE],
+  payouts: [PAYOUTS_NOTE, COVERS_NOTE],
 };
 
 async function userNames(ctx: HandlerContext, ids: readonly (string | null | undefined)[]) {
@@ -80,14 +87,30 @@ const SUMMED: Record<BuiltReport, readonly string[]> = {
   ],
   tax: ["sold", "refunded", "taxOnSales", "taxRefunded", "taxRefundedEstimated", "tax", "netOfTax"],
   refunds: ["amount", "tax"],
+  payouts: [
+    "amount",
+    "payments",
+    "refunds",
+    "disputes",
+    "adjustments",
+    "unmatched",
+    "fees",
+    "linesNet",
+    "difference",
+  ],
 };
 
-/** A report's totals: its figures summed over its rows (Sales: over its items, not its days). */
+/**
+ * A report's totals: its figures summed over its rows (Sales: over its items, not its days;
+ * Payouts: over its payouts, with what failed after arriving and what is not yet paid out beside).
+ */
 function totalsOf(report: BuiltReport, rows: readonly Record<string, unknown>[]) {
   const counted =
     report === "sales"
       ? rows.filter((r) => r.type === "item")
-      : rows.filter((r) => r.type !== "exception");
+      : report === "payouts"
+        ? rows.filter((r) => r.type === "payout")
+        : rows.filter((r) => r.type !== "exception");
   const totals: Record<string, number> = { rows: counted.length };
   for (const key of SUMMED[report]) {
     totals[key] = counted.reduce(
@@ -95,7 +118,29 @@ function totalsOf(report: BuiltReport, rows: readonly Record<string, unknown>[])
       0,
     );
   }
+  if (report === "payouts") {
+    totals.failed = rows
+      .filter((r) => r.type === "failure")
+      .reduce((n, r) => n + (typeof r.amount === "number" ? r.amount : 0), 0);
+    const unpaid = rows.find((r) => r.type === "unpaid");
+    totals.notPaidOut = typeof unpaid?.amount === "number" ? unpaid.amount : 0;
+    totals.notPaidOutOlder = typeof unpaid?.olderAmount === "number" ? unpaid.olderAmount : 0;
+    totals.notPaidOutOlderCount = typeof unpaid?.olderCount === "number" ? unpaid.olderCount : 0;
+    totals.unreadableLines = counted.reduce(
+      (n, r) => n + (typeof r.unreadableLines === "number" ? r.unreadableLines : 0),
+      0,
+    );
+  }
   return totals;
+}
+
+/**
+ * A report's rows and the notes among them: Payouts keeps what the read said of itself (refused,
+ * failing, part-way through) as `note` rows, so a closed version says it as it was when closed.
+ */
+function withNotes(base: readonly string[], rows: Record<string, unknown>[]) {
+  const notes = rows.filter((r) => r.type === "note").map((r) => String(r.text));
+  return { notes: [...base, ...notes], rows: rows.filter((r) => r.type !== "note") };
 }
 
 /** Staff names for a refund row's ids, as the accounts have them now. */
@@ -175,10 +220,14 @@ export async function readReport(ctx: HandlerContext, ask: ReportAsk): Promise<R
     const month = ask.month as string;
     const version = await versionAsked(ctx, month, ask.version);
     if (version) {
-      const rows = await withNames(ctx, ask.report, await storedRows(ctx, version, ask.report));
+      let stored = await storedRows(ctx, version, ask.report);
+      if (ask.report === "payouts") stored = await closedPayoutRows(ctx.db, stored);
+      const kept = withNotes(base.notes, stored);
+      const rows = await withNames(ctx, ask.report, kept.rows);
       const names = await userNames(ctx, [version.closed_by]);
       return {
         ...base,
+        notes: kept.notes,
         month,
         start: version.start_date,
         end: version.end_date,
@@ -196,10 +245,12 @@ export async function readReport(ctx: HandlerContext, ask: ReportAsk): Promise<R
       };
     }
     const range = await rangeOf(ctx.db, month, clock.zone);
-    const book = await moneyBook(ctx.db, range, await closedBefore(ctx.db, range));
-    const rows = await withNames(ctx, ask.report, rowsOf(book.rows, ask.report));
+    const book = await previewBook(ctx, ask.report, range, await closedBefore(ctx.db, range));
+    const kept = withNotes(base.notes, rowsOf(book.rows, ask.report));
+    const rows = await withNames(ctx, ask.report, kept.rows);
     return {
       ...base,
+      notes: kept.notes,
       month,
       start: range.start,
       end: range.end,
@@ -215,10 +266,12 @@ export async function readReport(ctx: HandlerContext, ask: ReportAsk): Promise<R
     };
   }
   const range = spanOf(ask.start as string, ask.end as string, clock.zone);
-  const book = await moneyBook(ctx.db, range);
-  const rows = await withNames(ctx, ask.report, rowsOf(book.rows, ask.report));
+  const book = await previewBook(ctx, ask.report, range, []);
+  const kept = withNotes(base.notes, rowsOf(book.rows, ask.report));
+  const rows = await withNames(ctx, ask.report, kept.rows);
   return {
     ...base,
+    notes: kept.notes,
     month: null,
     start: range.start,
     end: range.end,
@@ -234,10 +287,63 @@ export async function readReport(ctx: HandlerContext, ask: ReportAsk): Promise<R
   };
 }
 
-function rowsOf(rows: Awaited<ReturnType<typeof moneyBook>>["rows"], report: BuiltReport) {
+/**
+ * A preview's rows, worked out now by the code the close runs: Payouts from the payouts read
+ * (`payoutBook`), the others from the money the host recorded (`moneyBook`).
+ */
+async function previewBook(
+  ctx: HandlerContext,
+  report: BuiltReport,
+  range: LocalRange,
+  late: Awaited<ReturnType<typeof closedBefore>>,
+): Promise<{ currency: string | null; rows: ReportRow[] }> {
+  if (report !== "payouts") {
+    const book = await moneyBook(ctx.db, range, late);
+    return { currency: book.currency, rows: book.rows };
+  }
+  const currency = await loadOrderCurrency(ctx.db);
+  const book = await payoutBook(ctx.db, range, late, currency);
+  return { currency, rows: book.rows };
+}
+
+function rowsOf(rows: readonly ReportRow[], report: BuiltReport) {
   return rows
     .filter((r) => r.report === report)
     .map((r) => (report === "refunds" ? { ...r.data, name: r.name, email: r.email } : r.data));
+}
+
+/** Sales over a span of instants, as `finance.report` totals it: what Today shows as takings. */
+export interface SalesTotal {
+  currency: string | null;
+  /** Sold less refunded, tax inside, in the currency's minor unit (Sales' `net`). */
+  net: number;
+  /** The payments counted in the currency. */
+  payments: number;
+  /** Sales' item rows, largest net first: what was sold, and its figures. */
+  items: Record<string, unknown>[];
+}
+
+/**
+ * Sales' net over any span of instants (stage 60, ADR 0874: Today's takings, from the local
+ * midnight to its end, or to the same time a week ago): the same book `finance.report` reads,
+ * totalled the same way, so the two never differ (the spec's decision 11). Not a preview of a
+ * month: nothing late is counted.
+ */
+export async function salesTotal(
+  ctx: Pick<HandlerContext, "db">,
+  span: { start: string; zone: string; starts: number; ends: number },
+): Promise<SalesTotal> {
+  const book = await moneyBook(ctx.db, span);
+  const rows = rowsOf(book.rows, "sales");
+  const elsewhere = rows.filter((r) => r.type === "exception" && r.kind === "payment").length;
+  return {
+    currency: book.currency,
+    net: totalsOf("sales", rows).net ?? 0,
+    payments: book.counted.filter((c) => c.kind === "payment").length - elsewhere,
+    items: rows
+      .filter((r) => r.type === "item")
+      .sort((a, b) => Number(b.net ?? 0) - Number(a.net ?? 0)),
+  };
 }
 
 /** The most entries one page of `finance.entries` holds. */

@@ -5,8 +5,9 @@
 //
 // Sign-in codes go out as the host's sign-in mail (ADR 0456), which the admin lets apply without
 // review on the same screen; the invitee is an outside address. The invite notice is an ordinary
-// send: it waits in Approvals, and does not hold back the code.
-import { expect, test } from "@playwright/test";
+// send: it waits in Approvals, and does not hold back the code. The journey rejects it at the end,
+// so it does not stay waiting in the shared database for the specs after it (issue #473).
+import { type APIRequestContext, expect, test } from "@playwright/test";
 import { open } from "./helpers.ts";
 import {
   addFakeResource,
@@ -17,6 +18,39 @@ import {
 } from "./integration-helpers.ts";
 
 const escapeRe = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
+async function op<T>(request: APIRequestContext, name: string, input: unknown): Promise<T> {
+  const response = await request.post(`/api/v1/op/${name}`, {
+    data: input,
+    headers: { "idempotency-key": crypto.randomUUID() },
+  });
+  const body = (await response.json()) as { data?: T };
+  expect(response.status(), `${name}: ${JSON.stringify(body).slice(0, 300)}`).toBe(200);
+  return body.data as T;
+}
+
+type WaitingAction = { id: string; operation: string; status: string; input: unknown };
+
+/** The invite notice to `invitee` waiting in Approvals: its action id, or "" when none waits. */
+async function waitingNotice(request: APIRequestContext, invitee: string): Promise<string> {
+  const sets = await op<{ items: { id: string }[] }>(request, "approval.list", {
+    status: "awaiting_review",
+    limit: 100,
+  });
+  for (const set of sets.items) {
+    const detail = await op<{ actions: WaitingAction[] }>(request, "approval.get", {
+      changeSetId: set.id,
+    });
+    const notice = detail.actions.find(
+      (a) =>
+        a.status === "pending" &&
+        a.operation === "integration.outbound" &&
+        JSON.stringify(a.input).includes(invitee),
+    );
+    if (notice) return notice.id;
+  }
+  return "";
+}
 
 test("an admin invites a person, who signs in once with the emailed code as a viewer", async ({
   page,
@@ -58,6 +92,8 @@ test("an admin invites a person, who signs in once with the emailed code as a vi
     const row = page.getByTestId("invite-row").filter({ hasText: invitee });
     await expect(row).toBeVisible();
     await expect(row).toContainText("Viewer");
+    // The invite notice waits in Approvals.
+    await expect.poll(() => waitingNotice(page.request, invitee)).toMatch(/^pac_/);
     // The invited person, in a browser with no session, asks for a code.
     const guest = await browser.newContext({ baseURL, storageState: { cookies: [], origins: [] } });
     const person = await guest.newPage();
@@ -119,6 +155,9 @@ test("an admin invites a person, who signs in once with the emailed code as a vi
     await other.close();
     await guest.close();
   } finally {
+    // Leave nothing waiting in Approvals: the other specs count what waits there.
+    const notice = await waitingNotice(page.request, invitee);
+    if (notice) await op(page.request, "approval.reject", { actionIds: [notice] });
     // Leave the fake outbox's sign-in mail reviewed again for the other specs.
     await page.request.post("/api/v1/op/outbound.setAutoApprove", {
       data: { tag: "fake.signin", enabled: false },

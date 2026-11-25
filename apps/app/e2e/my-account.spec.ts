@@ -1,7 +1,8 @@
 // My account (stage 48), one test per journey (step 8): a member sees what needs their attention
 // and deals with it; a member changes their sign-in address with a code sent to the new one; a
 // member deletes their account after reading what it will do; a parent sees a child's item and
-// cancels the child's booking from the Bookings section. The shell (`web-account`) is mounted where
+// cancels the child's booking from the Bookings section; and (the review of #467) a member
+// finishes paying an order from its attention item, and fills in a form they were asked to. The shell (`web-account`) is mounted where
 // it sits (`/blocks`, development only) with the packs' sections the host lists, calling the
 // host's HTTP surface from the browser as a client app would, signed in as a member by the host's
 // code. Documents are fixture text, retired at the end of each test.
@@ -9,6 +10,10 @@
 // It retires every live document and changes the customer settings, so it runs only against the
 // database its own dev server made, as the agreement blocks' spec does (E2E_AGREEMENTS_REUSED=1
 // allows a reused one). The settings are put back after each test.
+import { execFileSync } from "node:child_process";
+import { createHash, randomBytes } from "node:crypto";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
 import { type APIRequestContext, type Browser, expect, type Page, test } from "@playwright/test";
 import { open, unique } from "./helpers.ts";
 import {
@@ -444,6 +449,176 @@ test("a parent sees their child's item and cancels the child's booking", async (
     expect(after.items.map((b) => b.values)).toEqual([
       expect.objectContaining({ person: child.id, state: expect.stringMatching(/cancelled/) }),
     ]);
+    await context.close();
+  } finally {
+    await cleanUp(page);
+  }
+});
+
+/** Card payments on, through the fake provider, coming back to this host (as buyer-sign-in.spec). */
+async function paymentsOn(page: Page, origin: string) {
+  await op(page.request, "order.settings.update", { currency: "AUD", returnOrigins: [origin] });
+  await op(page.request, "integration.setVendor", { vendor: "payments", enabled: true });
+  const connections = await op<{ items: { id: string; vendor: string; status: string }[] }>(
+    page.request,
+    "connection.list",
+    {},
+  );
+  let payments = connections.items.find(
+    (c) => c.vendor === "payments" && c.status === "active",
+  )?.id;
+  if (!payments) {
+    payments = (
+      await op<{ connection: { id: string } }>(page.request, "connection.create", {
+        vendor: "payments",
+        scope: "org",
+      })
+    ).connection.id;
+  }
+  await op(page.request, "connection.bindResource", {
+    id: payments,
+    url: "payments://merchant/fake",
+  });
+}
+
+// The review of #467, F5: money owed on an order leads somewhere the member can pay it. One order
+// start: they are limited per account.
+test("a member finishes paying an order from what needs their attention", async ({
+  page,
+  browser,
+  baseURL,
+}) => {
+  test.setTimeout(240_000);
+  await setUp(page);
+  try {
+    const origin = new URL(baseURL ?? "").origin;
+    await op(page.request, "extension.install", { id: "ticketing", shipped: true }, false);
+    await paymentsOn(page, origin);
+    const event = await op<{ id: string }>(page.request, "record.create", {
+      object: "ticketing.event",
+      values: { name: unique("Open night "), places: 20 },
+    });
+    await op(page.request, "record.update", {
+      object: "ticketing.event",
+      id: event.id,
+      values: { status: "on_sale" },
+    });
+    const entry = await op<{ id: string }>(page.request, "record.create", {
+      object: "ticketing.tickettype",
+      values: { event: event.id, name: "Entry", price: 300 },
+    });
+    const member = await newPerson(page, "paying");
+    const context = await signIn(page, browser, baseURL ?? "", member.email);
+    // They started buying a ticket and did not pay: the place is held for them.
+    const order = await op<{ id: string }>(context.request, "x.ticketing.orderStart", {
+      lines: [{ ticketTypeId: entry.id, quantity: 1 }],
+    });
+
+    const screen = await context.newPage();
+    await screen.goto(account(origin));
+    const item = screen.getByTestId("needs-attention").locator("li[data-kind=finish_paying]");
+    await expect(item).toBeVisible();
+    // It opens at the order itself, in Orders, where it is paid.
+    await item.getByRole("button", { name: "Finish paying" }).click();
+    const row = screen.locator(`#account-order-${order.id}`);
+    await expect(row).toBeInViewport();
+    await row.getByRole("button", { name: "Pay now" }).click();
+    // The provider's own page for this order (the fake one), which the host opened for it.
+    await expect(screen.getByRole("heading", { name: /Fake payment page/i })).toBeVisible();
+    await screen.getByRole("button", { name: "Pay", exact: true }).click();
+    // Paid: once the provider's confirmation is in, the item goes.
+    await expect
+      .poll(
+        async () => {
+          await screen.goto(account(origin));
+          await expect(screen.getByTestId("needs-attention")).toBeVisible();
+          await expect(screen.getByTestId("needs-attention").getByRole("heading")).toBeVisible();
+          return screen.locator("li[data-kind=finish_paying]").count();
+        },
+        { timeout: 60_000 },
+      )
+      .toBe(0);
+    await context.close();
+  } finally {
+    await cleanUp(page);
+  }
+});
+
+const APP = join(dirname(fileURLToPath(import.meta.url)), "..");
+
+/**
+ * A personal link for `personId` to the form `formId`, as routine mail makes one when the email
+ * that carries it goes (as forms.spec makes one, ADR 0723).
+ */
+function personalLink(personId: string, formId: string) {
+  const token = randomBytes(32).toString("base64url");
+  const id = `ilk_${randomBytes(13).toString("hex").toUpperCase().slice(0, 26)}`;
+  const now = new Date();
+  const later = new Date(now.getTime() + 7 * 86_400_000);
+  const sql =
+    `INSERT INTO core_intake_link (id, person_id, form_object, form_id, record_object, record_id, made_for, expires_at, created_at) VALUES ('${id}', '${personId}', 'forms.form', '${formId}', 'person', '${personId}', 'e2e:${id}', '${later.toISOString()}', '${now.toISOString()}');` +
+    `INSERT INTO core_intake_link_token (token_hash, link_id, sent_to, created_at) VALUES ('${createHash("sha256").update(token).digest("hex")}', '${id}', '${personId}', '${now.toISOString()}');`;
+  execFileSync("pnpm", ["exec", "wrangler", "d1", "execute", "DB", "--local", "--command", sql], {
+    cwd: APP,
+    stdio: "pipe",
+    env: { ...process.env, CI: "true" },
+  });
+  return id;
+}
+
+// form_to_fill (ADR 0728): a client app with Forms passes the shell `onFillForm(linkId)`, opening
+// the Forms block's `LinkedFormBlock` with that id; the development page does the same.
+test("a member fills in a form they were asked to, from what needs their attention", async ({
+  page,
+  browser,
+  baseURL,
+}) => {
+  test.setTimeout(240_000);
+  await setUp(page);
+  try {
+    const origin = new URL(baseURL ?? "").origin;
+    await op(page.request, "extension.install", { id: "forms", shipped: true }, false);
+    const title = unique("How was the class ");
+    const form = await op<{ id: string }>(page.request, "record.create", {
+      object: "forms.form",
+      values: {
+        title,
+        receipt: false,
+        answeredBy: "links",
+        kind: "feedback",
+        questions: {
+          items: [
+            { kind: "text", key: "why", label: "Anything to tell us?", long: true, required: true },
+          ],
+        },
+      },
+    });
+    await op(page.request, "record.update", {
+      object: "forms.form",
+      id: form.id,
+      values: { status: "open" },
+    });
+    await op(page.request, "record.publish", { object: "forms.form", id: form.id });
+    const member = await newPerson(page, "asked");
+    personalLink(member.id, form.id);
+    const context = await signIn(page, browser, baseURL ?? "", member.email);
+    const screen = await context.newPage();
+    await screen.goto(account(origin));
+    const item = screen
+      .getByTestId("needs-attention")
+      .locator("li[data-kind=form_to_fill]", { hasText: title });
+    await expect(item).toContainText(`Fill in ${title}`);
+    await item.getByRole("button", { name: "Fill it in" }).click();
+    // The Forms block, opened by the link's id: the member's own form.
+    await expect(screen).toHaveURL(/component=LinkedFormBlock/);
+    await expect(screen.getByRole("heading", { name: title })).toBeVisible();
+    await screen.getByLabel("Anything to tell us?").fill("Great class");
+    await screen.getByRole("button", { name: "Send" }).click();
+    await expect(screen.getByRole("status")).toBeVisible();
+    // Answered: the item goes.
+    await screen.goto(account(origin));
+    await expect(screen.getByTestId("needs-attention").getByRole("heading")).toBeVisible();
+    await expect(screen.locator("li[data-kind=form_to_fill]", { hasText: title })).toHaveCount(0);
     await context.close();
   } finally {
     await cleanUp(page);

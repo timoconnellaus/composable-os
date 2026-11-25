@@ -447,8 +447,11 @@ describe("a pack role reaches screens.mine, the every-staff tools and nothing el
         "x.knowledge.confirm",
         "x.knowledge.toRead",
       ]);
+      // And its own Today (stage 60, ADR 0874): each item gated by what the account could
+      // already call.
+      const todays = ["today.get", "today.rows"];
       expect(reached.sort()).toEqual(
-        [...before, ...anyStaff, "screens.mine", ...own, ...staffReads].sort(),
+        [...before, ...anyStaff, "screens.mine", ...own, ...staffReads, ...todays].sort(),
       );
       // And no core operation but those.
       const core = reached.filter((n) => !n.startsWith("x."));
@@ -458,6 +461,7 @@ describe("a pack role reaches screens.mine, the every-staff tools and nothing el
           "screens.mine",
           ...own,
           ...staffReads,
+          ...todays,
         ].sort(),
       );
       // Through the pipeline: the role's account calls it, and gets its own screens.

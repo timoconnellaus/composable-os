@@ -58,6 +58,7 @@ describe("the minute cron and the kill switch", () => {
       notifications: null,
       duplicates: null,
       orders: null,
+      payouts: null,
       publishing: null,
       reindex: null,
       recurring: null,

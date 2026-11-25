@@ -193,6 +193,26 @@ describe("token sessions (ADR 0419)", () => {
     expect(store.peek()?.refreshToken).toBe("rt-2");
   });
 
+  it("a customer signing in again names the session it replaces; a first sign-in names none", async () => {
+    const now = 1_000_000;
+    const bodies: unknown[] = [];
+    const h = host((s) => {
+      bodies.push(JSON.parse(s.init.body ?? "{}"));
+      return { status: 200, body: { data: tokens(9, 600_000, now) } };
+    });
+    const store = memoryStore(tokens(1, 600_000, now));
+    const session = tokenSession({ baseUrl: "https://h", store, fetch: h.fetch, now: () => now });
+    await session.signInWithCode("ada@example.com", "123456", "Phone");
+    expect(bodies[0]).toMatchObject({ replaces: "rt-1" });
+    expect(store.peek()?.refreshToken).toBe("rt-9");
+    const fresh = tokenSession({ baseUrl: "https://h", store: memoryStore(), fetch: h.fetch });
+    await fresh.signInWithCode("ada@example.com", "123456", "Phone");
+    expect(bodies[1]).not.toHaveProperty("replaces");
+    // Staff end their previous session themselves first (staffSession's endPrevious).
+    await session.signInWithCode("ada@example.com", "123456", "Phone", "staff");
+    expect(bodies[2]).not.toHaveProperty("replaces");
+  });
+
   it("forgets the session when the host ends it", async () => {
     const now = 1_000_000;
     const store = memoryStore(tokens(1, 0, now));

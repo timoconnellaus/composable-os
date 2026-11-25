@@ -6,14 +6,16 @@
 // cut short. The tables' triggers keep a closed version as it was, for every writer.
 //
 // What a month holds is `periodBook`'s: the reports each add their entries, rows, sources and
-// guards there. Step 3 adds the day summaries, Sales, Tax and Refunds (`finance/book.ts`); steps
-// 4 to 6 and 8 add theirs.
+// guards there. Step 3 adds the day summaries, Sales, Tax and Refunds (`finance/book.ts`), step 4
+// the payout entries and Payouts (`finance/payouts.ts`); steps 5, 6 and 8 add theirs.
 import { CompiledQuery } from "kysely";
 import { ConflictError } from "../errors.ts";
 import type { HandlerContext } from "../operation.ts";
+import { loadOrderCurrency } from "../orders/settings.ts";
 import { moneyBook } from "./book.ts";
 import type { LocalRange } from "./day.ts";
 import { type BookEntry, type SealedEntry, sealEntry } from "./entries.ts";
+import { closedFromLines, mergeEntries, payoutBook } from "./payouts.ts";
 
 /** The most lines, report rows or counted sources one version holds; more is refused. */
 export const MAX_CLOSE_LINES = 100_000;
@@ -73,19 +75,32 @@ export interface PeriodBook {
  * Refunds), and what arrived for the closed months before it that none of their versions counted.
  */
 export async function periodBook(ctx: HandlerContext, range: LocalRange): Promise<PeriodBook> {
-  const { entries, rows, counted, guards } = await moneyBook(
+  const late = await closedBefore(ctx.db, range);
+  const money = await moneyBook(ctx.db, range, late);
+  // Payouts (step 4): a payout entry each, the Payouts rows, and late payouts in the late entry.
+  const payouts = await payoutBook(
     ctx.db,
     range,
-    await closedBefore(ctx.db, range),
+    late,
+    money.currency ?? (await loadOrderCurrency(ctx.db)),
   );
-  return { entries, rows, counted, guards };
+  return {
+    entries: mergeEntries(money.entries, payouts.entries),
+    // A closed version keeps each payout's row and the lines that matched nothing (as they stood);
+    // a matched line stays in core_payout_line, and its match cannot change (it settles a payment
+    // the books counted or a confirmed refund, for its amount), so the closed report reads it from
+    // there: a month's rows grow with its payouts and exceptions, not with every line (ADR 0793).
+    rows: [...money.rows, ...payouts.rows.filter((r) => !closedFromLines(r.data))],
+    counted: [...money.counted, ...payouts.counted],
+    guards: [...money.guards, ...payouts.guards],
+  };
 }
 
 /** The closed months before `range` (the months a late source can belong to). */
 export async function closedBefore(db: HandlerContext["db"], range: LocalRange) {
   return db
     .selectFrom("core_finance_period")
-    .select(["month", "starts", "ends"])
+    .select(["month", "starts", "ends", "start_date", "end_date"])
     .where("state", "=", "closed")
     .where("ends", "<=", range.starts)
     .orderBy("month")

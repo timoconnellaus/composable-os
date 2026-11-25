@@ -62,7 +62,7 @@ export default defineExtension({
       async run(event, step, ctx) {
         return step.do("send", () =>
           ctx.gatekeeper("fake").call("mailbox", "OUTBOX", "send", {
-            to: ["colleague@acme.test"],
+            to: ["colleague@fake.test"],
             subject: \`Welcome \${String(event.record?.data?.name)}\`,
             text: "Hi",
             internal: true,

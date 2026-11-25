@@ -112,6 +112,17 @@ provider's page".
   journeys), ADR 0715 and ADRs 0540 and 0710 amended, the gym page's "Members' own account" and
   `SITE.md`. Not tried: the native blocks on real phones, the app stores' rules.
 
+Note, after step 8 (branch `feat/stage-48-follow-ups`, the review of PR #467): `cos upgrade` wires
+a section only when the client's copied block exports what the release names, says which copy is
+out of date and lists every copied block changed upstream (ADR 0424 amended); a shell draws only
+the base sections it has a part for; a deletion forgets the app's cache and the device's tokens at
+once; money owed on an order leads to the order, paid on the web with `order.checkout` and on the
+website from the app; only `https:` addresses are followed; an in-place sign-in ends the session it
+replaces on the host; `me.attention` reads its pass holders as columns of one row (six or more
+holder objects); the template mobile app's Account tab is the native shell (criterion 12); the
+development page opens a `form_to_fill` item in `LinkedFormBlock` (ADRs 0715 and 0728 amended).
+Still not tried: real phones, a real Stripe test account, the app stores' rules.
+
 ## Goal
 
 A business's customers have one place, on its website and in its app, where they see everything

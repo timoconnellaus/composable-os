@@ -1102,7 +1102,9 @@ local day, a comparison, whether it needs attention, and what a tap opens. A **h
 (`host.takings`, `host.approvals`) is computed by the host; a **pack item** is declared by a
 shipped pack in its manifest (`todayItems`: read-only SQL over `rec_*` views returning one
 `value`, a count or a percent, never money, gated by the pack's own tools as a screen is). Runtime
-extensions declare none.
+extensions declare none. `today.get` lists the items the caller may see for the business's local
+day, each gated by what the caller could already call; `today.rows` gives the rows behind one
+(ADR 0874).
 _Avoid_: widget (a widget is a dashboard's tile), KPI (a dashboard's widget type), `today` (a pack
 role's limit to today, ADR 0553)
 
@@ -1247,7 +1249,8 @@ subscriptions, allowances and personal links: a document to agree to, a card pay
 a payment to confirm with the bank, a deposit's balance, an unfinished held order, a pass expiring
 or used up, a free trial ending, a form to fill in. How far ahead it looks is
 `account.attentionDays` (default 7). The blocks (`*-account-attention`) say whose each item is and
-lead to the section that deals with it.
+lead to the section that deals with it (money owed on an order: that order in Orders, paid there
+on the web and on the website from the app).
 _Avoid_: notifications, alerts, to-do
 
 **Erase request**
@@ -1388,13 +1391,28 @@ _Avoid_: category, marketing flag
 The record of a Person's contact choices (`core_contact_choice`): per channel and scope (a purpose,
 or a routine message kind), on or off (news and offers: yes or no), with when, how and by whom, and
 the words shown for a yes. Never rewritten: the latest choice is in force, the earlier ones its
-history. Every sender asks it through one question at the moment of sending
-(`contactDecision`); a refusal is final, never held for a person. Beside it the **suppression
-list**: salted hashes of addresses and numbers that asked to stop, kept after erase (ADR 0675).
+history. Every sender asks it at the moment of sending: routine messages through one question
+(`contactDecision`), every other message to people (an email, a calendar invitation, a connected server's tool call naming an address or a number) at the integration host's approval queue
+(`checkSend`), whoever sends it and whatever the approval preset; a refusal is final, never held
+for a person, and the sender is told only `recipient_stopped` (ADR 0678). Beside it the
+**suppression list**: salted hashes of addresses and numbers that asked to stop, kept after erase
+(ADR 0675).
 _Avoid_: preferences table, opt-out list
 
+**A person's own message**
+An email a staff member writes themselves to whoever they write to (a reply, a one-to-one email),
+or an AI's one email to one person from that staff member's own mailbox once they approve it. For
+consent it asks only the suppression list, not the per-kind or per-purpose choices; it reaches a
+child's own address only one to one. Anything an automation, a tool, the assistant, MCP or
+extension code sends otherwise is not one: it declares its **purpose** (`follow_up` or
+`news_and_offers`), is asked in full, and each copy ends with its recipient's own stop link, made
+when it goes (ADR 0678).
+_Avoid_: manual email, one-off email
+
 **Stop**
-A person's own "no more of these": the one-tap stop link a stoppable email carries (and its
+A person's own "no more of these": the one-tap stop link a stoppable email carries (a routine
+message's, or the copy of an automation's or the assistant's follow-up that the host gives each
+recipient, ADR 0678) (and a routine one's
 List-Unsubscribe header), which turns that one kind off on that channel without signing in; a
 reply of STOP to the business's texts, which stops every text to that number, whoever it is on,
 until a START from it (kept as a salted hash, past an erase; HELP gets a fixed answer with the
@@ -2062,6 +2080,17 @@ Refunds reports are made from the same shares. Seen with `finance:read`, closed 
 (admins, and by grant); closing and reopening are a person's, never an AI's.
 _Avoid_: ledger, journal, accounting period (accounting is stage 61's), lock (the pay period's word)
 
+**Payout** (stage 52 step 4 built: ADR 0793)
+Money the payment provider sent from the business's balance to its bank, and its **lines**: the
+payments, refunds, disputes, adjustments and fees it settled. The host reads payouts once a business
+day through the payments gatekeeper (read only; the bank account is never read) and keeps each as
+the provider reported it, once; a payout the bank returned later is a **failure** of its own, never
+an edit. Each payment and refund line is **matched** to what the host recorded by the provider's
+reference; what matches nothing is listed apart. A payout is counted on the day it arrives, as one
+book entry. **Not yet paid out** is the provider's money the host received that no payout has
+settled yet. A payment recorded by hand never reaches the provider and is in no payout.
+_Avoid_: settlement, transfer (stage 61's word for posting a payout), deposit (a part payment)
+
 **Follows** (a state cascade)
 An object whose records move when the record a relation points to moves (`states.follows`): a
 class cancelled moves its bookings to `cancelled_by_us`, as the host, in the same batch (ADR 0507).
@@ -2332,14 +2361,28 @@ _Avoid_: estimate (Jobs' estimate lines are what a quote is made from)
 A numbered request for payment, issued to a bill-to, with its own order from issue (stage 35
 step 3). Kinds `standard`, `deposit`, `final`. A core record (`core_invoice`, `inv_…`): a draft has
 no number; once issued the database refuses any change to its lines, totals, tax, bill-to, dates
-and snapshot, and a mistake is put right with a credit note (ADR 0730).
+and snapshot, and a mistake is put right with a credit note (ADR 0730). Its order (`invoice_id` on
+it) is due on the invoice's due date and never expires, takes no deal, keeps the document's tax,
+and is moved only through the invoice: paid online or by `invoice.recordPayment`, credited or
+voided (ADR 0731). Its state follows its order: issued, part paid, paid; or credited, void.
 _Avoid_: bill, the provider's invoice (`core_order.invoice_ref`, a subscription period's, is not
 one of these)
 
 **Credit note**
 A numbered document that reduces what an invoice asks for, in part or in full (`core_credit_note`,
-`cn_…`; its operations are stage 35 step 5).
+`cn_…`): some of its lines or an amount at one of its rates. Issued by a person with
+`invoices:credit`, it takes off what is still owed first (the order's `credited`), then gives back
+what was paid, the way it came, never more than was paid (ADR 0735).
 _Avoid_: refund for it (a refund is money going back, which a credit note may cause)
+
+**Void** (an invoice)
+A full credit note on an issued invoice nothing was paid on, issued at once: the invoice is `void`,
+its order cancelled and its places given back (`invoice.void`, ADR 0735).
+_Avoid_: cancel, delete (an issued invoice is never deleted)
+
+**Credited** (on an order)
+What credit notes took off what an invoice's order still owed: its balance is the total less what
+was paid less this. Only an invoice's order has it, and it never goes down (ADR 0735).
 
 **Bill-to**
 Whom a quote, invoice or credit note is addressed to: a Person, or an Organisation with its contact
@@ -2450,7 +2493,9 @@ do, on every operation; the role's limits bind only the calls the role allows (t
 0553; only the People its holder looks after, through a pack's team, ADR 0889; only through the
 records of its pack naming its holder, its "mine" reach, ADR 0755). It also reaches a
 shipped pack's tools open to every staff account (`anyStaff`, ADR 0652: Daily checklists' today
-and tick), whose host operation decides what it may do. The door role is Ticketing's.
+and tick), whose host operation decides what it may do, and its own Today (`today.get`,
+`today.rows`, ADR 0874), each item gated by what the account could already call. The door role is
+Ticketing's.
 Stage 14a's roles and teams will extend it.
 _Avoid_: role (alone, it means admin, member or viewer), team, scope
 

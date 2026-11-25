@@ -41,9 +41,10 @@ export interface WidgetResult {
 
 // sqlite_master, read at most once a minute per isolate: the validator needs every schema
 // object name, and reading it on every widget run would cost a D1 query each time. A name
-// created in the last minute is caught anyway by the reserved-prefix rule (core_, x_, …).
+// created in the last minute is caught anyway by the reserved-prefix rule (core_, x_, …). Today's
+// items read it too (ADR 0874).
 let schemaMemo: { names: Set<string>; at: number } | null = null;
-async function schemaNames(db: Kysely<CoreDatabase>): Promise<Set<string>> {
+export async function schemaNames(db: Kysely<CoreDatabase>): Promise<Set<string>> {
   if (schemaMemo && Date.now() - schemaMemo.at < 60_000) return schemaMemo.names;
   const names = await schemaObjectNames(db);
   schemaMemo = { names, at: Date.now() };

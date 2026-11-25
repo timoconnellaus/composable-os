@@ -443,6 +443,25 @@ Stage 6a ([ADR 0110](adr/0110-integration-host-per-connection.md) to
   scope off; the client web app's `/stop` route shows one button and posts it. Members change
   their choices in My account's Contact preferences (`me.contact.*`); staff record a member's on
   request or from paper (`person.contact.record`, a person only), never lifting a stop.
+  **Every other message to people asks too** ([ADR 0678](adr/0678-every-sender-asks-the-consent-register.md)),
+  at the integration host's approval queue, whatever the preset. Which actions send to people,
+  and to whom, the host decides by vendor and kind from the description the approver sees
+  (`peopleSendOf` in `integrations/sends.ts`): email-send's and the fake outbox's sends, Gmail's
+  and Outlook's sends, Google's and Outlook's calendar invitations, and every email address and
+  international number in a connected MCP server's tool call; a machine's send whose recipients
+  the host cannot all see is refused. email-send asks first (`contactCheck`), every send is
+  checked as it is submitted (`contactAtSubmit`), and approving one that waited asks again
+  (`contactBlockedMany`, the inbox's page at once). A person's own message asks only the
+  suppression list (and reaches a child's own address one to one only); anyone else's declares
+  `purpose: "follow_up"` or `"news_and_offers"` through email-send, is asked in full for each
+  Person (matched by the mailbox an address reaches, `peopleAtAddresses`, migration 0916; a number
+  by `peopleAtNumbers`), and each copy ends with that Person's own stop link, made by the host when
+  it goes. An AI's one email to one person from a person's own mailbox always waits for that
+  person, and is theirs once they approve it. Who cannot be contacted is dropped (only the count is
+  said); nobody left is the one plain refusal `recipient_stopped`; each refusal is audited
+  (`contact.refused`, for people only). The host's own essential mail (sign-in codes, an
+  agreement's copy, an order's confirmation, the cooling-off summary, a phone check, staff notices)
+  is exempt. A connected server that addresses people by its own ids cannot be checked.
 - **Gatekeepers we wrote**: `gatekeeper-email-send`, `gatekeeper-slack-post`, `gatekeeper-webhook`,
   `gatekeeper-text` (texts, above).
   `gatekeeper-accounting` (stage 61, ADR 0880) is the **accounting contract** every accounting
@@ -2548,11 +2567,12 @@ open offer on a plan object, or a subscription from one that has not ended, gets
 (`subscription.offer.list`, `.export`; the Subscriptions section's Continuation offers) lists who
 took theirs and when they are charged from.
 
-**Finance** (stage 52, steps 1 to 3 built: ADRs [0790](adr/0790-finance-periods-the-business-day-and-the-monthly-close.md),
+**Finance** (stage 52, steps 1 to 4 built: ADRs [0790](adr/0790-finance-periods-the-business-day-and-the-monthly-close.md),
 [0791](adr/0791-the-figures-for-the-books-book-entries.md),
+[0793](adr/0793-payout-reads-through-the-payments-gatekeeper.md),
 [0794](adr/0794-finance-read-and-finance-close.md) and
 [0796](adr/0796-day-summaries-and-the-first-reports.md), `packages/core/src/finance/`, migrations
-1150 and 1153).
+1150, 1151 and 1153).
 Core, not a pack: the figures for the books are read from orders, payments, refunds, payouts and
 stored value. Every date is a business day, local in the organisation's zone (`finance/day.ts`). The
 business closes each calendar month (`finance.close`, a person with `finance:close`) once it has
@@ -2578,8 +2598,23 @@ business day money moved (`money_in:provider` and `money_out:provider` against `
 add up to the reports. `finance.report` reads a closed version's rows or previews an open month or
 any span of days; `finance.entries` lists a closed version's entries, paged (never a preview's);
 `finance.export` (a person only) is one CSV per report (`finance/files.ts`, `csvText` shared in
-`packages/core/src/csv.ts` with the pay export). Payouts, Money owed, Unearned, Members, held
-balances and the screens are the stage's later steps.
+`packages/core/src/csv.ts` with the pay export). **Payouts** (step 4, [ADR
+0793](adr/0793-payout-reads-through-the-payments-gatekeeper.md), migration 1151): once a business
+day the minute cron's `finance.payouts.sync` (the host's step) reads the provider's payouts and
+what each settled through the payments gatekeeper (`listPayouts`, `payoutLines`: read only, the
+host's own `callAsHost`, the bank destination never read) into `core_payout`, `core_payout_line`
+and `core_payout_failure`, once each by the provider's ids and never rewritten (triggers), at most
+20 provider calls a run, a backlog carried on from `core_payout_sync`'s marker (per provider and
+account, reading from before the last pass that read everything, so no outage loses a payout); a
+quiet minute is one keyed read. A payout the bank returned is recorded as failed whenever it fails,
+from the `payout_reversal` line of the payout that pays it again. `finance/payouts.ts` matches each
+line to a payment the books counted or a confirmed refund by the provider's reference and amount
+(what matches nothing is listed with the reason, on `unmatched`; a payout's difference from its
+lines on `payout_difference`), and makes one balanced `payout` entry per payout on its arrival day
+and the Payouts report (with what is not yet paid out); a payout read after its month closed is
+counted late in the next. A closed version keeps each payout's row and its unmatched lines; matched
+lines are read from `core_payout_line`. Money owed, Unearned,
+Members, held balances and the screens are the stage's later steps.
 
 **`capacity`** (stage 26, ADRs 0430 to 0433). An object names its places field and, optionally, a
 pool (a relation to a parent object with a capacity, one level). The host keeps a counter per record
@@ -2843,8 +2878,36 @@ write it in their own batch. The **invoice settings** (`invoice.settings.*`, a h
 the business's details and bank details (a change tells every admin), the tax rates (a rate never
 changes, it is retired), terms, validity, reminders, the threshold for recorded payments, the footer
 and retention. `rec_quote`, `rec_invoice` and `rec_credit_note` carry numbers, states, dates,
-amounts and the bill-to's ids, never addresses, notes or bank details. Issuing as an order, recorded
-payments, credit notes, quotes' acceptance, sending and reminders, the customer's side and the
+amounts and the bill-to's ids, never addresses, notes or bank details.
+**An invoice is an order** (step 3, [ADR 0731](adr/0731-an-invoice-is-an-order.md),
+`invoices/issue.ts`): `invoice.issue` (`invoices:send`; an AI asks, a person approves) gives the
+number and starts the order in one batch through `createOrder` with lines the host built from the
+invoice (`priced`; a record's line its record and quantity, read again; a typed one a line of the
+invoice), its line discounts as `staff` adjustments (with `orders:discount`, within the limit or
+approved) and the host's `prepaid`; a record's line split in two when its amount with tax does not
+divide by its quantity, so nothing is rounded; no deal; the goods rules (goods need a delivery, so
+are refused); the document's tax on its lines, each payment carrying its share of it and each
+refund the refunded payment's share (so stage 52's book counts it), and its checkout asks the
+provider for none. An act that may wait for a person names the version read, so what is approved
+is what was asked. The order (`core_order.invoice_id`) never expires, is due on the invoice's due
+date and is listed overdue after it; `order.*` refuses to move it (`rule: "invoice_order"`),
+triggers hold its price, currency, tax and lines for any writer and refuse deleting it, and
+deleting the customer's account or erasing the bill-to never cancels it. Reversals that leave
+nothing paid put it back to pending. The invoice moves with every change to its order (its version, and its state following;
+`invoiceFollows` in `orders/orders.ts`), and part payments online are only what the invoice allows
+(`invoice.allowPartPayments`). **Recorded payments** (step 4,
+[ADR 0733](adr/0733-recording-a-payment-on-an-invoice.md)): `invoice.recordPayment` and
+`invoice.reversePayment` (`invoices:payments`, restricted, human only) on stage 34's shared step;
+its settle path writes `payment_applied` and `payment_reversed` to the event log for any invoice's
+order. **Credit notes and void** (step 5, [ADR 0735](adr/0735-credit-notes-and-void.md),
+`invoices/credit.ts`): drafted (`creditNote.create`) against lines or an amount at a rate, bounded
+by what is left of each line, rate and the invoice; issued by a person (`creditNote.issue`,
+`invoices:credit`), they take off what is owed (`core_order.credited`) then give back what was paid,
+newest payment first: a provider's through the refund approval, a recorded one owed until a person
+records it paid back (`order.recordRefund`), each a `core_credit_note_refund` row given back,
+asked or owed; a provider's refund rejected, expired or failed is owed and asked for again
+(`creditNote.askRefundAgain`); never more than was paid, and `order.refund` refuses an invoice's
+applied payments. `invoice.void` is a full credit note on an unpaid invoice. Quotes' acceptance, sending and reminders, the customer's side and the
 Invoicing pack are the later steps (`docs/stages/35-invoices-quotes.md`).
 
 **Accounting sync** (stage 61, [spec](stages/61-accounting-sync.md)) sends the host's own money
@@ -2905,8 +2968,8 @@ declaring any is refused. `apps/app/screens-plugin.ts` reads every pack's declar
 time and emits `virtual:cos-screens`, one lazy chunk per screen (a missing block or export fails
 the build; the server's build holds none), so the admin's source names no pack. The core read
 `screens.mine` answers which screens the caller may open (the pack active and shipped, and the
-pipeline's `staffAuthority` for every gate tool, as a person; empty for any other actor; the one
-core read every pack role reaches; a gate tool may be `anyStaff` or held to a core permission, ADR
+pipeline's `staffAuthority` for every gate tool, as a person; empty for any other actor; a core
+read every pack role reaches, as is its own Today, ADR 0874; a gate tool may be `anyStaff` or held to a core permission, ADR
 0652). The admin's navigation, `/s/<pack>/<screen>` (client-only,
 "not found" when not listed) and the record tabs render that answer; each screen sits in an error
 boundary, with its pack's hooks over the staff client on the app's own origin
@@ -2923,7 +2986,31 @@ SQL over `rec_*` views returning one `value`, a comparison, when it needs attent
 the shape and the gate; `checkManifest` checks the SQL with the widget guards (`bindNamedParams`
 with only `:today_from`, `:today_to` and `:now`, then `validateReadOnlySql`) and that it returns
 exactly the columns it declares (`packages/core/src/today/declaration.ts`). A runtime extension
-declaring any is refused. `today.get`, which runs them, is step 3.
+declaring any is refused.
+
+**Today** (stage 60, [ADR 0874](adr/0874-today-get-the-host-items-and-a-pack-roles-today.md)):
+`today.get` returns the items one person may see for the business's local day (`localDay` in the
+organisation's zone; the comparison is the same window a day or a week earlier, `:now` at the same
+local time), attention first; `today.rows` the at most 50 rows behind one. Both are staff reads in
+`packages/core/src/today/` (`items.ts`, `host.ts`, `pack.ts`). Each item is gated by what the
+caller could already call, by the pipeline's own `staffAuthority`, actor and MCP scopes: a pack
+item by every tool of its `opens`; the host's by the operation it stands for, and each reads
+through that operation's own code: takings by `finance.report` (Finance reports' Sales net,
+`salesTotal`, never summed in `today/`), changes waiting by `approval.approve` and the approver
+rules (`approvals/approvers.ts`, the one table `approval.approve` holds too), shifts with nobody
+on them by `staffing.uncovered` and checklists missed by `checklist.runs` for someone who rosters,
+unread notices by `notification.list`. Payments failing waits for Finance reports' Money owed. An
+AI actor gets the pack items and the money its user may see, never approvals, checklists, the
+roster or the inbox. The visible pack items are columns of one statement (`json_array` of today's
+value and the compared one, at most 90 a statement, nine parameters), run through
+`runReadOnlySql`; the statement and the takings are cached 60 seconds, the person's own items read
+on every call (one failing item is left out for a minute and listed to admins). Every pack role
+reaches both (`PACK_ROLE_TODAY`): no host item reaches it; a pack item only by its role's or a
+grant's tools (never an every-staff tool); one its role opens reads only views of objects the role
+reads; whatever opened it, one reading an object the role reaches only for some People is hidden,
+and one over an object it reaches only on today is read in today's window with no comparison;
+rows only over objects the role reads (`roleReach`, crossed with every shipped item and role in
+`today-reach.test.ts`).
 
 **My account** (stage 48, [spec](stages/48-my-account.md)) is base-layer blocks over a base
 headless entry in the typed client's runtime (`packages/client/src/account.ts`:
@@ -2968,7 +3055,9 @@ lookup, never a rule); changing the sign-in address (`*-account-email`, under Yo
 everyone), which shows the host's preview in full and confirms only that preview, with the word
 DELETE typed (`deleteConfirmInput`). Both work in the app. When the host refuses with
 `sign_in_again`, the block signs the customer in again in place, through the app's own sign-in
-(`AccountSignIn`), and carries on with what they were doing (`sensitive`). The Memberships and
+(`AccountSignIn`), and carries on with what they were doing (`sensitive`); the host ends the
+session that sign-in replaces once it has worked (the cookie's on the web, the device session named
+by `replaces` in the app; ADR 0715 amended). The Memberships and
 Courses sections show their subscriptions through the one subscriptions part (no card button of
 their own: the card is Payment method's), Courses' section is `MyCoursesSection` (its courses and
 its subscription), Memberships' shows a linked child's memberships and passes under the child's
@@ -2976,10 +3065,21 @@ name, and Bookings' blocks read `me.family` (the `family` tool stays for the API
 staff customer card on a Person's page shows an open address change (masked) and erase request
 and has the admins' buttons: disable, enable, sign out everywhere, start or cancel an address
 change. A `form_to_fill` item opens the form through the shell's `onFillForm` (the Forms pack's
-page, where the app has it). In the app, money opens the website ([ADR 0714](adr/0714-the-app-shows-money-and-opens-the-website.md)):
+`LinkedFormBlock` with the link's id, where the app has Forms; the development `/blocks` page does
+so). In the app, money opens the website ([ADR 0714](adr/0714-the-app-shows-money-and-opens-the-website.md)):
 the native shell shows orders and subscriptions, and "Manage on the website" opens the business's
-website account page; no native block calls a billing operation. The template's `/account` route
-and the mobile Account tab are plain pages over the same entry.
+website account page; no native block calls a billing operation. Money owed on an order
+(`balance_due`, `finish_paying`) leads to that order in Orders: on the web its row pays it with the
+customer's own `order.checkout` (`useCheckoutOrder`), in the app it says "Pay on the website". A
+shell draws only the base sections it has a part for (`portalSections`' `base`), so one added to
+the platform later is left out of an older copy rather than shown empty. Once the account is
+deleted the hooks forget the app's query cache (given its `useQueryClient`) and the native block
+ends the device's session at once (`endSession`). Only an `https:` address (or a path on the site)
+the host gave is followed (`followableUrl`). The template's `/account` route is a plain page over
+the same entry; the template mobile app's Account tab is the native shell, which `cos create
+--with-mobile` copies with its sections. `cos upgrade` wires a pack's section only when the
+client's copy of its block exports what the release declares, says which copy is out of date
+(`cos diff <block>`), and lists every copied block whose upstream files changed.
 
 | Pack | Built from | Status |
 | --- | --- | --- |

@@ -91,7 +91,7 @@ export const SOLUTIONS: readonly Solution[] = [
         },
         {
           title: "Members' own account",
-          body: "One place on your site and in your app where a member first sees what needs them, or their child: a waiver to sign, a card payment that failed, a pass running out. Then their orders, tickets, courses, bookings and memberships, and their details. They change the address they sign in with, or delete their account after seeing exactly what that does. In the app, the card and cancelling open your website. The app's screens are not yet tried on phones.",
+          body: "One place on your site and in your app where a member first sees what needs them, or their child: a waiver to sign, a card payment that failed, a pass running out. Then their orders, where they pay what is still owed on one, their tickets, courses, bookings and memberships, and their details. They change the address they sign in with, or delete their account after seeing exactly what that does. In the app, the card, cancelling and paying open your website. The app's screens are not yet tried on phones.",
           status: "built",
         },
         {

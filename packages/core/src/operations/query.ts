@@ -235,14 +235,24 @@ export interface ValidatedSql {
 export const MAX_SQL_LENGTH = 20_000;
 
 /**
+ * The longest SQL the host itself puts together from parts that each passed the guards (Today's
+ * items read as columns of one statement, ADR 0874), under D1's 100,000 bytes per statement.
+ */
+export const MAX_COMBINED_SQL_LENGTH = 90_000;
+
+/**
  * Validates read-only SQL over rec_* views. `schemaObjects` is every name in sqlite_master (any
  * case): identifiers naming one that is not a rec_* view are refused even outside FROM.
+ * `maxLength` is MAX_SQL_LENGTH unless the host combined the SQL itself from checked parts.
  */
 export function validateReadOnlySql(
   source: string,
   schemaObjects: ReadonlySet<string>,
+  maxLength: number = MAX_SQL_LENGTH,
 ): ValidatedSql {
-  if (source.length > MAX_SQL_LENGTH) throw new SqlRejectedError("the query is too long");
+  if (source.length > Math.min(maxLength, MAX_COMBINED_SQL_LENGTH)) {
+    throw new SqlRejectedError("the query is too long");
+  }
   const all = tokenize(source);
   const tokens = all.filter((t) => t.kind !== "comment");
   // Trailing semicolons are allowed; any other semicolon starts a second statement.
@@ -492,10 +502,14 @@ export async function runReadOnlySql(
   db: Kysely<CoreDatabase>,
   source: string,
   rawParams: readonly (string | number | boolean | null)[],
-  limits: { maxRows: number; timeoutMs: number },
+  limits: { maxRows: number; timeoutMs: number; maxLength?: number },
   schemaObjects?: ReadonlySet<string>,
 ): Promise<ReadOnlySqlResult> {
-  const checked = validateReadOnlySql(source, schemaObjects ?? (await schemaObjectNames(db)));
+  const checked = validateReadOnlySql(
+    source,
+    schemaObjects ?? (await schemaObjectNames(db)),
+    limits.maxLength,
+  );
   if (checked.parameterCount !== rawParams.length) {
     throw new ValidationError(
       `The query has ${checked.parameterCount} parameter(s) but ${rawParams.length} were given`,

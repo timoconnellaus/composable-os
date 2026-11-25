@@ -1293,6 +1293,73 @@ describe("blocks (criterion 10)", () => {
     expect(wiring()).toContain('key: "courses.courses"');
   });
 
+  // The review of #467, F1: a section's declared export changed (Courses' `MyCourses` became
+  // `MyCoursesSection`, and the block gained a dependency); an app holding the older copy must
+  // still compile after cos upgrade, and be told which block is out of date.
+  it("cos upgrade over an older copy of a section block leaves it unwired, names it, and lists what changed upstream", async () => {
+    // 1.0.0: Courses' section is the older block, exporting only MyCourses, with no subscription
+    // part to depend on.
+    await publish("1.0.0", (files) => {
+      const roles = JSON.parse(files["contract/roles.json"] as string);
+      roles.portal.courses.sections.courses.web.export = "MyCourses";
+      files["contract/roles.json"] = JSON.stringify(roles);
+      files["blocks/courses-my-courses/my-courses.tsx"] = (
+        files["blocks/courses-my-courses/my-courses.tsx"] as string
+      ).replace("export function MyCoursesSection", "function MyCoursesSection");
+      const block = JSON.parse(files["blocks/courses-my-courses/block.json"] as string);
+      block.dependsOn = block.dependsOn.filter((d: string) => d !== "courses-subscription");
+      files["blocks/courses-my-courses/block.json"] = JSON.stringify(block);
+    });
+    await publish("1.1.0");
+    const dir = await created();
+    setPacks(dir, ["courses"]);
+    expect((await cos("add", "web-account")).code).toBe(0);
+    const blocks = join(dir, "apps", "web", "src", "blocks");
+    const wiring = () => readFileSync(join(blocks, "account-sections.gen.ts"), "utf8");
+    expect(wiring()).toContain('import { MyCourses } from "./courses-my-courses/my-courses.tsx";');
+    expect(existsSync(join(blocks, "courses-subscription"))).toBe(false);
+
+    const upgraded = await cos("upgrade", "--version", "1.1.0");
+    expect(upgraded.code, upgraded.output).toBe(0);
+    // Not wired to an export the copy lacks: the app still compiles.
+    expect(wiring()).not.toContain("MyCoursesSection");
+    expect(wiring()).not.toContain("courses-my-courses");
+    expect(wiring()).not.toContain('key: "courses.courses"');
+    expect(upgraded.output).toContain(
+      `My account's "My courses" section is not wired: your copy of courses-my-courses (apps/web/src/blocks/courses-my-courses/my-courses.tsx) does not export MyCoursesSection`,
+    );
+    expect(upgraded.output).toContain("cos diff courses-my-courses shows what changed upstream");
+    // Every copied block that changed upstream, with a dependency it now needs.
+    expect(upgraded.output).toContain("Copied blocks that changed upstream in 1.1.0");
+    expect(upgraded.output).toMatch(
+      /courses-my-courses: block\.json changed|courses-my-courses: my-courses\.tsx changed/,
+    );
+    expect(upgraded.output).toContain(
+      "now depends on courses-subscription (cos add courses-subscription)",
+    );
+    // The copy is the client's: untouched.
+    expect(readFileSync(join(blocks, "courses-my-courses", "my-courses.tsx"), "utf8")).toContain(
+      "\nfunction MyCoursesSection",
+    );
+
+    // Brought up to date by hand (here: the release's file, and its new dependency copied), the
+    // section is wired again.
+    const release = kit();
+    writeFileSync(
+      join(blocks, "courses-my-courses", "my-courses.tsx"),
+      release["blocks/courses-my-courses/my-courses.tsx"] as string,
+    );
+    expect((await cos("diff", "courses-my-courses", "--accept")).code).toBe(0);
+    const again = await cos("add", "courses-subscription");
+    expect(again.code, again.output).toBe(0);
+    expect(again.output).not.toContain("is not wired");
+    expect(wiring()).toContain(
+      'import { MyCoursesSection } from "./courses-my-courses/my-courses.tsx";',
+    );
+    const after = await cos("upgrade");
+    expect(after.output).not.toContain("courses-my-courses:");
+  });
+
   it("lists the release's blocks with their skin, pack and dependencies", async () => {
     await publish("1.0.0");
     await created();

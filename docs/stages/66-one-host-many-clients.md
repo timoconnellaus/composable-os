@@ -249,6 +249,11 @@ Every cache listed under "What exists today" is keyed by client or moved into th
 environment. Auth's caches are keyed by the `env` object, so they are correct as soon as each
 client's environment is one stable object per isolate.
 
+- The widget cache key (`widgetCacheKey`, `dashboards/cache.ts`) holds no organisation: dashboard
+  widgets, Today's pack items and Today's takings (`host.takings`, keyed by the day and zone only)
+  would be shared by two clients in one zone. It gains the client, as do Today's failed-items memo
+  (`today/pack.ts`) and the dashboards' schema-names memo (stage 60, ADR 0874).
+
 Because a miss here shows one client another's data, it has its own tests: the core suite run
 with two clients taking turns in one isolate, and a test per cache.
 

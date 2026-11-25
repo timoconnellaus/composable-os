@@ -5,7 +5,11 @@ import { expect, type Locator, type Page, test } from "@playwright/test";
 import { expectNoHorizontalScroll, isPhone, open } from "./helpers.ts";
 import { type SeededSet, seedChangeSet } from "./mcp.ts";
 
-/** The sidebar's Approvals count (0 when no badge). Opens the drawer on phones. */
+/**
+ * The sidebar's Approvals count (0 when no badge). Opens the drawer on phones. The badge is absent
+ * both when nothing waits and while the count is still loading, so a single read means nothing on
+ * its own: compare it with what the host says (`expectSidebarCount`), never read it as a baseline.
+ */
 async function sidebarCount(page: Page): Promise<number> {
   const nav = page.getByRole("link", { name: /^Approvals/ });
   if (isPhone(page)) await page.getByRole("button", { name: "Toggle navigation" }).click();
@@ -20,6 +24,21 @@ async function expectSidebarCount(page: Page, expected: number) {
   await expect(async () => expect(await sidebarCount(page)).toBe(expected)).toPass({
     timeout: 15_000,
   });
+}
+
+/**
+ * How many actions wait for review across the organisation, from the operation the sidebar asks.
+ * Other specs share the database and may leave actions waiting (an invite notice, an extension
+ * proposal), so a count is only ever compared with this one, read just before.
+ */
+async function hostCount(page: Page): Promise<number> {
+  const response = await page.request.post("/api/v1/op/approval.list", {
+    data: { status: "awaiting_review", limit: 1 },
+    headers: { "idempotency-key": crypto.randomUUID() },
+  });
+  const body = (await response.json()) as { data?: { pendingCount: number } };
+  expect(response.status(), JSON.stringify(body).slice(0, 300)).toBe(200);
+  return body.data?.pendingCount ?? Number.NaN;
 }
 
 function changeSet(page: Page, seeded: SeededSet): Locator {
@@ -37,8 +56,10 @@ test("approving a whole change set applies it and lowers the count", { tag: "@ph
   page,
   baseURL,
 }) => {
+  // The count before, once the sidebar shows what the host says (it may not be 0: see hostCount).
   await open(page, "/approvals");
-  const before = await sidebarCount(page);
+  const before = await hostCount(page);
+  await expectSidebarCount(page, before);
   const seeded = await seedChangeSet(page, baseURL ?? "");
   await open(page, "/approvals");
   await expectSidebarCount(page, before + 2);

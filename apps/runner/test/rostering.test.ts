@@ -472,6 +472,10 @@ describe("the team role (criterion 7)", () => {
         "content.search",
         "content.staffGet",
         "content.staffList",
+        // Its own Today (stage 60, ADR 0874), each item gated by what the account could already
+        // call.
+        "today.get",
+        "today.rows",
       ].sort(),
     );
     // No record read, not even of Rostering's own objects.

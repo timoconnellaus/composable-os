@@ -441,6 +441,17 @@ const orderGrants: MoveHook = async (ctx, move) => {
   const from = move.from?.id ?? null;
   const to = move.to.id;
   if ((to === "paid" || to === "part_paid") && (from === "pending" || from === "expired")) {
+    // An invoice's order paid again after its payments were reversed (ADR 0733) granted at its
+    // first payment, and what it granted stayed: it grants once.
+    if (from === "pending" && move.after.invoiceId) {
+      const before = await ctx.db
+        .selectFrom("core_order_grant")
+        .select("order_id")
+        .where("order_id", "=", move.id)
+        .limit(1)
+        .executeTakeFirst();
+      if (before) return;
+    }
     await grant(ctx, move.id, move.after, from);
     return;
   }

@@ -441,6 +441,9 @@ async function nativeRoute(
     await limitAttempts(request, env);
     const code = field(input, "code", 20);
     const deviceName = deviceNameSchema(input.deviceName);
+    // Signing in again in place (stage 48, ADR 0715 amended): the device session this one
+    // replaces, by its refresh token. Ended only once the new sign-in has worked.
+    const replaces = input.replaces === undefined ? null : field(input, "replaces", 300);
     const signedIn = await identity.signInWithCode(email, code, headers);
     if (!signedIn) throw invalidCode();
     const tokens = await issueDeviceSession(
@@ -449,6 +452,14 @@ async function nativeRoute(
       deviceName,
       now,
     );
+    // Only this customer's own earlier session is ended: a token of another customer's, or of a
+    // staff session, ends nothing, and the answer is the same either way. A failure to end it
+    // never fails the sign-in that has already worked (the old session idles out).
+    if (replaces) {
+      await signOutDeviceSession(db, replaces, now, { customerId: signedIn.customerId }).catch(
+        () => false,
+      );
+    }
     return dataReply({ ...tokens, account: signedIn.account });
   }
   if (route === "/auth/staff/exchange") {

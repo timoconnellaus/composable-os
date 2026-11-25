@@ -178,6 +178,35 @@ a few hours ahead with 1 place. The site's `bookings-drop-in` block (or `x.booki
 6. Cancel a paid drop-in late (inside the class type's late-cancel time). **Check 25:** nothing is
    asked for; the payment is kept.
 
+## 10. Payouts (stage 52 step 4; ADR 0793)
+Never run against real Stripe in the tests: this is the only check of the payout read on the real
+provider.
+1. The key needs read access to **Payouts** and **Balance** (and Charges and Disputes, for the
+   expansion). With a restricted key without them, Finance → Payouts says payouts are not
+   available for this connection, and nothing else breaks.
+2. Take a few payments of the kinds the business takes (a checkout with and without tax, a
+   subscription period, a payment on a reader), refund one, and let Stripe's test payout schedule
+   pay them out (or create a payout in the dashboard: a manual payout lists no lines).
+3. Once the payout's arrival day has passed, wait for the minute cron's daily read (from 06:00 in
+   the business's zone) or run it as the host. **Check 26:** the Payouts report lists the payout,
+   its amount equal to its lines' net less fees; every payment and refund line is matched to its
+   order; a charge made in the dashboard is a line matching nothing; the provider's fees are as
+   Stripe's payout reconciliation report says.
+4. **Check 27:** record which balance transactions (subscription invoices, credit notes, checkout
+   with tax, Terminal) did not resolve to a payment the host stored, and fix their `payment_ref`
+   or the mapping before the first real month is closed.
+5. **Check 28:** a payout's `arrival_date` is a calendar day at 00:00 UTC, and the report shows
+   that day (the host keeps the provider's day, not the business's zone's).
+6. **Check 29:** with a restricted key missing **Balance: read**, Stripe answers 403 (the report
+   says payouts are not available); with a revoked key it answers 401 (the read fails and the
+   report says the connection needs attention). Restore the key: every payout of the outage is
+   read.
+7. **Check 30:** fail a test payout (Stripe's test bank account numbers that fail payouts): its
+   `payout_failure` balance transaction (`reporting_category` `payout_reversal`, source the failed
+   `po_…`) lands in a later payout, the report shows the failure and the bank at what landed.
+8. **Check 31:** an account that settles in a currency other than the organisation's shows every
+   payout apart, summed nowhere: confirm the account's settlement currency at setup.
+
 ## Afterwards
 Uninstall the box office extension if you installed it for this run, and delete the test-mode
 webhook endpoint if you do not need it again. Record the date, who ran it and any differences in this file's status line.

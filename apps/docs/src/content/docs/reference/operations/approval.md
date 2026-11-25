@@ -182,6 +182,7 @@ One change set with every action in it: operation, risk class, the agent's reaso
 | `actions[].outbound.check.held` | boolean | yes |   |   |
 | `actions[].outbound.check.findings` | integer | yes | ≥ -9007199254740991, ≤ 9007199254740991 |   |
 | `actions[].outbound.check.lines` | array of string | yes |   |   |
+| `actions[].outbound.contactBlocked` | integer or null | yes | default `null` |   |
 | `actions[].adjudication` | object or null | yes |   |   |
 | `actions[].adjudication.id` | string | yes |   |   |
 | `actions[].adjudication.judgedAt` | string | yes |   |   |
@@ -450,6 +451,7 @@ Check what happened to changes queued for approval. Pass actionId for one pendin
 | `changeSets[].actions[].outbound.check.held` | boolean | yes |   |   |
 | `changeSets[].actions[].outbound.check.findings` | integer | yes | ≥ -9007199254740991, ≤ 9007199254740991 |   |
 | `changeSets[].actions[].outbound.check.lines` | array of string | yes |   |   |
+| `changeSets[].actions[].outbound.contactBlocked` | integer or null | yes | default `null` |   |
 | `changeSets[].actions[].adjudication` | object or null | yes |   |   |
 | `changeSets[].actions[].adjudication.id` | string | yes |   |   |
 | `changeSets[].actions[].adjudication.judgedAt` | string | yes |   |   |

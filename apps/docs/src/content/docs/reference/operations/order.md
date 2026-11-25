@@ -580,7 +580,7 @@ A page of orders, newest first unless sorted otherwise, without their lines (ord
 
 ## order.overdue
 
-List part-paid orders whose balance is past its due date, oldest first. Nothing happens to them by itself: extend the date (order.extendBalanceDue), cancel (order.cancel), or the buyer pays. Read-only.
+List part-paid orders whose balance is past its due date, and invoices' orders past the invoice's due date, oldest first. Nothing happens to them by itself: extend the date (order.extendBalanceDue), cancel (order.cancel), or the buyer pays; an invoice's is credited or paid on the invoice. Read-only.
 
 |  |  |
 | --- | --- |

@@ -15,6 +15,8 @@ A Person's contact choices: each kind of message they may get on each channel wi
 | Permission | `records:read` |
 | Risk | `read` |
 | Audiences | `staff` |
+| Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
 

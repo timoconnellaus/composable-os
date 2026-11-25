@@ -49,6 +49,18 @@ export function OutboundPreview({ outbound }: { outbound: Outbound }) {
           ))}
         </dl>
       )}
+      {outbound.contactBlocked ? (
+        // Consent to be contacted (ADR 0678): someone it goes to stopped while it waited.
+        <p
+          className="flex items-center gap-1 rounded-sm border border-amber-300 bg-amber-50 px-2 py-1.5 text-xs font-medium text-amber-900 dark:border-amber-800 dark:bg-amber-950/40 dark:text-amber-200"
+          data-testid="outbound-contact-blocked"
+        >
+          <ShieldAlertIcon className="size-3.5" aria-hidden />
+          {outbound.contactBlocked === 1
+            ? "1 recipient cannot be contacted this way: approving sends nothing."
+            : `${outbound.contactBlocked} recipients cannot be contacted this way: approving sends nothing.`}
+        </p>
+      ) : null}
       {outbound.check && <OutboundCheckNote check={outbound.check} />}
       {!outbound.implementsRevert && (
         <p className="text-xs text-muted-foreground">Once applied, this cannot be undone.</p>

@@ -8,6 +8,8 @@
 //   - `record.get` and `record.list` on the objects of that pack the role lists, and
 //   - `screens.mine`, the screens of the admin it may open (stage 47, ADR 0660),
 //   - its own read-and-understood list and confirmations (`ack.mine`, `ack.confirm`, ADR 0702),
+//   - its own Today (`today.get`, `today.rows`, stage 60, ADR 0874): the items it may see,
+//     each gated by what the account could already call,
 //   - the published versions of objects every staff account reads (`staffRead`: a procedure),
 //     through `content.staffGet`, `content.staffList` and `content.search` (ADR 0701), and of no
 //     other object,
@@ -73,6 +75,25 @@ export const PACK_ROLE_CORE_READS: readonly string[] = ["screens.mine"];
  * own list of what to read, and confirming it read one. Each acts only for the calling person.
  */
 export const PACK_ROLE_OWN: readonly string[] = ["ack.mine", "ack.confirm"];
+
+/**
+ * The account's own Today (stage 60, ADR 0874), which every pack role reaches: `today.get` and
+ * `today.rows` answer with the items the account itself may see, and nothing else. What holds
+ * (today/pack.ts, `roleReach`, and today/host.ts):
+ *   - no host item: each is gated by a core operation no pack role reaches (`finance.report`,
+ *     `approval.approve`, `staffing.uncovered`, `checklist.runs`, `notification.list`);
+ *   - a pack item only when the role or a grant opens every tool of its gate, an every-staff tool
+ *     (`anyStaff`) opening nothing;
+ *   - an item the role itself opens reads only views of objects in the role's `read`;
+ *   - whatever opened it, an item reading a view of an object the role reaches only for the
+ *     People its holder looks after, or through the records naming it, is hidden; one reading an
+ *     object the role reaches only on today is shown only when its SQL binds today's window, and
+ *     never with its comparison;
+ *   - its rows only over objects the role reads (else the count alone).
+ * The views are judged by name: what an item's SQL does with them is the pack's code, reviewed
+ * with it (its rows return only the columns they declare, ADR 0870).
+ */
+export const PACK_ROLE_TODAY: readonly string[] = ["today.get", "today.rows"];
 
 /**
  * The reads every pack role reaches of an object that declares `staffRead` (stage 38, ADR 0701):
@@ -285,6 +306,7 @@ export function packRoleReaches(role: HeldPackRole, op: AnyOperation): boolean {
     return op.packPermissions.some((p) => role.permissions.includes(p));
   }
   if (PACK_ROLE_CORE_READS.includes(op.name)) return true;
+  if (PACK_ROLE_TODAY.includes(op.name)) return true;
   return role.read.length > 0 && PACK_ROLE_READS.includes(op.name);
 }
 
@@ -428,6 +450,8 @@ export function packRoleAllows(role: HeldPackRole, op: AnyOperation, input: unkn
     return true;
   // The account's own screens (ADR 0660): its input is empty, and its answer is the account's.
   if (PACK_ROLE_CORE_READS.includes(op.name)) return true;
+  // The account's own Today (ADR 0874): its answer is gated item by item for the account.
+  if (PACK_ROLE_TODAY.includes(op.name)) return true;
   // A published version every staff account reads (ADR 0701): only of a staff-read object.
   if (PACK_ROLE_STAFF_READS.includes(op.name)) return namesStaffRead(input);
   // record.get and record.list name their object in the input.

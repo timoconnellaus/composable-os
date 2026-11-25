@@ -101,6 +101,9 @@ a live host side by side in one account, `environments` in `product.ts`): each i
    (`src/secure-random.ts`, expo-crypto): React Native has no `crypto`, and the module refuses to
    start without it. The host's address is `expo.extra.hostUrl`, which the template's
    `app.config.ts` takes from `product.ts` (the environment's `hostname`, chosen by `COS_ENV`).
+   The Account tab (`src/account.tsx`) is My account's native shell, which `cos create
+   --with-mobile` copied into `src/blocks/` with its sections (`blocks.lock.json` records them):
+   after adding a pack to `product.ts`, run `pnpm cos add native-account` to copy its section.
    - **The app's identity in the stores** (stage 63) is `mobile.app` in `product.ts`: its name,
      `version`, store `ids` (iOS bundle id, Android package; never changed once published), `icon`
      (1024 by 1024, opaque), `splash`, three `colours` (the text readable on the background),

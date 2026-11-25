@@ -18,9 +18,10 @@ import type { PaymentMethod, RecordedKind } from "@composable-os/db";
 import type { PendingApproval } from "../errors.ts";
 import { ConflictError, NotFoundError, ValidationError } from "../errors.ts";
 import { newId } from "../ids.ts";
+import { eventStatement } from "../invoices/events.ts";
 import type { HandlerContext } from "../operation.ts";
 import { paymentsTarget, requestProviderRefund } from "./gateway.ts";
-import { changeOrder, formatMoney, type OrderRow } from "./orders.ts";
+import { changeOrder, formatMoney, invoiceTaxFor, type OrderRow } from "./orders.ts";
 import { HOST_PROVIDER } from "./payments.ts";
 
 export interface RefundablePayment {
@@ -34,18 +35,24 @@ export interface RefundablePayment {
   invoiceRef?: string | null;
 }
 
-/** Each payment on the order that money can go back to, newest first, and how much. */
+/**
+ * Each payment on the order that money can go back to, newest first, and how much. `outcome`
+ * narrows it to the payments applied to the order, or to those that were not (late, not
+ * matching): an invoice's applied payments go back only through a credit note (ADR 0735).
+ */
 export async function refundablePayments(
   ctx: Pick<HandlerContext, "db" | "now">,
   orderId: string,
+  outcome?: "applied" | "unapplied",
 ): Promise<RefundablePayment[]> {
-  const payments = await ctx.db
+  let query = ctx.db
     .selectFrom("core_order_payment")
     .select(["provider", "payment_ref", "amount", "received_at", "invoice_ref", "method"])
     .where("order_id", "=", orderId)
-    .where("payment_ref", "is not", null)
-    .orderBy("received_at", "desc")
-    .execute();
+    .where("payment_ref", "is not", null);
+  if (outcome === "applied") query = query.where("outcome", "=", "applied");
+  if (outcome === "unapplied") query = query.where("outcome", "!=", "applied");
+  const payments = await query.orderBy("received_at", "desc").execute();
   const refunds = await ctx.db
     .selectFrom("core_order_refund as r")
     .leftJoin("core_pending_action as p", "p.id", "r.pending_action_id")
@@ -86,6 +93,32 @@ export async function refundablePayments(
   return [...byPayment.values()];
 }
 
+/**
+ * The tax a refund of `amount` on one payment of an invoice's order gives back (ADR 0731): the fall
+ * in what the money kept should carry (`invoiceTaxFor`), worked from the documents, so a refund a
+ * credit note makes carries that credit note's own tax (none for a GST-free line). A payment that
+ * was never applied (late, not matching) carried none and gives none back.
+ */
+export async function invoiceRefundTax(
+  ctx: Pick<HandlerContext, "db">,
+  row: OrderRow,
+  provider: string,
+  paymentRef: string,
+  amount: number,
+): Promise<number> {
+  const applied = await ctx.db
+    .selectFrom("core_order_payment")
+    .select("event_id")
+    .where("order_id", "=", row.id)
+    .where("provider", "=", provider)
+    .where("payment_ref", "=", paymentRef)
+    .where("outcome", "=", "applied")
+    .limit(1)
+    .executeTakeFirst();
+  if (!applied) return 0;
+  return invoiceTaxFor(ctx.db, row, { kind: "refund", amount });
+}
+
 export interface RequestedRefund {
   id: string;
   paymentRef: string;
@@ -111,9 +144,16 @@ export async function requestRefund(
     refundId?: ((n: number) => string) | undefined;
     /** Only this payment (a duplicate or late one owed back on its own, ADR 0560). */
     paymentRef?: string | undefined;
+    /**
+     * Only payments applied to the order, or only those that were not (refundablePayments). An
+     * invoice's order: a credit note gives back applied ones, order.refund only the others.
+     */
+    outcome?: "applied" | "unapplied" | undefined;
   },
 ): Promise<{ refunds: RequestedRefund[]; pending: PendingApproval[] }> {
-  if (row.state === "pending" || row.state === "part_paid") {
+  // A payment that was never applied (late, not matching) is given back whatever the order's
+  // state: it is not part of what the order was paid (an invoice's order is never cancelled).
+  if ((row.state === "pending" || row.state === "part_paid") && input.outcome !== "unapplied") {
     throw new ConflictError(
       row.state === "pending"
         ? "Nothing has been paid on this order"
@@ -121,7 +161,7 @@ export async function requestRefund(
       { order: row.id, state: row.state },
     );
   }
-  const refundable = (await refundablePayments(ctx, row.id)).filter(
+  const refundable = (await refundablePayments(ctx, row.id, input.outcome)).filter(
     (p) =>
       p.refundable > 0 && (input.paymentRef === undefined || p.paymentRef === input.paymentRef),
   );
@@ -129,6 +169,12 @@ export async function requestRefund(
   // back by a person, who records it (order.recordRefund).
   const payments = refundable.filter((p) => p.method === "provider");
   const available = payments.reduce((sum, p) => sum + p.refundable, 0);
+  if (available <= 0 && input.outcome === "unapplied") {
+    throw new ConflictError(
+      "This order is an invoice's: what was paid on it goes back by a credit note (creditNote.create); only a payment that arrived late or did not match is refunded here",
+      { rule: "invoice_order", order: row.id },
+    );
+  }
   if (available <= 0) {
     throw new ConflictError(
       refundable.length
@@ -204,6 +250,65 @@ export async function requestRefund(
 }
 
 /**
+ * Asks the payments gatekeeper again for refund `refundId` of `row`, under the same id (the
+ * provider's idempotency key), in the calling batch: for a refund that may have reached the
+ * provider (its application failed, or the provider never confirmed it), so the provider answers
+ * with the refund it made rather than making a second (review of PR #460). The refund's row names
+ * the new approval; nothing else of it changes.
+ */
+export async function askSameRefundAgain(
+  ctx: HandlerContext,
+  row: OrderRow,
+  refundId: string,
+): Promise<{ pendingActionId: string | null }> {
+  const refund = await ctx.db
+    .selectFrom("core_order_refund")
+    .selectAll()
+    .where("id", "=", refundId)
+    .where("order_id", "=", row.id)
+    .executeTakeFirst();
+  if (
+    !refund ||
+    refund.status === "confirmed" ||
+    refund.method !== "provider" ||
+    !refund.payment_ref
+  ) {
+    throw new ConflictError("This refund cannot be asked for again", { rule: "refund_not_owed" });
+  }
+  const target = await paymentsTarget(ctx.db);
+  const result = await requestProviderRefund(
+    ctx.integrations,
+    target,
+    {
+      actor: ctx.actor,
+      userId: ctx.user.id,
+      userName: ctx.user.name,
+      role: ctx.user.role,
+      origin: ctx.origin,
+      grantedPermissions: ctx.grantedPermissions,
+      reason: ctx.reason ?? refund.reason ?? "Asked again",
+    },
+    {
+      orderId: row.id,
+      paymentRef: refund.payment_ref,
+      amount: refund.amount,
+      currency: refund.currency,
+      reason: refund.reason ?? "Asked again",
+      refundId: refund.id,
+    },
+  );
+  const action = result.pending[0] ?? null;
+  ctx.write(
+    ctx.db
+      .updateTable("core_order_refund")
+      .set({ pending_action_id: action?.actionId ?? null, requested_at: ctx.now })
+      .where("id", "=", refund.id)
+      .where("status", "=", "requested"),
+  );
+  return { pendingActionId: action?.actionId ?? null };
+}
+
+/**
  * Records money a person paid back on a recorded payment (ADR 0694), in the calling operation's
  * batch: a confirmed refund row of method `recorded` naming how, and the order's `refunded` up by
  * it; the order moves to `refunded`, as the host, when it was paid and everything paid has gone
@@ -247,11 +352,37 @@ export async function recordRefund(
     (await refundablePayments(ctx, row.id)).find(
       (p) => p.provider === HOST_PROVIDER && p.paymentRef === input.paymentId,
     )?.refundable ?? 0;
-  const amount = input.amount ?? left;
+  // An invoice's order (ADR 0735): what was paid goes back only as a credit note says. A person
+  // pays back what one owes on this payment, as it was credited, and records it here.
+  const owed = row.invoice_id
+    ? await ctx.db
+        .selectFrom("core_credit_note_refund")
+        .selectAll()
+        .where("order_id", "=", row.id)
+        .where("payment_ref", "=", input.paymentId)
+        .where("method", "=", "recorded")
+        .where("paid_back_at", "is", null)
+        .orderBy("created_at")
+        .orderBy("id")
+        .executeTakeFirst()
+    : undefined;
+  if (row.invoice_id && !owed) {
+    throw new ConflictError(
+      "Nothing is owed back on this payment: an invoice's money goes back only by a credit note (creditNote.create)",
+      { rule: "invoice_order", order: row.id },
+    );
+  }
+  const amount = input.amount ?? owed?.amount ?? left;
   if (left <= 0) {
     throw new ConflictError("Everything paid by this payment has been paid back or reversed", {
       order: row.id,
     });
+  }
+  if (owed && amount !== owed.amount) {
+    throw new ValidationError(
+      `The credit note owes ${formatMoney(owed.amount, row.currency)} back on this payment: pay that back`,
+      { field: "amount", rule: "refund_amount", owed: owed.amount },
+    );
   }
   if (!Number.isSafeInteger(amount) || amount <= 0 || amount > left) {
     throw new ValidationError(
@@ -260,6 +391,31 @@ export async function recordRefund(
     );
   }
   const refundId = newId("refund");
+  if (owed) {
+    ctx.write(
+      ctx.db
+        .updateTable("core_credit_note_refund")
+        .set({ refund_id: refundId, paid_back_at: ctx.now })
+        .where("id", "=", owed.id)
+        .where("paid_back_at", "is", null),
+      eventStatement(ctx.db, {
+        documentKind: "credit_note",
+        documentId: owed.credit_note_id,
+        invoiceId: row.invoice_id,
+        event: "paid_back",
+        paymentId: refundId,
+        method: "recorded",
+        amount,
+        currency: row.currency,
+        at: ctx.now,
+        byUser: ctx.user.id,
+      }),
+    );
+  }
+  // An invoice's order (ADR 0731): the payment's tax share goes back with it.
+  const tax = row.invoice_id
+    ? await invoiceRefundTax(ctx, row, HOST_PROVIDER, input.paymentId, amount)
+    : 0;
   ctx.write(
     ctx.db.insertInto("core_order_refund").values({
       id: refundId,
@@ -277,6 +433,7 @@ export async function recordRefund(
       method: "recorded",
       recorded_kind: input.kind,
       reference: input.reference,
+      ...(tax ? { tax_amount: tax } : {}),
     }),
   );
   const refunded = row.refunded + amount;
@@ -285,7 +442,11 @@ export async function recordRefund(
     ctx,
     row,
     whole ? "refunded" : row.state,
-    { refunded, ...(whole ? { refunded_at: ctx.now } : {}) },
+    {
+      refunded,
+      ...(whole ? { refunded_at: ctx.now } : {}),
+      ...(tax ? { tax_refunded: row.tax_refunded + tax } : {}),
+    },
     // The host's move: a person with the refund permission says the money went back.
     "host",
   );

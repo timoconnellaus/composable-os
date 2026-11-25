@@ -51,9 +51,12 @@ export const PURCHASE_OPERATION =
 export const BILLING_OPERATION =
   /^subscription\.(?:start|cancel|resume|portal|change|pause|coolOff)$/;
 
-/** The hooks that change a subscription's billing (the client's and the packs'). */
+/**
+ * The hooks that change a subscription's billing (the client's and the packs'), and paying an
+ * order from My account (`useCheckoutOrder`: the web's Orders only, ADR 0714).
+ */
 export const BILLING_HOOK =
-  /\b(?:useSubscribe|useCancelSubscription|useResumeSubscription|useBillingPortal|useCoolOff)\b/;
+  /\b(?:useSubscribe|useCancelSubscription|useResumeSubscription|useBillingPortal|useCoolOff|useCheckoutOrder)\b/;
 
 /** The hooks that buy or change billing, as code (not in a comment or a string). */
 const BUY_HOOK =

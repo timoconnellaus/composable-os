@@ -32,6 +32,7 @@ export default function Preview() {
       sections={sections}
       websiteUrl="https://www.example.com/account"
       signIn={signIn}
+      endSession={async () => {}}
       onSignOut={() => {}}
       onDeleted={() => {}}
       openUrl={() => {}}

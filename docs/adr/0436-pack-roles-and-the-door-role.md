@@ -211,3 +211,11 @@ reaches those objects' records only through a live record of its pack naming it 
 object (a crew place to its visit to its job), on the role's reads and inside its tools. Jobs'
 crew role will declare it (stage 39 step 5). See
 [ADR 0755](0755-the-mine-reach-for-pack-roles.md).
+
+**Amended 2026-11-26 (stage 60 step 3):** every pack role also reaches its own Today
+(`today.get`, `today.rows`: `PACK_ROLE_TODAY`), whose items are each gated by what the account
+could already call: a pack item only when the role or a grant opens every tool of its gate (an
+every-staff tool counting for nothing); one the role opens reading only views of objects the role
+reads; one over an object the role reaches only for some People hidden, and one over an object it
+reaches only on today read in today's window with no comparison, whatever opened it; its rows only
+over objects the role reads; and no host item (no money, approvals, roster, checklist or inbox). See [ADR 0874](0874-today-get-the-host-items-and-a-pack-roles-today.md).

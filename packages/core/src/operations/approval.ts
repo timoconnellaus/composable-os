@@ -12,6 +12,11 @@ import type { Kysely } from "kysely";
 import { z } from "zod";
 import { ADJUDICATOR_PRINCIPAL } from "../adjudicator/review.ts";
 import { loadVerdicts, verdictViewSchema } from "../adjudicator/run.ts";
+import {
+  assertApproverAfterRoster,
+  assertApproverBeforeRoster,
+  othersPersonalDraft,
+} from "../approvals/approvers.ts";
 import { actionTitle, outboundTitle, verbOf } from "../approvals/describe.ts";
 import { combinedStep, DEFAULT_PHRASE_THRESHOLD } from "../approvals/high-risk.ts";
 import { ApprovalStateError, objectOfId } from "../approvals/queue.ts";
@@ -37,13 +42,8 @@ import {
   ValidationError,
 } from "../errors.ts";
 import { isProvisionalId, newId, replaceIds } from "../ids.ts";
-import {
-  ACCOUNTING_VOID_KINDS,
-  type OutboundInput,
-  outboundAppliedAudit,
-  READER_KINDS,
-  REFUND_KINDS,
-} from "../integrations/outbound.ts";
+import { contactBlockedMany } from "../integrations/consent.ts";
+import { type OutboundInput, outboundAppliedAudit } from "../integrations/outbound.ts";
 import type { IntegrationRuntime } from "../integrations/runtime.ts";
 import {
   approvalIntentState,
@@ -62,14 +62,12 @@ import {
 import {
   type ActingUser,
   type Actor,
-  holdsPermission,
   type Origin,
   ROLES,
   type Role,
   roleHasPermission,
 } from "../principals.ts";
 import { jsonList } from "../records/common.ts";
-import { PUBLISH_OPERATIONS } from "../records/publish.ts";
 
 /** The publish operations whose read-again choice the approver makes (ADR 0702). */
 const READ_AGAIN_OPERATIONS: ReadonlySet<string> = new Set([
@@ -200,6 +198,13 @@ export const pendingActionSchema = z.object({
         })
         .nullable()
         .default(null),
+      /**
+       * Consent to be contacted (ADR 0678), for a pending message to people, asked as the inbox
+       * shows it: how many of its recipients may not be contacted now (a stop taken while it
+       * waited). Approving then sends nothing. Null when all may be, or for anyone but a human
+       * approver; never why.
+       */
+      contactBlocked: z.number().int().nullable().default(null),
     })
     .nullable(),
   /**
@@ -365,7 +370,8 @@ async function withVerdicts(
     ctx.db,
     actions.map((a) => a.id),
   );
-  return actions.map((a) => ({ ...a, adjudication: verdicts.get(a.id) ?? null }));
+  const contacted = await withContact(ctx.db, actions, ctx.now);
+  return contacted.map((a) => ({ ...a, adjudication: verdicts.get(a.id) ?? null }));
 }
 
 function outboundView(row: PendingRow): PendingActionView["outbound"] {
@@ -392,7 +398,52 @@ function outboundView(row: PendingRow): PendingActionView["outbound"] {
           lines: outboundCheckLines(check),
         }
       : null,
+    contactBlocked: null,
   };
+}
+
+/** Why an approved message to people was not sent (ADR 0678): the same words whatever the cause. */
+const CONTACT_BLOCKED_REASON =
+  "a recipient cannot be contacted this way, so nothing was sent (approving cannot override it)";
+/** Why an AI's draft from a person's mailbox was not sent by someone else's approval. */
+const PERSONAL_OWNER_REASON =
+  "only the owner of the mailbox it is sent from may approve this email, so nothing was sent";
+
+/** Who owns a connection (the mailbox an email goes from). */
+async function connectionOwner(db: Kysely<CoreDatabase>, connectionId: string) {
+  const row = await db
+    .selectFrom("core_integration_connection")
+    .select("owner_user_id")
+    .where("id", "=", connectionId)
+    .executeTakeFirst();
+  return row?.owner_user_id ?? null;
+}
+
+/**
+ * For human approvers: each pending message to people says how many of its recipients may not be
+ * contacted now (ADR 0678), every one on the page asked together.
+ */
+async function withContact(
+  db: Kysely<CoreDatabase>,
+  actions: PendingActionView[],
+  now: string,
+): Promise<PendingActionView[]> {
+  const pending = actions.filter((a) => a.outbound && a.status === "pending");
+  if (!pending.length) return actions;
+  const blocked = await contactBlockedMany(
+    db,
+    pending.map((a) => ({
+      id: a.id,
+      input: a.input as Partial<OutboundInput>,
+      actor: a.actor as Actor,
+      origin: a.origin as Partial<Origin>,
+    })),
+    now,
+  );
+  return actions.map((a) => {
+    const n = blocked.get(a.id);
+    return n && a.outbound ? { ...a, outbound: { ...a.outbound, contactBlocked: n } } : a;
+  });
 }
 
 async function loadActions(
@@ -957,217 +1008,20 @@ async function approveActions(
 ) {
   const targets = await decisionTargets(ctx, input);
   if (!how.proved) await assertSecondStep(ctx, targets, input.confirm);
-  // Installing or upgrading an extension, or changing schema, needs an admin's approval: the
-  // approver must hold the permission those operations need (ADR 0041).
-  const privileged = targets.find((t) => t.risk === "extension" || t.risk === "schema");
-  if (privileged && !roleHasPermission(ctx.user.role, "extensions:manage")) {
-    throw new ForbiddenError(
-      `Approving ${privileged.operation} needs an admin (extensions:manage)`,
-      { actionId: privileged.id, permission: "extensions:manage" },
-    );
-  }
-  // A change to how the system is set up is reviewed on a computer, never approved from the
-  // company's app on a phone (stage 60 decision 8, ADR 0872): the host holds the rule, not the
-  // owner's screen that says so.
-  if (privileged && ctx.origin.staffDevice) {
-    throw new ForbiddenError(`Review ${privileged.operation} on a computer: it changes the setup`, {
-      actionId: privileged.id,
-      reason: "review_on_computer",
-    });
-  }
-  // A refund sends money back (ADR 0429): only a person approves one, and only a person who may
-  // refund. No AI actor, under any policy, and not by relaying the person's words.
-  const kindOf = (t: (typeof targets)[number]) =>
-    t.connection_id === null
-      ? ""
-      : (parse<{ actionKind?: { tag?: string } | null }>(t.input, {}).actionKind?.tag ?? "");
-  const refund = targets.find((t) => REFUND_KINDS.has(kindOf(t)));
-  if (refund) {
-    if (ctx.actor !== "human") {
-      throw new ForbiddenError("A refund is approved by a person, never by an AI actor", {
-        actionId: refund.id,
-        actor: ctx.actor,
-      });
-    }
-    if (!holdsPermission(ctx.user, ctx.permissionGrants, "orders:refund")) {
-      throw new ForbiddenError("Approving a refund needs the refund permission (orders:refund)", {
-        actionId: refund.id,
-        permission: "orders:refund",
-      });
-    }
-  }
-  // A card reader registered to or removed from the payment account (stage 50, ADR 0774): a device
-  // that takes money, so a person who is an admin (integrations:manage, which no grant gives)
-  // approves it, never an AI actor.
-  const reader = targets.find((t) => READER_KINDS.has(kindOf(t)));
-  if (reader) {
-    if (ctx.actor !== "human") {
-      throw new ForbiddenError("A card reader is approved by a person, never by an AI actor", {
-        actionId: reader.id,
-        actor: ctx.actor,
-      });
-    }
-    if (!roleHasPermission(ctx.user.role, "integrations:manage")) {
-      throw new ForbiddenError("Approving a card reader needs an admin (integrations:manage)", {
-        actionId: reader.id,
-        permission: "integrations:manage",
-      });
-    }
-  }
-  // A void of an entry the host posted to the books (stage 61, ADR 0881): it takes back what the
-  // bookkeeper may already have reconciled, so a person who is an admin (integrations:manage,
-  // which no grant gives) approves it, never an AI actor.
-  const accountingVoid = targets.find((t) => ACCOUNTING_VOID_KINDS.has(kindOf(t)));
-  if (accountingVoid) {
-    if (ctx.actor !== "human") {
-      throw new ForbiddenError(
-        "A void in the books is approved by a person, never by an AI actor",
-        {
-          actionId: accountingVoid.id,
-          actor: ctx.actor,
-        },
-      );
-    }
-    if (!roleHasPermission(ctx.user.role, "integrations:manage")) {
-      throw new ForbiddenError(
-        "Approving a void in the books needs an admin (integrations:manage)",
-        { actionId: accountingVoid.id, permission: "integrations:manage" },
-      );
-    }
-  }
-  // An AI actor's publish request (ADR 0480): only a person approves it, and only a person who
-  // may publish (their role or a grant, ADR 0449). The requester's own authority (a member's
-  // grant, an MCP token's scope) never stands in for the approver's, and no AI actor approves,
-  // not even by relaying the person's words.
-  const publish = targets.find((t) => PUBLISH_OPERATIONS.has(t.operation));
-  if (publish) {
-    if (ctx.actor !== "human") {
-      throw new ForbiddenError("A publish is approved by a person, never by an AI actor", {
-        actionId: publish.id,
-        actor: ctx.actor,
-      });
-    }
-    if (!holdsPermission(ctx.user, ctx.permissionGrants, "records:publish")) {
-      throw new ForbiddenError(
-        "Approving a publish needs the publish permission (records:publish)",
-        { actionId: publish.id, permission: "records:publish" },
-      );
-    }
-  }
-  // An AI's journey publish (stage 53, ADR 0800): the approval of the wording members get without
-  // anyone approving each send, so only a person who may publish journeys approves it.
-  const journeyPublish = targets.find((t) => t.operation === "journey.publish");
-  if (journeyPublish) {
-    if (ctx.actor !== "human") {
-      throw new ForbiddenError("A journey is published by a person, never by an AI actor", {
-        actionId: journeyPublish.id,
-        actor: ctx.actor,
-      });
-    }
-    if (!holdsPermission(ctx.user, ctx.permissionGrants, "journeys:publish")) {
-      throw new ForbiddenError(
-        "Approving a journey's publish needs the journeys publish permission (journeys:publish)",
-        { actionId: journeyPublish.id, permission: "journeys:publish" },
-      );
-    }
-  }
-  // An AI's manual journey entry (ADR 0800): the entry counts as a person's (its messages are
-  // not held for the AI's cause) only because a person approved it, so the approver must be one
-  // who could have added those people themselves.
-  const journeyEnter = targets.find((t) => t.operation === "journey.enter");
-  if (journeyEnter) {
-    if (ctx.actor !== "human") {
-      throw new ForbiddenError("People are added to a journey by a person, never by an AI actor", {
-        actionId: journeyEnter.id,
-        actor: ctx.actor,
-      });
-    }
-    if (!holdsPermission(ctx.user, ctx.permissionGrants, "journeys:manage")) {
-      throw new ForbiddenError(
-        "Approving people added to a journey needs the journeys permission (journeys:manage)",
-        { actionId: journeyEnter.id, permission: "journeys:manage" },
-      );
-    }
-  }
+  // The approver rules (approvals/approvers.ts): who may approve a setup change, a refund, a card
+  // reader, a void in the books, a publish, a journey, a checklist, a kind of note, stock and a
+  // discount, in the order they have always been held; the roster's between (ADRs 0625, 0626).
+  const approving = {
+    actor: ctx.actor,
+    user: ctx.user,
+    grants: ctx.permissionGrants,
+    staffDevice: ctx.origin.staffDevice === true,
+  };
+  assertApproverBeforeRoster(approving, targets);
   // A roster change (stage 45, ADRs 0625 and 0626): a restricted tool's call is approved only by
   // someone who holds the tool, and a write of who works a shift only by someone who rosters.
   await assertRosterApprover(ctx, ctx.db, targets);
-  // An AI's checklist (stage 45 step 4b, ADR 0650): approved only by a person who may write
-  // checklists themselves, so what staff are asked to follow is always a person's.
-  const checklist = targets.find((t) => t.operation === "checklist.save");
-  if (checklist) {
-    if (ctx.actor !== "human") {
-      throw new ForbiddenError("A checklist is approved by a person, never by an AI actor", {
-        actionId: checklist.id,
-        actor: ctx.actor,
-      });
-    }
-    if (!holdsPermission(ctx.user, ctx.permissionGrants, "checklists:write")) {
-      throw new ForbiddenError(
-        "Approving a checklist needs the checklists permission (checklists:write)",
-        { actionId: checklist.id, permission: "checklists:write" },
-      );
-    }
-  }
-  // An AI's draft of a kind of note (stage 56, ADR 0833): approved only by a person who may keep
-  // the kinds themselves, so what staff are asked to write is always a person's.
-  const noteKind = targets.find((t) => t.operation === "note.kinds.save");
-  if (noteKind) {
-    if (ctx.actor !== "human") {
-      throw new ForbiddenError("A kind of note is approved by a person, never by an AI actor", {
-        actionId: noteKind.id,
-        actor: ctx.actor,
-      });
-    }
-    if (!holdsPermission(ctx.user, ctx.permissionGrants, "notes:manage")) {
-      throw new ForbiddenError(
-        "Approving a kind of note needs the notes permission (notes:manage)",
-        { actionId: noteKind.id, permission: "notes:manage" },
-      );
-    }
-  }
-  // An AI's opening stock or correction (stage 37, ADR 0680): approved only by a person who may
-  // change stock themselves, so stock is never changed by an AI alone.
-  const stock = targets.find(
-    (t) => t.operation === "stock.adjust" || t.operation === "stock.opening",
-  );
-  if (stock) {
-    if (ctx.actor !== "human") {
-      throw new ForbiddenError("A stock change is approved by a person, never by an AI actor", {
-        actionId: stock.id,
-        actor: ctx.actor,
-      });
-    }
-    if (!holdsPermission(ctx.user, ctx.permissionGrants, "stock:adjust")) {
-      throw new ForbiddenError(
-        "Approving a stock change needs the stock permission (stock:adjust)",
-        {
-          actionId: stock.id,
-          permission: "stock:adjust",
-        },
-      );
-    }
-  }
-  // A staff discount over the limit, or asked by an AI, and an AI's taking one off (stage 34,
-  // ADR 0691): approved only by a human admin, so an order's price beyond what the owner allowed,
-  // or an AI's change to it, is always the owner's decision.
-  const discount = targets.find(
-    (t) => t.operation === "order.adjust" || t.operation === "order.unadjust",
-  );
-  if (discount) {
-    if (ctx.actor !== "human") {
-      throw new ForbiddenError("A discount is approved by a person, never by an AI actor", {
-        actionId: discount.id,
-        actor: ctx.actor,
-      });
-    }
-    if (!roleHasPermission(ctx.user.role, "settings:manage")) {
-      throw new ForbiddenError("Approving a discount over the limit needs an admin", {
-        actionId: discount.id,
-        permission: "settings:manage",
-      });
-    }
-  }
+  assertApproverAfterRoster(approving, targets);
   const targetIds = new Set(targets.map((t) => t.id));
   // Out-of-order approval is refused: dependencies must be applied or approved together.
   const depIds = [...new Set(targets.flatMap((t) => parse<string[]>(t.depends_on, [])))];
@@ -1317,9 +1171,36 @@ async function approveActions(
       // A held routine message whose person stopped it (or whose address or number was
       // suppressed) while it waited (ADR 0675): nobody may approve around a stop. Skipped, and
       // dropped on its facet.
+      // Any other message to people (ADR 0678): a recipient who may not be contacted now (a stop
+      // taken while it waited) means it is not sent at all; approving cannot override it.
+      const outboundInput = parse<Partial<OutboundInput>>(action.input, {});
       const stopped =
         action.connection_id !== null
-          ? await stopHeldRoutineMessage(ctx.db, action.id, ctx.now)
+          ? ((await stopHeldRoutineMessage(ctx.db, action.id, ctx.now)) ??
+            ((
+              await contactBlockedMany(
+                ctx.db,
+                [
+                  {
+                    id: action.id,
+                    input: outboundInput,
+                    actor: action.actor,
+                    origin: parse<Partial<Origin>>(action.origin, {}),
+                  },
+                ],
+                ctx.now,
+              )
+            ).has(action.id)
+              ? CONTACT_BLOCKED_REASON
+              : // An AI's one-to-one draft from a person's mailbox is theirs alone to send.
+                outboundInput.contact?.personal &&
+                  othersPersonalDraft(
+                    outboundInput,
+                    await connectionOwner(ctx.db, action.connection_id),
+                    approver,
+                  )
+                ? PERSONAL_OWNER_REASON
+                : null))
           : null;
       if (stopped) {
         failed.add(action.id);
@@ -1355,6 +1236,10 @@ async function approveActions(
             connectionId: action.connection_id,
             facetKey: action.facet_key ?? "",
             action: action.gk_action ?? 0,
+            // A stoppable email's stop links are made now, as it goes (ADR 0678).
+            ...(outboundInput.contact?.stoppable
+              ? { stoppable: outboundInput.contact.stoppable }
+              : {}),
           });
           outcome = { ok: true };
         } catch (error) {

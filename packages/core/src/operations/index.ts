@@ -57,6 +57,7 @@ import { intakeOperations } from "./intake.ts";
 import { integrationOperations } from "./integration.ts";
 import { inviteOperations } from "./invite.ts";
 import { invoiceOperations } from "./invoice.ts";
+import { invoiceOrderOperations } from "./invoice-orders.ts";
 import { journeyOperations } from "./journey.ts";
 import { judgeOperations } from "./judge.ts";
 import { locationOperations } from "./location.ts";
@@ -117,6 +118,7 @@ import { summaryOperations } from "./summary.ts";
 import { supportOperations } from "./support.ts";
 import { taskOperations } from "./task.ts";
 import { timedMoveOperations } from "./timed-moves.ts";
+import { todayOperations } from "./today.ts";
 import { trashOperations } from "./trash.ts";
 import { updateOperations } from "./update.ts";
 import { userOperations } from "./user.ts";
@@ -235,6 +237,7 @@ export const coreOperations = [
   ...staffingTimeApproveOperations,
   ...staffingScreenOperations,
   ...screenOperations,
+  ...todayOperations,
   ...checklistOperations,
   ...checklistDayOperations,
   ...financeOperations,
@@ -247,6 +250,7 @@ export const coreOperations = [
   ...agreementDeskOperations,
   ...agreementRetentionOperations,
   ...invoiceOperations,
+  ...invoiceOrderOperations,
   ...accountingOperations,
   ...journeyOperations,
 ] as const;

@@ -351,6 +351,7 @@ Permanently delete a person now, for GDPR erasure requests (admins only). Works 
 | `subscriptionsEnding.atPeriodEnd` | number | yes |   | Asked to end when the period already paid for ends |
 | `subscriptionsEnding.now` | number | yes |   | Asked to end at once (past due, paused, unpaid, or waiting for a payment) |
 | `subscriptionsEnding.leftForStaff` | number | yes |   | Could not be asked at the provider: the admins are told to end them |
+| `invoicesKept` | number | yes |   | Issued invoices billed to them (stage 35): kept, no longer theirs, with their number, amounts and the bill-to as printed (the name, address and email they were sent to), for the books until the retention period decides (stage 35 step 11); staff credit or void one still owed |
 
 ## person.get
 

@@ -1424,6 +1424,9 @@ describe("the door role (criterion 6b, ADR 0436)", () => {
     "content.search",
     "content.staffGet",
     "content.staffList",
+    // Its own Today (stage 60, ADR 0874): every pack role reaches it; a door account has no item.
+    "today.get",
+    "today.rows",
   ]);
 
   it("can check in and list an event's tickets", async () => {

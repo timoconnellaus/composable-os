@@ -115,7 +115,7 @@ describe("tools from the registry (AC2)", () => {
     // The door role of a pack this deployment does not have: it holds nothing of the pack, so no
     // tool is listed and every other call is refused (the role itself is tested in apps/runner).
     // Every staff account, pack roles included, reads published versions of a staff-read object
-    // (ADR 0701): those three reads are all it is described.
+    // (ADR 0701), and its own Today (ADR 0874): those reads are all it is described.
     await env.DB.prepare("UPDATE core_user SET pack_role = 'ticketing.door' WHERE id = ?")
       .bind(coach.id)
       .run();
@@ -127,6 +127,8 @@ describe("tools from the registry (AC2)", () => {
       "content.search",
       "content.staffGet",
       "content.staffList",
+      "today.get",
+      "today.rows",
     ]);
     const attempt = await call(client, "call_operation", { name: "person.list", input: {} });
     expect(attempt.data).toMatchObject({ error: { code: "forbidden" } });

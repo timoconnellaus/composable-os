@@ -544,6 +544,44 @@ describe("me.attention is bounded (stage 48 criterion 4)", () => {
     expect(large.length).toBe(small.length);
     expect(Math.max(...large)).toBe(Math.max(...small));
   });
+
+  // The review of PR #467, F4 and F7: the holder objects were terms of one compound SELECT, which
+  // D1 refuses past five. Six holder objects with a listed pass each: all six listed, with their
+  // titles, in as many statements as one, each under 100 bound variables.
+  it("lists passes on six holder objects in the same statements as on one", async () => {
+    const six = extId("at6");
+    const kinds = ["p1", "p2", "p3", "p4", "p5", "p6"];
+    await reconcile(
+      manifest(six, {
+        objects: {
+          ...Object.fromEntries(kinds.map((key) => [key, passObject(`Pass ${key}`, true)])),
+          entry: spenderObject("Entry"),
+        },
+      }),
+    );
+    const buyer = await createBuyer(admin, "six");
+    const me = buyer.principal.personId;
+    await create(`${six}.p1`, { name: "Six-p1", person: me, uses: 3, until: iso(2 * DAY) });
+    const one = await measure(buyer);
+    for (const key of kinds.slice(1)) {
+      await create(`${six}.${key}`, {
+        name: `Six-${key}`,
+        person: me,
+        uses: 3,
+        until: iso(2 * DAY),
+      });
+    }
+    const many = await measure(buyer);
+    const { items } = await attention(buyer);
+    expect(
+      items
+        .filter((i) => i.kind === "pass_expiring")
+        .map((i) => [i.record.object, i.record.title])
+        .sort(),
+    ).toEqual(kinds.map((key) => [`${six}.${key}`, `Six-${key}`]));
+    expect(many.length).toBe(one.length);
+    expect(Math.max(...many)).toBeLessThan(100);
+  });
 });
 
 // Finding 3: `usesLeft` and `at` come from the host's row, so a pass whose object hides its uses

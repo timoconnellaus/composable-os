@@ -134,17 +134,31 @@ Each kind has its own file, wired into `defineExtension` (Deals: the last keys o
    `clickThrough` opens exactly the records the widget counted: `{ object, filter }` with
    `{ $row: "<column>" }` and `{ $param: "<name>" }` placeholders; one that resolves to null drops
    its condition. See Leads: `leadsDashboard` (the smallest), then Deals: `salesOverview`.
-   An automation that mails someone outside the org (a buyer) goes through the `email-send`
-   gatekeeper: declare `connections: [{ id, gatekeeper: "email-send", purpose }]` and the module,
-   and call `ctx.gatekeeper("email-send").call(id, resource, "send", message)` in a step; a person
-   binds the connection, and each send is an outbound action the approval policy decides. Send one
-   email per person (never several people in `to`), and read an address from `person.get`'s
-   `emails` (the one marked `primary`). For "add to calendar", pass `calendar: { uid, start, end,
-   title, location?, url?, sequence?, cancelled? }`: the gatekeeper makes the `.ics` file
-   (ADR 0571); nothing else can be attached (Bookings: `bookingConfirmed`). Give each email an
-   `idempotencyKey` stable across retries (`${event.runId}:${n}`), so a step retried after a
-   failure part way sends nothing twice (ADR 0574).
-   **Routine mail** (ADR 0590) is the exception, and only for a shipped pack (a pack in this
+   An email about a record a person has (a booking's confirmation, a reminder, a receipt) is
+   **routine mail** (below) in a shipped pack: the host words it, addresses it and asks the
+   person's contact choices itself. Any other email an automation or a tool sends to people (a
+   follow-up, "we have not seen you", news) goes through the `email-send` gatekeeper and **must
+   declare what it is for**: declare `connections: [{ id, gatekeeper: "email-send", purpose }]` and
+   the module, and call `ctx.gatekeeper("email-send").call(id, resource, "send", { to, subject,
+   text, purpose: "follow_up" })` in a step (`"news_and_offers"` for anything promotional, which
+   goes only to people who said yes). The host asks each recipient's contact choices before the
+   send is queued, whatever the approval preset (ADR 0678): who stopped is left out and the
+   receipt's `dropped` says how many (never who); when nobody is left the call throws
+   `recipient_stopped` (nothing was sent: do not retry it, and never try another way to reach
+   them). Each recipient gets their own copy ending with their own stop link, which the host adds:
+   never write a link or a "to stop" line yourself. Without a `purpose` an email to anyone the CRM
+   knows is refused (`purpose_required`); a person's own one-to-one email needs none. Only
+   email-send takes a purpose: an automation's email through a mailbox connection (Gmail,
+   Outlook), its calendar invitation, or a connected server's tool call naming a person's address
+   or number is refused, whatever the preset. Each refusal is recorded for staff. A person
+   binds the connection, and each send is an outbound action the approval policy decides. Use `to`
+   only (no `cc` or `bcc`), and read an address from `person.get`'s `emails` (the one marked
+   `primary`). For "add to calendar", pass `calendar: { uid, start, end, title, location?, url?,
+   sequence?, cancelled? }`: the gatekeeper makes the `.ics` file (ADR 0571); nothing else can be
+   attached (Bookings: `bookingConfirmed`). Give each email an `idempotencyKey` stable across
+   retries (`${event.runId}:${n}`), so a step retried after a failure part way sends nothing twice
+   (ADR 0574). Texts have no such path: only routine messages text a person.
+   **Routine mail** (ADR 0590) is the way for a record's own messages, and only for a shipped pack (a pack in this
    repository's `packs/`, or an org's own repository): a fixed email to the person a record belongs
    to (a booking's confirmation, a reminder) that the host sends without approval. Declare it in
    the manifest's `routineMail` (a kind about one of your objects or an `order`, its messages'
@@ -177,7 +191,9 @@ Each kind has its own file, wired into `defineExtension` (Deals: the last keys o
    `run.undeclared` is empty, then `run.steps`, `run.writes` and `run.notifications`. Test the
    case where the conditions do not hold too. A gatekeeper the extension declares is faked in
    memory: pass `gatekeepers: { "email-send": (call) => ... }` for its answers, and assert
-   `host.gatekeeperCalls` (each with its step). Routine mail is recorded in `host.routineSends`
+   `host.gatekeeperCalls` (each with its step) and that each send names its `purpose`; answer one
+   with `{ status: "pending", id: 1, dropped: 1 }`, and throw `recipient_stopped` for another, to
+   test what the automation does when someone cannot be contacted. Routine mail is recorded in `host.routineSends`
    (the kind, record, message and values asked for; `routineMail: (send) => ...` for answers);
    render a message's words with `renderTemplate` to test them (Bookings' test). The test host does not evaluate the trigger: assert
    its declared shape (the sign of `offsetDays`), and pass `period` for `schedule` and
