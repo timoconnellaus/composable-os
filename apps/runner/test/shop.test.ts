@@ -18,10 +18,13 @@ import {
   type ActingUser,
   type CustomerPrincipal,
   type ExtensionHost,
+  extensionDashboardId,
   getObject,
   getVisible,
   type InvocationContext,
+  invokeByName,
   listVisible,
+  memoryWidgetCache,
   type OutsideInvocationContext,
   refreshSchemaRegistry,
 } from "@composable-os/core";
@@ -523,5 +526,44 @@ describe("the stockroom role", () => {
     expect(await refusal(run("order.list", {}, staff(stockroom)))).toMatchObject({
       code: "forbidden",
     });
+  });
+});
+
+describe("the Shop dashboard", () => {
+  it("runs every widget over the rec_* views, counting what is low and what sold", async () => {
+    const dashboardId = extensionDashboardId("shop", "shopOverview");
+    const dashboard = await run<{ widgets: { id: string }[] }>(
+      "dashboard.get",
+      { id: dashboardId },
+      staff(admin),
+    );
+    expect(dashboard.widgets.map((w) => w.id)).toEqual([
+      "low",
+      "to-pack",
+      "ready",
+      "sales",
+      "low-by-supplier",
+      "best-sellers",
+    ]);
+    const tomorrow = new Date(Date.now() + 86_400_000).toISOString().slice(0, 10);
+    const results: Record<string, Record<string, unknown>[]> = {};
+    for (const { id } of dashboard.widgets) {
+      const out = await invokeByName(
+        "widget.run",
+        {
+          dashboardId,
+          widgetId: id,
+          filters: { paid: { from: "2000-01-01", to: tomorrow } },
+          refresh: true,
+        },
+        { ...staff(admin), widgetCache: memoryWidgetCache() },
+      );
+      results[id] = (out as { rows: Record<string, unknown>[] }).rows;
+    }
+    expect(Number(results.low?.[0]?.value)).toBeGreaterThan(0);
+    expect(results["low-by-supplier"]?.length).toBeGreaterThan(0);
+    // The hoodie, the drink and the cap paid for earlier in this file.
+    expect(Number(results.sales?.[0]?.value)).toBeGreaterThan(0);
+    expect(results["best-sellers"]?.length).toBeGreaterThan(0);
   });
 });
