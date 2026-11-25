@@ -18,6 +18,7 @@ import {
   purgeNotifications,
   purgeRoutineMail,
   purgeRunHistory,
+  purgeWrongGuesses,
   queueEventSink,
   runAgreementRetention,
   runAuditPurge,
@@ -111,6 +112,8 @@ export async function runScheduledMaintenance(env: PurgeEnv, clock?: () => Date)
     purgeIdempotencyKeys(db, clock?.() ?? new Date()),
   );
   if (idempotencyKeys?.deleted) console.log(`idempotency keys: ${idempotencyKeys.deleted} purged`);
+  // Wrong guesses per client address are counted per hour, and kept no longer (ADR 0940).
+  await step("wrong guesses", () => purgeWrongGuesses(db, clock?.() ?? new Date()));
   // Erase requests past their due date: admins are told once a day until staff close them.
   const eraseRequests = await step("overdue erase requests", () =>
     notifyOverdueEraseRequests(db, clock?.() ?? new Date()),

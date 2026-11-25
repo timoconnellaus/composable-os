@@ -12,6 +12,9 @@ export const BOUND_CUSTOMER_SECRET = "customer-secret-for-the-binding-789";
 /** Codes the host would have emailed, by address (lower case). */
 export const sentCodes = new Map<string, string>();
 
+/** The strict tier's binding for calls over the binding (ADR 0940), for tests to read. */
+export const boundStrictLimit = memoryRateLimit(10_000);
+
 let cached: ApiEnv | null = null;
 
 /** One env object for every call, so cos-app's per-env caches (and the one below) hold. */
@@ -25,6 +28,11 @@ export function boundTestEnv(base: object): ApiEnv {
     MCP_WRITE_RATE_LIMIT: memoryRateLimit(10_000),
     // Codes to new addresses (ADR 0459): without the binding none is sent, so the tests bind one.
     CUSTOMER_CODE_NEW_RATE_LIMIT: memoryRateLimit(10_000),
+    // The limit per client address (ADR 0940): exact, and high enough for every test.
+    PUBLIC_RATE_LIMIT: memoryRateLimit(10_000),
+    PUBLIC_WRITE_RATE_LIMIT: memoryRateLimit(10_000),
+    PUBLIC_STRICT_RATE_LIMIT: boundStrictLimit,
+    PUBLIC_SHARED_RATE_LIMIT: memoryRateLimit(10_000),
     CUSTOMER_AUTH_SECRET: BOUND_CUSTOMER_SECRET,
     CUSTOMER_AUTH_URL: WEB_ORIGIN,
   } as unknown as ApiEnv;

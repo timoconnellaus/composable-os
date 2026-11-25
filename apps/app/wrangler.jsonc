@@ -134,7 +134,37 @@
     },
     // Calls to the desk origin (the enrolled tablet, ADR 0649) per client address: a tablet makes
     // a few a minute; codes and enrolment codes are guessed nowhere near fast enough.
-    { "name": "DESK_RATE_LIMIT", "namespace_id": "4151", "simple": { "limit": 60, "period": 60 } }
+    { "name": "DESK_RATE_LIMIT", "namespace_id": "4151", "simple": { "limit": 60, "period": 60 } },
+    // Calls from outside the org to an operation open to the public, per client address (ADR
+    // 0940, packages/core/src/public-limits.ts), keyed by a hash of the address (an IPv6 address
+    // by its /64) and the operation. cos-runner binds the strict and shared ones with the same
+    // namespaces, so a pack tool's order start counts in the same place.
+    // standard: reads (120 a minute per address and operation).
+    {
+      "name": "PUBLIC_RATE_LIMIT",
+      "namespace_id": "4110",
+      "simple": { "limit": 120, "period": 60 }
+    },
+    // low: writes, order.quote and intake.open (30 a minute per address and operation).
+    {
+      "name": "PUBLIC_WRITE_RATE_LIMIT",
+      "namespace_id": "4111",
+      "simple": { "limit": 30, "period": 60 }
+    },
+    // strict: order starts, code checks, contact.stop, intake.submit (10 a minute per address and
+    // group).
+    {
+      "name": "PUBLIC_STRICT_RATE_LIMIT",
+      "namespace_id": "4112",
+      "simple": { "limit": 10, "period": 60 }
+    },
+    // A client app's Worker that passes no visitor address (an older template): one bucket for
+    // the client app per operation or group, never unlimited.
+    {
+      "name": "PUBLIC_SHARED_RATE_LIMIT",
+      "namespace_id": "4113",
+      "simple": { "limit": 1200, "period": 60 }
+    }
   ],
   "vars": {
     // better-auth (default) or cloudflare-access. See docs/deploying.md.

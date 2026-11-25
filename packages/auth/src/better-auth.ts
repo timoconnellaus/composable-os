@@ -50,6 +50,8 @@ export interface BetterAuthOptions {
   codeRateLimit?: RateLimitBinding | undefined;
   /** Code requests per client address, keyed by a keyed hash of it. */
   codeAddressRateLimit?: RateLimitBinding | undefined;
+  /** What the address is keyed with (`clientAddressSecret`): one count for every kind of sign-in. */
+  addressSecret?: string | undefined;
   clock?: () => Date;
 }
 
@@ -103,6 +105,18 @@ export function clientAddressBucket(address: string): string {
 }
 
 /**
+ * The one secret client addresses are keyed with (ADR 0940): sign-in for staff, customers and
+ * practitioners, and the pipeline's limit on public operations, so an address has one count
+ * whichever door it uses. Derived from the staff secret, or the customer one on a host without it.
+ */
+export function clientAddressSecret(env: {
+  BETTER_AUTH_SECRET?: string | undefined;
+  CUSTOMER_AUTH_SECRET?: string | undefined;
+}): string {
+  return `client-address\n${env.BETTER_AUTH_SECRET || env.CUSTOMER_AUTH_SECRET || ""}`;
+}
+
+/**
  * A client address as a rate-limit key: its bucket (an IPv6 address's /64), hashed with a
  * secret, so no address is passed on.
  */
@@ -123,6 +137,8 @@ export async function beforeCodeRequest(
   options: {
     ready?: (() => Promise<string | null>) | undefined;
     secret: string;
+    /** The secret the client address is keyed with: one for every kind of sign-in (ADR 0940). */
+    addressSecret?: string | undefined;
     codeRateLimit?: RateLimitBinding | undefined;
     codeAddressRateLimit?: RateLimitBinding | undefined;
     what: string;
@@ -139,7 +155,7 @@ export async function beforeCodeRequest(
   if (address && options.codeAddressRateLimit) {
     const limited = await rateLimit(
       options.codeAddressRateLimit,
-      `code-from:${await addressKey(address, options.secret)}`,
+      `code-from:${await addressKey(address, options.addressSecret ?? options.secret)}`,
     );
     if (!limited.ok) {
       throw new APIError("TOO_MANY_REQUESTS", {
@@ -205,6 +221,7 @@ export function createBetterAuth(options: BetterAuthOptions) {
         await beforeCodeRequest(ctx, {
           ready,
           secret: options.secret,
+          addressSecret: options.addressSecret,
           codeRateLimit: options.codeRateLimit,
           codeAddressRateLimit: options.codeAddressRateLimit,
           what: "Sign-in by code",

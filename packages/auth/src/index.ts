@@ -2,6 +2,7 @@ import type { RateLimitBinding } from "@composable-os/core";
 import {
   type BetterAuthInstance,
   betterAuthProvider,
+  clientAddressSecret,
   createBetterAuth,
   type StaffCodes,
 } from "./better-auth.ts";
@@ -28,6 +29,7 @@ export {
   type BetterAuthOptions,
   betterAuthProvider,
   type CodeRequestRefusal,
+  clientAddressSecret,
   codeRequestRefusal,
   createBetterAuth,
   requestStaffCode,
@@ -133,6 +135,7 @@ export function getBetterAuth(env: IdentityEnv): BetterAuthInstance | null {
       codes: () => staffCodes.get(env) ?? null,
       codeRateLimit: env.CUSTOMER_CODE_RATE_LIMIT,
       codeAddressRateLimit: env.CUSTOMER_CODE_ADDRESS_RATE_LIMIT,
+      addressSecret: clientAddressSecret(env),
     });
     betterAuthCache.set(env, auth);
   }
@@ -224,6 +227,7 @@ export function getCustomerIdentity(
       sendCode,
       codeRateLimit: env.CUSTOMER_CODE_RATE_LIMIT,
       codeAddressRateLimit: env.CUSTOMER_CODE_ADDRESS_RATE_LIMIT,
+      addressSecret: clientAddressSecret(env),
       codeNewRateLimit: env.CUSTOMER_CODE_NEW_RATE_LIMIT,
       ready,
     });
@@ -262,6 +266,7 @@ export function getPractitionerIdentity(
         sendCode,
         codeRateLimit: env.CUSTOMER_CODE_RATE_LIMIT,
         codeAddressRateLimit: env.CUSTOMER_CODE_ADDRESS_RATE_LIMIT,
+        addressSecret: clientAddressSecret(env),
         ready,
       }),
     );

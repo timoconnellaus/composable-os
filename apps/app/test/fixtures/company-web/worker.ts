@@ -8,6 +8,7 @@
 //   GET  /                                            the public page
 //   GET  /api/media/<id>                              the template's media route (issue #181)
 //   GET  /api/v1/agreements/acceptances/<id>.pdf      a signed agreement's PDF (stage 44)
+//   GET, POST /stop                                   the one-tap stop (stage 30)
 //
 // Bundled by the app's vitest config with esbuild and run as an auxiliary Worker.
 import {
@@ -17,6 +18,7 @@ import {
   mediaRoute,
   operationRoute,
   signedInCustomer,
+  stopRoute,
   withSessionKept,
 } from "../../../../../templates/client/apps/web/src/host.ts";
 
@@ -29,6 +31,8 @@ export default {
     if (call) return call;
     const picture = await mediaRoute(request, env);
     if (picture) return picture;
+    const stop = await stopRoute(request, env);
+    if (stop) return stop;
     const pdf = await agreementPdfRoute(request, env);
     if (pdf) return withSessionKept(request, env, pdf);
     const { pathname } = new URL(request.url);

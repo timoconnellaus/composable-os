@@ -34,14 +34,19 @@
 // - It is never a customer (or practitioner) who has not signed in: no header, claim or body field names the
 //   caller. The customer is whoever the verified cookie says, and the visibility seam gives them
 //   their own rows only.
-// - `cf-connecting-ip` is the bound Worker's word (it should forward its visitor's). It is used
-//   only to limit sign-in code requests per client address; the per-address-asked-for limit and
-//   the edge rules hold whatever it says.
+// - The visitor's address is the bound Worker's word (ADR 0940): `cos-visitor-address`, which the
+//   typed client's `visitorAddress` sets from the browser's request (an older template sent only
+//   `cf-connecting-ip`, on its sign-in steps, and that is still read). It keys the limit per
+//   client address on public operations and on sign-in, and nothing else: it names no caller.
+//   On the public surface the address is the connection's and this header is never read. A
+//   bound Worker that passes none is counted in one shared bucket for the client app, never
+//   unlimited.
 // - `Origin` on the sign-in routes is forwarded for Better Auth's cross-site check, which
 //   protects the customer's browser; nothing about the caller is decided from it.
 import { WorkerEntrypoint } from "cloudflare:workers";
 import { CUSTOMER_COOKIE_PREFIX, PRACTITIONER_COOKIE_PREFIX } from "@composable-os/auth";
 import {
+  type ClientAddress,
   coreInvoker,
   createHttpSurface,
   ForbiddenError,
@@ -56,6 +61,7 @@ import { type MediaEnv, mediaResizerFor, mediaStoreFor } from "../media.ts";
 import { handleAgreementPdf, isAgreementPdfPath } from "./agreement-pdf.ts";
 import {
   type ApiEnv,
+  clientAddressOf,
   customers,
   handleCustomerAuth,
   handlePractitionerAuth,
@@ -66,6 +72,37 @@ import {
 } from "./api.ts";
 
 const PUBLIC: PublicPrincipal = Object.freeze({ kind: "public" });
+
+/** The header a client app's Worker names its visitor's address in (`visitorAddress`, ADR 0940). */
+export const VISITOR_ADDRESS_HEADER = "cos-visitor-address";
+
+/** A bound Worker that names no visitor: one bucket for the client app (ADR 0940). */
+const CLIENT_APP_SHARED: ClientAddress = Object.freeze({ key: "client-app", shared: true });
+
+/**
+ * Who a call over the binding is counted as: the visitor the client app's Worker names, or, from
+ * an older template, the `cf-connecting-ip` it forwarded; else the client app's shared bucket.
+ */
+export async function boundAddress(request: Request, env: ApiEnv): Promise<ClientAddress> {
+  return (
+    (await clientAddressOf(request.headers.get(VISITOR_ADDRESS_HEADER), env)) ??
+    (await clientAddressOf(request.headers.get("cf-connecting-ip"), env)) ??
+    CLIENT_APP_SHARED
+  );
+}
+
+/**
+ * A sign-in step as Better Auth's per-address limit reads it (`cf-connecting-ip`): the visitor the
+ * client app names, when it names one. The limit is the sign-in's; nothing else reads the header.
+ */
+function signInWithVisitor(request: Request): Request {
+  const visitor = request.headers.get(VISITOR_ADDRESS_HEADER);
+  if (!visitor) return request;
+  const headers = new Headers(request.headers);
+  headers.set("cf-connecting-ip", visitor);
+  headers.delete(VISITOR_ADDRESS_HEADER);
+  return new Request(request, { headers });
+}
 
 /** A session cookie of `prefix` by name, with or without Better Auth's `__Secure-` prefix. */
 function isCookieOf(part: string, prefix: string): boolean {
@@ -107,6 +144,7 @@ export async function boundContext(
     );
   }
   const db = createCrmDb(env.DB);
+  const address = await boundAddress(request, env);
   if (asPractitioner) {
     const resolved = (await practitioners(env)?.resolveSession(asPractitioner)) ?? null;
     return outsideContext(
@@ -114,13 +152,14 @@ export async function boundContext(
       db,
       resolved?.principal ?? PUBLIC,
       resolved?.principal ? resolved.sessionId : null,
+      address,
     );
   }
   const identity = customers(env);
   const { principal, sessionId } = identity
     ? await identity.resolveSession(asCustomer ?? new Request(request.url))
     : { principal: PUBLIC, sessionId: null };
-  return outsideContext(env, db, principal, sessionId);
+  return outsideContext(env, db, principal, sessionId, address);
 }
 
 const surfaces = new WeakMap<object, ReturnType<typeof createHttpSurface>>();
@@ -134,8 +173,10 @@ const notServed = () =>
 /** Serves one request that came over the client-app binding. */
 export async function handleBound(request: Request, env: ApiEnv): Promise<Response> {
   const { pathname } = new URL(request.url);
-  if (isCustomerAuthPath(pathname)) return handleCustomerAuth(request, env);
-  if (isPractitionerAuthPath(pathname)) return handlePractitionerAuth(request, env);
+  if (isCustomerAuthPath(pathname)) return handleCustomerAuth(signInWithVisitor(request), env);
+  if (isPractitionerAuthPath(pathname)) {
+    return handlePractitionerAuth(signInWithVisitor(request), env);
+  }
   // A customer's own signed PDF: the caller is never staff here, so only me.agreements.pdf.
   if (isAgreementPdfPath(pathname)) {
     return handleAgreementPdf(request, { context: (req) => boundContext(req, env) });
