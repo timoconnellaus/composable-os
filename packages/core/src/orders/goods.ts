@@ -14,7 +14,8 @@
 //     posts "everywhere else", in a country no other post option of its object names). Collect and
 //     take it now take no address.
 //   - Postage is priced by the host (ADR 0685): the option's own price, or nothing when the goods
-//     on the order cost at least its "free over". Carriers and weights are later steps.
+//     on the order cost at least its "free over", counted on their net after the order's deal (a
+//     code or a member's price, ADR 0693). Carriers and weights are later steps.
 //
 // `order.quote` runs the same rules and reports what the buyer has still to do (choose a delivery,
 // give an address) and what is not available, instead of refusing; everything else it refuses as
@@ -156,7 +157,7 @@ export async function goodsFactsOf(
 
 /** Something the buyer has still to do, or cannot have, reported by order.quote. */
 export interface QuoteProblem {
-  rule: "delivery_needed" | "address_needed" | "sold_out" | "not_enough";
+  rule: "delivery_needed" | "address_needed" | "sold_out" | "not_enough" | "code_not_valid";
   message: string;
   line?: number;
 }
@@ -174,7 +175,10 @@ export interface GoodsOutcome {
     freeOver: number | null;
     free: boolean;
   } | null;
-  /** The goods on the order, before the delivery: what free over is measured against. */
+  /**
+   * The goods on the order, before the delivery and after the deal (their net, ADR 0693): what
+   * free over is measured against.
+   */
   goodsTotal: number;
   /** order.quote only: what the buyer has still to do. order.start throws these instead. */
   problems: QuoteProblem[];
@@ -250,7 +254,9 @@ export async function applyGoodsRules(
   const lines = [...priced];
   const deliveryLine = request ? lines[lines.length - 1] : undefined;
   const goods = lines.filter((line) => line.goods);
-  const goodsTotal = goods.reduce((sum, line) => sum + line.total, 0);
+  // The goods' net: a code or a member's price comes off before free postage is decided (the
+  // spec's rule 8, ADR 0693). Free postage still applies beside the deal (decision 12).
+  const goodsTotal = goods.reduce((sum, line) => sum + line.total - line.discount, 0);
   for (const [index, line] of lines.entries()) {
     // Only the delivery chosen is a delivery: one per order, never among the lines.
     if (line.delivery && line !== deliveryLine) {

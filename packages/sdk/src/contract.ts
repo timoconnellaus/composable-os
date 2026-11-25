@@ -8,6 +8,7 @@ import type { AutomationSpec } from "./automation.ts";
 import type { CalendarEntrySpec } from "./calendar-entry.ts";
 import type { CapacitySpec, ClaimsSpec } from "./capacity.ts";
 import type { ChecklistsSpec } from "./checklists.ts";
+import type { DiscountSpec } from "./discount.ts";
 import type { DocumentPathSpec, DocumentSchema } from "./document.ts";
 import type { FieldTypeName } from "./field-types.ts";
 import type { IntakeSpec } from "./intake.ts";
@@ -283,6 +284,11 @@ export interface ObjectSpec {
    * AllowanceSpec, ADRs 0493 and 0494. The host counts and refuses a spend past the limit.
    */
   allowance?: AllowanceSpec;
+  /**
+   * Records that are discounts (see DiscountSpec, ADR 0693): a code or a member's price, worked out
+   * by the host when it prices an order, one deal per order, limits kept by the database.
+   */
+  discount?: DiscountSpec;
   /**
    * An agreement point (see AgreementsSpec, ADR 0641): where a business may need a person to have
    * agreed to its documents first. The business attaches the documents; the pack names the place.

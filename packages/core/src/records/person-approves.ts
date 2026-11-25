@@ -6,10 +6,13 @@
 // is the change being made by a person.
 //
 // The same holds for a merge of People where either has a live family link (ADR 0540): who may act
-// for whom is identity, and a merge moves, ends or deletes links.
+// for whom is identity, and a merge moves, ends or deletes links; and for any change to a discount
+// in a state it applies in (ADR 0693): what buyers are charged is a person's to change.
 import type { CoreDatabase } from "@composable-os/db";
 import type { Kysely } from "kysely";
 import { getObject, listObjects } from "../fields/index.ts";
+import { orgReader, visibleSource } from "../visibility/index.ts";
+import { viewColumnOf } from "./columns.ts";
 import { hasLiveLink } from "./person-links.ts";
 
 type Values = Record<string, unknown>;
@@ -34,6 +37,47 @@ function setsPersonApproves(object: unknown, values: unknown, changing = false):
   );
 }
 
+/**
+ * Whether the record is a discount in a state it applies in (ADR 0693): its terms are what buyers
+ * are charged, so a change to it by anyone but a person (loosening a limit, raising what it takes
+ * off) waits for a person, as moving it live does.
+ */
+async function isLiveDiscount(
+  db: Kysely<CoreDatabase>,
+  object: unknown,
+  id: unknown,
+): Promise<boolean> {
+  if (typeof object !== "string" || typeof id !== "string") return false;
+  const definition = getObject(object);
+  const stateField = definition?.states?.field;
+  if (!definition?.discount || !stateField) return false;
+  const field = definition.fields.find((f) => f.name === stateField);
+  const column = field ? viewColumnOf(field) : null;
+  if (!column) return false;
+  // biome-ignore lint/suspicious/noExplicitAny: the source is a registry-driven view, not a key of the typed schema.
+  const row = (await (db as Kysely<any>)
+    .selectFrom(visibleSource(orgReader(db), definition))
+    .select(`${column} as state`)
+    .where("id", "=", id)
+    .executeTakeFirst()) as { state?: unknown } | undefined;
+  return definition.discount.live.includes(String(row?.state ?? ""));
+}
+
+/** The record operations that write an extension record named by `input.object`. */
+const RECORD_WRITES: ReadonlySet<string> = new Set([
+  "record.create",
+  "record.createMany",
+  "record.update",
+  "record.restore",
+  "record.restoreVersion",
+  "record.import",
+]);
+
+/** Whether `object` holds some discount's promo codes (its `codes.object`). */
+function isCodeObject(object: string): boolean {
+  return listObjects().some((o) => o.discount?.codes?.object === object);
+}
+
 /** The fields of `object` a recurring series copies onto it (ADR 0500's `copy` targets). */
 function copiedFieldsOf(object: string): string[] {
   return listObjects().flatMap((o) =>
@@ -48,13 +92,24 @@ export async function touchesPersonApproves(
   input: unknown,
 ): Promise<boolean> {
   if (!isValues(input)) return false;
+  // Promo codes (ADR 0693, the review of PR #454): a code is a way into its discount, so any
+  // write of one by anyone but a person (a new word, more uses, switched back on, pointed at
+  // another discount, restored from the Trash) waits for a person, whatever its discount's state.
+  // A discount restored from the Trash may be live again: the same.
+  if (RECORD_WRITES.has(operation) && typeof input.object === "string") {
+    if (isCodeObject(input.object)) return true;
+    if (operation === "record.restore" && getObject(input.object)?.discount) return true;
+  }
   switch (operation) {
     case "record.create":
     case "recurring.change":
     case "recurring.close":
       return setsPersonApproves(input.object, input.values);
     case "record.update":
-      return setsPersonApproves(input.object, input.values, true);
+      return (
+        setsPersonApproves(input.object, input.values, true) ||
+        (await isLiveDiscount(db, input.object, input.id))
+      );
     // Following the series writes the named fields (default every copied one) from the series
     // (ADR 0620): a human-only field among them is a person's to change.
     case "recurring.follow": {

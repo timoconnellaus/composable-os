@@ -1194,6 +1194,12 @@ export async function queueEraseOrders(ctx: HandlerContext, s: StoreSubject): Pr
           updated_at: ctx.now,
         })
         .where("id", "in", part),
+      // Their discount uses (ADR 0693) keep the discount, the order and the amount (the order is
+      // a financial record) and lose whose they were, as the order does.
+      ctx.db
+        .updateTable("core_discount_use")
+        .set({ person_id: null, updated_at: ctx.now })
+        .where("order_id", "in", part),
       // Where their goods were posted (stage 37, ADR 0682): the address is blanked at once; the
       // delivery's kind and line stay with the order.
       ctx.db

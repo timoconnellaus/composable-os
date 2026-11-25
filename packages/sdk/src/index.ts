@@ -12,6 +12,7 @@ export * from "./calendar-entry.ts";
 export * from "./capacity.ts";
 export * from "./checklists.ts";
 export * from "./contract.ts";
+export * from "./discount.ts";
 export * from "./document.ts";
 export * from "./field-types.ts";
 export * from "./intake.ts";
