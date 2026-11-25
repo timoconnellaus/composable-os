@@ -141,6 +141,12 @@
 - [Agreements: operations](https://docs.composableos.dev/capabilities/agreements/operations/)
 - [Agreements: permissions](https://docs.composableos.dev/capabilities/agreements/permissions/)
 - [Agreements: screens](https://docs.composableos.dev/capabilities/agreements/screens/)
+- [Consent to be contacted: behaviours](https://docs.composableos.dev/capabilities/contact/behaviours/)
+- [Consent to be contacted: decisions](https://docs.composableos.dev/capabilities/contact/decisions/)
+- [Consent to be contacted](https://docs.composableos.dev/capabilities/contact/): One register of a person's contact choices, one suppression list, the one-tap stop, and one check every email and text passes before it leaves, whoever sends it.
+- [Consent to be contacted: operations](https://docs.composableos.dev/capabilities/contact/operations/)
+- [Consent to be contacted: permissions](https://docs.composableos.dev/capabilities/contact/permissions/)
+- [Consent to be contacted: screens](https://docs.composableos.dev/capabilities/contact/screens/)
 - [Finance: behaviours](https://docs.composableos.dev/capabilities/finance/behaviours/)
 - [Finance: decisions](https://docs.composableos.dev/capabilities/finance/decisions/)
 - [Finance](https://docs.composableos.dev/capabilities/finance/): The business's figures for the books, by the business's own day. Day summaries, Sales, Tax and Refunds, a monthly close that keeps a month exactly as it was, and one CSV file per report for its accountant.

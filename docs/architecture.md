@@ -443,6 +443,18 @@ Stage 6a ([ADR 0110](adr/0110-integration-host-per-connection.md) to
   scope off; the client web app's `/stop` route shows one button and posts it. Members change
   their choices in My account's Contact preferences (`me.contact.*`); staff record a member's on
   request or from paper (`person.contact.record`, a person only), never lifting a stop.
+  **Every other email and text asks too** ([ADR 0678](adr/0678-every-sender-asks-the-consent-register.md)),
+  at the integration host's approval queue, the one place every caller's send passes, whatever
+  the preset: a gatekeeper asks the queue (`contactCheck`, `checkSend` in `contact/senders.ts`)
+  before it queues a caller's email, the queue checks the submitted action's `To`, `Cc` and `Bcc`
+  again (`contactAtSubmit`, for gatekeepers that do not ask), and approving one that waited asks
+  again (`contactBlocked`). A person's own email asks only the suppression list and a child's
+  address; anyone else's (an automation, a tool, the assistant, MCP, extension code) declares
+  `purpose: "follow_up"` or `"news_and_offers"`, is asked in full for each Person (matched by the
+  folded address, `peopleAtAddresses`), and each copy ends with that Person's own stop link, made
+  by the host. Who cannot be contacted is dropped (only the count is said); nobody left is the one
+  plain refusal `recipient_stopped`. The host's own essential mail (sign-in codes, an agreement's
+  copy, an order's confirmation, a phone check, staff notices) is exempt.
 - **Gatekeepers we wrote**: `gatekeeper-email-send`, `gatekeeper-slack-post`, `gatekeeper-webhook`,
   `gatekeeper-text` (texts, above).
   `gatekeeper-accounting` (stage 61, ADR 0880) is the **accounting contract** every accounting
