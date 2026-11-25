@@ -82,7 +82,7 @@ export const SOLUTIONS: readonly Solution[] = [
     },
     pieces: {
       heading: "The whole system, and how far along each piece is.",
-      lead: "Every piece works on the same members, payments and rules. The built ones are tested and can go into your system now. None is live at a gym yet, and card payments and video have so far run only in test mode.",
+      lead: "Every piece works on the same members, payments and rules. The built ones are tested and can go into your system now. None is live at a gym yet, and card payments and video have so far run only against stand-ins, not the real payment or video service.",
       built: [
         {
           title: "Members and enquiries",
@@ -169,7 +169,7 @@ export const SOLUTIONS: readonly Solution[] = [
       },
       {
         q: "Can members use it on their phones?",
-        a: "Yes. Class bookings, tickets, courses, training programs and their own account each have screens for your own app as well as your website. The app's screens are not yet tried on real phones.",
+        a: "Yes. Class bookings, tickets, courses, training programs and their own account each have screens for your own app as well as your website. Most of the app's screens are not yet tried on real phones.",
       },
       {
         q: "Who takes the payments?",
