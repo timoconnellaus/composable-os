@@ -207,6 +207,37 @@
       "invalidates": []
     },
     {
+      "name": "contact.stop",
+      "description": "The one-tap stop in an email: turns off the one kind of message, on the one channel, that the link's token names, for the one Person it names. It can only turn something off. The answer is the same whether the token was good or not.",
+      "risk": "write",
+      "audiences": ["public"],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "token": {
+            "type": "string",
+            "maxLength": 400,
+            "description": "The token from the stop link (its t parameter)"
+          }
+        },
+        "required": ["token"],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "done": {
+            "type": "boolean",
+            "const": true
+          }
+        },
+        "required": ["done"],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
       "name": "content.get",
       "description": "Read one published record of a content object (a blog post) by its slug, as the public reads it: its published version, with only the fields the object lets the public read. An old slug of a record whose slug changed answers `redirect` with the slug it has now. A draft, an unpublished record and an unknown slug are all not found. Read-only.",
       "risk": "read",

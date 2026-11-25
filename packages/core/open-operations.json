@@ -32,6 +32,12 @@
       "risk": "read"
     },
     {
+      "name": "contact.stop",
+      "audiences": ["customer", "public"],
+      "risk": "write",
+      "hostInternal": true
+    },
+    {
       "name": "content.get",
       "audiences": ["staff", "customer", "public"],
       "risk": "read",
@@ -191,6 +197,18 @@
     },
     {
       "name": "me.code",
+      "audiences": ["customer"],
+      "risk": "write",
+      "hostInternal": true
+    },
+    {
+      "name": "me.contact.choices",
+      "audiences": ["customer"],
+      "risk": "read",
+      "hostInternal": true
+    },
+    {
+      "name": "me.contact.setChoices",
       "audiences": ["customer"],
       "risk": "write",
       "hostInternal": true

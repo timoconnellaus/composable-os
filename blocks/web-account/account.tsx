@@ -1,7 +1,8 @@
 // My account (stage 48), for the web: the signed-in customer's own area, one page of sections.
 // The base sections come with it: Orders, Agreements, Family, Payment method (only for someone who
-// pays a subscription), Your details, and Sign-in and devices. The packs' sections are passed in
-// `sections`, each the pack's own block, and take their place by `order` (a pack's come first).
+// pays a subscription), Your details, Contact preferences (stage 30) and Sign-in and devices. The
+// packs' sections are passed in `sections`, each the pack's own block, and take their place by
+// `order` (a pack's come first).
 //
 // It decides nothing: which sections this customer has, in what order, and whether Payment method
 // shows is the host's answer (me.portal, ADR 0710); what each section shows is the host's answer to
@@ -22,6 +23,7 @@ import {
   portalSections,
 } from "@composable-os/client";
 import { type ComponentType, createElement, type ReactNode, useMemo } from "react";
+import { ContactPreferences } from "../web-account-contact/contact.tsx";
 import { YourDetails } from "../web-account-details/details.tsx";
 import { SignInAndDevices } from "../web-account-devices/devices.tsx";
 import { YourFamily } from "../web-account-family/family.tsx";
@@ -71,6 +73,8 @@ type Hooks = Pick<
   | "useMe"
   | "useUpdateMe"
   | "useSessions"
+  | "useContactChoices"
+  | "useSetContactChoices"
   | "useRevokeSession"
   | "useFamily"
   | "useOrders"
@@ -106,6 +110,7 @@ export function MyAccount({
     family: () => <YourFamily account={account} />,
     payment: () => <PaymentMethod account={account} returnUrl={returnUrl} />,
     details: () => <YourDetails account={account} />,
+    contact: () => <ContactPreferences account={account} />,
     devices: () => <SignInAndDevices account={account} onSignOut={onSignOut} />,
   };
 
