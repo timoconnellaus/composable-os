@@ -2320,7 +2320,8 @@ customers' calls are limited per account and operation.
 `goods: { soldIn? }` (where its records are sold: a select of `online`, `in_person`, `both`, read
 through its item) or `delivery: { kind, freeOver?, countries?, active? }` (an option of kind
 `post`, `collect` or `here`). Every order is priced by `priceOrder`: `priceLines` over the lines
-and the delivery the caller chose in `delivery` (added as the last line, quantity 1), then
+and the delivery the caller chose in `delivery` (added as the last line, quantity 1), then the
+order's deal (above; free over then counts the goods' net after it), then
 `applyGoodsRules`, which refuses goods without a delivery, a delivery without goods or among the
 lines, works out the **channel** (`online` for post and collect, `in_person` for here; written on
 `core_order.channel` once, never the caller's), refuses a goods line not sold there
