@@ -6,6 +6,10 @@ editUrl: false
 
 Contact preferences (stage 30, ADR 0675), for the mobile app: each kind of message the signed-in customer may get, on each channel it goes by, and the same for each child they act for. A tap turns one channel on or off (news and offers: yes or no, with the words shown). What may change is the host's answer (me.contact.choices, me.contact.setChoices): a booking's or a payment's email is always sent and shows as such; a child is never asked about news and offers.
 
+<img class="cos-screen cos-screen-native" src="/screens/native-account-contact.png" alt="native-account-contact, drawn with dummy data" width="390" height="844" loading="lazy" decoding="async" />
+
+Drawn with dummy data.
+
 |  |  |
 | --- | --- |
 | Skin | native |

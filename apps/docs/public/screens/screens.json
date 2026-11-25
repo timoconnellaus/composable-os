@@ -189,79 +189,85 @@
     "skin": "native",
     "width": 390,
     "height": 844,
-    "fingerprint": "4808e3508a1a68ca"
+    "fingerprint": "f498815ec4dfb081"
+  },
+  "native-account-contact": {
+    "skin": "native",
+    "width": 390,
+    "height": 844,
+    "fingerprint": "5379c88ab6fe8d46"
   },
   "native-account-details": {
     "skin": "native",
     "width": 390,
     "height": 844,
-    "fingerprint": "d4be3a70ca2589b6"
+    "fingerprint": "0b1197069677c276"
   },
   "native-account-devices": {
     "skin": "native",
     "width": 390,
     "height": 844,
-    "fingerprint": "86d1e028b098ee63"
+    "fingerprint": "1e67cf753b9e88fc"
   },
   "native-account-family": {
     "skin": "native",
     "width": 390,
     "height": 844,
-    "fingerprint": "a527aa47e3ded250"
+    "fingerprint": "3291145615561929"
   },
   "native-account-orders": {
     "skin": "native",
     "width": 390,
     "height": 844,
-    "fingerprint": "1adb480a72644f3c"
+    "fingerprint": "5b22d6383569a8cc"
   },
   "native-account-payment": {
     "skin": "native",
     "width": 390,
     "height": 844,
-    "fingerprint": "805721b0c7f44d5b"
+    "fingerprint": "379d68514eeff29d"
   },
   "native-account-subscriptions": {
     "skin": "native",
     "width": 390,
     "height": 844,
-    "fingerprint": "6b0ac026a4a72ff2"
+    "fingerprint": "adc5f0d7e5eef270"
   },
   "native-agree": {
     "skin": "native",
     "width": 390,
     "height": 844,
-    "fingerprint": "9c353a15b30b27a1"
+    "fingerprint": "716245fa740bc9e4"
   },
   "native-agreements-due": {
     "skin": "native",
     "width": 390,
     "height": 844,
-    "fingerprint": "18998e33d39409f3"
+    "fingerprint": "d8a636f590929c91"
   },
   "native-base": {
     "skin": "native",
     "width": 390,
     "height": 844,
-    "fingerprint": "30d8c2cd7c9dcf7e"
+    "fingerprint": "0cdab65c791b0c38"
   },
   "native-my-agreements": {
     "skin": "native",
     "width": 390,
     "height": 844,
-    "fingerprint": "2fb98379c80a120d"
+    "fingerprint": "016d5a21411dc1aa"
   },
   "native-note-composer": {
     "skin": "native",
     "width": 390,
     "height": 844,
-    "fingerprint": "180998a73c7aa59e"
+    "fingerprint": "f257671574d55bcd"
   },
   "native-sign-in": {
     "skin": "native",
     "width": 390,
     "height": 844,
-    "fingerprint": "51c47f58fd300a29"
+    "fingerprint": "98d3d88f4d47e7bf"
   },
   "programs-bank": {
     "skin": "web",
@@ -495,96 +501,102 @@
     "skin": "web",
     "width": 720,
     "height": 148,
-    "fingerprint": "6cdb4109792f9ee8"
+    "fingerprint": "64c5ac56eeafb27b"
   },
   "ui-card": {
     "skin": "web",
     "width": 520,
     "height": 302,
-    "fingerprint": "6b2b88c4be667351"
+    "fingerprint": "3a1d11297a0ba638"
   },
   "ui-input": {
     "skin": "web",
     "width": 480,
     "height": 368,
-    "fingerprint": "279695a7694c8c4e"
+    "fingerprint": "5090eef94cac033f"
   },
   "ui-label": {
     "skin": "web",
     "width": 480,
     "height": 178,
-    "fingerprint": "4d45e01955a0680d"
+    "fingerprint": "5c2a3290305c1ab6"
   },
   "web-account": {
     "skin": "web",
     "width": 1024,
-    "height": 3906,
-    "fingerprint": "a7bcd67ecee94caf"
+    "height": 5012,
+    "fingerprint": "b4392f5f442c6e81"
+  },
+  "web-account-contact": {
+    "skin": "web",
+    "width": 720,
+    "height": 1050,
+    "fingerprint": "8acf8862f05c49f4"
   },
   "web-account-details": {
     "skin": "web",
     "width": 720,
     "height": 592,
-    "fingerprint": "14c13855d53884de"
+    "fingerprint": "aa11736781accd2b"
   },
   "web-account-devices": {
     "skin": "web",
     "width": 720,
     "height": 368,
-    "fingerprint": "a3df1710067741c1"
+    "fingerprint": "c3b408376a141eac"
   },
   "web-account-family": {
     "skin": "web",
     "width": 720,
     "height": 160,
-    "fingerprint": "03480dae9a19727d"
+    "fingerprint": "ed8c6c0b163e987d"
   },
   "web-account-orders": {
     "skin": "web",
     "width": 720,
     "height": 1070,
-    "fingerprint": "dbf174657afea527"
+    "fingerprint": "c4b86ae469259002"
   },
   "web-account-payment": {
     "skin": "web",
     "width": 720,
     "height": 116,
-    "fingerprint": "d14579e8bd336c0a"
+    "fingerprint": "c7a868cacca21ac0"
   },
   "web-account-subscriptions": {
     "skin": "web",
     "width": 720,
     "height": 844,
-    "fingerprint": "29c4927f0c2f4b24"
+    "fingerprint": "ad96d187bf9f8834"
   },
   "web-agree": {
     "skin": "web",
     "width": 720,
     "height": 850,
-    "fingerprint": "26de6cfceb064079"
+    "fingerprint": "c3e2c827ce8d9c24"
   },
   "web-agreements-due": {
     "skin": "web",
     "width": 720,
     "height": 731,
-    "fingerprint": "de8752e8745167ad"
+    "fingerprint": "56a86b52dcd55ae6"
   },
   "web-my-agreements": {
     "skin": "web",
     "width": 720,
     "height": 988,
-    "fingerprint": "2cf33b60f8803474"
+    "fingerprint": "299f7ac9bd41bbe1"
   },
   "web-note-composer": {
     "skin": "web",
     "width": 640,
     "height": 745,
-    "fingerprint": "c37d410a44887abf"
+    "fingerprint": "fa504fb9dd6c1dfa"
   },
   "web-sign-in": {
     "skin": "web",
     "width": 440,
     "height": 158,
-    "fingerprint": "cc9bf3f8138c0dbd"
+    "fingerprint": "c55851b8efb70761"
   }
 }

@@ -55,7 +55,13 @@ coordinator as best practice the same day). Build may start.
   Migration 0911 (`core_text_spend`, `core_phone_check`, `core_text_stop`), ADRs 0672 and 0673.
   Not built: a real provider module (with the first business's account, step 8); STOP is kept in
   `core_text_stop`, which step 5's suppression list reads for texts.
-- Step 5, the consent register and `contact.stop` (`feat/stage-30-consent`): built.
+
+- **Step 4** — not built — needs: step 1 — Push gatekeeper (prove the Worker reaches both push
+  services first), devices, the template's app, staff push.
+
+- **Step 5** — in progress — branch `feat/stage-30-consent` — The consent register,
+  `contactDecision`, `stopLink`, `contact.stop`, the List-Unsubscribe headers, contact preferences
+  blocks. Built on the branch (in review):
   `packages/core/src/contact/`: the register (`core_contact_choice`, append-only, the latest row
   per Person, channel and scope in force), the suppression list (`core_contact_suppression`, which
   took in `core_text_stop`: STOP and START write it now), `contactDecision` with its nine reasons
@@ -77,13 +83,6 @@ coordinator as best practice the same day). Build may start.
   called by Forms or checkouts; the push claim (step 4) must ask the register as the text claim
   does; a staff screen for a Person's choices (step 7 reads `contact.forPerson`). Not tried for
   real: a mail app's one-click against a deployed stop route, and the native block on a phone.
-
-- **Step 4** — not built — needs: step 1 — Push gatekeeper (prove the Worker reaches both push
-  services first), devices, the template's app, staff push.
-
-- **Step 5** — in progress — branch `feat/stage-30-consent` — The consent register,
-  `contactDecision`, `stopLink`, `contact.stop`, the List-Unsubscribe headers, contact preferences
-  blocks.
 
 - **Step 6** — not built — needs: step 1 — The business's wording, versions, preview.
 

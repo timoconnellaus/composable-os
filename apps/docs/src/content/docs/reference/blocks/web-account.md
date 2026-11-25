@@ -6,7 +6,7 @@ editUrl: false
 
 My account (stage 48), for the web: the signed-in customer's own area, one page of sections. The base sections come with it: Orders, Agreements, Family, Payment method (only for someone who pays a subscription), Your details, Contact preferences (stage 30) and Sign-in and devices. The packs' sections are passed in `sections`, each the pack's own block, and take their place by `order` (a pack's come first). It decides nothing: which sections this customer has, in what order, and whether Payment method shows is the host's answer (me.portal, ADR 0710); what each section shows is the host's answer to the section's own call. `cos add web-account` copies the packs' section blocks and writes `../account-sections.gen.ts`, which names them; the page passes them through `usePackSections`: import { ACCOUNT_SECTIONS } from "../blocks/account-sections.gen.ts"; const react = { useQuery, useMutation, useState, useEffect }; // at module level: made once const sections = usePackSections(ACCOUNT_SECTIONS, react, api, returnUrl); &lt;MyAccount account={account} agreements={agreements} sections={sections} … /&gt; so the page names no pack. A later step adds "Needs your attention" at the top (me.attention).
 
-<img class="cos-screen" src="/screens/web-account.png" alt="web-account, drawn with dummy data" width="1024" height="3906" loading="lazy" decoding="async" />
+<img class="cos-screen" src="/screens/web-account.png" alt="web-account, drawn with dummy data" width="1024" height="5012" loading="lazy" decoding="async" />
 
 Drawn with dummy data.
 
