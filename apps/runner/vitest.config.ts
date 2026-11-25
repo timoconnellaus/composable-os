@@ -111,6 +111,8 @@ export default defineWorkersTestConfig({
           entrypoint: "GatekeeperVendor",
         },
         GATEKEEPER_PAYMENTS: { name: "cos-gatekeeper-payments", entrypoint: "GatekeeperVendor" },
+        // What a test does to the fake provider's payouts, as the provider would (stage 52 step 4).
+        TEST_PAYMENTS: { name: "cos-gatekeeper-payments", entrypoint: "FakePaymentsControl" },
         GATEKEEPER_TEXT: { name: "cos-gatekeeper-text", entrypoint: "GatekeeperVendor" },
         // What the fake text provider "sent" and the codes, as a member's phone shows them.
         TEST_TEXT_PHONES: { name: "cos-gatekeeper-text", entrypoint: "FakeTextControl" },
