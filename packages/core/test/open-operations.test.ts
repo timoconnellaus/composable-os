@@ -62,7 +62,12 @@ describe("open-operations.json", () => {
       fixture("fixture.anyone", ["public"]),
     ]);
     expect(openOperations(registry.list()).operations).toEqual([
-      { name: "fixture.anyone", audiences: ["public"], risk: "read" },
+      {
+        name: "fixture.anyone",
+        audiences: ["public"],
+        risk: "read",
+        perAddress: { tier: "standard" },
+      },
       { name: "fixture.mine", audiences: ["customer"], risk: "read" },
       { name: "fixture.shared", audiences: ["staff", "customer"], risk: "read" },
     ]);

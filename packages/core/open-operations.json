@@ -758,6 +758,9 @@
       "name": "x.knowledge.helpTopics",
       "audiences": ["staff", "customer", "public"],
       "risk": "read",
+      "perAddress": {
+        "tier": "standard"
+      },
       "pack": "knowledge"
     },
     {
