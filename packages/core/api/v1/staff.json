@@ -35012,6 +35012,127 @@
       "invalidates": []
     },
     {
+      "name": "discount.check",
+      "description": "Check a promo code against a basket before an order is started: whether it applies to these lines for this caller, and what it would take off each. Nothing is held: the code's uses are kept only once an order is started (order.start, order.applyCode). A code that does not apply gets one answer, whatever the reason (unknown, ended, used up, not for this buyer, not for these items): valid false and the same message. `better` says that a price applying by itself (a member's) takes more off, so the code would not be the order's deal. A guest is nobody proved: a code for members, new customers or one per person is not valid for them. Amounts are in the currency's minor unit. Read-only.",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "A promo code the buyer typed. The host decides what it takes off, from the discount it names: the better for the buyer of it and any member's price applies. One answer for a code that does not apply, whatever the reason."
+          },
+          "lines": {
+            "minItems": 1,
+            "maxItems": 50,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "object": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 80,
+                  "description": "The object of the record to buy"
+                },
+                "id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 64,
+                  "description": "The record to buy"
+                },
+                "quantity": {
+                  "default": 1,
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 1000
+                }
+              },
+              "required": [
+                "object",
+                "id"
+              ]
+            },
+            "description": "What is in the basket. There is no price here: the host reads it from each record."
+          }
+        },
+        "required": [
+          "code",
+          "lines"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "valid": {
+            "type": "boolean"
+          },
+          "message": {
+            "description": "Why not, the same words for every reason",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "title": {
+            "description": "The discount's name, when valid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "amount": {
+            "type": "number",
+            "description": "What the code takes off these lines; 0 when not valid"
+          },
+          "lines": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "position": {
+                  "type": "number"
+                },
+                "discount": {
+                  "type": "number",
+                  "description": "What it takes off this line"
+                }
+              },
+              "required": [
+                "position",
+                "discount"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "better": {
+            "type": "boolean",
+            "description": "A price that applies by itself takes more off: that would be the deal instead"
+          },
+          "reason": {
+            "description": "Staff only: why it does not apply",
+            "type": "string"
+          }
+        },
+        "required": [
+          "valid",
+          "message",
+          "title",
+          "amount",
+          "lines",
+          "better"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
       "name": "duplicate.check",
       "description": "Check whether a person or organisation you are about to create already exists, by plain rules (no score). Returns conflicts, which would block the create (a live email or domain already belongs to that record), and warnings, which do not block (people: same name and same organisation, same name and same email domain, same phone number, same name only; organisations: same name, or a website at a domain another organisation holds). Each comes with the existing record's id, name and reasons, at most 5 of each. Pass exceptId when checking an existing record's new values. Read-only.",
       "risk": "read",
@@ -56153,6 +56274,353 @@
       ]
     },
     {
+      "name": "order.applyCode",
+      "description": "Put a promo code on a pending order whose payment page has not opened. The host works out what it takes off from the discount it names, for the order's own buyer and lines: the better for the buyer of the code and any price that applies by itself (a member's) is the deal, and only one deal is on an order (a staff discount may be added on top). A code that does not apply is refused with one answer, rule code_not_valid, whatever the reason (unknown, ended, used up, not for this buyer or these items), and nothing changes. A code never makes an order free. A signed-in customer changes their own orders; a guest passes the order's token. Returns the order, its deal and whether the code is it.",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "Order id (ord_…)"
+          },
+          "token": {
+            "description": "A guest's token for the order",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "code": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "A promo code the buyer typed. The host decides what it takes off, from the discount it names: the better for the buyer of it and any member's price applies. One answer for a code that does not apply, whatever the reason."
+          }
+        },
+        "required": [
+          "id",
+          "code"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "part_paid",
+              "paid",
+              "cancelled",
+              "expired",
+              "refunded"
+            ]
+          },
+          "currency": {
+            "type": "string"
+          },
+          "total": {
+            "type": "number"
+          },
+          "paid": {
+            "type": "number"
+          },
+          "balance": {
+            "type": "number"
+          },
+          "refunded": {
+            "type": "number",
+            "description": "What has gone back to the buyer, confirmed by the provider"
+          },
+          "pay": {
+            "type": "string",
+            "enum": [
+              "full",
+              "deposit"
+            ]
+          },
+          "deposit": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "balanceDueAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "expiresAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "paidAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "taxAmount": {
+            "type": "number",
+            "description": "The tax inside what has been paid, as the payment provider calculated it. Prices include it, so it does not add to the total. Zero when tax is off or none was charged."
+          },
+          "taxRefunded": {
+            "type": "number",
+            "description": "The tax the provider said went back with refunds"
+          },
+          "taxCountry": {
+            "description": "The country the latest taxed payment was for",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "discount": {
+            "type": "number",
+            "description": "Money taken off the order (its discounts), already out of the total"
+          },
+          "lines": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "position": {
+                  "type": "number"
+                },
+                "object": {
+                  "type": "string"
+                },
+                "recordId": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "quantity": {
+                  "type": "number"
+                },
+                "unitPrice": {
+                  "type": "number"
+                },
+                "total": {
+                  "type": "number"
+                },
+                "taxAmount": {
+                  "type": "number",
+                  "description": "The tax inside this line's payments, as the payment provider calculated it"
+                },
+                "discount": {
+                  "type": "number",
+                  "description": "The line's share of the order's discounts: it costs total less this"
+                }
+              },
+              "required": [
+                "id",
+                "position",
+                "object",
+                "recordId",
+                "title",
+                "quantity",
+                "unitPrice",
+                "total",
+                "taxAmount",
+                "discount"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "adjustments": {
+            "description": "Staff only: the discounts on the order, in the order they were given",
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "lineId": {
+                  "description": "The line it is on; null: spread over the order",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "code",
+                    "automatic",
+                    "staff",
+                    "referral"
+                  ]
+                },
+                "amount": {
+                  "type": "number",
+                  "description": "What it took off, in the currency's minor unit"
+                },
+                "percent": {
+                  "description": "The percentage asked for, when it was one",
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "reason": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "givenBy": {
+                  "description": "The staff account that gave it",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "approval": {
+                  "description": "The approval it waited in, when it did",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "createdAt": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "lineId",
+                "kind",
+                "amount",
+                "percent",
+                "reason",
+                "givenBy",
+                "approval",
+                "createdAt"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "personId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "email": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "placedAs": {
+            "type": "string",
+            "enum": [
+              "customer",
+              "public",
+              "staff"
+            ]
+          },
+          "deal": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "code",
+                      "automatic"
+                    ],
+                    "description": "code: a promo code; automatic: e.g. a member's price"
+                  },
+                  "title": {
+                    "type": "string",
+                    "description": "The discount's name"
+                  },
+                  "amount": {
+                    "type": "number",
+                    "description": "What it takes off the order, in the currency's minor unit"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "title",
+                  "amount"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The order's one deal: a promo code or a price that applied by itself; null: none"
+          },
+          "codeApplied": {
+            "description": "Whether the code given is the deal: false when a better one applied instead (a member's price); null when no code was given",
+            "type": [
+              "boolean",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "state",
+          "currency",
+          "total",
+          "paid",
+          "balance",
+          "refunded",
+          "pay",
+          "deposit",
+          "balanceDueAt",
+          "expiresAt",
+          "paidAt",
+          "createdAt",
+          "taxAmount",
+          "taxRefunded",
+          "taxCountry",
+          "discount",
+          "lines",
+          "deal",
+          "codeApplied"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "order.delivery.get",
+        "order.get",
+        "order.list",
+        "order.overdue",
+        "order.paidLate",
+        "order.payments",
+        "order.quote",
+        "order.settings.get",
+        "order.view"
+      ]
+    },
+    {
       "name": "order.applyPaymentEvent",
       "description": "Platform use only: apply a payment or refund event the payments gatekeeper verified and the host stored. Takes only the event's key: the event itself is read from what the host stored, so nothing passed here can describe a payment. Applying an event twice changes nothing. Run by the host's payments adapter and the minute cron.",
       "risk": "write",
@@ -58652,7 +59120,7 @@
     },
     {
       "name": "order.quote",
-      "description": "Price a basket without starting an order: the host's price of each line, the delivery (its postage, nothing when the goods reach the option's free-over amount), the total and what is available, exactly as order.start would charge. Holds nothing and writes nothing: stock is held only once an order is started. Refuses what order.start refuses (not for sale, not sold that way, an address outside the option's countries) and reports, in `problems`, what the buyer still has to do (choose a delivery, give an address) and what is sold out or short; `ready` is true when none is left. Amounts are in the currency's minor unit. Read-only.",
+      "description": "Price a basket without starting an order: the host's price of each line, the delivery (its postage, nothing when the goods reach the option's free-over amount), the total and what is available, exactly as order.start would charge. Holds nothing and writes nothing: stock is held only once an order is started. Refuses what order.start refuses (not for sale, not sold that way, an address outside the option's countries) and reports, in `problems`, what the buyer still has to do (choose a delivery, give an address) and what is sold out or short; `ready` is true when none is left. Money off is worked out as order.start would: a member's price by itself, and `code` (the better of the two), without holding a use of it; a code that does not apply is reported as code_not_valid. Amounts are in the currency's minor unit. Read-only.",
       "risk": "read",
       "audiences": [
         "staff"
@@ -58760,6 +59228,12 @@
               "id"
             ],
             "additionalProperties": false
+          },
+          "code": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "A promo code the buyer typed. The host decides what it takes off, from the discount it names: the better for the buyer of it and any member's price applies. One answer for a code that does not apply, whatever the reason."
           }
         },
         "required": [
@@ -58813,6 +59287,10 @@
                 "total": {
                   "type": "number"
                 },
+                "discount": {
+                  "type": "number",
+                  "description": "The line's share of the deal: it costs total less this"
+                },
                 "goods": {
                   "type": "boolean",
                   "description": "Goods: posted, collected or taken now"
@@ -58863,6 +59341,7 @@
                 "quantity",
                 "unitPrice",
                 "total",
+                "discount",
                 "goods",
                 "availability"
               ],
@@ -58929,7 +59408,53 @@
           },
           "goodsTotal": {
             "type": "number",
-            "description": "What the goods cost, before the delivery"
+            "description": "What the goods cost, before the delivery and after the deal (free over counts it)"
+          },
+          "discount": {
+            "type": "number",
+            "description": "What the deal takes off"
+          },
+          "deal": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "code",
+                      "automatic"
+                    ],
+                    "description": "code: a promo code; automatic: e.g. a member's price"
+                  },
+                  "title": {
+                    "type": "string",
+                    "description": "The discount's name"
+                  },
+                  "amount": {
+                    "type": "number",
+                    "description": "What it takes off the order, in the currency's minor unit"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "title",
+                  "amount"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The order's one deal: a promo code or a price that applied by itself; null: none"
+          },
+          "codeApplied": {
+            "description": "Whether the code given is the deal: false when a better one applied instead (a member's price); null when no code was given",
+            "type": [
+              "boolean",
+              "null"
+            ]
           },
           "total": {
             "type": "number",
@@ -58950,7 +59475,8 @@
                     "delivery_needed",
                     "address_needed",
                     "sold_out",
-                    "not_enough"
+                    "not_enough",
+                    "code_not_valid"
                   ]
                 },
                 "message": {
@@ -58975,6 +59501,9 @@
           "lines",
           "delivery",
           "goodsTotal",
+          "discount",
+          "deal",
+          "codeApplied",
           "total",
           "ready",
           "problems"
@@ -59898,6 +60427,346 @@
       ]
     },
     {
+      "name": "order.removeCode",
+      "description": "Take the promo code off a pending order whose payment page has not opened: the order is priced again without it (a price that applies by itself, such as a member's, still does). Refused (rule no_code) when the order has no code. A signed-in customer changes their own orders; a guest passes the order's token. Returns the order and its deal.",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "Order id (ord_…)"
+          },
+          "token": {
+            "description": "A guest's token for the order",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "part_paid",
+              "paid",
+              "cancelled",
+              "expired",
+              "refunded"
+            ]
+          },
+          "currency": {
+            "type": "string"
+          },
+          "total": {
+            "type": "number"
+          },
+          "paid": {
+            "type": "number"
+          },
+          "balance": {
+            "type": "number"
+          },
+          "refunded": {
+            "type": "number",
+            "description": "What has gone back to the buyer, confirmed by the provider"
+          },
+          "pay": {
+            "type": "string",
+            "enum": [
+              "full",
+              "deposit"
+            ]
+          },
+          "deposit": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "balanceDueAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "expiresAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "paidAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "taxAmount": {
+            "type": "number",
+            "description": "The tax inside what has been paid, as the payment provider calculated it. Prices include it, so it does not add to the total. Zero when tax is off or none was charged."
+          },
+          "taxRefunded": {
+            "type": "number",
+            "description": "The tax the provider said went back with refunds"
+          },
+          "taxCountry": {
+            "description": "The country the latest taxed payment was for",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "discount": {
+            "type": "number",
+            "description": "Money taken off the order (its discounts), already out of the total"
+          },
+          "lines": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "position": {
+                  "type": "number"
+                },
+                "object": {
+                  "type": "string"
+                },
+                "recordId": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "quantity": {
+                  "type": "number"
+                },
+                "unitPrice": {
+                  "type": "number"
+                },
+                "total": {
+                  "type": "number"
+                },
+                "taxAmount": {
+                  "type": "number",
+                  "description": "The tax inside this line's payments, as the payment provider calculated it"
+                },
+                "discount": {
+                  "type": "number",
+                  "description": "The line's share of the order's discounts: it costs total less this"
+                }
+              },
+              "required": [
+                "id",
+                "position",
+                "object",
+                "recordId",
+                "title",
+                "quantity",
+                "unitPrice",
+                "total",
+                "taxAmount",
+                "discount"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "adjustments": {
+            "description": "Staff only: the discounts on the order, in the order they were given",
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "lineId": {
+                  "description": "The line it is on; null: spread over the order",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "code",
+                    "automatic",
+                    "staff",
+                    "referral"
+                  ]
+                },
+                "amount": {
+                  "type": "number",
+                  "description": "What it took off, in the currency's minor unit"
+                },
+                "percent": {
+                  "description": "The percentage asked for, when it was one",
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "reason": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "givenBy": {
+                  "description": "The staff account that gave it",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "approval": {
+                  "description": "The approval it waited in, when it did",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "createdAt": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "lineId",
+                "kind",
+                "amount",
+                "percent",
+                "reason",
+                "givenBy",
+                "approval",
+                "createdAt"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "personId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "email": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "placedAs": {
+            "type": "string",
+            "enum": [
+              "customer",
+              "public",
+              "staff"
+            ]
+          },
+          "deal": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "code",
+                      "automatic"
+                    ],
+                    "description": "code: a promo code; automatic: e.g. a member's price"
+                  },
+                  "title": {
+                    "type": "string",
+                    "description": "The discount's name"
+                  },
+                  "amount": {
+                    "type": "number",
+                    "description": "What it takes off the order, in the currency's minor unit"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "title",
+                  "amount"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The order's one deal: a promo code or a price that applied by itself; null: none"
+          },
+          "codeApplied": {
+            "description": "Whether the code given is the deal: false when a better one applied instead (a member's price); null when no code was given",
+            "type": [
+              "boolean",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "state",
+          "currency",
+          "total",
+          "paid",
+          "balance",
+          "refunded",
+          "pay",
+          "deposit",
+          "balanceDueAt",
+          "expiresAt",
+          "paidAt",
+          "createdAt",
+          "taxAmount",
+          "taxRefunded",
+          "taxCountry",
+          "discount",
+          "lines",
+          "deal",
+          "codeApplied"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "order.delivery.get",
+        "order.get",
+        "order.list",
+        "order.overdue",
+        "order.paidLate",
+        "order.payments",
+        "order.quote",
+        "order.settings.get",
+        "order.view"
+      ]
+    },
+    {
       "name": "order.reversePayment",
       "description": "Reverse a payment recorded in error (order.recordPayment): a second entry takes it back off, nothing is deleted, and an order it had paid is part paid again with the amount owed. What the order gave stays: take the right payment or cancel the order. A drop-in's booking is cancelled first. Not for the payment provider's payments (refund those). Admins are told. A person only, with the permission to record payments. Get the payment's id from order.payments. Returns the reversal's id and the order.",
       "risk": "write",
@@ -60577,6 +61446,10 @@
             "additionalProperties": false,
             "description": "How much staff may take off one order on their own (order.adjust). Above it, a discount waits for an admin. Nothing (0) until a human admin sets it."
           },
+          "minCharge": {
+            "type": "number",
+            "description": "The smallest amount an order can be charged, in minor units (0.50 by default): a discount that would leave an order with something to pay but less than this does not apply. It stands in for the payment provider's own minimum."
+          },
           "recordedPaymentNotice": {
             "type": "number",
             "description": "Admins are told of a payment recorded by hand (order.recordPayment) for more than this, in minor units. 0 until a human admin sets it: every one is told."
@@ -60624,6 +61497,7 @@
           "tax",
           "taxCodes",
           "discountLimit",
+          "minCharge",
           "recordedPaymentNotice",
           "taxObjects"
         ],
@@ -60633,7 +61507,7 @@
     },
     {
       "name": "order.settings.update",
-      "description": "Change the order settings: the currency every order is in, the minutes an unpaid order lasts, the least part payment, the sites a buyer may come back to after paying, whether the payment provider calculates tax at checkout, the product tax code of an object for sale, how much staff may take off an order on their own, or above what a payment recorded by hand tells admins. Only what you pass changes. Orders already started keep the currency they were started in; turning tax on or off changes only payments made from then on. Admins only, and only a human can call it: AI assistants, MCP clients, automations and extensions are refused.",
+      "description": "Change the order settings: the currency every order is in, the minutes an unpaid order lasts, the least part payment, the sites a buyer may come back to after paying, whether the payment provider calculates tax at checkout, the product tax code of an object for sale, how much staff may take off an order on their own, or above what a payment recorded by hand tells admins, or the smallest amount an order can be charged after a discount. Only what you pass changes. Orders already started keep the currency they were started in; turning tax on or off changes only payments made from then on. Admins only, and only a human can call it: AI assistants, MCP clients, automations and extensions are refused.",
       "risk": "write",
       "audiences": [
         "staff"
@@ -60703,6 +61577,12 @@
               "amount"
             ],
             "additionalProperties": false
+          },
+          "minCharge": {
+            "description": "The smallest amount an order can be charged (minor units): a discount leaving less does not apply",
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100000000
           },
           "recordedPaymentNotice": {
             "description": "Tell admins of a payment recorded by hand for more than this (minor units)",
@@ -60774,6 +61654,10 @@
             "additionalProperties": false,
             "description": "How much staff may take off one order on their own (order.adjust). Above it, a discount waits for an admin. Nothing (0) until a human admin sets it."
           },
+          "minCharge": {
+            "type": "number",
+            "description": "The smallest amount an order can be charged, in minor units (0.50 by default): a discount that would leave an order with something to pay but less than this does not apply. It stands in for the payment provider's own minimum."
+          },
           "recordedPaymentNotice": {
             "type": "number",
             "description": "Admins are told of a payment recorded by hand (order.recordPayment) for more than this, in minor units. 0 until a human admin sets it: every one is told."
@@ -60840,6 +61724,10 @@
                 "additionalProperties": false,
                 "description": "How much staff may take off one order on their own (order.adjust). Above it, a discount waits for an admin. Nothing (0) until a human admin sets it."
               },
+              "minCharge": {
+                "type": "number",
+                "description": "The smallest amount an order can be charged, in minor units (0.50 by default): a discount that would leave an order with something to pay but less than this does not apply. It stands in for the payment provider's own minimum."
+              },
               "recordedPaymentNotice": {
                 "type": "number",
                 "description": "Admins are told of a payment recorded by hand (order.recordPayment) for more than this, in minor units. 0 until a human admin sets it: every one is told."
@@ -60853,6 +61741,7 @@
               "tax",
               "taxCodes",
               "discountLimit",
+              "minCharge",
               "recordedPaymentNotice"
             ],
             "additionalProperties": false
@@ -60866,6 +61755,7 @@
           "tax",
           "taxCodes",
           "discountLimit",
+          "minCharge",
           "recordedPaymentNotice",
           "previous"
         ],
@@ -60885,7 +61775,7 @@
     },
     {
       "name": "order.start",
-      "description": "Start an order for one or more records that are for sale, as a signed-in customer, a guest (with an email address) or staff. The host prices it from the records: a caller never sends a price or a total. The order starts pending and is not paid: paying happens on the payment provider's page (order.checkout), and only the provider's confirmation marks it paid. An unpaid order expires after a few minutes. Nobody buys without the agreements the business needs for what is bought: refused with rule agreements_due and the documents while any is due (a guest passes their acceptances in `agreements`; a signed-in customer agrees first; staff send a link, sign at the desk or record paper). Goods (things posted, collected or taken now) need a `delivery`: the host adds it as the last line, priced by the host, and refuses goods not sold that way (rule not_sold_here), a post delivery with no address or one outside the option's countries, and what is sold out. order.quote gives the same prices without starting anything. Returns the order with its lines and amounts in the currency's minor unit; a guest also gets `token`, shown once, which is the only way back to the order (order.view).",
+      "description": "Start an order for one or more records that are for sale, as a signed-in customer, a guest (with an email address) or staff. The host prices it from the records: a caller never sends a price or a total. The order starts pending and is not paid: paying happens on the payment provider's page (order.checkout), and only the provider's confirmation marks it paid. An unpaid order expires after a few minutes. Nobody buys without the agreements the business needs for what is bought: refused with rule agreements_due and the documents while any is due (a guest passes their acceptances in `agreements`; a signed-in customer agrees first; staff send a link, sign at the desk or record paper). Goods (things posted, collected or taken now) need a `delivery`: the host adds it as the last line, priced by the host, and refuses goods not sold that way (rule not_sold_here), a post delivery with no address or one outside the option's countries, and what is sold out. order.quote gives the same prices without starting anything. Money off is the host's: a member's price applies by itself, and `code` is a promo code the buyer typed; the one that takes more off applies (rule code_not_valid, one answer whatever the reason, when the code does not). Returns the order with its lines and amounts in the currency's minor unit; a guest also gets `token`, shown once, which is the only way back to the order (order.view).",
       "risk": "write",
       "audiences": [
         "staff"
@@ -61043,6 +61933,12 @@
               "additionalProperties": false
             },
             "description": "A visitor without an account only: what they agreed to on the way to paying, one entry per document the host says is due (each document's current version, the name they typed, a signature for a document agreed to by drawing, every answer for a health form). A signed-in customer agrees first (me.agreements.accept); staff never agree for anyone."
+          },
+          "code": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "A promo code the buyer typed. The host decides what it takes off, from the discount it names: the better for the buyer of it and any member's price applies. One answer for a code that does not apply, whatever the reason."
           },
           "delivery": {
             "description": "How the goods get to the buyer, when the order has goods (records sold as goods): one delivery option (posted, collected, or taken now in person) and, to post, the address. Required with goods, refused without. The host prices it (free over an amount when the option says so) and works out from it whether the order is online or in person; each goods line must be sold there.",
@@ -61355,6 +62251,48 @@
               "string",
               "null"
             ]
+          },
+          "deal": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "code",
+                      "automatic"
+                    ],
+                    "description": "code: a promo code; automatic: e.g. a member's price"
+                  },
+                  "title": {
+                    "type": "string",
+                    "description": "The discount's name"
+                  },
+                  "amount": {
+                    "type": "number",
+                    "description": "What it takes off the order, in the currency's minor unit"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "title",
+                  "amount"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The order's one deal: a promo code or a price that applied by itself; null: none"
+          },
+          "codeApplied": {
+            "description": "Whether the code given is the deal: false when a better one applied instead (a member's price); null when no code was given",
+            "type": [
+              "boolean",
+              "null"
+            ]
           }
         },
         "required": [
@@ -61376,7 +62314,9 @@
           "taxCountry",
           "discount",
           "lines",
-          "token"
+          "token",
+          "deal",
+          "codeApplied"
         ],
         "additionalProperties": false
       },
@@ -70267,7 +71207,7 @@
     },
     {
       "name": "query.sql",
-      "description": "Run one read-only SQL query (SQLite dialect) over the rec_* views: rec_person, rec_organisation, rec_affiliation, rec_activity, rec_activity_link, rec_task, rec_task_link, rec_record_tag, rec_user, rec_publish_version (the published versions of publishable records, without their content), rec_capacity and rec_capacity_claim (places, held, taken and claims of records with a capacity), rec_allowance, rec_allowance_period and rec_allowance_use (passes' and memberships' uses: terms, counts per period, every use spent or given back), rec_stock_movement (the stock ledger: every movement of a record with stock, its kind, signed quantity, place and source; on hand is rec_capacity's places - taken), rec_order, rec_order_line, rec_order_adjustment, rec_order_payment and rec_order_refund (orders, their lines, money off, and payments and refunds by method), rec_stage_history (stage entered/left times, days_in_stage), rec_state_history (the same for objects with a state machine: state, is_final, days_in_state) and extension objects as rec_x_<ext>_<object> (e.g. rec_x_deals_deal; see schema.objects). Only a single SELECT or WITH is allowed; core_* and sqlite_* tables, PRAGMA, ATTACH, writes, recursive CTEs and named parameters are refused. Pass values as params bound to ? (or ?1, ?2) placeholders, never by pasting them into the SQL. Multi-valued columns (emails, domains, tags) are JSON arrays: use json_each. Returns at most maxRows rows (default 200, max 1000) with truncated set when there were more, and fails after timeoutMs (default 5000). Use list operations for simple filtering; use this for joins, grouping and counts. Read-only.",
+      "description": "Run one read-only SQL query (SQLite dialect) over the rec_* views: rec_person, rec_organisation, rec_affiliation, rec_activity, rec_activity_link, rec_task, rec_task_link, rec_record_tag, rec_user, rec_publish_version (the published versions of publishable records, without their content), rec_capacity and rec_capacity_claim (places, held, taken and claims of records with a capacity), rec_allowance, rec_allowance_period and rec_allowance_use (passes' and memberships' uses: terms, counts per period, every use spent or given back), rec_stock_movement (the stock ledger: every movement of a record with stock, its kind, signed quantity, place and source; on hand is rec_capacity's places - taken), rec_order, rec_order_line, rec_order_adjustment, rec_order_payment and rec_order_refund (orders, their lines, money off, and payments and refunds by method), rec_discount_use (each order a discount was used on: held, used or released, and what it took off), rec_stage_history (stage entered/left times, days_in_stage), rec_state_history (the same for objects with a state machine: state, is_final, days_in_state) and extension objects as rec_x_<ext>_<object> (e.g. rec_x_deals_deal; see schema.objects). Only a single SELECT or WITH is allowed; core_* and sqlite_* tables, PRAGMA, ATTACH, writes, recursive CTEs and named parameters are refused. Pass values as params bound to ? (or ?1, ?2) placeholders, never by pasting them into the SQL. Multi-valued columns (emails, domains, tags) are JSON arrays: use json_each. Returns at most maxRows rows (default 200, max 1000) with truncated set when there were more, and fails after timeoutMs (default 5000). Use list operations for simple filtering; use this for joins, grouping and counts. Read-only.",
       "risk": "read",
       "audiences": [
         "staff"

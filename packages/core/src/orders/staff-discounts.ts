@@ -57,12 +57,16 @@ async function linesOf(db: Kysely<CoreDatabase>, orderId: string): Promise<Order
   return rows.map((row) => ({ id: row.id, position: row.position, total: row.line_total }));
 }
 
-/** The adjustments still on an order, in the order they were made. */
-export function liveAdjustments(
+/**
+ * The adjustments still on an order, as the seam takes them off: the deal first (a code or a
+ * member's price, ADR 0693), then staff discounts, each in the order they were made. A staff
+ * discount is always added after the deal (the spec's rule 1), even when the code came later.
+ */
+export async function liveAdjustments(
   db: Kysely<CoreDatabase>,
   orderId: string,
 ): Promise<AdjustmentRow[]> {
-  return db
+  const rows = await db
     .selectFrom("core_order_adjustment")
     .selectAll()
     .where("order_id", "=", orderId)
@@ -70,6 +74,8 @@ export function liveAdjustments(
     .orderBy("created_at")
     .orderBy("id")
     .execute();
+  const staffLast = (row: AdjustmentRow) => (row.kind === "staff" ? 1 : 0);
+  return rows.sort((a, b) => staffLast(a) - staffLast(b));
 }
 
 /** An adjustment row as the seam takes it off. */
@@ -192,7 +198,8 @@ function withinLimit(
   return staff <= limit.amount && staff * 10_000 <= Math.round(limit.percent * 100) * subtotal;
 }
 
-async function refuseOpenCheckout(ctx: HandlerContext, row: OrderRow): Promise<void> {
+/** Refuses a change to an order's price once its payment page is open (ADR 0690). */
+export async function refuseOpenCheckout(ctx: HandlerContext, row: OrderRow): Promise<void> {
   const opened = await ctx.db
     .selectFrom("core_order_checkout")
     .select("ref")

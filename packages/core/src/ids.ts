@@ -66,6 +66,8 @@ export const ID_PREFIXES = {
   orderLine: "orl",
   /** Money off an order (stage 34, ADR 0690). */
   orderAdjustment: "oad",
+  /** A discount's use by an order (stage 34, ADR 0693). */
+  discountUse: "dcu",
   /** A payment the host made on an order: a recorded one, or its reversal (stage 34, ADR 0694). */
   orderPayment: "opy",
   /** A refund of an order's payment (stage 25, ADR 0429). */

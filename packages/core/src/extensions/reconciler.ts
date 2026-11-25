@@ -492,6 +492,7 @@ export function planFromState(
       ...(object.stock ? { stock: object.stock } : {}),
       ...(object.stockMoves ? { stockMoves: object.stockMoves } : {}),
       ...(object.allowance ? { allowance: object.allowance } : {}),
+      ...(object.discount ? { discount: object.discount } : {}),
       ...(object.agreements ? { agreements: object.agreements } : {}),
       ...(object.healthNotes ? { healthNotes: object.healthNotes } : {}),
       ...(object.states ? { states: object.states } : {}),

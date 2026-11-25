@@ -34,3 +34,12 @@ The owner wants a fixed price for each way of sending first, and free postage ov
 - **Free postage is decided on the goods' prices before a staff discount.** A discount staff
   give afterwards can take the goods below "free over" and the postage stays free. Only staff
   can do it.
+
+## Amended 2026-11-25: free over counts the goods' net after the deal (stage 34 step 4, [ADR 0693](0693-the-discount-behaviour-codes-automatic-prices-one-deal-limits-held-by-the-database.md))
+The order's one deal (a promo code or a member's price) is worked out before the goods rules, and
+"free over" is measured on the goods' net after it (the stage 34 spec's rule 8): goods of 110.00
+with 20% off are 88.00, under a 100.00 free over, so postage is charged. Free postage still
+applies beside a deal (stage 34, decision 12): it is the option's rule, not a second deal. A code
+put on a pending order later decides it again from the option's price and free over as the order
+was started (`core_order_delivery.price`, `free_over`). A staff discount given afterwards still
+leaves free postage as it was (above).

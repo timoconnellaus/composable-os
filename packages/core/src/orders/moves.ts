@@ -22,6 +22,7 @@
 
 import { type GuestAcceptance, guestMinorNotice } from "../agreements/enforce.ts";
 import { normaliseCustomerEmail, sameEmailPeople } from "../customers/accounts.ts";
+import type { Deal } from "../discounts/deal.ts";
 import {
   ConfigError,
   ConflictError,
@@ -71,11 +72,16 @@ export interface StartHeldInput {
   email?: string | undefined;
   /** A visitor's acceptances, carried in the buying call (stage 44 step 3). */
   agreements?: readonly GuestAcceptance[] | undefined;
+  /** A promo code the buyer typed (ADR 0693): the host decides what, if anything, it takes off. */
+  code?: string | undefined;
 }
 
 export interface StartedHeld {
   row: OrderRow;
   lines: PricedLine[];
+  /** The order's one deal (ADR 0693), and whether the code given applied. */
+  deal: Deal | null;
+  codeApplied: boolean | null;
   recordId: string;
   token: string | null;
 }
@@ -385,8 +391,9 @@ export async function startHeld(ctx: HandlerContext, input: StartHeldInput): Pro
     pay: "full",
     accessHash: token ? await hashOrderToken(token) : null,
     agreements: input.agreements,
+    code: input.code,
   });
-  return { row: started.row, lines: started.lines, recordId, token };
+  return { ...started, recordId, token };
 }
 
 // --- What an order's moves do to the record ------------------------------------------------------
