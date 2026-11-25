@@ -224,7 +224,110 @@ export type AccountOperations = {
     input: { returnUrl: string };
     output: { url: string };
   };
+  "me.contact.choices": {
+    kind: "query";
+    input: Record<string, never>;
+    output: { people: ContactPerson[] };
+  };
+  "me.contact.setChoices": {
+    kind: "mutation";
+    input: ContactChoicesInput;
+    output: { changed: number };
+  };
 };
+
+// --- Contact preferences (stage 30, ADR 0675) ------------------------------------------------------
+
+/** A channel a message may reach someone on. */
+export type ContactChannel = "email" | "text" | "push";
+/** On or off; for news and offers, yes or no. */
+export type ContactValue = "on" | "off" | "yes" | "no";
+
+/** One channel of a kind of message, as the host says it is now (`me.contact.choices`). */
+export interface ContactLineChannel {
+  channel: ContactChannel;
+  value: ContactValue;
+  /** Cannot be changed: an essential kind's email always goes. */
+  fixed: boolean;
+  /** Stopped by a stop link or a STOP reply (the person may turn it back on here). */
+  stopped: boolean;
+  since: string | null;
+}
+
+/** One kind of message a person may get, with each channel it goes by. */
+export interface ContactLine {
+  /** A routine message kind (`bookings.reminder`), `follow_up` or `news_and_offers`. */
+  scope: string;
+  label: string;
+  description: string;
+  purpose: "account" | "follow_up" | "news_and_offers";
+  /** Its email always goes. */
+  essential: boolean;
+  channels: ContactLineChannel[];
+}
+
+/** The caller's own choices, or a child's they act for. */
+export interface ContactPerson {
+  personId: string;
+  name: string;
+  self: boolean;
+  child: boolean;
+  lines: ContactLine[];
+}
+
+/** What `me.contact.setChoices` takes. */
+export interface ContactChoicesInput {
+  /** A child they act for; default themselves. */
+  personId?: string;
+  choices: { scope: string; channel: ContactChannel; value: ContactValue }[];
+  /** For a yes to news and offers: the words they were shown (`newsAndOffersWords`). */
+  wording?: string;
+}
+
+/** A channel's name, as a person reads it. */
+export const CONTACT_CHANNEL_WORDS: Readonly<Record<ContactChannel, string>> = {
+  email: "Email",
+  text: "Text message",
+  push: "App notification",
+};
+
+/** Whether a channel's value lets messages go. */
+export function contactAllows(value: ContactValue): boolean {
+  return value === "on" || value === "yes";
+}
+
+/** The words a person is shown when they say yes to news and offers on a channel (kept by the host). */
+export function newsAndOffersWords(channel: ContactChannel): string {
+  return `Yes, send me news and offers by ${CONTACT_CHANNEL_WORDS[channel].toLowerCase()}. I can stop at any time.`;
+}
+
+/**
+ * The change that turns one channel of a line the other way: on and off, or for news and offers
+ * yes and no (with the words shown). Null for a channel that cannot change (an essential email).
+ */
+export function contactToggle(
+  personId: string,
+  line: ContactLine,
+  channel: ContactLineChannel,
+): ContactChoicesInput | null {
+  if (channel.fixed) return null;
+  const yesNo = line.scope === "news_and_offers";
+  const on = contactAllows(channel.value);
+  const value: ContactValue = yesNo ? (on ? "no" : "yes") : on ? "off" : "on";
+  return {
+    personId,
+    choices: [{ scope: line.scope, channel: channel.channel, value }],
+    ...(value === "yes" ? { wording: newsAndOffersWords(channel.channel) } : {}),
+  };
+}
+
+/** A line's channel in words: "Email: on", "Email: always (about something you booked)". */
+export function contactChannelWords(channel: ContactLineChannel): string {
+  const name = CONTACT_CHANNEL_WORDS[channel.channel];
+  if (channel.fixed) return `${name}: always`;
+  if (channel.stopped) return `${name}: stopped`;
+  return `${name}: ${contactAllows(channel.value) ? "on" : "off"}`;
+}
 
 export type AccountClient = PackClient<AccountOperations>;
 
@@ -271,6 +374,7 @@ export const BASE_SECTIONS = [
   { key: "family", label: "Family", order: 80 },
   { key: "payment", label: "Payment method", order: 85 },
   { key: "details", label: "Your details", order: 90 },
+  { key: "contact", label: "Contact preferences", order: 92 },
   { key: "devices", label: "Sign-in and devices", order: 95 },
 ] as const satisfies readonly AccountSection[];
 
@@ -751,6 +855,8 @@ export const ACCOUNT_HOOKS_CALL = {
   useCancelSubscription: ["subscription.cancel"],
   useResumeSubscription: ["subscription.resume"],
   useBillingPortal: ["subscription.portal"],
+  useContactChoices: ["me.contact.choices"],
+  useSetContactChoices: ["me.contact.setChoices"],
 } as const;
 
 /**
@@ -826,6 +932,14 @@ function allAccountHooks(
     /** The provider's page for their card and past invoices (web only, never in a frame). */
     useBillingPortal() {
       return useMutation(api.mutation("subscription.portal"));
+    },
+    /** Their contact preferences, and each child's they act for (stage 30). */
+    useContactChoices() {
+      return useQuery(api.query("me.contact.choices", {}));
+    },
+    /** Change one or more of them (`contactToggle` makes the change for one channel). */
+    useSetContactChoices() {
+      return useMutation(api.mutation("me.contact.setChoices"));
     },
   };
 }

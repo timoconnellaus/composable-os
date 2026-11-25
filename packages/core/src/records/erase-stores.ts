@@ -1034,7 +1034,9 @@ export async function queueEraseOrders(ctx: HandlerContext, s: StoreSubject): Pr
       ),
   );
   // The codes sent to their numbers (stage 30, ADR 0673): deleted. A number that replied STOP
-  // stays a salted hash in core_text_stop, tied to nobody, so it is not texted if entered again.
+  // stays a salted hash on the suppression list (core_contact_suppression, ADR 0675), tied to
+  // nobody, so it is not texted if entered again. Their contact choices and stop links go with
+  // the Person (the cascade: the register refuses any other delete).
   ctx.write(ctx.db.deleteFrom("core_phone_check").where("person_id", "in", ids));
   // Their continuation offers (stage 32a, ADR 0491): an address and a date, nothing the books
   // need. Deleted, by Person or by address.

@@ -27,6 +27,17 @@ it is the app's own; `cos diff <block>` shows upstream changes. A block holds no
 lint refuses one that does. Web and native share logic (the hooks), not screens. Every block is in
 the [reference](/reference/blocks/).
 
+## Contact preferences and the one-tap stop
+
+My account's **Contact preferences** section (`web-account-contact`, `native-account-contact`,
+over `useContactChoices` and `useSetContactChoices`) shows each kind of message a member may get,
+on each channel it goes by, for them and each child they act for, and turns one channel on or off
+with a tap. What may change is the host's answer: a booking's or a payment's email always goes,
+news and offers need a yes and never go to a child. The template web app's `/stop` route
+(`stopRoute` in `src/host.ts`) is where a stoppable email's one-tap stop and its List-Unsubscribe
+header point: it shows one button and posts the host's token to the public `contact.stop`, which
+can only turn that one kind off ([ADR 0675](https://github.com/timoconnellaus/composable-os/blob/main/docs/adr/0675-consent-to-be-contacted.md)).
+
 ## Staff screens
 
 A shipped pack may declare staff screens: web blocks the product's admin builds in and shows to

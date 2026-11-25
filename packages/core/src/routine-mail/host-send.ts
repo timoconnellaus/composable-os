@@ -34,7 +34,12 @@ export async function sendHostRoutineMessage(
   let off = prepared.off;
   for (const done of prepared.done) {
     if (done.status === "sent" && done.routine) sent += 1;
-    else if (done.status === "waiting" || (!done.routine && done.status !== "off")) held += 1;
+    else if (
+      done.status === "waiting" ||
+      (!done.routine && done.status !== "off" && done.status !== "stopped")
+    ) {
+      held += 1;
+    }
   }
   const send = deps.integrations?.sendRoutineMessage;
   for (const row of prepared.toSend) {

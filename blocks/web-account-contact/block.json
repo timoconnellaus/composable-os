@@ -1,0 +1,11 @@
+{
+  "name": "web-account-contact",
+  "pack": null,
+  "skin": "web",
+  "operations": ["me.contact.choices", "me.contact.setChoices"],
+  "files": ["contact.tsx", "LICENSE"],
+  "dependsOn": ["ui-button"],
+  "packages": {
+    "@composable-os/client": "*"
+  }
+}

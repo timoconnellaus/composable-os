@@ -1763,10 +1763,52 @@ export interface CorePhoneCheckTable {
   tries: Defaulted<number>;
 }
 
-/** Migration 0911 (ADR 0672): a number that replied STOP, as a salted hash; START deletes it. */
-export interface CoreTextStopTable {
-  number_hash: string;
-  how: "stop_reply";
+/**
+ * Migration 0913 (ADR 0675): the consent register, one row per contact choice, never changed
+ * (person_id moves on a merge). The latest row for (Person, channel, scope) is in force.
+ */
+export interface CoreContactChoiceTable {
+  seq: Generated<number>;
+  id: string;
+  person_id: string;
+  channel: "email" | "text" | "push";
+  /** A purpose (`follow_up`, `news_and_offers`) or a routine kind (`bookings.reminder`). */
+  scope: string;
+  value: "on" | "off" | "yes" | "no";
+  at: string;
+  how:
+    | "member"
+    | "staff_on_request"
+    | "staff_from_paper"
+    | "form"
+    | "checkout"
+    | "stop_link"
+    | "stop_reply"
+    | "start_reply"
+    | "import"
+    | "merge";
+  by_id: string | null;
+  reason: string | null;
+  wording: string | null;
+}
+
+/** Migration 0913 (ADR 0675): a stop link's token, only its SHA-256, naming what it stops. */
+export interface CoreContactStopTokenTable {
+  token_hash: string;
+  person_id: string;
+  channel: "email" | "text" | "push";
+  scope: string;
+  created_at: string;
+}
+
+/**
+ * Migration 0913 (ADR 0675, taking migration 0911's core_text_stop): a salted hash of an address
+ * or number that asked to stop, kept after erase; START deletes a number's.
+ */
+export interface CoreContactSuppressionTable {
+  channel: "email" | "text";
+  value_hash: string;
+  how: "stop_reply" | "provider_unsubscribed";
   at: string;
 }
 
@@ -4415,7 +4457,9 @@ export interface CoreDatabase {
   core_routine_mail: CoreRoutineMailTable;
   core_text_spend: CoreTextSpendTable;
   core_phone_check: CorePhoneCheckTable;
-  core_text_stop: CoreTextStopTable;
+  core_contact_choice: CoreContactChoiceTable;
+  core_contact_suppression: CoreContactSuppressionTable;
+  core_contact_stop_token: CoreContactStopTokenTable;
   core_value_mark: CoreValueMarkTable;
   core_person_signal: CorePersonSignalTable;
   core_birthday_guard: CoreBirthdayGuardTable;

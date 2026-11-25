@@ -63,6 +63,37 @@ export function isRoutineShaped(message: RoutineCandidate, site: string | null):
   return true;
 }
 
+/** The one-tap stop's route on the business's site (the client web app's stop page, ADR 0675). */
+const STOP_PATH = "/stop";
+
+/**
+ * The one-tap stop a routine email may carry (ADR 0675): an https link on `site`'s stop route,
+ * nothing else, or null. Only the host's routine mail, decided routine and of routine shape, may
+ * set one: `site` is the routine queue's site, and null for any other send, so a caller's
+ * `listUnsubscribe` is refused whatever it says.
+ */
+export function listUnsubscribeOf(value: unknown, site: string | null): string | null {
+  if (!site || typeof value !== "string" || value.length > 600) return null;
+  // biome-ignore lint/suspicious/noControlCharactersInRegex: matching them is the point.
+  if (/[\s<>",\u0000-\u001f]/.test(value)) return null;
+  try {
+    const url = new URL(value);
+    if (url.origin !== site || url.username || url.password || url.hash) return null;
+    if (url.pathname !== STOP_PATH) return null;
+    return url.toString();
+  } catch {
+    return null;
+  }
+}
+
+/** The headers a one-click unsubscribe takes (RFC 2369 and RFC 8058). */
+export function unsubscribeHeaders(link: string): Record<string, string> {
+  return {
+    "List-Unsubscribe": `<${link}>`,
+    "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
+  };
+}
+
 /**
  * Asks the session's approval queue whether it is the host's routine mail, decided routine, and
  * for which site. A queue without the method (another host, a test harness) is not.

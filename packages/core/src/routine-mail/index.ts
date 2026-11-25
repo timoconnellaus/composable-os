@@ -29,6 +29,7 @@ import type { CoreDatabase } from "@composable-os/db";
 import {
   calendarsOf,
   channelsOf,
+  essentialOf,
   formatMoment,
   formatMoney,
   PUSH_BODY_MAX,
@@ -51,6 +52,10 @@ import {
 import { type Insertable, type Kysely, sql, type Updateable } from "kysely";
 import { z } from "zod";
 import { ADJUDICATOR_PRINCIPAL } from "../adjudicator/review.ts";
+import { type ContactDecision, contactDecision, registerRefusal } from "../contact/decide.ts";
+import { type ChoicesInForce, choicesInForce } from "../contact/register.ts";
+import { readStopToken, type StopScope, stopLink, tokenOfLink } from "../contact/stop.ts";
+import { addressHash, suppressed } from "../contact/suppression.ts";
 import { mailboxKey } from "../customers/limits.ts";
 import { ForbiddenError, NotFoundError, ValidationError } from "../errors.ts";
 import { getObject } from "../fields/index.ts";
@@ -65,7 +70,7 @@ import { visibleSource } from "../visibility/index.ts";
 import { HOST_KINDS_EXTENSION, hostRoutineKind, hostRoutineKinds } from "./host-kinds.ts";
 import { addressField, CREATED, PRIMARY_ADDRESS, type Standing, valueHash } from "./marks.ts";
 import { TEXT_COUNTRY_CODES } from "./numbers.ts";
-import { DEFAULT_QUIET_HOURS, quietDecision, quietHoursSchema } from "./quiet.ts";
+import { DEFAULT_QUIET_HOURS, quietHoursSchema } from "./quiet.ts";
 import { type ChannelReach, HOST_REACH, type Reached } from "./reach.ts";
 
 /** What the calendar file read, among the slots: checked for an email that carries one. */
@@ -74,6 +79,44 @@ const CALENDAR = "$calendar";
 const NO_EMAIL_CHANNEL = "No email channel is set in Settings → Notification delivery";
 /** What a kind's `until` read: no message shows it, so none rests on it. */
 const UNTIL = "$until";
+/** The line a stoppable email ends with, before its one-tap stop (ADR 0675). */
+export const STOP_WORDS = "To stop getting these emails:";
+
+/**
+ * The stop link a prepared email's words end with, when it is a link on `site`'s stop route to a
+ * token the host made for exactly `named`; else null (ADR 0675). One statement.
+ */
+export async function stopLinkOf(
+  db: Db,
+  body: string,
+  site: string | null,
+  named: StopScope,
+): Promise<string | null> {
+  const at = body.lastIndexOf(`\n${STOP_WORDS} `);
+  if (at < 0) return null;
+  const link = body.slice(at + STOP_WORDS.length + 2);
+  const token = tokenOfLink(link, site);
+  if (!token) return null;
+  const found = await readStopToken(db, token);
+  if (
+    !found ||
+    found.person !== named.person ||
+    found.channel !== named.channel ||
+    found.scope !== named.scope
+  ) {
+    return null;
+  }
+  return link;
+}
+
+/**
+ * What a kind's one-tap stop turns off by email (ADR 0675): follow-ups on email, for a follow-up;
+ * the kind itself, for an optional kind; nothing for an essential kind, whose email always goes.
+ */
+export function stopScopeOf(kindId: string, spec: RoutineMailKindManifest): string | null {
+  if ((spec.purpose ?? "account") === "follow_up") return "follow_up";
+  return essentialOf(spec) ? null : kindId;
+}
 
 type Db = Kysely<CoreDatabase>;
 type Values = Record<string, unknown>;
@@ -1418,6 +1461,17 @@ async function prepareRows(db: Db, p: Prepare): Promise<PreparedRoutineMail> {
     return { reasons, shown };
   };
 
+  // Consent to be contacted (ADR 0675): the register for every recipient, read once, and asked
+  // per recipient and channel below. A refusal is final: the row is `stopped`, never held.
+  const purpose = spec.purpose ?? "account";
+  const essential = essentialOf(spec);
+  const people = recipients.flatMap((r) => (r.personId ? [r.personId] : []));
+  const choices: ChoicesInForce =
+    on && people.length ? await choicesInForce(db, people) : new Map();
+  // A stoppable email (an optional kind, a follow-up) carries its one-tap stop: off for the kind,
+  // or for follow-ups on email. Only on the business's site; without one it has no link.
+  const stopScope = stopScopeOf(p.kindId, spec);
+
   const rows: Insertable<CoreDatabase["core_routine_mail"]>[] = [];
   const keys: string[] = [];
   const common = (recipient: Recipient) => ({
@@ -1444,7 +1498,37 @@ async function prepareRows(db: Db, p: Prepare): Promise<PreparedRoutineMail> {
     if (!template) continue;
     const values = guardian ? guardianValues : selfValues;
     const subject = renderTemplate(parseTemplate(template.subject), values).slice(0, 300);
-    const body = renderTemplate(parseTemplate(template.text), values);
+    let body = renderTemplate(parseTemplate(template.text), values);
+    // May it go to them by email at all (their choices, the suppression list)?
+    const consent: ContactDecision | null = !on
+      ? null
+      : recipient.personId
+        ? await contactDecision(
+            db,
+            {
+              person: recipient.personId,
+              channel: "email",
+              purpose,
+              kind: p.kindId,
+              essential,
+              at: now,
+              address: recipient.address,
+            },
+            { choices, settings },
+          )
+        : (await suppressed(db, "email", await addressHash(db, recipient.address)))
+          ? { send: false, reason: "suppressed", detail: "the address asked not to be sent to" }
+          : null;
+    const stopped = consent !== null && !consent.send;
+    const link =
+      on && !stopped && stopScope && recipient.personId
+        ? await stopLink(db, site, {
+            person: recipient.personId,
+            channel: "email",
+            scope: stopScope,
+          })
+        : null;
+    if (link) body = `${body}\n\n${STOP_WORDS} ${link}`;
     const { reasons, shown } = judge(
       [template.subject, template.text],
       guardian,
@@ -1472,25 +1556,40 @@ async function prepareRows(db: Db, p: Prepare): Promise<PreparedRoutineMail> {
       recipient: recipient.address,
       recipient_key: mailboxKey(recipient.address),
       idempotency_key: key,
-      routine: on && packOn && !reasons.length ? 1 : 0,
-      ordinary: on && !packOn ? 1 : 0,
-      held_reason: !on
-        ? null
-        : !packOn
-          ? "routine email is not turned on for this pack: decided by the approval policy"
-          : reasons.length
-            ? reasons.join("; ").slice(0, 1000)
-            : null,
+      routine: on && packOn && !reasons.length && !stopped ? 1 : 0,
+      ordinary: on && !packOn && !stopped ? 1 : 0,
+      held_reason:
+        !on || stopped
+          ? null
+          : !packOn
+            ? "routine email is not turned on for this pack: decided by the approval policy"
+            : reasons.length
+              ? reasons.join("; ").slice(0, 1000)
+              : null,
       // An address the host cannot send to is kept, failed with the reason, in the log staff
       // read (Settings → Routine email), never dropped in silence (the fourth review).
-      status: !on ? "off" : recipient.invalid || noConnection ? "failed" : "ready",
-      connection_id: on ? p.connectionId : null,
-      subject: on ? subject.slice(0, 200) : null,
-      body: on ? body : null,
-      calendar: on && calendar.length ? JSON.stringify(calendar) : null,
+      // One the person stopped (or whose address is suppressed) is `stopped`: kept in the log,
+      // never sent and never held (ADR 0675).
+      status: !on
+        ? "off"
+        : stopped
+          ? "stopped"
+          : recipient.invalid || noConnection
+            ? "failed"
+            : "ready",
+      connection_id: on && !stopped ? p.connectionId : null,
+      subject: on && !stopped ? subject.slice(0, 200) : null,
+      body: on && !stopped ? body : null,
+      calendar: on && !stopped && calendar.length ? JSON.stringify(calendar) : null,
       sources: JSON.stringify(unreadable ? [] : shown),
       error:
-        on && recipient.invalid ? (recipient.held ?? null) : noConnection ? NO_EMAIL_CHANNEL : null,
+        consent && !consent.send
+          ? consent.detail
+          : on && recipient.invalid
+            ? (recipient.held ?? null)
+            : noConnection
+              ? NO_EMAIL_CHANNEL
+              : null,
     });
   }
 
@@ -1503,7 +1602,6 @@ async function prepareRows(db: Db, p: Prepare): Promise<PreparedRoutineMail> {
     const sender = settings.senderName?.trim() ?? "";
     const senderProblem = sender ? unroutineText(sender, TEXT_SENDER_MAX) : null;
     const zone = settings.quietZone && isTimezone(settings.quietZone) ? settings.quietZone : null;
-    const at = Date.parse(now);
     for (const recipient of recipients) {
       if (recipient.rule === "order" || !recipient.personId) continue;
       const personId = recipient.personId;
@@ -1557,28 +1655,51 @@ async function prepareRows(db: Db, p: Prepare): Promise<PreparedRoutineMail> {
             tooLong = `the text is ${counted.segments} segments once filled: at most ${TEXT_MAX_SEGMENTS}`;
           }
         }
-        const reached: Reached =
+        // The one question (ADR 0675): their choices for the kind and its purpose on this
+        // channel, the suppression list, whether they can be reached, its moment, quiet hours.
+        const decision: ContactDecision =
           channel === "text" && pushReached && settings.textOnlyWithoutApp
-            ? { reason: "reached by push (text only without the app)" }
-            : await p.reach[channel](db, personId);
+            ? {
+                send: false,
+                reason: "no_device",
+                detail: "reached by push (text only without the app)",
+              }
+            : await contactDecision(
+                db,
+                {
+                  person: personId,
+                  channel,
+                  purpose,
+                  kind: p.kindId,
+                  essential,
+                  moment: untilAt,
+                  urgent: spec.urgent === true,
+                  at: now,
+                },
+                { choices, settings, reach: p.reach },
+              );
+        const reached: Reached = decision.send
+          ? { to: decision.to, key: decision.key }
+          : { reason: decision.detail };
         let status: "ready" | "waiting" | "held" | "expired" | "no_channel" | "stopped" | "failed" =
           "ready";
         let waitUntil: string | null = null;
         let error: string | null = null;
-        if ("reason" in reached) {
-          // A number that replied STOP is the person's own stop, not a missing way to reach them.
-          status = reached.stopped ? "stopped" : "no_channel";
-          error = reached.reason;
+        if (!decision.send) {
+          // Their own choice, a stop or a suppressed number is `stopped`; a moment passed is
+          // `expired`; no number, no device: `no_channel`. Final, never held for a person.
+          status =
+            decision.reason === "expired"
+              ? "expired"
+              : decision.reason === "not_textable" || decision.reason === "no_device"
+                ? "no_channel"
+                : "stopped";
+          error = decision.reason === "expired" ? null : decision.detail;
         } else if (unset || tooLong) {
           status = "failed";
           error = unset ?? tooLong;
-        } else if (untilAt !== null && untilAt <= at) {
-          status = "expired";
         } else {
-          waitUntil = quietDecision(at, zone as string, settings.quietHours, {
-            urgent: spec.urgent === true,
-            until: untilAt,
-          }).waitUntil;
+          waitUntil = decision.waitUntil ?? null;
           // Held for a person (anything an AI wrote, a value not routine): never `ready` or
           // `waiting`, the states a sender or the end of quiet hours acts on (the review of
           // PR #339). A person's decision is the text and push steps' review.
@@ -1793,12 +1914,92 @@ export interface RoutineMailRow {
     text: string;
     relatedRecords: string[];
     calendar?: unknown;
+    /**
+     * The one-tap stop of a stoppable email (ADR 0675): the email gatekeeper sets the
+     * List-Unsubscribe and List-Unsubscribe-Post headers to it, for the host's routine mail only.
+     */
+    listUnsubscribe?: string;
   };
 }
 
 /**
+ * Asks the register again at the moment of sending (ADR 0675): a choice made, a stop taken or an
+ * address suppressed since the row was prepared. Null when it may go, else why not.
+ */
+async function consentAtSend(
+  db: Db,
+  row: {
+    recipient_person_id: string | null;
+    recipient: string;
+    recipient_key?: string;
+    channel: string;
+  },
+  kind: RoutineKind | null,
+): Promise<string | null> {
+  const channel = row.channel === "text" || row.channel === "push" ? row.channel : "email";
+  if (kind && row.recipient_person_id) {
+    const refused = await registerRefusal(db, {
+      person: row.recipient_person_id,
+      channel,
+      purpose: kind.spec.purpose ?? "account",
+      kind: kind.id,
+      essential: essentialOf(kind.spec),
+    });
+    if (refused && !refused.send) return refused.detail;
+  }
+  if (channel === "email" && row.recipient) {
+    if (await suppressed(db, "email", await addressHash(db, row.recipient))) {
+      return "the address asked not to be sent to";
+    }
+  }
+  if (channel === "text" && row.recipient_key?.startsWith("text:")) {
+    if (await suppressed(db, "text", row.recipient_key.slice(5))) return "the number replied STOP";
+  }
+  return null;
+}
+
+/**
+ * A held routine message a person is about to approve (ADR 0675): asked again, because nobody
+ * may approve around a stop. Null when it may go; else the row is settled `stopped`, its words
+ * cleared, and the reason returned for the approval to be skipped with.
+ */
+export async function stopHeldRoutineMessage(
+  db: Db,
+  pendingActionId: string,
+  now = new Date().toISOString(),
+): Promise<string | null> {
+  const row = await db
+    .selectFrom("core_routine_mail")
+    .select(["id", "kind", "channel", "recipient", "recipient_key", "recipient_person_id"])
+    .where("pending_action_id", "=", pendingActionId)
+    .executeTakeFirst();
+  if (!row) return null;
+  // A kind gone since (its pack uninstalled): the register's choices for it cannot be read, but
+  // the suppression list still holds.
+  const kind = (await routineKinds(db)).find((k) => k.id === row.kind) ?? null;
+  const refused = await consentAtSend(db, row, kind);
+  if (!refused) return null;
+  await db
+    .updateTable("core_routine_mail")
+    .set({
+      status: "stopped",
+      routine: 0,
+      error: refused,
+      updated_at: now,
+      subject: null,
+      body: null,
+      calendar: null,
+      recipient: sql<string>`CASE WHEN channel = 'email' THEN recipient ELSE '' END`,
+    })
+    .where("id", "=", row.id)
+    .execute();
+  return refused;
+}
+
+/**
  * Claims a row to send through `connectionId`; null when it is not one to send there now, `off`
- * when its kind was turned off since it was prepared (F2: settled `off`, nothing sent). The pack
+ * when its kind was turned off since it was prepared (F2: settled `off`, nothing sent), `stopped`
+ * when the person stopped it (or their address was suppressed) since: settled, nothing sent. The pack
  * switch is read again too (D1), and the daily caps are counted here, in the one statement that
  * claims a routine row (D4): per mailbox (plus-tags and case folded) and for the organisation,
  * so runs claiming at once cannot race past either. Over a cap the row is held for a person.
@@ -1808,7 +2009,7 @@ export async function claimRoutineMail(
   id: string,
   connectionId: string,
   now = new Date().toISOString(),
-): Promise<RoutineMailRow | "off" | null> {
+): Promise<RoutineMailRow | "off" | "stopped" | null> {
   let row = await db
     .selectFrom("core_routine_mail")
     .selectAll()
@@ -1835,6 +2036,23 @@ export async function claimRoutineMail(
       .where("id", "=", id)
       .execute();
     return "off";
+  }
+  const refused = await consentAtSend(db, row, kind);
+  if (refused) {
+    await db
+      .updateTable("core_routine_mail")
+      .set({
+        status: "stopped",
+        routine: 0,
+        error: refused,
+        updated_at: now,
+        subject: null,
+        body: null,
+        calendar: null,
+      })
+      .where("id", "=", id)
+      .execute();
+    return "stopped";
   }
   if (row.routine === 1 && !kind.packOn) {
     await db
@@ -1936,6 +2154,20 @@ export async function claimRoutineMail(
     calendar = row.calendar ? JSON.parse(row.calendar) : undefined;
   } catch {}
   const events = Array.isArray(calendar) ? calendar : [];
+  const stopScope = stopScopeOf(kind.id, kind.spec);
+  // Its header only on one the host decided routine (a held one carries its stop in its words,
+  // and the gatekeeper takes the header from the host's routine mail alone), and only the very
+  // link its words end with, on the site as it is now and naming this row's Person and kind. A
+  // site changed since it was prepared leaves the header off: the email is then an ordinary send,
+  // held for a person, never refused and retried (the review of PR #451).
+  const listUnsubscribe =
+    stopScope && row.recipient_person_id && row.routine === 1
+      ? await stopLinkOf(db, row.body, siteOriginOf(settings.siteOrigin), {
+          person: row.recipient_person_id,
+          channel: "email",
+          scope: stopScope,
+        })
+      : null;
   return {
     id: row.id,
     kind: row.kind,
@@ -1955,6 +2187,7 @@ export async function claimRoutineMail(
         : events.length
           ? { calendar: events }
           : {}),
+      ...(listUnsubscribe ? { listUnsubscribe } : {}),
     },
   };
 }

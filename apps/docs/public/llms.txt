@@ -186,6 +186,7 @@
 - [memberships-passes](https://docs.composableos.dev/reference/blocks/memberships-passes/): Buying a pass on a gym's site (stage 32b): the pass types on sale (class packs, drop-ins, an intro offer) with the host's price, what each gives and how long it is valid, and a button that starts the order and opens the payment provider's page.
 - [memberships-plans](https://docs.composableos.dev/reference/blocks/memberships-plans/): Joining a gym on its site (stage 32b): the membership plans on sale with the host's price per month, what each allows and its trial, and a button that opens the payment provider's page.
 - [memberships-staff-holdings](https://docs.composableos.dev/reference/blocks/memberships-staff-holdings/): For staff (stage 32b): one person's memberships and passes, with what each allows and what is left, as the host counts it; giving a pass by hand or voiding one given by hand, with a reason; and pausing their membership for a set time or ending a pause (stage 32b, decision 10: the host holds the plan's shortest and longest pause and asks the provider; the membership shows paused once the provider confirms).
+- [native-account-contact](https://docs.composableos.dev/reference/blocks/native-account-contact/): Contact preferences (stage 30, ADR 0675), for the mobile app: each kind of message the signed-in customer may get, on each channel it goes by, and the same for each child they act for.
 - [native-account-details](https://docs.composableos.dev/reference/blocks/native-account-details/): Your details (stage 48), for the mobile app: the signed-in customer's name and phone, to change, and the address they sign in with.
 - [native-account-devices](https://docs.composableos.dev/reference/blocks/native-account-devices/): Sign-in and devices (stage 48), for the mobile app: every place the signed-in customer is signed in, when each began and was last used, and signing one out.
 - [native-account-family](https://docs.composableos.dev/reference/blocks/native-account-family/): Family (stage 48), for the mobile app: who the signed-in customer acts for and who acts for them.
@@ -242,6 +243,7 @@
 - [ui-input](https://docs.composableos.dev/reference/blocks/ui-input/)
 - [ui-label](https://docs.composableos.dev/reference/blocks/ui-label/)
 - [ui-utils](https://docs.composableos.dev/reference/blocks/ui-utils/)
+- [web-account-contact](https://docs.composableos.dev/reference/blocks/web-account-contact/): Contact preferences (stage 30, ADR 0675), for the web: each kind of message the signed-in customer may get, on each channel it goes by, and the same for each child they act for.
 - [web-account-details](https://docs.composableos.dev/reference/blocks/web-account-details/): Your details (stage 48), for the web: the signed-in customer's name and phone, to change, and the address they sign in with.
 - [web-account-devices](https://docs.composableos.dev/reference/blocks/web-account-devices/): Sign-in and devices (stage 48), for the web: every place the signed-in customer is signed in (browsers and the app on their devices), when each began and was last used, and signing one out.
 - [web-account-family](https://docs.composableos.dev/reference/blocks/web-account-family/): Family (stage 48), for the web: who the signed-in customer acts for (a child linked to them) and who acts for them (a parent or guardian).
@@ -298,6 +300,7 @@
 - [code.* operations](https://docs.composableos.dev/reference/operations/code/): The core operations named code.*
 - [connectedApp.* operations](https://docs.composableos.dev/reference/operations/connectedapp/): The core operations named connectedApp.*
 - [connection.* operations](https://docs.composableos.dev/reference/operations/connection/): The core operations named connection.*
+- [contact.* operations](https://docs.composableos.dev/reference/operations/contact/): The core operations named contact.*
 - [content.* operations](https://docs.composableos.dev/reference/operations/content/): The core operations named content.*
 - [conversation.* operations](https://docs.composableos.dev/reference/operations/conversation/): The core operations named conversation.*
 - [customer.* operations](https://docs.composableos.dev/reference/operations/customer/): The core operations named customer.*
