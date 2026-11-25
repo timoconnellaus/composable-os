@@ -52,6 +52,8 @@ it("after migrations every read view is rec_<object>, and none keeps the old pre
     "rec_capacity_claim",
     // Stage 35 (migration 1030): quotes, invoices and credit notes.
     "rec_credit_note",
+    // Stage 34 (migration 0953): discount uses, for reports.
+    "rec_discount_use",
     "rec_invoice",
     // Stage 64 (migration 1390): the locations.
     "rec_location",

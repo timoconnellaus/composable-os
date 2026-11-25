@@ -92,6 +92,20 @@ export async function loadMinPartPayment(db: Kysely<CoreDatabase>): Promise<numb
   return (await load(db, ORDER_MIN_PART_SETTING, minPartPaymentSchema)) ?? DEFAULT_MIN_PART_PAYMENT;
 }
 
+/**
+ * The smallest amount that can be charged (stage 34 step 4, ADR 0693: the spec's rule 5): a deal
+ * that would leave an order with something to pay but less than this does not apply. It stands in
+ * for the payment provider's own minimum, which the platform does not read. In the currency's
+ * minor unit; 0.50 of a two-decimal currency until a human admin changes it.
+ */
+export const ORDER_MIN_CHARGE_SETTING = "order_min_charge";
+export const DEFAULT_MIN_CHARGE = 50;
+export const minChargeSchema = z.number().int().min(0).max(100_000_000);
+
+export async function loadMinCharge(db: Kysely<CoreDatabase>): Promise<number> {
+  return (await load(db, ORDER_MIN_CHARGE_SETTING, minChargeSchema)) ?? DEFAULT_MIN_CHARGE;
+}
+
 // --- Tax at checkout (ADR 0479) -----------------------------------------------------------------
 
 /**

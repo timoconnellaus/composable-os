@@ -144,6 +144,8 @@ export interface ObjectDefinition {
   stockMoves?: StockMovesDefinition;
   /** Extension objects: uses held (a pass) or spent (a booking) (stage 32b, ADR 0493). */
   allowance?: AllowanceDefinition;
+  /** Extension objects: records that are discounts, priced by the host (stage 34, ADR 0693). */
+  discount?: DiscountDefinition;
   /**
    * Extension objects: an agreement point (stage 44, ADR 0641), as declared (it names no field the
    * registry renames; `person` and `enter` are local names, read only from step 3 on).
@@ -363,6 +365,40 @@ export interface AllowanceConditionDefinition {
   readonly below?: string | number | undefined;
   /** `"none"`: an empty holder field for `in` allows nothing (ADR 0764). */
   readonly empty?: "any" | "none" | undefined;
+}
+
+/**
+ * The discount behaviour as the host enforces it (the SDK's DiscountSpec, validated, ADR 0693):
+ * an object's own fields are named as declared; `codes.object` is the registry name of the object
+ * holding its codes.
+ */
+export interface DiscountDefinition {
+  readonly kind: string;
+  readonly percent?: string | undefined;
+  readonly amount?: string | undefined;
+  readonly live: readonly string[];
+  readonly automatic?: string | undefined;
+  readonly code?: string | undefined;
+  readonly codes?:
+    | {
+        readonly object: string;
+        readonly discount: string;
+        readonly word: string;
+        readonly uses?: string | undefined;
+        readonly active?: string | undefined;
+      }
+    | undefined;
+  readonly who?: string | undefined;
+  readonly plans?: string | undefined;
+  readonly organisations?: string | undefined;
+  readonly tag?: string | undefined;
+  readonly objects?: string | undefined;
+  readonly records?: readonly string[] | undefined;
+  readonly from?: string | undefined;
+  readonly until?: string | undefined;
+  readonly totalUses?: string | undefined;
+  readonly perPerson?: string | undefined;
+  readonly minSpend?: string | undefined;
 }
 
 /**

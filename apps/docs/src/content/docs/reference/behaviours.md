@@ -42,6 +42,12 @@ Uses a record holds (a pass, a membership), or a record that spends one (a booki
 
 Declared as `allowance: AllowanceSpec` on an object. Declared by: [`bookings.booking`](/packs/bookings/data-model/), [`bookings.appointment`](/packs/bookings/data-model/), [`memberships.membership`](/packs/memberships/data-model/), [`memberships.pass`](/packs/memberships/data-model/).
 
+## discount
+
+Records that are discounts (see DiscountSpec, ADR 0693): a code or a member's price, worked out by the host when it prices an order, one deal per order, limits kept by the database.
+
+Declared as `discount: DiscountSpec` on an object. Declared by: no shipped pack.
+
 ## agreements
 
 An agreement point (see AgreementsSpec, ADR 0641): where a business may need a person to have agreed to its documents first. The business attaches the documents; the pack names the place.

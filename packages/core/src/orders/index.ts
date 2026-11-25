@@ -6,6 +6,7 @@ import "./moves.ts";
 
 export * from "./adjustments.ts";
 export * from "./checkout.ts";
+export * from "./codes.ts";
 export * from "./events.ts";
 export * from "./gateway.ts";
 export * from "./grants.ts";

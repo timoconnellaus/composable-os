@@ -159,6 +159,18 @@ extension declares it; it never implements it. Each behaviour the platform has i
   person's act, and an AI's waits for one. Never change stock from a tool otherwise: move the
   record. What moved stock cannot be edited afterwards. A shipped pack only. See
   `StockMovesSpec` and ADR 0681.
+- **`discount`** on an object whose records are money off (a promo code's discount, a member's
+  price): `discount: { kind: "<select of percent, amount, price>", percent?, amount?, live:
+  [<states>], automatic?: "<boolean>", code?: "<text>", codes?: { object, discount, word, uses?,
+  active? }, who?, plans?, organisations?, tag?, objects?, records?, from?, until?, totalUses?,
+  perPerson?, minSpend? }`, each a field of the object. The host works out the order's one deal
+  when it prices it (the better of the code and any automatic discount) and keeps the limits in
+  the order's batch; never compute a price or a discount in a tool or a block. Declare every move
+  into a live state `by: ["host"], tools: [...]` (a person's tool) or `by: ["staff"]` with the
+  state field `personApproves: true`, never `create.in` a live state; an AI's change to a live
+  discount, and any write of a promo code record by anyone but a person (your pack's tools
+  included), waits for a person. Not in a shipped pack until public operations have a
+  per-address rate limit (ADR 0693). See `DiscountSpec` in `packages/sdk/src/discount.ts` and ADR 0693.
 - **`unique`** on an object: `unique: [{ fields: [<up to 4 fields>], states?: [<states>] }]`, no
   two live records in those states share the fields (one active booking per Person per class).
   The database refuses the second, however many write at once (`conflict`, `rule: "unique"`).

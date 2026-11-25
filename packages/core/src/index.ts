@@ -122,6 +122,7 @@ export {
   ROTATE_MS,
 } from "./devices/devices.ts";
 export * from "./diff.ts";
+export * from "./discounts/index.ts";
 export { runDuplicateCron } from "./duplicates/cron.ts";
 export * from "./duplicates/normalise.ts";
 export * from "./duplicates/rules.ts";

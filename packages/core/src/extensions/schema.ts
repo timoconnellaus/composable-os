@@ -9,6 +9,7 @@ import {
   type CapacityManifest,
   type ChecklistsManifest,
   type ClaimsManifest,
+  type DiscountManifest,
   type DocumentSchema,
   documentJsonPath,
   documentMaxBytesOf,
@@ -99,6 +100,7 @@ export interface ObjectDefinitionJson {
   stock?: StockManifest;
   stockMoves?: StockMovesManifest;
   allowance?: AllowanceManifest;
+  discount?: DiscountManifest;
   /** An agreement point (stage 44, ADR 0641), as declared. */
   agreements?: AgreementsManifest;
   /** A health-note list (stage 44, ADR 0643), as declared. */
@@ -1440,6 +1442,19 @@ export function buildRegistry(state: SchemaState): Map<string, ObjectDefinition>
     const stock = stockDefinition(object, own);
     const stockMoves = stockMovesDefinition(object, own);
     const allowance = allowanceDefinition(object);
+    const discount = object.definition.discount
+      ? {
+          ...object.definition.discount,
+          ...(object.definition.discount.codes
+            ? {
+                codes: {
+                  ...object.definition.discount.codes,
+                  object: `${object.extensionId}.${object.definition.discount.codes.object}`,
+                },
+              }
+            : {}),
+        }
+      : undefined;
     const publishable = object.definition.publishable;
     const restricted = restrictedOf(object);
     const fields = [
@@ -1473,6 +1488,7 @@ export function buildRegistry(state: SchemaState): Map<string, ObjectDefinition>
       ...(stock ? { stock } : {}),
       ...(stockMoves ? { stockMoves } : {}),
       ...(allowance ? { allowance } : {}),
+      ...(discount ? { discount } : {}),
       ...(object.definition.agreements ? { agreements: object.definition.agreements } : {}),
       ...(object.definition.healthNotes ? { healthNotes: object.definition.healthNotes } : {}),
       ...(restricted.length ? { restricted } : {}),

@@ -325,6 +325,7 @@
 - [device.* operations](https://docs.composableos.dev/reference/operations/device/): The core operations named device.*
 - [deviceSession.* operations](https://docs.composableos.dev/reference/operations/devicesession/): The core operations named deviceSession.*
 - [dictation.* operations](https://docs.composableos.dev/reference/operations/dictation/): The core operations named dictation.*
+- [discount.* operations](https://docs.composableos.dev/reference/operations/discount/): The core operations named discount.*
 - [duplicate.* operations](https://docs.composableos.dev/reference/operations/duplicate/): The core operations named duplicate.*
 - [enrichment.* operations](https://docs.composableos.dev/reference/operations/enrichment/): The core operations named enrichment.*
 - [eraseRequest.* operations](https://docs.composableos.dev/reference/operations/eraserequest/): The core operations named eraseRequest.*

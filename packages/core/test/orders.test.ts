@@ -119,9 +119,12 @@ describe("prices are the host's (criterion 3)", () => {
       properties: Record<string, { items?: { properties: Record<string, unknown> } }>;
     };
     // `agreements` is a visitor's acceptances (stage 44 step 3), `delivery` the option chosen
-    // and its address (stage 37 step 3): no amount anywhere in either.
+    // and its address (stage 37 step 3), `code` a promo code the buyer typed (stage 34 step 4,
+    // ADR 0693: a word; the host reads what it takes off): no amount anywhere in any.
+    expect((schema.properties.code as { type?: string }).type).toBe("string");
     expect(Object.keys(schema.properties).sort()).toEqual([
       "agreements",
+      "code",
       "delivery",
       "email",
       "lines",
