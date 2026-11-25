@@ -96,6 +96,11 @@
         "packs/dailychecks/blocks/dailychecks-today/**",
         "packs/dailychecks/blocks/dailychecks-history/**",
         "packs/forms/blocks/forms-form/**",
+        "packs/knowledge/blocks/knowledge-procedures/**",
+        "packs/knowledge/blocks/knowledge-to-read/**",
+        "packs/knowledge/blocks/knowledge-read-status/**",
+        "packs/knowledge/blocks/knowledge-help-centre/**",
+        "packs/knowledge/blocks/knowledge-help-page/**",
         "apps/screens/src/**",
         "apps/screens/previews/**"
       ],

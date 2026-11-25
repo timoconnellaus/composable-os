@@ -1,0 +1,11 @@
+{
+  "name": "knowledge-help-page",
+  "pack": "knowledge",
+  "skin": "web",
+  "operations": ["content.get", "content.list"],
+  "files": ["help-page.tsx", "LICENSE"],
+  "dependsOn": ["content-rich-text"],
+  "packages": {
+    "@composable-os/pack-knowledge": "*"
+  }
+}

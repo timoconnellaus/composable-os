@@ -1,0 +1,19 @@
+{
+  "name": "knowledge-native-procedures",
+  "pack": "knowledge",
+  "skin": "native",
+  "operations": [
+    "content.staffList",
+    "content.staffGet",
+    "content.search",
+    "record.list",
+    "x.knowledge.toRead",
+    "x.knowledge.confirm"
+  ],
+  "files": ["procedures-screen.tsx", "LICENSE"],
+  "dependsOn": ["native-base", "content-native-rich-text"],
+  "packages": {
+    "@composable-os/pack-knowledge": "*"
+  },
+  "noPurchase": true
+}

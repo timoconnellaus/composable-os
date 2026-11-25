@@ -17,7 +17,10 @@
 //     (`managed`, ADR 0706). The notices are this pack's words, sent by the host;
 //   - a help page is public in its published wording only (ADR 0442): `content.get`,
 //     `content.list` and `content.search` serve the version last published, never a draft.
-// The tools in tools.ts compose the host's operations and add no rule of their own.
+// The tools in tools.ts compose the host's operations and add no rule of their own. The screens
+// (step 6, ADR 0708) are this pack's blocks (blocks/) over its headless entry (client/): the help
+// centre for a business's website and app, and for staff the procedures, the reader with its
+// confirm, To read and Read status; they show what the host answers and decide nothing.
 import { defineExtension, MUST_READ_SCHEMA } from "@composable-os/sdk";
 import { knowledgeAutomations } from "./automations.ts";
 import {
@@ -343,4 +346,41 @@ export default defineExtension({
   },
   tools: { toRead, confirm, readStatus, helpTopics, draftProcedure, draftHelpPage },
   automations: knowledgeAutomations,
+  // Staff screens in the product's admin (stage 47, ADR 0660; step 6, ADR 0708), each gated by the
+  // tools that decide who may open it. Procedures, the reader and To read are every staff
+  // account's, pack roles included (`toRead` and `confirm` are `anyStaff`), so a coach's or a
+  // cleaner's small shell lists them; Read status is `readStatus`'s: admins and those granted
+  // knowledge:manage, a person only. The reader is a record screen: a tab on a procedure's record
+  // page showing its published wording, and what a notice's link opens for an account that cannot
+  // open the record page (a pack role).
+  screens: {
+    procedures: {
+      label: "Procedures",
+      block: "knowledge-procedures",
+      export: "Procedures",
+      nav: { group: "Knowledge", order: 10 },
+      opens: ["toRead", "confirm"],
+    },
+    toRead: {
+      label: "To read",
+      block: "knowledge-to-read",
+      export: "ToRead",
+      nav: { group: "Knowledge", order: 20 },
+      opens: ["toRead", "confirm"],
+    },
+    reader: {
+      label: "As published",
+      block: "knowledge-procedures",
+      export: "ProcedureScreen",
+      opens: ["toRead", "confirm"],
+      record: { object: "knowledge.procedure", as: "procedureId" },
+    },
+    readStatus: {
+      label: "Read status",
+      block: "knowledge-read-status",
+      export: "ReadStatus",
+      nav: { group: "Knowledge", order: 30 },
+      opens: ["readStatus"],
+    },
+  },
 });

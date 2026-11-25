@@ -1,0 +1,11 @@
+{
+  "name": "knowledge-read-status",
+  "pack": "knowledge",
+  "skin": "web",
+  "operations": ["x.knowledge.readStatus"],
+  "files": ["read-status.tsx", "LICENSE"],
+  "dependsOn": ["ui-button"],
+  "packages": {
+    "@composable-os/pack-knowledge": "*"
+  }
+}
