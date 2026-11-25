@@ -263,6 +263,140 @@ export async function mediaRoute(request: Request, env: HostEnv): Promise<Respon
   });
 }
 
+/**
+ * The form page's two paths (stage 29, ADR 0728): a form's own page, for a link or a QR code, and
+ * where a personal link from an email opens (`/form?t=…`, the SDK's PERSONAL_LINK_PATH).
+ */
+export const FORM_PAGE_PREFIX = "/f/";
+export const FORM_LINK_PATH = "/form";
+
+/** The headers of the host's page that are passed back: what it may load, framing, caching. */
+const FORM_PAGE_HEADERS = [
+  "content-type",
+  "cache-control",
+  "content-security-policy",
+  "x-frame-options",
+  "x-content-type-options",
+  "permissions-policy",
+  "allow",
+] as const;
+
+/**
+ * The form page on this site (stage 29, ADR 0728): `GET` and `POST` of `/f/<slug>` and `/form`
+ * are forwarded to the host over HOST, with the customer's cookie and, for a send, the form's
+ * fields, and nothing else; the host draws the page (the Forms pack's form page) and its answer
+ * comes back with the page's own headers. So a personal link an email sends to this site opens
+ * here, and a QR code can name this site. The page works without JavaScript; whether the form is
+ * open to the visitor, the spam checks, who may answer and once only are the host's. With no
+ * Forms on the host, both paths are not found.
+ *
+ * A personal link's page is sent with no referrer (set here too, whatever the host said), loads
+ * no script from anywhere else, and takes the token out of the address bar once it has loaded.
+ * A send must come from this site's own page: another site's form posting here is refused before
+ * anything reaches the host. Null for any other request.
+ */
+export async function formPageRoute(request: Request, env: HostEnv): Promise<Response | null> {
+  const url = new URL(request.url);
+  const page =
+    url.pathname === FORM_LINK_PATH ||
+    (url.pathname.startsWith(FORM_PAGE_PREFIX) &&
+      url.pathname.length > FORM_PAGE_PREFIX.length &&
+      !url.pathname.slice(FORM_PAGE_PREFIX.length).includes("/"));
+  if (!page) return null;
+  const method = request.method;
+  if (method !== "GET" && method !== "HEAD" && method !== "POST") {
+    return formRefusal(405, "invalid_input", "Use GET or POST", { allow: "GET, HEAD, POST" });
+  }
+  // Built afresh: the customer's cookie and the visitor's address (Cloudflare's, never one the
+  // browser sent), and for a send the form's type. Nothing else of the browser's request.
+  const headers: Record<string, string> = forVisitor(request);
+  let body: string | undefined;
+  if (method === "POST") {
+    // The browser's word that the send comes from this site's own page: an allow-list. With
+    // Sec-Fetch-Site, same-origin only (a sibling subdomain is same-site, and a customer's cookie
+    // still goes with it); without it, an Origin of this site, or "null" (the page's no-referrer
+    // policy makes a browser send that).
+    const site = request.headers.get("sec-fetch-site");
+    const origin = request.headers.get("origin");
+    const ours =
+      site !== null
+        ? site === "same-origin" || site === "none"
+        : origin === "null" || origin === url.origin;
+    if (!ours) return formRefusal(403, "forbidden", "Answers are sent from this site's page only");
+    const type = request.headers.get("content-type") ?? "";
+    if (!/^application\/x-www-form-urlencoded\b/i.test(type)) {
+      return formRefusal(415, "invalid_input", "Send the page's form");
+    }
+    const read = await bodyUpTo(request, FORM_PAGE_MAX_BODY);
+    if (read === null) return formRefusal(413, "invalid_input", "The answers are too long");
+    headers["content-type"] = type;
+    body = read;
+  }
+  const answer = await env.HOST.fetch(`${BOUND}${url.pathname}${url.search}`, {
+    method,
+    headers,
+    ...(body !== undefined ? { body } : {}),
+  });
+  const out = new Headers();
+  for (const name of FORM_PAGE_HEADERS) {
+    const value = answer.headers.get(name);
+    if (value) out.set(name, value);
+  }
+  // Never sent on as a referrer, never kept by a cache: a personal link's token is in the address.
+  out.set("referrer-policy", "no-referrer");
+  out.set("cache-control", "no-store");
+  return new Response(method === "HEAD" ? null : answer.body, {
+    status: answer.status,
+    headers: out,
+  });
+}
+
+/** The most a form page's send may be, in bytes (the host's page takes no more). */
+const FORM_PAGE_MAX_BODY = 131_072;
+
+/** The form route's own refusals: no referrer and no cache, as its pages. */
+function formRefusal(
+  status: number,
+  code: string,
+  message: string,
+  extra: Record<string, string> = {},
+): Response {
+  return Response.json(
+    { error: { code, message } },
+    {
+      status,
+      headers: { "referrer-policy": "no-referrer", "cache-control": "no-store", ...extra },
+    },
+  );
+}
+
+/** A body as text, read only up to `max` bytes; null when it is (or says it is) longer. */
+async function bodyUpTo(request: Request, max: number): Promise<string | null> {
+  const declared = Number(request.headers.get("content-length") ?? "");
+  if (Number.isFinite(declared) && declared > max) return null;
+  if (!request.body) return "";
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    size += value.byteLength;
+    if (size > max) {
+      await reader.cancel().catch(() => undefined);
+      return null;
+    }
+    chunks.push(value);
+  }
+  const bytes = new Uint8Array(size);
+  let at = 0;
+  for (const chunk of chunks) {
+    bytes.set(chunk, at);
+    at += chunk.byteLength;
+  }
+  return new TextDecoder().decode(bytes);
+}
+
 /** Where a stop link opens: the host makes each one for this site (`stopLink`, stage 30). */
 export const STOP_ROUTE = "/stop";
 

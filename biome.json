@@ -94,6 +94,7 @@
         "packs/rostering/blocks/rostering-checklists/**",
         "packs/dailychecks/blocks/dailychecks-today/**",
         "packs/dailychecks/blocks/dailychecks-history/**",
+        "packs/forms/blocks/forms-form/**",
         "apps/screens/src/**",
         "apps/screens/previews/**"
       ],

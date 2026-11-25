@@ -8,6 +8,7 @@
 //   GET  /                                            the public page
 //   GET  /api/media/<id>                              the template's media route (issue #181)
 //   GET  /api/v1/agreements/acceptances/<id>.pdf      a signed agreement's PDF (stage 44)
+//   GET, POST /f/<slug>, /form                        the form page, the host's (stage 29)
 //   GET, POST /stop                                   the one-tap stop (stage 30)
 //   POST /passthrough/api/v1/op/<name>                 NOT the template: a careless proxy that
 //                                                     forwards the browser's request, headers and
@@ -17,6 +18,7 @@
 import {
   agreementPdfRoute,
   authRoute,
+  formPageRoute,
   type HostEnv,
   mediaRoute,
   operationRoute,
@@ -29,6 +31,8 @@ export default {
   async fetch(request: Request, env: HostEnv): Promise<Response> {
     const auth = await authRoute(request, env);
     if (auth) return auth;
+    const form = await formPageRoute(request, env);
+    if (form) return form;
     // The browser's typed-client calls (ADR 0451): these two only.
     const call = await operationRoute(request, env, { allow: ["me.get", "me.update"] });
     if (call) return call;

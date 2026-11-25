@@ -151,7 +151,7 @@ the edge and stores nothing in the deployment:
 
 | Setting | Value |
 | --- | --- |
-| Expression | `(starts_with(http.request.uri.path, "/api/v1/op/") or starts_with(http.request.uri.path, "/api/customer-auth/"))` |
+| Expression | `(starts_with(http.request.uri.path, "/api/v1/op/") or starts_with(http.request.uri.path, "/api/customer-auth/") or starts_with(http.request.uri.path, "/f/") or http.request.uri.path eq "/form")` |
 | Counting characteristic | IP (`ip.src`) |
 | Period | 10 seconds |
 | Requests | 300 |
@@ -163,19 +163,27 @@ limit holds there too.
 #### Forms: Turnstile
 
 A form the public answers (stage 29, ADR 0722) is checked with Cloudflare Turnstile before the host
-keeps anything. Create a Turnstile widget for the site's hostname (Cloudflare dashboard → Turnstile,
-managed mode), put its **site key** in the client app that draws the form, and set its **secret
-key** on cos-runner, where a pack's tool and the door (`intake.submit`) run:
+keeps anything. Create a Turnstile widget (Cloudflare dashboard → Turnstile, managed mode) listing
+the hostnames forms are drawn on: the host's own (its form page, `/f/<slug>`) and the business's
+site (the same page through the web app's binding, and the `forms-form` block). Set its **secret
+key** on cos-runner, where a pack's tool and the door (`intake.submit`) run, and its **site key** on
+cos-app, which the form page draws the widget with (ADR 0728; not a secret, kept as one so it stays
+out of `wrangler.jsonc`); a client app's own block takes the same site key in the app's widget:
 
 ```sh
 wrangler secret put TURNSTILE_SECRET_KEY   # in apps/runner; scripts/deploy.mjs also reads it from the environment
+wrangler secret put TURNSTILE_SITE_KEY     # in apps/app; scripts/deploy.mjs also reads it from the environment
 ```
 
 It is an env-only secret: never in D1, an input or the audit log. Without it, forms take answers
 from signed-in customers and staff only; every public answer is turned away and admins are told
 once a day. A testing host uses Cloudflare's documented test keys (a secret that always passes).
-The edge rule above already counts the calls a form sends (`/api/v1/op/`); the hosted form page
-(`/f/<slug>`, a later step) joins it then. Not yet tried with a real site key on a live host.
+The edge rule above counts the calls a form sends (`/api/v1/op/`) and the form page's own paths
+(`/f/`, `/form`); a web app with Forms on names them in its own rule too (`cos create` prints it).
+Without the site key, a public form's page says it cannot be sent there. `scripts/deploy.mjs`
+refuses Cloudflare's test keys for either name. Local development and the
+e2e suite use Cloudflare's test keys (`scripts/dev-setup.mjs`). Not yet tried with a real site key
+on a live host.
 
 #### Customer sign-in
 
@@ -1138,6 +1146,8 @@ for.
 | `/gatekeeper/microsoft/outlook/notifications/*` | Outlook push | The subscription's random `clientState` |
 | `/mcp`, `/oauth/token`, `/oauth/register`, `/.well-known/*` | MCP clients | MCP's own OAuth 2.1 bearer tokens and PKCE codes |
 | `/buy`, `/order/*`, `/_serverFn/*`, `/assets/*` | customers buy on the host's own pages | The guest pages call the surface as the public; an order page needs the order's token; a server function needs a verified staff principal unless it is in a `*.public.ts` file; assets are public |
+| `/f/*` | the Forms pack is installed | A form's own page (stage 29, ADR 0728), for a link or a QR code: public by nature. Its calls go to the HTTP surface through the client-app binding's door, as a customer by their verified cookie or the public, never staff; the form door checks the form is open to them, Turnstile, the fill time and the caps. Never framed or cached, no cookie set |
+| `/form` | the Forms pack is installed (personal links are emailed whatever else the host serves) | A personal link's page (ADR 0723), when Settings → Routine email names the host's own address as the business's site: the 32-byte random token in its address (only its SHA-256 kept) is the only credential, for one Person and one form, used once and only by the send. **Bypass it**: behind Access the token would go into Access's login redirect. Cloudflare's own request logs record the first request's address, token included, when Workers Logs are on, so an account member reading them could see an unused link: turn invocation logs off if that matters (on the host and on the web app's Worker, which serves the same page) |
 | `/gatekeeper/payments/fake/pay/*` | test environments only | The fake provider's checkout page (`PAYMENTS_FAKE_PROVIDER=true`), never live |
 
 Behind Access: the staff app (every page), `/sign-in`, `/api/auth/*`, the assistant

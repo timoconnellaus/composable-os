@@ -1,0 +1,12 @@
+{
+  "name": "forms-native-form",
+  "pack": "forms",
+  "skin": "native",
+  "operations": ["x.forms.form", "x.forms.submit", "x.forms.linkedForm", "x.forms.submitLinked"],
+  "files": ["form-screen.tsx", "LICENSE"],
+  "dependsOn": ["native-base"],
+  "packages": {
+    "@composable-os/client": "*",
+    "@composable-os/pack-forms": "*"
+  }
+}

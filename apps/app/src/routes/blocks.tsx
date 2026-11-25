@@ -6,6 +6,8 @@
 // with a customer's cookie, that customer; with neither, the public. A prop given as
 // `"signIn": "customer"` is the host's own customer sign-in by code (the two calls a client app's
 // sign-in block makes through its own routes), for a block that signs a guest in on the spot.
+// `"Turnstile": "test"` is a stand-in for the app's Turnstile widget (Forms' blocks, stage 29)
+// that gives Cloudflare's test token at once, which the local runner's test secret accepts.
 //
 // The blocks are read where they sit (`packs/<id>/blocks/<block>/`), their base-layer imports
 // joined to `blocks/` by pack-blocks-plugin.ts. A production build mounts nothing. Each pack's
@@ -138,6 +140,12 @@ function usePackHooks(pack: string, onFail: (message: string) => void): AnyHooks
   return hooks?.pack === pack ? hooks.hooks : null;
 }
 
+/** Cloudflare's test widget's token, at once: what its always-passing test site key gives. */
+function TestTurnstile({ onToken }: { onToken: (token: string | null) => void }) {
+  useEffect(() => onToken("XXXX.DUMMY.TOKEN.XXXX"), [onToken]);
+  return <p className="text-xs text-muted-foreground">Spam check: Cloudflare's test widget</p>;
+}
+
 /** A pack's section of My account, as the shell takes it (`PackSection` in web-account). */
 interface PackSection {
   key: string;
@@ -257,6 +265,7 @@ function BlocksPage() {
   if (!Component || (!hooks && !base)) return <p aria-busy="true">Loading {block}…</p>;
   const extra = props ? (JSON.parse(props) as Record<string, unknown>) : {};
   if (extra.signIn === "customer") extra.signIn = customerSignIn;
+  if (extra.Turnstile === "test") extra.Turnstile = TestTurnstile;
   const given = {
     ...(base ? { account } : { [pack]: hooks }),
     agreements,
