@@ -49,6 +49,16 @@ export interface EmailSendMessage {
    * a higher `sequence` for a change, and `cancelled: true` to take it off the calendar.
    */
   calendar?: EmailCalendarEventInput | EmailCalendarEventInput[];
+  /**
+   * What the email is for, for consent to be contacted. Required when an automation, a tool, the
+   * assistant, MCP or an extension emails a person the CRM knows: `"follow_up"` (an automatic
+   * message that is not an offer) or `"news_and_offers"` (promotional: only to people who said
+   * yes). With a purpose each recipient gets their own copy (use `to` only, no `cc` or `bcc`),
+   * ending with their own one-tap stop link, which the host adds. Recipients who cannot be
+   * contacted this way are left out (the receipt says how many); when none is left the send is
+   * refused with `recipient_stopped`. A person's own one-to-one email needs no purpose.
+   */
+  purpose?: "follow_up" | "news_and_offers";
 }
 
 /**
@@ -83,6 +93,8 @@ export interface EmailSendReceipt {
   status: "pending" | "sent";
   /** The send's id, as `listSent()` reports it. */
   id: number;
+  /** How many recipients were left out because they cannot be contacted this way (never who). */
+  dropped?: number;
 }
 
 /** One email in `EmailSendSession.listSent()`. */

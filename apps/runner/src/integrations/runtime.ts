@@ -79,7 +79,8 @@ export function integrationRuntime(env: Env): IntegrationRuntime {
     sendRoutineText: (i) =>
       hostFor(env, i.connectionId).sendRoutineText({ id: i.id, resource: i.resource }),
     types: (i) => hostFor(env, i.connectionId).types(i.resource),
-    applyOutbound: (i) => hostFor(env, i.connectionId).applyOutbound(i.facetKey, i.action),
+    applyOutbound: (i) =>
+      hostFor(env, i.connectionId).applyOutbound(i.facetKey, i.action, i.stoppable),
     rejectOutbound: (i) => hostFor(env, i.connectionId).rejectOutbound(i.facetKey, i.action),
     setSync: (i) => hostFor(env, i.connectionId).setSync(i.config),
     syncNow: (i) => hostFor(env, i.connectionId).syncNow(),

@@ -125,3 +125,13 @@ flood level (120 a minute). A valid token always stops. The template's stop rout
 when the host said yes; otherwise its page shows an error and keeps the button, and a mail app's
 one-click POST gets the host's status. The sentence above saying it is not rate limited is no longer
 true.
+
+## Amended 2026-11-26 ([ADR 0678](0678-every-sender-asks-the-consent-register.md))
+"Every sender asks at the moment of sending" and "the host enforces it on every send path" held
+for routine messages only: a caller's own email (an automation's or a tool's gatekeeper call, the
+assistant, MCP, extension code) asked neither the register nor the suppression list (the review of
+PR #451, F1). Now every email and text that is not a routine message is checked at the integration
+host's approval queue, whoever sends it and under every preset; a person's own email asks the
+suppression list and a child's address only, anyone else's declares its purpose and is asked in
+full, each copy with its own stop link. The rule, the exemptions and what a sender is told are ADR
+0678's.
