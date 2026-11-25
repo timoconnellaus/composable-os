@@ -1843,8 +1843,8 @@ describe("a refund that may have reached the provider is asked again as the same
       currency: CURRENCY,
       occurredAt: new Date().toISOString(),
     };
-    await payments.deliver({ ...event, eventId: `fevt_${unique("a")}` });
-    await payments.deliver({ ...event, eventId: `fevt_${unique("b")}` });
+    await payments.deliver({ ...event, eventId: `fevt_${unique("a")}` } as never);
+    await payments.deliver({ ...event, eventId: `fevt_${unique("b")}` } as never);
     expect(await orderOf(invoice)).toMatchObject({ refunded: amount });
     const done = await run<CreditNote>("creditNote.get", { id: note.id }, staff());
     expect(done.refunds[0]).toMatchObject({ state: "given_back" });
