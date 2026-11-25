@@ -21,7 +21,12 @@
 // the public (and any other caller who reads as the public, content.list) the published version.
 import { liveViewOf } from "../extensions/schema.ts";
 import { getObject } from "../fields/index.ts";
-import type { FieldDefinition, ObjectDefinition, PublicDeclaration } from "../fields/types.ts";
+import type {
+  FieldDefinition,
+  ObjectDefinition,
+  PublicCondition,
+  PublicDeclaration,
+} from "../fields/types.ts";
 import { viewColumnOf } from "../records/columns.ts";
 
 /** The two read declarations of this shape. */
@@ -117,26 +122,56 @@ function readProblems(object: ObjectDefinition, key: ReadDeclarationKey): string
   return problems;
 }
 
-/** The condition `when` names, resolved to view columns, or why it cannot be. */
+/** One condition `when` names, resolved to view columns. */
 export interface Condition {
   /** The column of this object tested, or that points to the record tested. */
   readonly column: string;
+  /** The values tested (empty for `public`). */
   readonly values: readonly string[];
   /** With `via`: the pointed-to object's view and its tested column. */
   readonly via?: { readonly source: string; readonly column: string };
+  /**
+   * With `via` alone (ADR 0689): the record pointed to is one the public reads: a row of its
+   * object's public source (the published versions of a publishable object) meeting its own
+   * conditions.
+   */
+  readonly public?: { readonly source: string; readonly conditions: readonly Condition[] };
 }
 
+/**
+ * The conditions `when` names (all of them hold), resolved to view columns: null when there is
+ * no `when` (every live record), or why they cannot be resolved.
+ */
 export function resolveCondition(
   object: ObjectDefinition,
   declared: PublicDeclaration,
   key: ReadDeclarationKey = "public",
-): Condition | null | string {
+  depth = 0,
+): readonly Condition[] | null | string {
   const { when } = declared;
   if (!when) return null;
+  const list: readonly PublicCondition[] = Array.isArray(when)
+    ? (when as readonly PublicCondition[])
+    : [when as PublicCondition];
+  const resolved: Condition[] = [];
+  for (const condition of list) {
+    const one = resolveOne(object, condition, key, depth);
+    if (typeof one === "string") return one;
+    resolved.push(one);
+  }
+  return resolved;
+}
+
+function resolveOne(
+  object: ObjectDefinition,
+  when: PublicCondition,
+  key: ReadDeclarationKey,
+  depth: number,
+): Condition | string {
   const fieldOf = (o: ObjectDefinition, name: string) => o.fields.find((f) => f.name === name);
   if (when.via === undefined) {
-    const own = fieldOf(object, when.field);
-    if (!own || own.fieldType !== "select" || !own.column) {
+    const own = when.field === undefined ? undefined : fieldOf(object, when.field);
+    if (own?.fieldType !== "select" || !own.column || !when.in) {
       return `${key}.when.field "${when.field}" must be a select field`;
     }
     return { column: own.column, values: [...when.in] };
@@ -144,11 +179,28 @@ export function resolveCondition(
   const via = fieldOf(object, when.via);
   const to = via?.options?.to;
   const target = to ? getObject(to) : undefined;
-  if (!via || via.fieldType !== "relation" || via.options?.many || !via.column || !target) {
+  if (via?.fieldType !== "relation" || via.options?.many || !via.column || !target) {
     return `${key}.when.via "${when.via}" must be a relation to one record`;
   }
-  const tested = fieldOf(target, when.field);
-  if (!tested || tested.fieldType !== "select" || !tested.column) {
+  if (when.field === undefined && when.in === undefined) {
+    // `via` alone (ADR 0689): the record pointed to is one the public reads, one step only.
+    if (key !== "public") return `${key}.when.via "${when.via}" alone is the public's`;
+    const declared = target.public;
+    if (!declared) return `public.when.via "${when.via}" alone: ${target.name} declares no public`;
+    if (depth > 0) return `public.when.via "${when.via}" alone: one step only, no chains`;
+    const conditions = resolveCondition(target, declared, "public", depth + 1);
+    if (typeof conditions === "string") return conditions;
+    return {
+      column: via.column,
+      values: [],
+      public: {
+        source: target.publishable ? liveViewOf(target.name) : target.source,
+        conditions: conditions ?? [],
+      },
+    };
+  }
+  const tested = when.field === undefined ? undefined : fieldOf(target, when.field);
+  if (tested?.fieldType !== "select" || !tested.column || !when.in) {
     return `${key}.when.field "${when.field}" must be a select field of ${target.name}`;
   }
   return {
@@ -167,8 +219,8 @@ export interface PublicScope {
   readonly fields: readonly FieldDefinition[];
   /** The view columns the source has: `id` and the readable fields' columns. */
   readonly columns: readonly string[];
-  /** Null: every live record (no `when`). */
-  readonly condition: Condition | null;
+  /** Null: every live record (no `when`); else every condition holds (ADR 0689). */
+  readonly condition: readonly Condition[] | null;
   readonly declaration: PublicDeclaration;
   /**
    * The view the rows come from: the object's rec_* view, or for the public's scope on a
@@ -203,7 +255,7 @@ function readScope(object: ObjectDefinition, key: ReadDeclarationKey): PublicSco
     from: key,
     fields,
     columns,
-    condition: resolveCondition(object, declared, key) as Condition | null,
+    condition: resolveCondition(object, declared, key) as readonly Condition[] | null,
     declaration: declared,
     source: key === "public" && object.publishable ? liveViewOf(object.name) : object.source,
   };

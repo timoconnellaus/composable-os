@@ -318,9 +318,20 @@ export function previewSource(object: ObjectDefinition, id: string): VisibleSour
   );
 }
 
-/** A `when` condition as SQL over the object's view: values bound, columns trusted. */
-function conditionSql(condition: Condition | null) {
-  if (!condition) return sql`1 = 1`;
+/**
+ * A `when` as SQL over the object's view, every condition holding (ADR 0689): values bound,
+ * columns trusted.
+ */
+function conditionSql(conditions: readonly Condition[] | null): RawBuilder<unknown> {
+  if (!conditions?.length) return sql`1 = 1`;
+  return sql`(${sql.join(conditions.map(oneConditionSql), sql` AND `)})`;
+}
+
+function oneConditionSql(condition: Condition): RawBuilder<unknown> {
+  // `via` alone: the record pointed to is in its object's public source and meets its own `when`.
+  if (condition.public) {
+    return sql`${sql.ref(condition.column)} IN (SELECT id FROM ${sql.table(condition.public.source)} WHERE ${conditionSql(condition.public.conditions)})`;
+  }
   const values = sql.join(condition.values.map((value) => sql`${value}`));
   return condition.via
     ? sql`${sql.ref(condition.column)} IN (SELECT id FROM ${sql.table(condition.via.source)} WHERE ${sql.ref(condition.via.column)} IN (${values}))`
