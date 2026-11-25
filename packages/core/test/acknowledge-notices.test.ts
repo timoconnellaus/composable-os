@@ -18,6 +18,7 @@ import {
 } from "@composable-os/sdk";
 import { beforeAll, describe, expect, it } from "vitest";
 import { type ActingUser, invoke, runAckDue, runPublishDue } from "../src/index.ts";
+import { ACK_NOTICES_PER_RUN, noticeWrites } from "../src/records/acknowledge-notices.ts";
 import { reconcile } from "./extension-helpers.ts";
 import { context, createUser, db, refusal, unique } from "./helpers.ts";
 
@@ -58,7 +59,7 @@ const pack = defineExtension({
         acknowledge: {
           who: "mustRead",
           manage: MANAGE,
-          managed: ["reviewEvery"],
+          managed: ["reviewEvery", "owner"],
           owner: "owner",
           notices: {
             asked: { title: "Please read: {record}" },
@@ -270,53 +271,212 @@ describe("the managed fields", () => {
   });
 });
 
+const day = (n: number) => {
+  const at = new Date(Date.now() + n * DAY);
+  at.setUTCHours(12, 0, 0, 0);
+  return at;
+};
+const assistant = (user: ActingUser) =>
+  context(user, {
+    actor: "assistant",
+    origin: { surface: "assistant", sessionId: unique("s") },
+  } as never);
+
 describe("the day's notices", () => {
-  it("remind once, tell the owner each week (names to a manager only), welcome once", async () => {
-    const managed = await procedure({ mustRead: { everyone: true }, owner: manager.id });
-    const counted = await procedure({ mustRead: { everyone: true }, owner: member.id });
+  let managed: string;
+  let counted: string;
+
+  it("welcome once, remind once a week after they were told, tell the owner from the first week", async () => {
+    managed = await procedure({ mustRead: { everyone: true }, owner: manager.id });
+    counted = await procedure({ mustRead: { everyone: true }, owner: member.id });
     for (const id of [managed, counted]) {
       await invoke("record.publish", { object: PROC, id }, context(admin));
     }
     // The member confirms one; everyone else has both to read.
     await invoke("ack.confirm", { object: PROC, id: managed, version: 1 }, context(member));
-    const day = (n: number) => {
-      const at = new Date(Date.now() + n * DAY);
-      at.setUTCHours(12, 0, 0, 0);
-      return at;
+    // M3: a procedure published, then retitled in its draft only.
+    const title = unique("Public title");
+    const titled = await procedure({ title, mustRead: { everyone: true } });
+    await invoke("record.publish", { object: PROC, id: titled }, context(admin));
+    await invoke(
+      "record.update",
+      { object: PROC, id: titled, values: { title: "SECRET draft title" } },
+      context(admin),
+    );
+    const listed = (await invoke("ack.mine", {}, context(member))) as {
+      toRead: { id: string; title: string | null }[];
     };
-    // The first day: new accounts are welcomed, owners told; nobody is a week late yet.
+    expect(listed.toRead.find((r) => r.id === titled)?.title).toBe(title);
+    // The first day: new accounts are welcomed; nobody is a week late, and no owner is told yet
+    // (F4: not within the first week after the version asked).
     await runAckDue(db, { clock: () => day(1) });
     expect(await noticesOf(viewer, `ack.reminder:${PROC}:${managed}`)).toEqual([]);
     const [welcome] = await noticesOf(viewer, `ack.welcome:${PROC}`);
     expect(welcome?.body).toContain("Welcome:");
-    const [toManager] = await noticesOf(manager, `ack.outstanding:${PROC}:${managed}`);
-    expect(toManager?.body).toMatch(/Not yet confirmed: .*/);
-    const [toMember] = await noticesOf(member, `ack.outstanding:${PROC}:${counted}`);
-    // The member does not manage: a count, never names.
-    expect(toMember?.body).toMatch(/^\d+ (people have|person has) not yet confirmed version 1\.$/);
+    expect(await noticesOf(manager, `ack.outstanding:${PROC}:${managed}`)).toEqual([]);
     // Eight days on: the reminder, once; the member who confirmed is not reminded of it.
     await runAckDue(db, { clock: () => day(8) });
     await runAckDue(db, { clock: () => day(9) });
     expect(await noticesOf(viewer, `ack.reminder:${PROC}:${managed}:1`)).toHaveLength(1);
     expect(await noticesOf(member, `ack.reminder:${PROC}:${managed}`)).toEqual([]);
     expect(await noticesOf(member, `ack.reminder:${PROC}:${counted}:1`)).toHaveLength(1);
-    // Welcomed once, whatever the days.
     expect(await noticesOf(viewer, `ack.welcome:${PROC}`)).toHaveLength(1);
-    // A week on: a second weekly notice to the owner.
+    // M3: the reminder names the published title, never the draft's.
+    const [reminder] = await noticesOf(member, `ack.reminder:${PROC}:${titled}`);
+    expect(reminder?.title).toBe(`Still to read: ${title}`);
+    expect(JSON.stringify(await noticesOf(member, "ack."))).not.toContain("SECRET");
+    // The owner who manages is told who has not, by name.
+    const [toManager] = await noticesOf(manager, `ack.outstanding:${PROC}:${managed}`);
+    expect(toManager?.body).toMatch(/^Not yet confirmed: /);
+    // An owner who may not see who has not (a member, decision 13) is not told at all: the admins
+    // are, as the review reminder falls back.
+    expect(await noticesOf(member, `ack.outstanding:${PROC}:${counted}`)).toEqual([]);
+    expect(await noticesOf(admin, `ack.outstanding:${PROC}:${counted}`)).not.toEqual([]);
+  });
+
+  it("every notice is the person's only: the assistant acting for them lists and counts none (M1)", async () => {
+    const mine = (await invoke("notification.list", { limit: 100 }, context(manager))) as {
+      items: { title: string }[];
+    };
+    expect(mine.items.some((n) => n.title.startsWith("Not yet confirmed"))).toBe(true);
+    const asAi = (await invoke("notification.list", { limit: 100 }, assistant(manager))) as {
+      items: { title: string; body: string | null }[];
+    };
+    for (const n of asAi.items) {
+      expect(`${n.title} ${n.body ?? ""}`).not.toMatch(
+        /Not yet confirmed|Still to read|Please read|To read/,
+      );
+    }
+    const counts = async (ctx: ReturnType<typeof context>) =>
+      ((await invoke("notification.unreadCount", {}, ctx)) as { unread: number }).unread;
+    expect(await counts(assistant(manager))).toBeLessThan(await counts(context(manager)));
+    const rows = await env.DB.prepare(
+      "SELECT count(*) AS n FROM core_notifications WHERE substr(dedupe_key, 1, 4) = 'ack.' AND human_only = 0",
+    ).first<{ n: number }>();
+    expect(rows?.n).toBe(0);
+  });
+
+  it("someone new in must read for an old version is asked first, then reminded (F4)", async () => {
+    const id = await procedure({ mustRead: { everyone: false, roles: ["admin"] } });
+    await invoke("record.publish", { object: PROC, id }, context(admin));
+    // Later the viewers must read it too: they were never told of version 1.
+    await invoke(
+      "record.update",
+      { object: PROC, id, values: { mustRead: { everyone: false, roles: ["admin", "viewer"] } } },
+      context(admin),
+    );
+    await runAckDue(db, { clock: () => day(12) });
+    expect(await noticesOf(viewer, `ack.asked:${PROC}:${id}:1`)).toHaveLength(1);
+    expect(await noticesOf(viewer, `ack.reminder:${PROC}:${id}`)).toEqual([]);
+    await runAckDue(db, { clock: () => day(20) });
+    expect(await noticesOf(viewer, `ack.reminder:${PROC}:${id}:1`)).toHaveLength(1);
+  });
+
+  it("a large day is written a few hundred at a time over several runs, each notice once (M2)", async () => {
+    const extra: ActingUser[] = [];
+    for (let i = 0; i < 40; i++) extra.push(await createUser("member"));
+    const ids: string[] = [];
+    for (let i = 0; i < 10; i++) {
+      const id = await procedure({ mustRead: { everyone: true } });
+      await invoke("record.publish", { object: PROC, id }, context(admin));
+      ids.push(id);
+    }
+    const at = day(30);
+    const runs: Awaited<ReturnType<typeof runAckDue>>[] = [];
+    for (let i = 0; i < 10; i++) {
+      const run = await runAckDue(db, { clock: () => at });
+      runs.push(run);
+      if (!run.more) break;
+    }
+    expect(runs.length).toBeGreaterThan(1);
+    for (const run of runs) {
+      expect(run.asked + run.reminders + run.outstanding + run.welcomes).toBeLessThanOrEqual(
+        ACK_NOTICES_PER_RUN,
+      );
+    }
+    expect(runs.at(-1)?.more).toBe(false);
+    // Done for the day: a further tick runs nothing.
+    expect((await runAckDue(db, { clock: () => at })).more).toBe(false);
+    // Every person who must read each new procedure is reminded of it exactly once.
+    const reminded = await env.DB.prepare(
+      `SELECT dedupe_key, count(*) AS n FROM core_notifications
+       WHERE dedupe_key IN (SELECT 'ack.reminder:' || ? || ':' || value || ':1' FROM json_each(?))
+         AND user_id IN (SELECT value FROM json_each(?))
+       GROUP BY dedupe_key, user_id`,
+    )
+      .bind(PROC, JSON.stringify(ids), JSON.stringify(extra.map((u) => u.id)))
+      .all<{ n: number }>();
+    expect(reminded.results).toHaveLength(ids.length * extra.length);
+    expect(reminded.results.every((r) => r.n === 1)).toBe(true);
+  });
+
+  it("writes its notices a hundred to a statement, with no read", () => {
+    const notices = Array.from({ length: ACK_NOTICES_PER_RUN }, (_, i) => ({
+      to: admin.id,
+      key: `k${i}`,
+      title: "t",
+      body: null,
+      link: null,
+    }));
     expect(
-      (await noticesOf(manager, `ack.outstanding:${PROC}:${managed}`)).length,
-    ).toBeGreaterThanOrEqual(2);
+      noticeWrites({ now: new Date().toISOString(), actor: "automation", user: admin }, notices),
+    ).toHaveLength(Math.ceil(ACK_NOTICES_PER_RUN / 100));
   });
 
   it("runs once a local day: the same day again writes nothing", async () => {
-    const at = new Date(Date.now() + 20 * DAY);
-    at.setUTCHours(12, 0, 0, 0);
-    await runAckDue(db, { clock: () => at });
+    const at = day(40);
+    for (let i = 0; i < 10 && (await runAckDue(db, { clock: () => at })).more; i++);
     expect(await runAckDue(db, { clock: () => at })).toEqual({
+      asked: 0,
       reminders: 0,
       outstanding: 0,
       welcomes: 0,
+      more: false,
     });
+  });
+
+  it("is the host's only: refused to a person, the assistant and an automation not from the cron (F2)", async () => {
+    for (const [ctx, code] of [
+      [context(admin), "forbidden"],
+      [assistant(admin), "forbidden"],
+      [context(admin, { actor: "automation" }), "unknown_operation"],
+    ] as const) {
+      expect((await refusal(invoke("ack.due", {}, ctx))).code).toBe(code);
+    }
+  });
+});
+
+describe("the owner (F3)", () => {
+  it("is a person's to set, and once published only a manager's; never the assistant's", async () => {
+    const id = await procedure({ mustRead: { everyone: true }, owner: manager.id });
+    await invoke("record.publish", { object: PROC, id }, context(admin));
+    expect(
+      (
+        await refusal(
+          invoke(
+            "record.update",
+            { object: PROC, id, values: { owner: member.id } },
+            context(member),
+          ),
+        )
+      ).code,
+    ).toBe("forbidden");
+    expect(
+      (
+        await refusal(
+          invoke(
+            "record.update",
+            { object: PROC, id, values: { owner: admin.id } },
+            assistant(admin),
+          ),
+        )
+      ).code,
+    ).toBe("forbidden");
+    await invoke(
+      "record.update",
+      { object: PROC, id, values: { owner: member.id } },
+      context(manager),
+    );
   });
 });
 

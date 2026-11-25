@@ -433,8 +433,8 @@ extension declares it; it never implements it. Each behaviour the platform has i
   content: everyone, staff roles, pack roles, granted pack permissions) to confirm each version
   that asks again, with one tap; `manage` is a restricted, grantable permission of yours (who
   reads who has confirmed); `managed` lists more fields guarded as `who` is (a person's, once
-  published a manager's, never an AI's: a review period); `owner` a user field told weekly who has
-  not confirmed; `notices` your words for what the host sends (`asked`, `reminder` with
+  published a manager's, never an AI's: a review period, the owner); `owner` a user field told weekly who has
+  not confirmed (when it manages, else the admins); `notices` your words for what the host sends (`asked`, `reminder` with
   `afterDays`, `outstanding`, `welcome`; `{record}` is the title). An acknowledged object declares
   no `public` or `signedIn`. Your tools call `ack.mine` and `ack.confirm` (a `humanOnly`,
   `anyStaff` tool: the host decides what is the caller's) and `ack.status` / `ack.overview` (a

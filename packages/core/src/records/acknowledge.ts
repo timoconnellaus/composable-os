@@ -180,7 +180,14 @@ export async function dueRecords(
 ): Promise<DueRecord[]> {
   const column = (name: string) => object.fields.find((f) => f.name === name)?.column;
   const who = column(object.publishable.acknowledge.who);
-  const title = column(object.titleField);
+  // The title as published when it is content (ADR 0706): a draft's retitle is nobody's to read
+  // until a person publishes it, so it is never in a list, a notice or a pack role's answer.
+  const titleColumn = column(object.titleField);
+  const title = object.publishable.content.includes(object.titleField)
+    ? sql`json_extract(v.content, ${`$.${object.titleField}`})`
+    : titleColumn
+      ? sql.ref(`r.${titleColumn}`)
+      : sql`NULL`;
   if (!who) return [];
   const rows = await sql<{
     id: string;
@@ -191,7 +198,7 @@ export async function dueRecords(
     asked_version: number | null;
     asked_at: string | null;
   }>`
-    SELECT r.id, ${title ? sql.ref(`r.${title}`) : sql`NULL`} AS title, ${sql.ref(`r.${who}`)} AS who,
+    SELECT r.id, ${title} AS title, ${sql.ref(`r.${who}`)} AS who,
       v.version, v.published_at, a.version AS asked_version, a.published_at AS asked_at
     FROM ${visibleSource(ctx, object, "r")}
     JOIN core_publish_version v
@@ -227,8 +234,9 @@ export interface LatestConfirmation {
 export async function latestConfirmations(
   ctx: Pick<HandlerContext, "db">,
   object: string,
-  by: { account?: string; record?: string },
+  by: { account?: string; record?: string; records?: readonly string[] },
 ): Promise<LatestConfirmation[]> {
+  if (by.records && !by.records.length) return [];
   const rows = await sql<{
     record_id: string;
     account_id: string;
@@ -239,6 +247,7 @@ export async function latestConfirmations(
     WHERE a.object_type = ${object}
       ${by.account === undefined ? sql`` : sql`AND a.account_id = ${by.account}`}
       ${by.record === undefined ? sql`` : sql`AND a.record_id = ${by.record}`}
+      ${by.records === undefined ? sql`` : sql`AND a.record_id IN (SELECT value FROM json_each(${JSON.stringify(by.records)}))`}
       AND a.version = (SELECT max(b.version) FROM core_publish_ack b
         WHERE b.object_type = a.object_type AND b.record_id = a.record_id
           AND b.account_id = a.account_id)
@@ -299,11 +308,23 @@ export async function personCalling(
  */
 export async function managedObjects(ctx: HandlerContext): Promise<AcknowledgedObject[]> {
   const own = ctx.actor === "extension" ? ctx.extension?.id : undefined;
+  // From a pack's tool (ADR 0706, as record.readRestricted): a person called it themselves, not
+  // a person approving another actor's call, and the tool names the object's manage permission
+  // and no other, so the pipeline held its caller to that one.
+  const tool = own === undefined ? undefined : ctx.extension?.tool;
+  if (own !== undefined && (!tool || tool.startedByApproval)) return [];
+  const named = tool ? (tool.permission === null ? [] : [tool.permission].flat()) : [];
   const person = await personCalling(ctx, own);
   if (!person) return [];
   const account = await staffAccount(ctx, person);
   if (!account?.live || account.packRole !== null) return [];
-  const objects = acknowledgedObjects().filter((o) => own === undefined || o.extension === own);
+  const objects = acknowledgedObjects().filter(
+    (o) =>
+      own === undefined ||
+      (o.extension === own &&
+        named.length > 0 &&
+        named.every((p) => p === o.publishable.acknowledge.manage)),
+  );
   if (account.role === "admin") return objects;
   if (!account.grants.length) return [];
   const grantable = await managedGrantable(ctx);
@@ -311,6 +332,23 @@ export async function managedObjects(ctx: HandlerContext): Promise<AcknowledgedO
     const p = o.publishable.acknowledge.manage;
     return account.grants.includes(p) && grantable.has(p);
   });
+}
+
+/** The permissions an installed, active, shipped pack declares grantable (one read). */
+export async function shippedGrantable(ctx: Pick<HandlerContext, "db">): Promise<Set<string>> {
+  return managedGrantable(ctx);
+}
+
+/** Whether `account` manages `object`'s acknowledgements, given the grantable permissions. */
+export function accountManages(
+  account: StaffAccount,
+  object: AcknowledgedObject,
+  grantable: ReadonlySet<string>,
+): boolean {
+  if (account.packRole !== null) return false;
+  if (account.role === "admin") return true;
+  const manage = object.publishable.acknowledge.manage;
+  return account.grants.includes(manage) && grantable.has(manage);
 }
 
 /** Refuses a caller who may not read who has confirmed records of `object`. */

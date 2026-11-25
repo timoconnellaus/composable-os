@@ -515,6 +515,31 @@ describe("an AI's publish request (criterion 5, ADR 0480)", () => {
   });
 });
 
+/** A call from a person-only tool of `extension`, called by `account`. */
+const tool = (
+  extension: string,
+  humanOnly = true,
+  account = member.id,
+  permission: string | null = MANAGE,
+  startedByApproval = false,
+) =>
+  ({
+    actor: "extension",
+    user: admin,
+    db: dbQuery,
+    extension: {
+      id: extension,
+      permissions: { read: [], write: [], operations: [], modules: ["ops"] },
+      tool: {
+        name: "status",
+        humanOnly,
+        permission,
+        calledBy: { account, actor: "human" },
+        ...(startedByApproval ? { startedByApproval: true } : {}),
+      },
+    },
+  }) as never;
+
 describe("the review of PR #340", () => {
   it("a confirmation is never rewritten, not even by INSERT OR REPLACE (finding 3)", async () => {
     const id = await procedure({ title: "Wet floors" });
@@ -536,22 +561,6 @@ describe("the review of PR #340", () => {
   });
 
   it("only a person-only tool of the shipped pack that owns the object acts for the person (finding 2)", async () => {
-    const tool = (extension: string, humanOnly = true, account = member.id) =>
-      ({
-        actor: "extension",
-        user: admin,
-        db: dbQuery,
-        extension: {
-          id: extension,
-          permissions: { read: [], write: [], operations: [], modules: ["ops"] },
-          tool: {
-            name: "confirm",
-            humanOnly,
-            permission: null,
-            calledBy: { account, actor: "human" },
-          },
-        },
-      }) as never;
     expect(await personCalling(tool(EXT), EXT)).toBe(member.id);
     // Another extension's tool, a tool anyone may call, or no object named: nobody.
     expect(await personCalling(tool("someother"), EXT)).toBeNull();
@@ -572,6 +581,65 @@ describe("the review of PR #340", () => {
     expect((await managedObjects(tool(EXT, true, manager.id))).map((o) => o.name)).toEqual([PROC]);
     expect(await managedObjects(tool("someother", true, manager.id))).toEqual([]);
     expect(await managedObjects(tool(EXT, false, manager.id))).toEqual([]);
+  });
+
+  it("from a pack's tool, only that pack's objects, only a tool naming manage, never an approval's (ADR 0706)", async () => {
+    // A second shipped pack with an acknowledged object of its own, installed beside the first.
+    const EXT2 = `${EXT}b`;
+    const MANAGE2 = `${EXT2}:manage`;
+    const other = toManifest(
+      defineExtension({
+        id: EXT2,
+        version: "1.0.0",
+        contractVersion: 1,
+        permissions: { modules: ["ops"] },
+        grantable: [MANAGE2],
+        restricted: [MANAGE2],
+        objects: {
+          procedure: {
+            label: "Procedure",
+            plural: "Procedures",
+            titleField: "title",
+            fields: {
+              title: { type: "text", label: "Title", required: true },
+              mustRead: { type: "document", label: "Must read", schema: MUST_READ_SCHEMA },
+            },
+            publishable: { content: ["title"], acknowledge: { who: "mustRead", manage: MANAGE2 } },
+          },
+        },
+        tools: {
+          status: defineTool({
+            description: "Fixture: who has read what.",
+            input: z.object({}),
+            output: z.object({}),
+            risk: "read",
+            permission: MANAGE2,
+            handler: () => ({}),
+          }),
+        },
+      }),
+    ) as ExtensionManifest;
+    expect(validateManifest(other).issues).toEqual([]);
+    await reconcile(other);
+    const now = new Date().toISOString();
+    await env.DB.prepare(
+      "INSERT INTO core_extensions (id, source, status, version, commit_oid, manifest, user_id, installed_at, updated_at) VALUES (?, 'shipped', 'active', '1.0.0', 'c2', ?, ?, ?, ?)",
+    )
+      .bind(EXT2, JSON.stringify(other), admin.id, now, now)
+      .run();
+    const names = async (call: never) => (await managedObjects(call)).map((o) => o.name);
+    // An admin manages both; called through a pack's tool, they read that pack's only.
+    expect((await names({ actor: "human", user: admin, db: dbQuery } as never)).sort()).toEqual(
+      [PROC, `${EXT2}.procedure`].sort(),
+    );
+    expect(await names(tool(EXT, true, admin.id))).toEqual([PROC]);
+    expect(await names(tool(EXT2, true, admin.id, MANAGE2))).toEqual([`${EXT2}.procedure`]);
+    // The tool must name the object's manage permission and no other.
+    expect(await names(tool(EXT, true, admin.id, null))).toEqual([]);
+    expect(await names(tool(EXT, true, admin.id, DESK))).toEqual([]);
+    expect(await names(tool(EXT, true, admin.id, MANAGE2))).toEqual([]);
+    // A call started by a person approving another actor's is not the person's own.
+    expect(await names(tool(EXT, true, admin.id, MANAGE, true))).toEqual([]);
   });
 
   it("an account holding a pack role manages nothing, whatever it is granted (finding 7)", async () => {

@@ -320,10 +320,13 @@ export const ackOverview = defineOperation({
 // --- The minute cron ------------------------------------------------------------------------------
 
 const dueOutput = z.object({
+  asked: z.number().int().describe("Asked of someone never told of the version (new in must read)"),
   reminders: z.number().int(),
   outstanding: z.number().int(),
   welcomes: z.number().int(),
+  more: z.boolean().describe("More is left for the day: the next tick carries on"),
 });
+const NOTHING_DUE = { asked: 0, reminders: 0, outstanding: 0, welcomes: 0, more: false };
 
 export const ackDue = defineOperation({
   name: "ack.due",
@@ -331,7 +334,8 @@ export const ackDue = defineOperation({
     "Platform use only (the minute cron, as the host, once a local day): the reminders to " +
     "people who still have a record to read, the weekly notice to each record's owner of who " +
     "has not confirmed it, and the welcome of new staff accounts with what they have to read, " +
-    "in the words each acknowledged object declares. Returns how many it wrote.",
+    "in the words each acknowledged object declares, at most a few hundred a run (the next " +
+    "tick carries on). Returns how many it wrote.",
   input: z.object({}),
   output: dueOutput,
   permission: "records:write",
@@ -353,7 +357,7 @@ export async function runAckDue(
   { floor, clock }: { floor?: GateFloor; clock?: () => Date } = {},
 ): Promise<z.infer<typeof dueOutput>> {
   const now = (clock?.() ?? new Date()).toISOString();
-  if (!(await ackNoticesDue(db.query, now))) return { reminders: 0, outstanding: 0, welcomes: 0 };
+  if (!(await ackNoticesDue(db.query, now))) return NOTHING_DUE;
   return (await invoke(
     "ack.due",
     {},

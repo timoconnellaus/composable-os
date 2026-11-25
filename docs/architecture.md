@@ -1962,9 +1962,12 @@ the shipped pack that owns the object (ADR 0706). Who must read, and the fields 
 a person's to change, and once a record is published a manager's. The confirmations are in no
 `rec_*` view. The declaration's `owner` and `notices` (ADR 0706,
 `packages/core/src/records/acknowledge-notices.ts`) are the pack's words for notices the host
-sends: a version that asks tells exactly who must read it, in the publish batch; `ack.due`, the
-minute cron's host step once a local day, reminds who still has one to read, tells each owner
-weekly who has not, and welcomes new accounts, each keyed so it is sent once.
+sends, each the person's only (`human_only`, never in an AI's list or the digest): a version
+that asks tells exactly who must read it, in the publish batch; `ack.due`, the minute cron's host
+step once a local day and bounded (at most 300 notices a run, carried on at the next tick), asks
+anyone never told, reminds who still has one to read, tells each owner who manages (else the
+admins) weekly who has not, and welcomes new accounts, each keyed so it is sent once. Titles are the
+published version's.
 
 **The Knowledge pack** (stage 38 step 5, [ADR 0706](adr/0706-the-knowledge-pack.md),
 `packs/knowledge`). Procedures (`knowledge.procedure`: publishable, `staffRead`, acknowledged,

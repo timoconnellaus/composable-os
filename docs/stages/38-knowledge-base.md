@@ -674,8 +674,10 @@ None open. The six questions this spec raised were decided by the coordinator (d
   Platform: the host sends the declaration's notices (asked in the publish batch; reminder, weekly
   owner notice and welcome from `ack.due`); `ack.status`/`ack.overview` from the owning pack's
   person-only tool; formulas read `publishedAt`, date-relative triggers name a date formula. No
-  settings (none named). Left: blocks and screens (step 6); pack-role accounts are not served a
-  procedure's pictures and cannot read section names.
+  settings (none named). Not added to a product's `packs` list: the CRM is this repository's
+  only product and lists no gym pack; a client product lists it, and the release carries every
+  pack. Left: blocks and screens (step 6); pack-role accounts are not served a procedure's
+  pictures and cannot read section names.
 
 - **Step 6** — not built — needs: step 5, stage 47 — Blocks: help centre, procedure reader, to
   read, confirm, read status; the declared screens

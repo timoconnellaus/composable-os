@@ -203,7 +203,11 @@ describe("the pack in a product", () => {
     expect(row).toEqual({ source: "shipped", status: "active" });
     expect(getObject(PROCEDURE)?.publishable).toMatchObject({
       staffRead: true,
-      acknowledge: { who: "mustRead", manage: "knowledge:manage", managed: ["reviewEvery"] },
+      acknowledge: {
+        who: "mustRead",
+        manage: "knowledge:manage",
+        managed: ["reviewEvery", "owner"],
+      },
     });
     expect(getObject(PROCEDURE)?.public).toBeUndefined();
     expect(getObject(HELP_PAGE)?.public?.read).toContain("body");
@@ -412,16 +416,38 @@ describe("a procedure, drafted by staff and published by a person", () => {
     // Eight days on, at noon UTC: the coach has had version 3 to read for more than seven days.
     const later = new Date(Date.now() + 8 * DAY);
     later.setUTCHours(12, 0, 0, 0);
+    // A retitle in the draft only (M3): the coach's list and the reminder keep the published title.
+    const published = await run<{ values: Record<string, unknown> }>(
+      "content.staffGet",
+      { object: PROCEDURE, id },
+      staff(coach),
+    );
+    const title = String(published.values.title);
+    await run(
+      "record.update",
+      { object: PROCEDURE, id, values: { title: "SECRET draft title" } },
+      staff(admin),
+    );
+    const listed = await run<{ toRead: { id: string; title: string | null }[] }>(
+      "x.knowledge.toRead",
+      {},
+      staff(coach),
+    );
+    expect(listed.toRead.find((r) => r.id === id)?.title).toBe(title);
     const first = await runAckDue(db, { clock: () => later });
     expect(first.reminders).toBeGreaterThanOrEqual(1);
-    expect(await noticesOf(coach, `ack.reminder:${PROCEDURE}:${id}:3`)).toHaveLength(1);
+    const reminders = await noticesOf(coach, `ack.reminder:${PROCEDURE}:${id}:3`);
+    expect(reminders).toHaveLength(1);
+    expect(reminders[0]?.title).toBe(`Still to read: ${title}`);
     // The admin confirmed nothing either; the manager is not in "must read" and is not reminded.
     expect(await noticesOf(manager, `ack.reminder:${PROCEDURE}:${id}`)).toEqual([]);
     // The same day again, and the next day: no second reminder of this version.
     expect(await runAckDue(db, { clock: () => later })).toEqual({
+      asked: 0,
       reminders: 0,
       outstanding: 0,
       welcomes: 0,
+      more: false,
     });
     await runAckDue(db, { clock: () => new Date(later.getTime() + DAY) });
     expect(await noticesOf(coach, `ack.reminder:${PROCEDURE}:${id}:3`)).toHaveLength(1);

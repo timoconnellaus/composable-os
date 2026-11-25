@@ -128,7 +128,7 @@ describe("the Knowledge pack (test host)", () => {
       acknowledge: {
         who: "mustRead",
         manage: "knowledge:manage",
-        managed: ["reviewEvery"],
+        managed: ["reviewEvery", "owner"],
         owner: "owner",
       },
     });

@@ -12,7 +12,7 @@
 //     `content.staffGet`, `content.staffList` and `content.search`;
 //   - a procedure is `acknowledge`d (ADR 0702): its "must read" (everyone, or staff roles, pack
 //     roles and granted pack permissions) is asked to confirm each version that asks again, with
-//     one tap; the host keeps the confirmation, and who must read and the review period are a
+//     one tap; the host keeps the confirmation, and who must read, the owner and the review period are a
 //     person's to change, once published only an admin's or a holder of knowledge:manage
 //     (`managed`, ADR 0706). The notices are this pack's words, sent by the host;
 //   - a help page is public in its published wording only (ADR 0442): `content.get`,
@@ -148,7 +148,7 @@ export default defineExtension({
         acknowledge: {
           who: "mustRead",
           manage: MANAGE,
-          managed: ["reviewEvery"],
+          managed: ["reviewEvery", "owner"],
           owner: "owner",
           notices: {
             asked: {
