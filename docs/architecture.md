@@ -2274,6 +2274,29 @@ checkout is recorded, and a checkout for a price that changed meanwhile (migrati
 order to nothing yet. Codes and members' prices (the `discount` behaviour) join the seam in a
 later step.
 
+**Goods, delivery and the quote** (stage 37 step 3, ADRs
+[0682](adr/0682-goods-on-an-order-where-sold-the-channel-and-the-delivery.md),
+[0683](adr/0683-order-quote-a-public-dry-run-of-the-host-s-prices.md) and
+[0685](adr/0685-postage-priced-by-the-host.md), `orders/goods.ts`). A sellable object may declare
+`goods: { soldIn? }` (where its records are sold: a select of `online`, `in_person`, `both`, read
+through its item) or `delivery: { kind, freeOver?, countries?, active? }` (an option of kind
+`post`, `collect` or `here`). Every order is priced by `priceOrder`: `priceLines` over the lines
+and the delivery the caller chose in `delivery` (added as the last line, quantity 1), then
+`applyGoodsRules`, which refuses goods without a delivery, a delivery without goods or among the
+lines, works out the **channel** (`online` for post and collect, `in_person` for here; written on
+`core_order.channel` once, never the caller's), refuses a goods line not sold there
+(`not_sold_here`), a post delivery without an address or outside the option's countries (`*`:
+every country no other post option names), and prices postage: the option's price, or nothing
+when the goods reach its free over. `createOrder` writes the delivery and a post delivery's address
+to `core_order_delivery` (migration 0932: in no view, fixed but for the erase, which blanks the
+address); `order.delivery.get` reads it one order at a time (staff audited, the buyer, a guest's
+token). At checkout with tax on, the address is the place of the goods and delivery lines, and the
+host's copy of what it sent leaves it out. A paid `here` delivery grants nothing; post and collect
+grant what the option's object declares (a shipment). `order.quote` (staff, customers, the public;
+read, holds nothing) runs `priceOrder` in quote mode: the same refusals, with what the buyer still
+has to do (delivery, address) and what is sold out or short reported in `problems`, and each stock
+line's availability as `show` allows.
+
 **Paid another way** (stage 34, [ADR 0694](adr/0694-an-order-paid-another-way.md),
 `orders/payments.ts`, `orders/refunds.ts`). The second door into paid: `applyOtherPayment`, a
 function beside `applyVerifiedPayment` that writes a payment row the host makes (provider `host`,

@@ -104,3 +104,10 @@ Whose a typed address is is now one shared matcher, `personForAddress`
 (`packages/core/src/customers/address-person.ts`): `resolveBuyer` calls it, and so does the
 submitter of a form (`intake.submit`). Same rules and same words. See
 [ADR 0721](0721-the-submitters-person-and-certainty.md).
+
+## Amendment, 2026-11-25 (stage 37 step 3, ADR 0682): a guest's delivery address
+A guest buying goods to be posted gives the address with the order (`order.start`'s
+`delivery.address`). It is kept by the host in `core_order_delivery`, in no view and never in the
+audit log, and the guest reads it back only with the order's token (`order.delivery.get`). A
+collect or take-it-now order needs none. Erasing the Person the address becomes theirs with blanks
+it. See [ADR 0682](0682-goods-on-an-order-where-sold-the-channel-and-the-delivery.md).

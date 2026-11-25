@@ -1250,6 +1250,28 @@ function sellableDefinition(object: ObjectState, own: FieldState[]): ObjectDefin
           },
         }
       : {}),
+    // A path (`item.whereSold`) stays as declared, as moves' do; a field of the object is named.
+    ...(declared.goods
+      ? {
+          goods: declared.goods.soldIn
+            ? {
+                soldIn: declared.goods.soldIn.includes(".")
+                  ? declared.goods.soldIn
+                  : nameOf(declared.goods.soldIn),
+              }
+            : {},
+        }
+      : {}),
+    ...(declared.delivery
+      ? {
+          delivery: {
+            kind: nameOf(declared.delivery.kind),
+            freeOver: opt(declared.delivery.freeOver),
+            countries: opt(declared.delivery.countries),
+            active: opt(declared.delivery.active),
+          },
+        }
+      : {}),
   };
 }
 
