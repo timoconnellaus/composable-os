@@ -80,8 +80,8 @@ on screen and in the file.
   it, refunds looked up by their order's payments, `finance:read` in the MCP `read` and `write`
   scopes, a closed file byte for byte the same after a reopen (names read at download excepted).
 
-- **Step 4** — not built — needs: step 1 — Payout reads, payout entries, the Payouts report
-  (migration 1151)
+- **Step 4** — in progress — branch `feat/stage-52-payouts` — Payout reads, payout entries, the
+  Payouts report (migration 1151)
 
 - **Step 5** — not built — needs: step 2 — Money owed (with `amount_due` kept), Unearned
   (migration 1152)
