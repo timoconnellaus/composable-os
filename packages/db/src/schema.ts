@@ -2721,10 +2721,11 @@ export interface CorePayoutTable {
   amount: number;
   currency: string;
   arrival_date: string;
-  status: "paid";
+  status: "paid" | "failed";
   itemised: number;
   line_count: number;
   lines_net: number;
+  unreadable_lines: Generated<number>;
   created_at: string;
   read_at: string;
 }
@@ -2734,12 +2735,13 @@ export interface CorePayoutLineTable {
   provider: string;
   ref: string;
   payout_ref: string;
-  kind: "payment" | "refund" | "dispute" | "adjustment" | "fee";
+  kind: "payment" | "refund" | "dispute" | "adjustment" | "fee" | "payout_reversal";
   amount: number;
   fee: number;
   currency: string;
   payment_ref: string | null;
   refund_ref: string | null;
+  reversal_of: string | null;
   occurred_at: string;
 }
 
@@ -2754,7 +2756,10 @@ export interface CorePayoutFailureTable {
 /** Migration 1151: where the daily payout read is. */
 export interface CorePayoutSyncTable {
   provider: string;
+  account: string;
   pass_date: string;
+  last_ok_date: string | null;
+  pending: string | null;
   done: number;
   since: string;
   cursor: string | null;

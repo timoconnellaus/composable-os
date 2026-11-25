@@ -278,11 +278,12 @@ describe("the Payouts report (proof a: every line matched or listed, every payme
       date: "2026-04-15",
       belongsTo: null,
       amount: 16553,
-      // fpi_a1, fpi_a2 and the late payment the host holds: matched.
-      payments: 17500,
+      // fpi_a1 and fpi_a2: matched. The late payment staff never honoured is no sale, so its
+      // line settles nothing the books counted (ADR 0793).
+      payments: 16000,
       refunds: 2000,
-      // The charge made at the provider directly.
-      unmatched: 4000,
+      // The charge made at the provider directly, and the late payment.
+      unmatched: 5500,
       disputes: -1000,
       adjustments: 50,
       fees: 223 + 118 + 56 + 100 + 1500,
@@ -298,14 +299,14 @@ describe("the Payouts report (proof a: every line matched or listed, every payme
     });
     expect(payoutRow(r, p3.ref)).toBeUndefined();
     const lines = r.rows.filter((x) => x.type === "line" && x.payoutRef === p1.ref);
-    expect(lines.map((l) => [l.kind, l.matched, l.source])).toEqual([
-      ["payment", true, "payment"],
-      ["payment", true, "payment"],
-      ["refund", true, "refund"],
-      ["payment", true, "payment"],
-      ["payment", false, null],
-      ["dispute", false, null],
-      ["adjustment", false, null],
+    expect(lines.map((l) => [l.kind, l.matched, l.source, l.reason])).toEqual([
+      ["payment", true, "payment", null],
+      ["payment", true, "payment", null],
+      ["refund", true, "refund", null],
+      ["payment", false, null, "not_counted"],
+      ["payment", false, null, "no_record"],
+      ["dispute", false, null, null],
+      ["adjustment", false, null, null],
     ]);
     expect(lines.find((l) => l.kind === "refund")?.sourceId).toBe(refundR2);
     // The dispute is traced to the payment it disputes, never counted as settling it.
@@ -330,9 +331,11 @@ describe("the Payouts report (proof a: every line matched or listed, every payme
   });
 
   it("every provider payment and refund is in exactly one payout, or not yet paid out", async () => {
+    // Every one the books counted: the payments applied or honoured, the refunds confirmed.
     const all = (
       await env.DB.prepare(
         `SELECT provider || ':' || event_id AS id FROM core_order_payment WHERE method = 'provider'
+           AND (outcome = 'applied' OR resolved IS 'honoured')
          UNION ALL SELECT id FROM core_order_refund WHERE method = 'provider' AND status = 'confirmed'`,
       ).all<{ id: string }>()
     ).results
@@ -383,16 +386,29 @@ describe("closing April: one payout entry per payout, each balanced", () => {
       "fees:provider debit": 1997,
       "money_out:provider debit": 2000,
       "disputes debit": 1000,
-      "money_in:provider credit": 17500,
-      "unmatched credit": 4000,
+      "money_in:provider credit": 16000,
+      "unmatched credit": 5500,
       "adjustments credit": 50,
     });
     const e2 = aprilEntries.entries.find((e) => e.key === `payout:${p2.ref}`);
+    // The difference on its own heading, never mistaken for a line matching nothing.
     expect(linesOf(e2 as EntriesOut["entries"][number])).toEqual({
       "bank debit": 400,
       "adjustments credit": 300,
-      "unmatched credit": 100,
+      "payout_difference credit": 100,
     });
+    // A closed version keeps each payout and the lines that matched nothing; a matched line is
+    // read again from the line table (ADR 0793), so a month's rows grow with its exceptions.
+    const kept = (
+      await env.DB.prepare(
+        `SELECT json_extract(r.data, '$.type') AS t, json_extract(r.data, '$.matched') AS m
+         FROM core_finance_row r JOIN core_finance_period p ON p.id = r.period_id
+         WHERE p.month = '2026-04' AND r.report = 'payouts'`,
+      ).all<{ t: string; m: number | null }>()
+    ).results;
+    expect(kept.filter((k) => k.t === "line" && k.m === 1)).toEqual([]);
+    // P1's late payment, its direct charge, dispute and adjustment; P2's adjustment.
+    expect(kept.filter((k) => k.t === "line")).toHaveLength(5);
     // The closed report is the preview as it was.
     const closed = await report({ month: "2026-04" });
     expect(closed.preview).toBe(false);

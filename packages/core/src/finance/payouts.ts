@@ -28,6 +28,7 @@ import type { CoreDatabase } from "@composable-os/db";
 import { CompiledQuery, type Kysely } from "kysely";
 import type { CountedSource, ReportRow } from "./close.ts";
 import { type BookEntry, type EntryLine, entryKey } from "./entries.ts";
+import { payoutReadState } from "./payout-sync.ts";
 
 type Db = Kysely<CoreDatabase>;
 
@@ -38,11 +39,14 @@ const ROW_IDS = 200;
 
 /** The note every Payouts figure and file carries. */
 export const PAYOUTS_NOTE =
-  "Payouts are as the payment provider reported them, on the day each arrives in the bank. Each " +
-  "payment and refund line is matched to what the host recorded by the provider's reference; " +
-  "what matches nothing is listed apart, never guessed. Payments recorded by hand (a transfer, " +
-  "cash) never reach the provider and are in no payout. Not yet paid out counts the provider's " +
-  `payments and refunds of the ${NOT_PAID_OUT_DAYS} days before the period's end.`;
+  "Payouts are as the payment provider reported them, on the day the provider says each arrives " +
+  "in the bank. Each payment and refund line is matched by the provider's reference to a payment " +
+  "the books counted (applied, or honoured by staff) or a refund confirmed, for the amount the " +
+  "host recorded; anything else matches nothing and is listed apart with the reason, never " +
+  "guessed. A difference between a payout and its lines is shown on its own. Payments recorded by " +
+  "hand (a transfer, cash) never reach the provider and are in no payout. Not yet paid out counts " +
+  `the provider's payments and refunds of the ${NOT_PAID_OUT_DAYS} days before the period's end; ` +
+  "older ones still in no payout are counted beside it.";
 
 /** A month a late payout can belong to: its local dates. */
 export interface ClosedDates {
@@ -57,9 +61,11 @@ interface PayoutRow {
   amount: number;
   currency: string;
   arrival_date: string;
+  status: "paid" | "failed";
   itemised: number;
   line_count: number;
   lines_net: number;
+  unreadable_lines: number;
 }
 
 interface FailureRow extends PayoutRow {
@@ -70,18 +76,32 @@ interface LineRow {
   provider: string;
   ref: string;
   payout_ref: string;
-  kind: "payment" | "refund" | "dispute" | "adjustment" | "fee";
+  kind: "payment" | "refund" | "dispute" | "adjustment" | "fee" | "payout_reversal";
   amount: number;
   fee: number;
   currency: string;
   payment_ref: string | null;
   refund_ref: string | null;
+  reversal_of: string | null;
   occurred_at: string;
-  /** The matched payment's order and id (`provider:event`), tab-separated. */
+  /** The payment the host stored with the line's reference: order, id, amount, currency, counted. */
   payment: string | null;
-  /** The matched refund's order and id, tab-separated. */
+  /** The refund the host stored with the line's reference: order, id, amount, currency, confirmed. */
   refund: string | null;
 }
+
+/**
+ * Why a payment or refund line settles nothing the books counted (ADR 0793): no payment or refund
+ * has its reference; the host has one but never counted it (a late or mismatched payment staff did
+ * not honour, a refund not confirmed); its amount or currency is not the host's; or another line
+ * settled it already.
+ */
+export type UnmatchedReason =
+  | "no_record"
+  | "not_counted"
+  | "amount_differs"
+  | "currency_differs"
+  | "already_settled";
 
 export interface PayoutBook {
   entries: BookEntry[];
@@ -97,17 +117,28 @@ const run = async <T>(db: Db, query: string, params: unknown[]) =>
 const UNCOUNTED = (kind: string, id: string) =>
   `NOT EXISTS (SELECT 1 FROM core_finance_counted c JOIN core_finance_period f ON f.id = c.period_id WHERE c.source_kind = '${kind}' AND c.source_id = ${id} AND f.state = 'closed')`;
 
-/** The matched payment of a line (the first the host recorded with its reference), as SQL. */
-const PAYMENT_MATCH = `(SELECT q.order_id || char(9) || q.provider || ':' || q.event_id
+/** A payment the books counted: applied, or a late payment staff honoured (ADR 0796). */
+const COUNTED = "(q.outcome = 'applied' OR q.resolved IS 'honoured')";
+/**
+ * The payment the host stored with a line's reference, as SQL: one the books counted before one
+ * they did not, then the first received. Tab-separated: order, id, amount, currency, counted.
+ */
+const PAYMENT_MATCH = `(SELECT q.order_id || char(9) || q.provider || ':' || q.event_id || char(9)
+    || q.amount || char(9) || upper(q.currency) || char(9) || (CASE WHEN ${COUNTED} THEN 1 ELSE 0 END)
   FROM core_order_payment q WHERE q.provider = l.provider AND q.payment_ref = l.payment_ref
-    AND q.method = 'provider' ORDER BY q.received_at, q.event_id LIMIT 1)`;
-const REFUND_MATCH = `(SELECT r.order_id || char(9) || r.id FROM core_order_refund r
+    AND q.method = 'provider'
+  ORDER BY (CASE WHEN ${COUNTED} THEN 0 ELSE 1 END), q.received_at, q.event_id LIMIT 1)`;
+/** The refund with a line's reference: order, id, amount, currency, confirmed. */
+const REFUND_MATCH = `(SELECT r.order_id || char(9) || r.id || char(9) || r.amount || char(9)
+    || upper(r.currency) || char(9) || (CASE WHEN r.status = 'confirmed' THEN 1 ELSE 0 END)
+  FROM core_order_refund r
   WHERE r.provider = l.provider AND r.provider_refund_ref = l.refund_ref LIMIT 1)`;
 
 async function readPayouts(db: Db, a: string, b: string, late: boolean): Promise<PayoutRow[]> {
   return run<PayoutRow>(
     db,
-    `SELECT provider, ref, amount, currency, arrival_date, itemised, line_count, lines_net
+    `SELECT provider, ref, amount, currency, arrival_date, status, itemised, line_count, lines_net,
+       unreadable_lines
      FROM core_payout WHERE arrival_date >= ? AND arrival_date <= ?
        ${late ? `AND ${UNCOUNTED("payout", "core_payout.provider || ':' || core_payout.ref")}` : ""}
      ORDER BY arrival_date, provider, ref`,
@@ -118,8 +149,8 @@ async function readPayouts(db: Db, a: string, b: string, late: boolean): Promise
 async function readFailures(db: Db, a: string, b: string, late: boolean): Promise<FailureRow[]> {
   return run<FailureRow>(
     db,
-    `SELECT f.date, p.provider, p.ref, p.amount, p.currency, p.arrival_date, p.itemised,
-       p.line_count, p.lines_net
+    `SELECT f.date, p.provider, p.ref, p.amount, p.currency, p.arrival_date, p.status, p.itemised,
+       p.line_count, p.lines_net, p.unreadable_lines
      FROM core_payout_failure f JOIN core_payout p ON p.provider = f.provider AND p.ref = f.payout_ref
      WHERE f.date >= ? AND f.date <= ?
        ${late ? `AND ${UNCOUNTED("payout_failure", "f.provider || ':' || f.payout_ref")}` : ""}
@@ -141,7 +172,7 @@ async function readLines(db: Db, payouts: readonly PayoutRow[]): Promise<Map<str
     const rows = await run<LineRow>(
       db,
       `SELECT l.provider, l.ref, l.payout_ref, l.kind, l.amount, l.fee, l.currency, l.payment_ref,
-         l.refund_ref, l.occurred_at,
+         l.refund_ref, l.reversal_of, l.occurred_at,
          CASE WHEN l.kind IN ('payment', 'dispute') AND l.payment_ref IS NOT NULL
            THEN ${PAYMENT_MATCH} END AS payment,
          CASE WHEN l.kind = 'refund' AND l.refund_ref IS NOT NULL THEN ${REFUND_MATCH} END AS refund
@@ -162,8 +193,10 @@ async function readLines(db: Db, payouts: readonly PayoutRow[]): Promise<Map<str
 
 const splitMatch = (value: string | null) => {
   if (!value) return null;
-  const [orderId, id] = value.split("\t");
-  return orderId && id ? { orderId, id } : null;
+  const [orderId, id, amount, currency, counted] = value.split("\t");
+  return orderId && id
+    ? { orderId, id, amount: Number(amount), currency: currency ?? "", counted: counted === "1" }
+    : null;
 };
 
 /** What the provider's payments and refunds of the window not yet in a payout come to. */
@@ -179,12 +212,17 @@ async function notPaidOut(
        ON o.provider = l.provider AND o.ref = l.payout_ref
      WHERE l.provider = ${column} AND l.${kind === "payment" ? "payment_ref" : "refund_ref"} = ${ref}
        AND l.kind = '${kind}' AND o.arrival_date <= ?)`;
-  const [payments, refunds] = await Promise.all([
+  // The payments the books counted (applied, or honoured) and the refunds confirmed: a late or
+  // mismatched payment never honoured is no sale, and its line in a payout matches nothing.
+  const counted = "(p.outcome = 'applied' OR p.resolved IS 'honoured')";
+  const ours = currency === null ? "1" : "upper(currency) = ?";
+  const oursParams = currency === null ? [] : [currency];
+  const [payments, refunds, older] = await Promise.all([
     run<{ id: string; order_id: string; amount: number; currency: string }>(
       db,
       `SELECT p.provider || ':' || p.event_id AS id, p.order_id, p.amount, p.currency
        FROM core_order_payment p
-       WHERE p.method = 'provider' AND p.received_at >= ? AND p.received_at < ?
+       WHERE p.method = 'provider' AND p.received_at >= ? AND p.received_at < ? AND ${counted}
          AND NOT (p.payment_ref IS NOT NULL AND ${paidOut("p.provider", "payment", "p.payment_ref")})
        ORDER BY p.received_at, p.event_id`,
       [from, to, endDate],
@@ -199,6 +237,22 @@ async function notPaidOut(
        ORDER BY r.confirmed_at, r.id`,
       [from, to, endDate],
     ),
+    // Older than the window and still in no payout: counted, never listed, so nothing vanishes
+    // without a word (one aggregate over the provider's payments before the window).
+    run<{ n: number; total: number | null }>(
+      db,
+      `SELECT count(*) AS n, sum(amount) AS total FROM (
+         SELECT p.amount AS amount, p.currency AS currency FROM core_order_payment p
+         WHERE p.method = 'provider' AND p.received_at < ? AND ${counted}
+           AND NOT (p.payment_ref IS NOT NULL AND ${paidOut("p.provider", "payment", "p.payment_ref")})
+         UNION ALL
+         SELECT -r.amount, r.currency FROM core_order_refund r
+         WHERE r.status = 'confirmed' AND r.confirmed_at < ? AND r.method = 'provider'
+           AND NOT (r.provider_refund_ref IS NOT NULL
+             AND ${paidOut("r.provider", "refund", "r.provider_refund_ref")})
+       ) WHERE ${ours}`,
+      [from, endDate, from, endDate, ...oursParams],
+    ),
   ]);
   const mine = <T extends { currency: string }>(rows: T[]) =>
     rows.filter((r) => currency === null || r.currency.toUpperCase() === currency);
@@ -207,6 +261,8 @@ async function notPaidOut(
   const paymentsIn = p.reduce((n, x) => n + x.amount, 0);
   const refundsOut = r.reduce((n, x) => n + x.amount, 0);
   return {
+    olderCount: Number(older[0]?.n ?? 0),
+    olderAmount: Number(older[0]?.total ?? 0),
     payments: paymentsIn,
     refunds: refundsOut,
     amount: paymentsIn - refundsOut,
@@ -260,22 +316,42 @@ function payoutFigures(payout: PayoutRow, lines: readonly LineRow[], claimed: Se
     f.fees += l.fee;
     let matched: { orderId: string; id: string } | null = null;
     let source: "payment" | "refund" | null = null;
-    if (l.kind === "fee") {
+    let reason: UnmatchedReason | null = null;
+    if (l.currency.toUpperCase() !== payout.currency.toUpperCase()) {
+      // A line in another currency than its payout's is summed nowhere it could be mistaken for
+      // the payout's money: it matches nothing, with the reason.
+      reason = "currency_differs";
+      settled(out, "unmatched", l.amount);
+      f.unmatched += l.amount;
+    } else if (l.kind === "fee") {
       // The provider's own charge (billing, a device), taken from the balance: a fee.
       f.fees += -l.amount;
     } else if (l.kind === "payment" || l.kind === "refund") {
       const m = splitMatch(l.kind === "payment" ? l.payment : l.refund);
-      // Each payment or refund is settled by one line only: a second claim matches nothing.
-      if (m && !claimed.has(`${l.kind}:${m.id}`)) {
+      // Only what the books counted, for the amount and currency the host recorded; each payment
+      // or refund settled by one line only (a second claim matches nothing).
+      const expected = l.kind === "payment" ? l.amount : -l.amount;
+      reason = !m
+        ? "no_record"
+        : !m.counted
+          ? "not_counted"
+          : m.currency !== l.currency.toUpperCase()
+            ? "currency_differs"
+            : m.amount !== expected
+              ? "amount_differs"
+              : claimed.has(`${l.kind}:${m.id}`)
+                ? "already_settled"
+                : null;
+      if (m && reason === null) {
         claimed.add(`${l.kind}:${m.id}`);
         matched = m;
         source = l.kind;
-      }
-      if (matched) {
         settled(out, l.kind === "payment" ? "money_in:provider" : "money_out:provider", l.amount);
         if (l.kind === "payment") f.payments += l.amount;
         else f.refunds += -l.amount;
       } else {
+        // Traced to what the host holds with that reference, never counted as settling it.
+        if (m) matched = m;
         settled(out, "unmatched", l.amount);
         f.unmatched += l.amount;
       }
@@ -301,17 +377,20 @@ function payoutFigures(payout: PayoutRow, lines: readonly LineRow[], claimed: Se
       net: l.amount - l.fee,
       matched: source !== null,
       source,
-      sourceId: matched?.id ?? null,
+      reason,
+      sourceId: source ? (matched?.id ?? null) : null,
       orderId: matched?.orderId ?? null,
       paymentRef: l.payment_ref,
       refundRef: l.refund_ref,
+      reversalOf: l.reversal_of,
     });
   }
   const difference = payout.amount - f.linesNet;
   paid(out, "bank", payout.amount);
   paid(out, "fees:provider", f.fees);
-  // What the payout carries beyond (or short of) its lines matches nothing: shown, never adjusted.
-  settled(out, "unmatched", difference);
+  // What the payout carries beyond (or short of) its lines is the provider's: shown on its own
+  // heading (ADR 0791 as amended), never adjusted, never mistaken for a line matching nothing.
+  settled(out, "payout_difference", difference);
   return { lines: [...out.values()], figures: { ...f, difference }, orders, rows };
 }
 
@@ -420,6 +499,8 @@ export async function payoutBook(
         amount: p.amount,
         ...made.figures,
         lineCount: p.line_count,
+        unreadableLines: p.unreadable_lines,
+        status: p.status,
         itemised: p.itemised === 1,
         orders: orders.slice(0, ROW_IDS),
         orderCount: orders.length,
@@ -474,8 +555,14 @@ export async function payoutBook(
       sourceCount: waiting.paymentIds.length + waiting.refundIds.length,
       orders: waiting.orders.slice(0, ROW_IDS),
       orderCount: waiting.orders.length,
+      // The provider's money older than the window and still in no payout: counted apart.
+      olderCount: waiting.olderCount,
+      olderAmount: waiting.olderAmount,
     }),
   );
+  // What the read says of itself (refused, failing, part-way through), kept with a closed version
+  // as it was when the month closed.
+  for (const text of await payoutReadState(db)) rows.push(row({ type: "note", text }));
 
   return {
     entries: mergeEntries([...entries.values()]),
@@ -487,6 +574,72 @@ export async function payoutBook(
       ...notPaidOutGuards(fromIso, toIso),
     ],
   };
+}
+
+/** A Payouts row a closed version does not keep: a matched line, read again from the line table. */
+export function closedFromLines(data: Record<string, unknown>): boolean {
+  return data.type === "line" && data.matched === true;
+}
+
+/**
+ * The matched lines of a closed version's payouts, from `core_payout_line` (ADR 0793): a recorded
+ * line never changes, and a matched line's match cannot (it settles a payment the books counted or
+ * a confirmed refund, for its amount), so this is what the close saw. Worked out over the
+ * version's payouts in their stored order, as the close did.
+ */
+export async function closedPayoutRows(
+  db: Db,
+  stored: readonly Record<string, unknown>[],
+): Promise<Record<string, unknown>[]> {
+  const live = await matchedLinesOf(db, stored);
+  const kept = new Map(
+    stored.filter((r) => r.type === "line").map((r) => [`${r.payoutRef}\u0000${r.lineRef}`, r]),
+  );
+  const out: Record<string, unknown>[] = [];
+  for (const r of stored) {
+    if (r.type === "line") continue;
+    out.push(r);
+    if (r.type !== "payout") continue;
+    // The payout's lines in the order the close made them: as kept when they matched nothing,
+    // else as read now (matched, as they were).
+    for (const l of live.get(`${r.provider}:${r.payoutRef}`) ?? []) {
+      out.push(kept.get(`${l.payoutRef}\u0000${l.lineRef}`) ?? l);
+    }
+  }
+  return out;
+}
+
+async function matchedLinesOf(
+  db: Db,
+  stored: readonly Record<string, unknown>[],
+): Promise<Map<string, Record<string, unknown>[]>> {
+  const payouts = stored
+    .filter((r) => r.type === "payout")
+    .map((r) => ({
+      provider: String(r.provider),
+      ref: String(r.payoutRef),
+      amount: Number(r.amount),
+      currency: String(r.currency ?? ""),
+      arrival_date: String(r.date),
+      status: (r.status === "failed" ? "failed" : "paid") as "paid" | "failed",
+      itemised: r.itemised === false ? 0 : 1,
+      line_count: Number(r.lineCount ?? 0),
+      lines_net: Number(r.linesNet ?? 0),
+      unreadable_lines: Number(r.unreadableLines ?? 0),
+      belongsTo: (r.belongsTo ?? null) as string | null,
+    }));
+  const out = new Map<string, Record<string, unknown>[]>();
+  if (!payouts.length) return out;
+  const lines = await readLines(db, payouts);
+  const claimed = new Set<string>();
+  for (const p of payouts) {
+    const made = payoutFigures(p, lines.get(`${p.provider}:${p.ref}`) ?? [], claimed);
+    out.set(
+      `${p.provider}:${p.ref}`,
+      made.rows.map((r) => ({ currency: p.currency, ...r, date: p.arrival_date, belongsTo: p.belongsTo })),
+    );
+  }
+  return out;
 }
 
 /** The guards over a span's payouts (ADR 0790): a payout, failure or match landing fails the close. */
@@ -502,14 +655,14 @@ function payoutGuards(a: string, b: string, late: boolean): string[] {
     `SELECT count(*) * 1000003 + coalesce(sum(amount), 0) + coalesce(sum(line_count), 0) FROM core_payout WHERE ${span}${notCounted}`,
     `SELECT count(*) FROM core_payout_failure f WHERE f.date >= '${a}' AND f.date <= '${b}'${failNotCounted}`,
     // What the lines match: a payment or refund the host recorded meanwhile changes it.
-    `SELECT count(*) FROM core_payout_line l JOIN core_payout ON core_payout.provider = l.provider AND core_payout.ref = l.payout_ref WHERE core_payout.${span}${notCounted} AND ((l.kind IN ('payment', 'dispute') AND l.payment_ref IS NOT NULL AND ${PAYMENT_MATCH} IS NOT NULL) OR (l.kind = 'refund' AND l.refund_ref IS NOT NULL AND ${REFUND_MATCH} IS NOT NULL))`,
+    `SELECT count(*) + coalesce(sum(substr(m, -1) = '1'), 0) * 1000003 FROM (SELECT CASE WHEN l.kind IN ('payment', 'dispute') AND l.payment_ref IS NOT NULL THEN ${PAYMENT_MATCH} WHEN l.kind = 'refund' AND l.refund_ref IS NOT NULL THEN ${REFUND_MATCH} END AS m FROM core_payout_line l JOIN core_payout ON core_payout.provider = l.provider AND core_payout.ref = l.payout_ref WHERE core_payout.${span}${notCounted}) WHERE m IS NOT NULL`,
   ];
 }
 
 /** The guards over what is not yet paid out: the provider's money in the window. */
 function notPaidOutGuards(from: string, to: string): string[] {
   return [
-    `SELECT count(*) * 1000003 + coalesce(sum(amount), 0) FROM core_order_payment WHERE method = 'provider' AND received_at >= '${from}' AND received_at < '${to}'`,
+    `SELECT count(*) * 1000003 + coalesce(sum(amount), 0) + 7 * coalesce(sum(outcome = 'applied' OR resolved IS 'honoured'), 0) FROM core_order_payment WHERE method = 'provider' AND received_at >= '${from}' AND received_at < '${to}'`,
     `SELECT count(*) * 1000003 + coalesce(sum(amount), 0) FROM core_order_refund WHERE status = 'confirmed' AND confirmed_at >= '${from}' AND confirmed_at < '${to}' AND method = 'provider'`,
   ];
 }

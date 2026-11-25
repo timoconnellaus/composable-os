@@ -15,7 +15,7 @@ import { loadOrderCurrency } from "../orders/settings.ts";
 import { moneyBook } from "./book.ts";
 import type { LocalRange } from "./day.ts";
 import { type BookEntry, type SealedEntry, sealEntry } from "./entries.ts";
-import { mergeEntries, payoutBook } from "./payouts.ts";
+import { closedFromLines, mergeEntries, payoutBook } from "./payouts.ts";
 
 /** The most lines, report rows or counted sources one version holds; more is refused. */
 export const MAX_CLOSE_LINES = 100_000;
@@ -86,7 +86,11 @@ export async function periodBook(ctx: HandlerContext, range: LocalRange): Promis
   );
   return {
     entries: mergeEntries(money.entries, payouts.entries),
-    rows: [...money.rows, ...payouts.rows],
+    // A closed version keeps each payout's row and the lines that matched nothing (as they stood);
+    // a matched line stays in core_payout_line, and its match cannot change (it settles a payment
+    // the books counted or a confirmed refund, for its amount), so the closed report reads it from
+    // there: a month's rows grow with its payouts and exceptions, not with every line (ADR 0793).
+    rows: [...money.rows, ...payouts.rows.filter((r) => !closedFromLines(r.data))],
     counted: [...money.counted, ...payouts.counted],
     guards: [...money.guards, ...payouts.guards],
   };

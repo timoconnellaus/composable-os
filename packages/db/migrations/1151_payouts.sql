@@ -24,6 +24,10 @@
 -- `line_count` and `lines_net` (its lines' amounts less their fees) are checked against its lines
 -- when it is recorded; a difference between `amount` and `lines_net` is the provider's, shown and
 -- told, never adjusted. `itemised` 0: a payout made by hand at the provider, with no lines.
+-- `status` is what it was when recorded: `paid` (it arrived), or `failed` (it never arrived: read
+-- when it failed, or from the reversal line of the payout that paid its money again, so the
+-- payments it settled are explained), always with its failure beside it. `unreadable_lines`: lines
+-- the gatekeeper could not read, left out and counted (they show as the payout's difference).
 CREATE TABLE core_payout (
   provider TEXT NOT NULL,
   ref TEXT NOT NULL,
@@ -31,10 +35,11 @@ CREATE TABLE core_payout (
   currency TEXT NOT NULL CHECK (currency GLOB '[A-Z][A-Z][A-Z]'),
   arrival_date TEXT NOT NULL
     CHECK (arrival_date GLOB '[0-9][0-9][0-9][0-9]-[0-1][0-9]-[0-3][0-9]'),
-  status TEXT NOT NULL CHECK (status = 'paid'),
+  status TEXT NOT NULL CHECK (status IN ('paid', 'failed')),
   itemised INTEGER NOT NULL CHECK (itemised IN (0, 1)),
   line_count INTEGER NOT NULL CHECK (line_count >= 0),
   lines_net INTEGER NOT NULL,
+  unreadable_lines INTEGER NOT NULL DEFAULT 0 CHECK (unreadable_lines >= 0),
   created_at TEXT NOT NULL,
   read_at TEXT NOT NULL,
   PRIMARY KEY (provider, ref)
@@ -45,17 +50,21 @@ CREATE INDEX core_payout_arrival ON core_payout (arrival_date);
 -- One line of a payout: `amount` into the balance (positive) or out of it (negative), before the
 -- provider's `fee` (positive: charged). `payment_ref` is the payment it is for, as the host stores
 -- it on core_order_payment; `refund_ref` a refund's own reference (core_order_refund's
--- provider_refund_ref). A line is the provider's movement: it is in one payout only.
+-- provider_refund_ref). A line is the provider's movement: it is in one payout only. A
+-- `payout_reversal` is an earlier payout's money back in the balance after the bank returned it
+-- (`reversal_of` names that payout).
 CREATE TABLE core_payout_line (
   provider TEXT NOT NULL,
   ref TEXT NOT NULL,
   payout_ref TEXT NOT NULL,
-  kind TEXT NOT NULL CHECK (kind IN ('payment', 'refund', 'dispute', 'adjustment', 'fee')),
+  kind TEXT NOT NULL
+    CHECK (kind IN ('payment', 'refund', 'dispute', 'adjustment', 'fee', 'payout_reversal')),
   amount INTEGER NOT NULL,
   fee INTEGER NOT NULL,
   currency TEXT NOT NULL,
   payment_ref TEXT,
   refund_ref TEXT,
+  reversal_of TEXT,
   occurred_at TEXT NOT NULL,
   PRIMARY KEY (provider, ref)
 ) WITHOUT ROWID;
@@ -79,16 +88,23 @@ CREATE TABLE core_payout_failure (
 
 CREATE INDEX core_payout_failure_date ON core_payout_failure (date);
 
--- Where the daily read is (one row per provider): the pass in progress (from which arrival day,
--- the provider's page cursor, the payout whose lines are being read, as the provider reported
--- it), the business's day the pass started and whether it finished, whether the connection may
--- read payouts at all, and `next_at`, the instant the next run is due (the next day's pass, the
--- rest of a backlog, or a retry after the provider failed): a quiet minute reads this row by its
--- key and nothing else. The one table here that changes; it holds no figure. `version` keeps two
--- runs at once from moving it back.
+-- Where the daily read is, one row per provider and account (`account`: the connection and the
+-- resource it binds), so another account starts its own history: the pass in progress (from which
+-- arrival day, the provider's page cursor, the payout whose lines are being read, as the provider
+-- reported it, and `pending`, failed payouts named by a reversal line still to read), the
+-- business's day the pass started and whether it finished, `last_ok_date`, the day of the last pass
+-- that read everything (the next pass reads from 14 days before it, however long the connection
+-- was refused or failing since), whether the connection may read payouts at all, and `next_at`, the
+-- instant the next run is due (the next day's pass, the rest of a backlog, a retry after the
+-- provider failed; a row of an account no longer bound is retired with a `next_at` far ahead):
+-- a quiet minute reads these rows by their key and nothing else. The one table here that changes;
+-- it holds no figure. `version` keeps two runs at once from moving it back.
 CREATE TABLE core_payout_sync (
-  provider TEXT PRIMARY KEY NOT NULL,
+  provider TEXT NOT NULL,
+  account TEXT NOT NULL,
   pass_date TEXT NOT NULL,
+  last_ok_date TEXT,
+  pending TEXT CHECK (pending IS NULL OR json_valid(pending)),
   done INTEGER NOT NULL CHECK (done IN (0, 1)),
   since TEXT NOT NULL,
   cursor TEXT,
@@ -99,7 +115,8 @@ CREATE TABLE core_payout_sync (
   failures INTEGER NOT NULL DEFAULT 0 CHECK (failures >= 0),
   next_at TEXT NOT NULL,
   version INTEGER NOT NULL CHECK (version >= 1),
-  updated_at TEXT NOT NULL
+  updated_at TEXT NOT NULL,
+  PRIMARY KEY (provider, account)
 );
 
 -- Recorded once, with exactly the lines read for it; never replaced, changed or removed.

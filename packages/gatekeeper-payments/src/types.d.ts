@@ -590,7 +590,11 @@ export interface PaymentsPayout {
 export interface PaymentsPayoutLine {
   /** The provider's id of the movement (a balance transaction): in one payout only. */
   ref: string;
-  kind: "payment" | "refund" | "dispute" | "adjustment" | "fee";
+  /**
+   * `payout_reversal`: an earlier payout came back from the bank (it failed or was cancelled), its
+   * money back in the balance; `reversalOf` names that payout.
+   */
+  kind: "payment" | "refund" | "dispute" | "adjustment" | "fee" | "payout_reversal";
   /** Into the balance (positive) or out of it (negative), before the fee, minor units. */
   amount: number;
   /** The provider's fee on it (positive: charged; negative: given back), minor units. */
@@ -600,6 +604,8 @@ export interface PaymentsPayoutLine {
   paymentRef: string | null;
   /** A refund's own reference, as the host stores it. */
   refundRef: string | null;
+  /** A `payout_reversal`'s payout: the provider's id of the payout that came back. */
+  reversalOf?: string | null;
   occurredAt: string;
 }
 
@@ -617,7 +623,13 @@ export type PaymentsPayoutPage =
 
 /** A page of one payout's lines. */
 export type PaymentsPayoutLinePage =
-  | { unavailable?: undefined; lines: PaymentsPayoutLine[]; next: string | null }
+  | {
+      unavailable?: undefined;
+      lines: PaymentsPayoutLine[];
+      next: string | null;
+      /** Lines on this page the gatekeeper could not read: left out, and counted here. */
+      unreadable?: number;
+    }
   | PaymentsPayoutsUnavailable;
 
 export interface PaymentsListPayoutsInput {

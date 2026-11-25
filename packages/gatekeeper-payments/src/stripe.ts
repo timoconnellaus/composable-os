@@ -1155,12 +1155,18 @@ export class StripeProvider implements PaymentProvider {
     const read = await this.#payoutRead(`/v1/balance_transactions?${query}`);
     if (read.unavailable) return read;
     const data = Array.isArray(read.body.data) ? read.body.data : [];
+    const lines: PaymentsPayoutLine[] = [];
+    let unreadable = 0;
+    for (const raw of data) {
+      const line = stripePayoutLineRead(raw);
+      if (line) lines.push(line);
+      // The payout's own balance transaction is not a line; anything else not read is counted.
+      else if (!isPayoutsOwn(raw)) unreadable += 1;
+    }
     return {
-      lines: data.flatMap((raw) => {
-        const line = stripePayoutLineRead(raw);
-        return line ? [line] : [];
-      }),
+      lines,
       next: read.body.has_more === true ? idOf(data.at(-1)) : null,
+      ...(unreadable ? { unreadable } : {}),
     };
   }
 
@@ -1173,13 +1179,21 @@ export class StripeProvider implements PaymentProvider {
     try {
       return { body: (await this.#call("GET", path, undefined, undefined)).body };
     } catch (error) {
-      if (error instanceof StripeCallError && (error.status === 401 || error.status === 403)) {
+      // 403: the key is valid but lacks the permission (a restricted key). A 401 (a revoked,
+      // expired or wrong key) is a broken connection, not a missing scope: thrown, so the host
+      // keeps its place and says the connection needs attention.
+      if (error instanceof StripeCallError && error.status === 403) {
         return {
           unavailable: true,
           reason:
             "the Stripe key may not read payouts and balance transactions (a restricted key " +
             "needs Payouts: read and Balance: read)",
         };
+      }
+      if (error instanceof StripeCallError && error.status === 401) {
+        throw new Error(
+          "Stripe refused the key (HTTP 401: revoked, expired or wrong): the connection needs attention.",
+        );
       }
       throw error;
     }
@@ -1741,9 +1755,19 @@ function lineKind(category: string | null): PaymentsPayoutLine["kind"] | null {
       return "dispute";
     case "fee":
       return "fee";
+    // A payout the bank returned (`payout_failure`) or that was cancelled: its money back in
+    // the balance. Its source is that payout.
+    case "payout_reversal":
+      return "payout_reversal";
     default:
       return "adjustment";
   }
+}
+
+/** The payout's own balance transaction in its list: not a line, never counted as unreadable. */
+function isPayoutsOwn(value: unknown): boolean {
+  const raw = metadataOf(value);
+  return (stringOrNull(raw.reporting_category) ?? stringOrNull(raw.type)) === "payout";
 }
 
 /**
@@ -1755,7 +1779,7 @@ export function stripePayoutLineRead(value: unknown): PaymentsPayoutLine | null 
   const raw = metadataOf(value);
   const ref = stringOrNull(raw.id);
   const category = stringOrNull(raw.reporting_category) ?? stringOrNull(raw.type);
-  const kind = lineKind(category);
+  const kind = stringOrNull(raw.type) === "payout_failure" ? "payout_reversal" : lineKind(category);
   const amount = integerOrNull(raw.amount);
   const fee = integerOrNull(raw.fee) ?? 0;
   const currency = currencyOf(raw.currency);
@@ -1773,6 +1797,7 @@ export function stripePayoutLineRead(value: unknown): PaymentsPayoutLine | null 
         ? idOf(source.payment_intent)
         : null,
     refundRef: kind === "refund" ? idOf(raw.source) : null,
+    reversalOf: kind === "payout_reversal" ? idOf(raw.source) : null,
     occurredAt: new Date(created * 1000).toISOString(),
   };
 }

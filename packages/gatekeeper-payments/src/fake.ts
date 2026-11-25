@@ -203,12 +203,14 @@ type FakeMovement = {
 /** One movement a fake payout settled (stage 52 step 4, ADR 0793). */
 export type FakePayoutLine = {
   ref: string;
-  kind: "payment" | "refund" | "dispute" | "adjustment" | "fee";
+  kind: "payment" | "refund" | "dispute" | "adjustment" | "fee" | "payout_reversal";
   amount: number;
   fee: number;
   currency: string;
   paymentRef: string | null;
   refundRef: string | null;
+  /** A `payout_reversal`'s payout (the one the bank returned). */
+  reversalOf?: string | null;
   occurredAt: string;
 };
 
@@ -245,6 +247,7 @@ export type FakePayoutOptions = {
     fee?: number;
     paymentRef?: string | null;
     refundRef?: string | null;
+    reversalOf?: string | null;
   }[];
   /** Added to the payout's amount, so its lines do not sum to it. */
   skew?: number;
@@ -256,10 +259,15 @@ export type FakePayoutOptions = {
 
 /** How the fake answers payout reads: a test turns a refusal or a failure on. */
 export type FakePayoutReads = {
-  /** `unavailable`: the key may not read payouts. `error`: the provider fails (a 5xx). */
-  reads: "ok" | "unavailable" | "error";
+  /**
+   * `unavailable`: the key lacks the permission (a 403). `error`: the provider fails (a 5xx).
+   * `revoked`: the key is refused (a 401), a failure, not a missing scope.
+   */
+  reads: "ok" | "unavailable" | "error" | "revoked";
   /** Payouts or lines per page (the provider's is 100). */
   pageSize: number;
+  /** A page cursor that does not move: every later page answers the cursor it was asked with. */
+  stuck?: boolean;
   /**
    * Development's schedule: on a first page read, everything settled before today (UTC) and not
    * yet paid out is paid out, arriving today. Tests turn it off and make payouts themselves.
@@ -358,6 +366,15 @@ const PAYOUT = "payout:";
 /** A payment or refund reference a payout settled → that payout's reference. */
 const PAID_OUT = "paid-out:";
 const PAYOUT_READS = "payout-reads";
+/** A failed payout's money back in the balance, to be paid out again: `reversal:<payout ref>`. */
+const REVERSAL = "reversal:";
+
+/** Where a page after `after` starts; null when the cursor names nothing in the list. */
+function cursorAt(list: readonly { ref: string }[], after: string | null | undefined) {
+  if (!after) return 0;
+  const i = list.findIndex((x) => x.ref === after);
+  return i === -1 ? null : i + 1;
+}
 /** How many payout reads (pages of payouts or lines) the ledger answered: tests bound it. */
 const PAYOUT_READ_COUNT = "payout-read-count";
 const DEFAULT_PAYOUT_READS: FakePayoutReads = { reads: "ok", pageSize: 100, auto: true };
@@ -1311,6 +1328,25 @@ export class FakePaymentsLedger extends DurableObject<Cloudflare.Env> {
       refundRef: m.refundRef,
       occurredAt: m.at,
     }));
+    // A failed payout's money, back in the balance, is paid out again as a reversal line.
+    const reversals = options.none
+      ? []
+      : [...kv.list<{ amount: number; currency: string }>({ prefix: REVERSAL })].filter(
+          ([, r]) => r.currency.toUpperCase() === currency,
+        );
+    for (const [key, r] of reversals) {
+      lines.push({
+        ref: randomId("ftx_"),
+        kind: "payout_reversal",
+        amount: r.amount,
+        fee: 0,
+        currency,
+        paymentRef: null,
+        refundRef: null,
+        reversalOf: key.slice(REVERSAL.length),
+        occurredAt: this.#tick(),
+      });
+    }
     for (const extra of options.extra ?? []) {
       lines.push({
         ref: randomId("ftx_"),
@@ -1320,6 +1356,7 @@ export class FakePaymentsLedger extends DurableObject<Cloudflare.Env> {
         currency,
         paymentRef: extra.paymentRef ?? null,
         refundRef: extra.refundRef ?? null,
+        reversalOf: extra.reversalOf ?? null,
         occurredAt: this.#tick(),
       });
     }
@@ -1336,6 +1373,7 @@ export class FakePaymentsLedger extends DurableObject<Cloudflare.Env> {
     };
     kv.put(PAYOUT + payout.ref, payout);
     for (const m of settled) kv.put(PAID_OUT + m.ref, payout.ref);
+    for (const [key] of reversals) kv.delete(key);
     return payout;
   }
 
@@ -1349,13 +1387,19 @@ export class FakePaymentsLedger extends DurableObject<Cloudflare.Env> {
     return out;
   }
 
-  /** A paid payout the bank returned: the provider reports it failed (its money back in the balance). */
+  /**
+   * A payout the bank returned (or one that failed before it arrived): the provider reports it
+   * failed, and its money is back in the balance, paid out again in the next payout as a
+   * `payout_reversal` line naming it, as Stripe's `payout_failure` balance transaction does.
+   */
   async failPayout(ref: string): Promise<FakePayout | null> {
     const kv = this.ctx.storage.kv;
     const payout = kv.get<FakePayout>(PAYOUT + ref);
     if (!payout) return null;
+    if (payout.status === "failed") return payout;
     const failed: FakePayout = { ...payout, status: "failed" };
     kv.put(PAYOUT + ref, failed);
+    kv.put(REVERSAL + ref, { amount: payout.amount, currency: payout.currency });
     return failed;
   }
 
@@ -1382,21 +1426,30 @@ export class FakePaymentsLedger extends DurableObject<Cloudflare.Env> {
     };
   }
 
-  /** Counts a read, and answers a refusal or a failure when a test turned one on. */
-  #read(): FakePayoutReads | { unavailable: true; reason: string } {
+  /**
+   * Counts a read, and answers a refusal or a failure when a test turned one on. A failure is
+   * answered as `{ failed }` (FakeProvider throws it): a Durable Object method that throws leaves
+   * workerd logging an unhandled rejection on every hop.
+   */
+  #read(): FakePayoutReads | { unavailable: true; reason: string } | { failed: string } {
     const kv = this.ctx.storage.kv;
     kv.put(PAYOUT_READ_COUNT, (kv.get<number>(PAYOUT_READ_COUNT) ?? 0) + 1);
     const mode = this.#payoutReads();
-    if (mode.reads === "error") throw new Error("The fake provider could not be read (a 5xx).");
+    if (mode.reads === "error") return { failed: "The fake provider could not be read (a 5xx)." };
+    if (mode.reads === "revoked") {
+      return { failed: "The fake provider refused the key (HTTP 401): the connection needs attention." };
+    }
     if (mode.reads === "unavailable") {
       return { unavailable: true, reason: "this account's key may not read payouts" };
     }
     return mode;
   }
 
-  async listPayouts(input: PaymentsListPayoutsInput): Promise<PaymentsPayoutPage> {
+  async listPayouts(
+    input: PaymentsListPayoutsInput,
+  ): Promise<PaymentsPayoutPage | { failed: string }> {
     const mode = this.#read();
-    if ("unavailable" in mode) return mode;
+    if ("unavailable" in mode || "failed" in mode) return mode;
     if (mode.auto && !input.after) {
       const today = new Date().toISOString().slice(0, 10);
       const before = this.#movements().filter(
@@ -1417,25 +1470,39 @@ export class FakePaymentsLedger extends DurableObject<Cloudflare.Env> {
       .map(([, p]) => p)
       .filter((p) => p.arrivalDate >= input.since)
       .sort((a, b) => b.arrivalDate.localeCompare(a.arrivalDate) || b.ref.localeCompare(a.ref));
-    const from = input.after ? all.findIndex((p) => p.ref === input.after) + 1 : 0;
+    const from = cursorAt(all, input.after);
+    if (from === null) return { failed: "The fake provider does not know that page cursor." };
     const page = all.slice(from, from + mode.pageSize);
     return {
       payouts: page.map(fakePayoutRead),
-      next: from + mode.pageSize < all.length ? (page.at(-1)?.ref ?? null) : null,
+      next:
+        mode.stuck && input.after
+          ? input.after
+          : from + mode.pageSize < all.length
+            ? (page.at(-1)?.ref ?? null)
+            : null,
     };
   }
 
-  async payoutLines(input: PaymentsPayoutLinesInput): Promise<PaymentsPayoutLinePage> {
+  async payoutLines(
+    input: PaymentsPayoutLinesInput,
+  ): Promise<PaymentsPayoutLinePage | { failed: string }> {
     const mode = this.#read();
-    if ("unavailable" in mode) return mode;
+    if ("unavailable" in mode || "failed" in mode) return mode;
     const payout = this.ctx.storage.kv.get<FakePayout>(PAYOUT + input.payoutRef);
-    if (!payout) throw new Error("The fake provider has no payout with that reference.");
-    if (!payout.itemised) throw new Error("A payout made by hand has no lines to list.");
-    const from = input.after ? payout.lines.findIndex((l) => l.ref === input.after) + 1 : 0;
+    if (!payout) return { failed: "The fake provider has no payout with that reference." };
+    if (!payout.itemised) return { failed: "A payout made by hand has no lines to list." };
+    const from = cursorAt(payout.lines, input.after);
+    if (from === null) return { failed: "The fake provider does not know that page cursor." };
     const page = payout.lines.slice(from, from + mode.pageSize);
     return {
       lines: page.map((l) => ({ ...l })),
-      next: from + mode.pageSize < payout.lines.length ? (page.at(-1)?.ref ?? null) : null,
+      next:
+        mode.stuck && input.after
+          ? input.after
+          : from + mode.pageSize < payout.lines.length
+            ? (page.at(-1)?.ref ?? null)
+            : null,
     };
   }
 
@@ -1708,12 +1775,16 @@ export class FakeProvider implements PaymentProvider {
     }
   }
 
-  listPayouts(input: PaymentsListPayoutsInput): Promise<PaymentsPayoutPage> {
-    return this.#options.ledger.listPayouts(input);
+  async listPayouts(input: PaymentsListPayoutsInput): Promise<PaymentsPayoutPage> {
+    const page = await this.#options.ledger.listPayouts(input);
+    if ("failed" in page) throw new Error(page.failed);
+    return page;
   }
 
-  payoutLines(input: PaymentsPayoutLinesInput): Promise<PaymentsPayoutLinePage> {
-    return this.#options.ledger.payoutLines(input);
+  async payoutLines(input: PaymentsPayoutLinesInput): Promise<PaymentsPayoutLinePage> {
+    const page = await this.#options.ledger.payoutLines(input);
+    if ("failed" in page) throw new Error(page.failed);
+    return page;
   }
 
   /** Changes the subscription, then confirms it by webhook once this call has returned. */

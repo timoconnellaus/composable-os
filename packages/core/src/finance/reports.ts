@@ -10,7 +10,7 @@ import { loadOrderCurrency } from "../orders/settings.ts";
 import { COVERS_NOTE, moneyBook, TAX_NOTE } from "./book.ts";
 import { closedBefore, type Report, type ReportRow } from "./close.ts";
 import { type LocalRange, midnightOf, nextDate } from "./day.ts";
-import { PAYOUTS_NOTE, payoutBook } from "./payouts.ts";
+import { closedPayoutRows, PAYOUTS_NOTE, payoutBook } from "./payouts.ts";
 import { financeClock, type PeriodRow, rangeOf, versionsOf } from "./periods.ts";
 
 /** The reports built so far (steps 3 and 4); the others land with their steps (5, 6 and 8). */
@@ -124,31 +124,23 @@ function totalsOf(report: BuiltReport, rows: readonly Record<string, unknown>[])
       .reduce((n, r) => n + (typeof r.amount === "number" ? r.amount : 0), 0);
     const unpaid = rows.find((r) => r.type === "unpaid");
     totals.notPaidOut = typeof unpaid?.amount === "number" ? unpaid.amount : 0;
+    totals.notPaidOutOlder = typeof unpaid?.olderAmount === "number" ? unpaid.olderAmount : 0;
+    totals.notPaidOutOlderCount = typeof unpaid?.olderCount === "number" ? unpaid.olderCount : 0;
+    totals.unreadableLines = counted.reduce(
+      (n, r) => n + (typeof r.unreadableLines === "number" ? r.unreadableLines : 0),
+      0,
+    );
   }
   return totals;
 }
 
 /**
- * What a preview of Payouts says of the read itself: payouts not readable on this connection, or
- * the provider failing (read now: a closed version's notes are as it was closed).
+ * A report's rows and the notes among them: Payouts keeps what the read said of itself (refused,
+ * failing, part-way through) as `note` rows, so a closed version says it as it was when closed.
  */
-async function payoutReadNotes(ctx: HandlerContext): Promise<string[]> {
-  const rows = await ctx.db
-    .selectFrom("core_payout_sync")
-    .select(["provider", "state", "reason", "next_at"])
-    .where("provider", "in", ["stripe", "fake"])
-    .execute();
-  return rows.flatMap((r) =>
-    r.state === "unavailable"
-      ? [
-          `Payouts are not available for this connection (${r.provider}): ${r.reason ?? "the provider refused the read"}. The figures here hold only payouts read before; nothing else is affected.`,
-        ]
-      : r.state === "failing"
-        ? [
-            `The last read of payouts (${r.provider}) failed; it is tried again from ${r.next_at}. Payouts since then may be missing.`,
-          ]
-        : [],
-  );
+function withNotes(base: readonly string[], rows: Record<string, unknown>[]) {
+  const notes = rows.filter((r) => r.type === "note").map((r) => String(r.text));
+  return { notes: [...base, ...notes], rows: rows.filter((r) => r.type !== "note") };
 }
 
 /** Staff names for a refund row's ids, as the accounts have them now. */
@@ -228,10 +220,14 @@ export async function readReport(ctx: HandlerContext, ask: ReportAsk): Promise<R
     const month = ask.month as string;
     const version = await versionAsked(ctx, month, ask.version);
     if (version) {
-      const rows = await withNames(ctx, ask.report, await storedRows(ctx, version, ask.report));
+      let stored = await storedRows(ctx, version, ask.report);
+      if (ask.report === "payouts") stored = await closedPayoutRows(ctx.db, stored);
+      const kept = withNotes(base.notes, stored);
+      const rows = await withNames(ctx, ask.report, kept.rows);
       const names = await userNames(ctx, [version.closed_by]);
       return {
         ...base,
+        notes: kept.notes,
         month,
         start: version.start_date,
         end: version.end_date,
@@ -250,10 +246,11 @@ export async function readReport(ctx: HandlerContext, ask: ReportAsk): Promise<R
     }
     const range = await rangeOf(ctx.db, month, clock.zone);
     const book = await previewBook(ctx, ask.report, range, await closedBefore(ctx.db, range));
-    const rows = await withNames(ctx, ask.report, rowsOf(book.rows, ask.report));
+    const kept = withNotes(base.notes, rowsOf(book.rows, ask.report));
+    const rows = await withNames(ctx, ask.report, kept.rows);
     return {
       ...base,
-      notes: [...base.notes, ...book.notes],
+      notes: kept.notes,
       month,
       start: range.start,
       end: range.end,
@@ -270,10 +267,11 @@ export async function readReport(ctx: HandlerContext, ask: ReportAsk): Promise<R
   }
   const range = spanOf(ask.start as string, ask.end as string, clock.zone);
   const book = await previewBook(ctx, ask.report, range, []);
-  const rows = await withNames(ctx, ask.report, rowsOf(book.rows, ask.report));
+  const kept = withNotes(base.notes, rowsOf(book.rows, ask.report));
+  const rows = await withNames(ctx, ask.report, kept.rows);
   return {
     ...base,
-    notes: [...base.notes, ...book.notes],
+    notes: kept.notes,
     month: null,
     start: range.start,
     end: range.end,
@@ -298,14 +296,14 @@ async function previewBook(
   report: BuiltReport,
   range: LocalRange,
   late: Awaited<ReturnType<typeof closedBefore>>,
-): Promise<{ currency: string | null; rows: ReportRow[]; notes: string[] }> {
+): Promise<{ currency: string | null; rows: ReportRow[] }> {
   if (report !== "payouts") {
     const book = await moneyBook(ctx.db, range, late);
-    return { currency: book.currency, rows: book.rows, notes: [] };
+    return { currency: book.currency, rows: book.rows };
   }
   const currency = await loadOrderCurrency(ctx.db);
   const book = await payoutBook(ctx.db, range, late, currency);
-  return { currency, rows: book.rows, notes: await payoutReadNotes(ctx) };
+  return { currency, rows: book.rows };
 }
 
 function rowsOf(rows: readonly ReportRow[], report: BuiltReport) {
