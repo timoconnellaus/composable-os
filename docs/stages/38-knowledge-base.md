@@ -665,8 +665,8 @@ None open. The six questions this spec raised were decided by the coordinator (d
 
 - **Step 4** — not built — needs: step 3 — The `to_read` warning on the roster
 
-- **Step 5** — not built — needs: step 2, step 3 — The Knowledge pack: objects, views, settings,
-  tools, hooks, notices, the review reminder
+- **Step 5** — in progress — branch `feat/stage-38-knowledge-pack` — The Knowledge pack: objects,
+  views, settings, tools, hooks, notices, the review reminder
 
 - **Step 6** — not built — needs: step 5, stage 47 — Blocks: help centre, procedure reader, to
   read, confirm, read status; the declared screens
