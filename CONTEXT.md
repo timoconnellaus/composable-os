@@ -2712,6 +2712,15 @@ by its address (slug) while it is open to the caller. Its "who may answer", anon
 destination count from the version published.
 _Avoid_: waiver, agreement (stage 44's), survey (one kind of form, not the record)
 
+**Form page** (stage 29, ADR 0728)
+A form drawn as a plain web page by the host, that works with no JavaScript: a form's own page
+(`/f/<slug>`, for a link or a QR code) and a personal link's page (`/form?t=…`). Served on the
+host's address and, forwarded over the binding, on the business's own site. A personal link's page
+sends no referrer, loads nothing from anywhere else and takes the token out of the address bar.
+The **form block** (`forms-form`, `forms-native-form`) is the same form in a client app's own
+screens.
+_Avoid_: hosted form (an outside service's), landing page, form embed (framing is a later step)
+
 **Submission** (stage 29, the Forms pack)
 One set of answers to one version of a form (`forms.submission`), made only by the host's door, in
 the Forms **inbox** with the states new, in hand, done and spam. Read by staff accounts only: never

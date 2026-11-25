@@ -8,7 +8,15 @@ const STORAGE_STATE = join(dirname(fileURLToPath(import.meta.url)), ".auth/user.
 
 /** Shipped packs some spec installs (`extension.install` with `shipped: true`). */
 // Content before Courses, which requires it (and Programs).
-const E2E_PACKS = ["programs", "bookings", "content", "courses", "memberships", "ticketing"];
+const E2E_PACKS = [
+  "programs",
+  "bookings",
+  "content",
+  "courses",
+  "memberships",
+  "ticketing",
+  "forms",
+];
 
 /** The dev server, not the product, failed the call: no answer, or Vite's own error page. */
 class DevServerBroke extends Error {}

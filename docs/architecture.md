@@ -1925,6 +1925,28 @@ staff's answers, spam or an anonymous form; the fourth in a day to one mailbox i
 200), outside the routine email cap. Forms declares
 `forms.receipt`; Bookings declares `bookings.feedback` with the slot and its automation.
 
+**The form page and the form blocks** (stage 29, step 4, [ADR 0728](adr/0728-the-form-page-and-the-form-blocks.md),
+`packs/forms/client` (the page is `page.ts`), `apps/app/src/server/http/form-page.ts`). The Forms
+pack's page draws a form as plain HTML on the server, with every question kind, and posts to its
+own address, so it works with no JavaScript: `/f/<slug>` for a link or a QR code, and `/form?t=`
+where a personal link's email opens. Its calls are the typed client's (`x.forms.form`,
+`x.forms.submit`) over the client-app binding's door, in-process: a customer by their verified
+cookie or the public, never staff, each send with the page's Idempotency-Key. cos-app serves both
+paths on its own address (in the Access bypass list) and over the `ClientApp` binding, and the
+client template's `formPageRoute` forwards them from the business's site with the customer's cookie
+and the form's fields only, and every call names the visitor's address (ADR 0940). A send is
+taken only from the page's own origin (`Sec-Fetch-Site: same-origin`, else its own or a `null`
+Origin), and a redraw keeps the first shown time. Every page is never cached or framed, sends no
+referrer and sets no cookie; a personal link's loads nothing from anywhere else (no Turnstile: the host skips it for a
+link), takes the token out of the address bar once loaded, and opening it uses nothing. The spam
+checks travel with the send: the honeypot field, the host's shown-time token, and a public form's
+Turnstile widget (cos-app's optional `TURNSTILE_SITE_KEY`). The blocks, `forms-form` (web) and
+`forms-native-form` (native), render every question kind from the same headless entry, by address,
+by a link's token, or by a signed-in member's link id from Needs your attention (`linkedForm`,
+`submitLinked`); the app passes its own Turnstile widget. Page and blocks check the answers first
+with the SDK's `checkAnswers` (exported alone as `@composable-os/sdk/questions`) and show the
+host's answer.
+
 **`publishable`** ([ADR 0446](adr/0446-publishable-without-its-public-half.md),
 [ADR 0441](adr/0441-publishable-states-schedules-and-versions.md),
 `packages/core/src/operations/record-versions.ts`, `packages/core/src/records/publish.ts`).
@@ -2973,7 +2995,7 @@ and the mobile Account tab are plain pages over the same entry.
 | Bookings | `recurring`, `capacity` and `claims` with a waitlist, `unique`, `staffed` (a class is its coach's shift, stage 45), `occupies` (a class takes a room marked "one booking at a time", stage 49 step 2, [ADR 0765](adr/0765-occupies-the-claim-on-a-thing.md)), `states` with windows, staff-only rules and a requested cancel, `allowance` (spender, `waived`), `public`, `customer` with `guardians`, `customerVia`, `requires: ["programs"]` | stage 31a: steps 1 to 6 built (the behaviours, the pack's spine, [ADR 0504](adr/0504-the-bookings-pack.md); spending with the Memberships pack's memberships and passes, and the waitlist with promotion, [ADR 0520](adr/0520-a-waitlist-on-a-claimant.md); parents booking for their children, [ADR 0540](adr/0540-the-family-link.md)); step 7, attendance, moves and cancelling a class; step 8, drop-ins with `sellable.moves`, [ADR 0560](adr/0560-a-paid-line-moves-a-record-that-exists.md)); step 9, messages, the reminder, the dashboard and the coach's app screen, [ADR 0572](adr/0572-bookings-messages-the-dashboard-and-the-coachs-app-screen.md); step 10 to come. Stage 29 step 5: feedback after a class (`bookings.feedback`, a personal link to a Forms form, [ADR 0724](adr/0724-the-receipt-and-the-form-link-slot.md)) |
 | Rostering | `recurring` (duty series, a horizon from its setting), `staffed` (a duty shift is its person's shift), `states`, a pack role (`rostering.team`), grantable and restricted permissions, the roster's rules (`staffing`), the host's tool-only `staffing.*` operations | stage 45: step 4 built (duties, duty series and shifts, the team role, the roster's tools, settings, [ADR 0626](adr/0626-the-rostering-pack-and-bookings-additions.md)); step 6 built (pay periods: `rostering:pay`, restricted and a person's only, who is counted, totals, the not-worked mark, lock, reopen and export, [ADR 0627](adr/0627-pay-periods-the-basis-the-totals-the-lock-and-the-export.md)); step 5 built (each person's private calendar feed: `feed`, `feedRotate`, `feedRevoke`, [ADR 0628](adr/0628-the-staff-calendar-feed-and-the-shared-calendar-writer.md)); step 7 built (the screens as blocks over `@composable-os/pack-rostering/client`, my calendar among them, role clients with grants, `cos rostering import`, [ADR 0629](adr/0629-the-rosters-screens-role-clients-with-grants-and-the-roster-import.md)); checklists (4b) built (a duty's checklist, [ADR 0650](adr/0650-checklists-templates-runs-ticks-and-a-done-run-kept-unchanged.md)) |
 | Daily checklists | no objects: screens and tools over the host's tool-only day-run operations (`checklist.today`, `.day`, `.dayTick`, `.dayDone`, `.days`), tools open to every staff account (`anyStaff`) or held to `checklists:write` (`corePermission`) | built (checklists on their own, [ADR 0651](adr/0651-checklists-on-their-own-a-schedule-a-run-a-day-and-who-may-do-it.md), [ADR 0652](adr/0652-a-tool-for-every-staff-account-and-a-tool-held-to-a-core-permission.md)): Today's checklists (web and the app) and Checklist history; requires nothing |
-| Forms | `publishable` with a slug and no public half, `intake` (form and submission), `states` (moves into and out of spam only by `personApproves` tools), a status, dates, cap and address a person approves, an old address that redirects, a setting a person approves, a low-rating automation, routine mail (the receipt) | stage 29: step 3 built (forms and submissions, the inbox's tools, views among them "Asked to hear from us", the hourly cap setting, the low-rating notice, the staff form kind, [ADR 0726](adr/0726-the-forms-pack-forms-submissions-and-who-reads-them.md)); step 5 built (personal links, answered with `link` or `linkId`, and the receipt, ADRs 0723 and 0724); the hosted page and blocks, Leads as a destination, erase, and the screens and dashboard to come |
+| Forms | `publishable` with a slug and no public half, `intake` (form and submission), `states` (moves into and out of spam only by `personApproves` tools), a status, dates, cap and address a person approves, an old address that redirects, a setting a person approves, a low-rating automation, routine mail (the receipt) | stage 29: step 3 built (forms and submissions, the inbox's tools, views among them "Asked to hear from us", the hourly cap setting, the low-rating notice, the staff form kind, [ADR 0726](adr/0726-the-forms-pack-forms-submissions-and-who-reads-them.md)); step 5 built (personal links, answered with `link` or `linkId`, and the receipt, ADRs 0723 and 0724); step 4 built (the form page `/f/<slug>` and `/form` on the host and through the binding, the `forms-form` and `forms-native-form` blocks and the headless entry, ADR 0728); Leads as a destination, erase, and the screens and dashboard to come |
 | Shop | `sellable.goods` (sold where its item says) with `stock` and a reorder level told to `shop:stock`, `sellable.delivery` with seeded options and a shipment `grants`, `publishable` items, `public` with a list of conditions and `via` alone, a buyer's `customer` read of their shipments, prices a person approves, supplier fields on Organisation, a pack role (`shop.stockroom`), grantable permissions | stage 37: step 5 built (items, variants, delivery options, shipments, supplier fields, the stockroom role, the country setting, views, the Shop dashboard, the stock and shipment tools, [ADR 0689](adr/0689-the-shop-pack-and-public-reads-through-a-public-record.md)); purchase orders, receipts, counts and write-offs, recorded returns and routine mail, blocks and screens, and the import to come |
 | Memberships | `allowance` (holders, paying for Bookings' classes and, when they say they pay for sessions, its appointments by service: stage 49, [ADR 0764](adr/0764-appointments-in-the-bookings-pack.md)), recurring billing with `recurring.grants` and `recurring.pause`, `sellable.onePerPerson`, `humanOnly` tools, `requires: ["programs", "bookings"]` | stage 32b: steps 5 to 7 built (the behaviour, the pack, plan changes and pauses, the dashboard, views and blocks); the import (step 8) to come |
 
@@ -3039,8 +3061,9 @@ As built so far (stage 24; ADRs [0420](adr/0420-packs-as-packages-as-built.md),
   cli, each pack and `create-composable-os`, built from the release commit, dry-run on every
   release, published only when turned on.
 - **The binding.** The web app binds to cos-app's `ClientApp` entrypoint
-  (`apps/app/src/server/http/bound.ts`). It serves customer sign-in (`/api/customer-auth/*`) and
-  the HTTP surface, through `invoke()`, and nothing else. The caller is the customer whose session
+  (`apps/app/src/server/http/bound.ts`). It serves customer sign-in (`/api/customer-auth/*`), the
+  HTTP surface, through `invoke()`, a published picture, a customer's signed PDF and the form page
+  (`/f/<slug>`, `/form`, stage 29, whose calls are this same surface's), and nothing else. The caller is the customer whose session
   cookie the web app forwards, verified by the host, or the public: never staff (no staff session
   is read, and a bearer token is refused), and never a caller the web app names.
 - **Sign-in on the company's hostname.** The web app forwards the address and the code; the host

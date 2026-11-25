@@ -1620,3 +1620,13 @@ describe("cos init in a repo shaped like the first client's (criterion 2)", () =
     });
   });
 });
+
+describe("the edge rule step", () => {
+  it("names the form page's two paths when Forms is on (stage 29, ADR 0728)", async () => {
+    const { edgeRuleStep } = await import("../src/client-repo.ts");
+    expect(edgeRuleStep({ packs: [] })).not.toContain('"/f/"');
+    expect(edgeRuleStep({ packs: ["forms"] })).toContain(
+      '(starts_with(http.request.uri.path, "/auth/") or starts_with(http.request.uri.path, "/api/v1/op/") or starts_with(http.request.uri.path, "/f/") or http.request.uri.path eq "/form")',
+    );
+  });
+});

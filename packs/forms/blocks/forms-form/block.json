@@ -1,0 +1,12 @@
+{
+  "name": "forms-form",
+  "pack": "forms",
+  "skin": "web",
+  "operations": ["x.forms.form", "x.forms.submit", "x.forms.linkedForm", "x.forms.submitLinked"],
+  "files": ["form.tsx", "LICENSE"],
+  "dependsOn": ["ui-button", "ui-input", "ui-label"],
+  "packages": {
+    "@composable-os/client": "*",
+    "@composable-os/pack-forms": "*"
+  }
+}

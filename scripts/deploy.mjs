@@ -1,4 +1,11 @@
 #!/usr/bin/env node
+import { execFileSync } from "node:child_process";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { deployedName, deployedNameList } from "../packages/product/src/index.ts";
+import { loadProduct } from "../packages/product/src/node.ts";
 // Deploys a whole deployment to the Cloudflare account wrangler is logged in to (or that
 // CLOUDFLARE_API_TOKEN / CLOUDFLARE_ACCOUNT_ID point at):
 //
@@ -47,13 +54,7 @@
 // `crm`. The Workers are built for the same product.
 //
 // Usage: pnpm run deploy [-- --dry-run]
-import { execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
-import { deployedName, deployedNameList } from "../packages/product/src/index.ts";
-import { loadProduct } from "../packages/product/src/node.ts";
+import { turnstileTestKeysIn } from "./turnstile-keys.mjs";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const dryRun = process.argv.includes("--dry-run");
@@ -108,6 +109,8 @@ const APP_SECRETS = [
   "CF_ACCESS_TEAM_DOMAIN",
   "CF_ACCESS_AUD",
   "COS_UPDATE_TOKEN",
+  // The host's form page draws Turnstile's widget with it (stage 29, ADR 0728); not secret.
+  "TURNSTILE_SITE_KEY",
 ];
 // Both Workers call models: cos-runner for automations, summaries, the judge and embeddings.
 const SHARED_SECRETS = [
@@ -283,6 +286,17 @@ const runnerConfigObject = {
   upload_source_maps: true,
 };
 const exists = (name) => wranglerOk("apps/app", ["deployments", "list", "--name", name]);
+// Cloudflare's Turnstile test keys are local development's (scripts/dev-setup.mjs): an
+// always-passing secret on a real host would turn forms' spam check off for good.
+const testKeys = turnstileTestKeysIn(process.env);
+if (testKeys.length) {
+  console.error(
+    `\n${testKeys.join(" and ")}: Cloudflare's Turnstile test key, which only local development ` +
+      "uses. Create a Turnstile widget for your hostnames and use its own keys " +
+      "(docs/deploying.md, Forms: Turnstile), or leave them unset.",
+  );
+  process.exit(1);
+}
 if (!dryRun) {
   const appExists = exists(appConfigObject.name);
   // wrangler would only refuse at the very end, after everything else had been created.
