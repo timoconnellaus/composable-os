@@ -11,6 +11,7 @@
 //     priced through the seam (`priceLines`, then `applyAdjustments`), never sent by a caller;
 //   - a move to `paid`, `part_paid`, `expired` or `refunded` is a `host` move (fields/order.ts):
 //     only platform code passes `by: "host"`, and no operation takes the mover from its input.
+
 import type { CoreDatabase, CoreOrderTable } from "@composable-os/db";
 import type { Kysely, Selectable } from "kysely";
 import {
@@ -31,6 +32,7 @@ import { ConfigError, ConflictError, NotFoundError, ValidationError } from "../e
 import { getObject } from "../fields/index.ts";
 import { type OrderState, orderObject } from "../fields/order.ts";
 import type { FieldDefinition, ObjectDefinition } from "../fields/types.ts";
+import type { Guesses } from "../guesses.ts";
 import { newId } from "../ids.ts";
 import { type HandlerContext, recordHostChange } from "../operation.ts";
 import type { Principal } from "../principals.ts";
@@ -398,6 +400,8 @@ export async function priceOrder(
     priced?: readonly PricedLine[] | undefined;
     /** A pending order being priced again: its own use is not counted against a limit. */
     orderId?: string | undefined;
+    /** Wrong codes per client address, on a call from outside the org (ADR 0940). */
+    guesses?: Guesses | undefined;
   } = {},
 ): Promise<PricedOrder> {
   const all = delivery
@@ -413,7 +417,7 @@ export async function priceOrder(
     options.code,
     now,
     currency,
-    { excludeOrderId: options.orderId },
+    { excludeOrderId: options.orderId, guesses: options.guesses },
   );
   const problems: QuoteProblem[] = [];
   if (worked.code.given && !worked.code.valid) {
@@ -520,7 +524,7 @@ export async function createOrder(ctx: HandlerContext, input: NewOrder): Promise
     ctx.now,
     callerOf(ctx),
     "start",
-    { code: input.code, dealBuyer, priced: input.priced },
+    { code: input.code, dealBuyer, priced: input.priced, guesses: ctx.guesses },
   );
   const lines = goods.lines;
   const adjusted = goods.adjusted;

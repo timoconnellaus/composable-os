@@ -34,6 +34,7 @@ import {
   checklistRecordRestored,
   checklistRecordWritten,
 } from "../checklists/writes.ts";
+import { foldCodeWords } from "../discounts/words.ts";
 import { ConflictError, NotFoundError, ValidationError } from "../errors.ts";
 import {
   ALLOWANCE_FIELDS,
@@ -801,7 +802,14 @@ export async function createRecord(
   let prepared = await followedValues(
     ctx,
     object,
-    await prepareValues(ctx, object, withDefaults, "create", options),
+    await prepareValues(
+      ctx,
+      object,
+      // A code word is kept folded, long enough and one of its kind (ADR 0940).
+      await foldCodeWords(ctx, object, null, withDefaults),
+      "create",
+      options,
+    ),
   );
   // At most so many shifts follow one record's times (ADR 0751), counted when one is made.
   await assertFollowerRoom(ctx, object, null, valuesOf(prepared));
@@ -1214,7 +1222,14 @@ export async function updateRecord(
   assertMayChangeGatedStages(ctx, object, by);
   // Who must read a record staff confirm: a person's, and once published a manager's (ADR 0702).
   if (by !== "host") await assertMayChangeMustRead(ctx, object, id, asked, before.values);
-  let prepared = await prepareValues(ctx, object, asked, "update", options);
+  let prepared = await prepareValues(
+    ctx,
+    object,
+    // A code word is kept folded, long enough and one of its kind (ADR 0940).
+    await foldCodeWords(ctx, object, id, asked),
+    "update",
+    options,
+  );
   if (!prepared.length) return false;
   // A withdrawn review is not written again, by its author either (ADR 0810).
   assertAuthorOpen(

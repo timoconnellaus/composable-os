@@ -807,7 +807,6 @@ export function operationProblems(op: AnyOperation): string[] {
       if (op.hostInternal !== true || op.name?.startsWith("x.")) {
         problems.push("publicLimit.guesses is for a core hostInternal operation");
       }
-      if (limit.tier !== "strict") problems.push("publicLimit.guesses needs the strict tier");
     }
   }
   if (isOpenOutside(op) && op.alwaysReview) {

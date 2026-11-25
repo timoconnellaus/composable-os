@@ -243,6 +243,43 @@ function uniqueIndexes(state: SchemaState, object: ObjectState, ext: string) {
 }
 
 /**
+ * A promo code's word, kept folded by the host (ADR 0940): unique among the object's live records,
+ * and the index a code is looked up by. A discount object's own `code` field, and the `word` field
+ * of an object some discount of this extension names as its `codes`.
+ */
+function codeWordIndexes(state: SchemaState, object: ObjectState, ext: string) {
+  const locals: string[] = [];
+  const own = object.definition.discount?.code;
+  if (own) locals.push(own);
+  for (const other of state.objects) {
+    if (other.extensionId !== ext || other.status !== "active") continue;
+    const codes = other.definition.discount?.codes;
+    if (codes && codes.object === object.localName && !locals.includes(codes.word)) {
+      locals.push(codes.word);
+    }
+  }
+  return locals.flatMap((local) => {
+    const column = state.fields.find(
+      (f) =>
+        f.object === object.name &&
+        f.extensionId === ext &&
+        f.localName === local &&
+        f.status === "active" &&
+        f.tableName === object.tableName,
+    )?.columnName;
+    if (!column) return [];
+    const name = ident(`${object.tableName}__${column}__code`);
+    const col = ident(column);
+    return [
+      {
+        name,
+        ddl: `CREATE UNIQUE INDEX IF NOT EXISTS ${name} ON ${ident(object.tableName)} (${col}) WHERE deleted_at IS NULL AND ${col} IS NOT NULL`,
+      },
+    ];
+  });
+}
+
+/**
  * Refusals that depend on the records already there (stage 31): a uniqueness rule the live
  * records already break (ADR 0502), and a claims declaration changed while records are in a
  * state it names, before or after (ADR 0501: their claims would be missing or never given back).
@@ -889,6 +926,8 @@ export function planFromState(
         `CREATE UNIQUE INDEX IF NOT EXISTS ${index.name} ON ${ident(object.tableName)} (${index.columns.join(", ")}) WHERE ${index.where}`,
       );
     }
+    // A promo code's folded word (ADR 0940): one live record per word, looked up by this index.
+    for (const index of codeWordIndexes(next, object, ext)) wanted.set(index.name, index.ddl);
     // A shift's person (ADR 0621): its holder's triggers find its shifts by it.
     const staffed = staffedTables(next, object);
     if (staffed) {

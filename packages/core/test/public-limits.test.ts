@@ -36,9 +36,11 @@ const openToPublic = everything.filter((op) => op.audiences?.includes("public"))
 
 /** The operations given a tighter limit than their risk class's default (ADR 0940). */
 const DECLARED: Record<string, PublicLimit> = {
-  "order.start": { tier: "strict", group: "order.start" },
-  "order.startHeld": { tier: "strict", group: "order.start" },
-  "order.quote": { tier: "low" },
+  "order.start": { tier: "strict", group: "order.start", guesses: "code" },
+  "order.startHeld": { tier: "strict", group: "order.start", guesses: "code" },
+  "order.quote": { tier: "low", guesses: "code" },
+  "discount.check": { tier: "strict", group: "code", guesses: "code" },
+  "order.applyCode": { tier: "strict", group: "code", guesses: "code" },
   "contact.stop": { tier: "strict" },
   "intake.submit": { tier: "strict" },
   "intake.open": { tier: "low", inTools: true },

@@ -39,7 +39,8 @@ export interface PublicLimit {
   inTools?: true;
   /**
    * The operation checks a code someone could guess (guesses.ts): it is given `ctx.guesses`, which
-   * refuses once this address gave 20 wrong codes in the hour, in this group. Core
+   * refuses once this address gave 20 wrong codes in the hour, in this group (`code`: discount.check,
+   * order.applyCode, and order.start, order.startHeld and order.quote when a code is given). Core
    * `hostInternal` operations only.
    */
   guesses?: string;

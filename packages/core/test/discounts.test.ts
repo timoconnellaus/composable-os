@@ -14,9 +14,12 @@
 //     order.applyCode and order.removeCode, discount.check, and a runtime extension (criterion 24).
 import { env } from "cloudflare:workers";
 import {
+  CODE_ALPHABET,
   defineExtension,
   defineTool,
   type ExtensionManifest,
+  foldCode,
+  randomCodes,
   toManifest,
   z,
 } from "@composable-os/sdk";
@@ -27,6 +30,7 @@ import {
   type InvocationContext,
   loadOrderRow,
   memoryEventSink,
+  memoryRateLimit,
 } from "../src/index.ts";
 import { discountCheck } from "../src/operations/discount.ts";
 import {
@@ -1333,3 +1337,140 @@ describe("races and limits the review found untested", () => {
     expect((await refusal(buy([{ id: yoga }], { code: tagged }, as(at)))).message).toBe(NOT_VALID);
   });
 });
+
+// ADR 0940: codes as the host keeps them, and guessing them per client address.
+describe("promo codes kept folded, looked up by index, and guessed no faster than the limit", () => {
+  const guessLimits = () => ({
+    standard: memoryRateLimit(10_000),
+    low: memoryRateLimit(10_000),
+    strict: memoryRateLimit(10_000),
+    shared: memoryRateLimit(10_000),
+  });
+  const limited = (key: string, limits = guessLimits()) =>
+    outside(PUBLIC, {
+      integrations: runtime,
+      events,
+      publicLimits: limits,
+      clientAddress: { key, shared: false },
+    });
+  const check = (code: string, ctx: ReturnType<typeof guest>) =>
+    run<{ valid: boolean; message: string | null }>(
+      "discount.check",
+      { code, lines: [{ object: CLASS, id: yoga }] },
+      ctx,
+    );
+
+  it("the 21st wrong code from one address in the hour is refused, a right one too; another address's right code works", async () => {
+    const right = word("RIGHT");
+    await discount({ kind: "percent", percent: 10, code: right });
+    const guesser = unique("guesser");
+    for (let n = 0; n < 20; n += 1) {
+      expect((await check(word("WRONG"), limited(guesser))).valid).toBe(false);
+    }
+    // The 21st try from that address, right or wrong: refused, the same answer either way.
+    const wrong21 = await refusal(check(word("WRONG"), limited(guesser)));
+    const right21 = await refusal(check(right, limited(guesser)));
+    expect(wrong21).toMatchObject({ code: "rate_limited", details: { rule: "client_address" } });
+    expect({ code: right21.code, message: right21.message }).toEqual({
+      code: wrong21.code,
+      message: wrong21.message,
+    });
+    // An order start with a code counts in the same group, and is refused too.
+    expect(await refusal(buy([{ id: yoga }], { code: right }, limited(guesser)))).toMatchObject({
+      code: "rate_limited",
+    });
+    // Another address is not affected.
+    expect((await check(right, limited(unique("buyer")))).valid).toBe(true);
+    // Staff are never counted.
+    expect((await check(right, staff())).valid).toBe(true);
+  });
+
+  it("an order start with a wrong code counts as a wrong guess", async () => {
+    const guesser = unique("starter");
+    for (let n = 0; n < 20; n += 1) {
+      await refusal(buy([{ id: yoga }], { code: word("NOPE") }, limited(guesser)));
+    }
+    expect(await refusal(check(word("ANY"), limited(guesser)))).toMatchObject({
+      code: "rate_limited",
+    });
+  });
+
+  it("10 code checks a minute per address", async () => {
+    const limits = { ...guessLimits(), strict: memoryRateLimit(10) };
+    const key = unique("fast");
+    const right = word("FAST");
+    await discount({ kind: "percent", percent: 10, code: right });
+    for (let n = 0; n < 10; n += 1) await check(right, limited(key, limits));
+    expect(await refusal(check(right, limited(key, limits)))).toMatchObject({
+      code: "rate_limited",
+    });
+  });
+
+  it("a code is kept folded: typed in any case or with spaces, and with non-ASCII letters", async () => {
+    const tag = unique("x").toLowerCase();
+    const id = await discount({ kind: "percent", percent: 10, code: `été ${tag}` });
+    const row = await env.DB.prepare(`SELECT * FROM ${await viewOf(DISCOUNT)} WHERE id = ?`)
+      .bind(id)
+      .first<Record<string, unknown>>();
+    expect(Object.values(row ?? {})).toContain(`ÉTÉ${tag.toUpperCase()}`);
+    expect((await check(`ÉTÉ${tag}`, guest())).valid).toBe(true);
+    expect((await check(` Été ${tag.toUpperCase()} `, guest())).valid).toBe(true);
+    // A code record's word too.
+    const owner = await discount({ kind: "percent", percent: 5, code: word("OWNER") });
+    const single = `straße${unique("s").toLowerCase()}`;
+    await create(CODE, { word: single, discount: owner, uses: 1 });
+    expect((await check(single.toUpperCase(), guest())).valid).toBe(true);
+  });
+
+  it("a code word is at least 6 characters, and one word names one live record", async () => {
+    const short = await refusal(create(DISCOUNT, { name: unique("Deal"), code: "SALE" }));
+    expect(short).toMatchObject({ code: "invalid_input", details: { rule: "code_length" } });
+    const taken = word("TAKEN");
+    await create(DISCOUNT, { name: unique("Deal"), code: taken });
+    const again = await refusal(
+      create(DISCOUNT, { name: unique("Deal"), code: taken.toLowerCase() }),
+    );
+    expect(again).toMatchObject({ code: "conflict", details: { rule: "code_taken" } });
+    // The database holds it too, whatever wrote it: a unique index on the folded word.
+    const { results } = await env.DB.prepare(
+      "SELECT sql FROM sqlite_master WHERE type = 'index' AND name LIKE '%\\_\\_code' ESCAPE '\\'",
+    ).all<{ sql: string }>();
+    expect(results.length).toBeGreaterThanOrEqual(2);
+    expect(results.every((r) => /CREATE UNIQUE INDEX/.test(r.sql))).toBe(true);
+  });
+
+  it("a guess is looked up by the index, not by reading every code", async () => {
+    const { results } = await env.DB.prepare(
+      "SELECT name, tbl_name FROM sqlite_master WHERE type = 'index' AND name LIKE '%\\_\\_code' ESCAPE '\\'",
+    ).all<{ name: string; tbl_name: string }>();
+    expect(results.length).toBeGreaterThanOrEqual(2);
+    for (const index of results) {
+      const column = index.name.slice(`${index.tbl_name}__`.length, -"__code".length);
+      const plan = await env.DB.prepare(
+        `EXPLAIN QUERY PLAN SELECT id FROM ${index.tbl_name} WHERE deleted_at IS NULL AND ${column} = ?`,
+      )
+        .bind("ANYCODE")
+        .all<{ detail: string }>();
+      expect(plan.results.map((r) => r.detail).join(" "), index.name).toContain(index.name);
+    }
+  });
+
+  it("randomCodes: 16 characters of an alphabet with no 0, 1, I or O, from getRandomValues", () => {
+    const codes = randomCodes(500);
+    expect(new Set(codes).size).toBe(500);
+    for (const code of codes) {
+      expect(code).toMatch(/^[2-9A-HJ-NP-Z]{16}$/);
+      expect(foldCode(code)).toBe(code);
+    }
+    expect(CODE_ALPHABET).toHaveLength(32);
+    expect(() => randomCodes(1, 8)).toThrow();
+  });
+});
+
+/** The table of an extension object's records, as the registry names it. */
+async function viewOf(object: string): Promise<string> {
+  const row = await env.DB.prepare("SELECT table_name FROM core_extension_objects WHERE name = ?")
+    .bind(object)
+    .first<{ table_name: string }>();
+  return row?.table_name ?? "";
+}

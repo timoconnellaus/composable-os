@@ -164,7 +164,12 @@
       "name": "discount.check",
       "audiences": ["staff", "customer", "public"],
       "risk": "read",
-      "hostInternal": true
+      "hostInternal": true,
+      "perAddress": {
+        "tier": "strict",
+        "group": "code",
+        "guesses": "code"
+      }
     },
     {
       "name": "intake.open",
@@ -402,7 +407,12 @@
       "name": "order.applyCode",
       "audiences": ["staff", "customer", "public"],
       "risk": "write",
-      "hostInternal": true
+      "hostInternal": true,
+      "perAddress": {
+        "tier": "strict",
+        "group": "code",
+        "guesses": "code"
+      }
     },
     {
       "name": "order.cancel",
@@ -439,14 +449,18 @@
       "risk": "read",
       "hostInternal": true,
       "perAddress": {
-        "tier": "low"
+        "tier": "low",
+        "guesses": "code"
       }
     },
     {
       "name": "order.removeCode",
       "audiences": ["staff", "customer", "public"],
       "risk": "write",
-      "hostInternal": true
+      "hostInternal": true,
+      "perAddress": {
+        "tier": "low"
+      }
     },
     {
       "name": "order.start",
@@ -455,7 +469,8 @@
       "hostInternal": true,
       "perAddress": {
         "tier": "strict",
-        "group": "order.start"
+        "group": "order.start",
+        "guesses": "code"
       }
     },
     {
@@ -466,7 +481,8 @@
       "toolOnly": true,
       "perAddress": {
         "tier": "strict",
-        "group": "order.start"
+        "group": "order.start",
+        "guesses": "code"
       }
     },
     {

@@ -467,7 +467,7 @@ export const orderStart = defineOperation({
   audiences: ["staff", "customer", "public"],
   // Per client address, with order.startHeld: one count for both (ADR 0940). Each start holds stock
   // and places until it expires.
-  publicLimit: { tier: "strict", group: "order.start" },
+  publicLimit: { tier: "strict", group: "order.start", guesses: "code" },
   hostInternal: true,
   mcp: { expose: false },
   // What a visitor typed, drew and answered never reaches the audit log.
@@ -617,7 +617,7 @@ export const orderQuote = defineOperation({
   risk: "read",
   audiences: ["staff", "customer", "public"],
   // Tighter than a read's default (ADR 0940): each quote prices every line.
-  publicLimit: { tier: "low" },
+  publicLimit: { tier: "low", guesses: "code" },
   hostInternal: true,
   mcp: { idempotent: true },
   redact: ["address"],
@@ -639,6 +639,7 @@ export const orderQuote = defineOperation({
       "quote",
       {
         code: input.code,
+        guesses: ctx.guesses,
         dealBuyer:
           caller.kind === "customer"
             ? { personId: caller.personId, placedAs: "customer" }
@@ -1715,6 +1716,9 @@ export const orderApplyCode = defineOperation({
   permission: "records:write",
   risk: "write",
   audiences: ["staff", "customer", "public"],
+  // Code guessing (ADR 0940): one count per client address with discount.check, and wrong codes
+  // counted: 20 in an hour and every code from that address is refused, right or wrong.
+  publicLimit: { tier: "strict", group: "code", guesses: "code" },
   hostInternal: true,
   mcp: { expose: false },
   redact: ["token"],
@@ -2013,7 +2017,7 @@ export const orderStartHeld = defineOperation({
   risk: "write",
   audiences: ["staff", "customer", "public"],
   // Per client address, with order.start: one count for both (ADR 0940).
-  publicLimit: { tier: "strict", group: "order.start" },
+  publicLimit: { tier: "strict", group: "order.start", guesses: "code" },
   hostInternal: true,
   toolOnly: true,
   mcp: { expose: false },
