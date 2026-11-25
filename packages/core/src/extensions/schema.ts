@@ -73,6 +73,13 @@ export type AccessSourceJson =
     }
   | { kind: string; options?: Record<string, unknown> | undefined };
 
+/** One condition of a read declaration's `when` (ADRs 0438 and 0689), as declared. */
+export interface ReadConditionJson {
+  via?: string | undefined;
+  field?: string | undefined;
+  in?: string[] | undefined;
+}
+
 export interface ObjectDefinitionJson {
   label: string;
   plural: string;
@@ -127,12 +134,12 @@ export interface ObjectDefinitionJson {
   /** What the public may read (ADR 0438), as declared. */
   public?: {
     read: string[];
-    when?: { via?: string | undefined; field: string; in: string[] } | undefined;
+    when?: ReadConditionJson | ReadConditionJson[] | undefined;
   };
   /** What every signed-in customer may read (ADR 0447), as declared. */
   signedIn?: {
     read: string[];
-    when?: { via?: string | undefined; field: string; in: string[] } | undefined;
+    when?: ReadConditionJson | ReadConditionJson[] | undefined;
   };
   /** What a customer reads of a record their own record points to (ADR 0439), as declared. */
   customerVia?: { from: string; field: string; read: string[] };

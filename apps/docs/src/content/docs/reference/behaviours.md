@@ -22,13 +22,13 @@ Declared as `capacity: CapacitySpec` on an object. Declared by: [`bookings.class
 
 Something that can be bought, and what a paid line grants (see SellableSpec, ADR 0435).
 
-Declared as `sellable: SellableSpec` on an object. Declared by: [`bookings.booking`](/packs/bookings/data-model/), [`courses.course`](/packs/courses/data-model/), [`courses.bundle`](/packs/courses/data-model/), [`courses.plan`](/packs/courses/data-model/), [`memberships.plan`](/packs/memberships/data-model/), [`memberships.passtype`](/packs/memberships/data-model/), [`ticketing.tickettype`](/packs/ticketing/data-model/).
+Declared as `sellable: SellableSpec` on an object. Declared by: [`bookings.booking`](/packs/bookings/data-model/), [`courses.course`](/packs/courses/data-model/), [`courses.bundle`](/packs/courses/data-model/), [`courses.plan`](/packs/courses/data-model/), [`memberships.plan`](/packs/memberships/data-model/), [`memberships.passtype`](/packs/memberships/data-model/), [`shop.variant`](/packs/shop/data-model/), [`shop.delivery`](/packs/shop/data-model/), [`ticketing.tickettype`](/packs/ticketing/data-model/).
 
 ## stock
 
 Things counted on a shelf, sold from a ledger the host keeps (see StockSpec, ADR 0680).
 
-Declared as `stock: StockSpec` on an object. Declared by: no shipped pack.
+Declared as `stock: StockSpec` on an object. Declared by: [`shop.variant`](/packs/shop/data-model/).
 
 ## stockMoves
 
@@ -46,7 +46,7 @@ Declared as `allowance: AllowanceSpec` on an object. Declared by: [`bookings.boo
 
 An agreement point (see AgreementsSpec, ADR 0641): where a business may need a person to have agreed to its documents first. The business attaches the documents; the pack names the place.
 
-Declared as `agreements: AgreementsSpec` on an object. Declared by: [`bookings.booking`](/packs/bookings/data-model/), [`bookings.appointment`](/packs/bookings/data-model/), [`courses.course`](/packs/courses/data-model/), [`courses.bundle`](/packs/courses/data-model/), [`courses.plan`](/packs/courses/data-model/), [`courses.enrolment`](/packs/courses/data-model/), [`memberships.plan`](/packs/memberships/data-model/), [`memberships.passtype`](/packs/memberships/data-model/), [`memberships.pass`](/packs/memberships/data-model/), [`ticketing.tickettype`](/packs/ticketing/data-model/), [`ticketing.ticket`](/packs/ticketing/data-model/).
+Declared as `agreements: AgreementsSpec` on an object. Declared by: [`bookings.booking`](/packs/bookings/data-model/), [`bookings.appointment`](/packs/bookings/data-model/), [`courses.course`](/packs/courses/data-model/), [`courses.bundle`](/packs/courses/data-model/), [`courses.plan`](/packs/courses/data-model/), [`courses.enrolment`](/packs/courses/data-model/), [`memberships.plan`](/packs/memberships/data-model/), [`memberships.passtype`](/packs/memberships/data-model/), [`memberships.pass`](/packs/memberships/data-model/), [`shop.variant`](/packs/shop/data-model/), [`ticketing.tickettype`](/packs/ticketing/data-model/), [`ticketing.ticket`](/packs/ticketing/data-model/).
 
 ## healthNotes
 
@@ -58,7 +58,7 @@ Declared as `healthNotes: HealthNotesSpec` on an object. Declared by: [`bookings
 
 A fixed state machine (see StatesSpec, ADR 0425). An object has stages or states, not both.
 
-Declared as `states: StatesSpec` on an object. Declared by: [`bookings.series`](/packs/bookings/data-model/), [`bookings.class`](/packs/bookings/data-model/), [`bookings.booking`](/packs/bookings/data-model/), [`bookings.appointment`](/packs/bookings/data-model/), [`courses.enrolment`](/packs/courses/data-model/), [`forms.form`](/packs/forms/data-model/), [`forms.submission`](/packs/forms/data-model/), [`memberships.membership`](/packs/memberships/data-model/), [`memberships.pass`](/packs/memberships/data-model/), [`programs.assignment`](/packs/programs/data-model/), [`programs.session`](/packs/programs/data-model/), [`rostering.dutyseries`](/packs/rostering/data-model/), [`rostering.shift`](/packs/rostering/data-model/), [`ticketing.event`](/packs/ticketing/data-model/), [`ticketing.ticket`](/packs/ticketing/data-model/).
+Declared as `states: StatesSpec` on an object. Declared by: [`bookings.series`](/packs/bookings/data-model/), [`bookings.class`](/packs/bookings/data-model/), [`bookings.booking`](/packs/bookings/data-model/), [`bookings.appointment`](/packs/bookings/data-model/), [`courses.enrolment`](/packs/courses/data-model/), [`forms.form`](/packs/forms/data-model/), [`forms.submission`](/packs/forms/data-model/), [`memberships.membership`](/packs/memberships/data-model/), [`memberships.pass`](/packs/memberships/data-model/), [`programs.assignment`](/packs/programs/data-model/), [`programs.session`](/packs/programs/data-model/), [`rostering.dutyseries`](/packs/rostering/data-model/), [`rostering.shift`](/packs/rostering/data-model/), [`shop.variant`](/packs/shop/data-model/), [`shop.shipment`](/packs/shop/data-model/), [`ticketing.event`](/packs/ticketing/data-model/), [`ticketing.ticket`](/packs/ticketing/data-model/).
 
 ## claims
 
@@ -124,13 +124,13 @@ Declared as `checklists: ChecklistsSpec` on an object. Declared by: [`rostering.
 
 The object's customer (ADR 0402): whose record it is, and what that customer may read and write, field by field. `field` is a relation to one person. A signed-in customer sees only records where it is their own Person, and of those only the fields in `read`. Fields in `write` (a subset of `read`) are the ones they may set. Left out, the object does not exist for customers. Only shipped extensions and an org's own may declare it; a runtime extension fails `check`.
 
-Declared as `customer: CustomerSpec` on an object. Declared by: [`bookings.booking`](/packs/bookings/data-model/), [`courses.enrolment`](/packs/courses/data-model/), [`courses.progress`](/packs/courses/data-model/), [`memberships.membership`](/packs/memberships/data-model/), [`memberships.pass`](/packs/memberships/data-model/), [`programs.assignment`](/packs/programs/data-model/), [`programs.session`](/packs/programs/data-model/), [`programs.log`](/packs/programs/data-model/), [`ticketing.ticket`](/packs/ticketing/data-model/).
+Declared as `customer: CustomerSpec` on an object. Declared by: [`bookings.booking`](/packs/bookings/data-model/), [`courses.enrolment`](/packs/courses/data-model/), [`courses.progress`](/packs/courses/data-model/), [`memberships.membership`](/packs/memberships/data-model/), [`memberships.pass`](/packs/memberships/data-model/), [`programs.assignment`](/packs/programs/data-model/), [`programs.session`](/packs/programs/data-model/), [`programs.log`](/packs/programs/data-model/), [`shop.shipment`](/packs/shop/data-model/), [`ticketing.ticket`](/packs/ticketing/data-model/).
 
 ## public
 
 What the public may read of this object (ADR 0438): the fields in `read`, of the records that meet `when`. Deny by default: left out, the public sees nothing of it, and a record that does not meet `when` is not found. A signed-in customer reads it too, unless the object declares a `customer` (an object declares one or the other, except a publishable object with an author: see `publishable`). The public reaches it only through a pack's tool open to them (`public.list`, `public.get`). Only shipped extensions and an org's own may declare it.
 
-Declared as `public: PublicSpec` on an object. Declared by: [`bookings.room`](/packs/bookings/data-model/), [`bookings.coach`](/packs/bookings/data-model/), [`bookings.class`](/packs/bookings/data-model/), [`content.post`](/packs/content/data-model/), [`content.category`](/packs/content/data-model/), [`courses.theme`](/packs/courses/data-model/), [`courses.course`](/packs/courses/data-model/), [`courses.bundle`](/packs/courses/data-model/), [`courses.plan`](/packs/courses/data-model/), [`memberships.plan`](/packs/memberships/data-model/), [`memberships.passtype`](/packs/memberships/data-model/), [`ticketing.event`](/packs/ticketing/data-model/), [`ticketing.tickettype`](/packs/ticketing/data-model/).
+Declared as `public: PublicSpec` on an object. Declared by: [`bookings.room`](/packs/bookings/data-model/), [`bookings.coach`](/packs/bookings/data-model/), [`bookings.class`](/packs/bookings/data-model/), [`content.post`](/packs/content/data-model/), [`content.category`](/packs/content/data-model/), [`courses.theme`](/packs/courses/data-model/), [`courses.course`](/packs/courses/data-model/), [`courses.bundle`](/packs/courses/data-model/), [`courses.plan`](/packs/courses/data-model/), [`memberships.plan`](/packs/memberships/data-model/), [`memberships.passtype`](/packs/memberships/data-model/), [`shop.item`](/packs/shop/data-model/), [`shop.variant`](/packs/shop/data-model/), [`shop.delivery`](/packs/shop/data-model/), [`ticketing.event`](/packs/ticketing/data-model/), [`ticketing.tickettype`](/packs/ticketing/data-model/).
 
 ## signedIn
 
@@ -154,4 +154,4 @@ Declared as `access: AccessSpec` on an object. Declared by: [`courses.course`](/
 
 A working copy staff edit and published versions (ADR 0446): `content` names the fields a version keeps. `record.publish` snapshots them as the next version (a person with the publish permission, never an AI actor); `record.versions` and `record.version` read them; `record.restoreVersion` copies one back into the working copy. Editing the working copy never changes a version. Records get read-only `publishedVersion` and `publishedAt`. With an author (ADR 0810): a publishable object may declare a `customer`, the record's author (a review's writer). The author reads and writes their working copy through `customer`; the public reads only the published version through `public` (which may then be declared too), listed by `content.list` and never by an address (no `slug`). The fields in `customer.write` are the author's alone: staff, the assistant, MCP clients, automations and the extension's own code are refused them on every path, so a published version is always the author's words. Staff still publish, unpublish and move the record's states.
 
-Declared as `publishable: PublishableSpec` on an object. Declared by: [`content.post`](/packs/content/data-model/), [`courses.course`](/packs/courses/data-model/), [`courses.bundle`](/packs/courses/data-model/), [`forms.form`](/packs/forms/data-model/), [`programs.program`](/packs/programs/data-model/).
+Declared as `publishable: PublishableSpec` on an object. Declared by: [`content.post`](/packs/content/data-model/), [`courses.course`](/packs/courses/data-model/), [`courses.bundle`](/packs/courses/data-model/), [`forms.form`](/packs/forms/data-model/), [`programs.program`](/packs/programs/data-model/), [`shop.item`](/packs/shop/data-model/).
