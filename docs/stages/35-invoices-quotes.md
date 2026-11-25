@@ -65,12 +65,12 @@ merge; step 4 builds on, or builds, stage 34's shared step "an order paid anothe
   step 11 an erase leaves a draft's text and a merge leaves documents on the merged-away Person
   (step 11 amends the update triggers for the re-point; ADR 0730).
 
-- **Step 3** — not built — needs: step 2, stage 34 step 1 — Issue as an order
+- **Step 3** — in progress — branch `feat/stage-35-invoice-orders` — Issue as an order
 
-- **Step 4** — not built — needs: step 3, stage 34 step 3 — Recorded payments and reversal, on
-  stage 34's shared step (built there by PR #426)
+- **Step 4** — in progress — branch `feat/stage-35-invoice-orders` — Recorded payments and
+  reversal, on stage 34's shared step (built there by PR #426)
 
-- **Step 5** — not built — needs: step 3, step 4 — Credit notes and void
+- **Step 5** — in progress — branch `feat/stage-35-invoice-orders` — Credit notes and void
 
 - **Step 6** — not built — needs: step 2 — Quotes and acceptance (the deposit invoice needs step 3)
 
