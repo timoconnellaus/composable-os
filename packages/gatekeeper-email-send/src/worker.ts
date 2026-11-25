@@ -63,7 +63,13 @@ import {
   type QueueClass,
   queueClassOf,
 } from "./queue-class";
-import { hostRoutineMail, isRoutineShaped, ROUTINE_KIND } from "./routine";
+import {
+  hostRoutineMail,
+  isRoutineShaped,
+  listUnsubscribeOf,
+  ROUTINE_KIND,
+  unsubscribeHeaders,
+} from "./routine";
 import { assertSenderAllowed, SENDER_URL_PATTERN, senderFromUrl, senderUrl } from "./sender";
 
 import { isHostSignInMail, isSignInCodeMessage, SIGN_IN_KIND } from "./sign-in";
@@ -238,6 +244,7 @@ function describeSend(email: StoredEmail, internal: boolean) {
   if (message.text !== undefined) builder.verbatim("Body", message.text);
   if (message.html !== undefined) builder.verbatim("HTML body", message.html, "html");
   if (message.relatedRecords) builder.list("Related records", message.relatedRecords);
+  if (message.listUnsubscribe) builder.inline("One-tap stop", message.listUnsubscribe);
   // Everything the calendar file will say, so the approver reviews all of it (ADR 0571).
   for (const event of calendarsOf(message)) {
     builder.inline("Calendar file", calendarSummary(event));
@@ -377,6 +384,19 @@ class EmailSendSessionImpl extends RpcTarget implements EmailSendSession {
           : isInternal(parsed, this.#backend.internalDomains())
             ? "sendInternal"
             : "send";
+    // The one-tap stop's headers (ADR 0675) only on the host's own routine mail, decided routine,
+    // and only to the stop route on the business's site: any other send that names one is refused.
+    if (
+      parsed.listUnsubscribe !== undefined &&
+      !listUnsubscribeOf(
+        parsed.listUnsubscribe,
+        kind === "sendRoutine" ? (routine?.siteOrigin ?? null) : null,
+      )
+    ) {
+      throw new TypeError(
+        "Invalid email: listUnsubscribe is set only by the host's routine mail, to a link on the business's site.",
+      );
+    }
     // An agreement's copy is known by its own key, without a retry's suffix: once the host scrubbed
     // it (the acceptance was erased, ADR 0646), nothing under it is queued or sent again.
     const copy = parsed.agreement && key ? copyKeyOf(key) : null;
@@ -539,6 +559,10 @@ export class EmailSendGatekeeper
         ...(message.text !== undefined ? { text: message.text } : {}),
         ...(message.html !== undefined ? { html: message.html } : {}),
         ...(message.replyTo ? { replyTo: message.replyTo } : {}),
+        // Checked when it was queued: the host's routine mail's one-tap stop (ADR 0675).
+        ...(message.listUnsubscribe
+          ? { headers: unsubscribeHeaders(message.listUnsubscribe) }
+          : {}),
         ...(calendarsOf(message).length || message.agreement
           ? {
               attachments: [

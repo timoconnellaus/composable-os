@@ -178,7 +178,7 @@ export interface IntegrationRuntime {
    * passes only the row's id. Optional: a runtime without it sends no host kind's email.
    */
   sendRoutineMessage?(input: { connectionId: string; resource: string; id: string }): Promise<{
-    status: "sent" | "waiting" | "denied" | "failed" | "skipped" | "off";
+    status: "sent" | "waiting" | "denied" | "failed" | "skipped" | "off" | "stopped";
     pendingActionId?: string;
     error?: string;
   }>;

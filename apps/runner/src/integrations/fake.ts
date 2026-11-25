@@ -27,6 +27,8 @@ import {
 import {
   hostRoutineMail,
   isRoutineShaped,
+  listUnsubscribeOf,
+  unsubscribeHeaders,
 } from "../../../../packages/gatekeeper-email-send/src/routine.ts";
 // The email-send gatekeeper's own rule for the host's sign-in mail, so the fake decides it the
 // same way (ADR 0456). The module imports only types.
@@ -269,6 +271,7 @@ export class FakeProvider extends DurableObject<Env> {
     subject: string;
     text: string;
     attachments?: string[];
+    headers?: Record<string, string>;
   }) {
     const sent = this.ctx.storage.kv.get<(typeof entry)[]>("sent") ?? [];
     sent.push(entry);
@@ -276,7 +279,14 @@ export class FakeProvider extends DurableObject<Env> {
   }
 
   async sent(): Promise<
-    { action: number; to: string[]; subject: string; text: string; attachments?: string[] }[]
+    {
+      action: number;
+      to: string[];
+      subject: string;
+      text: string;
+      attachments?: string[];
+      headers?: Record<string, string>;
+    }[]
   > {
     return this.ctx.storage.kv.get("sent") ?? [];
   }
@@ -587,6 +597,8 @@ interface Journal {
       attachments?: string[];
       /** The class of queue that sent it, when the host's (ADR 0645). */
       queue?: QueueClass;
+      /** The one-tap stop's headers of the host's routine mail (ADR 0675), as email-send sets them. */
+      headers?: Record<string, string>;
     }
   >;
 }
@@ -817,6 +829,7 @@ export class FakeGatekeeper extends DurableObject<
       relatedRecords?: string[];
       idempotencyKey?: string;
       agreement?: unknown;
+      listUnsubscribe?: unknown;
     },
   ): Promise<{ id: number; status: "pending" | "sent" }> {
     this.#require("outbox");
@@ -892,6 +905,21 @@ export class FakeGatekeeper extends DurableObject<
       routineMail !== null &&
       message.internal === undefined &&
       isRoutineShaped({ to, subject, text }, routineMail.siteOrigin);
+    // The one-tap stop (ADR 0675), as email-send takes it: the host's routine mail only, on the
+    // business's site.
+    let headers: Record<string, string> | undefined;
+    if (message.listUnsubscribe !== undefined) {
+      const link = listUnsubscribeOf(
+        message.listUnsubscribe,
+        routine ? (routineMail?.siteOrigin ?? null) : null,
+      );
+      if (!link) {
+        throw new Error(
+          "Invalid email: listUnsubscribe is set only by the host's routine mail, to a link on the business's site.",
+        );
+      }
+      headers = unsubscribeHeaders(link);
+    }
     const id = this.#journalAction({
       status: "pending",
       to,
@@ -900,6 +928,7 @@ export class FakeGatekeeper extends DurableObject<
       ...(signIn || routine || agreement ? { independent: true } : {}),
       ...(agreement ? { attachments: [AGREEMENT_FILENAME] } : {}),
       ...(queueClass !== "caller" ? { queue: queueClass } : {}),
+      ...(headers ? { headers } : {}),
     });
     if (slot) this.ctx.storage.kv.put(slot, id);
     const related = Array.isArray(message.relatedRecords) ? message.relatedRecords.map(String) : [];
@@ -1044,6 +1073,7 @@ export class FakeGatekeeper extends DurableObject<
       subject: entry.subject,
       text: entry.text,
       ...(entry.attachments ? { attachments: entry.attachments } : {}),
+      ...(entry.headers ? { headers: entry.headers } : {}),
     });
     entry.status = "sent";
 

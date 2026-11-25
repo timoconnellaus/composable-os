@@ -12,6 +12,8 @@ export type OutgoingEmail = {
   text?: string;
   html?: string;
   replyTo?: string;
+  /** Only ever the one-tap stop's List-Unsubscribe headers of the host's routine mail (ADR 0675). */
+  headers?: Record<string, string>;
   /** Only ever the calendar file (ADR 0571) or the signed agreement (ADR 0645) this gatekeeper made. */
   attachments?: {
     disposition: "attachment";
