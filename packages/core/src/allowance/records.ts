@@ -500,10 +500,12 @@ function meets(
   spender: Values,
   holder: Values,
 ): boolean {
-  const value = spender[clause.field];
+  // A fixed word is what every record of the spender is (ADR 0764): "sessions", never a class.
+  const value = clause.field === undefined ? (clause.value ?? null) : spender[clause.field];
   if (clause.in !== undefined) {
     const limit = typeof clause.in === "string" ? holder[clause.in] : clause.in;
-    if (!present(limit)) return true;
+    // Empty allows anything, unless the declaration says it allows nothing (ADR 0764).
+    if (!present(limit)) return clause.empty !== "none";
     const allowed = (Array.isArray(limit) ? limit : [limit]).map(String);
     const given = Array.isArray(value) ? value.map(String) : present(value) ? [String(value)] : [];
     return given.some((v) => allowed.includes(v));
@@ -638,6 +640,8 @@ async function readSpender(
         related.set(rel, to ? await readValues(ctx, to, id) : undefined);
       }
     }
+    // `<relation>.id`: the related record's own id (ADR 0764), when it exists.
+    if (target === "id") return related.get(rel) ? id : null;
     return related.get(rel)?.[target] ?? null;
   };
   for (const [target, source] of Object.entries(def.copy)) {

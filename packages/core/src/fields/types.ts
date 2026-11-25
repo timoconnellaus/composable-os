@@ -338,10 +338,14 @@ export interface GuardiansDeclaration {
 
 /** One condition of a holder's `spendsOn` (the SDK's AllowanceCondition), validated. */
 export interface AllowanceConditionDefinition {
-  readonly field: string;
+  /** The spender's field compared, or `value`, a fixed word every record of it is (ADR 0764). */
+  readonly field?: string | undefined;
+  readonly value?: string | undefined;
   readonly in?: string | readonly string[] | undefined;
   readonly atLeast?: string | number | undefined;
   readonly below?: string | number | undefined;
+  /** `"none"`: an empty holder field for `in` allows nothing (ADR 0764). */
+  readonly empty?: "any" | "none" | undefined;
 }
 
 /**

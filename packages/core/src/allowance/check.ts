@@ -53,7 +53,7 @@ export function allowanceHostIssues(m: ExtensionManifest): AllowanceIssue[] {
         }
         const filled = new Set(hostFilledFields({ copy: def.copy, local: def.local }));
         (target.when ?? []).forEach((clause, j) => {
-          if (!filled.has(clause.field)) {
+          if (clause.field !== undefined && !filled.has(clause.field)) {
             issues.push({
               path: `${p}.when.${j}.field`,
               message: `"${clause.field}" must be a field ${target.object}'s host fills (its copy or local), so no caller sets what pays for it`,
@@ -84,6 +84,8 @@ export function allowanceHostIssues(m: ExtensionManifest): AllowanceIssue[] {
         issues.push({ path: p, message: `${to} is not installed, so "${path}" cannot be read` });
         continue;
       }
+      // The related record's own id (ADR 0764), copied as it is.
+      if (target === "id" && type === null) continue;
       const field = other.fields.find((f) => f.name === target);
       if (!field) {
         issues.push({ path: p, message: `"${target}" is not a field of ${to}` });
