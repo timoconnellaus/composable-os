@@ -125,3 +125,10 @@ current version, their content from that version. `when` holds beside it. Three 
 A form the public answers is read through the door (`intake.open`), which checks it takes answers
 from the caller now, beside any public scope its pack declares; and the public answers it through
 `intake.submit`. See [ADR 0720](0720-the-intake-door-one-public-write.md).
+
+## Amendment, 2026-11-25 (stage 37 step 5, ADR 0689)
+`when` may list up to three conditions that all hold, and a condition may be `{ via }` alone: the
+record that relation points to is one the public reads (a row of its object's public source,
+published if it is publishable, meeting its own `when`; one step, no chains; `public` only). The
+Shop's variant is public while it is active and its item is published. See
+[ADR 0689](0689-the-shop-pack-and-public-reads-through-a-public-record.md).

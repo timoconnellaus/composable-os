@@ -360,6 +360,36 @@
         ]
       },
       {
+        "label": "Shop",
+        "collapsed": true,
+        "items": [
+          {
+            "slug": "packs/shop"
+          },
+          {
+            "slug": "packs/shop/data-model"
+          },
+          {
+            "slug": "packs/shop/tools"
+          },
+          {
+            "slug": "packs/shop/permissions"
+          },
+          {
+            "slug": "packs/shop/screens"
+          },
+          {
+            "slug": "packs/shop/messages"
+          },
+          {
+            "slug": "packs/shop/settings"
+          },
+          {
+            "slug": "packs/shop/decisions"
+          }
+        ]
+      },
+      {
         "label": "Ticketing",
         "collapsed": true,
         "items": [

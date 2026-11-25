@@ -178,19 +178,29 @@ export const PUBLISHED_FIELD_NAMES = [
   "publishAt",
 ] as const;
 
+// One condition of `when` (ADRs 0438 and 0689): a state of the record, or of the one `via` points
+// to; or `via` alone, that the record it points to is public. Which shapes hold is checked below.
+const readConditionSchema = z
+  .object({
+    via: z.string().max(40).optional(),
+    field: z.string().max(40).optional(),
+    in: z.array(z.string().max(100)).min(1).max(20).optional(),
+  })
+  .strict();
+
 const readDeclarationSchema = z
   .object({
     read: z.array(z.string().max(40)).min(1).max(100),
-    when: z
-      .object({
-        via: z.string().max(40).optional(),
-        field: z.string().max(40),
-        in: z.array(z.string().max(100)).min(1).max(20),
-      })
-      .strict()
-      .optional(),
+    // One condition, or up to three that must all hold (ADR 0689).
+    when: z.union([readConditionSchema, z.array(readConditionSchema).min(1).max(3)]).optional(),
   })
   .strict();
+
+/** A `when` as its list of conditions, all of which must hold (ADR 0689). */
+export function whenConditions<C>(when: C | readonly C[] | undefined): readonly C[] {
+  if (when === undefined) return [];
+  return Array.isArray(when) ? when : [when as C];
+}
 
 export const stagesManifestSchema = z.object({
   field: z.string().max(40),
@@ -1856,36 +1866,69 @@ export function validateManifest(
       }
     }
     if (!p.when) continue;
-    let target = object;
-    let targetName = name;
-    if (p.when.via !== undefined) {
-      const via = object.fields[p.when.via];
-      const local =
-        via?.type === "relation" && !via.many && via.to?.startsWith(`${m.id}.`)
-          ? via.to.slice(m.id.length + 1)
-          : null;
-      const pointed = local ? m.objects[local] : undefined;
-      if (!pointed || !local) {
-        contract(
-          `${path}.when.via`,
-          `${key}.when.via must name a relation of ${name} to one record of another of this extension's objects`,
-        );
-        continue;
+    // One condition, or a list of them that must all hold (ADR 0689).
+    const list = Array.isArray(p.when);
+    whenConditions(p.when).forEach((when, i) => {
+      const at = list ? `${path}.when.${i}` : `${path}.when`;
+      let target = object;
+      let targetName = name;
+      if (when.via !== undefined) {
+        const via = object.fields[when.via];
+        const local =
+          via?.type === "relation" && !via.many && via.to?.startsWith(`${m.id}.`)
+            ? via.to.slice(m.id.length + 1)
+            : null;
+        const pointed = local ? m.objects[local] : undefined;
+        if (!pointed || !local) {
+          contract(
+            `${at}.via`,
+            `${key}.when.via must name a relation of ${name} to one record of another of this extension's objects`,
+          );
+          return;
+        }
+        target = pointed;
+        targetName = local;
       }
-      target = pointed;
-      targetName = local;
-    }
-    const field = target.fields[p.when.field];
-    if (!field || field.type !== "select") {
-      contract(`${path}.when.field`, `${key}.when.field must name a select field of ${targetName}`);
-      continue;
-    }
-    const values = new Set((field.options ?? []).map((o) => (typeof o === "string" ? o : o.value)));
-    for (const value of p.when.in) {
-      if (!values.has(value)) {
-        contract(`${path}.when.in`, `"${value}" is not an option of ${targetName}.${p.when.field}`);
+      if (when.field === undefined && when.in === undefined) {
+        // `via` alone (ADR 0689): the record it points to is one the public reads.
+        if (when.via === undefined) {
+          contract(at, `${key}.when needs a field and its values, or a via`);
+        } else if (key !== "public") {
+          contract(
+            `${at}.via`,
+            "via alone is the public's: it reads the record it points to as the public does",
+          );
+        } else if (!target.public) {
+          contract(
+            `${at}.via`,
+            `${targetName} declares no public: via alone means its record is one the public reads`,
+          );
+        } else if (whenConditions(target.public.when).some((c) => c.field === undefined)) {
+          contract(
+            `${at}.via`,
+            `${targetName}'s own public.when uses via alone: one step only, no chains`,
+          );
+        }
+        return;
       }
-    }
+      if (when.field === undefined || when.in === undefined) {
+        contract(at, `${key}.when names a field and its values (in) together`);
+        return;
+      }
+      const field = target.fields[when.field];
+      if (field?.type !== "select") {
+        contract(`${at}.field`, `${key}.when.field must name a select field of ${targetName}`);
+        return;
+      }
+      const values = new Set(
+        (field.options ?? []).map((o) => (typeof o === "string" ? o : o.value)),
+      );
+      for (const value of when.in) {
+        if (!values.has(value)) {
+          contract(`${at}.in`, `"${value}" is not an option of ${targetName}.${when.field}`);
+        }
+      }
+    });
   }
 
   // Versions (ADR 0446): the content a version keeps is fields of the object's own that a person
