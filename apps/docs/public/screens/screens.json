@@ -50,8 +50,8 @@
   "content-post": {
     "skin": "web",
     "width": 860,
-    "height": 1417,
-    "fingerprint": "755abcbecb2f32a9"
+    "height": 1449,
+    "fingerprint": "970e551b29dd0b9e"
   },
   "content-post-list": {
     "skin": "web",
@@ -62,8 +62,8 @@
   "content-rich-text": {
     "skin": "web",
     "width": 760,
-    "height": 943,
-    "fingerprint": "e9a1a0bff4119cf2"
+    "height": 975,
+    "fingerprint": "4f82075e4207d306"
   },
   "courses-builder": {
     "skin": "web",
@@ -123,7 +123,7 @@
     "skin": "web",
     "width": 800,
     "height": 831,
-    "fingerprint": "c40f9a7a220129d4"
+    "fingerprint": "b4be3b2621315109"
   },
   "courses-subscribe": {
     "skin": "web",
@@ -189,7 +189,7 @@
     "skin": "native",
     "width": 390,
     "height": 844,
-    "fingerprint": "94c2049a37a0f31e"
+    "fingerprint": "4808e3508a1a68ca"
   },
   "native-account-details": {
     "skin": "native",
@@ -201,7 +201,7 @@
     "skin": "native",
     "width": 390,
     "height": 844,
-    "fingerprint": "1cf7bc8b23f5dbf5"
+    "fingerprint": "86d1e028b098ee63"
   },
   "native-account-family": {
     "skin": "native",
@@ -464,8 +464,8 @@
   "ticketing-my-tickets": {
     "skin": "web",
     "width": 640,
-    "height": 256,
-    "fingerprint": "631232e97e79d66b"
+    "height": 532,
+    "fingerprint": "d9b3947da0cef872"
   },
   "ticketing-native-my-tickets": {
     "skin": "native",

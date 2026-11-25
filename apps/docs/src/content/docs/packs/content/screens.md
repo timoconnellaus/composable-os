@@ -32,7 +32,7 @@ Native. Rich text for the mobile app (stage 28, ADR 0440): a post's body drawn b
 
 Web. One post, for a site's /blog/&lt;slug&gt; page (stage 28): its title, date, cover and body, as the public reads it (`usePost`: the published version only, ADR 0442). [The block](/reference/blocks/content-post/).
 
-<img class="cos-screen" src="/screens/content-post.png" alt="content-post, drawn with dummy data" width="860" height="1417" loading="lazy" decoding="async" />
+<img class="cos-screen" src="/screens/content-post.png" alt="content-post, drawn with dummy data" width="860" height="1449" loading="lazy" decoding="async" />
 
 ### content-post-list
 
@@ -44,4 +44,4 @@ Web. The published posts, newest first, for a site's /blog page (stage 28): each
 
 Web. Rich text for the web (stage 28, ADR 0440): a post's body drawn block by block with React elements, never as HTML. [The block](/reference/blocks/content-rich-text/).
 
-<img class="cos-screen" src="/screens/content-rich-text.png" alt="content-rich-text, drawn with dummy data" width="760" height="943" loading="lazy" decoding="async" />
+<img class="cos-screen" src="/screens/content-rich-text.png" alt="content-rich-text, drawn with dummy data" width="760" height="975" loading="lazy" decoding="async" />
