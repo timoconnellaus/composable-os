@@ -144,7 +144,8 @@ extension declares it; it never implements it. Each behaviour the platform has i
   `StockSpec` in `packages/sdk/src/stock.ts` and ADR 0680. `stock.notify: "<ext>:<word>"` (a
   permission of one of your tools, with `reorderAt`) names who the host tells when a record falls
   to its reorder level, once per crossing; without it the admins are told. Never send that notice
-  from a tool or an automation. The object must be sellable, or moved by a `stockMoves`.
+  from a tool or an automation. The object must be sellable goods (`sellable.goods`), or moved
+  by a `stockMoves`.
 - **`stockMoves`** on an object whose records move stock (a receipt, a write-off, a count line):
   `stockMoves: { move: "add" | "remove" | "set", on: "<relation to a stock object>", quantity:
   "<number field>", when: "<state>", through?: "<relation to the record whose state it is>",
@@ -306,7 +307,16 @@ extension declares it; it never implements it. Each behaviour the platform has i
   the org's own extension (its client repo) may declare `sellable`: one written in the workspace
   is refused, since selling to the public is a reviewed change. Never create tickets or check a
   sale window in a tool or an automation. See `SellableSpec` in `packages/sdk/src/sellable.ts`
-  and ADR 0435.
+  and ADR 0435. Things handed over or sent (a shop's variants) declare `goods: { soldIn?:
+  "<select of online, in_person, both, or item.<that select>>" }` (empty: both; a sold object
+  with `stock` must). Ways of getting them to the buyer are another object declaring
+  `delivery: { kind: "<select of post, collect, here>", freeOver?: "<currency field>",
+  countries?: "<text field: AU NZ, or * for everywhere else>", active?: "<boolean field>" }`,
+  with a price (0 is fine) and, for what staff pack, `grants` (a shipment; `here` grants
+  nothing). The buyer chooses one in `order.start`'s `delivery` (never a line); the host works
+  out the order's channel from it, refuses a goods line not sold there, needs an address for
+  post and prices the postage (ADRs 0682, 0685). Never filter "where sold" only in a block, and
+  never total a basket in one: `order.quote` gives the host's numbers.
 - **`allowance`** on an object: its records hold uses that something else spends (a pass, a
   membership), or spend them (a booking, a visit). A holder declares `allowance: { holds: { person,
   uses, per, spendsOn, from?, until?, live?, zone? } }`: a relation to person, a number field

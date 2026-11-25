@@ -134,3 +134,11 @@ still never calculates tax.
 A payment a person records (a transfer, cash) carries no tax figure: the provider did not charge
 it and the host still never calculates tax. How the business accounts for tax on it is for the
 business to confirm with its accountant. See ADR 0694.
+
+## Amendment, 2026-11-25 (stage 37 step 3, ADR 0682): where posted goods go
+An order posted to an address sends that address as the place of its goods lines and its delivery
+line (a line whose object declares its own place keeps it), as an event's place is sent for
+admission, so the provider taxes the sale where the goods go. The host's copy of what it sent
+(`core_order_checkout.tax_lines`) leaves the address out. Whether a sale abroad is taxed, and how,
+is for the business to confirm with its accountant. See
+[ADR 0682](0682-goods-on-an-order-where-sold-the-channel-and-the-delivery.md).

@@ -347,9 +347,21 @@
       "hostInternal": true
     },
     {
+      "name": "order.delivery.get",
+      "audiences": ["staff", "customer", "public"],
+      "risk": "read",
+      "hostInternal": true
+    },
+    {
       "name": "order.get",
       "audiences": ["staff", "customer"],
       "risk": "read"
+    },
+    {
+      "name": "order.quote",
+      "audiences": ["staff", "customer", "public"],
+      "risk": "read",
+      "hostInternal": true
     },
     {
       "name": "order.start",

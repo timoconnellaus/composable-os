@@ -1163,6 +1163,23 @@ export async function queueEraseOrders(ctx: HandlerContext, s: StoreSubject): Pr
           updated_at: ctx.now,
         })
         .where("id", "in", part),
+      // Where their goods were posted (stage 37, ADR 0682): the address is blanked at once; the
+      // delivery's kind and line stay with the order.
+      ctx.db
+        .updateTable("core_order_delivery")
+        .set({
+          name: null,
+          line1: null,
+          line2: null,
+          city: null,
+          region: null,
+          postcode: null,
+          country: null,
+          erased_at: ctx.now,
+        })
+        .where("order_id", "in", part)
+        .where("kind", "=", "post")
+        .where("erased_at", "is", null),
       // Staff's words about a refund may name the person (migration 0422), and so may a
       // reference given with a payment or a refund taken another way (migration 0952).
       ctx.db

@@ -32,6 +32,7 @@ import {
 
 const ext = extId("stk");
 const VARIANT = `${ext}.variant`;
+const DELIVERY = `${ext}.delivery`;
 const DRINK = `${ext}.drink`;
 const PASS = `${ext}.pass`;
 
@@ -54,6 +55,8 @@ interface Movement {
 let admin: ActingUser;
 let member: ActingUser;
 let alice: Buyer;
+/** "Take it now": the delivery every goods order here is started with (ADR 0682). */
+let here: { object: string; id: string };
 
 function shopManifest(id: string): ExtensionManifest {
   return manifest(id, {
@@ -68,7 +71,7 @@ function shopManifest(id: string): ExtensionManifest {
           reorderLevel: { type: "number", label: "Reorder level" },
           reorderQty: { type: "number", label: "Reorder quantity" },
         },
-        sellable: { price: "price" },
+        sellable: { price: "price", goods: {} },
         stock: { reorderAt: "reorderLevel", reorderQty: "reorderQty" },
         public: { read: ["name", "price"] },
       },
@@ -80,9 +83,30 @@ function shopManifest(id: string): ExtensionManifest {
           name: { type: "text", label: "Name", required: true },
           price: { type: "currency", label: "Price", currency: CURRENCY },
         },
-        sellable: { price: "price" },
+        sellable: { price: "price", goods: {} },
         stock: { show: "low", lowAt: 3 },
         public: { read: ["name", "price"] },
+      },
+      delivery: {
+        label: "Delivery",
+        plural: "Deliveries",
+        titleField: "name",
+        fields: {
+          name: { type: "text", label: "Name", required: true },
+          price: { type: "currency", label: "Price", currency: CURRENCY },
+          kind: {
+            type: "select",
+            label: "Kind",
+            options: [
+              { value: "post", label: "Post" },
+              { value: "collect", label: "Collect" },
+              { value: "here", label: "Take it now" },
+            ],
+          },
+        },
+        // An order with goods needs a delivery (ADR 0682): these tests take them now.
+        sellable: { price: "price", delivery: { kind: "kind" } },
+        public: { read: ["name", "price", "kind"] },
       },
       pass: {
         label: "Pass",
@@ -105,6 +129,10 @@ beforeAll(async () => {
   await reconcile(shopManifest(ext));
   await run("order.settings.update", { currency: CURRENCY }, context(admin));
   alice = await createBuyer(admin, "alice");
+  here = {
+    object: DELIVERY,
+    id: await create(DELIVERY, { name: "Take it now", price: 0, kind: "here" }),
+  };
 });
 
 beforeEach(async () => {
@@ -126,10 +154,14 @@ async function movements(object: string, id: string): Promise<Movement[]> {
     .items;
 }
 
+/** Goods are taken now; an order of passes alone takes no delivery. */
+const deliveryFor = (lines: { object: string }[]) =>
+  lines.some((l) => l.object === VARIANT || l.object === DRINK) ? { delivery: here } : {};
+
 const startAsGuest = (lines: { object: string; id: string; quantity?: number }[]) =>
   run<OrderOut>(
     "order.start",
-    { lines, email: `${unique("guest")}@buyers.example` },
+    { lines, email: `${unique("guest")}@buyers.example`, ...deliveryFor(lines) },
     outside(PUBLIC),
   );
 
@@ -172,7 +204,11 @@ describe("the stock declaration", () => {
   it("is valid on a sellable object, with number fields for its levels", () => {
     expect(
       issuesOf({
-        thing: { ...base, sellable: { price: "price" }, stock: { show: "availability" } },
+        thing: {
+          ...base,
+          sellable: { price: "price", goods: {} },
+          stock: { show: "availability" },
+        },
       }),
     ).toEqual([]);
   });
@@ -242,7 +278,7 @@ describe("stock on an object that already has records", () => {
       price: { type: "currency" as const, label: "Price", currency: CURRENCY },
       places: { type: "number" as const, label: "Places" },
     },
-    sellable: { price: "price" },
+    sellable: { price: "price", goods: {} },
     public: { read: ["name", "price"] },
     ...behaviour,
   });
@@ -583,21 +619,31 @@ describe("an order's stock", () => {
     });
     expect(
       await refusal(
-        run("order.start", { lines: tooMany, email: "desk@buyers.example" }, context(member)),
+        run(
+          "order.start",
+          { lines: tooMany, email: "desk@buyers.example", delivery: here },
+          context(member),
+        ),
       ),
     ).toMatchObject({
       code: "invalid_input",
       details: { rule: "stock", asked: 2, available: 1 },
     });
     expect(
-      await refusal(run("order.start", { lines: tooMany }, outside(alice.principal))),
+      await refusal(
+        run("order.start", { lines: tooMany, delivery: here }, outside(alice.principal)),
+      ),
     ).toMatchObject({ code: "invalid_input", details: { rule: "stock" } });
 
     const last = [{ object: VARIANT, id }];
     const settled = await Promise.allSettled([
       startAsGuest(last),
-      run<OrderOut>("order.start", { lines: last }, outside(alice.principal)),
-      run<OrderOut>("order.start", { lines: last, email: "desk@buyers.example" }, context(member)),
+      run<OrderOut>("order.start", { lines: last, delivery: here }, outside(alice.principal)),
+      run<OrderOut>(
+        "order.start",
+        { lines: last, email: "desk@buyers.example", delivery: here },
+        context(member),
+      ),
     ]);
     expect(settled.filter((s) => s.status === "fulfilled")).toHaveLength(1);
     expect(await stockOf(VARIANT, id)).toMatchObject({ onHand: 1, held: 1, available: 0 });

@@ -3119,6 +3119,30 @@ export interface CoreOrderTable {
   provider_paid_at: Defaulted<Timestamp | null>;
   /** Migration 0950: the sum of the order's adjustments; `total` is after them (ADR 0690). */
   discount: Generated<number>;
+  /**
+   * Migration 0932 (ADR 0682): where an order with goods is sold, worked out by the host from its
+   * delivery when it starts, never changed. Null: no goods.
+   */
+  channel: Defaulted<"online" | "in_person" | null>;
+}
+
+/**
+ * Migration 0932 (stage 37, ADR 0682): an order's delivery, its kind and a post delivery's
+ * address. In no rec_* view; read one order at a time. The buyer's erase blanks the address.
+ */
+export interface CoreOrderDeliveryTable {
+  order_id: string;
+  line_id: string;
+  kind: "post" | "collect" | "here";
+  name: string | null;
+  line1: string | null;
+  line2: string | null;
+  city: string | null;
+  region: string | null;
+  postcode: string | null;
+  country: string | null;
+  created_at: Timestamp;
+  erased_at: Defaulted<Timestamp | null>;
 }
 
 export interface CoreOrderLineTable {
@@ -4347,6 +4371,7 @@ export interface CoreDatabase {
   core_order_grant: CoreOrderGrantTable;
   core_order_payment: CoreOrderPaymentTable;
   core_order_checkout: CoreOrderCheckoutTable;
+  core_order_delivery: CoreOrderDeliveryTable;
   core_payment_event: CorePaymentEventTable;
   core_subscription: CoreSubscriptionTable;
   core_subscription_checkout: CoreSubscriptionCheckoutTable;

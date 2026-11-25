@@ -119,6 +119,64 @@ export interface SellableSpec {
    * ADR 0792), see FinanceSpec. Left out: category `other`, earned `at_sale`.
    */
   finance?: FinanceSpec;
+  /**
+   * The records are goods (stage 37, ADR 0682): things handed over or sent (a variant of an item
+   * in a shop), see GoodsSpec. An order with goods needs a delivery (`delivery`), and each goods
+   * line must be sold in the order's channel. Not with `deposit`, `recurring`, `moves` or
+   * `delivery`.
+   */
+  goods?: GoodsSpec;
+  /**
+   * The records are ways of getting goods to the buyer (stage 37, ADR 0682): a delivery option,
+   * see DeliverySpec. Never a line of `lines`: the buyer chooses one in `order.start`'s and
+   * `order.quote`'s `delivery`, and the host prices it (ADR 0685). Not with `goods`, `deposit`,
+   * `recurring`, `moves`, `onePerPerson` or `maxPerOrder` (one per order), nor beside `stock`.
+   */
+  delivery?: DeliverySpec;
+}
+
+/** Where goods are sold (stage 37 decision 3, ADR 0682): a select field holds one of these. */
+export const SOLD_IN = ["online", "in_person", "both"] as const;
+export type SoldIn = (typeof SOLD_IN)[number];
+
+/** How a delivery option gets goods to the buyer (ADR 0682). */
+export const DELIVERY_KINDS = ["post", "collect", "here"] as const;
+export type DeliveryKind = (typeof DELIVERY_KINDS)[number];
+
+/**
+ * Goods (ADR 0682). Every order with goods has a channel the host works out, never the caller's:
+ * a `post` or `collect` delivery is `online`, a `here` delivery ("take it now") is `in_person`.
+ *
+ * - `soldIn`: where a record is sold: a select field whose values are among `online`,
+ *   `in_person` and `both`, of this object or through up to two relations (`item.whereSold`: a
+ *   variant is sold where its item is). Left out or empty: both. A line not sold in the order's
+ *   channel is refused (`rule: "not_sold_here"`), on every path.
+ */
+export interface GoodsSpec {
+  soldIn?: string;
+}
+
+/**
+ * A delivery option (ADR 0682, priced by ADR 0685). A record is one way of getting an order's
+ * goods to the buyer; its object is sellable, so it has a price (which may be 0), a tax code and
+ * what a paid line grants (a shipment to pack, for `post` and `collect`; nothing is granted for a
+ * `here` record).
+ *
+ * - `kind`: a select field whose values are among `post` (an address is needed, in one of the
+ *   option's countries), `collect` (at a place the record says; no address) and `here` (take it
+ *   now, in person; no address).
+ * - `freeOver`: a currency or number field: when the goods on the order cost at least this
+ *   (before the delivery), the delivery costs nothing. Empty: never free.
+ * - `countries`: a text field: the two-letter country codes (ISO 3166-1) a `post` record posts
+ *   to, separated by commas or spaces; or `*`, everywhere no other post option of the object
+ *   names. Empty: it posts nowhere yet.
+ * - `active`: a boolean field: a record with it off cannot be chosen.
+ */
+export interface DeliverySpec {
+  kind: string;
+  freeOver?: string;
+  countries?: string;
+  active?: string;
 }
 
 /** How a sale's money is earned (ADR 0792), as the Unearned report reads it. */
@@ -458,6 +516,19 @@ export const sellableManifestSchema = z
       })
       .strict()
       .optional(),
+    goods: z
+      .object({ soldIn: z.string().max(130).optional() })
+      .strict()
+      .optional(),
+    delivery: z
+      .object({
+        kind: fieldName,
+        freeOver: fieldName.optional(),
+        countries: fieldName.optional(),
+        active: fieldName.optional(),
+      })
+      .strict()
+      .optional(),
   })
   .strict();
 export type SellableManifest = z.infer<typeof sellableManifestSchema>;
@@ -608,6 +679,7 @@ export function checkObjectSellable(
   }
   if (sellable.grants) checkGrants(m, name, object, sellable.grants, `${path}.grants`, contract);
   if (sellable.moves) checkMoves(m, name, object, sellable.moves, `${path}.moves`, contract);
+  if (sellable.goods || sellable.delivery) checkGoods(m, name, object, path, contract);
   if (sellable.finance) {
     checkFinance(m, name, object, sellable.finance, `${path}.finance`, contract);
   }
@@ -644,6 +716,95 @@ export function checkObjectSellable(
           contract(`${path}.tax.place.${key}`, `"${local}" must be a text field of ${holderName}`);
         }
       }
+    }
+  }
+}
+
+/** A select field's option values (empty when it is not a select field). */
+function selectValues(field: FieldManifest | undefined): string[] | null {
+  if (!field || field.type !== "select" || field.many) return null;
+  return (field.options ?? []).map((option) =>
+    typeof option === "string" ? option : (option as { value: string }).value,
+  );
+}
+
+/**
+ * Checks `sellable.goods` and `sellable.delivery` (ADR 0682): where goods are sold is a select of
+ * `online`, `in_person` and `both`; a delivery option's kind a select of `post`, `collect` and
+ * `here`, with its other fields of the right types; and neither is bought by deposit, by
+ * subscription or by moving a record. A delivery is one per order and has no stock.
+ */
+function checkGoods(
+  m: ExtensionManifest,
+  name: string,
+  object: ObjectManifest,
+  path: string,
+  contract: (path: string, message: string) => void,
+): void {
+  const sellable = object.sellable as SellableManifest;
+  const fieldOf = (local: string): FieldManifest | undefined =>
+    Object.hasOwn(object.fields, local) ? object.fields[local] : undefined;
+  if (sellable.goods && sellable.delivery) {
+    contract(`${path}.delivery`, "A record is goods or a delivery option, not both");
+  }
+  const what = sellable.goods ? "goods" : "a delivery option";
+  for (const key of ["deposit", "recurring", "moves"] as const) {
+    if (sellable[key] !== undefined) {
+      contract(`${path}.${key}`, `${name} is ${what}, sold whole on an order: it has no ${key}`);
+    }
+  }
+  const soldIn = sellable.goods?.soldIn;
+  if (soldIn !== undefined) {
+    const values = selectValues(resolveFieldPath(m, object, soldIn));
+    if (!values || values.some((v) => !(SOLD_IN as readonly string[]).includes(v))) {
+      contract(
+        `${path}.goods.soldIn`,
+        `"${soldIn}" must be a select field (of ${name}, or through its relations) whose values are among ${SOLD_IN.join(", ")}`,
+      );
+    }
+  }
+  const delivery = sellable.delivery;
+  if (!delivery) return;
+  for (const key of ["onePerPerson", "maxPerOrder"] as const) {
+    if (sellable[key] !== undefined) {
+      contract(`${path}.${key}`, `A delivery option is one per order: it has no ${key}`);
+    }
+  }
+  if (object.stock) {
+    contract(`objects.${name}.stock`, "A delivery option is not counted on a shelf: no stock");
+  }
+  const kinds = selectValues(fieldOf(delivery.kind));
+  if (!kinds?.length || kinds.some((v) => !(DELIVERY_KINDS as readonly string[]).includes(v))) {
+    contract(
+      `${path}.delivery.kind`,
+      `"${delivery.kind}" must be a select field of ${name} whose values are among ${DELIVERY_KINDS.join(", ")}`,
+    );
+  }
+  if (delivery.freeOver !== undefined) {
+    const field = fieldOf(delivery.freeOver);
+    if (!field || !NUMERIC.has(field.type) || field.many) {
+      contract(
+        `${path}.delivery.freeOver`,
+        `"${delivery.freeOver}" must be a currency or number field of ${name}`,
+      );
+    }
+  }
+  if (delivery.countries !== undefined) {
+    const field = fieldOf(delivery.countries);
+    if (!field || !TEXT.has(field.type) || field.many) {
+      contract(
+        `${path}.delivery.countries`,
+        `"${delivery.countries}" must be a text field of ${name}`,
+      );
+    }
+  }
+  if (delivery.active !== undefined) {
+    const field = fieldOf(delivery.active);
+    if (!field || field.type !== "boolean" || field.many) {
+      contract(
+        `${path}.delivery.active`,
+        `"${delivery.active}" must be a boolean field of ${name}`,
+      );
     }
   }
 }
