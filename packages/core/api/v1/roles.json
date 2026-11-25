@@ -138,7 +138,7 @@
     {
       "permission": "bookings:desk",
       "pack": "bookings",
-      "label": "Front desk: find people, book anyone (walk-ins too) into any class, cancel or move their bookings, give a use back, and see any day's classes and full lists. For a coach who also works the desk.",
+      "label": "Front desk: find people; book, cancel and move classes and one-to-one sessions for anyone; give a use back; mark sessions; see any day's classes and lists and every coach's day with its clients. For a coach who also works the desk.",
       "restricted": false,
       "operations": [
         "x.bookings.bookAppointment",

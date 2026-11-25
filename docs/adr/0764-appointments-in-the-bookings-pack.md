@@ -73,7 +73,34 @@ booking their own is step 6. Three things the pack could not say with the platfo
 - **Booking a provider is not rostering (amends ADR 0626).** For an object booked at free times
   (`staffed.open`), the shift's person is not one of the fields only a rosterer may set: whoever may
   write the object (and the pack's tools' permissions) names the provider, with the warnings and the
-  claim deciding the rest. A coach profile's account and a series' person stay rosterers'.
+  claim deciding the rest, **while the shift is still to come** (a create starting after now; an
+  update before its stored start). Who gave one that has started or is over is counted for pay,
+  so it stays a rosterer's (`assertMayRoster`). A coach profile's account and a series' person stay
+  rosterers'. And **an AI's change of a booked shift's provider waits for a person on every path**:
+  a `record.update` of it by the assistant, MCP, an automation or extension code is a person's
+  field (`person-approves.ts`), unless it comes from a person's own tool of the record's extension
+  (`humanOnly` or `personApproves` with a permission, ADR 0513: `reassignAppointment`), whose call
+  was already a person's act or waited for one (the review of PR #452).
+- **A used session never comes back by a change of time (the review of PR #452).** Platform, on
+  the allowance's `movedFrom`: `fixed` names fields that change only by a move (a new record
+  naming the old), never by an update, for every caller but the host (an appointment's start, end
+  and service), refused `rule: "allowance"`, `reason: "moves_only"`; `anchor: { field, from }` is
+  a read-only datetime the host sets at create, the moved record's anchor (or its start), else the
+  record's own `from`. The appointment's late point is counted back from `lateAnchor`, so **a
+  moved appointment keeps the original's late point** (the coordinator's decision): moved once
+  late, cancelling the new one is late and keeps the session; moved earlier, it is in time until
+  the original's late point. Staff still move until the start, as the spec says.
+- **A client is required when it is made, not by the field** (`states.create.requires`, platform:
+  fields every create must give, the host included). So `person.erase` keeps an appointment with
+  its client cleared, for pay and the business's books, as a class booking's Person is cleared
+  (ADR 0320), instead of deleting it.
+- **A leaver's appointments** follow the spec's leaving section: future ones become uncovered (no
+  coach) and the rosterers are told (ADR 0624). The host's 30-minute attended mark never marks one
+  with no coach (`states.after[].ifSet`, platform: a timed move only while those fields have a
+  value), so nobody is counted as having given a session they did not.
+- **`bookings:desk` covers one-to-one sessions as well as classes**: booking, moving, cancelling
+  and marking them, giving one back, and every coach's day with its clients. Its label says so.
+  Nothing is installed anywhere yet, so no existing grant widens in the wild.
 - **`bookings:appointments`**, grantable (ADR 0600), held by any member of staff, labelled for a
   coach who manages the others' sessions. The staff tools: `bookAppointment` (a coach, or the first
   qualified one free then through `staffing.free`; the end from the service's length; paid at the
@@ -82,10 +109,14 @@ booking their own is step 6. Three things the pack could not say with the platfo
   `cancelAppointmentByUs` and `reassignAppointment` (`bookings:appointments`, each waiting for a
   person when an AI asks). `coachDay` reads classes and appointments from Bookings' records and a
   coach's other shifts (duties) from `staffing.week`.
-- **Memberships requires Bookings.** Its relations to `bookings.service` need the object installed;
-  a pack whose holders pay only for Bookings' records had no use without it. `cos ext check` leaves
-  out a sibling that requires the extension it checks (it is installed after it), so Bookings and
-  Memberships each check from either side.
+- **Memberships requires Bookings** (decided by the coordinator in the review of PR #452). Its
+  relations to `bookings.service` need the object installed; a pack whose holders pay only for
+  Bookings' records had little use without it. The cost: a host cannot have Memberships without
+  Bookings (one that does could no longer upgrade Memberships), so revisit it if a business wants
+  memberships with no bookings. The alternative not taken: services kept as a list of ids (a text
+  or multi field) with `requires: ["programs"]`, losing the relation picker and needing a field
+  type change later. `cos ext check` leaves out a sibling that requires the extension it checks
+  (it is installed after it), so Bookings and Memberships each check from either side.
 
 ## Why
 - Decision 1 is one state machine: a late cancel and a no-show keep the session because neither
@@ -103,9 +134,10 @@ booking their own is step 6. Three things the pack could not say with the platfo
 Members booking, moving and cancelling online, opening services and free times to the public, the
 coach role's own appointments on any date, the confirmation, reminder, moved, reassigned and
 cancelled-by-us emails (step 6 and 10); outside practitioners (7); paying per session (8);
-standing appointments and the `unpaid` date (9); dashboards and views (10). A deactivated coach's
-appointments become uncovered through ADR 0624's leaving, as any shift's do; telling the client is
-the messages' step.
+standing appointments and the `unpaid` date (9); dashboards and views (10). Telling the client of
+an uncovered appointment is the messages' step. Queued after the review: `hostRoomFor` reading
+inside the write's batch, an AI's record writes under the balanced preset in general, and an
+overlap check on a merge of People.
 
 ## Proof
 - `apps/runner/test/bookings-appointments.test.ts` (the real host and sandbox, the shipped packs):
@@ -119,6 +151,13 @@ the messages' step.
   old time carrying the session; a reassignment refused over a clash and made with a warning; the
   coach's day; the business's cancel giving back; with Rostering installed, a member booking a
   coach's appointment but still refused a class's coach (fails when the roster exemption is removed).
+  After the review of PR #452: a retime and a change of service by `record.update` refused, for
+  staff and an AI (fails when `fixed` is removed); moved when late, the new one's cancel is late and
+  the session stays used, as an AI too; moved in time, cancelled in time; a create with no client
+  refused, and erasing the client keeps the appointment; the host's attended mark 30 minutes after
+  the end, and never on a leaver's uncovered appointment; with Rostering, a member refused a past
+  session's coach and a started one's, a future one's changed, an AI's change waiting for a person,
+  and `reassignAppointment` applied at once.
 - `packs/bookings/test/appointments.test.ts` (`cos ext test`): the declarations and every tool.
 - `packages/sdk/test/allowance-conditions.test.ts`: the condition forms and the id copy.
 - `packages/core/test/staffing-free.test.ts`: a customer's create with no room gets the host's.

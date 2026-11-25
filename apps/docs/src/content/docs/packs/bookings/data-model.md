@@ -873,12 +873,13 @@ One booked one-to-one session: a client, a coach, a service, a start and an end,
 | --- | --- | --- | --- | --- | --- |
 | `title` | `text` | Title |   |   |   |
 | `service` | `relation` | Service | yes | to `bookings.service` |   |
-| `person` | `relation` | Client | yes | to `person` |   |
+| `person` | `relation` | Client |   | to `person` |   |
 | `coach` | `relation` | Coach |   | to `bookings.coach` |   |
 | `room` | `relation` | Room |   | to `bookings.room` | Left empty, the host gives it the first of the service's rooms free then. |
 | `startsAt` | `datetime` | Starts | yes |   |   |
 | `endsAt` | `datetime` | Ends | yes |   |   |
 | `timezone` | `timezone` | Time zone | yes |   |   |
+| `lateAnchor` | `datetime` | Late cancel counted from |   | read-only | Set by the host: its start, or, when it was moved, the start of the appointment it replaced. The late-cancel point is counted back from it. |
 | `state` | `select` | State |   | one of `booked`, `pending`, `unpaid`, `cancelled`, `late_cancelled`, `excused`, `attended`, `no_show`, `cancelled_by_us`, `moved`, `expired` |   |
 | `holder` | `text` | Paid from |   |   | The pass or membership the appointment spent a session of (its id). Left empty, the host chooses the one whose session would lapse first. |
 | `serviceId` | `text` | Service (for passes) |   | read-only | The service, copied by the host: what a pass's services are compared with. |
@@ -938,7 +939,10 @@ One booked one-to-one session: a client, a coach, a service, a start and an end,
         }
       },
       "staffOnly": "service.staffOnly",
-      "closed": "service.closed"
+      "closed": "service.closed",
+      "requires": [
+        "person"
+      ]
     },
     "requests": {
       "cancel": [
@@ -979,7 +983,7 @@ One booked one-to-one session: a client, a coach, a service, a start and an end,
         "final": true,
         "window": {
           "until": {
-            "at": "startsAt",
+            "at": "lateAnchor",
             "minutesBefore": {
               "field": "service.lateMinutes",
               "setting": "appointmentLateMinutes"
@@ -997,7 +1001,7 @@ One booked one-to-one session: a client, a coach, a service, a start and an end,
         ],
         "window": {
           "from": {
-            "at": "startsAt",
+            "at": "lateAnchor",
             "minutesBefore": {
               "field": "service.lateMinutes",
               "setting": "appointmentLateMinutes"
@@ -1105,7 +1109,10 @@ One booked one-to-one session: a client, a coach, a service, a start and an end,
         "from": "booked",
         "to": "attended",
         "at": "endsAt",
-        "minutesAfter": 30
+        "minutesAfter": 30,
+        "ifSet": [
+          "coach"
+        ]
       }
     ]
   },
@@ -1196,7 +1203,16 @@ One booked one-to-one session: a client, a coach, a service, a start and an end,
       },
       "movedFrom": {
         "field": "movedFrom",
-        "state": "moved"
+        "state": "moved",
+        "fixed": [
+          "startsAt",
+          "endsAt",
+          "service"
+        ],
+        "anchor": {
+          "field": "lateAnchor",
+          "from": "startsAt"
+        }
       },
       "paidBy": [
         "memberships.membership",

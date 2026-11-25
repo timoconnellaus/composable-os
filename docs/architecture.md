@@ -2094,7 +2094,12 @@ attended and no-show from the start and corrected for 7 days, `excused` only thr
 paid at the desk; `released`), and the agreement point `appointment`. The host gives a new
 appointment that names no room the first of its service's rooms free then (`hostRoomFor`,
 `staffing/free.ts`), and naming an appointment's provider is a booking, not rostering, where
-Rostering is installed (`staffed.open` objects leave `who` out of the roster's fields). Staff
+Rostering is installed, while it is still to come (`staffed.open` objects leave `who` out of the
+roster's fields until the shift starts; an AI's change of it waits for a person unless a person's
+own tool makes it). Its start, end and service change only by a move (`allowance.spends.movedFrom.fixed`),
+a moved one keeps the late point of the one it replaced (`movedFrom.anchor`, the window counting
+from `lateAnchor`), a client is required at create only (`states.create.requires`, so erase keeps
+the appointment), and the host's attended mark skips one with no coach (`states.after[].ifSet`). Staff
 tools: `bookAppointment` (any coach through `staffing.free`), `moveAppointment` (a new
 appointment with `movedFrom`), `cancelAppointment`, `cancelAppointmentByUs`, `markAppointment`,
 `excuseAppointment`, `reassignAppointment` (`personApproves`), `coachDay` (classes and
