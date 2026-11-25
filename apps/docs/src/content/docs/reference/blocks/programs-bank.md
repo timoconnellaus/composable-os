@@ -6,6 +6,10 @@ editUrl: false
 
 The exercise bank (stage 41): browse and search the gym's exercises, add one, and edit one with its easier and harder versions. Built on the web base layer. What an exercise may hold is the host's (a refused save shows its words); this edits the fields.
 
+<img class="cos-screen" src="/screens/programs-bank.png" alt="programs-bank, drawn with dummy data" width="880" height="1498" loading="lazy" decoding="async" />
+
+Drawn with dummy data.
+
 |  |  |
 | --- | --- |
 | Skin | web |

@@ -1,0 +1,22 @@
+{
+  "extends": "@composable-os/config/tsconfig.react.json",
+  "compilerOptions": {
+    "allowImportingTsExtensions": true,
+    "noEmit": true,
+    "types": ["vite/client"],
+    "rootDirs": [
+      ".",
+      "../../blocks",
+      "../../packs/bookings/blocks",
+      "../../packs/content/blocks",
+      "../../packs/courses/blocks",
+      "../../packs/dailychecks/blocks",
+      "../../packs/memberships/blocks",
+      "../../packs/programs/blocks",
+      "../../packs/rostering/blocks",
+      "../../packs/ticketing/blocks"
+    ]
+  },
+  "include": ["src", "previews/*.tsx", "vite.config.ts"],
+  "exclude": ["previews/native-*.tsx", "previews/*-native-*.tsx"]
+}

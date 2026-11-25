@@ -6,6 +6,10 @@ editUrl: false
 
 The subscriptions part of My account (stage 48), for the mobile app, read only: the subscriptions the signed-in customer pays, each with its state in words (trial until, next charge on, ending on, a payment to confirm), and "Manage on the website", which opens the business's website account page in the browser (`onManage`). Cancelling, keeping it going, changing plan and the card are the website's (ADR 0490, ADR 0714): this block calls no billing operation and shows no price (`noPurchase`). A pack's section passes `only` for its plans.
 
+<img class="cos-screen cos-screen-native" src="/screens/native-account-subscriptions.png" alt="native-account-subscriptions, drawn with dummy data" width="390" height="844" loading="lazy" decoding="async" />
+
+Drawn with dummy data.
+
 |  |  |
 | --- | --- |
 | Skin | native |

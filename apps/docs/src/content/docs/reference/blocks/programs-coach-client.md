@@ -6,6 +6,10 @@ editUrl: false
 
 The coach's view of one client (stage 41): their sessions, newest first, each opened to see what was logged and to log on their behalf, and their progress. Built on the web base layer and the session and progress blocks. Logging for a client is the host's (`logAdd` with the session's person; the row records the coach).
 
+<img class="cos-screen" src="/screens/programs-coach-client.png" alt="programs-coach-client, drawn with dummy data" width="880" height="776" loading="lazy" decoding="async" />
+
+Drawn with dummy data.
+
 |  |  |
 | --- | --- |
 | Skin | web |

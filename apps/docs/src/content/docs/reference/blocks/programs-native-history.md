@@ -6,6 +6,10 @@ editUrl: false
 
 A person's past sessions, for the mobile app (stage 41): newest first, each with its date, its name and how many of its sets were logged; pressing one shows it set by set, read-only, and a logged set can be corrected. For a member (their own) or a coach (`personId`, a client's). It holds no rules: whose sessions they are and what a correction may change are the host's (`x.programs.logUpdate`: the numbers done, effort and the note).
 
+<img class="cos-screen cos-screen-native" src="/screens/programs-native-history.png" alt="programs-native-history, drawn with dummy data" width="390" height="844" loading="lazy" decoding="async" />
+
+Drawn with dummy data.
+
 |  |  |
 | --- | --- |
 | Skin | native |

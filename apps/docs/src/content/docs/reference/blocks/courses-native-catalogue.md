@@ -6,6 +6,10 @@ editUrl: false
 
 The course catalogue in the studio's app (stage 42). Buying is on the web only (the owner's decision): this screen shows no price and no buy button, and the block lint holds it to that (`noPurchase` in block.json). What is published is the host's (`useCatalogue`).
 
+<img class="cos-screen cos-screen-native" src="/screens/courses-native-catalogue.png" alt="courses-native-catalogue, drawn with dummy data" width="390" height="844" loading="lazy" decoding="async" />
+
+Drawn with dummy data.
+
 |  |  |
 | --- | --- |
 | Skin | native |

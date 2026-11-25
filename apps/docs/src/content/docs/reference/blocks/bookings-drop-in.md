@@ -6,6 +6,10 @@ editUrl: false
 
 Paying for one class on a gym's site (stage 31a step 8, a drop-in): the week's classes for a visitor, each with "Pay for this class". The host holds a place while they pay, prices it, and books them when the payment provider confirms it; an unpaid order lets the place go after a few minutes. Whether a class can be paid for, its price, the places left and the rules are the host's: this shows its answers and sends the buyer to the provider's page. Web only: a native block never buys (the block lint). What must be agreed to first (a waiver, a health form: stage 44) is the host's answer too: when "Pay" is refused with it, the documents are shown inline (the web-agree block's step) and "Pay" is tried again. A visitor's agreements travel in the buying call and are recorded with the order; a member's are recorded as they agree. What a visitor typed, drew and answered is held in memory only until that call. A minor whose purchase needs the payer's agreement is told a parent or guardian buys it.
 
+<img class="cos-screen" src="/screens/bookings-drop-in.png" alt="bookings-drop-in, drawn with dummy data" width="720" height="700" loading="lazy" decoding="async" />
+
+Drawn with dummy data.
+
 |  |  |
 | --- | --- |
 | Skin | web |

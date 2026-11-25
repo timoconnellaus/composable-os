@@ -91,6 +91,10 @@ extension code is never acceptable (ADR 0405).
   updates the pack's `packs/<id>/docs/overview.md` (or the capability's `docs/overview.md`, or the
   guide in `docs/guides/` it touches) in the same PR, then runs
   `pnpm --filter @composable-os/docs generate` and commits what it writes.
+- **Screens have pictures.** Each block is drawn with dummy data by [`apps/screens`](apps/screens/README.md).
+  A PR that adds a block adds its preview (`apps/screens/previews/<block>.tsx`); a PR that changes
+  a block, its pack's `client/` or a preview runs `pnpm --filter @composable-os/screens shoot` and
+  commits the pictures. The docs check fails on a missing or stale picture.
 - **Reference pages are never edited by hand**: everything under `apps/docs/src/content/docs/`,
   `apps/docs/src/sidebar.json` and `apps/docs/public/llms.txt` is the generator's. CI fails when
   they are stale, when a pack has no overview (and is not on the pending list in

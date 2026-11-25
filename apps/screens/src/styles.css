@@ -1,0 +1,19 @@
+/* The client template's look (templates/client/apps/web/src/styles.css): the pictures show a
+   block as a new client app draws it, before it is branded. */
+@import "../../../templates/client/apps/web/src/styles.css";
+
+/* Tailwind reads the blocks' classes where they sit. */
+@source "../../../blocks";
+@source "../../../packs";
+@source "../previews";
+
+html,
+body {
+  margin: 0;
+}
+
+/* React Native's text fields shrink in a row; a browser's <input> keeps a minimum width. */
+#frame[data-skin="native"] input,
+#frame[data-skin="native"] textarea {
+  min-width: 0;
+}

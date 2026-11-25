@@ -6,6 +6,10 @@ editUrl: false
 
 What a signed-in student holds (stage 42), with how far they are and where to carry on. Which courses they hold, and why, is the host's (`useMyCourses`).
 
+<img class="cos-screen" src="/screens/courses-my-courses.png" alt="courses-my-courses, drawn with dummy data" width="720" height="1002" loading="lazy" decoding="async" />
+
+Drawn with dummy data.
+
 |  |  |
 | --- | --- |
 | Skin | web |

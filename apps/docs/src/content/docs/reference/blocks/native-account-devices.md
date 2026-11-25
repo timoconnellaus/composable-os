@@ -6,6 +6,10 @@ editUrl: false
 
 Sign-in and devices (stage 48), for the mobile app: every place the signed-in customer is signed in, when each began and was last used, and signing one out. Which sessions are theirs is the host's (me.sessions.list, me.sessions.revoke). Signing out of this device is the app's own (`onSignOut`: the template's session.signOut, which ends the tokens and forgets them).
 
+<img class="cos-screen cos-screen-native" src="/screens/native-account-devices.png" alt="native-account-devices, drawn with dummy data" width="390" height="844" loading="lazy" decoding="async" />
+
+Drawn with dummy data.
+
 |  |  |
 | --- | --- |
 | Skin | native |

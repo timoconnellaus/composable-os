@@ -6,6 +6,10 @@ editUrl: false
 
 Family (stage 48), for the mobile app: who the signed-in customer acts for and who acts for them. Staff make and end the links (ADR 0540), so linking a child is a sentence here, not a form. Who is linked is the host's answer (me.family).
 
+<img class="cos-screen cos-screen-native" src="/screens/native-account-family.png" alt="native-account-family, drawn with dummy data" width="390" height="844" loading="lazy" decoding="async" />
+
+Drawn with dummy data.
+
 |  |  |
 | --- | --- |
 | Skin | native |
