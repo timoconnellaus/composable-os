@@ -90,6 +90,11 @@ export const SOLUTIONS: readonly Solution[] = [
           status: "ready",
         },
         {
+          title: "Members' own account",
+          body: "One place on your site and in your app where a member first sees what needs them, or their child: a waiver to sign, a card payment that failed, a pass running out. Then their orders, tickets, courses, bookings and memberships, and their details. They change the address they sign in with, or delete their account after seeing exactly what that does. In the app, the card and cancelling open your website. The app's screens are not yet tried on phones.",
+          status: "built",
+        },
+        {
           title: "Events and camps",
           body: "Ticket types with their own places, paying in full or by deposit, tickets in your app, and scanning at the door.",
           status: "built",
