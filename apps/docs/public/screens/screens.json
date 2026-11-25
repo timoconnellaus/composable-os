@@ -171,49 +171,49 @@
     "skin": "web",
     "width": 860,
     "height": 708,
-    "fingerprint": "4fb629eb4d4de33b"
+    "fingerprint": "c35b45126bac22e0"
   },
   "knowledge-help-page": {
     "skin": "web",
     "width": 860,
     "height": 557,
-    "fingerprint": "4fe47087be8786c3"
+    "fingerprint": "3b7f03aa211eb3c6"
   },
   "knowledge-native-help": {
     "skin": "native",
     "width": 390,
     "height": 844,
-    "fingerprint": "fcc577fa979f01bd"
+    "fingerprint": "bdbc9520386eb61a"
   },
   "knowledge-native-procedures": {
     "skin": "native",
     "width": 390,
     "height": 844,
-    "fingerprint": "c75f88b6822472c9"
+    "fingerprint": "a4bcdd230343fa5d"
   },
   "knowledge-native-to-read": {
     "skin": "native",
     "width": 390,
     "height": 844,
-    "fingerprint": "3446e0a77c4aa8f8"
+    "fingerprint": "51e008297cfad7ab"
   },
   "knowledge-procedures": {
     "skin": "web",
     "width": 860,
     "height": 718,
-    "fingerprint": "ea31985ecf38c871"
+    "fingerprint": "62255457909639ef"
   },
   "knowledge-read-status": {
     "skin": "web",
     "width": 760,
     "height": 505,
-    "fingerprint": "b29197c7891d4eb3"
+    "fingerprint": "a9770080b4110b50"
   },
   "knowledge-to-read": {
     "skin": "web",
     "width": 760,
     "height": 440,
-    "fingerprint": "0cddabce65eb1e46"
+    "fingerprint": "e7bc576936b0eb4f"
   },
   "memberships-mine": {
     "skin": "web",

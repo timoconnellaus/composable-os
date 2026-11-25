@@ -81,8 +81,11 @@ only a screen `screens.mine` lists, takes only an id, and passes it only to a sc
 "not found" for every page but its home and its screens, now first sends `/x/<object>/<id>` (what
 the host's notices link to, `notificationHref`) to `/s/<pack>/<key>?record=<id>` when
 `screens.mine` lists a record screen on that object for the account. So "Please read: Injuries"
-opens the reader for a coach. The admin's source still names no pack, and nothing here decides who
-may read the record: the screen's own calls are the host's to answer.
+opens the reader for a coach. The rule is the shell's, for every pack: a coach following a class's
+link (`/x/bookings.class/<id>`), "not found" before, now opens Bookings' Class list for that class,
+the record screen the host lists for a coach on a class (`bookings.spec.ts` asserts it). The
+admin's source still names no pack, and nothing here decides who may read the record: the
+screen's own calls are the host's to answer.
 
 **A block another block brings that calls no operation (amends ADR 0424).** `cos add` copies a
 block of a pack that `product.ts` does not list when another block depends on it and it calls no
