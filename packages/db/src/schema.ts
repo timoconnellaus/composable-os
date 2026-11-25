@@ -3321,6 +3321,8 @@ export interface CoreCreditNoteRefundTable {
   paid_back_at: Defaulted<Timestamp | null>;
   /** A provider's refund asked again after one rejected, expired or failed: 2, 3, … */
   attempt: Defaulted<number>;
+  /** A provider's: when the provider confirmed its refund. */
+  confirmed_at: Defaulted<Timestamp | null>;
   created_at: Timestamp;
 }
 

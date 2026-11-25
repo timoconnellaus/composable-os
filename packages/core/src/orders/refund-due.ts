@@ -343,6 +343,7 @@ export async function tellUnconfirmedCreditRefunds(crm: CrmDb, now: string): Pro
     .innerJoin("core_pending_action as p", "p.id", "r.pending_action_id")
     .select(["c.id", "c.attempt", "c.order_id", "c.credit_note_id", "c.amount"])
     .where("c.method", "=", "provider")
+    .where("c.confirmed_at", "is", null)
     .where("r.status", "!=", "confirmed")
     .where("p.status", "=", "applied")
     .where("p.decided_at", "<", before)

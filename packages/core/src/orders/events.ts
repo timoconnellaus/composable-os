@@ -504,10 +504,20 @@ async function confirmRefund(
     const credit = requested
       ? await ctx.db
           .selectFrom("core_credit_note_refund")
-          .select("credit_note_id")
+          .select(["id", "credit_note_id"])
           .where("refund_id", "=", requested.id)
           .executeTakeFirst()
       : undefined;
+    if (credit) {
+      // The credit note's refund is confirmed: the minute cron stops watching it.
+      ctx.write(
+        ctx.db
+          .updateTable("core_credit_note_refund")
+          .set({ confirmed_at: ctx.now })
+          .where("id", "=", credit.id)
+          .where("confirmed_at", "is", null),
+      );
+    }
     ctx.write(
       eventStatement(ctx.db, {
         documentKind: credit ? "credit_note" : "invoice",

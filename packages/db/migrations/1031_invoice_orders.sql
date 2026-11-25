@@ -264,12 +264,19 @@ CREATE TABLE core_credit_note_refund (
   refund_id TEXT,
   paid_back_at TEXT,
   attempt INTEGER NOT NULL DEFAULT 1 CHECK (attempt >= 1),
+  -- A provider's: when the provider confirmed its refund (the host's own write, with the
+  -- confirmation). Open rows (null) are what the minute cron watches for one never confirmed.
+  confirmed_at TEXT,
   created_at TEXT NOT NULL,
   CHECK (method = 'recorded' OR refund_id IS NOT NULL),
+  CHECK (confirmed_at IS NULL OR method = 'provider'),
   CHECK ((paid_back_at IS NULL) OR (method = 'recorded' AND refund_id IS NOT NULL))
 );
 CREATE INDEX core_credit_note_refund_order_idx ON core_credit_note_refund (order_id, payment_ref);
 CREATE INDEX core_credit_note_refund_note_idx ON core_credit_note_refund (credit_note_id);
+-- A provider's refunds not yet confirmed: the minute cron reads only these (none when idle).
+CREATE INDEX core_credit_note_refund_open_idx ON core_credit_note_refund (created_at)
+  WHERE method = 'provider' AND confirmed_at IS NULL;
 
 -- Written in the batch that issues its credit note, never over another row.
 CREATE TRIGGER core_credit_note_refund_new
@@ -292,8 +299,13 @@ WHEN NEW.id IS NOT OLD.id OR NEW.credit_note_id IS NOT OLD.credit_note_id
   OR OLD.paid_back_at IS NOT NULL OR NEW.refund_id IS NULL
   -- A recorded one: paid back, once.
   OR (OLD.method = 'recorded' AND (NEW.paid_back_at IS NULL OR NEW.attempt IS NOT OLD.attempt))
-  -- A provider's: asked again, for the same amount, when the one before was never confirmed.
-  OR (OLD.method = 'provider' AND (NEW.paid_back_at IS NOT NULL
+  -- A provider's: marked confirmed once, when its refund is; or asked again, for the same
+  -- amount, when the one before was never confirmed.
+  OR (OLD.method = 'provider' AND OLD.confirmed_at IS NOT NULL)
+  OR (OLD.method = 'provider' AND NEW.confirmed_at IS NOT NULL AND (NEW.attempt IS NOT OLD.attempt
+    OR NEW.refund_id IS NOT OLD.refund_id OR NOT EXISTS (SELECT 1 FROM core_order_refund r
+      WHERE r.id = NEW.refund_id AND r.status = 'confirmed')))
+  OR (OLD.method = 'provider' AND NEW.confirmed_at IS NULL AND (NEW.paid_back_at IS NOT NULL
     OR NEW.attempt IS NOT OLD.attempt + 1
     OR EXISTS (SELECT 1 FROM core_order_refund r WHERE r.id = OLD.refund_id
       AND r.status = 'confirmed')
