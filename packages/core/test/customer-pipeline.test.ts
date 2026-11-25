@@ -561,6 +561,8 @@ describe("the closed handler context (ADR 0413)", () => {
       // Stage 31a step 8 (ADR 0560): the host makes a drop-in booking held with its order.
       "order.startHeld",
       "order.view",
+      // Stage 43 step 3 (ADR 0581): a practitioner's own account row, read by the principal's id.
+      "practitioner.me",
       // Stage 49 step 4 (ADR 0763): free times read open hours, time off and the time and room
       // claims, core tables, and answer only when someone is free.
       "staffing.free",

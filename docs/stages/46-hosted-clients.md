@@ -27,29 +27,29 @@ and the step 1 results as the record of why the namespace was not used. The desi
 The owner's decision on one host with a database per client (ADR 0611, PR #275, open) replaces most
 of this stage; nothing below starts until it is made.
 
-- **Step 1** — not built — needs: the owner's decision on PR #275, a Cloudflare API token — The checks on a real namespace: partly run (commit 37261849, "Step 1: results so far"
+- **Step 1** — superseded — by stage 66 (one host, a database per client; the owner confirmed it on 2026-11-25) — The checks on a real namespace: partly run (commit 37261849, "Step 1: results so far"
   below); queue consumers, Workflows and namespace-to-namespace bindings are not finished.
 
-- **Step 2** — not built — needs: step 1 — `packages/fleet`, `apps/fleet`: the dispatch Worker, the
+- **Step 2** — superseded — by stage 66 (one host, a database per client; the owner confirmed it on 2026-11-25) — `packages/fleet`, `apps/fleet`: the dispatch Worker, the
   registry, routes, the cron fan-out.
 
-- **Step 3** — not built — needs: step 2 — `hosting` in `product.ts` and the hosted target of `cos deploy`.
+- **Step 3** — superseded — by stage 66 (one host, a database per client; the owner confirmed it on 2026-11-25) — `hosting` in `product.ts` and the hosted target of `cos deploy`.
 
-- **Step 4** — not built — needs: step 3 — Client domains.
+- **Step 4** — superseded — by stage 66 (one host, a database per client; the owner confirmed it on 2026-11-25) — Client domains.
 
-- **Step 5** — not built — needs: step 4 — The fleet update, holds and rollback.
+- **Step 5** — superseded — by stage 66 (one host, a database per client; the owner confirmed it on 2026-11-25) — The fleet update, holds and rollback.
 
-- **Step 6** — not built — needs: step 5 — The Stream broker.
+- **Step 6** — superseded — by stage 66 (one host, a database per client; the owner confirmed it on 2026-11-25) — The Stream broker.
 
-- **Step 7** — not built — needs: step 6, the first client — The first client's first deploys, staging
+- **Step 7** — superseded — by stage 66 (one host, a database per client; the owner confirmed it on 2026-11-25) — The first client's first deploys, staging
   then live.
 
-- **Step 8** — not built — needs: step 7 — Usage.
+- **Step 8** — superseded — by stage 66 (one host, a database per client; the owner confirmed it on 2026-11-25) — Usage.
 
-- **Step 9** — not built — needs: step 2 — The move: export and import on each Durable Object class, the
+- **Step 9** — superseded — by stage 66 (one host, a database per client; the owner confirmed it on 2026-11-25) — The move: export and import on each Durable Object class, the
   secrets hand-over, then the command.
 
-- **Step 10** — not built — needs: step 9 — Docs and skills.
+- **Step 10** — superseded — by stage 66 (one host, a database per client; the owner confirmed it on 2026-11-25) — Docs and skills.
 
 ## Goal
 

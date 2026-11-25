@@ -1,0 +1,36 @@
+{
+  "version": "v1",
+  "operations": [
+    {
+      "name": "practitioner.me",
+      "description": "Your own practitioner account, as a signed-in practitioner: your name, sign-in address and discipline. Read-only.",
+      "risk": "read",
+      "audiences": ["practitioner"],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "email": {
+            "type": "string"
+          },
+          "discipline": {
+            "type": "string"
+          }
+        },
+        "required": ["id", "name", "email", "discipline"],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    }
+  ]
+}

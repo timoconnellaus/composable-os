@@ -59,9 +59,10 @@ coordinator as best practice the same day). Build may start.
 - **Step 4** — not built — needs: step 1 — Push gatekeeper (prove the Worker reaches both push
   services first), devices, the template's app, staff push.
 
-- **Step 5** — in progress — branch `feat/stage-30-consent` — The consent register,
+- **Step 5** — built — PR #451 — The consent register,
   `contactDecision`, `stopLink`, `contact.stop`, the List-Unsubscribe headers, contact preferences
-  blocks. Built on the branch (in review):
+  blocks. Merged 2026-11-25 after an independent review and a fix round (the stop link is a random
+  token whose hash is stored, no key; ADR 0675):
   `packages/core/src/contact/`: the register (`core_contact_choice`, append-only, the latest row
   per Person, channel and scope in force), the suppression list (`core_contact_suppression`, which
   took in `core_text_stop`: STOP and START write it now), `contactDecision` with its nine reasons

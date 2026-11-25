@@ -83,6 +83,7 @@ import { personLinkOperations } from "./person-link.ts";
 import { personWithRecordOperations } from "./person-with-record.ts";
 import { planOperations } from "./plan.ts";
 import { policyOperations } from "./policy.ts";
+import { practitionerOperations } from "./practitioner.ts";
 import { publicReadOperations } from "./public-read.ts";
 import { queryOperations } from "./query.ts";
 import { recordOperations } from "./record.ts";
@@ -134,6 +135,7 @@ export const coreOperations = [
   ...trashOperations,
   ...userOperations,
   ...inviteOperations,
+  ...practitionerOperations,
   ...userEmailOperations,
   ...activityOperations,
   ...taskOperations,

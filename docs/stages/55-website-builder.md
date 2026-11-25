@@ -35,16 +35,20 @@ stage amends are listed under [Migrations and numbers](#migrations-and-numbers).
 
 ## Status
 
+**Changed by the owner on 2026-11-25:** steps 1 to 7 (the editor and the Site pack) may be built now, at the
+end of the build queue; step 8, the hosted site, waits for stage 66. This replaces decision 3's
+timing for those steps. As first written:
+
 Not to be built yet (decision 3): every step waits for the first gym to be live on bookings and
 memberships.
 
-- **Step 1** — not built — needs: the first gym live (decision 3) — `sections` in the manifest and contract, layout choices,
+- **Step 1** — not built — `sections` in the manifest and contract, layout choices,
   the composed document schema and its checks
 
-- **Step 2** — not built — needs: the first gym live (decision 3) — Publishing together; an AI's request for it; the inbox's
+- **Step 2** — not built — Publishing together; an AI's request for it; the inbox's
   preview and section summaries
 
-- **Step 3** — not built — needs: the first gym live (decision 3) — The site-wide preview link (migration 1210) and the `path`
+- **Step 3** — not built — The site-wide preview link (migration 1210) and the `path`
   variant
 
 - **Step 4** — not built — needs: step 1 — The Site pack's spine: page, settings, generic sections,
@@ -58,7 +62,7 @@ memberships.
 
 - **Step 7** — not built — needs: step 6, stage 47 — The Website editor screen; e2e
 
-- **Step 8** — not built — needs: step 6, stage 46 — The hosted site app for standard clients, with
+- **Step 8** — not built — needs: step 6, stage 66 step 8 — The hosted site app for standard clients, with
   sign-in and My account
 
 - **Step 9** — not built — needs: step 1, step 2, step 3, step 4, step 5, step 6, step 7, step 8 — The site

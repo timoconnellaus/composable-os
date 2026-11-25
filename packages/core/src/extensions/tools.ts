@@ -7,7 +7,12 @@ import { type ExtensionManifest, type ToolManifest, toolPermissions } from "@com
 import type { Kysely } from "kysely";
 import { z } from "zod";
 import { TOOL_OPERATION_RE } from "../approvals/describe.ts";
-import { ForbiddenError, OperationError, RunsOnApprovalError } from "../errors.ts";
+import {
+  ForbiddenError,
+  OperationError,
+  RunsOnApprovalError,
+  UnknownOperationError,
+} from "../errors.ts";
 import { type AnyOperation, defineOperation, markHostTool } from "../operation.ts";
 import { GRANTABLE_PERMISSIONS, type Permission } from "../principals.ts";
 import { callerMarks } from "../routine-mail/marks.ts";
@@ -154,6 +159,9 @@ export function toolOperation(
               (ctx.actor === "assistant" || ctx.actor === "mcp")
             ? { depth: 0, chain: [], rootEventId: ctx.auditId }
             : undefined;
+      // No pack's tool is open to a practitioner (ADR 0581: the SDK's tool audiences do not name
+      // them yet), so none runs for one; this holds if a call got this far.
+      if (ctx.principal.kind === "practitioner") throw new UnknownOperationError(opName);
       const result = await requireHost(ctx).runTool({
         id: manifest.id,
         commit: row.commit_oid,

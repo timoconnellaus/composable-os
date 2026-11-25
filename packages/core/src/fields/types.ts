@@ -289,14 +289,21 @@ export interface PublishableDefinition {
  * tests a select field of the record or, with `via` (a relation to one record), of the record it
  * points to. Stage 28's `publishable` adds being published as another condition.
  */
+/**
+ * One condition of a read declaration's `when` (ADRs 0438 and 0689): a state of the record, or
+ * with `via` of the record it points to; or `via` alone (public only), that the record it points
+ * to is one the public reads.
+ */
+export interface PublicCondition {
+  readonly via?: string | undefined;
+  readonly field?: string | undefined;
+  readonly in?: readonly string[] | undefined;
+}
+
 export interface PublicDeclaration {
   readonly read: readonly string[];
-  /** Left out, every live record is public. */
-  readonly when?: {
-    readonly via?: string | undefined;
-    readonly field: string;
-    readonly in: readonly string[];
-  };
+  /** Left out, every live record is public. A list: every condition holds (ADR 0689). */
+  readonly when?: PublicCondition | readonly PublicCondition[];
 }
 
 /**

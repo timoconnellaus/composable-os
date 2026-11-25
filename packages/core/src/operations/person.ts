@@ -39,6 +39,7 @@ import { defineOperation, type HandlerContext } from "../operation.ts";
 import { queueMergeOrders } from "../orders/merge.ts";
 import { matchPersonAddresses } from "../outside/match.ts";
 import { queueMergePersonCodes } from "../people-codes/people.ts";
+import { queueMergePractitioners } from "../practitioners/merge.ts";
 import { holdsPermission } from "../principals.ts";
 import { bulkTagListSchema, queueBulkTags } from "../records/bulk-tags.ts";
 import {
@@ -1193,6 +1194,8 @@ export const personMerge = defineOperation({
     await queueMergeCustomers(ctx, survivor.id, merged.id, [
       ...new Set([...survivor.emails, ...merged.emails].map((e) => e.email)),
     ]);
+    // A practitioner account moves to the survivor; refused while both people have one (ADR 0581).
+    await queueMergePractitioners(ctx, survivor.id, merged.id);
     // Orders, subscriptions, their checkouts and trials follow the Person (stage 32a, #221).
     await queueMergeOrders(ctx, survivor.id, merged.id);
     await queueMergeSubscriptions(ctx, survivor.id, merged.id);

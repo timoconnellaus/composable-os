@@ -76,6 +76,7 @@ Every operation in the core registry, grouped by the first part of its name. Any
 - [`personCode`](/reference/operations/personcode/)
 - [`plan`](/reference/operations/plan/)
 - [`policy`](/reference/operations/policy/)
+- [`practitioner`](/reference/operations/practitioner/)
 - [`public`](/reference/operations/public/)
 - [`query`](/reference/operations/query/)
 - [`quote`](/reference/operations/quote/)

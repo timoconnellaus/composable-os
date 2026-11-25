@@ -196,8 +196,9 @@ may be a subdomain (`admin.example.com`), and staff sign in there.
    ```jsonc
    "services": [{ "binding": "HOST", "service": "shop-app", "entrypoint": "ClientApp" }]
    ```
-   The binding serves customer sign-in (`/api/customer-auth/*`) and the HTTP surface
-   (`/api/v1/op/*`, `/api/v1/manifest`) for customers and the public only. It never reads a staff
+   The binding serves customer sign-in (`/api/customer-auth/*`), practitioner sign-in
+   (`/api/practitioner-auth/*`, ADR 0581) and the HTTP surface (`/api/v1/op/*`,
+   `/api/v1/manifest`) for customers, practitioners and the public only. It never reads a staff
    session and refuses a bearer token (ADR 0421).
 2. On the host, `CUSTOMER_AUTH_URL` is the web app's origin (`https://shop.example.com`).
    Customer cookies are then for that origin (`__Secure-` and `Secure` on https), and Better Auth
@@ -1099,6 +1100,7 @@ for.
 | `/api/v1/staffing/feed/*` | always (inside `/api/v1/*`; listed so it stays bypassed) | A staff member's private calendar feed (stage 45, ADR 0628), polled by a calendar app that cannot sign in: the 32-byte random token in the address is the credential, looked up by its SHA-256 (the host keeps nothing else of it); only that person's own shifts, while their account is active and holds the Rostering permission; any other token or path is a 404 like a missing route; limited per token and per address. Cloudflare's own request logs record URLs when Workers Logs are on, so an account member reading them could see a feed's address: turn invocation logs off if that matters, and a person can always rotate theirs |
 | `/api/v1/me/feed/*` | always (inside `/api/v1/*`; listed so it stays bypassed) | A customer's private calendar feed (stage 62, ADR 0890), the same way: the token's SHA-256 looked up in its own table (a staff feed's token opens nothing here), answering only that customer's and their live dependants' bookings, read as the customer, while the account is active; any other token or path is a 404 like a missing route; limited per token and per address. The same note on request logs holds |
 | `/api/customer-auth/*` | customers | Customer sign-in by emailed code, its own secret and tables |
+| `/api/practitioner-auth/*` | outside practitioners | Practitioner sign-in by emailed code (stage 43, ADR 0581): invited or active accounts only, a key derived from `CUSTOMER_AUTH_SECRET`, its own tables |
 | `/api/health` | always | Health and version only (`cos deploy` and monitors read it) |
 | `/gatekeeper/payments/in/*` | payments | The provider's webhook signature (`STRIPE_WEBHOOK_SECRET`) |
 | `/gatekeeper/text/in/*` | text messages | The text provider's webhook signature (receipts and STOP, START and HELP replies) |

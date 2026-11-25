@@ -1056,8 +1056,9 @@ definition into its client repo.
 
 Stage 22; [ADR 0402](adr/0402-staff-and-customers.md).
 
-Every operation declares its audiences: `staff` (the default), `customer`, `public`, or
-`device` alone (stage 51, [ADR 0781](adr/0781-a-device-as-a-caller-the-device-audience-and-device-roles.md)).
+Every operation declares its audiences: `staff` (the default), `customer`, `public`,
+`practitioner` (stage 43, [ADR 0581](adr/0581-the-practitioner-principal-accounts-and-sign-in.md)),
+or `device` alone (stage 51, [ADR 0781](adr/0781-a-device-as-a-caller-the-device-audience-and-device-roles.md)).
 
 - **Staff** are today's users, with roles.
 - A **customer** is a Person with a sign-in. An object says which relation field is its customer;
@@ -1066,6 +1067,10 @@ Every operation declares its audiences: `staff` (the default), `customer`, `publ
 - **Public** callers have no account. Public operations are few, low risk and rate limited.
 - A **device** is the business's own enrolled tablet holding a device role, signed in as nobody.
   It calls only on the desk origin, and only its role's tools and `device.heartbeat`.
+- A **practitioner** is an outside person the business invited (a physiotherapist, a dietitian),
+  signed in to their own practitioner account. Until stage 43's care link and practitioner scope
+  they reach nothing about anyone: the seam's scope for them is `none` on every object, and the
+  one operation open to them is `practitioner.me`.
 
 As built (stage 22; ADRs [0410](adr/0410-the-seams-first-door-as-built.md),
 [0411](adr/0411-audiences-on-operations-as-built.md),
@@ -1108,6 +1113,17 @@ As built (stage 22; ADRs [0410](adr/0410-the-seams-first-door-as-built.md),
   device's id; the seam gives it nothing, and its tools' own calls run as the extension.
 - **Its handler has no raw database.** It reads and writes records through `ctx.records`. A core
   operation marked `hostInternal` keeps the database for account and session bookkeeping.
+- **A call by a practitioner** (ADR 0581) takes the customer's path: no role, never queued, the
+  risk floor, no raw database unless `hostInternal`, rate limited per account, audited with actor
+  `practitioner` and the account's id. Any record change by one is refused at the seam.
+- **Practitioner accounts** (`core_practitioner`, migration 0730) are made only by
+  `practitioner.invite` (staff with `practitioners:manage`, a person at the web admin; never an
+  AI, MCP, an automation, an extension or a device session) and ended by `practitioner.end`, which
+  deletes their sessions in the same batch. A third Better Auth configuration signs them in by an
+  emailed code at `/api/practitioner-auth/*` (on the host and over the client-app binding), with
+  its own tables, cookie (`cos-practitioner.*`) and key (derived from `CUSTOMER_AUTH_SECRET`).
+  One address may hold a staff, a customer and a practitioner account; a request carrying two
+  kinds of session is refused, and a practitioner's session is never exchanged for app tokens.
 - **Customer accounts** are `core_customer` and its sessions, apart from `core_user`. A second
   Better Auth configuration in `packages/auth` signs customers in by a one-time emailed code,
   with its own cookie and secret, and resolves a request to a customer or the public, never to
@@ -1728,7 +1744,11 @@ customers; a record that does not meet it is not found. A customer reads it too,
 with no customer of its own. The public reach it only through a pack's tool, which calls the
 tool-only `public.list` and `public.get`. `capacity.get` and `order.start` answer outsiders only
 for records their scope shows them. On a publishable object the public's source is the object's
-live view, so the public reads only published versions (below).
+live view, so the public reads only published versions (below). `when` may list up to three
+conditions that all hold, and a condition may be `via` alone: the record that relation points to
+is one the public reads, a row of its object's public source meeting its own `when`, one step and
+no chains (stage 37 step 5, [ADR 0689](adr/0689-the-shop-pack-and-public-reads-through-a-public-record.md)).
+The Shop's variant is public while it is active and its item is published.
 
 **The signed-in scope** ([ADR 0447](adr/0447-the-signed-in-scope.md)). `signedIn: { read, when? }`
 has the public scope's shape and is read by every signed-in customer, never the public. Beside a
@@ -2864,6 +2884,7 @@ and the mobile Account tab are plain pages over the same entry.
 | Rostering | `recurring` (duty series, a horizon from its setting), `staffed` (a duty shift is its person's shift), `states`, a pack role (`rostering.team`), grantable and restricted permissions, the roster's rules (`staffing`), the host's tool-only `staffing.*` operations | stage 45: step 4 built (duties, duty series and shifts, the team role, the roster's tools, settings, [ADR 0626](adr/0626-the-rostering-pack-and-bookings-additions.md)); step 6 built (pay periods: `rostering:pay`, restricted and a person's only, who is counted, totals, the not-worked mark, lock, reopen and export, [ADR 0627](adr/0627-pay-periods-the-basis-the-totals-the-lock-and-the-export.md)); step 5 built (each person's private calendar feed: `feed`, `feedRotate`, `feedRevoke`, [ADR 0628](adr/0628-the-staff-calendar-feed-and-the-shared-calendar-writer.md)); step 7 built (the screens as blocks over `@composable-os/pack-rostering/client`, my calendar among them, role clients with grants, `cos rostering import`, [ADR 0629](adr/0629-the-rosters-screens-role-clients-with-grants-and-the-roster-import.md)); checklists (4b) built (a duty's checklist, [ADR 0650](adr/0650-checklists-templates-runs-ticks-and-a-done-run-kept-unchanged.md)) |
 | Daily checklists | no objects: screens and tools over the host's tool-only day-run operations (`checklist.today`, `.day`, `.dayTick`, `.dayDone`, `.days`), tools open to every staff account (`anyStaff`) or held to `checklists:write` (`corePermission`) | built (checklists on their own, [ADR 0651](adr/0651-checklists-on-their-own-a-schedule-a-run-a-day-and-who-may-do-it.md), [ADR 0652](adr/0652-a-tool-for-every-staff-account-and-a-tool-held-to-a-core-permission.md)): Today's checklists (web and the app) and Checklist history; requires nothing |
 | Forms | `publishable` with a slug and no public half, `intake` (form and submission), `states` (moves into and out of spam only by `personApproves` tools), a status, dates, cap and address a person approves, an old address that redirects, a setting a person approves, a low-rating automation | stage 29: step 3 built (forms and submissions, the inbox's tools, views among them "Asked to hear from us", the hourly cap setting, the low-rating notice, the staff form kind, [ADR 0726](adr/0726-the-forms-pack-forms-submissions-and-who-reads-them.md)); the hosted page and blocks, personal links and receipts, Leads as a destination, erase, and the screens and dashboard to come |
+| Shop | `sellable.goods` (sold where its item says) with `stock` and a reorder level told to `shop:stock`, `sellable.delivery` with seeded options and a shipment `grants`, `publishable` items, `public` with a list of conditions and `via` alone, a buyer's `customer` read of their shipments, prices a person approves, supplier fields on Organisation, a pack role (`shop.stockroom`), grantable permissions | stage 37: step 5 built (items, variants, delivery options, shipments, supplier fields, the stockroom role, the country setting, views, the Shop dashboard, the stock and shipment tools, [ADR 0689](adr/0689-the-shop-pack-and-public-reads-through-a-public-record.md)); purchase orders, receipts, counts and write-offs, recorded returns and routine mail, blocks and screens, and the import to come |
 | Memberships | `allowance` (holders, paying for Bookings' classes and, when they say they pay for sessions, its appointments by service: stage 49, [ADR 0764](adr/0764-appointments-in-the-bookings-pack.md)), recurring billing with `recurring.grants` and `recurring.pause`, `sellable.onePerPerson`, `humanOnly` tools, `requires: ["programs", "bookings"]` | stage 32b: steps 5 to 7 built (the behaviour, the pack, plan changes and pauses, the dashboard, views and blocks); the import (step 8) to come |
 
 ### Client repos

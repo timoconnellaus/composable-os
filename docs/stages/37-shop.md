@@ -79,7 +79,7 @@ questions at the end refine later steps and block none of the first ones.
   crossing is marked told (it outlives the notices' purge); a fixed role is told only of objects
   it reads. Left: steps 3 to 14.
 
-- **Step 3** — in progress — branch `feat/stage-37-goods-delivery` — Goods and delivery, and
+- **Step 3** — built — PR #450 — Goods and delivery, and
   `order.quote` (migration 0932,
   ADRs 0682, 0683 and 0685, which amend ADRs 0428, 0435 and 0479): the SDK declarations
   `sellable.goods: { soldIn? }` (a select of `online`, `in_person`, `both`, through the item's
@@ -110,8 +110,24 @@ questions at the end refine later steps and block none of the first ones.
 
 - **Step 4** — not built — needs: step 1, step 3 — Returns and line refunds (`order.return`)
 
-- **Step 5** — not built — needs: step 1, step 3 — The Shop pack's spine: items, variants,
-  delivery options, shipments, supplier fields, the stockroom role
+- **Step 5** — built — PR #455 — The Shop pack's spine: items, variants,
+  delivery options, shipments, supplier fields, the stockroom role (`feat/stage-37-shop-pack`; ADR
+  0689, which amends ADR 0438; no migration): `packs/shop` with items (publishable with a slug,
+  where sold required and not content), variants (goods sold where their item is, stock with a
+  reorder level and quantity told to `shop:stock`, active or retired, the point `shop.buy`, a price
+  a person approves), delivery options (collect and take it now seeded at 0, Standard and
+  International post seeded off with no price; price, free over, countries and active a person
+  approves; all public, take it now included), shipments granted by a paid post or collect line
+  (to pack, packed, sent, ready, collected; void the host's; the buyer reads their own; erase
+  clears the buyer), supplier fields on Organisation, the stockroom role, `shop:read` and
+  `shop:fulfil` grantable, the `country` setting (new post options start with it), views, tabs,
+  the Shop dashboard, and the tools `stockLevels`, `shipmentsToSend`, `markPacked`, `markSent`,
+  `markReady`, `markCollected`. Platform: a read declaration's `when` may list conditions and use
+  `via` alone, so a variant is public only while active and its item is published. Deviations:
+  the variant's name is the whole name (the order line's title); `shop.buy` is on the variant;
+  `shop:manage` and `shop:purchase` wait for the tools that need them (step 6); `shop:stock` is
+  not grantable (the role holds it); a shipment's moves do not know its kind; the cost price is
+  written by nothing yet (step 6).
 
 - **Step 6** — not built — needs: step 5 — Purchase orders, receipts, quick stock-in, counts,
   write-offs, `draftReorder`, `sendPo`

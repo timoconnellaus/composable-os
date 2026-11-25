@@ -54,7 +54,8 @@ export const ACCESS_BYPASS: readonly BypassedPath[] = [
     when: "always",
     authenticates:
       "The HTTP surface decides the caller itself: a bearer device token (looked up by its hash), " +
-      "a customer cookie signed with CUSTOMER_AUTH_SECRET, or a staff credential (an Access JWT " +
+      "a customer cookie signed with CUSTOMER_AUTH_SECRET, a practitioner cookie signed with a key " +
+      "derived from it, or a staff credential (an Access JWT " +
       "verified against the team's keys, issuer and AUD, never trusted unverified); anything else " +
       "is the public. Cross-origin browsers are refused unless listed. The native sign-in routes " +
       "take a code or a handoff code and store only hashes.",
@@ -65,6 +66,14 @@ export const ACCESS_BYPASS: readonly BypassedPath[] = [
     authenticates:
       "Customer sign-in: an emailed code (hashed, single use) and Better Auth sessions signed with " +
       "CUSTOMER_AUTH_SECRET, in their own tables. Never a staff session.",
+  },
+  {
+    path: "/api/practitioner-auth/*",
+    when: "always",
+    authenticates:
+      "Practitioner sign-in (stage 43, ADR 0581): an emailed code (hashed, single use) for an " +
+      "invited or active practitioner account only, and Better Auth sessions signed with a key " +
+      "derived from CUSTOMER_AUTH_SECRET, in their own tables. Never a staff or customer session.",
   },
   {
     path: "/gatekeeper/payments/in/*",

@@ -19291,7 +19291,8 @@
               "extension",
               "customer",
               "public",
-              "device"
+              "device",
+              "practitioner"
             ]
           },
           "operation": {
@@ -70686,6 +70687,504 @@
       ]
     },
     {
+      "name": "practitioner.end",
+      "description": "End an outside practitioner's account, with the reason: they can no longer sign in, and every session of theirs ends at once. An invite not yet accepted is withdrawn the same way. Needs practitioners:manage, and only a person can call it. Returns the account.",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "Practitioner account id (prc_…)"
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500,
+            "description": "Why the account ends"
+          }
+        },
+        "required": [
+          "id",
+          "reason"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "personId": {
+            "type": "string"
+          },
+          "email": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "discipline": {
+            "type": "string"
+          },
+          "practiceId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "invited",
+              "active",
+              "ended"
+            ]
+          },
+          "invitedBy": {
+            "type": "string"
+          },
+          "invitedAt": {
+            "type": "string"
+          },
+          "activatedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "endedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "endedBy": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "endedReason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "lastSignInAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "personId",
+          "email",
+          "name",
+          "discipline",
+          "practiceId",
+          "status",
+          "invitedBy",
+          "invitedAt",
+          "activatedAt",
+          "endedAt",
+          "endedBy",
+          "endedReason",
+          "lastSignInAt"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "practitioner.get",
+        "practitioner.list"
+      ]
+    },
+    {
+      "name": "practitioner.get",
+      "description": "One outside practitioner's account by id (prc_…): name, sign-in address, discipline, practice, state, who invited and ended it and why. Needs practitioners:manage, and only a person can call it. Read-only.",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "Practitioner account id (prc_…)"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "personId": {
+            "type": "string"
+          },
+          "email": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "discipline": {
+            "type": "string"
+          },
+          "practiceId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "invited",
+              "active",
+              "ended"
+            ]
+          },
+          "invitedBy": {
+            "type": "string"
+          },
+          "invitedAt": {
+            "type": "string"
+          },
+          "activatedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "endedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "endedBy": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "endedReason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "lastSignInAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "personId",
+          "email",
+          "name",
+          "discipline",
+          "practiceId",
+          "status",
+          "invitedBy",
+          "invitedAt",
+          "activatedAt",
+          "endedAt",
+          "endedBy",
+          "endedReason",
+          "lastSignInAt"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
+      "name": "practitioner.invite",
+      "description": "Invite an outside practitioner (a physiotherapist, a dietitian) to their own practitioner account, by email, with their name, discipline and optionally the practice (an Organisation) they work for. They accept by signing in with a code emailed to that address. The account is apart from any staff or customer account the same address has, and reaches nothing about any client until that client agrees. The address's Person is used, or made when there is none. Inviting an address whose invite is not yet accepted updates and resends it; an address with an active or ended practitioner account cannot be invited. Needs practitioners:manage, and only a person can call it.",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 254,
+            "description": "Their email address"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "description": "Their name"
+          },
+          "discipline": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80,
+            "description": "What they do, as a label (\"Physiotherapist\", \"Dietitian\")"
+          },
+          "practiceId": {
+            "description": "The practice they work for: an Organisation's id (org_…)",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          }
+        },
+        "required": [
+          "email",
+          "name",
+          "discipline"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "personId": {
+            "type": "string"
+          },
+          "email": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "discipline": {
+            "type": "string"
+          },
+          "practiceId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "invited",
+              "active",
+              "ended"
+            ]
+          },
+          "invitedBy": {
+            "type": "string"
+          },
+          "invitedAt": {
+            "type": "string"
+          },
+          "activatedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "endedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "endedBy": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "endedReason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "lastSignInAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "invitationEmail": {
+            "type": "string",
+            "enum": [
+              "sent",
+              "pending",
+              "not_sent"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "personId",
+          "email",
+          "name",
+          "discipline",
+          "practiceId",
+          "status",
+          "invitedBy",
+          "invitedAt",
+          "activatedAt",
+          "endedAt",
+          "endedBy",
+          "endedReason",
+          "lastSignInAt",
+          "invitationEmail"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "practitioner.get",
+        "practitioner.list"
+      ]
+    },
+    {
+      "name": "practitioner.list",
+      "description": "List the outside practitioners (physiotherapists, dietitians and the like) the business has invited: each one's name, sign-in address, discipline, practice, whether they are invited (not yet signed in), active or ended, and who invited and ended them. Needs practitioners:manage, and only a person can call it. Read-only.",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "description": "Only accounts in this state",
+            "type": "string",
+            "enum": [
+              "invited",
+              "active",
+              "ended"
+            ]
+          }
+        }
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "personId": {
+                  "type": "string"
+                },
+                "email": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "discipline": {
+                  "type": "string"
+                },
+                "practiceId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "invited",
+                    "active",
+                    "ended"
+                  ]
+                },
+                "invitedBy": {
+                  "type": "string"
+                },
+                "invitedAt": {
+                  "type": "string"
+                },
+                "activatedAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "endedAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "endedBy": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "endedReason": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "lastSignInAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "personId",
+                "email",
+                "name",
+                "discipline",
+                "practiceId",
+                "status",
+                "invitedBy",
+                "invitedAt",
+                "activatedAt",
+                "endedAt",
+                "endedBy",
+                "endedReason",
+                "lastSignInAt"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
       "name": "query.sql",
       "description": "Run one read-only SQL query (SQLite dialect) over the rec_* views: rec_person, rec_organisation, rec_affiliation, rec_activity, rec_activity_link, rec_task, rec_task_link, rec_record_tag, rec_user, rec_publish_version (the published versions of publishable records, without their content), rec_capacity and rec_capacity_claim (places, held, taken and claims of records with a capacity), rec_allowance, rec_allowance_period and rec_allowance_use (passes' and memberships' uses: terms, counts per period, every use spent or given back), rec_stock_movement (the stock ledger: every movement of a record with stock, its kind, signed quantity, place and source; on hand is rec_capacity's places - taken), rec_order, rec_order_line, rec_order_adjustment, rec_order_payment and rec_order_refund (orders, their lines, money off, and payments and refunds by method), rec_discount_use (each order a discount was used on: held, used or released, and what it took off), rec_stage_history (stage entered/left times, days_in_stage), rec_state_history (the same for objects with a state machine: state, is_final, days_in_state) and extension objects as rec_x_<ext>_<object> (e.g. rec_x_deals_deal; see schema.objects). Only a single SELECT or WITH is allowed; core_* and sqlite_* tables, PRAGMA, ATTACH, writes, recursive CTEs and named parameters are refused. Pass values as params bound to ? (or ?1, ?2) placeholders, never by pasting them into the SQL. Multi-valued columns (emails, domains, tags) are JSON arrays: use json_each. Returns at most maxRows rows (default 200, max 1000) with truncated set when there were more, and fails after timeoutMs (default 5000). Use list operations for simple filtering; use this for joins, grouping and counts. Read-only.",
       "risk": "read",
@@ -114009,6 +114508,753 @@
         "x.rostering.week"
       ],
       "pack": "rostering"
+    },
+    {
+      "name": "x.shop.markCollected",
+      "description": "Mark a ready shipment collected: the buyer has picked it up. It cannot be undone. (Extension tool from Shop 0.1.0.)",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "shipmentId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "The shipment's id"
+          }
+        },
+        "required": [
+          "shipmentId"
+        ],
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "moved": {
+            "type": "boolean"
+          },
+          "message": {
+            "type": "string"
+          },
+          "shipment": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "name": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "orderId": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "kind": {
+                "description": "post or collect",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "state": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "tracking": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "collectAt": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "buyerId": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "buyer": {
+                "description": "The buyer's name, if they are a Person",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "createdAt": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "id",
+              "name",
+              "orderId",
+              "kind",
+              "state",
+              "tracking",
+              "collectAt",
+              "buyerId",
+              "buyer",
+              "createdAt"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "moved",
+          "message",
+          "shipment"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "x.shop.shipmentsToSend",
+        "x.shop.stockLevels"
+      ],
+      "pack": "shop"
+    },
+    {
+      "name": "x.shop.markPacked",
+      "description": "Mark a shipment packed: its goods are boxed and waiting to be sent or collected. Safe to call twice; two people at once: one marks it, the other is told. (Extension tool from Shop 0.1.0.)",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "shipmentId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "The shipment's id"
+          }
+        },
+        "required": [
+          "shipmentId"
+        ],
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "moved": {
+            "type": "boolean"
+          },
+          "message": {
+            "type": "string"
+          },
+          "shipment": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "name": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "orderId": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "kind": {
+                "description": "post or collect",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "state": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "tracking": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "collectAt": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "buyerId": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "buyer": {
+                "description": "The buyer's name, if they are a Person",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "createdAt": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "id",
+              "name",
+              "orderId",
+              "kind",
+              "state",
+              "tracking",
+              "collectAt",
+              "buyerId",
+              "buyer",
+              "createdAt"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "moved",
+          "message",
+          "shipment"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "x.shop.shipmentsToSend",
+        "x.shop.stockLevels"
+      ],
+      "pack": "shop"
+    },
+    {
+      "name": "x.shop.markReady",
+      "description": "Mark a shipment to collect as ready: its goods are waiting where the buyer collects them. (Extension tool from Shop 0.1.0.)",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "shipmentId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "The shipment's id"
+          }
+        },
+        "required": [
+          "shipmentId"
+        ],
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "moved": {
+            "type": "boolean"
+          },
+          "message": {
+            "type": "string"
+          },
+          "shipment": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "name": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "orderId": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "kind": {
+                "description": "post or collect",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "state": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "tracking": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "collectAt": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "buyerId": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "buyer": {
+                "description": "The buyer's name, if they are a Person",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "createdAt": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "id",
+              "name",
+              "orderId",
+              "kind",
+              "state",
+              "tracking",
+              "collectAt",
+              "buyerId",
+              "buyer",
+              "createdAt"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "moved",
+          "message",
+          "shipment"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "x.shop.shipmentsToSend",
+        "x.shop.stockLevels"
+      ],
+      "pack": "shop"
+    },
+    {
+      "name": "x.shop.markSent",
+      "description": "Mark a posted shipment sent, with the carrier's tracking reference if there is one. It cannot be undone. The buyer sees the state and the reference on their own shipments. (Extension tool from Shop 0.1.0.)",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "shipmentId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "The shipment's id"
+          },
+          "tracking": {
+            "type": "string",
+            "maxLength": 200,
+            "description": "The carrier's tracking reference"
+          }
+        },
+        "required": [
+          "shipmentId"
+        ],
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "moved": {
+            "type": "boolean"
+          },
+          "message": {
+            "type": "string"
+          },
+          "shipment": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "name": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "orderId": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "kind": {
+                "description": "post or collect",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "state": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "tracking": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "collectAt": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "buyerId": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "buyer": {
+                "description": "The buyer's name, if they are a Person",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "createdAt": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "id",
+              "name",
+              "orderId",
+              "kind",
+              "state",
+              "tracking",
+              "collectAt",
+              "buyerId",
+              "buyer",
+              "createdAt"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "moved",
+          "message",
+          "shipment"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "x.shop.shipmentsToSend",
+        "x.shop.stockLevels"
+      ],
+      "pack": "shop"
+    },
+    {
+      "name": "x.shop.shipmentsToSend",
+      "description": "What paid online orders have left to do: shipments to pack, packed ones to send or have ready, and those waiting to be collected, oldest first, with the buyer's name, the kind (post or collect), where to collect and the tracking reference. Read-only. (Extension tool from Shop 0.1.0.)",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "state": {
+            "type": "string",
+            "enum": [
+              "to_pack",
+              "packed",
+              "ready"
+            ],
+            "description": "Only shipments in this state; left out, all three"
+          }
+        },
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "shipments": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "orderId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "kind": {
+                  "description": "post or collect",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "state": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "tracking": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "collectAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "buyerId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "buyer": {
+                  "description": "The buyer's name, if they are a Person",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "createdAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "name",
+                "orderId",
+                "kind",
+                "state",
+                "tracking",
+                "collectAt",
+                "buyerId",
+                "buyer",
+                "createdAt"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "shipments"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [],
+      "pack": "shop"
+    },
+    {
+      "name": "x.shop.stockLevels",
+      "description": "The stock of the shop's active variants: on hand, held by orders being paid for, available, the reorder level and quantity, and the usual supplier, lowest first. Use lowOnly for 'what's low?' (on hand at or below the reorder level), and category or supplierId to narrow it. Numbers are the host's, kept from the stock ledger; this changes nothing. Read-only. (Extension tool from Shop 0.1.0.)",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "lowOnly": {
+            "type": "boolean",
+            "description": "Only variants at or below their reorder level"
+          },
+          "category": {
+            "type": "string",
+            "maxLength": 80,
+            "description": "Only items of this category"
+          },
+          "supplierId": {
+            "type": "string",
+            "maxLength": 64,
+            "description": "Only variants this organisation supplies"
+          }
+        },
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "variants": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "variantId": {
+                  "type": "string"
+                },
+                "variant": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "itemId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "item": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "category": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "onHand": {
+                  "type": "number",
+                  "description": "On the shelf now: opening, received and returned, less sold"
+                },
+                "held": {
+                  "type": "number",
+                  "description": "Held by orders being paid for"
+                },
+                "available": {
+                  "type": "number",
+                  "description": "On hand less held: what can still be sold"
+                },
+                "reorderAt": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "reorderQty": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "low": {
+                  "type": "boolean",
+                  "description": "On hand is at or below the reorder level"
+                },
+                "supplierId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "supplier": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "variantId",
+                "variant",
+                "itemId",
+                "item",
+                "category",
+                "onHand",
+                "held",
+                "available",
+                "reorderAt",
+                "reorderQty",
+                "low",
+                "supplierId",
+                "supplier"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "truncated": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "variants",
+          "truncated"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [],
+      "pack": "shop"
     },
     {
       "name": "x.ticketing.checkIn",

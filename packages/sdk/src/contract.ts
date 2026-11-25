@@ -857,21 +857,37 @@ export const TOOL_AUDIENCES = ["staff", "customer", "public", "device"] as const
 export type ToolAudience = (typeof TOOL_AUDIENCES)[number];
 
 /**
- * What the public may read of an object (ADR 0438). `when` is a condition on a state (a select
- * field) of the record itself, or, with `via`, of the record one of its relations points to: an
- * event while it is `on_sale`; a ticket type while its event is.
+ * One condition of a `public` or `signedIn` declaration's `when` (ADRs 0438 and 0689): a state (a
+ * select field) of the record itself, or, with `via`, of the record one of its relations points
+ * to; or, `via` alone (in `public` only), that the record it points to is one the public reads
+ * (published, if its object is publishable, and meeting its own `when`): a variant while its item
+ * is published.
+ */
+export type PublicCondition =
+  | {
+      /** A relation of this object, to another object of this extension: test that record. */
+      via?: string;
+      /** A select field (of this record, or of the one `via` points to). */
+      field: string;
+      /** The values for which the record is public. */
+      in: readonly string[];
+    }
+  | {
+      /** A relation of this object, to another object of this extension that declares `public`. */
+      via: string;
+      field?: undefined;
+      in?: undefined;
+    };
+
+/**
+ * What the public may read of an object (ADR 0438). `when` is a condition, or a list of up to
+ * three that must all hold (ADR 0689): an event while it is `on_sale`; a ticket type while its
+ * event is; a variant while it is `active` and its item is published.
  */
 export interface PublicSpec {
   read: readonly string[];
   /** Left out, every live record is public (a catalogue item). */
-  when?: {
-    /** A relation of this object, to another object of this extension: test that record. */
-    via?: string;
-    /** A select field (of this record, or of the one `via` points to). */
-    field: string;
-    /** The values for which the record is public. */
-    in: readonly string[];
-  };
+  when?: PublicCondition | readonly PublicCondition[];
 }
 
 /**

@@ -95,6 +95,28 @@
       ]
     },
     {
+      "name": "shop.stockroom",
+      "pack": "shop",
+      "label": "Stockroom",
+      "description": "Sees the items, the variants and their stock levels, for someone who only receives and counts stock. Nothing else: no people, orders, prices to change or settings.",
+      "read": ["shop.item", "shop.variant"],
+      "operations": [
+        "ack.confirm",
+        "ack.mine",
+        "content.search",
+        "content.staffGet",
+        "content.staffList",
+        "record.get",
+        "record.list",
+        "screens.mine",
+        "x.dailychecks.day",
+        "x.dailychecks.done",
+        "x.dailychecks.tick",
+        "x.dailychecks.today",
+        "x.shop.stockLevels"
+      ]
+    },
+    {
       "name": "ticketing.door",
       "pack": "ticketing",
       "label": "Door",
@@ -234,6 +256,26 @@
         "x.rostering.week",
         "x.rostering.withdraw"
       ]
+    },
+    {
+      "permission": "shop:fulfil",
+      "pack": "shop",
+      "label": "Shop orders: see what is to pack, send or hand over, and mark it packed, sent, ready or collected.",
+      "restricted": false,
+      "operations": [
+        "x.shop.markCollected",
+        "x.shop.markPacked",
+        "x.shop.markReady",
+        "x.shop.markSent",
+        "x.shop.shipmentsToSend"
+      ]
+    },
+    {
+      "permission": "shop:read",
+      "pack": "shop",
+      "label": "Shop stock: see every variant's stock, what is held by orders being paid and what is low.",
+      "restricted": false,
+      "operations": ["x.shop.stockLevels"]
     }
   ],
   "requires": {
