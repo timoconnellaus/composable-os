@@ -193,6 +193,7 @@ describe("Stripe's payouts", () => {
       currency: "NZD",
       paymentRef: "pi_1",
       refundRef: null,
+      reversalOf: null,
       occurredAt: new Date(1_776_000_000_000).toISOString(),
     });
     expect(
@@ -230,7 +231,7 @@ describe("Stripe's payouts", () => {
         id: "txn_5",
         amount: 50,
         fee: 0,
-        reporting_category: "payout_reversal",
+        reporting_category: "other_adjustment",
       }),
     ).toMatchObject({ kind: "adjustment", paymentRef: null });
     // The payout's own balance transaction is not one of its lines.
@@ -304,5 +305,70 @@ describe("Stripe's payouts", () => {
     });
     const down = stripe(() => new Response("{}", { status: 503 }));
     await expect(down.provider.listPayouts({ since: "2026-04-01" })).rejects.toThrow();
+    // A revoked, expired or wrong key is a broken connection, not a missing scope: thrown.
+    const revoked = stripe(
+      () =>
+        new Response(JSON.stringify({ error: { type: "invalid_request_error" } }), { status: 401 }),
+    );
+    await expect(revoked.provider.listPayouts({ since: "2026-04-01" })).rejects.toThrow(
+      /401.*needs attention/,
+    );
+    await expect(revoked.provider.payoutLines({ payoutRef: "po_1" })).rejects.toThrow(/401/);
+  });
+
+  it("maps a payout's failure line to the payout it returns, and counts what it cannot read", async () => {
+    const base = { currency: "aud", created: 1_776_000_000 };
+    expect(
+      stripePayoutLineRead({
+        ...base,
+        id: "txn_r",
+        type: "payout_failure",
+        reporting_category: "payout_reversal",
+        amount: 25_000,
+        fee: 0,
+        source: "po_failed",
+      }),
+    ).toMatchObject({ kind: "payout_reversal", reversalOf: "po_failed", amount: 25_000 });
+    const { provider } = stripe(() =>
+      ok({
+        data: [
+          { ...base, id: "txn_1", amount: 100, fee: 0, reporting_category: "charge", source: { payment_intent: "pi_1" } },
+          { ...base, id: "txn_payout", amount: -100, fee: 0, reporting_category: "payout" },
+          { id: "txn_bad", reporting_category: "charge" },
+        ],
+        has_more: false,
+      }),
+    );
+    const page = await provider.payoutLines({ payoutRef: "po_1" });
+    expect(page).toMatchObject({ next: null, unreadable: 1 });
+    if (page.unavailable) throw new Error("unavailable");
+    expect(page.lines.map((l) => l.ref)).toEqual(["txn_1"]);
+  });
+});
+
+describe("the fake provider's failures and cursors", () => {
+  it("a failed payout's money comes back in the next payout as a reversal line naming it", async () => {
+    const ledger = fakeLedger(env);
+    await ledger.configurePayoutReads({ auto: false, pageSize: 100, reads: "ok" });
+    const first = await ledger.makePayout({
+      currency: "AUD",
+      none: true,
+      extra: [{ kind: "adjustment", amount: 25_000 }],
+    });
+    if (!first) throw new Error("no payout");
+    await ledger.failPayout(first.ref);
+    const next = await ledger.makePayout({ currency: "AUD", none: false, only: [] });
+    expect(next?.lines.map((l) => [l.kind, l.amount, l.reversalOf])).toEqual([
+      ["payout_reversal", 25_000, first.ref],
+    ]);
+    // Paid again once: the next payout carries it no more.
+    expect(await ledger.makePayout({ currency: "AUD", only: [] })).toBeNull();
+  });
+
+  it("an unknown cursor is refused, never answered with the first page again", async () => {
+    const h = await host();
+    await expect(
+      h.call("listPayouts", [{ since: "2026-01-01", after: "fpo_unknown" }]),
+    ).rejects.toThrow(/cursor/);
   });
 });
