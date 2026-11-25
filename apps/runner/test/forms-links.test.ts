@@ -554,6 +554,36 @@ describe("the receipt (criterion 15)", { timeout: 90_000 }, () => {
     expect(statuses.results.map((r) => r.status).filter((s) => s === "over_limit")).toHaveLength(1);
   });
 
+  it("has a daily cap of its own: past it a receipt is not sent, and other routine email is not held", async () => {
+    await run("routineMail.settings.update", { receiptDailyCap: 1 }, staff());
+    try {
+      const survey = await makeForm({ answeredBy: "customers", title: unique("Capped survey") });
+      const who = await member("receiptcap");
+      await run(
+        "x.forms.submit",
+        { id: survey.id, version: 1, answers: { score: 3 }, via: "app" },
+        outside(who),
+      );
+      const [submission] = await submissionsOf(survey.id);
+      await finished("forms.receipt", String(submission?.id));
+      const row = await env.DB.prepare(
+        "SELECT status, error, body FROM core_routine_mail WHERE kind = 'forms.receipt' AND record_id = ?",
+      )
+        .bind(submission?.id)
+        .first();
+      expect(row).toMatchObject({ status: "over_limit", body: null });
+      expect(String(row?.error)).toMatch(/receipts went out today/);
+      // Receipts do not count toward the routine email cap: a member's feedback still goes.
+      const other = await member("notheld");
+      await givePass(other.personId);
+      const booking = await cameTo(other);
+      await feedbackDue(booking);
+      await mailsOnce(other.email, 1);
+    } finally {
+      await run("routineMail.settings.update", { receiptDailyCap: 200 }, staff());
+    }
+  });
+
   it("none for answers staff entered, nor for a form whose receipt is off", async () => {
     const desk = await makeForm({ answeredBy: "staff", title: unique("Phone enquiry") });
     const email = `${unique("caller")}@members.test`.toLowerCase();

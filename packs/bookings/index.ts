@@ -1703,7 +1703,8 @@ export default defineExtension({
       type: "text",
       label: "Feedback form (its address)",
       description:
-        "The address of a Forms form (open, published, not anonymous) that members are asked to " +
+        "The address of a Forms form answered by personal link (open, published, Who may answer: " +
+        "By personal link) that members are asked to " +
         "answer after a class they came to, with a link that works once and for a week; at most " +
         "once a month each, a child's to their parent or guardian. Empty: nobody is asked.",
       personApproves: true,

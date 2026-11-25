@@ -29,7 +29,10 @@ and slots that read only the submission's form (`form.<field>`): never an answer
 anything the sender typed. The host (`receiptRecipientsOf`, `packages/core/src/routine-mail/`):
 
 - **Who:** the submission's Person, at, by certainty: `account`, their own verified sign-in
-  address; `link`, their primary address (where the host sent the link); `address`, the address
+  address; `link`, whoever answered it (the link's `used_by`, ADR 0723): by a token, the primary
+  address of the Person its email went to (the member, or a guardian); signed in by the link's id,
+  that customer's own verified sign-in address; never a child's own address (a link whose Person
+  has a live guardian, answered as themselves, gets none); `address`, the address
   they typed, when the same-email rule says it is that Person's. `staff` (answers staff entered),
   an anonymous submission (no Person), one kept as spam, and a Person erased, merged away or in the
   Trash get none.
@@ -40,17 +43,27 @@ anything the sender typed. The host (`receiptRecipientsOf`, `packages/core/src/r
   Which address is primary is not checked: the receipt goes to the one given.
 - **At most three a day to one mailbox** (`RECEIPT_DAILY_CAP`, counted by `mailboxKey` over the
   kind's rows of the last 24 hours that were not off, stopped, failed or over the limit): the
-  fourth is kept `over_limit`, with no words, and never sent or held. ADR 0590's 20 a day and the
-  organisation's cap still apply at the claim. The count is at preparing, not in the claim's
-  statement: two answers prepared at the same instant may both pass (bounded by the caps above).
+  fourth is kept `over_limit`, with no words, and never sent or held. ADR 0590's 20 a day per
+  mailbox still applies at the claim. The count is at preparing, not in the claim's statement: two
+  answers prepared at the same instant may both pass (bounded by the 20).
+- **A cap of their own for the organisation** (`receiptDailyCap`, default 200 a rolling day, a
+  human admin's in Settings → Routine email): counted in the claim's statement over receipt kinds
+  only; past it the rest are kept `over_limit`, not sent and not held, and the admins told once a
+  day. Receipts are left out of the organisation's routine email cap (`orgDailyCap`), so answers
+  from typed addresses (the door allows 200 an hour) never use up the room booking confirmations
+  and reminders need. 200 is a busy day's answers for a gym; raise it for a campaign.
 - Consent and the suppression list are asked as for every routine email; a receipt is essential
   (purpose `account`), so it carries no stop link.
 
-The Forms pack declares `forms.receipt` ("We got your answers: {form}", the form's title only)
-and the automation that asks for it when a submission is created, when the form's receipt is on
-and it is not anonymous. The business's name is not in the words: routine mail has no slot for
-the organisation's name that a person stands behind (its general settings others may change, the
-review of PR #339); the email comes from the business's own address.
+**The business's name** (decision 3) is a host slot, `{ business: true }`: the name a human admin
+gave in Settings → Routine email (`senderName`, `routineMail.settings.update`, human only, the one
+texts begin with), checked as any value is (`unroutineText`), never the general settings others
+may change (the review of PR #339). Not set, the email is held for a person.
+
+The Forms pack declares `forms.receipt` ("{business}: we got your answers" / "Thank you:
+{business} got your answers to {form}. …", the business's name and the form's title only) and
+the automation that asks for it when a submission is created, when the form's receipt is on and
+it is not anonymous. Decided (the coordinator, 2026-11-25): no receipt for answers staff entered.
 
 ### The form-link slot
 
@@ -66,17 +79,21 @@ While preparing the send (`planLink`), the host:
 1. drops an order's address and, when the record's Person has a live guardian, the Person's own
    address: a child's link goes to their guardians only;
 2. finds the form by the setting, open to answers by link now (published, open, within its dates,
-   not a staff form, not anonymous); with none, each email that would go is kept `failed` with the
-   reason (an email asking for feedback without its link is never sent);
+   not anonymous) and **answered by personal link only** (`links`), so a feedback link can never
+   make a record elsewhere a public form would (a Lead); with none, each email that would go is
+   kept `failed` with the reason (an email asking for feedback without its link is never sent);
 3. with `once`, sends nothing (no rows) when the Person was sent a link to that form about another
-   record within that many days;
-4. finds or makes the link for (Person, form, record): made by an earlier send about the same
-   record, nothing is sent; found by a retried step of the same send (`made_for` is the kind and
-   the run its chain began with), it is reused;
-5. for each email that may go (consent asked first, ADR 0675: one that is stopped or suppressed
-   makes no link and no token), makes a token and writes the link's address on the business's site
-   (`<site>/form?t=<token>`, `PERSONAL_LINK_PATH`). Without the site set no link can be made, and
-   the email is kept `failed` with the reason.
+   record within that many days; asked about this record already (another send), nothing;
+4. for each email that may go (consent asked first, ADR 0675), writes a placeholder where the link
+   goes and keeps the plan on the row (`form_link`: the form, the Person, the record, the cool-down
+   and who the email goes to), never a token. One that would wait for a person (the pack's routine
+   email off, a value held) or has no email connection is kept `failed` with why and no words;
+5. when the row is claimed and still routine after the caps, under a policy that sends routine
+   email on its own (ADR 0723), makes or finds the link (`made_for` is the kind and the run its
+   chain began with, so a retried step and a second guardian reuse it; the insert trigger keeps
+   `once` under a race) and a token for this email, and writes the link's address on the business's
+   site (`<site>/form?t=<token>`, `PERSONAL_LINK_PATH`) into the words it hands the gatekeeper,
+   never into the row. Over a cap, or reviewed by the policy, it is settled `failed`, not held.
 
 The link is on the business's site, so the email gatekeeper's rule (every link in a routine email
 on the site) holds unchanged; the stop link is still the last line, and the `List-Unsubscribe`
@@ -106,3 +123,7 @@ often, by which form and with which link is the host's.
 | The receipt to a signed-in member's own address, fixed words; the fourth in a day not sent; none for staff's answers or a receipt off | `apps/runner/test/forms-links.test.ts` ("the receipt") |
 | Feedback after the set minutes, once a month; a child's to the guardian only | `apps/runner/test/forms-links.test.ts` ("feedback after a class") |
 | A Person who stopped follow-ups, or is suppressed, is not asked and no link is made | `apps/runner/test/forms-links.test.ts` ("nobody who stopped is asked") |
+| An email with a link never waits for a person: routine off, a cap at the claim, no connection | `apps/runner/test/forms-links.test.ts` ("a personal link never waits for a person") |
+| A feedback form must be a `links` form | the same ("a feedback form must be one answered by personal link") |
+| A child's link answer's receipt goes to the guardian, by token and signed in; never the child | `apps/runner/test/forms-links.test.ts` ("the receipt of a child's link") |
+| The receipt names the business from Settings → Routine email | `apps/runner/test/forms-links.test.ts` ("the receipt") |

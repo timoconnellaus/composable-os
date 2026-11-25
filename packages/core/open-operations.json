@@ -610,8 +610,20 @@
       "pack": "forms"
     },
     {
+      "name": "x.forms.linkedForm",
+      "audiences": ["customer"],
+      "risk": "read",
+      "pack": "forms"
+    },
+    {
       "name": "x.forms.submit",
       "audiences": ["customer", "public"],
+      "risk": "write",
+      "pack": "forms"
+    },
+    {
+      "name": "x.forms.submitLinked",
+      "audiences": ["customer"],
       "risk": "write",
       "pack": "forms"
     },

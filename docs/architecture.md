@@ -1877,22 +1877,31 @@ and [ADR 0724](adr/0724-the-receipt-and-the-form-link-slot.md), `packages/core/s
 migration 1010). A personal link is a host row (`core_intake_link`: one Person, one form, optionally
 the record it is about, an expiry, when it was used) with one token per email that carries it, of
 which only the SHA-256 is kept (`core_intake_link_token`): 32 random bytes, no signing key, as the
-stop link's. Only routine mail's **form-link slot** (`{ formLink: { object, setting, days, once } }`)
-makes one, while it prepares an email for the record's own Person: never to a child's own address
-(their guardians get it), not again about the same record, not within the slot's `once` days, and
-none for an email the register stops; the link is on the business's site (`/form?t=`), so the email
-gatekeeper's rule holds unchanged. `intake.open` and `intake.submit` take the token (`link`, from
-anyone holding it: no Turnstile token or shown time) or, for a signed-in customer whose link (or
-whose live dependant's) it is, its id (`linkId`, from "Needs your attention", kind `form_to_fill`).
+stop link's. Only routine mail's **form-link slot** (`{ formLink: { object, setting, days, once } }`,
+a `links` form) makes one, for the record's own Person: never to a child's own address (their
+guardians get it), not again about the same record, not within the slot's `once` days (kept by the
+insert trigger), and none for an email the register stops. Preparing plans it; the link and the
+email's token are made only when `claimRoutineMail` sends the email on its own (still routine after
+the caps, under a policy that sends routine email without review), and the token goes only into
+the words handed to the gatekeeper, never a row, an approval or a pending action; an email with a
+link that would wait for a person is kept failed, and a link whose email did not go is withdrawn.
+The link is on the business's site (`/form?t=`), so the email gatekeeper's rule holds unchanged.
+`intake.open` and `intake.submit` take the token (`link`, from anyone holding it: no Turnstile
+token or shown time) or, for a signed-in customer whose link (or whose live dependant's) it is,
+its id (`linkId`, from "Needs your attention", kind `form_to_fill`, through Forms' customer-only
+tools). A child's link fills none of the child's fields.
 The answers are the link's Person's (certainty `link`), to that form only, tied to the record in the
 submission's host-only `about` and `aboutObject`; the answers' batch uses the link by its id and
 migration 1010's trigger fails it when it is already used or expired, so of two racing answers one
 commits. Every refusal is one answer; opening a link uses nothing; `link` is redacted from the audit
 log. Erase deletes links with their Person (the cascade); merge moves them to the survivor. A
-routine kind declaring `receipt: true` (about an intake submission, the form's fields only) goes to
-whoever sent the answers: their sign-in address, the address the link went to, or the address they
-typed, which may carry the public's mark (the amendment to ADR 0590); never for staff's answers,
-spam or an anonymous form; the fourth in a day to one mailbox is kept `over_limit`. Forms declares
+routine kind declaring `receipt: true` (about an intake submission, the form's fields and the
+business's name from Settings → Routine email only) goes to whoever sent the answers: their sign-in
+address, whoever answered the link (`used_by`: the token's recipient or the signed-in customer),
+or the address they typed, which may carry the public's mark (the amendment to ADR 0590); never for
+staff's answers, spam or an anonymous form; the fourth in a day to one mailbox is kept
+`over_limit`, and receipts have the organisation's daily cap of their own (`receiptDailyCap`,
+200), outside the routine email cap. Forms declares
 `forms.receipt`; Bookings declares `bookings.feedback` with the slot and its automation.
 
 **`publishable`** ([ADR 0446](adr/0446-publishable-without-its-public-half.md),

@@ -92,11 +92,12 @@ the host's operations and add no rules of their own.
   host did, as [routine mail](/packs/bookings/messages/) an admin can turn off.
 - **Feedback after a class** is routine mail too (`feedback`, a follow-up a member can stop with
   one tap): a few hours after a member is ticked as come (`feedbackMinutes`, 3 hours by default),
-  when a Forms form is chosen (`feedbackForm`, its address), the host emails a personal link to
-  it, made for the booking's Person about that booking, good for a week. The host sends it at most
+  when a Forms form answered by personal link is chosen (`feedbackForm`, its address), the host
+  emails a personal link to it, made for the booking's Person about that booking, good for a week. The host sends it at most
   once a month to a member, never to a child's own address (their parents or guardians get it),
   and never to someone who stopped follow-ups; the same link is the member's Needs your attention
-  item, and the answer is tied to the booking. It needs the Forms pack and the business's site.
+  item, and the answer is tied to the booking. It needs the Forms pack, the business's site and
+  Bookings' routine email turned on: an email with a personal link is never sent for approval.
 
 ## Main flows
 

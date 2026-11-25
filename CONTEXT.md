@@ -2657,9 +2657,10 @@ database; a used, expired or unknown link is one refusal, and opening one uses n
 _Avoid_: magic link (sign-in's), invitation, signed link, stop link (contact's, ADR 0675)
 
 **Receipt** (stage 29, ADR 0724)
-The short routine email whoever sent answers gets: the form's title and nothing they typed, to
-their own sign-in address, the address their personal link went to, or the address they typed; at
-most three a day to one mailbox, never for answers staff entered, spam or an anonymous form.
+The short routine email whoever sent answers gets: the business's name and the form's title and
+nothing they typed, to their own sign-in address, whoever answered their personal link (never a
+child's own address), or the address they typed; at most three a day to one mailbox and a daily
+number of its own for the organisation, never for answers staff entered, spam or an anonymous form.
 _Avoid_: confirmation (a booking's), acknowledgement
 
 **Form** (stage 29, the Forms pack)
