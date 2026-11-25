@@ -65,12 +65,19 @@ merge; step 4 builds on, or builds, stage 34's shared step "an order paid anothe
   step 11 an erase leaves a draft's text and a merge leaves documents on the merged-away Person
   (step 11 amends the update triggers for the re-point; ADR 0730).
 
-- **Step 3** — in progress — branch `feat/stage-35-invoice-orders` — Issue as an order
+- **Step 3** — built — PR #460 — Issue as an order: `invoice.issue` numbers the draft and starts its
+  order in one batch through `createOrder` (priced lines, line discounts as `staff` adjustments,
+  the host's `rounding` and `prepaid` kinds, no deal, the goods rules: goods refused, the document's
+  tax, no expiry, its due date), `invoice.allowPartPayments`; `order.*` refuses to move it;
+  migration 1031, ADR 0731
 
-- **Step 4** — in progress — branch `feat/stage-35-invoice-orders` — Recorded payments and
-  reversal, on stage 34's shared step (built there by PR #426)
+- **Step 4** — built — PR #460 — Recorded payments and reversal, on stage 34's shared step (built
+  there by PR #426): `invoice.recordPayment` and `invoice.reversePayment` (`invoices:payments`,
+  human only), the settle path writing the event log; ADR 0733 (0734 stays free)
 
-- **Step 5** — in progress — branch `feat/stage-35-invoice-orders` — Credit notes and void
+- **Step 5** — built — PR #460 — Credit notes and void: `creditNote.create/get/list/delete/issue`
+  and `invoice.void`, `core_order.credited`, refunds by method per payment
+  (`core_credit_note_refund`), never more than was paid; ADR 0735
 
 - **Step 6** — not built — needs: step 2 — Quotes and acceptance (the deposit invoice needs step 3)
 
