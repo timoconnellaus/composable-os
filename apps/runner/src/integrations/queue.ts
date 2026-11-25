@@ -14,15 +14,23 @@ import {
   type ActingUser,
   type ApplyOutcome,
   auditOutboundApplied,
+  checkSend,
+  contactAtSubmit,
   type IntegrationCaller,
+  isSendPurpose,
   type OutboundDescription,
   type OutboundSubmission,
   type PendingApproval,
+  PURPOSE_REQUIRED_MESSAGE,
   parseApplyOutcome,
   parseFloor,
+  RECIPIENT_STOPPED_MESSAGE,
   readCountHour,
+  type SenderStanding,
+  type SendPurpose,
   type SignInMailOrigin,
   submitOutbound,
+  withStopLinks,
 } from "@composable-os/core";
 import { createCrmDb } from "@composable-os/db";
 import { runnerJudge } from "../extensions/ai.ts";
@@ -266,8 +274,70 @@ export class HostQueue extends RpcTarget {
     return this.#caller.kind === "system" && this.#caller.purpose === "orders";
   }
 
+  /** Who this queue's caller is, for consent (ADR 0678); null for the host's own work. */
+  #standing(): SenderStanding | null {
+    if (this.#caller.kind !== "actor") return null;
+    // Host code calling as the system on an org connection (origin `system`, set by platform code,
+    // never by a caller): staff notices to staff accounts and the invite notice, the host's own
+    // account mail.
+    if (this.#caller.caller.origin.surface === "system") return null;
+    return this.#caller.caller.actor === "human" ? "staff" : "other";
+  }
+
+  /**
+   * Consent to be contacted (stage 30, ADR 0678): a gatekeeper asks before it queues a caller's
+   * email, with the addresses it would go to and the purpose the caller declared. The host drops
+   * who may not be contacted (only how many is said), refuses when nobody is left, and gives a
+   * stoppable message each Person's own stop link for the gatekeeper to end their copy with. The
+   * host's own queues (routine mail, sign-in codes, an agreement's copy, an order's mail) are
+   * asked on their own paths or are essential: everyone passes. What it allowed is remembered, so
+   * the send the gatekeeper then submits is known to have asked.
+   */
+  async contactCheck(input: { channel?: unknown; to?: unknown; purpose?: unknown }): Promise<{
+    allowed: { to: string; stop: string | null }[];
+    dropped: number;
+  }> {
+    const to = Array.isArray(input?.to) ? input.to.map(String).slice(0, 500) : [];
+    const channel = input?.channel === "text" ? "text" : "email";
+    const sender = this.#standing();
+    if (!sender) return { allowed: to.map((t) => ({ to: t, stop: null })), dropped: 0 };
+    if (input?.purpose !== undefined && input.purpose !== null && !isSendPurpose(input.purpose)) {
+      throw new Error('Invalid email: purpose is "follow_up" or "news_and_offers".');
+    }
+    const purpose = isSendPurpose(input?.purpose) ? input.purpose : null;
+    const db = createCrmDb(this.#host.env.DB).query;
+    const at = new Date().toISOString();
+    const answer = await checkSend(db, { channel, recipients: to, sender, purpose, at });
+    if (answer.purposeRequired) throw new Error(PURPOSE_REQUIRED_MESSAGE);
+    if (!answer.allowed.length) throw new Error(RECIPIENT_STOPPED_MESSAGE);
+    let allowed: { to: string; stop: string | null }[];
+    try {
+      allowed = await withStopLinks(db, answer.allowed, purpose, at);
+    } catch (error) {
+      throw new Error(error instanceof Error ? error.message : String(error));
+    }
+    for (const r of allowed) this.#vouched.set(r.to.toLowerCase(), purpose);
+    return { allowed, dropped: answer.dropped };
+  }
+
+  /** What `contactCheck` allowed in this session (ADR 0678): each address, with its purpose. */
+  readonly #vouched = new Map<string, SendPurpose | null>();
+
   async submitAction(action: number, description: OutboundDescription): Promise<void> {
     const host = this.#host;
+    // Consent to be contacted (ADR 0678), at the one place every caller's send passes, whatever
+    // the gatekeeper: refused here, it is never queued, applied or retried.
+    const standing = this.#standing();
+    const contact = standing
+      ? await contactAtSubmit(createCrmDb(host.env.DB), {
+          description,
+          sender: standing,
+          vouched: this.#vouched,
+          at: new Date().toISOString(),
+        }).catch((error: unknown) => {
+          throw new Error(error instanceof Error ? error.message : String(error));
+        })
+      : null;
     // An agreement's copy submitted again (ADR 0645: a retry of one whose first submission was cut
     // off): if a person's approval already waits for it, that is the answer, never a second one.
     if (this.#caller.kind === "system" && this.#caller.purpose === "agreements") {
@@ -387,6 +457,7 @@ export class HostQueue extends RpcTarget {
       ...(this.#caller.kind === "actor" && this.#caller.caller.request
         ? { asked: this.#caller.caller.request }
         : {}),
+      ...(contact ? { contact } : {}),
     };
     const db = createCrmDb(host.env.DB);
     const decision = await submitOutbound(db, submission);
