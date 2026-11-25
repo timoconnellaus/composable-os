@@ -97,10 +97,20 @@ provider's page".
   ends with it, and one with a later end date at the provider is left for staff and said to
   charge. The recent sign-in before deleting is step 2's.
 
-- **Step 7** — in progress — branch `feat/stage-48-account-finish` — Attention, change address and delete blocks
-  (web and native); Memberships, Courses and Bookings blocks consolidated; staff card.
+- **Step 7** — built — PR #467 — Attention, change address and delete blocks
+  (web and native); Memberships, Courses and Bookings blocks consolidated; staff card. Built on
+  `feat/stage-48-account-finish`, ADR 0715 (no migration): `*-account-attention`,
+  `*-account-email`, `*-account-delete` (a last base section `delete` in `me.portal`), signing in
+  again in place on `sign_in_again`, DELETE typed to confirm only the host's preview; one
+  subscriptions part for Memberships and Courses (no card buttons of their own; Courses' section
+  `MyCoursesSection`), a child's memberships and passes in Memberships, Bookings' blocks on
+  `me.family`; the staff card's buttons; the templates' account pages. `form_to_fill` opens through
+  the shell's `onFillForm`, to be wired to the Forms page (PR #461) when it lands. Also fixed: the
+  delete preview's compound SELECT D1 refused with many packs installed.
 
-- **Step 8** — in progress — branch `feat/stage-48-account-finish` — E2E, `SITE.md`, ADRs.
+- **Step 8** — built — PR #467 — E2E, `SITE.md`, ADRs. `apps/app/e2e/my-account.spec.ts` (four
+  journeys), ADR 0715 and ADRs 0540 and 0710 amended, the gym page's "Members' own account" and
+  `SITE.md`. Not tried: the native blocks on real phones, the app stores' rules.
 
 ## Goal
 
