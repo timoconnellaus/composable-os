@@ -2616,6 +2616,10 @@ of the pack belonging to a discount (one with one use is a single-use code). A c
 apply gets one answer, "not valid here", whatever the reason (ADR 0693). The host keeps the word
 folded (upper case, no spaces, non-ASCII letters matching), at least 6 characters and one per word,
 and refuses codes for 15 minutes to an account or guest order that gave 20 wrong ones (ADR 0940).
+A **single-use code** is one of a batch of random codes made for a discount (the Offers pack's
+`offers.code`), each good for a set number of orders; the host keeps only its hash, so it is shown
+once, to the person who made the batch, and never in a record, a query or the audit log (ADR 0699).
+A code a buyer types is never kept in the audit log either.
 _Avoid_: voucher (a gift voucher is something bought), coupon
 
 ### Deal
