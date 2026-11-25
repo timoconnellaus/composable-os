@@ -40,6 +40,7 @@ Every operation in the core registry, grouped by the first part of its name. Any
 - [`device`](/reference/operations/device/)
 - [`deviceSession`](/reference/operations/devicesession/)
 - [`dictation`](/reference/operations/dictation/)
+- [`discount`](/reference/operations/discount/)
 - [`duplicate`](/reference/operations/duplicate/)
 - [`enrichment`](/reference/operations/enrichment/)
 - [`eraseRequest`](/reference/operations/eraserequest/)
