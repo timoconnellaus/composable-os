@@ -254,3 +254,75 @@ describe("the low-rating notice", () => {
     expect(spam.result.matched).toBe(false);
   });
 });
+
+// Stage 29 step 5 (ADRs 0723 and 0724): the receipt, and answering by a personal link.
+describe("the receipt", () => {
+  const run = (formValues: Record<string, unknown>, values: Record<string, unknown> = {}) => {
+    const { host } = hostWith({
+      [FORM]: [{ id: "frm_1", title: "Ask about a trial", ...formValues }],
+      [SUBMISSION]: [{ id: "sub_1", form: "frm_1", person: "per_1", status: "new", ...values }],
+    });
+    return host
+      .runAutomation("receipt", {
+        record: { object: SUBMISSION, id: "sub_1" },
+        change: { action: "created", diff: {} },
+      })
+      .then((result) => ({ host, result }));
+  };
+
+  it("asks the host for the receipt about the submission, naming nothing else", async () => {
+    const { host, result } = await run({ receipt: true });
+    expect(result.undeclared).toEqual([]);
+    expect(host.routineSends.map(({ step: _step, ...send }) => send)).toEqual([
+      { kind: "receipt", record: "sub_1", message: "received" },
+    ]);
+  });
+
+  it("asks nothing for a form whose receipt is off, nor runs for spam or answers with no Person", async () => {
+    const off = await run({ receipt: false });
+    expect(off.host.routineSends).toEqual([]);
+    const spam = await run({ receipt: true }, { status: "spam" });
+    expect(spam.result.matched).toBe(false);
+    const anonymous = await run({ receipt: true }, { person: null });
+    expect(anonymous.result.matched).toBe(false);
+  });
+
+  it("is a receipt the host sends: the form's title only, by email", () => {
+    const { host } = hostWith();
+    const kind = host.manifest.routineMail?.receipt;
+    expect(kind).toMatchObject({ about: "submission", receipt: true });
+    expect(kind?.slots).toEqual({ form: { field: "form.title", max: 200 } });
+    expect(host.manifest.permissions.modules).toContain("routine-mail");
+  });
+});
+
+describe("answering by a personal link", () => {
+  it("form and submit pass the link to the door and nothing about the person", async () => {
+    const { host, calls } = hostWith();
+    const link = "A".repeat(43);
+    await host.runTool("form", { link }, { caller: { kind: "public" } });
+    await host.runTool(
+      "submit",
+      { id: "frm_1", version: 2, answers: { email: "x@example.test" }, link },
+      { caller: { kind: "public" } },
+    );
+    await host.runTool("form", { linkId: "ilk_1" }, { caller: { kind: "public" } });
+    expect(calls).toEqual([
+      { operation: "intake.open", input: { object: FORM, link } },
+      {
+        operation: "intake.submit",
+        input: {
+          object: FORM,
+          id: "frm_1",
+          version: 2,
+          answers: { email: "x@example.test" },
+          link,
+        },
+      },
+      { operation: "intake.open", input: { object: FORM, linkId: "ilk_1" } },
+    ]);
+    // The token is never written to the audit log.
+    expect(host.manifest.tools.form?.redact).toContain("link");
+    expect(host.manifest.tools.submit?.redact).toContain("link");
+  });
+});
