@@ -25,7 +25,7 @@
 // dates, used up, not for this buyer, not for these lines): the reason is kept for staff only.
 
 import type { CoreDatabase } from "@composable-os/db";
-import { foldCode } from "@composable-os/sdk";
+import { codeHash, foldCode } from "@composable-os/sdk";
 import { type Kysely, sql } from "kysely";
 import { samePeople } from "../customers/accounts.ts";
 import { getObject, listObjects } from "../fields/index.ts";
@@ -544,10 +544,11 @@ async function codeMatches(db: Kysely<CoreDatabase>, typed: string): Promise<Cod
     const wordCol = column(codeObject, codes.word);
     const discountCol = column(codeObject, codes.discount);
     if (!wordCol || !discountCol) continue;
+    // Codes kept as their hash (stage 34 step 5): the typed word is hashed the same way.
     const rows = (await any(db)
       .selectFrom(visibleSource(orgReader(db), codeObject))
       .selectAll()
-      .where(wordCol, "=", word)
+      .where(wordCol, "=", codes.hashed ? await codeHash(word) : word)
       .orderBy("id")
       .limit(CODES_MATCHED)
       .execute()) as AnyRow[];

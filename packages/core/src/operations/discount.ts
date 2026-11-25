@@ -56,6 +56,9 @@ export const discountCheck = defineOperation({
   // codes counted per caller (a guest naming no order, per address).
   publicLimit: { tier: "read", perCaller: {}, group: "code", guesses: "code" },
   hostInternal: true,
+  // A code typed is never kept in the audit log: a single-use code is a secret until it is used
+  // (stage 34 step 5, ADR 0699); the order's adjustment names the discount and the code's record.
+  auditRedact: ["code"],
   // Not offered to an assistant (the spec): a person, or a buyer's own page, checks a code.
   actors: ["human"],
   mcp: { expose: false },
