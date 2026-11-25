@@ -566,6 +566,42 @@
           "type": "ratelimit"
         },
         {
+          "name": "PUBLIC_RATE_LIMIT",
+          "namespace_id": "4110",
+          "simple": {
+            "limit": 120,
+            "period": 60
+          },
+          "type": "ratelimit"
+        },
+        {
+          "name": "PUBLIC_WRITE_RATE_LIMIT",
+          "namespace_id": "4111",
+          "simple": {
+            "limit": 30,
+            "period": 60
+          },
+          "type": "ratelimit"
+        },
+        {
+          "name": "PUBLIC_STRICT_RATE_LIMIT",
+          "namespace_id": "4112",
+          "simple": {
+            "limit": 10,
+            "period": 60
+          },
+          "type": "ratelimit"
+        },
+        {
+          "name": "PUBLIC_SHARED_RATE_LIMIT",
+          "namespace_id": "4113",
+          "simple": {
+            "limit": 1200,
+            "period": 60
+          },
+          "type": "ratelimit"
+        },
+        {
           "name": "AI_FAKE_MODEL",
           "text": "",
           "type": "plain_text"
@@ -908,7 +944,7 @@
           "source": "user"
         }
       ],
-      "sha256": "5c9a2c36e7bdae16801de6ef07a532cb4bdbb9ef9f77b72688be5b8c17b75e7f"
+      "sha256": "f7e74bb366a51bec9cdaa23147b8f7bb92e9af262f3afc684301b54ae76dc081"
     },
     {
       "bindings": [
@@ -985,6 +1021,33 @@
           "namespace_id": "4201",
           "simple": {
             "limit": 60,
+            "period": 60
+          },
+          "type": "ratelimit"
+        },
+        {
+          "name": "PUBLIC_WRITE_RATE_LIMIT",
+          "namespace_id": "4111",
+          "simple": {
+            "limit": 30,
+            "period": 60
+          },
+          "type": "ratelimit"
+        },
+        {
+          "name": "PUBLIC_STRICT_RATE_LIMIT",
+          "namespace_id": "4112",
+          "simple": {
+            "limit": 10,
+            "period": 60
+          },
+          "type": "ratelimit"
+        },
+        {
+          "name": "PUBLIC_SHARED_RATE_LIMIT",
+          "namespace_id": "4113",
+          "simple": {
+            "limit": 1200,
             "period": 60
           },
           "type": "ratelimit"
@@ -1141,7 +1204,7 @@
           "source": "user"
         }
       ],
-      "sha256": "9dd8d4f472c91373bb9f728d59dc75dfa07e6c91131049531b115f71d5d04916"
+      "sha256": "433a1325fa0ca818812a84ea766ef4b4724a9b5673220e619a448089b7fb3b3b"
     },
     {
       "bindings": [],
