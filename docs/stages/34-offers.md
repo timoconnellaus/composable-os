@@ -134,8 +134,17 @@ module (the till): whichever is built first builds it once, to this design.
   match), at least 6 characters, unique per object and looked up by index; `randomCodes` makes
   single-use codes.
 
-- **Step 5** — in progress — branch `feat/stage-34-offers-pack` — The Offers pack's spine:
-  discount, promo code, member price and customer rate, tools, views, settings, permissions.
+- **Step 5** — built — PR #479 — The Offers pack's spine: discount, promo code, member price and
+  customer rate, tools, views, settings, permissions (`feat/stage-34-offers-pack`, ADR 0699,
+  amending 0693; no migration): `packs/offers` with `offers.discount` (live only through its
+  `personApproves` tools with `offers:manage`; members' prices and customer rates are discounts
+  that apply by themselves) and `offers.code` (single-use codes kept as their hash, the new
+  `codes.hashed`, made by a person's `humanOnly` `generateCodes` and shown once, up to 500 a batch
+  written 50 at a time); a typed code kept out of the audit log; views, a codes tab, the Offers
+  dashboard. Deviations: the assistant cannot ask for codes (an approved call's answer reaches
+  nobody); no `plans` or named records (a relation would make Offers require that pack); no pack
+  settings. Left for later: periods (6), vouchers (7), gift cards (8), referrals (9), blocks,
+  screens, e2e and the site (10).
 
 - **Step 6** — not built — needs: step 4 — Subscriptions: a discount for 1 or N periods, plan
   changes, a one-period discount on a running subscription.
