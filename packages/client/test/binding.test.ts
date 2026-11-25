@@ -1,13 +1,7 @@
 // What a web app forwards to the host over its binding (stage 24, ADR 0421): the customer's
 // session cookie and nothing else.
 import { describe, expect, it } from "vitest";
-import {
-  customerCookies,
-  customerSession,
-  keepCustomerSignedIn,
-  practitionerCookies,
-  practitionerSession,
-} from "../src/index.ts";
+import { customerCookies, customerSession, keepCustomerSignedIn } from "../src/index.ts";
 
 describe("customerSession", () => {
   it("keeps the customer cookies and drops every other one", () => {
@@ -30,20 +24,6 @@ describe("customerSession", () => {
 
   it("does not take a look-alike name", () => {
     expect(customerCookies("cos-customers.x=1; xcos-customer.y=2; cos-customer=3")).toBe("");
-  });
-});
-
-describe("practitionerSession (stage 43, ADR 0581)", () => {
-  it("keeps the practitioner cookies only: never a customer's or staff's", () => {
-    const header =
-      "__Secure-cos-practitioner.session_token=p.sig; cos-customer.session_token=c.sig; " +
-      "better-auth.session_token=staff; theme=dark";
-    expect(practitionerCookies(header)).toBe("__Secure-cos-practitioner.session_token=p.sig");
-    expect(practitionerSession(header)).toEqual({
-      cookie: "__Secure-cos-practitioner.session_token=p.sig",
-    });
-    expect(customerCookies(header)).toBe("cos-customer.session_token=c.sig");
-    expect(practitionerSession("cos-customer.session_token=c; cos-practitioners.x=1")).toEqual({});
   });
 });
 

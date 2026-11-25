@@ -42,32 +42,6 @@ export function customerSession(cookieHeader: string | null | undefined): Record
   return cookie ? { cookie } : {};
 }
 
-/**
- * Practitioner session cookies are `cos-practitioner.*` (stage 43, ADR 0581): a practitioner the
- * business invited, signed in on the web app with their own account. Forwarded the same way, and
- * never with a customer's: the host refuses a call that carries both.
- */
-export const PRACTITIONER_COOKIE_PREFIX = "cos-practitioner";
-
-/** Practitioner sign-in, served by the host and reached over the binding: forward these paths. */
-export const PRACTITIONER_AUTH_PATH = "/api/practitioner-auth";
-
-/** The practitioner cookies in a `Cookie` header, as one header value ("" when there are none). */
-export function practitionerCookies(cookieHeader: string | null | undefined): string {
-  return (cookieHeader ?? "")
-    .split(/;\s*/)
-    .filter((pair) => pair && unprefixed(pair).startsWith(`${PRACTITIONER_COOKIE_PREFIX}.`))
-    .join("; ");
-}
-
-/** Headers for a call made for the browser's practitioner: their session cookie, if any. */
-export function practitionerSession(
-  cookieHeader: string | null | undefined,
-): Record<string, string> {
-  const cookie = practitionerCookies(cookieHeader);
-  return cookie ? { cookie } : {};
-}
-
 /** The web app's own marker: when it last checked the customer's session (not a credential). */
 export const SESSION_CHECKED_COOKIE = "cos-session-checked";
 /** At most this often, the session is checked and its cookie given a fresh lifetime. */

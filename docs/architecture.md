@@ -1039,8 +1039,9 @@ definition into its client repo.
 
 Stage 22; [ADR 0402](adr/0402-staff-and-customers.md).
 
-Every operation declares its audiences: `staff` (the default), `customer`, `public`, or
-`device` alone (stage 51, [ADR 0781](adr/0781-a-device-as-a-caller-the-device-audience-and-device-roles.md)).
+Every operation declares its audiences: `staff` (the default), `customer`, `public`,
+`practitioner` (stage 43, [ADR 0581](adr/0581-the-practitioner-principal-accounts-and-sign-in.md)),
+or `device` alone (stage 51, [ADR 0781](adr/0781-a-device-as-a-caller-the-device-audience-and-device-roles.md)).
 
 - **Staff** are today's users, with roles.
 - A **customer** is a Person with a sign-in. An object says which relation field is its customer;
@@ -1049,6 +1050,10 @@ Every operation declares its audiences: `staff` (the default), `customer`, `publ
 - **Public** callers have no account. Public operations are few, low risk and rate limited.
 - A **device** is the business's own enrolled tablet holding a device role, signed in as nobody.
   It calls only on the desk origin, and only its role's tools and `device.heartbeat`.
+- A **practitioner** is an outside person the business invited (a physiotherapist, a dietitian),
+  signed in to their own practitioner account. Until stage 43's care link and practitioner scope
+  they reach nothing about anyone: the seam's scope for them is `none` on every object, and the
+  one operation open to them is `practitioner.me`.
 
 As built (stage 22; ADRs [0410](adr/0410-the-seams-first-door-as-built.md),
 [0411](adr/0411-audiences-on-operations-as-built.md),
@@ -1091,6 +1096,17 @@ As built (stage 22; ADRs [0410](adr/0410-the-seams-first-door-as-built.md),
   device's id; the seam gives it nothing, and its tools' own calls run as the extension.
 - **Its handler has no raw database.** It reads and writes records through `ctx.records`. A core
   operation marked `hostInternal` keeps the database for account and session bookkeeping.
+- **A call by a practitioner** (ADR 0581) takes the customer's path: no role, never queued, the
+  risk floor, no raw database unless `hostInternal`, rate limited per account, audited with actor
+  `practitioner` and the account's id. Any record change by one is refused at the seam.
+- **Practitioner accounts** (`core_practitioner`, migration 0730) are made only by
+  `practitioner.invite` (staff with `practitioners:manage`, a person at the web admin; never an
+  AI, MCP, an automation, an extension or a device session) and ended by `practitioner.end`, which
+  deletes their sessions in the same batch. A third Better Auth configuration signs them in by an
+  emailed code at `/api/practitioner-auth/*` (on the host and over the client-app binding), with
+  its own tables, cookie (`cos-practitioner.*`) and key (derived from `CUSTOMER_AUTH_SECRET`).
+  One address may hold a staff, a customer and a practitioner account; a request carrying two
+  kinds of session is refused, and a practitioner's session is never exchanged for app tokens.
 - **Customer accounts** are `core_customer` and its sessions, apart from `core_user`. A second
   Better Auth configuration in `packages/auth` signs customers in by a one-time emailed code,
   with its own cookie and secret, and resolves a request to a customer or the public, never to
