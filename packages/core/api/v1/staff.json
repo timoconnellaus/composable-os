@@ -29168,6 +29168,1427 @@
       ]
     },
     {
+      "name": "creditNote.create",
+      "description": "Draft a credit note against an issued invoice: some of its lines (each with a quantity, or all that is left of it), or an amount at one of its tax rates (in minor units, as the invoice's amounts are typed). Its tax is worked out as the invoice's was. Never more than is left to credit of a line, a rate or the invoice. Say why, and how it settles: reduce what is still owed, give back what was paid, or both. A draft changes nothing until a person with the permission to credit issues it. Returns the draft.",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "invoiceId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "The invoice's id (inv_…)"
+          },
+          "lines": {
+            "minItems": 1,
+            "maxItems": 50,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "lineId": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 64,
+                  "description": "The invoice line (inl_…)"
+                },
+                "quantity": {
+                  "description": "How much of it: left out, all that is left to credit of it",
+                  "type": "number",
+                  "exclusiveMinimum": 0,
+                  "maximum": 10000
+                }
+              },
+              "required": [
+                "lineId"
+              ]
+            }
+          },
+          "amount": {
+            "type": "object",
+            "properties": {
+              "value": {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 100000000,
+                "description": "Minor units"
+              },
+              "taxRate": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 32
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "One of the invoice's rates' keys; null for its part without tax"
+              },
+              "description": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 500
+              }
+            },
+            "required": [
+              "value",
+              "taxRate"
+            ]
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500,
+            "description": "Why, as printed on the credit note"
+          },
+          "settle": {
+            "default": "both",
+            "type": "string",
+            "enum": [
+              "reduce",
+              "refund",
+              "both"
+            ],
+            "description": "reduce: take it off what is still owed; refund: give it back from what was paid (nothing may be owed); both: take off what is owed first, then give back the rest"
+          }
+        },
+        "required": [
+          "invoiceId",
+          "reason"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "number": {
+            "description": "Given when issued; null on a draft",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "draft",
+              "issued"
+            ]
+          },
+          "invoiceId": {
+            "type": "string"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "taxMode": {
+            "type": "string",
+            "enum": [
+              "exclusive",
+              "inclusive"
+            ]
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "settle": {
+            "type": "string",
+            "enum": [
+              "reduce",
+              "refund",
+              "both"
+            ],
+            "description": "reduce: take it off what is still owed; refund: give it back from what was paid (nothing may be owed); both: take off what is owed first, then give back the rest"
+          },
+          "lines": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "position": {
+                  "type": "number"
+                },
+                "description": {
+                  "type": "string"
+                },
+                "quantity": {
+                  "type": "number"
+                },
+                "unit": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "unitPrice": {
+                  "type": "number"
+                },
+                "taxRate": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "key": {
+                          "type": "string"
+                        },
+                        "label": {
+                          "type": "string"
+                        },
+                        "rate": {
+                          "type": "number"
+                        }
+                      },
+                      "required": [
+                        "key",
+                        "label",
+                        "rate"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "net": {
+                  "type": "number"
+                },
+                "tax": {
+                  "type": "number"
+                },
+                "total": {
+                  "type": "number"
+                },
+                "creditsLineId": {
+                  "description": "The invoice line it credits; null: an amount",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "position",
+                "description",
+                "quantity",
+                "unit",
+                "unitPrice",
+                "taxRate",
+                "net",
+                "tax",
+                "total",
+                "creditsLineId"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "netTotal": {
+            "type": "number"
+          },
+          "taxTotal": {
+            "type": "number"
+          },
+          "total": {
+            "type": "number"
+          },
+          "issuedOn": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "refunds": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "paymentRef": {
+                  "type": "string"
+                },
+                "method": {
+                  "type": "string",
+                  "enum": [
+                    "provider",
+                    "recorded"
+                  ]
+                },
+                "amount": {
+                  "type": "number"
+                },
+                "refundId": {
+                  "description": "The refund asked for (provider) or recorded (paid back); null: still owed",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "paidBackAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "paymentRef",
+                "method",
+                "amount",
+                "refundId",
+                "paidBackAt"
+              ],
+              "additionalProperties": false
+            },
+            "description": "What it gives back, per payment: a provider's waits for approval, a recorded one for a person to record it paid back"
+          },
+          "version": {
+            "type": "number"
+          },
+          "createdAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "number",
+          "state",
+          "invoiceId",
+          "currency",
+          "taxMode",
+          "reason",
+          "settle",
+          "lines",
+          "netTotal",
+          "taxTotal",
+          "total",
+          "issuedOn",
+          "refunds",
+          "version",
+          "createdAt"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "creditNote.get",
+        "creditNote.list"
+      ]
+    },
+    {
+      "name": "creditNote.delete",
+      "description": "Delete a draft credit note, for good. An issued one is never deleted.",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "The credit note's id (cn_…)"
+          },
+          "version": {
+            "description": "The version you read: one changed since by someone else is refused",
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "deleted": {
+            "type": "boolean",
+            "const": true
+          }
+        },
+        "required": [
+          "id",
+          "deleted"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "creditNote.get",
+        "creditNote.list"
+      ]
+    },
+    {
+      "name": "creditNote.get",
+      "description": "One credit note with its lines, totals, how it settles and what it gives back per payment. Amounts are integers in the currency's minor unit. Read-only.",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "The credit note's id (cn_…)"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "number": {
+            "description": "Given when issued; null on a draft",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "draft",
+              "issued"
+            ]
+          },
+          "invoiceId": {
+            "type": "string"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "taxMode": {
+            "type": "string",
+            "enum": [
+              "exclusive",
+              "inclusive"
+            ]
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "settle": {
+            "type": "string",
+            "enum": [
+              "reduce",
+              "refund",
+              "both"
+            ],
+            "description": "reduce: take it off what is still owed; refund: give it back from what was paid (nothing may be owed); both: take off what is owed first, then give back the rest"
+          },
+          "lines": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "position": {
+                  "type": "number"
+                },
+                "description": {
+                  "type": "string"
+                },
+                "quantity": {
+                  "type": "number"
+                },
+                "unit": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "unitPrice": {
+                  "type": "number"
+                },
+                "taxRate": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "key": {
+                          "type": "string"
+                        },
+                        "label": {
+                          "type": "string"
+                        },
+                        "rate": {
+                          "type": "number"
+                        }
+                      },
+                      "required": [
+                        "key",
+                        "label",
+                        "rate"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "net": {
+                  "type": "number"
+                },
+                "tax": {
+                  "type": "number"
+                },
+                "total": {
+                  "type": "number"
+                },
+                "creditsLineId": {
+                  "description": "The invoice line it credits; null: an amount",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "position",
+                "description",
+                "quantity",
+                "unit",
+                "unitPrice",
+                "taxRate",
+                "net",
+                "tax",
+                "total",
+                "creditsLineId"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "netTotal": {
+            "type": "number"
+          },
+          "taxTotal": {
+            "type": "number"
+          },
+          "total": {
+            "type": "number"
+          },
+          "issuedOn": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "refunds": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "paymentRef": {
+                  "type": "string"
+                },
+                "method": {
+                  "type": "string",
+                  "enum": [
+                    "provider",
+                    "recorded"
+                  ]
+                },
+                "amount": {
+                  "type": "number"
+                },
+                "refundId": {
+                  "description": "The refund asked for (provider) or recorded (paid back); null: still owed",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "paidBackAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "paymentRef",
+                "method",
+                "amount",
+                "refundId",
+                "paidBackAt"
+              ],
+              "additionalProperties": false
+            },
+            "description": "What it gives back, per payment: a provider's waits for approval, a recorded one for a person to record it paid back"
+          },
+          "version": {
+            "type": "number"
+          },
+          "createdAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "number",
+          "state",
+          "invoiceId",
+          "currency",
+          "taxMode",
+          "reason",
+          "settle",
+          "lines",
+          "netTotal",
+          "taxTotal",
+          "total",
+          "issuedOn",
+          "refunds",
+          "version",
+          "createdAt"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
+      "name": "creditNote.issue",
+      "description": "Issue a draft credit note: it takes the next number of the credit note series and, in the same step, takes off what is still owed on its invoice and gives back the rest from what was paid, as it says. Money paid on the payment page goes back through the Approvals inbox, for a person with the refund permission; money taken another way is owed back until a person pays it back and records it (order.recordRefund). Never more than was paid. An invoice credited in full with nothing paid is credited, its order cancelled and its places given back. A person only, with the permission to credit invoices: AI assistants are refused. Returns the credit note, its invoice and the refunds waiting.",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "The credit note's id (cn_…)"
+          },
+          "version": {
+            "description": "The version you read: one changed since by someone else is refused",
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "number": {
+            "description": "Given when issued; null on a draft",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "draft",
+              "issued"
+            ]
+          },
+          "invoiceId": {
+            "type": "string"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "taxMode": {
+            "type": "string",
+            "enum": [
+              "exclusive",
+              "inclusive"
+            ]
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "settle": {
+            "type": "string",
+            "enum": [
+              "reduce",
+              "refund",
+              "both"
+            ],
+            "description": "reduce: take it off what is still owed; refund: give it back from what was paid (nothing may be owed); both: take off what is owed first, then give back the rest"
+          },
+          "lines": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "position": {
+                  "type": "number"
+                },
+                "description": {
+                  "type": "string"
+                },
+                "quantity": {
+                  "type": "number"
+                },
+                "unit": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "unitPrice": {
+                  "type": "number"
+                },
+                "taxRate": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "key": {
+                          "type": "string"
+                        },
+                        "label": {
+                          "type": "string"
+                        },
+                        "rate": {
+                          "type": "number"
+                        }
+                      },
+                      "required": [
+                        "key",
+                        "label",
+                        "rate"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "net": {
+                  "type": "number"
+                },
+                "tax": {
+                  "type": "number"
+                },
+                "total": {
+                  "type": "number"
+                },
+                "creditsLineId": {
+                  "description": "The invoice line it credits; null: an amount",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "position",
+                "description",
+                "quantity",
+                "unit",
+                "unitPrice",
+                "taxRate",
+                "net",
+                "tax",
+                "total",
+                "creditsLineId"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "netTotal": {
+            "type": "number"
+          },
+          "taxTotal": {
+            "type": "number"
+          },
+          "total": {
+            "type": "number"
+          },
+          "issuedOn": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "refunds": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "paymentRef": {
+                  "type": "string"
+                },
+                "method": {
+                  "type": "string",
+                  "enum": [
+                    "provider",
+                    "recorded"
+                  ]
+                },
+                "amount": {
+                  "type": "number"
+                },
+                "refundId": {
+                  "description": "The refund asked for (provider) or recorded (paid back); null: still owed",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "paidBackAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "paymentRef",
+                "method",
+                "amount",
+                "refundId",
+                "paidBackAt"
+              ],
+              "additionalProperties": false
+            },
+            "description": "What it gives back, per payment: a provider's waits for approval, a recorded one for a person to record it paid back"
+          },
+          "version": {
+            "type": "number"
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "invoice": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "state": {
+                "type": "string",
+                "enum": [
+                  "draft",
+                  "issued",
+                  "sent",
+                  "part_paid",
+                  "paid",
+                  "credited",
+                  "void"
+                ]
+              },
+              "number": {
+                "description": "Given when sent or issued; null on a draft",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "currency": {
+                "type": "string"
+              },
+              "taxMode": {
+                "type": "string",
+                "enum": [
+                  "exclusive",
+                  "inclusive"
+                ]
+              },
+              "billTo": {
+                "type": "object",
+                "properties": {
+                  "personId": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "organisationId": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "printed": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "name": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "address": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "taxNumber": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "email": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "name",
+                          "address",
+                          "taxNumber",
+                          "email"
+                        ],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "As printed, fixed when sent or issued"
+                  }
+                },
+                "required": [
+                  "personId",
+                  "organisationId",
+                  "printed"
+                ],
+                "additionalProperties": false
+              },
+              "siteAddress": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "about": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "object": {
+                        "type": "string"
+                      },
+                      "id": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "object",
+                      "id"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "title": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "notes": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "lines": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "position": {
+                      "type": "number"
+                    },
+                    "description": {
+                      "type": "string"
+                    },
+                    "quantity": {
+                      "type": "number"
+                    },
+                    "unit": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "unitPrice": {
+                      "type": "number",
+                      "description": "For one, in minor units, as the document's amounts are typed"
+                    },
+                    "taxRate": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "key": {
+                              "type": "string"
+                            },
+                            "label": {
+                              "type": "string"
+                            },
+                            "rate": {
+                              "type": "number"
+                            }
+                          },
+                          "required": [
+                            "key",
+                            "label",
+                            "rate"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "discount": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "kind": {
+                              "type": "string",
+                              "enum": [
+                                "amount",
+                                "percent"
+                              ]
+                            },
+                            "value": {
+                              "type": "number"
+                            },
+                            "reason": {
+                              "type": "string"
+                            },
+                            "amount": {
+                              "type": "number",
+                              "description": "What it took off, in minor units"
+                            }
+                          },
+                          "required": [
+                            "kind",
+                            "value",
+                            "reason",
+                            "amount"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "net": {
+                      "type": "number"
+                    },
+                    "tax": {
+                      "type": "number"
+                    },
+                    "total": {
+                      "type": "number"
+                    },
+                    "source": {
+                      "type": "string",
+                      "enum": [
+                        "record",
+                        "custom",
+                        "deduction"
+                      ]
+                    },
+                    "item": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "object": {
+                              "type": "string"
+                            },
+                            "id": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "object",
+                            "id"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "position",
+                    "description",
+                    "quantity",
+                    "unit",
+                    "unitPrice",
+                    "taxRate",
+                    "discount",
+                    "net",
+                    "tax",
+                    "total",
+                    "source",
+                    "item"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "netTotal": {
+                "type": "number"
+              },
+              "taxTotal": {
+                "type": "number"
+              },
+              "total": {
+                "type": "number"
+              },
+              "taxByRate": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "key": {
+                      "type": "string"
+                    },
+                    "label": {
+                      "type": "string"
+                    },
+                    "rate": {
+                      "type": "number"
+                    },
+                    "net": {
+                      "type": "number"
+                    },
+                    "tax": {
+                      "type": "number"
+                    },
+                    "total": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "key",
+                    "label",
+                    "rate",
+                    "net",
+                    "tax",
+                    "total"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "version": {
+                "type": "number",
+                "description": "Moves with every write"
+              },
+              "createdAt": {
+                "type": "string"
+              },
+              "updatedAt": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "standard",
+                  "deposit",
+                  "final"
+                ]
+              },
+              "quoteId": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "orderId": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "paymentTermsDays": {
+                "type": "number"
+              },
+              "issuedOn": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "dueOn": {
+                "description": "Set on a draft, or worked out at issue from the terms",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "allowPartPayments": {
+                "type": "boolean"
+              },
+              "remindersPaused": {
+                "type": "boolean"
+              },
+              "money": {
+                "description": "Once issued (invoice.get): its order's money",
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "paid": {
+                        "type": "number"
+                      },
+                      "credited": {
+                        "type": "number",
+                        "description": "What credit notes took off what was owed"
+                      },
+                      "refunded": {
+                        "type": "number",
+                        "description": "What has gone back, confirmed or recorded"
+                      },
+                      "balance": {
+                        "type": "number",
+                        "description": "What is still owed: total less paid less credited"
+                      },
+                      "orderState": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "paid",
+                      "credited",
+                      "refunded",
+                      "balance",
+                      "orderState"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "id",
+              "state",
+              "number",
+              "currency",
+              "taxMode",
+              "billTo",
+              "siteAddress",
+              "about",
+              "title",
+              "notes",
+              "lines",
+              "netTotal",
+              "taxTotal",
+              "total",
+              "taxByRate",
+              "version",
+              "createdAt",
+              "updatedAt",
+              "kind",
+              "quoteId",
+              "orderId",
+              "paymentTermsDays",
+              "issuedOn",
+              "dueOn",
+              "allowPartPayments",
+              "remindersPaused"
+            ],
+            "additionalProperties": false
+          },
+          "pending": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The refunds waiting in Approvals for a person with the refund permission"
+          }
+        },
+        "required": [
+          "id",
+          "number",
+          "state",
+          "invoiceId",
+          "currency",
+          "taxMode",
+          "reason",
+          "settle",
+          "lines",
+          "netTotal",
+          "taxTotal",
+          "total",
+          "issuedOn",
+          "refunds",
+          "version",
+          "createdAt",
+          "invoice",
+          "pending"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "creditNote.get",
+        "creditNote.list"
+      ]
+    },
+    {
+      "name": "creditNote.list",
+      "description": "An invoice's credit notes, drafts and issued, oldest first, without their lines (creditNote.get has them). Read-only.",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "invoiceId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "The invoice's id (inv_…)"
+          }
+        },
+        "required": [
+          "invoiceId"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "number": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "state": {
+                  "type": "string",
+                  "enum": [
+                    "draft",
+                    "issued"
+                  ]
+                },
+                "settle": {
+                  "type": "string",
+                  "enum": [
+                    "reduce",
+                    "refund",
+                    "both"
+                  ],
+                  "description": "reduce: take it off what is still owed; refund: give it back from what was paid (nothing may be owed); both: take off what is owed first, then give back the rest"
+                },
+                "total": {
+                  "type": "number"
+                },
+                "issuedOn": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "createdAt": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "number",
+                "state",
+                "settle",
+                "total",
+                "issuedOn",
+                "createdAt"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
       "name": "customer.cancelEmailChange",
       "description": "Cancel a change of a customer account's sign-in address that waits for the member's code: the code stops working and the address stays as it is. Admins only, humans only.",
       "risk": "write",
@@ -42471,6 +43892,542 @@
           },
           "remindersPaused": {
             "type": "boolean"
+          },
+          "money": {
+            "description": "Once issued (invoice.get): its order's money",
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "paid": {
+                    "type": "number"
+                  },
+                  "credited": {
+                    "type": "number",
+                    "description": "What credit notes took off what was owed"
+                  },
+                  "refunded": {
+                    "type": "number",
+                    "description": "What has gone back, confirmed or recorded"
+                  },
+                  "balance": {
+                    "type": "number",
+                    "description": "What is still owed: total less paid less credited"
+                  },
+                  "orderState": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "paid",
+                  "credited",
+                  "refunded",
+                  "balance",
+                  "orderState"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "state",
+          "number",
+          "currency",
+          "taxMode",
+          "billTo",
+          "siteAddress",
+          "about",
+          "title",
+          "notes",
+          "lines",
+          "netTotal",
+          "taxTotal",
+          "total",
+          "taxByRate",
+          "version",
+          "createdAt",
+          "updatedAt",
+          "kind",
+          "quoteId",
+          "orderId",
+          "paymentTermsDays",
+          "issuedOn",
+          "dueOn",
+          "allowPartPayments",
+          "remindersPaused"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "invoice.events",
+        "invoice.get",
+        "invoice.list",
+        "invoice.settings.get"
+      ]
+    },
+    {
+      "name": "invoice.allowPartPayments",
+      "description": "Allow (or stop) part payments online on an issued invoice. Without, the payment page asks for the whole balance; with, the payer may pay part of it, at least the minimum set for orders. A payment recorded by staff can be any amount up to the balance either way. Returns the invoice.",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "The invoice's id (inv_…)"
+          },
+          "allow": {
+            "type": "boolean"
+          },
+          "version": {
+            "description": "The version you read: one changed since by someone else is refused",
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": [
+          "id",
+          "allow"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "draft",
+              "issued",
+              "sent",
+              "part_paid",
+              "paid",
+              "credited",
+              "void"
+            ]
+          },
+          "number": {
+            "description": "Given when sent or issued; null on a draft",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "currency": {
+            "type": "string"
+          },
+          "taxMode": {
+            "type": "string",
+            "enum": [
+              "exclusive",
+              "inclusive"
+            ]
+          },
+          "billTo": {
+            "type": "object",
+            "properties": {
+              "personId": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "organisationId": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "printed": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "name": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "address": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "taxNumber": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "email": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "name",
+                      "address",
+                      "taxNumber",
+                      "email"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "As printed, fixed when sent or issued"
+              }
+            },
+            "required": [
+              "personId",
+              "organisationId",
+              "printed"
+            ],
+            "additionalProperties": false
+          },
+          "siteAddress": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "about": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "object": {
+                    "type": "string"
+                  },
+                  "id": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "object",
+                  "id"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "title": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "notes": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "lines": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "position": {
+                  "type": "number"
+                },
+                "description": {
+                  "type": "string"
+                },
+                "quantity": {
+                  "type": "number"
+                },
+                "unit": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "unitPrice": {
+                  "type": "number",
+                  "description": "For one, in minor units, as the document's amounts are typed"
+                },
+                "taxRate": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "key": {
+                          "type": "string"
+                        },
+                        "label": {
+                          "type": "string"
+                        },
+                        "rate": {
+                          "type": "number"
+                        }
+                      },
+                      "required": [
+                        "key",
+                        "label",
+                        "rate"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "discount": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "kind": {
+                          "type": "string",
+                          "enum": [
+                            "amount",
+                            "percent"
+                          ]
+                        },
+                        "value": {
+                          "type": "number"
+                        },
+                        "reason": {
+                          "type": "string"
+                        },
+                        "amount": {
+                          "type": "number",
+                          "description": "What it took off, in minor units"
+                        }
+                      },
+                      "required": [
+                        "kind",
+                        "value",
+                        "reason",
+                        "amount"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "net": {
+                  "type": "number"
+                },
+                "tax": {
+                  "type": "number"
+                },
+                "total": {
+                  "type": "number"
+                },
+                "source": {
+                  "type": "string",
+                  "enum": [
+                    "record",
+                    "custom",
+                    "deduction"
+                  ]
+                },
+                "item": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "object": {
+                          "type": "string"
+                        },
+                        "id": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "object",
+                        "id"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "position",
+                "description",
+                "quantity",
+                "unit",
+                "unitPrice",
+                "taxRate",
+                "discount",
+                "net",
+                "tax",
+                "total",
+                "source",
+                "item"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "netTotal": {
+            "type": "number"
+          },
+          "taxTotal": {
+            "type": "number"
+          },
+          "total": {
+            "type": "number"
+          },
+          "taxByRate": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "key": {
+                  "type": "string"
+                },
+                "label": {
+                  "type": "string"
+                },
+                "rate": {
+                  "type": "number"
+                },
+                "net": {
+                  "type": "number"
+                },
+                "tax": {
+                  "type": "number"
+                },
+                "total": {
+                  "type": "number"
+                }
+              },
+              "required": [
+                "key",
+                "label",
+                "rate",
+                "net",
+                "tax",
+                "total"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "version": {
+            "type": "number",
+            "description": "Moves with every write"
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "standard",
+              "deposit",
+              "final"
+            ]
+          },
+          "quoteId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "orderId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "paymentTermsDays": {
+            "type": "number"
+          },
+          "issuedOn": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "dueOn": {
+            "description": "Set on a draft, or worked out at issue from the terms",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "allowPartPayments": {
+            "type": "boolean"
+          },
+          "remindersPaused": {
+            "type": "boolean"
+          },
+          "money": {
+            "description": "Once issued (invoice.get): its order's money",
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "paid": {
+                    "type": "number"
+                  },
+                  "credited": {
+                    "type": "number",
+                    "description": "What credit notes took off what was owed"
+                  },
+                  "refunded": {
+                    "type": "number",
+                    "description": "What has gone back, confirmed or recorded"
+                  },
+                  "balance": {
+                    "type": "number",
+                    "description": "What is still owed: total less paid less credited"
+                  },
+                  "orderState": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "paid",
+                  "credited",
+                  "refunded",
+                  "balance",
+                  "orderState"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
@@ -43148,6 +45105,45 @@
           },
           "remindersPaused": {
             "type": "boolean"
+          },
+          "money": {
+            "description": "Once issued (invoice.get): its order's money",
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "paid": {
+                    "type": "number"
+                  },
+                  "credited": {
+                    "type": "number",
+                    "description": "What credit notes took off what was owed"
+                  },
+                  "refunded": {
+                    "type": "number",
+                    "description": "What has gone back, confirmed or recorded"
+                  },
+                  "balance": {
+                    "type": "number",
+                    "description": "What is still owed: total less paid less credited"
+                  },
+                  "orderState": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "paid",
+                  "credited",
+                  "refunded",
+                  "balance",
+                  "orderState"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
@@ -43778,6 +45774,45 @@
           },
           "remindersPaused": {
             "type": "boolean"
+          },
+          "money": {
+            "description": "Once issued (invoice.get): its order's money",
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "paid": {
+                    "type": "number"
+                  },
+                  "credited": {
+                    "type": "number",
+                    "description": "What credit notes took off what was owed"
+                  },
+                  "refunded": {
+                    "type": "number",
+                    "description": "What has gone back, confirmed or recorded"
+                  },
+                  "balance": {
+                    "type": "number",
+                    "description": "What is still owed: total less paid less credited"
+                  },
+                  "orderState": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "paid",
+                  "credited",
+                  "refunded",
+                  "balance",
+                  "orderState"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
@@ -43811,6 +45846,499 @@
         "additionalProperties": false
       },
       "invalidates": []
+    },
+    {
+      "name": "invoice.issue",
+      "description": "Issue a draft invoice: it takes the next number of the invoice series (INV-0042), its bill-to as printed, the business's details and bank details as they are now, its issue date and its due date (the draft's, or today plus its payment terms), and starts its order in the same step: the invoice's lines as the host priced them, its line discounts, and the tax worked out on it. From then on it is never changed: it is credited. Its order does not expire: it is due on the invoice's due date and shows among the overdue after it; places it holds are held until it is paid, credited or voided. A record's price that changed since its line was added, goods, and an agreement the bill-to still needs are refused with why. A line discount needs the discount permission, and over the limit an admin set it waits for approval. An AI assistant can ask; a person approves. Sending it is a separate step. Returns the invoice.",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "The invoice's id (inv_…)"
+          },
+          "version": {
+            "description": "The version you read: one changed since by someone else is refused",
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "draft",
+              "issued",
+              "sent",
+              "part_paid",
+              "paid",
+              "credited",
+              "void"
+            ]
+          },
+          "number": {
+            "description": "Given when sent or issued; null on a draft",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "currency": {
+            "type": "string"
+          },
+          "taxMode": {
+            "type": "string",
+            "enum": [
+              "exclusive",
+              "inclusive"
+            ]
+          },
+          "billTo": {
+            "type": "object",
+            "properties": {
+              "personId": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "organisationId": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "printed": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "name": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "address": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "taxNumber": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "email": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "name",
+                      "address",
+                      "taxNumber",
+                      "email"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "description": "As printed, fixed when sent or issued"
+              }
+            },
+            "required": [
+              "personId",
+              "organisationId",
+              "printed"
+            ],
+            "additionalProperties": false
+          },
+          "siteAddress": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "about": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "object": {
+                    "type": "string"
+                  },
+                  "id": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "object",
+                  "id"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "title": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "notes": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "lines": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "position": {
+                  "type": "number"
+                },
+                "description": {
+                  "type": "string"
+                },
+                "quantity": {
+                  "type": "number"
+                },
+                "unit": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "unitPrice": {
+                  "type": "number",
+                  "description": "For one, in minor units, as the document's amounts are typed"
+                },
+                "taxRate": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "key": {
+                          "type": "string"
+                        },
+                        "label": {
+                          "type": "string"
+                        },
+                        "rate": {
+                          "type": "number"
+                        }
+                      },
+                      "required": [
+                        "key",
+                        "label",
+                        "rate"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "discount": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "kind": {
+                          "type": "string",
+                          "enum": [
+                            "amount",
+                            "percent"
+                          ]
+                        },
+                        "value": {
+                          "type": "number"
+                        },
+                        "reason": {
+                          "type": "string"
+                        },
+                        "amount": {
+                          "type": "number",
+                          "description": "What it took off, in minor units"
+                        }
+                      },
+                      "required": [
+                        "kind",
+                        "value",
+                        "reason",
+                        "amount"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "net": {
+                  "type": "number"
+                },
+                "tax": {
+                  "type": "number"
+                },
+                "total": {
+                  "type": "number"
+                },
+                "source": {
+                  "type": "string",
+                  "enum": [
+                    "record",
+                    "custom",
+                    "deduction"
+                  ]
+                },
+                "item": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "object": {
+                          "type": "string"
+                        },
+                        "id": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "object",
+                        "id"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "position",
+                "description",
+                "quantity",
+                "unit",
+                "unitPrice",
+                "taxRate",
+                "discount",
+                "net",
+                "tax",
+                "total",
+                "source",
+                "item"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "netTotal": {
+            "type": "number"
+          },
+          "taxTotal": {
+            "type": "number"
+          },
+          "total": {
+            "type": "number"
+          },
+          "taxByRate": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "key": {
+                  "type": "string"
+                },
+                "label": {
+                  "type": "string"
+                },
+                "rate": {
+                  "type": "number"
+                },
+                "net": {
+                  "type": "number"
+                },
+                "tax": {
+                  "type": "number"
+                },
+                "total": {
+                  "type": "number"
+                }
+              },
+              "required": [
+                "key",
+                "label",
+                "rate",
+                "net",
+                "tax",
+                "total"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "version": {
+            "type": "number",
+            "description": "Moves with every write"
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "updatedAt": {
+            "type": "string"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "standard",
+              "deposit",
+              "final"
+            ]
+          },
+          "quoteId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "orderId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "paymentTermsDays": {
+            "type": "number"
+          },
+          "issuedOn": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "dueOn": {
+            "description": "Set on a draft, or worked out at issue from the terms",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "allowPartPayments": {
+            "type": "boolean"
+          },
+          "remindersPaused": {
+            "type": "boolean"
+          },
+          "money": {
+            "description": "Once issued (invoice.get): its order's money",
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "paid": {
+                    "type": "number"
+                  },
+                  "credited": {
+                    "type": "number",
+                    "description": "What credit notes took off what was owed"
+                  },
+                  "refunded": {
+                    "type": "number",
+                    "description": "What has gone back, confirmed or recorded"
+                  },
+                  "balance": {
+                    "type": "number",
+                    "description": "What is still owed: total less paid less credited"
+                  },
+                  "orderState": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "paid",
+                  "credited",
+                  "refunded",
+                  "balance",
+                  "orderState"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "state",
+          "number",
+          "currency",
+          "taxMode",
+          "billTo",
+          "siteAddress",
+          "about",
+          "title",
+          "notes",
+          "lines",
+          "netTotal",
+          "taxTotal",
+          "total",
+          "taxByRate",
+          "version",
+          "createdAt",
+          "updatedAt",
+          "kind",
+          "quoteId",
+          "orderId",
+          "paymentTermsDays",
+          "issuedOn",
+          "dueOn",
+          "allowPartPayments",
+          "remindersPaused"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "invoice.events",
+        "invoice.get",
+        "invoice.list",
+        "invoice.settings.get"
+      ]
     },
     {
       "name": "invoice.list",
@@ -44040,6 +46568,538 @@
         "additionalProperties": false
       },
       "invalidates": []
+    },
+    {
+      "name": "invoice.recordPayment",
+      "description": "Record a payment of an issued invoice taken another way than the payment page: a bank transfer, cash, a cheque, a card machine. Any amount up to the balance, never more. The invoice becomes part paid or paid, as its order does, and what it bought is given. The payment names you as the person who received it; it is in the invoice's log, on the timeline, and admins are told of one over the amount set in the invoice settings. A person only, with the permission to record invoice payments: AI assistants, MCP clients, automations and extensions are refused. Returns the payment's id and the invoice.",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "invoiceId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "The invoice's id (inv_…)"
+          },
+          "amount": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100000000,
+            "description": "What was received, in the currency's minor unit (cents)"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "transfer",
+              "cash",
+              "cheque",
+              "card_machine",
+              "other"
+            ],
+            "description": "How it was paid: transfer, cash, cheque, card_machine or other"
+          },
+          "receivedOn": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+            "description": "The day it was received (YYYY-MM-DD)"
+          },
+          "reference": {
+            "description": "The payer's reference: a bank reference, a cheque number",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          }
+        },
+        "required": [
+          "invoiceId",
+          "amount",
+          "kind",
+          "receivedOn"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "paymentId": {
+            "type": "string",
+            "description": "The payment row (opy_…): what a reversal names"
+          },
+          "invoice": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "state": {
+                "type": "string",
+                "enum": [
+                  "draft",
+                  "issued",
+                  "sent",
+                  "part_paid",
+                  "paid",
+                  "credited",
+                  "void"
+                ]
+              },
+              "number": {
+                "description": "Given when sent or issued; null on a draft",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "currency": {
+                "type": "string"
+              },
+              "taxMode": {
+                "type": "string",
+                "enum": [
+                  "exclusive",
+                  "inclusive"
+                ]
+              },
+              "billTo": {
+                "type": "object",
+                "properties": {
+                  "personId": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "organisationId": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "printed": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "name": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "address": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "taxNumber": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "email": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "name",
+                          "address",
+                          "taxNumber",
+                          "email"
+                        ],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "As printed, fixed when sent or issued"
+                  }
+                },
+                "required": [
+                  "personId",
+                  "organisationId",
+                  "printed"
+                ],
+                "additionalProperties": false
+              },
+              "siteAddress": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "about": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "object": {
+                        "type": "string"
+                      },
+                      "id": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "object",
+                      "id"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "title": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "notes": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "lines": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "position": {
+                      "type": "number"
+                    },
+                    "description": {
+                      "type": "string"
+                    },
+                    "quantity": {
+                      "type": "number"
+                    },
+                    "unit": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "unitPrice": {
+                      "type": "number",
+                      "description": "For one, in minor units, as the document's amounts are typed"
+                    },
+                    "taxRate": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "key": {
+                              "type": "string"
+                            },
+                            "label": {
+                              "type": "string"
+                            },
+                            "rate": {
+                              "type": "number"
+                            }
+                          },
+                          "required": [
+                            "key",
+                            "label",
+                            "rate"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "discount": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "kind": {
+                              "type": "string",
+                              "enum": [
+                                "amount",
+                                "percent"
+                              ]
+                            },
+                            "value": {
+                              "type": "number"
+                            },
+                            "reason": {
+                              "type": "string"
+                            },
+                            "amount": {
+                              "type": "number",
+                              "description": "What it took off, in minor units"
+                            }
+                          },
+                          "required": [
+                            "kind",
+                            "value",
+                            "reason",
+                            "amount"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "net": {
+                      "type": "number"
+                    },
+                    "tax": {
+                      "type": "number"
+                    },
+                    "total": {
+                      "type": "number"
+                    },
+                    "source": {
+                      "type": "string",
+                      "enum": [
+                        "record",
+                        "custom",
+                        "deduction"
+                      ]
+                    },
+                    "item": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "object": {
+                              "type": "string"
+                            },
+                            "id": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "object",
+                            "id"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "position",
+                    "description",
+                    "quantity",
+                    "unit",
+                    "unitPrice",
+                    "taxRate",
+                    "discount",
+                    "net",
+                    "tax",
+                    "total",
+                    "source",
+                    "item"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "netTotal": {
+                "type": "number"
+              },
+              "taxTotal": {
+                "type": "number"
+              },
+              "total": {
+                "type": "number"
+              },
+              "taxByRate": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "key": {
+                      "type": "string"
+                    },
+                    "label": {
+                      "type": "string"
+                    },
+                    "rate": {
+                      "type": "number"
+                    },
+                    "net": {
+                      "type": "number"
+                    },
+                    "tax": {
+                      "type": "number"
+                    },
+                    "total": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "key",
+                    "label",
+                    "rate",
+                    "net",
+                    "tax",
+                    "total"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "version": {
+                "type": "number",
+                "description": "Moves with every write"
+              },
+              "createdAt": {
+                "type": "string"
+              },
+              "updatedAt": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "standard",
+                  "deposit",
+                  "final"
+                ]
+              },
+              "quoteId": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "orderId": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "paymentTermsDays": {
+                "type": "number"
+              },
+              "issuedOn": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "dueOn": {
+                "description": "Set on a draft, or worked out at issue from the terms",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "allowPartPayments": {
+                "type": "boolean"
+              },
+              "remindersPaused": {
+                "type": "boolean"
+              },
+              "money": {
+                "description": "Once issued (invoice.get): its order's money",
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "paid": {
+                        "type": "number"
+                      },
+                      "credited": {
+                        "type": "number",
+                        "description": "What credit notes took off what was owed"
+                      },
+                      "refunded": {
+                        "type": "number",
+                        "description": "What has gone back, confirmed or recorded"
+                      },
+                      "balance": {
+                        "type": "number",
+                        "description": "What is still owed: total less paid less credited"
+                      },
+                      "orderState": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "paid",
+                      "credited",
+                      "refunded",
+                      "balance",
+                      "orderState"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "id",
+              "state",
+              "number",
+              "currency",
+              "taxMode",
+              "billTo",
+              "siteAddress",
+              "about",
+              "title",
+              "notes",
+              "lines",
+              "netTotal",
+              "taxTotal",
+              "total",
+              "taxByRate",
+              "version",
+              "createdAt",
+              "updatedAt",
+              "kind",
+              "quoteId",
+              "orderId",
+              "paymentTermsDays",
+              "issuedOn",
+              "dueOn",
+              "allowPartPayments",
+              "remindersPaused"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "paymentId",
+          "invoice"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "invoice.events",
+        "invoice.get",
+        "invoice.list",
+        "invoice.settings.get"
+      ]
     },
     {
       "name": "invoice.removeLine",
@@ -44456,6 +47516,45 @@
           },
           "remindersPaused": {
             "type": "boolean"
+          },
+          "money": {
+            "description": "Once issued (invoice.get): its order's money",
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "paid": {
+                    "type": "number"
+                  },
+                  "credited": {
+                    "type": "number",
+                    "description": "What credit notes took off what was owed"
+                  },
+                  "refunded": {
+                    "type": "number",
+                    "description": "What has gone back, confirmed or recorded"
+                  },
+                  "balance": {
+                    "type": "number",
+                    "description": "What is still owed: total less paid less credited"
+                  },
+                  "orderState": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "paid",
+                  "credited",
+                  "refunded",
+                  "balance",
+                  "orderState"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
@@ -44485,6 +47584,514 @@
           "dueOn",
           "allowPartPayments",
           "remindersPaused"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "invoice.events",
+        "invoice.get",
+        "invoice.list",
+        "invoice.settings.get"
+      ]
+    },
+    {
+      "name": "invoice.reversePayment",
+      "description": "Reverse a payment recorded on an invoice in error (invoice.recordPayment): a second entry takes it back off, nothing is deleted, and a paid invoice is part paid again with the amount owed. What it gave stays. Not for a payment made on the payment page (credit the invoice instead), nor one a credit note gives money back on. Admins are told. A person only, with the permission to record invoice payments. Returns the reversal's id and the invoice.",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "paymentId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "The recorded payment (opy_…)"
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500,
+            "description": "Why it was entered in error"
+          }
+        },
+        "required": [
+          "paymentId",
+          "reason"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "paymentId": {
+            "type": "string",
+            "description": "The payment row (opy_…): what a reversal names"
+          },
+          "invoice": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "state": {
+                "type": "string",
+                "enum": [
+                  "draft",
+                  "issued",
+                  "sent",
+                  "part_paid",
+                  "paid",
+                  "credited",
+                  "void"
+                ]
+              },
+              "number": {
+                "description": "Given when sent or issued; null on a draft",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "currency": {
+                "type": "string"
+              },
+              "taxMode": {
+                "type": "string",
+                "enum": [
+                  "exclusive",
+                  "inclusive"
+                ]
+              },
+              "billTo": {
+                "type": "object",
+                "properties": {
+                  "personId": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "organisationId": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "printed": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "name": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "address": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "taxNumber": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "email": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "name",
+                          "address",
+                          "taxNumber",
+                          "email"
+                        ],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "As printed, fixed when sent or issued"
+                  }
+                },
+                "required": [
+                  "personId",
+                  "organisationId",
+                  "printed"
+                ],
+                "additionalProperties": false
+              },
+              "siteAddress": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "about": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "object": {
+                        "type": "string"
+                      },
+                      "id": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "object",
+                      "id"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "title": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "notes": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "lines": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "position": {
+                      "type": "number"
+                    },
+                    "description": {
+                      "type": "string"
+                    },
+                    "quantity": {
+                      "type": "number"
+                    },
+                    "unit": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "unitPrice": {
+                      "type": "number",
+                      "description": "For one, in minor units, as the document's amounts are typed"
+                    },
+                    "taxRate": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "key": {
+                              "type": "string"
+                            },
+                            "label": {
+                              "type": "string"
+                            },
+                            "rate": {
+                              "type": "number"
+                            }
+                          },
+                          "required": [
+                            "key",
+                            "label",
+                            "rate"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "discount": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "kind": {
+                              "type": "string",
+                              "enum": [
+                                "amount",
+                                "percent"
+                              ]
+                            },
+                            "value": {
+                              "type": "number"
+                            },
+                            "reason": {
+                              "type": "string"
+                            },
+                            "amount": {
+                              "type": "number",
+                              "description": "What it took off, in minor units"
+                            }
+                          },
+                          "required": [
+                            "kind",
+                            "value",
+                            "reason",
+                            "amount"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "net": {
+                      "type": "number"
+                    },
+                    "tax": {
+                      "type": "number"
+                    },
+                    "total": {
+                      "type": "number"
+                    },
+                    "source": {
+                      "type": "string",
+                      "enum": [
+                        "record",
+                        "custom",
+                        "deduction"
+                      ]
+                    },
+                    "item": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "object": {
+                              "type": "string"
+                            },
+                            "id": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "object",
+                            "id"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "position",
+                    "description",
+                    "quantity",
+                    "unit",
+                    "unitPrice",
+                    "taxRate",
+                    "discount",
+                    "net",
+                    "tax",
+                    "total",
+                    "source",
+                    "item"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "netTotal": {
+                "type": "number"
+              },
+              "taxTotal": {
+                "type": "number"
+              },
+              "total": {
+                "type": "number"
+              },
+              "taxByRate": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "key": {
+                      "type": "string"
+                    },
+                    "label": {
+                      "type": "string"
+                    },
+                    "rate": {
+                      "type": "number"
+                    },
+                    "net": {
+                      "type": "number"
+                    },
+                    "tax": {
+                      "type": "number"
+                    },
+                    "total": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "key",
+                    "label",
+                    "rate",
+                    "net",
+                    "tax",
+                    "total"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "version": {
+                "type": "number",
+                "description": "Moves with every write"
+              },
+              "createdAt": {
+                "type": "string"
+              },
+              "updatedAt": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "standard",
+                  "deposit",
+                  "final"
+                ]
+              },
+              "quoteId": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "orderId": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "paymentTermsDays": {
+                "type": "number"
+              },
+              "issuedOn": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "dueOn": {
+                "description": "Set on a draft, or worked out at issue from the terms",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "allowPartPayments": {
+                "type": "boolean"
+              },
+              "remindersPaused": {
+                "type": "boolean"
+              },
+              "money": {
+                "description": "Once issued (invoice.get): its order's money",
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "paid": {
+                        "type": "number"
+                      },
+                      "credited": {
+                        "type": "number",
+                        "description": "What credit notes took off what was owed"
+                      },
+                      "refunded": {
+                        "type": "number",
+                        "description": "What has gone back, confirmed or recorded"
+                      },
+                      "balance": {
+                        "type": "number",
+                        "description": "What is still owed: total less paid less credited"
+                      },
+                      "orderState": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "paid",
+                      "credited",
+                      "refunded",
+                      "balance",
+                      "orderState"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "id",
+              "state",
+              "number",
+              "currency",
+              "taxMode",
+              "billTo",
+              "siteAddress",
+              "about",
+              "title",
+              "notes",
+              "lines",
+              "netTotal",
+              "taxTotal",
+              "total",
+              "taxByRate",
+              "version",
+              "createdAt",
+              "updatedAt",
+              "kind",
+              "quoteId",
+              "orderId",
+              "paymentTermsDays",
+              "issuedOn",
+              "dueOn",
+              "allowPartPayments",
+              "remindersPaused"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "paymentId",
+          "invoice"
         ],
         "additionalProperties": false
       },
@@ -45788,6 +49395,45 @@
           },
           "remindersPaused": {
             "type": "boolean"
+          },
+          "money": {
+            "description": "Once issued (invoice.get): its order's money",
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "paid": {
+                    "type": "number"
+                  },
+                  "credited": {
+                    "type": "number",
+                    "description": "What credit notes took off what was owed"
+                  },
+                  "refunded": {
+                    "type": "number",
+                    "description": "What has gone back, confirmed or recorded"
+                  },
+                  "balance": {
+                    "type": "number",
+                    "description": "What is still owed: total less paid less credited"
+                  },
+                  "orderState": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "paid",
+                  "credited",
+                  "refunded",
+                  "balance",
+                  "orderState"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
@@ -46330,6 +49976,45 @@
           },
           "remindersPaused": {
             "type": "boolean"
+          },
+          "money": {
+            "description": "Once issued (invoice.get): its order's money",
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "paid": {
+                    "type": "number"
+                  },
+                  "credited": {
+                    "type": "number",
+                    "description": "What credit notes took off what was owed"
+                  },
+                  "refunded": {
+                    "type": "number",
+                    "description": "What has gone back, confirmed or recorded"
+                  },
+                  "balance": {
+                    "type": "number",
+                    "description": "What is still owed: total less paid less credited"
+                  },
+                  "orderState": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "paid",
+                  "credited",
+                  "refunded",
+                  "balance",
+                  "orderState"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "required": [
@@ -46359,6 +50044,734 @@
           "dueOn",
           "allowPartPayments",
           "remindersPaused"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "invoice.events",
+        "invoice.get",
+        "invoice.list",
+        "invoice.settings.get"
+      ]
+    },
+    {
+      "name": "invoice.void",
+      "description": "Void an issued invoice nothing has been paid on: a credit note for everything still owed on it, issued at once; the invoice is void, its order cancelled and its places given back. An invoice with something paid is credited instead (creditNote.create). A person only, with the permission to credit invoices: AI assistants are refused. Returns the credit note and the invoice.",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "The invoice's id (inv_…)"
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500,
+            "description": "Why, as printed on the credit note"
+          },
+          "version": {
+            "description": "The version you read: one changed since by someone else is refused",
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": [
+          "id",
+          "reason"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "number": {
+            "description": "Given when issued; null on a draft",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "draft",
+              "issued"
+            ]
+          },
+          "invoiceId": {
+            "type": "string"
+          },
+          "currency": {
+            "type": "string"
+          },
+          "taxMode": {
+            "type": "string",
+            "enum": [
+              "exclusive",
+              "inclusive"
+            ]
+          },
+          "reason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "settle": {
+            "type": "string",
+            "enum": [
+              "reduce",
+              "refund",
+              "both"
+            ],
+            "description": "reduce: take it off what is still owed; refund: give it back from what was paid (nothing may be owed); both: take off what is owed first, then give back the rest"
+          },
+          "lines": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "position": {
+                  "type": "number"
+                },
+                "description": {
+                  "type": "string"
+                },
+                "quantity": {
+                  "type": "number"
+                },
+                "unit": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "unitPrice": {
+                  "type": "number"
+                },
+                "taxRate": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "key": {
+                          "type": "string"
+                        },
+                        "label": {
+                          "type": "string"
+                        },
+                        "rate": {
+                          "type": "number"
+                        }
+                      },
+                      "required": [
+                        "key",
+                        "label",
+                        "rate"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "net": {
+                  "type": "number"
+                },
+                "tax": {
+                  "type": "number"
+                },
+                "total": {
+                  "type": "number"
+                },
+                "creditsLineId": {
+                  "description": "The invoice line it credits; null: an amount",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "position",
+                "description",
+                "quantity",
+                "unit",
+                "unitPrice",
+                "taxRate",
+                "net",
+                "tax",
+                "total",
+                "creditsLineId"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "netTotal": {
+            "type": "number"
+          },
+          "taxTotal": {
+            "type": "number"
+          },
+          "total": {
+            "type": "number"
+          },
+          "issuedOn": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "refunds": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "paymentRef": {
+                  "type": "string"
+                },
+                "method": {
+                  "type": "string",
+                  "enum": [
+                    "provider",
+                    "recorded"
+                  ]
+                },
+                "amount": {
+                  "type": "number"
+                },
+                "refundId": {
+                  "description": "The refund asked for (provider) or recorded (paid back); null: still owed",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "paidBackAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "paymentRef",
+                "method",
+                "amount",
+                "refundId",
+                "paidBackAt"
+              ],
+              "additionalProperties": false
+            },
+            "description": "What it gives back, per payment: a provider's waits for approval, a recorded one for a person to record it paid back"
+          },
+          "version": {
+            "type": "number"
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "invoice": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "state": {
+                "type": "string",
+                "enum": [
+                  "draft",
+                  "issued",
+                  "sent",
+                  "part_paid",
+                  "paid",
+                  "credited",
+                  "void"
+                ]
+              },
+              "number": {
+                "description": "Given when sent or issued; null on a draft",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "currency": {
+                "type": "string"
+              },
+              "taxMode": {
+                "type": "string",
+                "enum": [
+                  "exclusive",
+                  "inclusive"
+                ]
+              },
+              "billTo": {
+                "type": "object",
+                "properties": {
+                  "personId": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "organisationId": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "printed": {
+                    "anyOf": [
+                      {
+                        "type": "object",
+                        "properties": {
+                          "name": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "address": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "taxNumber": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          },
+                          "email": {
+                            "type": [
+                              "string",
+                              "null"
+                            ]
+                          }
+                        },
+                        "required": [
+                          "name",
+                          "address",
+                          "taxNumber",
+                          "email"
+                        ],
+                        "additionalProperties": false
+                      },
+                      {
+                        "type": "null"
+                      }
+                    ],
+                    "description": "As printed, fixed when sent or issued"
+                  }
+                },
+                "required": [
+                  "personId",
+                  "organisationId",
+                  "printed"
+                ],
+                "additionalProperties": false
+              },
+              "siteAddress": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "about": {
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "object": {
+                        "type": "string"
+                      },
+                      "id": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "object",
+                      "id"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "title": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "notes": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "lines": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "id": {
+                      "type": "string"
+                    },
+                    "position": {
+                      "type": "number"
+                    },
+                    "description": {
+                      "type": "string"
+                    },
+                    "quantity": {
+                      "type": "number"
+                    },
+                    "unit": {
+                      "type": [
+                        "string",
+                        "null"
+                      ]
+                    },
+                    "unitPrice": {
+                      "type": "number",
+                      "description": "For one, in minor units, as the document's amounts are typed"
+                    },
+                    "taxRate": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "key": {
+                              "type": "string"
+                            },
+                            "label": {
+                              "type": "string"
+                            },
+                            "rate": {
+                              "type": "number"
+                            }
+                          },
+                          "required": [
+                            "key",
+                            "label",
+                            "rate"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "discount": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "kind": {
+                              "type": "string",
+                              "enum": [
+                                "amount",
+                                "percent"
+                              ]
+                            },
+                            "value": {
+                              "type": "number"
+                            },
+                            "reason": {
+                              "type": "string"
+                            },
+                            "amount": {
+                              "type": "number",
+                              "description": "What it took off, in minor units"
+                            }
+                          },
+                          "required": [
+                            "kind",
+                            "value",
+                            "reason",
+                            "amount"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    },
+                    "net": {
+                      "type": "number"
+                    },
+                    "tax": {
+                      "type": "number"
+                    },
+                    "total": {
+                      "type": "number"
+                    },
+                    "source": {
+                      "type": "string",
+                      "enum": [
+                        "record",
+                        "custom",
+                        "deduction"
+                      ]
+                    },
+                    "item": {
+                      "anyOf": [
+                        {
+                          "type": "object",
+                          "properties": {
+                            "object": {
+                              "type": "string"
+                            },
+                            "id": {
+                              "type": "string"
+                            }
+                          },
+                          "required": [
+                            "object",
+                            "id"
+                          ],
+                          "additionalProperties": false
+                        },
+                        {
+                          "type": "null"
+                        }
+                      ]
+                    }
+                  },
+                  "required": [
+                    "id",
+                    "position",
+                    "description",
+                    "quantity",
+                    "unit",
+                    "unitPrice",
+                    "taxRate",
+                    "discount",
+                    "net",
+                    "tax",
+                    "total",
+                    "source",
+                    "item"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "netTotal": {
+                "type": "number"
+              },
+              "taxTotal": {
+                "type": "number"
+              },
+              "total": {
+                "type": "number"
+              },
+              "taxByRate": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "key": {
+                      "type": "string"
+                    },
+                    "label": {
+                      "type": "string"
+                    },
+                    "rate": {
+                      "type": "number"
+                    },
+                    "net": {
+                      "type": "number"
+                    },
+                    "tax": {
+                      "type": "number"
+                    },
+                    "total": {
+                      "type": "number"
+                    }
+                  },
+                  "required": [
+                    "key",
+                    "label",
+                    "rate",
+                    "net",
+                    "tax",
+                    "total"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "version": {
+                "type": "number",
+                "description": "Moves with every write"
+              },
+              "createdAt": {
+                "type": "string"
+              },
+              "updatedAt": {
+                "type": "string"
+              },
+              "kind": {
+                "type": "string",
+                "enum": [
+                  "standard",
+                  "deposit",
+                  "final"
+                ]
+              },
+              "quoteId": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "orderId": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "paymentTermsDays": {
+                "type": "number"
+              },
+              "issuedOn": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "dueOn": {
+                "description": "Set on a draft, or worked out at issue from the terms",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "allowPartPayments": {
+                "type": "boolean"
+              },
+              "remindersPaused": {
+                "type": "boolean"
+              },
+              "money": {
+                "description": "Once issued (invoice.get): its order's money",
+                "anyOf": [
+                  {
+                    "type": "object",
+                    "properties": {
+                      "paid": {
+                        "type": "number"
+                      },
+                      "credited": {
+                        "type": "number",
+                        "description": "What credit notes took off what was owed"
+                      },
+                      "refunded": {
+                        "type": "number",
+                        "description": "What has gone back, confirmed or recorded"
+                      },
+                      "balance": {
+                        "type": "number",
+                        "description": "What is still owed: total less paid less credited"
+                      },
+                      "orderState": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "paid",
+                      "credited",
+                      "refunded",
+                      "balance",
+                      "orderState"
+                    ],
+                    "additionalProperties": false
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "id",
+              "state",
+              "number",
+              "currency",
+              "taxMode",
+              "billTo",
+              "siteAddress",
+              "about",
+              "title",
+              "notes",
+              "lines",
+              "netTotal",
+              "taxTotal",
+              "total",
+              "taxByRate",
+              "version",
+              "createdAt",
+              "updatedAt",
+              "kind",
+              "quoteId",
+              "orderId",
+              "paymentTermsDays",
+              "issuedOn",
+              "dueOn",
+              "allowPartPayments",
+              "remindersPaused"
+            ],
+            "additionalProperties": false
+          },
+          "pending": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The refunds waiting in Approvals for a person with the refund permission"
+          }
+        },
+        "required": [
+          "id",
+          "number",
+          "state",
+          "invoiceId",
+          "currency",
+          "taxMode",
+          "reason",
+          "settle",
+          "lines",
+          "netTotal",
+          "taxTotal",
+          "total",
+          "issuedOn",
+          "refunds",
+          "version",
+          "createdAt",
+          "invoice",
+          "pending"
         ],
         "additionalProperties": false
       },
@@ -58571,7 +62984,7 @@
     },
     {
       "name": "order.overdue",
-      "description": "List part-paid orders whose balance is past its due date, oldest first. Nothing happens to them by itself: extend the date (order.extendBalanceDue), cancel (order.cancel), or the buyer pays. Read-only.",
+      "description": "List part-paid orders whose balance is past its due date, and invoices' orders past the invoice's due date, oldest first. Nothing happens to them by itself: extend the date (order.extendBalanceDue), cancel (order.cancel), or the buyer pays; an invoice's is credited or paid on the invoice. Read-only.",
       "risk": "read",
       "audiences": [
         "staff"

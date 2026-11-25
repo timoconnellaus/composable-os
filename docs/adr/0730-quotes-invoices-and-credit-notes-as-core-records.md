@@ -152,3 +152,12 @@ and an order in the same batch, and a recorded payment are host rules; a pack ca
   the series); an `UPDATE OR REPLACE` onto a sent quote's number, which deleted it; a delete from
   an older read that deleted some lines and reported success. Also fixed then: record lines
   checked as one order, final states held by the trigger, an organisation's contact at it.
+
+## Amendment, 2026-11-25 (stage 35 steps 3 to 5, ADRs 0731, 0733 and 0735)
+Issuing (`invoice.issue`) calls `numberStatements` with the issue's columns and starts the order
+after it in the same batch; the database makes an invoice's order only after its invoice is issued
+and names it. A record's lines are checked with the goods rules too (`checkRecordLines`): goods are
+refused on a document (they need a delivery). A deduction line is taken off the document's totals,
+by its rate. Credit notes are drafted, issued and voided by their own operations, and a credit
+note's own tables are read as a quote's and an invoice's are. The event log's rows for payments,
+credits, refunds confirmed, paid back and void are written by those steps.

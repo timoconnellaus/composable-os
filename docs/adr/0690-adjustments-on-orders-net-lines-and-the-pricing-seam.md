@@ -96,3 +96,11 @@ than 100 values. From the review of PR #380: a discount given while the buyer's 
 refuses that page and the next asks for the new price; the database refuses a new total once a
 page is recorded; erase redacts the discount calls' audit rows; a whole-order 99% on lines of 1 and
 3 cents takes 0 and 2.
+
+## Amendment, 2026-11-25 (stage 35 step 3, ADR 0731): the invoice's adjustments
+Two kinds only the host writes, on an invoice's order only, in the batch that starts it: `rounding`
+(the cents a whole-unit price of a line typed without tax rounds up, taken back off that line) and
+`prepaid` (a final invoice's "less deposit paid", on the whole order). An invoice's line discounts
+are `staff` adjustments given by the person who issues it, within the limit or approved. None of an
+invoice's adjustments is ever taken off (the database refuses it). Migration 1031 remakes
+`core_order_adjustment` for the kinds; a later remake carries them forward. See ADR 0731.

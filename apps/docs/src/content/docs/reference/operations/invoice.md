@@ -103,6 +103,104 @@ Add a line to a draft invoice: a record for sale (item: its object and id), pric
 | `dueOn` | string or null | yes |   | Set on a draft, or worked out at issue from the terms |
 | `allowPartPayments` | boolean | yes |   |   |
 | `remindersPaused` | boolean | yes |   |   |
+| `money` | object or null |   |   | Once issued (invoice.get): its order's money |
+| `money.paid` | number | yes |   |   |
+| `money.credited` | number | yes |   | What credit notes took off what was owed |
+| `money.refunded` | number | yes |   | What has gone back, confirmed or recorded |
+| `money.balance` | number | yes |   | What is still owed: total less paid less credited |
+| `money.orderState` | string | yes |   |   |
+
+## invoice.allowPartPayments
+
+Allow (or stop) part payments online on an issued invoice. Without, the payment page asks for the whole balance; with, the payer may pay part of it, at least the minimum set for orders. A payment recorded by staff can be any amount up to the balance either way. Returns the invoice.
+
+|  |  |
+| --- | --- |
+| Permission | `invoices:send` |
+| Risk | `write` |
+| Audiences | `staff` |
+
+### Input
+
+| Field | Type | Required | Limits | Description |
+| --- | --- | --- | --- | --- |
+| `id` | string | yes | min length 1, max length 64 | The invoice's id (inv_…) |
+| `allow` | boolean | yes |   |   |
+| `version` | integer |   | ≥ 0, ≤ 9007199254740991 | The version you read: one changed since by someone else is refused |
+
+### Output
+
+| Field | Type | Required | Limits | Description |
+| --- | --- | --- | --- | --- |
+| `id` | string | yes |   |   |
+| `state` | `"draft"`, `"issued"`, `"sent"`, `"part_paid"`, `"paid"`, `"credited"`, `"void"` | yes |   |   |
+| `number` | string or null | yes |   | Given when sent or issued; null on a draft |
+| `currency` | string | yes |   |   |
+| `taxMode` | `"exclusive"`, `"inclusive"` | yes |   |   |
+| `billTo` | object | yes |   |   |
+| `billTo.personId` | string or null | yes |   |   |
+| `billTo.organisationId` | string or null | yes |   |   |
+| `billTo.printed` | object or null | yes |   | As printed, fixed when sent or issued |
+| `billTo.printed.name` | string or null | yes |   |   |
+| `billTo.printed.address` | string or null | yes |   |   |
+| `billTo.printed.taxNumber` | string or null | yes |   |   |
+| `billTo.printed.email` | string or null | yes |   |   |
+| `siteAddress` | string or null | yes |   |   |
+| `about` | object or null | yes |   |   |
+| `about.object` | string | yes |   |   |
+| `about.id` | string | yes |   |   |
+| `title` | string or null | yes |   |   |
+| `notes` | string or null | yes |   |   |
+| `lines` | array of object | yes |   |   |
+| `lines[].id` | string | yes |   |   |
+| `lines[].position` | number | yes |   |   |
+| `lines[].description` | string | yes |   |   |
+| `lines[].quantity` | number | yes |   |   |
+| `lines[].unit` | string or null | yes |   |   |
+| `lines[].unitPrice` | number | yes |   | For one, in minor units, as the document's amounts are typed |
+| `lines[].taxRate` | object or null | yes |   |   |
+| `lines[].taxRate.key` | string | yes |   |   |
+| `lines[].taxRate.label` | string | yes |   |   |
+| `lines[].taxRate.rate` | number | yes |   |   |
+| `lines[].discount` | object or null | yes |   |   |
+| `lines[].discount.kind` | `"amount"`, `"percent"` | yes |   |   |
+| `lines[].discount.value` | number | yes |   |   |
+| `lines[].discount.reason` | string | yes |   |   |
+| `lines[].discount.amount` | number | yes |   | What it took off, in minor units |
+| `lines[].net` | number | yes |   |   |
+| `lines[].tax` | number | yes |   |   |
+| `lines[].total` | number | yes |   |   |
+| `lines[].source` | `"record"`, `"custom"`, `"deduction"` | yes |   |   |
+| `lines[].item` | object or null | yes |   |   |
+| `lines[].item.object` | string | yes |   |   |
+| `lines[].item.id` | string | yes |   |   |
+| `netTotal` | number | yes |   |   |
+| `taxTotal` | number | yes |   |   |
+| `total` | number | yes |   |   |
+| `taxByRate` | array of object | yes |   |   |
+| `taxByRate[].key` | string | yes |   |   |
+| `taxByRate[].label` | string | yes |   |   |
+| `taxByRate[].rate` | number | yes |   |   |
+| `taxByRate[].net` | number | yes |   |   |
+| `taxByRate[].tax` | number | yes |   |   |
+| `taxByRate[].total` | number | yes |   |   |
+| `version` | number | yes |   | Moves with every write |
+| `createdAt` | string | yes |   |   |
+| `updatedAt` | string | yes |   |   |
+| `kind` | `"standard"`, `"deposit"`, `"final"` | yes |   |   |
+| `quoteId` | string or null | yes |   |   |
+| `orderId` | string or null | yes |   |   |
+| `paymentTermsDays` | number | yes |   |   |
+| `issuedOn` | string or null | yes |   |   |
+| `dueOn` | string or null | yes |   | Set on a draft, or worked out at issue from the terms |
+| `allowPartPayments` | boolean | yes |   |   |
+| `remindersPaused` | boolean | yes |   |   |
+| `money` | object or null |   |   | Once issued (invoice.get): its order's money |
+| `money.paid` | number | yes |   |   |
+| `money.credited` | number | yes |   | What credit notes took off what was owed |
+| `money.refunded` | number | yes |   | What has gone back, confirmed or recorded |
+| `money.balance` | number | yes |   | What is still owed: total less paid less credited |
+| `money.orderState` | string | yes |   |   |
 
 ## invoice.create
 
@@ -211,6 +309,12 @@ Start an invoice as a draft: whom it is for (a Person, or an Organisation with i
 | `dueOn` | string or null | yes |   | Set on a draft, or worked out at issue from the terms |
 | `allowPartPayments` | boolean | yes |   |   |
 | `remindersPaused` | boolean | yes |   |   |
+| `money` | object or null |   |   | Once issued (invoice.get): its order's money |
+| `money.paid` | number | yes |   |   |
+| `money.credited` | number | yes |   | What credit notes took off what was owed |
+| `money.refunded` | number | yes |   | What has gone back, confirmed or recorded |
+| `money.balance` | number | yes |   | What is still owed: total less paid less credited |
+| `money.orderState` | string | yes |   |   |
 
 ## invoice.delete
 
@@ -354,6 +458,105 @@ One invoice with its lines, totals by rate, whom it bills and (once issued) its 
 | `dueOn` | string or null | yes |   | Set on a draft, or worked out at issue from the terms |
 | `allowPartPayments` | boolean | yes |   |   |
 | `remindersPaused` | boolean | yes |   |   |
+| `money` | object or null |   |   | Once issued (invoice.get): its order's money |
+| `money.paid` | number | yes |   |   |
+| `money.credited` | number | yes |   | What credit notes took off what was owed |
+| `money.refunded` | number | yes |   | What has gone back, confirmed or recorded |
+| `money.balance` | number | yes |   | What is still owed: total less paid less credited |
+| `money.orderState` | string | yes |   |   |
+
+## invoice.issue
+
+Issue a draft invoice: it takes the next number of the invoice series (INV-0042), its bill-to as printed, the business's details and bank details as they are now, its issue date and its due date (the draft's, or today plus its payment terms), and starts its order in the same step: the invoice's lines as the host priced them, its line discounts, and the tax worked out on it. From then on it is never changed: it is credited. Its order does not expire: it is due on the invoice's due date and shows among the overdue after it; places it holds are held until it is paid, credited or voided. A record's price that changed since its line was added, goods, and an agreement the bill-to still needs are refused with why. A line discount needs the discount permission, and over the limit an admin set it waits for approval. An AI assistant can ask; a person approves. Sending it is a separate step. Returns the invoice.
+
+|  |  |
+| --- | --- |
+| Permission | `invoices:send` |
+| Risk | `write` |
+| Audiences | `staff` |
+| Actors | `human`, `assistant`, `mcp` |
+| Also | always reviewed when called by `assistant`, `mcp` (`alwaysReview`); reviewed by a person when its own rule says so for the input (`reviewWhen`) |
+
+### Input
+
+| Field | Type | Required | Limits | Description |
+| --- | --- | --- | --- | --- |
+| `id` | string | yes | min length 1, max length 64 | The invoice's id (inv_…) |
+| `version` | integer |   | ≥ 0, ≤ 9007199254740991 | The version you read: one changed since by someone else is refused |
+
+### Output
+
+| Field | Type | Required | Limits | Description |
+| --- | --- | --- | --- | --- |
+| `id` | string | yes |   |   |
+| `state` | `"draft"`, `"issued"`, `"sent"`, `"part_paid"`, `"paid"`, `"credited"`, `"void"` | yes |   |   |
+| `number` | string or null | yes |   | Given when sent or issued; null on a draft |
+| `currency` | string | yes |   |   |
+| `taxMode` | `"exclusive"`, `"inclusive"` | yes |   |   |
+| `billTo` | object | yes |   |   |
+| `billTo.personId` | string or null | yes |   |   |
+| `billTo.organisationId` | string or null | yes |   |   |
+| `billTo.printed` | object or null | yes |   | As printed, fixed when sent or issued |
+| `billTo.printed.name` | string or null | yes |   |   |
+| `billTo.printed.address` | string or null | yes |   |   |
+| `billTo.printed.taxNumber` | string or null | yes |   |   |
+| `billTo.printed.email` | string or null | yes |   |   |
+| `siteAddress` | string or null | yes |   |   |
+| `about` | object or null | yes |   |   |
+| `about.object` | string | yes |   |   |
+| `about.id` | string | yes |   |   |
+| `title` | string or null | yes |   |   |
+| `notes` | string or null | yes |   |   |
+| `lines` | array of object | yes |   |   |
+| `lines[].id` | string | yes |   |   |
+| `lines[].position` | number | yes |   |   |
+| `lines[].description` | string | yes |   |   |
+| `lines[].quantity` | number | yes |   |   |
+| `lines[].unit` | string or null | yes |   |   |
+| `lines[].unitPrice` | number | yes |   | For one, in minor units, as the document's amounts are typed |
+| `lines[].taxRate` | object or null | yes |   |   |
+| `lines[].taxRate.key` | string | yes |   |   |
+| `lines[].taxRate.label` | string | yes |   |   |
+| `lines[].taxRate.rate` | number | yes |   |   |
+| `lines[].discount` | object or null | yes |   |   |
+| `lines[].discount.kind` | `"amount"`, `"percent"` | yes |   |   |
+| `lines[].discount.value` | number | yes |   |   |
+| `lines[].discount.reason` | string | yes |   |   |
+| `lines[].discount.amount` | number | yes |   | What it took off, in minor units |
+| `lines[].net` | number | yes |   |   |
+| `lines[].tax` | number | yes |   |   |
+| `lines[].total` | number | yes |   |   |
+| `lines[].source` | `"record"`, `"custom"`, `"deduction"` | yes |   |   |
+| `lines[].item` | object or null | yes |   |   |
+| `lines[].item.object` | string | yes |   |   |
+| `lines[].item.id` | string | yes |   |   |
+| `netTotal` | number | yes |   |   |
+| `taxTotal` | number | yes |   |   |
+| `total` | number | yes |   |   |
+| `taxByRate` | array of object | yes |   |   |
+| `taxByRate[].key` | string | yes |   |   |
+| `taxByRate[].label` | string | yes |   |   |
+| `taxByRate[].rate` | number | yes |   |   |
+| `taxByRate[].net` | number | yes |   |   |
+| `taxByRate[].tax` | number | yes |   |   |
+| `taxByRate[].total` | number | yes |   |   |
+| `version` | number | yes |   | Moves with every write |
+| `createdAt` | string | yes |   |   |
+| `updatedAt` | string | yes |   |   |
+| `kind` | `"standard"`, `"deposit"`, `"final"` | yes |   |   |
+| `quoteId` | string or null | yes |   |   |
+| `orderId` | string or null | yes |   |   |
+| `paymentTermsDays` | number | yes |   |   |
+| `issuedOn` | string or null | yes |   |   |
+| `dueOn` | string or null | yes |   | Set on a draft, or worked out at issue from the terms |
+| `allowPartPayments` | boolean | yes |   |   |
+| `remindersPaused` | boolean | yes |   |   |
+| `money` | object or null |   |   | Once issued (invoice.get): its order's money |
+| `money.paid` | number | yes |   |   |
+| `money.credited` | number | yes |   | What credit notes took off what was owed |
+| `money.refunded` | number | yes |   | What has gone back, confirmed or recorded |
+| `money.balance` | number | yes |   | What is still owed: total less paid less credited |
+| `money.orderState` | string | yes |   |   |
 
 ## invoice.list
 
@@ -397,6 +600,104 @@ A page of invoices, newest first unless sorted otherwise, without their lines (i
 | `items[].issuedOn` | string or null |   |   |   |
 | `items[].dueOn` | string or null |   |   |   |
 | `nextCursor` | string or null | yes |   |   |
+
+## invoice.recordPayment
+
+Record a payment of an issued invoice taken another way than the payment page: a bank transfer, cash, a cheque, a card machine. Any amount up to the balance, never more. The invoice becomes part paid or paid, as its order does, and what it bought is given. The payment names you as the person who received it; it is in the invoice's log, on the timeline, and admins are told of one over the amount set in the invoice settings. A person only, with the permission to record invoice payments: AI assistants, MCP clients, automations and extensions are refused. Returns the payment's id and the invoice.
+
+|  |  |
+| --- | --- |
+| Permission | `invoices:payments` |
+| Risk | `write` |
+| Audiences | `staff` |
+| Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
+
+### Input
+
+| Field | Type | Required | Limits | Description |
+| --- | --- | --- | --- | --- |
+| `invoiceId` | string | yes | min length 1, max length 64 | The invoice's id (inv_…) |
+| `amount` | integer | yes | ≥ 1, ≤ 100000000 | What was received, in the currency's minor unit (cents) |
+| `kind` | `"transfer"`, `"cash"`, `"cheque"`, `"card_machine"`, `"other"` | yes |   | How it was paid: transfer, cash, cheque, card_machine or other |
+| `receivedOn` | string | yes | pattern `^\d{4}-\d{2}-\d{2}$` | The day it was received (YYYY-MM-DD) |
+| `reference` | string |   | min length 1, max length 200 | The payer's reference: a bank reference, a cheque number |
+
+### Output
+
+| Field | Type | Required | Limits | Description |
+| --- | --- | --- | --- | --- |
+| `paymentId` | string | yes |   | The payment row (opy_…): what a reversal names |
+| `invoice` | object | yes |   |   |
+| `invoice.id` | string | yes |   |   |
+| `invoice.state` | `"draft"`, `"issued"`, `"sent"`, `"part_paid"`, `"paid"`, `"credited"`, `"void"` | yes |   |   |
+| `invoice.number` | string or null | yes |   | Given when sent or issued; null on a draft |
+| `invoice.currency` | string | yes |   |   |
+| `invoice.taxMode` | `"exclusive"`, `"inclusive"` | yes |   |   |
+| `invoice.billTo` | object | yes |   |   |
+| `invoice.billTo.personId` | string or null | yes |   |   |
+| `invoice.billTo.organisationId` | string or null | yes |   |   |
+| `invoice.billTo.printed` | object or null | yes |   | As printed, fixed when sent or issued |
+| `invoice.billTo.printed.name` | string or null | yes |   |   |
+| `invoice.billTo.printed.address` | string or null | yes |   |   |
+| `invoice.billTo.printed.taxNumber` | string or null | yes |   |   |
+| `invoice.billTo.printed.email` | string or null | yes |   |   |
+| `invoice.siteAddress` | string or null | yes |   |   |
+| `invoice.about` | object or null | yes |   |   |
+| `invoice.about.object` | string | yes |   |   |
+| `invoice.about.id` | string | yes |   |   |
+| `invoice.title` | string or null | yes |   |   |
+| `invoice.notes` | string or null | yes |   |   |
+| `invoice.lines` | array of object | yes |   |   |
+| `invoice.lines[].id` | string | yes |   |   |
+| `invoice.lines[].position` | number | yes |   |   |
+| `invoice.lines[].description` | string | yes |   |   |
+| `invoice.lines[].quantity` | number | yes |   |   |
+| `invoice.lines[].unit` | string or null | yes |   |   |
+| `invoice.lines[].unitPrice` | number | yes |   | For one, in minor units, as the document's amounts are typed |
+| `invoice.lines[].taxRate` | object or null | yes |   |   |
+| `invoice.lines[].taxRate.key` | string | yes |   |   |
+| `invoice.lines[].taxRate.label` | string | yes |   |   |
+| `invoice.lines[].taxRate.rate` | number | yes |   |   |
+| `invoice.lines[].discount` | object or null | yes |   |   |
+| `invoice.lines[].discount.kind` | `"amount"`, `"percent"` | yes |   |   |
+| `invoice.lines[].discount.value` | number | yes |   |   |
+| `invoice.lines[].discount.reason` | string | yes |   |   |
+| `invoice.lines[].discount.amount` | number | yes |   | What it took off, in minor units |
+| `invoice.lines[].net` | number | yes |   |   |
+| `invoice.lines[].tax` | number | yes |   |   |
+| `invoice.lines[].total` | number | yes |   |   |
+| `invoice.lines[].source` | `"record"`, `"custom"`, `"deduction"` | yes |   |   |
+| `invoice.lines[].item` | object or null | yes |   |   |
+| `invoice.lines[].item.object` | string | yes |   |   |
+| `invoice.lines[].item.id` | string | yes |   |   |
+| `invoice.netTotal` | number | yes |   |   |
+| `invoice.taxTotal` | number | yes |   |   |
+| `invoice.total` | number | yes |   |   |
+| `invoice.taxByRate` | array of object | yes |   |   |
+| `invoice.taxByRate[].key` | string | yes |   |   |
+| `invoice.taxByRate[].label` | string | yes |   |   |
+| `invoice.taxByRate[].rate` | number | yes |   |   |
+| `invoice.taxByRate[].net` | number | yes |   |   |
+| `invoice.taxByRate[].tax` | number | yes |   |   |
+| `invoice.taxByRate[].total` | number | yes |   |   |
+| `invoice.version` | number | yes |   | Moves with every write |
+| `invoice.createdAt` | string | yes |   |   |
+| `invoice.updatedAt` | string | yes |   |   |
+| `invoice.kind` | `"standard"`, `"deposit"`, `"final"` | yes |   |   |
+| `invoice.quoteId` | string or null | yes |   |   |
+| `invoice.orderId` | string or null | yes |   |   |
+| `invoice.paymentTermsDays` | number | yes |   |   |
+| `invoice.issuedOn` | string or null | yes |   |   |
+| `invoice.dueOn` | string or null | yes |   | Set on a draft, or worked out at issue from the terms |
+| `invoice.allowPartPayments` | boolean | yes |   |   |
+| `invoice.remindersPaused` | boolean | yes |   |   |
+| `invoice.money` | object or null |   |   | Once issued (invoice.get): its order's money |
+| `invoice.money.paid` | number | yes |   |   |
+| `invoice.money.credited` | number | yes |   | What credit notes took off what was owed |
+| `invoice.money.refunded` | number | yes |   | What has gone back, confirmed or recorded |
+| `invoice.money.balance` | number | yes |   | What is still owed: total less paid less credited |
+| `invoice.money.orderState` | string | yes |   |   |
 
 ## invoice.removeLine
 
@@ -482,6 +783,107 @@ Remove a line from a draft invoice. The others close up, and the totals are work
 | `dueOn` | string or null | yes |   | Set on a draft, or worked out at issue from the terms |
 | `allowPartPayments` | boolean | yes |   |   |
 | `remindersPaused` | boolean | yes |   |   |
+| `money` | object or null |   |   | Once issued (invoice.get): its order's money |
+| `money.paid` | number | yes |   |   |
+| `money.credited` | number | yes |   | What credit notes took off what was owed |
+| `money.refunded` | number | yes |   | What has gone back, confirmed or recorded |
+| `money.balance` | number | yes |   | What is still owed: total less paid less credited |
+| `money.orderState` | string | yes |   |   |
+
+## invoice.reversePayment
+
+Reverse a payment recorded on an invoice in error (invoice.recordPayment): a second entry takes it back off, nothing is deleted, and a paid invoice is part paid again with the amount owed. What it gave stays. Not for a payment made on the payment page (credit the invoice instead), nor one a credit note gives money back on. Admins are told. A person only, with the permission to record invoice payments. Returns the reversal's id and the invoice.
+
+|  |  |
+| --- | --- |
+| Permission | `invoices:payments` |
+| Risk | `write` |
+| Audiences | `staff` |
+| Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
+
+### Input
+
+| Field | Type | Required | Limits | Description |
+| --- | --- | --- | --- | --- |
+| `paymentId` | string | yes | min length 1, max length 64 | The recorded payment (opy_…) |
+| `reason` | string | yes | min length 1, max length 500 | Why it was entered in error |
+
+### Output
+
+| Field | Type | Required | Limits | Description |
+| --- | --- | --- | --- | --- |
+| `paymentId` | string | yes |   | The payment row (opy_…): what a reversal names |
+| `invoice` | object | yes |   |   |
+| `invoice.id` | string | yes |   |   |
+| `invoice.state` | `"draft"`, `"issued"`, `"sent"`, `"part_paid"`, `"paid"`, `"credited"`, `"void"` | yes |   |   |
+| `invoice.number` | string or null | yes |   | Given when sent or issued; null on a draft |
+| `invoice.currency` | string | yes |   |   |
+| `invoice.taxMode` | `"exclusive"`, `"inclusive"` | yes |   |   |
+| `invoice.billTo` | object | yes |   |   |
+| `invoice.billTo.personId` | string or null | yes |   |   |
+| `invoice.billTo.organisationId` | string or null | yes |   |   |
+| `invoice.billTo.printed` | object or null | yes |   | As printed, fixed when sent or issued |
+| `invoice.billTo.printed.name` | string or null | yes |   |   |
+| `invoice.billTo.printed.address` | string or null | yes |   |   |
+| `invoice.billTo.printed.taxNumber` | string or null | yes |   |   |
+| `invoice.billTo.printed.email` | string or null | yes |   |   |
+| `invoice.siteAddress` | string or null | yes |   |   |
+| `invoice.about` | object or null | yes |   |   |
+| `invoice.about.object` | string | yes |   |   |
+| `invoice.about.id` | string | yes |   |   |
+| `invoice.title` | string or null | yes |   |   |
+| `invoice.notes` | string or null | yes |   |   |
+| `invoice.lines` | array of object | yes |   |   |
+| `invoice.lines[].id` | string | yes |   |   |
+| `invoice.lines[].position` | number | yes |   |   |
+| `invoice.lines[].description` | string | yes |   |   |
+| `invoice.lines[].quantity` | number | yes |   |   |
+| `invoice.lines[].unit` | string or null | yes |   |   |
+| `invoice.lines[].unitPrice` | number | yes |   | For one, in minor units, as the document's amounts are typed |
+| `invoice.lines[].taxRate` | object or null | yes |   |   |
+| `invoice.lines[].taxRate.key` | string | yes |   |   |
+| `invoice.lines[].taxRate.label` | string | yes |   |   |
+| `invoice.lines[].taxRate.rate` | number | yes |   |   |
+| `invoice.lines[].discount` | object or null | yes |   |   |
+| `invoice.lines[].discount.kind` | `"amount"`, `"percent"` | yes |   |   |
+| `invoice.lines[].discount.value` | number | yes |   |   |
+| `invoice.lines[].discount.reason` | string | yes |   |   |
+| `invoice.lines[].discount.amount` | number | yes |   | What it took off, in minor units |
+| `invoice.lines[].net` | number | yes |   |   |
+| `invoice.lines[].tax` | number | yes |   |   |
+| `invoice.lines[].total` | number | yes |   |   |
+| `invoice.lines[].source` | `"record"`, `"custom"`, `"deduction"` | yes |   |   |
+| `invoice.lines[].item` | object or null | yes |   |   |
+| `invoice.lines[].item.object` | string | yes |   |   |
+| `invoice.lines[].item.id` | string | yes |   |   |
+| `invoice.netTotal` | number | yes |   |   |
+| `invoice.taxTotal` | number | yes |   |   |
+| `invoice.total` | number | yes |   |   |
+| `invoice.taxByRate` | array of object | yes |   |   |
+| `invoice.taxByRate[].key` | string | yes |   |   |
+| `invoice.taxByRate[].label` | string | yes |   |   |
+| `invoice.taxByRate[].rate` | number | yes |   |   |
+| `invoice.taxByRate[].net` | number | yes |   |   |
+| `invoice.taxByRate[].tax` | number | yes |   |   |
+| `invoice.taxByRate[].total` | number | yes |   |   |
+| `invoice.version` | number | yes |   | Moves with every write |
+| `invoice.createdAt` | string | yes |   |   |
+| `invoice.updatedAt` | string | yes |   |   |
+| `invoice.kind` | `"standard"`, `"deposit"`, `"final"` | yes |   |   |
+| `invoice.quoteId` | string or null | yes |   |   |
+| `invoice.orderId` | string or null | yes |   |   |
+| `invoice.paymentTermsDays` | number | yes |   |   |
+| `invoice.issuedOn` | string or null | yes |   |   |
+| `invoice.dueOn` | string or null | yes |   | Set on a draft, or worked out at issue from the terms |
+| `invoice.allowPartPayments` | boolean | yes |   |   |
+| `invoice.remindersPaused` | boolean | yes |   |   |
+| `invoice.money` | object or null |   |   | Once issued (invoice.get): its order's money |
+| `invoice.money.paid` | number | yes |   |   |
+| `invoice.money.credited` | number | yes |   | What credit notes took off what was owed |
+| `invoice.money.refunded` | number | yes |   | What has gone back, confirmed or recorded |
+| `invoice.money.balance` | number | yes |   | What is still owed: total less paid less credited |
+| `invoice.money.orderState` | string | yes |   |   |
 
 ## invoice.settings.get
 
@@ -709,6 +1111,12 @@ Change a draft invoice: whom it is for, the site address, what it is about, titl
 | `dueOn` | string or null | yes |   | Set on a draft, or worked out at issue from the terms |
 | `allowPartPayments` | boolean | yes |   |   |
 | `remindersPaused` | boolean | yes |   |   |
+| `money` | object or null |   |   | Once issued (invoice.get): its order's money |
+| `money.paid` | number | yes |   |   |
+| `money.credited` | number | yes |   | What credit notes took off what was owed |
+| `money.refunded` | number | yes |   | What has gone back, confirmed or recorded |
+| `money.balance` | number | yes |   | What is still owed: total less paid less credited |
+| `money.orderState` | string | yes |   |   |
 
 ## invoice.updateLine
 
@@ -805,3 +1213,140 @@ Change a line of a draft invoice: its description, quantity, unit, unit price (a
 | `dueOn` | string or null | yes |   | Set on a draft, or worked out at issue from the terms |
 | `allowPartPayments` | boolean | yes |   |   |
 | `remindersPaused` | boolean | yes |   |   |
+| `money` | object or null |   |   | Once issued (invoice.get): its order's money |
+| `money.paid` | number | yes |   |   |
+| `money.credited` | number | yes |   | What credit notes took off what was owed |
+| `money.refunded` | number | yes |   | What has gone back, confirmed or recorded |
+| `money.balance` | number | yes |   | What is still owed: total less paid less credited |
+| `money.orderState` | string | yes |   |   |
+
+## invoice.void
+
+Void an issued invoice nothing has been paid on: a credit note for everything still owed on it, issued at once; the invoice is void, its order cancelled and its places given back. An invoice with something paid is credited instead (creditNote.create). A person only, with the permission to credit invoices: AI assistants are refused. Returns the credit note and the invoice.
+
+|  |  |
+| --- | --- |
+| Permission | `invoices:credit` |
+| Risk | `write` |
+| Audiences | `staff` |
+| Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
+
+### Input
+
+| Field | Type | Required | Limits | Description |
+| --- | --- | --- | --- | --- |
+| `id` | string | yes | min length 1, max length 64 | The invoice's id (inv_…) |
+| `reason` | string | yes | min length 1, max length 500 | Why, as printed on the credit note |
+| `version` | integer |   | ≥ 0, ≤ 9007199254740991 | The version you read: one changed since by someone else is refused |
+
+### Output
+
+| Field | Type | Required | Limits | Description |
+| --- | --- | --- | --- | --- |
+| `id` | string | yes |   |   |
+| `number` | string or null | yes |   | Given when issued; null on a draft |
+| `state` | `"draft"`, `"issued"` | yes |   |   |
+| `invoiceId` | string | yes |   |   |
+| `currency` | string | yes |   |   |
+| `taxMode` | `"exclusive"`, `"inclusive"` | yes |   |   |
+| `reason` | string or null | yes |   |   |
+| `settle` | `"reduce"`, `"refund"`, `"both"` | yes |   | reduce: take it off what is still owed; refund: give it back from what was paid (nothing may be owed); both: take off what is owed first, then give back the rest |
+| `lines` | array of object | yes |   |   |
+| `lines[].id` | string | yes |   |   |
+| `lines[].position` | number | yes |   |   |
+| `lines[].description` | string | yes |   |   |
+| `lines[].quantity` | number | yes |   |   |
+| `lines[].unit` | string or null | yes |   |   |
+| `lines[].unitPrice` | number | yes |   |   |
+| `lines[].taxRate` | object or null | yes |   |   |
+| `lines[].taxRate.key` | string | yes |   |   |
+| `lines[].taxRate.label` | string | yes |   |   |
+| `lines[].taxRate.rate` | number | yes |   |   |
+| `lines[].net` | number | yes |   |   |
+| `lines[].tax` | number | yes |   |   |
+| `lines[].total` | number | yes |   |   |
+| `lines[].creditsLineId` | string or null | yes |   | The invoice line it credits; null: an amount |
+| `netTotal` | number | yes |   |   |
+| `taxTotal` | number | yes |   |   |
+| `total` | number | yes |   |   |
+| `issuedOn` | string or null | yes |   |   |
+| `refunds` | array of object | yes |   | What it gives back, per payment: a provider's waits for approval, a recorded one for a person to record it paid back |
+| `refunds[].paymentRef` | string | yes |   |   |
+| `refunds[].method` | `"provider"`, `"recorded"` | yes |   |   |
+| `refunds[].amount` | number | yes |   |   |
+| `refunds[].refundId` | string or null | yes |   | The refund asked for (provider) or recorded (paid back); null: still owed |
+| `refunds[].paidBackAt` | string or null | yes |   |   |
+| `version` | number | yes |   |   |
+| `createdAt` | string | yes |   |   |
+| `invoice` | object | yes |   |   |
+| `invoice.id` | string | yes |   |   |
+| `invoice.state` | `"draft"`, `"issued"`, `"sent"`, `"part_paid"`, `"paid"`, `"credited"`, `"void"` | yes |   |   |
+| `invoice.number` | string or null | yes |   | Given when sent or issued; null on a draft |
+| `invoice.currency` | string | yes |   |   |
+| `invoice.taxMode` | `"exclusive"`, `"inclusive"` | yes |   |   |
+| `invoice.billTo` | object | yes |   |   |
+| `invoice.billTo.personId` | string or null | yes |   |   |
+| `invoice.billTo.organisationId` | string or null | yes |   |   |
+| `invoice.billTo.printed` | object or null | yes |   | As printed, fixed when sent or issued |
+| `invoice.billTo.printed.name` | string or null | yes |   |   |
+| `invoice.billTo.printed.address` | string or null | yes |   |   |
+| `invoice.billTo.printed.taxNumber` | string or null | yes |   |   |
+| `invoice.billTo.printed.email` | string or null | yes |   |   |
+| `invoice.siteAddress` | string or null | yes |   |   |
+| `invoice.about` | object or null | yes |   |   |
+| `invoice.about.object` | string | yes |   |   |
+| `invoice.about.id` | string | yes |   |   |
+| `invoice.title` | string or null | yes |   |   |
+| `invoice.notes` | string or null | yes |   |   |
+| `invoice.lines` | array of object | yes |   |   |
+| `invoice.lines[].id` | string | yes |   |   |
+| `invoice.lines[].position` | number | yes |   |   |
+| `invoice.lines[].description` | string | yes |   |   |
+| `invoice.lines[].quantity` | number | yes |   |   |
+| `invoice.lines[].unit` | string or null | yes |   |   |
+| `invoice.lines[].unitPrice` | number | yes |   | For one, in minor units, as the document's amounts are typed |
+| `invoice.lines[].taxRate` | object or null | yes |   |   |
+| `invoice.lines[].taxRate.key` | string | yes |   |   |
+| `invoice.lines[].taxRate.label` | string | yes |   |   |
+| `invoice.lines[].taxRate.rate` | number | yes |   |   |
+| `invoice.lines[].discount` | object or null | yes |   |   |
+| `invoice.lines[].discount.kind` | `"amount"`, `"percent"` | yes |   |   |
+| `invoice.lines[].discount.value` | number | yes |   |   |
+| `invoice.lines[].discount.reason` | string | yes |   |   |
+| `invoice.lines[].discount.amount` | number | yes |   | What it took off, in minor units |
+| `invoice.lines[].net` | number | yes |   |   |
+| `invoice.lines[].tax` | number | yes |   |   |
+| `invoice.lines[].total` | number | yes |   |   |
+| `invoice.lines[].source` | `"record"`, `"custom"`, `"deduction"` | yes |   |   |
+| `invoice.lines[].item` | object or null | yes |   |   |
+| `invoice.lines[].item.object` | string | yes |   |   |
+| `invoice.lines[].item.id` | string | yes |   |   |
+| `invoice.netTotal` | number | yes |   |   |
+| `invoice.taxTotal` | number | yes |   |   |
+| `invoice.total` | number | yes |   |   |
+| `invoice.taxByRate` | array of object | yes |   |   |
+| `invoice.taxByRate[].key` | string | yes |   |   |
+| `invoice.taxByRate[].label` | string | yes |   |   |
+| `invoice.taxByRate[].rate` | number | yes |   |   |
+| `invoice.taxByRate[].net` | number | yes |   |   |
+| `invoice.taxByRate[].tax` | number | yes |   |   |
+| `invoice.taxByRate[].total` | number | yes |   |   |
+| `invoice.version` | number | yes |   | Moves with every write |
+| `invoice.createdAt` | string | yes |   |   |
+| `invoice.updatedAt` | string | yes |   |   |
+| `invoice.kind` | `"standard"`, `"deposit"`, `"final"` | yes |   |   |
+| `invoice.quoteId` | string or null | yes |   |   |
+| `invoice.orderId` | string or null | yes |   |   |
+| `invoice.paymentTermsDays` | number | yes |   |   |
+| `invoice.issuedOn` | string or null | yes |   |   |
+| `invoice.dueOn` | string or null | yes |   | Set on a draft, or worked out at issue from the terms |
+| `invoice.allowPartPayments` | boolean | yes |   |   |
+| `invoice.remindersPaused` | boolean | yes |   |   |
+| `invoice.money` | object or null |   |   | Once issued (invoice.get): its order's money |
+| `invoice.money.paid` | number | yes |   |   |
+| `invoice.money.credited` | number | yes |   | What credit notes took off what was owed |
+| `invoice.money.refunded` | number | yes |   | What has gone back, confirmed or recorded |
+| `invoice.money.balance` | number | yes |   | What is still owed: total less paid less credited |
+| `invoice.money.orderState` | string | yes |   |   |
+| `pending` | array of string | yes |   | The refunds waiting in Approvals for a person with the refund permission |
