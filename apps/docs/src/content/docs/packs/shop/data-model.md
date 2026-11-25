@@ -31,7 +31,7 @@ A thing in the shop (a club hoodie, a protein bar), with its pictures and where 
 | `image2` | `image` | Second picture |   |   |   |
 | `image3` | `image` | Third picture |   |   |   |
 | `category` | `text` | Category |   |   | Drinks, clothing, supplements: how the shop and the stock list group it. |
-| `whereSold` | `select` | Where sold | yes | one of `both`, `online`, `in_person`; default `"both"` | Online (posted or collected), in person (bought at the gym with Take it now), or both. A fridge drink is in person only. |
+| `whereSold` | `select` | Where sold | yes | one of `both`, `online`, `in_person`; default `"both"`; a person's to change | Online (posted or collected), in person (bought at the gym with Take it now), or both. A fridge drink is in person only. |
 | `option1Name` | `text` | First option |   |   | What the variants' first option is called, e.g. Size. |
 | `option2Name` | `text` | Second option |   |   | e.g. Colour. |
 | `option3Name` | `text` | Third option |   |   | e.g. Flavour. |
@@ -95,7 +95,7 @@ One version of an item that is bought and counted (large, black), with its price
 
 | Field | Type | Label | Required | Details | Description |
 | --- | --- | --- | --- | --- | --- |
-| `item` | `relation` | Item | yes | to `shop.item` |   |
+| `item` | `relation` | Item | yes | to `shop.item`; a person's to change |   |
 | `name` | `text` | Name | yes |   | As the buyer's order shows it, e.g. Club hoodie, Large / Black. |
 | `option1` | `text` | First option value |   |   | e.g. Large. |
 | `option2` | `text` | Second option value |   |   | e.g. Black. |
@@ -213,7 +213,7 @@ A way an order's goods reach the buyer: posted, collected, or taken now at the g
 | Field | Type | Label | Required | Details | Description |
 | --- | --- | --- | --- | --- | --- |
 | `name` | `text` | Name | yes |   |   |
-| `kind` | `select` | Kind | yes | one of `post`, `collect`, `here` | Post (an address in its countries), collect (no address), or take it now (bought in person: nothing to pack). |
+| `kind` | `select` | Kind | yes | one of `post`, `collect`, `here`; a person's to change | Post (an address in its countries), collect (no address), or take it now (bought in person: nothing to pack). |
 | `price` | `currency` | Price |   | a person's to change | Postage, including tax. 0 is free. A post option without one cannot be chosen. |
 | `freeOver` | `currency` | Free over |   | a person's to change | No postage when the order's goods come to at least this. Empty: never free. |
 | `countries` | `text` | Countries |   | a person's to change | Post only: two-letter codes separated by spaces (AU NZ), or * for everywhere no other post option names. Empty: it posts nowhere. |

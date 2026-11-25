@@ -130,6 +130,8 @@ export default defineExtension({
           required: true,
           default: "both",
           options: WHERE_SOLD,
+          // It decides where the item may be sold, so an AI's change of it waits for a person.
+          personApproves: true,
           track: "timeline",
           description:
             "Online (posted or collected), in person (bought at the gym with Take it now), or " +
@@ -195,7 +197,15 @@ export default defineExtension({
       navigation: "main",
       navigationOrder: 11,
       fields: {
-        item: { type: "relation", label: "Item", to: "shop.item", required: true },
+        // Pointing a variant at another item changes where it is sold and whether the public
+        // sees it (its item's published state), so an AI's change of it waits for a person.
+        item: {
+          type: "relation",
+          label: "Item",
+          to: "shop.item",
+          required: true,
+          personApproves: true,
+        },
         // The order line's title is the record's: the whole name, so a receipt reads well.
         name: {
           type: "text",
@@ -308,6 +318,9 @@ export default defineExtension({
           label: "Kind",
           required: true,
           options: DELIVERY_KINDS,
+          // Post, collect or take it now decides the order's channel and whether an address is
+          // asked for: an AI's change of it waits for a person, as the price does.
+          personApproves: true,
           description:
             "Post (an address in its countries), collect (no address), or take it now (bought " +
             "in person: nothing to pack).",

@@ -98,3 +98,15 @@ lists each condition in its summary of what is opened to outsiders.
   take-it-now drink, the channel refused on every path, stock held and sold, the shipment granted,
   packed and sent by a desk account granted `shop:fulfil`, collect, erase, the stockroom role)
   and `packages/core/test/public-when-all.test.ts` (the declaration and the seam).
+
+## Amended at review (2026-11-25, PR #455)
+
+- **Three more fields wait for a person when an AI or an automation changes them:** the item's
+  "where sold", the variant's item, and a delivery option's kind. None is a price, but each
+  changes what is sold, where, or what the public sees.
+- **Known and left for later steps:** a shipment's moves do not depend on its kind (a posted
+  shipment can be marked ready to collect by a record update; a move conditioned on a field's
+  value is platform work, wanted before step 7's mail); "Take it now" cannot be kept to signed-in
+  members; reactivating a retired variant, `maxPerOrder` and the `country` setting do not wait
+  for a person; the stockroom role holds `shop:stock`, while the core's stock writes need
+  `stock:adjust` (step 6 settles it); a guest's shipment has no buyer, so no customer reads it.
