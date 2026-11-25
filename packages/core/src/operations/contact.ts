@@ -39,7 +39,12 @@ import { ForbiddenError, NotFoundError, OperationError, ValidationError } from "
 import { defineOperation, type HandlerContext } from "../operation.ts";
 import type { CustomerPrincipal } from "../principals.ts";
 import { type RoutineKind, routineKinds } from "../routine-mail/index.ts";
-import { GUARDIAN_LINK, isLiveDependant } from "../visibility/guardians.ts";
+import {
+  familyOf,
+  hasLiveGuardian,
+  isLiveDependant,
+  livePersonAfterMerges,
+} from "../visibility/guardians.ts";
 import { visibleSource } from "../visibility/index.ts";
 
 const channel = z.enum(CONTACT_CHANNELS);
@@ -162,20 +167,6 @@ function linesOf(
   return out;
 }
 
-/** Whether a Person is a child (a live guardian link names them). One statement. */
-async function isChild(ctx: HandlerContext, personId: string): Promise<boolean> {
-  const row = await ctx.db
-    .selectFrom("core_person_link as l")
-    .innerJoin("core_person as g", "g.id", "l.guardian_id")
-    .select("l.id")
-    .where("l.dependant_id", "=", personId)
-    .where("l.kind", "=", GUARDIAN_LINK)
-    .where("l.ended_at", "is", null)
-    .where("g.deleted_at", "is", null)
-    .executeTakeFirst();
-  return row !== undefined;
-}
-
 interface Written {
   personId: string;
   choices: { scope: string; channel: ContactChannel; value: ChoiceValue }[];
@@ -195,7 +186,7 @@ interface Written {
 async function writeChoices(ctx: HandlerContext, w: Written): Promise<number> {
   const kinds = new Map((await routineKinds(ctx.db)).map((k) => [k.id, k]));
   const inForce = (await choicesInForce(ctx.db, [w.personId])).get(w.personId);
-  const child = await isChild(ctx, w.personId);
+  const child = await hasLiveGuardian(ctx.db, w.personId);
   let written = 0;
   const seen = new Set<string>();
   for (const c of w.choices) {
@@ -306,15 +297,20 @@ export const contactStop = defineOperation({
         return { done: true as const };
       }
     }
+    // The Person the link named, or the one they were merged into since; nobody for one erased,
+    // or in the Trash and not merged: then nothing is written.
+    const person = await livePersonAfterMerges(ctx.db, named.person);
+    if (!person) return { done: true as const };
     const value: ChoiceValue = named.scope === "news_and_offers" ? "no" : "off";
-    const current = (await choicesInForce(ctx.db, [named.person]))
-      .get(named.person)
+    const current = (await choicesInForce(ctx.db, [person]))
+      .get(person)
       ?.get(choiceKey(named.channel, named.scope));
-    if (current && !allows(current.value)) return { done: true as const };
-    // Written only while the Person exists: a link of someone erased does nothing.
+    if (current && !allows(current.value) && STOP_HOWS.has(current.how)) {
+      return { done: true as const };
+    }
     ctx.write(
       appendChoice(ctx.db, {
-        personId: named.person,
+        personId: person,
         channel: named.channel,
         scope: named.scope,
         value,
@@ -341,44 +337,30 @@ export const meContactChoices = defineOperation({
   hostInternal: true,
   mcp: { expose: false },
   async handler(_input, ctx) {
-    const me = customerOf(ctx).personId;
-    const rows = await ctx.db
-      .selectFrom("core_person as p")
-      .select(["p.id", "p.display_name"])
-      .where("p.deleted_at", "is", null)
-      .where((eb) =>
-        eb.or([
-          eb("p.id", "=", me),
-          eb(
-            "p.id",
-            "in",
-            eb
-              .selectFrom("core_person_link as l")
-              .innerJoin("core_person as d", "d.id", "l.dependant_id")
-              .select("l.dependant_id")
-              .where("l.guardian_id", "=", me)
-              .where("l.kind", "=", GUARDIAN_LINK)
-              .where("l.ended_at", "is", null)
-              .where("d.deleted_at", "is", null),
-          ),
-        ]),
-      )
-      .orderBy("p.display_name")
-      .execute();
-    const ids = rows.map((r) => r.id);
-    const [kinds, inForce] = await Promise.all([routineKinds(ctx.db), choicesInForce(ctx.db, ids)]);
-    const people = [];
-    // The caller first, then their children.
-    for (const row of [...rows].sort((a, b) => Number(b.id === me) - Number(a.id === me))) {
-      const child = row.id !== me || (await isChild(ctx, row.id));
-      people.push({
-        personId: row.id,
-        name: row.display_name,
-        self: row.id === me,
+    // Themselves and their live dependants, as the seam's family says (ADR 0540).
+    const family = await familyOf(ctx);
+    const self = family.self;
+    if (!self) throw new OperationError("internal", `${ctx.operation} is for a customer's call`);
+    const everyone = [self, ...family.dependants];
+    const [kinds, inForce, selfChild] = await Promise.all([
+      routineKinds(ctx.db),
+      choicesInForce(
+        ctx.db,
+        everyone.map((p) => p.personId),
+      ),
+      hasLiveGuardian(ctx.db, self.personId),
+    ]);
+    const people = everyone.map((p) => {
+      const isSelf = p.personId === self.personId;
+      const child = isSelf ? selfChild : true;
+      return {
+        personId: p.personId,
+        name: p.name,
+        self: isSelf,
         child,
-        lines: linesOf(row.id, child, kinds, inForce),
-      });
-    }
+        lines: linesOf(p.personId, child, kinds, inForce),
+      };
+    });
     return { people };
   },
 });
@@ -499,7 +481,7 @@ export const contactForPerson = defineOperation({
       routineKinds(ctx.db),
       choicesInForce(ctx.db, [input.personId]),
       choiceHistory(ctx.db, input.personId, 100),
-      isChild(ctx, input.personId),
+      hasLiveGuardian(ctx.db, input.personId),
     ]);
     return {
       child,

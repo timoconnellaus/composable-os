@@ -305,11 +305,11 @@ export async function stopRoute(request: Request, env: HostEnv): Promise<Respons
   if (request.method !== "POST") return refuse(405, "invalid_input", "Use GET or POST");
   if (STOP_TOKEN.test(token)) {
     try {
-      await env.HOST.fetch(`${BOUND}/api/v1/op/contact.stop`, {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ token }),
-      });
+      // The typed client, as the public: no cookie, so the token alone says who and what.
+      await createCustomerClient({
+        baseUrl: BOUND,
+        fetch: (url, init) => env.HOST.fetch(url, init),
+      }).call("contact.stop", { token });
     } catch {
       // The same answer whatever happened: a mail app does not retry on our word.
     }

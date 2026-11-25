@@ -436,7 +436,8 @@ Stage 6a ([ADR 0110](adr/0110-integration-host-per-connection.md) to
   Routine messages ask it for each recipient and channel when a row is prepared and ask the
   register again when an email or a text is claimed; Journeys and the inbox use the same. A
   stoppable email (an optional kind's, a follow-up's) ends with the host's stop link
-  (`stopLink`: one Person, channel and scope, signed, no expiry, on the business's site) and, when
+  (`stopLink`: an opaque random token, only its hash kept, naming one Person, channel and scope,
+  no expiry, on the business's site) and, when
   routine, carries it as `List-Unsubscribe` with one-click, which the email gatekeeper takes from
   the host's routine mail only. The public `contact.stop` takes the token and can only turn that
   scope off; the client web app's `/stop` route shows one button and posts it. Members change

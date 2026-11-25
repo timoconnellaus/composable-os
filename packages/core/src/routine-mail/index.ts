@@ -54,7 +54,7 @@ import { z } from "zod";
 import { ADJUDICATOR_PRINCIPAL } from "../adjudicator/review.ts";
 import { type ContactDecision, contactDecision, registerRefusal } from "../contact/decide.ts";
 import { type ChoicesInForce, choicesInForce } from "../contact/register.ts";
-import { stopLink } from "../contact/stop.ts";
+import { readStopToken, type StopScope, stopLink, tokenOfLink } from "../contact/stop.ts";
 import { addressHash, suppressed } from "../contact/suppression.ts";
 import { mailboxKey } from "../customers/limits.ts";
 import { ForbiddenError, NotFoundError, ValidationError } from "../errors.ts";
@@ -81,6 +81,33 @@ const NO_EMAIL_CHANNEL = "No email channel is set in Settings → Notification d
 const UNTIL = "$until";
 /** The line a stoppable email ends with, before its one-tap stop (ADR 0675). */
 export const STOP_WORDS = "To stop getting these emails:";
+
+/**
+ * The stop link a prepared email's words end with, when it is a link on `site`'s stop route to a
+ * token the host made for exactly `named`; else null (ADR 0675). One statement.
+ */
+export async function stopLinkOf(
+  db: Db,
+  body: string,
+  site: string | null,
+  named: StopScope,
+): Promise<string | null> {
+  const at = body.lastIndexOf(`\n${STOP_WORDS} `);
+  if (at < 0) return null;
+  const link = body.slice(at + STOP_WORDS.length + 2);
+  const token = tokenOfLink(link, site);
+  if (!token) return null;
+  const found = await readStopToken(db, token);
+  if (
+    !found ||
+    found.person !== named.person ||
+    found.channel !== named.channel ||
+    found.scope !== named.scope
+  ) {
+    return null;
+  }
+  return link;
+}
 
 /**
  * What a kind's one-tap stop turns off by email (ADR 0675): follow-ups on email, for a follow-up;
@@ -1494,7 +1521,7 @@ async function prepareRows(db: Db, p: Prepare): Promise<PreparedRoutineMail> {
           : null;
     const stopped = consent !== null && !consent.send;
     const link =
-      !stopped && stopScope && recipient.personId
+      on && !stopped && stopScope && recipient.personId
         ? await stopLink(db, site, {
             person: recipient.personId,
             channel: "email",
@@ -1907,10 +1934,10 @@ async function consentAtSend(
     recipient_key?: string;
     channel: string;
   },
-  kind: RoutineKind,
+  kind: RoutineKind | null,
 ): Promise<string | null> {
   const channel = row.channel === "text" || row.channel === "push" ? row.channel : "email";
-  if (row.recipient_person_id) {
+  if (kind && row.recipient_person_id) {
     const refused = await registerRefusal(db, {
       person: row.recipient_person_id,
       channel,
@@ -1947,8 +1974,9 @@ export async function stopHeldRoutineMessage(
     .where("pending_action_id", "=", pendingActionId)
     .executeTakeFirst();
   if (!row) return null;
-  const kind = (await routineKinds(db)).find((k) => k.id === row.kind);
-  if (!kind) return null;
+  // A kind gone since (its pack uninstalled): the register's choices for it cannot be read, but
+  // the suppression list still holds.
+  const kind = (await routineKinds(db)).find((k) => k.id === row.kind) ?? null;
   const refused = await consentAtSend(db, row, kind);
   if (!refused) return null;
   await db
@@ -2127,11 +2155,14 @@ export async function claimRoutineMail(
   } catch {}
   const events = Array.isArray(calendar) ? calendar : [];
   const stopScope = stopScopeOf(kind.id, kind.spec);
-  // Its header only on one the host decided routine: a held one carries its stop in its words,
-  // and the gatekeeper takes the header from the host's routine mail alone.
+  // Its header only on one the host decided routine (a held one carries its stop in its words,
+  // and the gatekeeper takes the header from the host's routine mail alone), and only the very
+  // link its words end with, on the site as it is now and naming this row's Person and kind. A
+  // site changed since it was prepared leaves the header off: the email is then an ordinary send,
+  // held for a person, never refused and retried (the review of PR #451).
   const listUnsubscribe =
     stopScope && row.recipient_person_id && row.routine === 1
-      ? await stopLink(db, siteOriginOf(settings.siteOrigin), {
+      ? await stopLinkOf(db, row.body, siteOriginOf(settings.siteOrigin), {
           person: row.recipient_person_id,
           channel: "email",
           scope: stopScope,

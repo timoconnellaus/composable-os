@@ -886,6 +886,36 @@ describe("consent to be contacted", { timeout: 60_000 }, () => {
     expect(confirmation?.body).not.toContain("/stop?t=");
   });
 
+  it("a site changed after a reminder was prepared: no header, held as an ordinary send, never stuck retrying", async () => {
+    const b = await booking("site-moved");
+    const runId = await runOf("classReminder", b.bookingId, "dateRelative");
+    await prepare(
+      "classReminder",
+      runId,
+      { kind: "reminder", record: b.bookingId },
+      { now: middayNow() },
+    );
+    const email = (await rowsOf(b.bookingId, runId)).find((r) => r.channel === "email");
+    expect(email).toMatchObject({ status: "ready", routine: 1 });
+    await run("routineMail.settings.update", { siteOrigin: "https://moved.example" }, staff());
+    try {
+      const sent = await integrations.sendRoutineMessage?.({
+        connectionId: mailConnection,
+        resource: await sender(),
+        id: email?.id as string,
+      });
+      // Its words link to the old site: not routine any more, so it waits for a person.
+      expect(sent?.status).toBe("waiting");
+      // A person turns it down (so later sends on this gatekeeper are not queued behind it).
+      await run("approval.reject", { actionIds: [sent?.pendingActionId] }, staff());
+    } finally {
+      await run("routineMail.settings.update", { siteOrigin: SITE }, staff());
+    }
+    expect((await rowsOf(b.bookingId, runId)).find((r) => r.channel === "email")).toMatchObject({
+      status: "waiting",
+    });
+  });
+
   it("a stop taken after a reminder was prepared stops it when it is sent", async () => {
     const b = await booking("late-stop");
     const runId = await runOf("classReminder", b.bookingId, "dateRelative");

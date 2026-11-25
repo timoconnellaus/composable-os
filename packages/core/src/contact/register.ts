@@ -89,6 +89,8 @@ export interface ContactChoice {
   byId: string | null;
   reason: string | null;
   wording: string | null;
+  /** Write order: with `at`, what decides which choice is the later (`choicesInForce`'s order). */
+  seq: number;
 }
 
 type Row = Selectable<CoreDatabase["core_contact_choice"]>;
@@ -105,7 +107,13 @@ function choiceOf(row: Row): ContactChoice {
     byId: row.by_id,
     reason: row.reason,
     wording: row.wording,
+    seq: Number(row.seq),
   };
+}
+
+/** Whether `a` is later than `b`, in `choicesInForce`'s order: by `at`, then by `seq`. */
+export function later(a: ContactChoice, b: ContactChoice): boolean {
+  return a.at > b.at || (a.at === b.at && a.seq > b.seq);
 }
 
 /** The choices in force for a batch of People, by Person, then by `<channel>:<scope>`. */
@@ -174,39 +182,33 @@ export interface NewChoice {
 }
 
 /**
- * The statement that appends one choice: written only while the Person exists, so a stop for
- * someone erased (or never there) writes nothing and fails nothing. Queue it in the caller's
- * batch (`ctx.write`) or execute it.
+ * The statement that appends one choice, for the caller's batch (`ctx.write`) or to execute. The
+ * Person must exist: a caller that names one from outside (a stop link) finds the live one first
+ * (`livePersonAfterMerges`).
  */
 export function appendChoice(db: Db, choice: NewChoice) {
-  const id = newId("contactChoice");
-  return db
-    .insertInto("core_contact_choice")
-    .columns([
-      "id",
-      "person_id",
-      "channel",
-      "scope",
-      "value",
-      "at",
-      "how",
-      "by_id",
-      "reason",
-      "wording",
-    ])
-    .expression(
-      sql`SELECT ${id}, ${choice.personId}, ${choice.channel}, ${choice.scope}, ${choice.value},
-          ${choice.at}, ${choice.how}, ${choice.byId ?? null}, ${choice.reason ?? null},
-          ${choice.wording ?? null}
-        WHERE EXISTS (SELECT 1 FROM core_person WHERE id = ${choice.personId})`,
-    );
+  return db.insertInto("core_contact_choice").values({
+    id: newId("contactChoice"),
+    person_id: choice.personId,
+    channel: choice.channel,
+    scope: choice.scope,
+    value: choice.value,
+    at: choice.at,
+    how: choice.how,
+    by_id: choice.byId ?? null,
+    reason: choice.reason ?? null,
+    wording: choice.wording ?? null,
+  });
 }
 
 /**
- * A merge (person.merge): the duplicate's choices move to the survivor, as history; the later
- * choice wins, except that a stop or a no on either side stays in force (a "no" is never lost to
- * a merge). Where the latest moved row would undo one, a `merge` row puts it back on top.
- * Returns the statements, for the merge's batch.
+ * A merge (person.merge): the duplicate's choices and stop links move to the survivor, its
+ * choices as history; the later choice wins (`choicesInForce`'s order), except:
+ * - a stop on either side (a stop link, a STOP reply) stays a stop: a row with that stop's `how`
+ *   is put back on top, so only the member lifts it, never staff;
+ * - otherwise a no on either side stays a no (a `merge` row), as Journeys decided.
+ * Run after the duplicate's `merged_into_id` is set (the register's trigger allows a move only to
+ * it). Returns the statements, for the merge's batch.
  */
 export async function mergeChoiceStatements(
   db: Db,
@@ -217,14 +219,36 @@ export async function mergeChoiceStatements(
   const inForce = await choicesInForce(db, [survivorId, mergedId]);
   const survivor = inForce.get(survivorId) ?? new Map<string, ContactChoice>();
   const merged = inForce.get(mergedId) ?? new Map<string, ContactChoice>();
-  const statements: ReturnType<typeof appendChoice | typeof moveRows>[] = [moveRows()];
+  const statements: (
+    | ReturnType<typeof appendChoice>
+    | ReturnType<typeof moveChoices>
+    | ReturnType<typeof moveTokens>
+  )[] = [moveChoices(), moveTokens()];
   for (const key of new Set([...survivor.keys(), ...merged.keys()])) {
     const a = survivor.get(key);
     const b = merged.get(key);
     if (!a || !b) continue;
-    const later = a.at > b.at || (a.at === b.at && a.id > b.id) ? a : b;
+    const top = later(a, b) ? a : b;
+    const stops = [a, b].filter((c) => !allows(c.value) && STOP_HOWS.has(c.how));
+    const stop = stops.length === 2 ? (later(a, b) ? a : b) : stops[0];
+    if (stop) {
+      // The stop is already the one on top: nothing to put back.
+      if (top === stop) continue;
+      statements.push(
+        appendChoice(db, {
+          personId: survivorId,
+          channel: stop.channel,
+          scope: stop.scope,
+          value: stop.value,
+          how: stop.how,
+          at: now,
+          reason: "kept by a merge",
+        }),
+      );
+      continue;
+    }
     const refusal = [a, b].find((c) => !allows(c.value));
-    if (!refusal || !allows(later.value)) continue;
+    if (!refusal || !allows(top.value)) continue;
     statements.push(
       appendChoice(db, {
         personId: survivorId,
@@ -233,17 +257,20 @@ export async function mergeChoiceStatements(
         value: refusal.value,
         how: "merge",
         at: now,
-        byId: null,
-        reason: null,
-        wording: null,
       }),
     );
   }
   return statements;
 
-  function moveRows() {
+  function moveChoices() {
     return db
       .updateTable("core_contact_choice")
+      .set({ person_id: survivorId })
+      .where("person_id", "=", mergedId);
+  }
+  function moveTokens() {
+    return db
+      .updateTable("core_contact_stop_token")
       .set({ person_id: survivorId })
       .where("person_id", "=", mergedId);
   }

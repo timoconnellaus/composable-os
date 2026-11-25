@@ -28,8 +28,10 @@ guardian link). What each needs is for the business to confirm with its lawyer.
 a row per choice, per Person, channel (`email`, `text`, `push`) and scope (a purpose, or a routine
 kind such as `bookings.reminder`), with when, how (`member`, `staff_on_request`,
 `staff_from_paper`, `form`, `checkout`, `stop_link`, `stop_reply`, `start_reply`, `import`,
-`merge`), by whom, why (staff) and the words shown (a yes). Append-only, by trigger: the latest
-row for (Person, channel, scope) is in force. `account` is never a scope of its own: a person turns
+`merge`), by whom, why (staff) and the words shown (a yes). Append-only, by trigger: no column is
+rewritten, `person_id` moves only to the Person the old one was merged into, and a row goes only
+with its Person (the erase's cascade). The latest row for (Person, channel, scope), by `at` then
+write order, is in force. `account` is never a scope of its own: a person turns
 off an optional kind (decision 9), never an essential kind's email.
 
 **One suppression list** (`core_contact_suppression`): a salted hash of each address or number
@@ -39,7 +41,7 @@ that table; STOP and START now write here.
 
 **One question**, `contactDecision(db, { person, channel, purpose, kind?, essential?, moment?,
 urgent?, at, address? })` (`contact/decide.ts`), answers `{ send: true, to, key, waitUntil? }` or
-`{ send: false, reason, detail }` with reasons `no_address`, `not_textable`, `no_device`, `off`,
+`{ send: false, reason, detail }` (an email needs the `address` the sender chose) with reasons `no_address`, `not_textable`, `no_device`, `off`,
 `no_consent`, `stopped`, `suppressed`, `child`, `expired`. It reads the register (or a batch read
 once with `choicesInForce`, one statement per 90 People), the suppression list, the textable
 number or the devices, the moment and quiet hours. `stopped` is a stop the person took (a link, a
@@ -51,22 +53,35 @@ a stop.
 channel when a row is prepared (a refusal is a `stopped` row with the reason, no words kept), and
 ask the register and the suppression list again when an email or a text is claimed to send
 (`claimRoutineMail`, `claimRoutineText`), so a stop taken in between stops it. Push's claim (step
-4) asks the same; Journeys' engine and the inbox's campaigns ask it per step and per send.
+4) asks the same; Journeys' engine and the inbox's campaigns ask it per step and per send. A
+held message a person approves is asked again first (`stopHeldRoutineMessage`): one stopped
+while it waited is skipped, and with its kind gone (a pack uninstalled) the suppression list is
+still asked.
 
-**The stop link** is the host's alone: `stopLink(person, channel, scope)` (`contact/stop.ts`), a
-token naming one Person, one channel and one scope, HMAC-SHA-256 signed, no expiry, on the
-business's own site (`<site>/stop?t=…`). Every stoppable email (an optional kind's: off for the
-kind; a follow-up's: off for `follow_up` on email) ends with it, and when the host decided it
-routine carries it in `List-Unsubscribe` and `List-Unsubscribe-Post: List-Unsubscribe=One-Click`
-(RFC 8058). The email gatekeeper takes `listUnsubscribe` only from the host's routine mail decided
+**The stop link** is the host's alone: `stopLink(person, channel, scope)` (`contact/stop.ts`), an
+opaque token of 32 random bytes (`crypto.getRandomValues`) naming one Person, one channel and one
+scope, no expiry, on the business's own site (`<site>/stop?t=…`). Only the token's SHA-256 is kept
+(`core_contact_stop_token`, with what it names), so **nothing secret is stored** and the runner,
+which writes a routine email, and the app, which takes the stop, share nothing; AGENTS.md's rule
+that secrets are env-only holds. The raw token is in the one message it was made for, so each
+stoppable message gets its own; every one stays good until its Person is erased (the cascade), and
+a merge moves them to the survivor. Every stoppable email (an optional kind's: off for the kind; a
+follow-up's: off for `follow_up` on email) ends with it, and when the host decided it routine
+carries the same link in `List-Unsubscribe` and `List-Unsubscribe-Post:
+List-Unsubscribe=One-Click` (RFC 8058): only the link the email's words end with, on the site as it
+is at sending and naming that row's Person and kind, so an email whose site changed since it was
+prepared goes without the header, as an ordinary send held for a person. The email gatekeeper takes `listUnsubscribe` only from the host's routine mail decided
 routine, and only a link to the stop route on the business's site; any other send naming one is
 refused. Journeys and the inbox use `stopLink` and make no tokens of their own.
 
 **`contact.stop` is public** (and open to customers): it reads the token and turns that one scope
-off on that channel for that Person (news and offers: `no`), `how: stop_link`. It can only turn
-something off; an essential kind's email cannot be stopped by any token; a token of someone erased
-does nothing. Its answer is `{ done: true }` whatever the token was. Public calls are rate limited
-per client address at the edge (stage 23). The client web app's stop route (`stopRoute` in the
+off on that channel for that Person (news and offers: `no`), `how: stop_link`: the Person it names,
+or the one they were merged into since (`livePersonAfterMerges`); nothing for one erased, or in the
+Trash and not merged. It can only turn something off; an essential kind's email cannot be stopped
+by any token. Its answer is `{ done: true }` whatever the token was. **It is not rate limited
+yet**: the host does not limit public calls itself, and no limit per client address is configured
+at the edge (a known gap, queued separately); a token cannot be guessed, so the exposure is write
+load, not a stop for someone else. The client web app's stop route (`stopRoute` in the
 template's `src/host.ts`) shows a page with one button on GET, so a mail scanner that opens every
 link stops nothing, and calls `contact.stop` on POST: the button, or a mail app's one-click.
 
@@ -79,20 +94,18 @@ reason); host code for a form's or a checkout's consent question (`recordFromFor
 shown). **A stop is lifted only by the member** (their account, or START): staff recording a
 choice cannot turn back on what the member stopped. No AI actor writes the register.
 
-**Erase** deletes a Person's choices; suppressions stay. **Merge** moves the duplicate's choices to
-the survivor: the later wins, except that a stop or a no on either side stays in force (a `merge`
-row puts it back on top).
+**Erase** deletes a Person's choices and stop tokens (the cascade); suppressions stay. **Merge**
+moves the duplicate's choices and stop tokens to the survivor: the later choice wins, except that a
+stop on either side stays a stop (a row with that stop's own `how` is put back on top, so staff
+still cannot lift it), and otherwise a no on either side stays a no (a `merge` row).
 
-### The stop link's key
+### Why an opaque token, not a signed one
 
-The spec asked for a token signed with an env-only host secret. The key is instead made once per
-deployment by migration 0913 (`contact_stop_key` in `core_settings`, 32 random bytes) and read only
-by `contact/stop.ts`. The runner, which writes a routine email, and the app, which takes the stop,
-share no secret today; adding one means the installer, the updater and local development
-generating and setting the same value on two Workers, which this step did not take on. What the
-key protects is narrow: with it someone could only turn messages off. Tokens are versioned (`v1.`),
-so moving the key to an env secret later changes `stopKey()` and accepts both while old links are
-still in inboxes.
+The spec asked for a token signed with an env-only host secret. The runner and the app share no
+secret, and keeping a signing key in the database would break the rule that secrets are env-only.
+A random token whose hash alone is kept needs no key at all: someone who reads the database learns
+which tokens exist only as hashes, from which no link can be made. The cost is a row per stoppable
+message (deleted with its Person).
 
 ## Consequences
 

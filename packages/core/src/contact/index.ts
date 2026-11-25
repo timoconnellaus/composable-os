@@ -6,6 +6,7 @@
 import type { CoreDatabase } from "@composable-os/db";
 import type { Kysely } from "kysely";
 import { ValidationError } from "../errors.ts";
+import { hasLiveGuardian } from "../visibility/guardians.ts";
 import { appendChoice, type ContactChannel } from "./register.ts";
 
 export {
@@ -35,6 +36,7 @@ export {
   choicesInForce,
   isKindScope,
   isPurposeScope,
+  later,
   mergeChoiceStatements,
   PURPOSE_SCOPES,
   STOP_HOWS,
@@ -47,15 +49,18 @@ export {
   type StopScope,
   stopLink,
   stopToken,
+  stopUrl,
+  tokenOfLink,
 } from "./stop.ts";
 export { addressHash, saltedHash, suppress, suppressed, unsuppress } from "./suppression.ts";
 
 /**
  * A form's or a checkout's consent question (stage 29, orders), for host code only: the answer to
  * "news and offers by email?", with the words the person was shown. The question is never ticked
- * in advance; a yes without its words is refused. The statement, for the caller's batch.
+ * in advance; a yes without its words is refused, and so is a yes for a child (news and offers
+ * never go to one). The statement, for the caller's batch.
  */
-export function recordFromForm(
+export async function recordFromForm(
   db: Kysely<CoreDatabase>,
   answer: {
     personId: string;
@@ -69,6 +74,9 @@ export function recordFromForm(
   const wording = answer.wording.trim();
   if (!wording || wording.length > 1000) {
     throw new ValidationError("A consent answer keeps the words the person was shown");
+  }
+  if (answer.yes && (await hasLiveGuardian(db, answer.personId))) {
+    throw new ValidationError("News and offers never go to a child");
   }
   return appendChoice(db, {
     personId: answer.personId,

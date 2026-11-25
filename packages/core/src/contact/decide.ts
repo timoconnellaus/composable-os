@@ -20,7 +20,7 @@ import { loadRoutineMailSettings, type RoutineMailSettings } from "../routine-ma
 import { quietDecision } from "../routine-mail/quiet.ts";
 import { type ChannelReach, HOST_REACH } from "../routine-mail/reach.ts";
 import { isTimezone } from "../settings.ts";
-import { GUARDIAN_LINK } from "../visibility/guardians.ts";
+import { hasLiveGuardian } from "../visibility/guardians.ts";
 import {
   allows,
   type ChoicesInForce,
@@ -67,7 +67,7 @@ export interface ContactQuestion {
   urgent?: boolean | undefined;
   /** Now (an instant). */
   at: string;
-  /** For an email: the address it goes to, when the sender chose it (a guardian's, an order's). */
+  /** For an email: the address it goes to, as the sender chose it (without one: `no_address`). */
   address?: string | undefined;
 }
 
@@ -106,20 +106,6 @@ function refusedBy(choice: ContactChoice, what: string): ContactDecision {
     : refuse("off", `they turned ${what} off by ${choice.channel}`);
 }
 
-/** Whether `personId` is a live dependant (a child linked to a guardian). One statement. */
-async function isChild(db: Db, personId: string): Promise<boolean> {
-  const row = await db
-    .selectFrom("core_person_link as l")
-    .innerJoin("core_person as g", "g.id", "l.guardian_id")
-    .select("l.dependant_id")
-    .where("l.dependant_id", "=", personId)
-    .where("l.kind", "=", GUARDIAN_LINK)
-    .where("l.ended_at", "is", null)
-    .where("g.deleted_at", "is", null)
-    .executeTakeFirst();
-  return row !== undefined;
-}
-
 /**
  * What the register says, before where it goes: null when it may go, else the refusal. Reads the
  * Person's choices for the kind and the purpose on the channel (none when `choices` holds them),
@@ -130,7 +116,7 @@ export async function registerRefusal(
   q: Pick<ContactQuestion, "person" | "channel" | "purpose" | "kind" | "essential">,
   choices?: ChoicesInForce,
 ): Promise<ContactDecision | null> {
-  if (q.purpose === "news_and_offers" && (await isChild(db, q.person))) {
+  if (q.purpose === "news_and_offers" && (await hasLiveGuardian(db, q.person))) {
     return refuse("child", "news and offers never go to a child");
   }
   const mine = (choices ?? (await choicesInForce(db, [q.person]))).get(q.person);
@@ -156,18 +142,6 @@ export async function registerRefusal(
       : refuse("no_consent", `they said no to news and offers by ${q.channel}`);
   }
   return null;
-}
-
-/** The Person's primary address (else their first). One statement. */
-async function primaryAddress(db: Db, personId: string): Promise<string | null> {
-  const row = await db
-    .selectFrom("core_person_emails")
-    .select("email")
-    .where("person_id", "=", personId)
-    .orderBy("is_primary", "desc")
-    .orderBy("position")
-    .executeTakeFirst();
-  return row?.email ?? null;
 }
 
 /** Whether an address is on the suppression list (one statement). */
@@ -199,8 +173,9 @@ export async function contactDecision(
   let to: string;
   let key: string;
   if (q.channel === "email") {
-    const address = q.address ?? (await primaryAddress(db, q.person));
-    if (!address) return refuse("no_address", "they have no email address");
+    // The sender names the address (it chose the recipient: the Person's own, a guardian's).
+    const address = q.address;
+    if (!address) return refuse("no_address", "no email address to send to");
     if (await addressSuppressed(db, address)) {
       return refuse("suppressed", "the address asked not to be sent to");
     }

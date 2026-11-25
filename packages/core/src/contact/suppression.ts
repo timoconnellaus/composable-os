@@ -18,6 +18,20 @@ const SALT = "text_number_salt";
  * deployment's hashes from matching another's.
  */
 export async function saltedHash(db: Db, value: string): Promise<string> {
+  let salt = salts.get(db);
+  if (!salt) {
+    salt = readSalt(db);
+    salts.set(db, salt);
+    // A failed read is not kept: the next asks again.
+    salt.catch(() => salts.delete(db));
+  }
+  return sha256Hex(`${await salt}:${value}`);
+}
+
+/** The salt by database handle: it never changes once made, so a batch reads it once. */
+const salts = new WeakMap<Db, Promise<string>>();
+
+async function readSalt(db: Db): Promise<string> {
   let row = await db
     .selectFrom("core_settings")
     .select("value")
@@ -39,11 +53,11 @@ export async function saltedHash(db: Db, value: string): Promise<string> {
       .where("key", "=", SALT)
       .executeTakeFirstOrThrow();
   }
-  let salt = "";
   try {
-    salt = String(JSON.parse(row.value));
-  } catch {}
-  return sha256Hex(`${salt}:${value}`);
+    return String(JSON.parse(row.value));
+  } catch {
+    return "";
+  }
 }
 
 /**

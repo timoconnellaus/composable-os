@@ -101,7 +101,7 @@ describe("the routine kind", () => {
 });
 
 describe("the one-tap stop (ADR 0675)", () => {
-  const link = `${SITE}/stop?t=v1.abc.def`;
+  const link = `${SITE}/stop?t=AbCdEfGhIjKlMnOpQrStUvWxYz0123456789-_AbCd`;
   const stoppable = {
     ...routine,
     text: `${routine.text}\n\nTo stop getting these emails: ${link}`,
@@ -134,6 +134,18 @@ describe("the one-tap stop (ADR 0675)", () => {
       );
       expect(submissions).toEqual([]);
     }
+  });
+
+  it("from the routine queue, a message not of routine shape (an ordinary send) may not carry one", async () => {
+    const h = await host({ hostRoutine: { siteOrigin: SITE } });
+    await expect(
+      send(h, {
+        ...stoppable,
+        text: `${stoppable.text}\nhttps://evil.test/`,
+        listUnsubscribe: link,
+      }),
+    ).rejects.toThrow(/listUnsubscribe is set only by the host's routine mail/);
+    expect(submissions).toEqual([]);
   });
 
   it("an email without one has no such header", async () => {

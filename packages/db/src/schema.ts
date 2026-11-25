@@ -1792,6 +1792,15 @@ export interface CoreContactChoiceTable {
   wording: string | null;
 }
 
+/** Migration 0913 (ADR 0675): a stop link's token, only its SHA-256, naming what it stops. */
+export interface CoreContactStopTokenTable {
+  token_hash: string;
+  person_id: string;
+  channel: "email" | "text" | "push";
+  scope: string;
+  created_at: string;
+}
+
 /**
  * Migration 0913 (ADR 0675, taking migration 0911's core_text_stop): a salted hash of an address
  * or number that asked to stop, kept after erase; START deletes a number's.
@@ -4450,6 +4459,7 @@ export interface CoreDatabase {
   core_phone_check: CorePhoneCheckTable;
   core_contact_choice: CoreContactChoiceTable;
   core_contact_suppression: CoreContactSuppressionTable;
+  core_contact_stop_token: CoreContactStopTokenTable;
   core_value_mark: CoreValueMarkTable;
   core_person_signal: CorePersonSignalTable;
   core_birthday_guard: CoreBirthdayGuardTable;

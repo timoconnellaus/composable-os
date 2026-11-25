@@ -65,21 +65,24 @@ coordinator as best practice the same day). Build may start.
   `packages/core/src/contact/`: the register (`core_contact_choice`, append-only, the latest row
   per Person, channel and scope in force), the suppression list (`core_contact_suppression`, which
   took in `core_text_stop`: STOP and START write it now), `contactDecision` with its nine reasons
-  (and `choicesInForce` for a batch of recipients in one statement), `stopLink` and the public
+  (and `choicesInForce` for a batch of recipients in one statement), `stopLink` (an opaque random
+  token, only its hash kept in `core_contact_stop_token`; no key anywhere) and the public
   `contact.stop` (open-operations.json), `recordFromForm` for host code. Routine messages ask
   `contactDecision` per recipient and channel when a row is prepared (`stopped`, never held) and
-  ask the register again when an email or a text is claimed; a stoppable email (an optional
+  ask the register again when an email or a text is claimed and when a held one is approved; a
+  stoppable email (an optional
   kind's, a follow-up's) ends with its stop link and, when routine, carries `List-Unsubscribe`
   with one-click, which the email gatekeeper takes from the host's routine mail only.
   `me.contact.choices` / `me.contact.setChoices` (the member and their live dependants; an
   essential kind's email fixed; a yes with its words, never for a child), `person.contact.record`
   (a person only, with a reason, never lifting a stop), `contact.forPerson`; erase deletes the
-  choices, merge moves them (a stop always survives). The Contact preferences section of My account
+  choices and tokens (the cascade), merge moves them (a stop stays a stop only the member lifts;
+  an old link of the duplicate stops the survivor). The Contact preferences section of My account
   (`web-account-contact`, `native-account-contact`, `useContactChoices` / `useSetContactChoices`),
   the template web app's `/stop` route (a page with one button on GET; the button or a mail app's
-  one-click on POST). Migration 0913, ADR 0675 (ADR 0672 amended). Deviation: the stop link's key
-  is made by migration 0913 and kept in `core_settings`, not an env secret (ADR 0675 says why).
-  Left: the e2e journey (criterion 22, step 7, with the screens); `recordFromForm` is not yet
+  one-click on POST, through the typed client). Migration 0913, ADR 0675 (ADR 0672 amended).
+  Left: `contact.stop` is not rate limited (queued separately); consent for sends that are not
+  routine messages (queued separately); the e2e journey (criterion 22, step 7, with the screens); `recordFromForm` is not yet
   called by Forms or checkouts; the push claim (step 4) must ask the register as the text claim
   does; a staff screen for a Person's choices (step 7 reads `contact.forPerson`). Not tried for
   real: a mail app's one-click against a deployed stop route, and the native block on a phone.

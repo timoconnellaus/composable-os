@@ -15,6 +15,7 @@ import { env } from "cloudflare:workers";
 import { beforeAll, describe, expect, it } from "vitest";
 import {
   type ActingUser,
+  addressHash,
   type ChannelReach,
   type CustomerPrincipal,
   choicesInForce,
@@ -23,9 +24,12 @@ import {
   invokeByName,
   type OutsideInvocationContext,
   readStopToken,
+  recordFromForm,
   saltedHash,
+  stopHeldRoutineMessage,
   stopLink,
   stopToken,
+  suppress,
 } from "../src/index.ts";
 import { context, createUser, db, refusal, unique } from "./helpers.ts";
 
@@ -91,7 +95,16 @@ const ask = (
 ) =>
   contactDecision(
     db.query,
-    { person, channel, purpose, kind, essential, at: new Date().toISOString() },
+    {
+      person,
+      channel,
+      purpose,
+      kind,
+      essential,
+      at: new Date().toISOString(),
+      // An email names its address, as a sender does.
+      ...(channel === "email" ? { address: `${person}@members.test` } : {}),
+    },
     { reach: everyone },
   );
 
@@ -156,8 +169,8 @@ describe("contactDecision: the one question", () => {
     );
     expect(await ask(m.personId, "email", "news_and_offers")).toEqual({
       send: true,
-      to: m.email,
-      key: m.email,
+      to: `${m.personId}@members.test`,
+      key: `${m.personId}@members.test`,
     });
     // Only on the channel the yes was given for.
     expect(await ask(m.personId, "text", "news_and_offers")).toMatchObject({
@@ -182,6 +195,28 @@ describe("contactDecision: the one question", () => {
       ),
     );
     expect(refused?.code).toBe("invalid_input");
+    // Nor does a form's or a checkout's consent question (F6).
+    await expect(
+      recordFromForm(db.query, {
+        personId: kid,
+        channel: "email",
+        yes: true,
+        wording: "Keep me updated.",
+        how: "form",
+        at: new Date().toISOString(),
+      }),
+    ).rejects.toMatchObject({ code: "invalid_input" });
+    await (
+      await recordFromForm(db.query, {
+        personId: m.personId,
+        channel: "text",
+        yes: true,
+        wording: "Text me news and offers.",
+        how: "form",
+        at: new Date().toISOString(),
+      })
+    ).execute();
+    expect(await ask(m.personId, "text", "news_and_offers")).toMatchObject({ send: true });
   });
 
   it("a follow-up stopped by email is still sent by text, and the refusal is final", async () => {
@@ -271,7 +306,7 @@ describe("the one-tap stop", () => {
       channel: "email",
       scope: OPTIONAL,
     });
-    expect(link).toMatch(/^https:\/\/gym\.example\/stop\?t=v1\./);
+    expect(link).toMatch(/^https:\/\/gym\.example\/stop\?t=[A-Za-z0-9_-]{43}$/);
     const token = new URL(link as string).searchParams.get("t") as string;
     expect(await readStopToken(db.query, token)).toEqual({
       person: m.personId,
@@ -295,6 +330,15 @@ describe("the one-tap stop", () => {
       .bind(m.personId)
       .all();
     expect(rows.results).toEqual([{ how: "stop_link", value: "off" }]);
+    // Only its hash is kept: the token itself is in no table.
+    const kept = await env.DB.prepare(
+      "SELECT token_hash FROM core_contact_stop_token WHERE person_id = ?",
+    )
+      .bind(m.personId)
+      .all<{ token_hash: string }>();
+    expect(kept.results).toHaveLength(1);
+    expect(kept.results[0]?.token_hash).not.toContain(token);
+    expect(kept.results[0]?.token_hash).toMatch(/^[0-9a-f]{64}$/);
   });
 
   it("cannot turn anything on, and answers a bad token as a good one", async () => {
@@ -309,22 +353,25 @@ describe("the one-tap stop", () => {
       channel: "email",
       scope: OPTIONAL,
     })) as string;
-    // A token's payload changed (another Person, another scope) no longer matches its signature.
-    const [v, , mac] = token.split(".");
-    const forged = `${v}.${btoa(`${m.personId}\nemail\nnews_and_offers`).replace(/=+$/, "")}.${mac}`;
+    // Tokens the host never made: a changed one, one of the right shape, nonsense.
+    const changed = `${token.slice(0, -2)}${token.endsWith("AA") ? "BB" : "AA"}`;
     const answers = [];
-    for (const t of [token, forged, "nonsense", `${token.slice(0, -2)}xx`]) {
+    for (const t of [changed, "A".repeat(43), "nonsense", ""]) {
       answers.push(await run("contact.stop", { token: t }, outside(PUBLIC)));
     }
-    expect(answers).toEqual(Array(4).fill({ done: true }));
-    // Only the member's own "off" is there: the stop of an off choice adds nothing, the forged
-    // ones nothing at all, and nothing turned on.
+    answers.push(await run("contact.stop", { token }, outside(PUBLIC)));
+    expect(answers).toEqual(Array(5).fill({ done: true }));
+    // The made-up ones wrote nothing; the real one made the member's "off" a stop (a stop is
+    // theirs to lift only), and nothing was turned on.
     const rows = await env.DB.prepare(
-      "SELECT scope, how, value FROM core_contact_choice WHERE person_id = ?",
+      "SELECT scope, how, value FROM core_contact_choice WHERE person_id = ? ORDER BY seq",
     )
       .bind(m.personId)
       .all();
-    expect(rows.results).toEqual([{ scope: OPTIONAL, how: "member", value: "off" }]);
+    expect(rows.results).toEqual([
+      { scope: OPTIONAL, how: "member", value: "off" },
+      { scope: OPTIONAL, how: "stop_link", value: "off" },
+    ]);
   });
 
   it("an essential kind's email has no stop, and a token for one does nothing", async () => {
@@ -367,6 +414,41 @@ describe("the one-tap stop", () => {
       outside(m),
     );
     expect(await ask(m.personId, "email", "account", OPTIONAL)).toMatchObject({ send: true });
+  });
+});
+
+describe("a held routine message approved after its kind is gone", () => {
+  it("is still stopped by the suppression list", async () => {
+    const m = await member("gone");
+    const address = `${m.personId}@members.test`;
+    const now = new Date().toISOString();
+    const id = `rml_${unique("gone")}`;
+    const action = `pa_${unique("gone")}`;
+    await env.DB.prepare(
+      `INSERT INTO core_routine_mail (id, kind, message, extension_id, record_object, record_id,
+         channel, recipient, recipient_rule, recipient_key, recipient_person_id, trigger_type,
+         idempotency_key, routine, status, subject, body, pending_action_id, created_at, updated_at)
+       VALUES (?, 'uninstalled.reminder', 'm', 'uninstalled', 'x', 'rec_1', 'email', ?, 'person', ?,
+         ?, 'record', ?, 0, 'waiting', 'Hi', 'Hello', ?, ?, ?)`,
+    )
+      .bind(id, address, address, m.personId, id, action, now, now)
+      .run();
+    // The kind is gone and the address is not suppressed: nothing to stop it.
+    expect(await stopHeldRoutineMessage(db.query, action, now)).toBeNull();
+    await suppress(
+      db.query,
+      "email",
+      await addressHash(db.query, address),
+      "provider_unsubscribed",
+      now,
+    );
+    expect(await stopHeldRoutineMessage(db.query, action, now)).toBe(
+      "the address asked not to be sent to",
+    );
+    const row = await env.DB.prepare("SELECT status, body FROM core_routine_mail WHERE id = ?")
+      .bind(id)
+      .first();
+    expect(row).toEqual({ status: "stopped", body: null });
   });
 });
 
@@ -444,11 +526,24 @@ describe("no AI actor writes the register", () => {
         ),
       );
       expect(refused?.code, actor).toBe("forbidden");
-      for (const name of ["me.contact.setChoices", "contact.stop"]) {
-        const closed = await refusal(
-          run(name, { choices: [], token: "x" }, context(admin, { actor })),
-        );
-        expect(closed?.code, `${name} for ${actor}`).toBeTruthy();
+      // Inputs each would take from the member or the public: a staff caller (an AI's included)
+      // is answered as for an operation that does not exist, before the input is looked at.
+      const valid: Record<string, unknown> = {
+        "me.contact.setChoices": {
+          choices: [{ scope: "news_and_offers", channel: "email", value: "yes" }],
+          wording: "Yes.",
+        },
+        "contact.stop": {
+          token: await stopToken(db.query, {
+            person: m.personId,
+            channel: "email",
+            scope: OPTIONAL,
+          }),
+        },
+      };
+      for (const [name, input] of Object.entries(valid)) {
+        const closed = await refusal(run(name, input, context(admin, { actor })));
+        expect(closed?.code, `${name} for ${actor}`).toBe("unknown_operation");
       }
     }
     expect((await choicesInForce(db.query, [m.personId])).get(m.personId)).toBeUndefined();
@@ -484,6 +579,169 @@ describe("no AI actor writes the register", () => {
 });
 
 describe("merge and erase", () => {
+  /** Merges `merged` into `survivor` (the duplicate's account goes first: two would refuse it). */
+  const merge = async (
+    survivor: { personId: string },
+    merged: typeof survivor & { customerId: string },
+  ) => {
+    await env.DB.prepare("DELETE FROM core_customer WHERE id = ?").bind(merged.customerId).run();
+    await run(
+      "person.merge",
+      { survivorId: survivor.personId, mergedId: merged.personId },
+      context(admin),
+    );
+  };
+  const staffLift = (personId: string) =>
+    refusal(
+      run(
+        "person.contact.record",
+        {
+          personId,
+          choices: [{ scope: OPTIONAL, channel: "email", value: "on" }],
+          how: "staff_on_request",
+          reason: "Asked at the desk",
+        },
+        context(admin),
+      ),
+    );
+
+  it("a stop on the duplicate stays a stop the survivor's later choices do not undo (B1)", async () => {
+    // The duplicate tapped the stop; later the survivor turned the kind off, then on again.
+    const survivor = await member("b1a-s");
+    const merged = await member("b1a-m");
+    const token = await stopToken(db.query, {
+      person: merged.personId,
+      channel: "email",
+      scope: OPTIONAL,
+    });
+    await run("contact.stop", { token }, outside(PUBLIC));
+    for (const value of ["off", "on"] as const) {
+      await run(
+        "me.contact.setChoices",
+        { choices: [{ scope: OPTIONAL, channel: "email", value }] },
+        outside(survivor),
+      );
+    }
+    await merge(survivor, merged);
+    expect(await ask(survivor.personId, "email", "account", OPTIONAL)).toMatchObject({
+      send: false,
+      reason: "stopped",
+    });
+    // Still the member's alone to lift.
+    expect((await staffLift(survivor.personId))?.code).toBe("forbidden");
+  });
+
+  it("a stop on one side and a later member's off on the other is still a stop (B1)", async () => {
+    const survivor = await member("b1b-s");
+    const merged = await member("b1b-m");
+    await run(
+      "contact.stop",
+      {
+        token: await stopToken(db.query, {
+          person: survivor.personId,
+          channel: "email",
+          scope: OPTIONAL,
+        }),
+      },
+      outside(PUBLIC),
+    );
+    await run(
+      "me.contact.setChoices",
+      { choices: [{ scope: OPTIONAL, channel: "email", value: "off" }] },
+      outside(merged),
+    );
+    await merge(survivor, merged);
+    expect(await ask(survivor.personId, "email", "account", OPTIONAL)).toMatchObject({
+      send: false,
+      reason: "stopped",
+    });
+    expect((await staffLift(survivor.personId))?.code).toBe("forbidden");
+  });
+
+  it("a stop link of the merged-away Person stops the survivor; one of a Person in the Trash does nothing (B2)", async () => {
+    const survivor = await member("b2-s");
+    const merged = await member("b2-m");
+    const token = await stopToken(db.query, {
+      person: merged.personId,
+      channel: "email",
+      scope: OPTIONAL,
+    });
+    await merge(survivor, merged);
+    await run("contact.stop", { token }, outside(PUBLIC));
+    expect(await ask(survivor.personId, "email", "account", OPTIONAL)).toMatchObject({
+      send: false,
+      reason: "stopped",
+    });
+    const onMerged = await env.DB.prepare(
+      "SELECT COUNT(*) AS n FROM core_contact_choice WHERE person_id = ?",
+    )
+      .bind(merged.personId)
+      .first<{ n: number }>();
+    expect(onMerged?.n).toBe(0);
+    // A token whose row still names the merged Person (made before the move, say) follows the
+    // merge too.
+    const late = await stopToken(db.query, {
+      person: merged.personId,
+      channel: "email",
+      scope: "follow_up",
+    });
+    await run("contact.stop", { token: late }, outside(PUBLIC));
+    expect(await ask(survivor.personId, "email", "follow_up", FOLLOW_UP)).toMatchObject({
+      send: false,
+      reason: "stopped",
+    });
+    // In the Trash and not merged: nothing is written.
+    const trashed = await member("b2-trash");
+    const trashedToken = await stopToken(db.query, {
+      person: trashed.personId,
+      channel: "email",
+      scope: OPTIONAL,
+    });
+    await run("person.delete", { id: trashed.personId }, context(admin));
+    expect(await run("contact.stop", { token: trashedToken }, outside(PUBLIC))).toEqual({
+      done: true,
+    });
+    const onTrashed = await env.DB.prepare(
+      "SELECT COUNT(*) AS n FROM core_contact_choice WHERE person_id = ?",
+    )
+      .bind(trashed.personId)
+      .first<{ n: number }>();
+    expect(onTrashed?.n).toBe(0);
+  });
+
+  it("the register refuses a rewrite, a move to anyone but the merged-into Person, and a delete (F4)", async () => {
+    const a = await member("f4-a");
+    const b = await member("f4-b");
+    await run(
+      "contact.stop",
+      {
+        token: await stopToken(db.query, {
+          person: a.personId,
+          channel: "email",
+          scope: OPTIONAL,
+        }),
+      },
+      outside(PUBLIC),
+    );
+    const attempts = [
+      env.DB.prepare("UPDATE core_contact_choice SET value = 'on' WHERE person_id = ?").bind(
+        a.personId,
+      ),
+      env.DB.prepare("UPDATE core_contact_choice SET person_id = ? WHERE person_id = ?").bind(
+        b.personId,
+        a.personId,
+      ),
+      env.DB.prepare("DELETE FROM core_contact_choice WHERE person_id = ?").bind(a.personId),
+    ];
+    for (const attempt of attempts) {
+      await expect(attempt.run()).rejects.toThrow(/core_contact_choice_append_only/);
+    }
+    expect(await ask(a.personId, "email", "account", OPTIONAL)).toMatchObject({
+      send: false,
+      reason: "stopped",
+    });
+  });
+
   it("a merge keeps the later choice, and a stop on either side", async () => {
     const survivor = await member("merge-s");
     const merged = await member("merge-m");
@@ -534,13 +792,18 @@ describe("merge and erase", () => {
     )
       .bind(hash, new Date().toISOString())
       .run();
+    const token = await stopToken(db.query, {
+      person: m.personId,
+      channel: "email",
+      scope: OPTIONAL,
+    });
     await run("person.erase", { id: m.personId }, context(admin));
-    const left = await env.DB.prepare(
-      "SELECT COUNT(*) AS n FROM core_contact_choice WHERE person_id = ?",
-    )
-      .bind(m.personId)
-      .first<{ n: number }>();
-    expect(left?.n).toBe(0);
+    for (const table of ["core_contact_choice", "core_contact_stop_token"]) {
+      const left = await env.DB.prepare(`SELECT COUNT(*) AS n FROM ${table} WHERE person_id = ?`)
+        .bind(m.personId)
+        .first<{ n: number }>();
+      expect(left?.n, table).toBe(0);
+    }
     const kept = await env.DB.prepare(
       "SELECT COUNT(*) AS n FROM core_contact_suppression WHERE value_hash = ?",
     )
@@ -548,11 +811,6 @@ describe("merge and erase", () => {
       .first<{ n: number }>();
     expect(kept?.n).toBe(1);
     // A stop link of someone erased does nothing, and fails nothing.
-    const token = await stopToken(db.query, {
-      person: m.personId,
-      channel: "email",
-      scope: OPTIONAL,
-    });
     expect(await run("contact.stop", { token }, outside(PUBLIC))).toEqual({ done: true });
   });
 });
