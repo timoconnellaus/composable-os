@@ -5,12 +5,13 @@ import {
 } from "@composable-os/pack-memberships/client";
 import { MyMembershipsScreen } from "../../../packs/memberships/blocks/memberships-native-mine/mine-screen.tsx";
 import { fakeClient, react } from "../src/fake.ts";
-import { coolingOff, mine, subscriptions } from "./data/memberships.ts";
+import { coolingOff, family, mineFor, subscriptions } from "./data/memberships.ts";
 
 const memberships = createMembershipsHooks(
   react,
   fakeClient<MembershipsOperations>(MEMBERSHIPS_HOOKS_CALL, {
-    "x.memberships.mine": mine,
+    "x.memberships.mine": mineFor,
+    "me.family": family,
     "subscription.list": subscriptions,
     "subscription.coolingOff": coolingOff,
   }),

@@ -14,6 +14,7 @@ import {
   type AgreementVersion,
   createAccountHooks,
   createAgreementsHooks,
+  type DeletePreview,
   type MyRecord,
 } from "@composable-os/client";
 import {
@@ -127,6 +128,7 @@ export const portal: AccountPortal = {
       web: null,
       native: null,
     },
+    { key: "delete", pack: null, label: "Delete my account", order: 99, web: null, native: null },
   ],
 };
 
@@ -612,6 +614,96 @@ export const memberships: {
   },
 };
 
+// --- Needs your attention (stage 48 step 7): `me.attention` -------------------------------------------
+
+export const attention: Out<"me.attention"> = {
+  days: 7,
+  items: [
+    {
+      key: "agree:agreement:agr_waiver:per_leo",
+      kind: "agree",
+      person: { id: LEO, name: "Leo Okafor", self: false },
+      record: { object: "agreement", id: "agr_waiver", title: "Junior classes waiver" },
+      at: at("08:00", "2026-03-01"),
+      amount: null,
+      currency: null,
+      usesLeft: null,
+      link: null,
+    },
+    {
+      key: "balance_due:order:ord_camp:per_hannah",
+      kind: "balance_due",
+      person: { id: HANNAH, name: "Hannah Okafor", self: true },
+      record: { object: "order", id: "ord_camp", title: "Easter climbing camp" },
+      at: at("00:00", "2026-03-06"),
+      amount: 9000,
+      currency: "GBP",
+      usesLeft: null,
+      link: null,
+    },
+    {
+      key: "pass_expiring:memberships.pass:pas_ten:per_hannah",
+      kind: "pass_expiring",
+      person: { id: HANNAH, name: "Hannah Okafor", self: true },
+      record: { object: "memberships.pass", id: "pas_ten", title: "Ten-class pass" },
+      at: at("23:59", "2026-03-07"),
+      amount: null,
+      currency: null,
+      usesLeft: 3,
+      link: null,
+    },
+    {
+      key: "trial_ending:subscription:sub_mobility:per_hannah",
+      kind: "trial_ending",
+      person: { id: HANNAH, name: "Hannah Okafor", self: true },
+      record: { object: "subscription", id: "sub_mobility", title: "Mobility at home" },
+      at: at("00:00", "2026-03-08"),
+      amount: 1200,
+      currency: "GBP",
+      usesLeft: null,
+      link: null,
+    },
+  ],
+};
+
+// --- Deleting the account (stage 48 step 7): `me.deleteAccount`'s preview ------------------------------
+
+export const deletePreview: DeletePreview = {
+  deleted: false,
+  subscriptions: [
+    {
+      id: "sub_unlimited",
+      title: "Unlimited membership",
+      amount: 6500,
+      currency: "GBP",
+      interval: "month",
+      endsAt: "2026-03-28T00:00:00.000Z",
+      ending: "period_end",
+    },
+  ],
+  orders: [
+    {
+      id: "ord_dropin",
+      total: 1200,
+      currency: "GBP",
+      createdAt: at("08:40"),
+      lines: ["Drop-in: Saturday bouldering"],
+    },
+  ],
+  leftForStaff: {
+    records: [
+      { object: "bookings.booking", label: "Bookings", count: 2 },
+      { object: "ticketing.ticket", label: "Tickets", count: 1 },
+    ],
+    partPaidOrders: 1,
+    moreUnpaidOrders: 0,
+    subscriptions: [],
+    dependantsWithoutGuardian: 0,
+  },
+  eraseDueAt: "2026-04-01T00:00:00.000Z",
+  expect: "preview-fingerprint",
+};
+
 // --- The hooks, as a client app makes them -----------------------------------------------------------
 
 /** The account hooks over a fake client answering every base section's call. */
@@ -620,6 +712,9 @@ export function accountHooks(current: "browser" | "device") {
     react,
     fakeClient<AccountOperations>(ACCOUNT_HOOKS_CALL, {
       "me.portal": portal,
+      "me.attention": attention,
+      "me.deleteAccount": deletePreview,
+      "me.email.change": { newEmail: "hannah@okafor.example.com", expiresAt: at("09:45") },
       "me.get": me,
       "me.birthday.get": birthday,
       "me.sessions.list": sessions(current),
@@ -644,8 +739,18 @@ export function agreementsHooks() {
 
 /** The client the Memberships pack's section is given (its hooks are made by `usePackSections`). */
 export const membershipsClient = fakeClient<MembershipsOperations>(MEMBERSHIPS_HOOKS_CALL, {
-  "x.memberships.mine": memberships.mine,
+  // Hannah's own, Leo's class pack, and nothing of Maya's.
+  "x.memberships.mine": (input: { personId?: string }) =>
+    input.personId === LEO
+      ? { holdings: memberships.mine.holdings.filter((h) => h.kind === "pass") }
+      : input.personId
+        ? { holdings: [] }
+        : memberships.mine,
   "x.memberships.plans": memberships.plans,
+  "me.family": family,
   "subscription.list": memberships.subscriptions,
   "subscription.coolingOff": memberships.coolingOff,
 });
+
+/** The app's sign-in, never asked for in a picture: the host answered without `sign_in_again`. */
+export const signIn = { requestCode: async () => true, confirm: async () => true };

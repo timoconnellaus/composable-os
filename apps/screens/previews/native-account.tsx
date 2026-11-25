@@ -6,7 +6,7 @@ import {
 } from "../../../blocks/native-account/account-screen.tsx";
 import { MyMembershipsScreen } from "../../../packs/memberships/blocks/memberships-native-mine/mine-screen.tsx";
 import { react } from "../src/fake.ts";
-import { accountHooks, agreementsHooks, membershipsClient } from "./data/account.ts";
+import { accountHooks, agreementsHooks, membershipsClient, signIn } from "./data/account.ts";
 
 const account = accountHooks("device");
 const agreements = agreementsHooks();
@@ -31,7 +31,9 @@ export default function Preview() {
       agreements={agreements}
       sections={sections}
       websiteUrl="https://www.example.com/account"
+      signIn={signIn}
       onSignOut={() => {}}
+      onDeleted={() => {}}
       openUrl={() => {}}
     />
   );
