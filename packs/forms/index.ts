@@ -27,7 +27,8 @@ import {
   QUESTIONS_SCHEMA,
 } from "@composable-os/sdk";
 import { formsAutomations } from "./automations.ts";
-import { enter, form, markSpam, move, notSpam, submit } from "./tools.ts";
+import { formsRoutineMail } from "./routine-mail.ts";
+import { enter, form, linkedForm, markSpam, move, notSpam, submit, submitLinked } from "./tools.ts";
 
 const INBOX_COLUMNS = ["title", "person", "certainty", "rating", "via", "owner", "createdAt"];
 
@@ -42,8 +43,10 @@ export default defineExtension({
   permissions: {
     // intake.open and intake.submit: the host's door for this pack's own forms (ADR 0720), from
     // the `form`, `submit` and `enter` tools. notification.send: the low-rating notice.
+    // routine-mail: the receipt (ADR 0724: the host decides who it goes to and what it says),
+    // sent from the email-send connection a person binds to the receipt's automation.
     operations: ["intake.open", "intake.submit", "notification.send"],
-    modules: ["ops"],
+    modules: ["ops", "routine-mail", "email-send"],
   },
   objects: {
     form: {
@@ -270,6 +273,18 @@ export default defineExtension({
             { value: "staff", label: "Staff" },
           ],
         },
+        // What a personal link was about (ADR 0723): a booking, for feedback after a class. Set
+        // by the host; a field, not a relation, as the record may be any installed pack's.
+        about: {
+          type: "text",
+          label: "About",
+          description: "The record the personal link was about (a booking's id), set by the host.",
+        },
+        aboutObject: {
+          type: "text",
+          label: "About (kind)",
+          description: "What kind of record that is (bookings.booking), set by the host.",
+        },
         owner: { type: "user", label: "Owner" },
         notes: { type: "longText", label: "Notes" },
         status: {
@@ -308,9 +323,17 @@ export default defineExtension({
         via: "via",
         rating: "rating",
         marketing: "marketing",
+        about: "about",
+        aboutObject: "aboutObject",
       },
       // The door's caps count by form and time (ADR 0722); the inbox lists by state and time.
-      indexes: [["form", "createdAt"], ["createdAt"], ["status", "createdAt"], ["person"]],
+      indexes: [
+        ["form", "createdAt"],
+        ["createdAt"],
+        ["status", "createdAt"],
+        ["person"],
+        ["about"],
+      ],
     },
   },
   views: {
@@ -399,5 +422,6 @@ export default defineExtension({
     },
   },
   automations: formsAutomations,
-  tools: { form, submit, enter, move, markSpam, notSpam },
+  routineMail: formsRoutineMail,
+  tools: { form, submit, linkedForm, submitLinked, enter, move, markSpam, notSpam },
 });

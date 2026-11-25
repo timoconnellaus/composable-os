@@ -153,6 +153,7 @@ export * from "./gate.ts";
 export * from "./guesses.ts";
 export * from "./http/index.ts";
 export * from "./ids.ts";
+export * from "./intake/links.ts";
 export * from "./intake/runtime.ts";
 export * from "./integrations/catalogue.ts";
 export * from "./integrations/events.ts";

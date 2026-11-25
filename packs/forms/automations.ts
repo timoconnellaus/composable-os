@@ -55,4 +55,51 @@ export const lowRating = defineAutomation({
   },
 });
 
-export const formsAutomations = { lowRating };
+/**
+ * The email-send connection the host sends receipts from: a person binds it to the automation,
+ * which is their consent to the pack's mail going out from that address (ADR 0590).
+ */
+const MAIL = {
+  id: "mail",
+  gatekeeper: "email-send",
+  purpose: "Email a receipt to whoever sent answers",
+} as const;
+
+export const receipt = defineAutomation({
+  label: "Send a receipt",
+  description:
+    "When answers arrive to a form whose receipt is on, emails whoever sent them a short " +
+    "receipt naming the form. The host decides who it goes to and refuses it for answers kept " +
+    "as spam, entered by staff or sent anonymously, and after three to one address in a day. " +
+    "Routine email: Receipts.",
+  trigger: { type: "record", object: "forms.submission", on: ["created"] },
+  conditions: {
+    and: [
+      { field: "status", op: "eq", value: "new" },
+      { field: "person", op: "is_not_null" },
+    ],
+  },
+  connections: [MAIL],
+  steps: [
+    { name: "check", label: "Check the form's receipt is on", reads: [FORM] },
+    { name: "send", label: "Email the receipt" },
+  ],
+  async run(event, step, ctx) {
+    const submission = event.record;
+    const formId = submission?.data?.form;
+    if (!submission || typeof formId !== "string") return { skipped: "no submission" };
+    const on = await step.do("check", async () => {
+      const form = await ctx.ops.call<{ values: Record<string, unknown> }>("record.get", {
+        object: FORM,
+        id: formId,
+      });
+      return form.values.receipt !== false && form.values.anonymous !== true;
+    });
+    if (!on) return { sent: 0 };
+    return step.do("send", () =>
+      ctx.routineMail.send({ kind: "receipt", record: submission.id, message: "received" }),
+    );
+  },
+});
+
+export const formsAutomations = { lowRating, receipt };

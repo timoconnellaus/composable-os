@@ -1879,6 +1879,38 @@ declare it: a form with no public scope (the public reads it only through `intak
 submission inbox (new, in hand, done, spam) read only by staff accounts, with no pack role reaching
 either.
 
+**Personal links and the receipt** (stage 29, step 5, [ADR 0723](adr/0723-personal-links-used-once.md)
+and [ADR 0724](adr/0724-the-receipt-and-the-form-link-slot.md), `packages/core/src/intake/links.ts`,
+migration 1010). A personal link is a host row (`core_intake_link`: one Person, one form, optionally
+the record it is about, an expiry, when it was used) with one token per email that carries it, of
+which only the SHA-256 is kept (`core_intake_link_token`): 32 random bytes, no signing key, as the
+stop link's. Only routine mail's **form-link slot** (`{ formLink: { object, setting, days, once } }`,
+a `links` form) makes one, for the record's own Person: never to a child's own address (their
+guardians get it), not again about the same record, not within the slot's `once` days (kept by the
+insert trigger), and none for an email the register stops. Preparing plans it; the link and the
+email's token are made only when `claimRoutineMail` sends the email on its own (still routine after
+the caps, under a policy that sends routine email without review), and the token goes only into
+the words handed to the gatekeeper, never a row, an approval or a pending action; an email with a
+link that would wait for a person is kept failed, and a link whose email did not go is withdrawn.
+The link is on the business's site (`/form?t=`), so the email gatekeeper's rule holds unchanged.
+`intake.open` and `intake.submit` take the token (`link`, from anyone holding it: no Turnstile
+token or shown time) or, for a signed-in customer whose link (or whose live dependant's) it is,
+its id (`linkId`, from "Needs your attention", kind `form_to_fill`, through Forms' customer-only
+tools). A child's link fills none of the child's fields.
+The answers are the link's Person's (certainty `link`), to that form only, tied to the record in the
+submission's host-only `about` and `aboutObject`; the answers' batch uses the link by its id and
+migration 1010's trigger fails it when it is already used or expired, so of two racing answers one
+commits. Every refusal is one answer; opening a link uses nothing; `link` is redacted from the audit
+log. Erase deletes links with their Person (the cascade); merge moves them to the survivor. A
+routine kind declaring `receipt: true` (about an intake submission, the form's fields and the
+business's name from Settings → Routine email only) goes to whoever sent the answers: their sign-in
+address, whoever answered the link (`used_by`: the token's recipient or the signed-in customer),
+or the address they typed, which may carry the public's mark (the amendment to ADR 0590); never for
+staff's answers, spam or an anonymous form; the fourth in a day to one mailbox is kept
+`over_limit`, and receipts have the organisation's daily cap of their own (`receiptDailyCap`,
+200), outside the routine email cap. Forms declares
+`forms.receipt`; Bookings declares `bookings.feedback` with the slot and its automation.
+
 **`publishable`** ([ADR 0446](adr/0446-publishable-without-its-public-half.md),
 [ADR 0441](adr/0441-publishable-states-schedules-and-versions.md),
 `packages/core/src/operations/record-versions.ts`, `packages/core/src/records/publish.ts`).
@@ -2886,14 +2918,15 @@ writes it again; the shell renders it through `usePackSections` and shows what `
 each. Step 4 is
 built: **Needs your attention** is `me.attention`, one customer read worked out in core
 (`packages/core/src/customers/attention.ts`, [ADR 0711](adr/0711-needs-your-attention.md)) from
-agreements, orders, subscriptions and the `allowance` behaviour, never from a pack's code. Eight
-kinds: `agree`, `card_failing`, `confirm_payment`, `balance_due`, `finish_paying`,
-`pass_expiring`, `pass_used_up` and `trial_ending`, for the caller and, for agreements and passes
-on objects that open to guardians, their live dependants; soonest first, each with the record, the
-moment, the money in minor units and a pass's uses left. A pass expiring and a trial ending are
+agreements, orders, subscriptions, the `allowance` behaviour and personal links, never from a
+pack's code. Nine kinds: `agree`, `card_failing`, `confirm_payment`, `balance_due`,
+`finish_paying`, `pass_expiring`, `pass_used_up`, `trial_ending` and `form_to_fill` (a live
+personal link, stage 29 step 5, ADR 0723, with its id to answer it by), for the caller and, for
+agreements, passes on objects that open to guardians and personal links, their live dependants;
+soonest first, each with the record, the moment, the money in minor units and a pass's uses left. A pass expiring and a trial ending are
 listed within `account.attentionDays` (`customer.settings` `attentionDays`, default 7, 1 to 30,
 human admins). It reads a fixed number of statements whatever the packs installed, the family's size or the
-number of documents, and lists a pass only where its customer reads its uses and end; its block is a
+number of documents (plus two for each personal link listed, at most ten), and lists a pass only where its customer reads its uses and end; its block is a
 later step. In the app, money opens the website ([ADR 0714](adr/0714-the-app-shows-money-and-opens-the-website.md)):
 the native shell shows orders and subscriptions, and "Manage on the website" opens the business's
 website account page; no native block calls a billing operation. The template's `/account` route
@@ -2907,10 +2940,10 @@ and the mobile Account tab are plain pages over the same entry.
 | Programs | `document`, `publishable` (no public half), `states`, `customer`, `signedIn`, `unique` | stage 41: steps 1 to 6 built (the spine, the dashboard, views and Person tab, hooks and blocks, draft and import), and a repeatable import (`cos programs import`); Ghetto's app is step 7 |
 | Content | `publishable`, rich text, slugs, media | stage 28: steps 1 to 6 built (rich text, `publishable` completed, public reads, media, the editor, the pack: posts and categories, hooks, web and native renderers); the first client's import and blog routes are its own repository's |
 | Courses | `publishable`, `sellable` (grants and a tax code), `access` and holders' parts, `states`, `customer` with `requireAccess`, `requires: ["programs", "content"]`, video media and `media.play` | stage 42: steps 1 to 4, 6, 7 and the draft built ([ADR 0478](adr/0478-the-courses-pack.md)); the import and the first client to come |
-| Bookings | `recurring`, `capacity` and `claims` with a waitlist, `unique`, `staffed` (a class is its coach's shift, stage 45), `occupies` (a class takes a room marked "one booking at a time", stage 49 step 2, [ADR 0765](adr/0765-occupies-the-claim-on-a-thing.md)), `states` with windows, staff-only rules and a requested cancel, `allowance` (spender, `waived`), `public`, `customer` with `guardians`, `customerVia`, `requires: ["programs"]` | stage 31a: steps 1 to 6 built (the behaviours, the pack's spine, [ADR 0504](adr/0504-the-bookings-pack.md); spending with the Memberships pack's memberships and passes, and the waitlist with promotion, [ADR 0520](adr/0520-a-waitlist-on-a-claimant.md); parents booking for their children, [ADR 0540](adr/0540-the-family-link.md)); step 7, attendance, moves and cancelling a class; step 8, drop-ins with `sellable.moves`, [ADR 0560](adr/0560-a-paid-line-moves-a-record-that-exists.md)); step 9, messages, the reminder, the dashboard and the coach's app screen, [ADR 0572](adr/0572-bookings-messages-the-dashboard-and-the-coachs-app-screen.md); step 10 to come |
+| Bookings | `recurring`, `capacity` and `claims` with a waitlist, `unique`, `staffed` (a class is its coach's shift, stage 45), `occupies` (a class takes a room marked "one booking at a time", stage 49 step 2, [ADR 0765](adr/0765-occupies-the-claim-on-a-thing.md)), `states` with windows, staff-only rules and a requested cancel, `allowance` (spender, `waived`), `public`, `customer` with `guardians`, `customerVia`, `requires: ["programs"]` | stage 31a: steps 1 to 6 built (the behaviours, the pack's spine, [ADR 0504](adr/0504-the-bookings-pack.md); spending with the Memberships pack's memberships and passes, and the waitlist with promotion, [ADR 0520](adr/0520-a-waitlist-on-a-claimant.md); parents booking for their children, [ADR 0540](adr/0540-the-family-link.md)); step 7, attendance, moves and cancelling a class; step 8, drop-ins with `sellable.moves`, [ADR 0560](adr/0560-a-paid-line-moves-a-record-that-exists.md)); step 9, messages, the reminder, the dashboard and the coach's app screen, [ADR 0572](adr/0572-bookings-messages-the-dashboard-and-the-coachs-app-screen.md); step 10 to come. Stage 29 step 5: feedback after a class (`bookings.feedback`, a personal link to a Forms form, [ADR 0724](adr/0724-the-receipt-and-the-form-link-slot.md)) |
 | Rostering | `recurring` (duty series, a horizon from its setting), `staffed` (a duty shift is its person's shift), `states`, a pack role (`rostering.team`), grantable and restricted permissions, the roster's rules (`staffing`), the host's tool-only `staffing.*` operations | stage 45: step 4 built (duties, duty series and shifts, the team role, the roster's tools, settings, [ADR 0626](adr/0626-the-rostering-pack-and-bookings-additions.md)); step 6 built (pay periods: `rostering:pay`, restricted and a person's only, who is counted, totals, the not-worked mark, lock, reopen and export, [ADR 0627](adr/0627-pay-periods-the-basis-the-totals-the-lock-and-the-export.md)); step 5 built (each person's private calendar feed: `feed`, `feedRotate`, `feedRevoke`, [ADR 0628](adr/0628-the-staff-calendar-feed-and-the-shared-calendar-writer.md)); step 7 built (the screens as blocks over `@composable-os/pack-rostering/client`, my calendar among them, role clients with grants, `cos rostering import`, [ADR 0629](adr/0629-the-rosters-screens-role-clients-with-grants-and-the-roster-import.md)); checklists (4b) built (a duty's checklist, [ADR 0650](adr/0650-checklists-templates-runs-ticks-and-a-done-run-kept-unchanged.md)) |
 | Daily checklists | no objects: screens and tools over the host's tool-only day-run operations (`checklist.today`, `.day`, `.dayTick`, `.dayDone`, `.days`), tools open to every staff account (`anyStaff`) or held to `checklists:write` (`corePermission`) | built (checklists on their own, [ADR 0651](adr/0651-checklists-on-their-own-a-schedule-a-run-a-day-and-who-may-do-it.md), [ADR 0652](adr/0652-a-tool-for-every-staff-account-and-a-tool-held-to-a-core-permission.md)): Today's checklists (web and the app) and Checklist history; requires nothing |
-| Forms | `publishable` with a slug and no public half, `intake` (form and submission), `states` (moves into and out of spam only by `personApproves` tools), a status, dates, cap and address a person approves, an old address that redirects, a setting a person approves, a low-rating automation | stage 29: step 3 built (forms and submissions, the inbox's tools, views among them "Asked to hear from us", the hourly cap setting, the low-rating notice, the staff form kind, [ADR 0726](adr/0726-the-forms-pack-forms-submissions-and-who-reads-them.md)); the hosted page and blocks, personal links and receipts, Leads as a destination, erase, and the screens and dashboard to come |
+| Forms | `publishable` with a slug and no public half, `intake` (form and submission), `states` (moves into and out of spam only by `personApproves` tools), a status, dates, cap and address a person approves, an old address that redirects, a setting a person approves, a low-rating automation, routine mail (the receipt) | stage 29: step 3 built (forms and submissions, the inbox's tools, views among them "Asked to hear from us", the hourly cap setting, the low-rating notice, the staff form kind, [ADR 0726](adr/0726-the-forms-pack-forms-submissions-and-who-reads-them.md)); step 5 built (personal links, answered with `link` or `linkId`, and the receipt, ADRs 0723 and 0724); the hosted page and blocks, Leads as a destination, erase, and the screens and dashboard to come |
 | Shop | `sellable.goods` (sold where its item says) with `stock` and a reorder level told to `shop:stock`, `sellable.delivery` with seeded options and a shipment `grants`, `publishable` items, `public` with a list of conditions and `via` alone, a buyer's `customer` read of their shipments, prices a person approves, supplier fields on Organisation, a pack role (`shop.stockroom`), grantable permissions | stage 37: step 5 built (items, variants, delivery options, shipments, supplier fields, the stockroom role, the country setting, views, the Shop dashboard, the stock and shipment tools, [ADR 0689](adr/0689-the-shop-pack-and-public-reads-through-a-public-record.md)); purchase orders, receipts, counts and write-offs, recorded returns and routine mail, blocks and screens, and the import to come |
 | Memberships | `allowance` (holders, paying for Bookings' classes and, when they say they pay for sessions, its appointments by service: stage 49, [ADR 0764](adr/0764-appointments-in-the-bookings-pack.md)), recurring billing with `recurring.grants` and `recurring.pause`, `sellable.onePerPerson`, `humanOnly` tools, `requires: ["programs", "bookings"]` | stage 32b: steps 5 to 7 built (the behaviour, the pack, plan changes and pauses, the dashboard, views and blocks); the import (step 8) to come |
 

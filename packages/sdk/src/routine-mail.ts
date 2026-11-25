@@ -50,6 +50,19 @@ export type RoutineChannel = (typeof ROUTINE_CHANNELS)[number];
 export const ROUTINE_PURPOSES = ["account", "follow_up"] as const;
 export type RoutinePurpose = (typeof ROUTINE_PURPOSES)[number];
 
+/**
+ * A personal link (ADR 0723): the route on the business's site a form-link slot opens, and the
+ * query parameter its token travels in. The client web app's form page serves it.
+ */
+export const PERSONAL_LINK_PATH = "/form";
+export const PERSONAL_LINK_PARAM = "t";
+/** How long a personal link stays good unless the slot says (decision 4: a week). */
+export const PERSONAL_LINK_DAYS = 7;
+/** The longest a personal link may stay good. */
+export const PERSONAL_LINK_MAX_DAYS = 30;
+/** Most receipts (ADR 0724) one mailbox is sent in a rolling day: the fourth is not sent. */
+export const RECEIPT_DAILY_CAP = 3;
+
 /** The longest business name a text begins with: a longer one is cut to this (ADR 0670). */
 export const TEXT_SENDER_MAX = 30;
 /** What every text ends with, added by the host. */
@@ -101,6 +114,24 @@ export type RoutineSlotSpec =
    * record's id as that query parameter.
    */
   | { link: string; withId?: string }
+  /**
+   * A personal link (ADR 0723, the form-link slot): the host makes, while preparing each email, a
+   * link for the record's own Person to answer one form, about this record, once, and writes its
+   * address on the business's site here. `object` is a form object's registry name
+   * (`forms.form`); `setting` one of this extension's text settings, a person's to change
+   * (`personApproves`), holding the form's address. The link stays good `days` days (default 7,
+   * at most 30). With `once`, a Person who was sent a link to that form in the last `once` days,
+   * about any other record, is not sent this email at all (decision 4: once a month). A kind with
+   * one goes by email only, never to the record's Person when they have a live guardian (the
+   * guardian is sent it instead), and the email is not sent when no link can be made.
+   */
+  | { formLink: { object: string; setting: string; days?: number; once?: number } }
+  /**
+   * The business's name (ADR 0724), which the host fills from Settings → Routine email (the name
+   * a human admin gave, the one texts begin with): never anything a pack or a sender wrote. Left
+   * unset there, the email is held for a person.
+   */
+  | { business: true }
   /** One line per record of `object` whose `via` is this record (a buyer's tickets). */
   | {
       each: {
@@ -184,6 +215,13 @@ export interface RoutineMailSpec {
   channels?: readonly RoutineChannel[];
   /** The app screen a push opens, with the record's id: one the pack's native blocks declare. */
   open?: { screen: string };
+  /**
+   * A receipt (ADR 0724): about one of this extension's intake submissions, sent to whoever sent
+   * it (their own sign-in address when signed in, else the address they typed, which may be one
+   * only the public stands behind), at most three a day to one mailbox. Its words show only the
+   * form's own fields (slots through the submission's form), never anything the sender typed.
+   */
+  receipt?: boolean;
   slots?: Record<string, RoutineSlotSpec>;
   messages: Record<string, RoutineMessageSpec>;
 }
@@ -257,6 +295,19 @@ const slotSchema = z.union([
     .strict(),
   z.object({ count: z.object({ max: z.number().int().min(1).max(1000) }).strict() }).strict(),
   z.object({ flag: z.literal(true) }).strict(),
+  z.object({ business: z.literal(true) }).strict(),
+  z
+    .object({
+      formLink: z
+        .object({
+          object: z.string().regex(/^[a-z][a-z0-9]{0,29}\.[a-z][a-zA-Z0-9]{0,49}$/),
+          setting: name,
+          days: z.number().int().min(1).max(PERSONAL_LINK_MAX_DAYS).optional(),
+          once: z.number().int().min(1).max(365).optional(),
+        })
+        .strict(),
+    })
+    .strict(),
   z
     .object({
       link: name,
@@ -336,6 +387,7 @@ const routineMailKindSchema = z
     until: path.optional(),
     channels: z.array(z.enum(ROUTINE_CHANNELS)).min(1).max(3).optional(),
     open: z.object({ screen: name }).strict().optional(),
+    receipt: z.boolean().optional(),
     slots: z.record(name, slotSchema).default({}),
     messages: z.record(name, messageSchema),
   })
@@ -371,6 +423,7 @@ export interface RoutineMailKindManifest {
   until?: string | undefined;
   channels?: readonly RoutineChannel[] | undefined;
   open?: { screen: string } | undefined;
+  receipt?: boolean | undefined;
   slots: Record<string, RoutineSlotSpec>;
   messages: Record<string, RoutineMessageManifest>;
 }
@@ -702,7 +755,27 @@ function slotMaxLength(slot: RoutineSlotSpec, guardian: boolean): number | null 
   if ("at" in slot) return MOMENT_MAX.datetime + (slot.year ? YEAR : 0);
   if ("count" in slot) return String(slot.count.max).length;
   if ("flag" in slot) return 0;
+  if ("business" in slot) return TEXT_SENDER_MAX;
   return null;
+}
+
+/** A form-link slot's declaration. */
+export interface FormLinkSlotSpec {
+  object: string;
+  setting: string;
+  days?: number;
+  once?: number;
+}
+
+/** The kind's form-link slots, by name (at most one is allowed). */
+export function formLinkSlotsOf(
+  kind: Pick<RoutineMailKindManifest, "slots">,
+): [string, FormLinkSlotSpec][] {
+  const out: [string, FormLinkSlotSpec][] = [];
+  for (const [slotName, slot] of Object.entries(kind.slots)) {
+    if ("formLink" in slot) out.push([slotName, slot.formLink]);
+  }
+  return out;
 }
 
 /** The longest a member's name is written (`unroutineText`'s bound for it). */
@@ -724,7 +797,14 @@ interface CheckFieldManifest {
 }
 interface CheckManifest {
   id: string;
-  objects: Record<string, { fields: Record<string, CheckFieldManifest> }>;
+  objects: Record<
+    string,
+    {
+      fields: Record<string, CheckFieldManifest>;
+      customer?: { field: string } | undefined;
+      intake?: { role: string; form?: string } | undefined;
+    }
+  >;
   settings: Record<string, { type: string; personApproves?: boolean | undefined }>;
   permissions: { modules: readonly string[] };
   routineMail?: Record<string, RoutineMailKindManifest> | undefined;
@@ -828,6 +908,26 @@ export function routineMailIssues(manifest: CheckManifest): { path: string; mess
           const zone = routinePathType(manifest, about, slot.zone);
           if ("problem" in zone) contract(`${at}.zone`, zone.problem);
         }
+      } else if ("formLink" in slot) {
+        const setting = manifest.settings[slot.formLink.setting];
+        if (setting?.type !== "text") {
+          contract(
+            `${at}.formLink.setting`,
+            `"${slot.formLink.setting}" is not a text setting of this extension`,
+          );
+        } else if (setting.personApproves !== true) {
+          // Which form members are sent to is a person's to choose, never an AI's (ADR 0723).
+          contract(
+            `${at}.formLink.setting`,
+            `"${slot.formLink.setting}" must be a setting a person approves (personApproves)`,
+          );
+        }
+        if (about === ROUTINE_ABOUT_ORDER || !manifest.objects[about]?.customer) {
+          contract(
+            `${at}.formLink`,
+            "A personal link is for the record's own Person: the kind is about an object with a customer",
+          );
+        }
       } else if ("link" in slot) {
         const setting = manifest.settings[slot.link];
         if (setting?.type !== "text") {
@@ -887,6 +987,7 @@ export function routineMailIssues(manifest: CheckManifest): { path: string; mess
       }
     }
     channelIssues(manifest, base, kind, contract);
+    personalLinkIssues(manifest, base, kind, contract);
     const messages = Object.entries(kind.messages);
     if (!messages.length || messages.length > 12) {
       contract(`${base}.messages`, "A kind has 1 to 12 messages");
@@ -917,6 +1018,14 @@ export function routineMailIssues(manifest: CheckManifest): { path: string; mess
           const slot = slots[used];
           if (!slot) {
             contract(where, `{${used}} is not a slot of ${kindName}`);
+            continue;
+          }
+          if ("formLink" in slot) {
+            // The link is what the email is for: never in its subject, never in an optional part.
+            if (where.endsWith("subject")) contract(where, `{${used}} is a link: not in a subject`);
+            else if (parsed.optionalOnly.has(used)) {
+              contract(where, `{${used}} is what the email is for: not in an optional part [...]`);
+            }
             continue;
           }
           const mayBeEmpty =
@@ -957,6 +1066,52 @@ export function routineMailIssues(manifest: CheckManifest): { path: string; mess
     }
   }
   return issues;
+}
+
+/**
+ * A personal link's kind and a receipt (ADRs 0723 and 0724). A kind with a form-link slot has one,
+ * goes by email only and is not a receipt. A receipt is about one of this extension's intake
+ * submissions, goes by email only, has no guardian's words (it goes to whoever sent it), is about
+ * something they did (purpose `account`), and shows only fields of the submission's form (a path
+ * through its `form` relation): never a list, a calendar or anything the sender typed.
+ */
+function personalLinkIssues(
+  manifest: CheckManifest,
+  base: string,
+  kind: RoutineMailKindManifest,
+  contract: (path: string, message: string) => void,
+): void {
+  const links = formLinkSlotsOf(kind);
+  const channels = kind.channels ?? ["email"];
+  if (links.length > 1) contract(`${base}.slots`, "At most one form-link slot");
+  if ((links.length || kind.receipt) && channels.some((c) => c !== "email")) {
+    contract(`${base}.channels`, "A personal link and a receipt go by email only");
+  }
+  if (!kind.receipt) return;
+  if (links.length) contract(`${base}.receipt`, "A receipt carries no personal link");
+  const object = manifest.objects[kind.about];
+  const form = object?.intake?.role === "submission" ? object.intake.form : undefined;
+  if (!form) {
+    contract(`${base}.about`, "A receipt is about one of this extension's intake submissions");
+  }
+  if ((kind.purpose ?? "account") !== "account" || kind.essential === false) {
+    contract(`${base}.purpose`, "A receipt is about something the person did: purpose account");
+  }
+  for (const [slotName, slot] of Object.entries(kind.slots)) {
+    const at = `${base}.slots.${slotName}`;
+    if ("each" in slot) contract(at, "A receipt shows no list");
+    if ("field" in slot && form && !slot.field.startsWith(`${form}.`)) {
+      contract(
+        at,
+        `A receipt shows only the form's own fields (${form}.<field>), never what the sender typed`,
+      );
+    }
+  }
+  for (const [messageName, message] of Object.entries(kind.messages)) {
+    const at = `${base}.messages.${messageName}`;
+    if (message.guardian) contract(`${at}.guardian`, "A receipt goes to whoever sent it");
+    if (calendarsOf(message).length) contract(`${at}.calendar`, "A receipt has no calendar file");
+  }
 }
 
 /**
@@ -1036,6 +1191,10 @@ function channelIssues(
           at,
           `{${used}} is a list: a ${channel === "text" ? "text" : "push"} has no room for one`,
         );
+        continue;
+      }
+      if ("formLink" in slot) {
+        contract(at, `{${used}} is a personal link: it goes by email only`);
         continue;
       }
       if (channel === "push" && "link" in slot) {

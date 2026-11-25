@@ -18,7 +18,9 @@ const item = z.object({
         "it with your bank. balance_due: the rest of a deposit to pay. finish_paying: an order " +
         "holding places you started paying for and did not finish. pass_expiring: a pass about " +
         "to expire with uses still on it. pass_used_up: a pass with no uses left. " +
-        "trial_ending: a free trial about to end.",
+        "trial_ending: a free trial about to end. form_to_fill: a form the business asked you " +
+        "(or a child linked to you) to answer, such as feedback after a class, until it is " +
+        "answered or its link expires.",
     ),
   person: z
     .object({ id: z.string(), name: z.string(), self: z.boolean() })
@@ -26,14 +28,16 @@ const item = z.object({
   record: z
     .object({ object: z.string(), id: z.string(), title: z.string() })
     .describe(
-      "What it is about: an agreement document, a subscription, an order, or a pass by its object",
+      "What it is about: an agreement document, a subscription, an order, a pass by its object, " +
+        "or the form to answer",
     ),
   at: z
     .string()
     .nullable()
     .describe(
       "The moment it is about: the version taking effect, the first failed payment, the " +
-        "payment started, the balance due, the held order expiring, the pass or trial ending",
+        "payment started, the balance due, the held order expiring, the pass or trial ending, " +
+        "the form's link expiring",
     ),
   amount: z
     .number()
@@ -41,6 +45,13 @@ const item = z.object({
     .describe("Money due or to be charged, in the currency's minor unit; null where none"),
   currency: z.string().nullable(),
   usesLeft: z.number().nullable().describe("A pass's uses left; null for other kinds"),
+  link: z
+    .string()
+    .nullable()
+    .describe(
+      "form_to_fill: the personal link's id, sent back as linkId to open and answer the form " +
+        "(signed in only); null for other kinds",
+    ),
 });
 
 export const meAttention = defineOperation({
@@ -50,7 +61,8 @@ export const meAttention = defineOperation({
     "(for you or a child linked to you), a card payment that failed, a payment waiting for you " +
     "to confirm with your bank, the rest of a deposit to pay, an order you started paying for " +
     "and did not finish, a pass about to expire with uses left or with none left (yours or a " +
-    "child's), and a free trial about to end. `days` is how far ahead it looks for a pass or a " +
+    "child's), a free trial about to end, and a form you were asked to answer (yours or a " +
+    "child's). `days` is how far ahead it looks for a pass or a " +
     "trial ending. An item goes once its cause is fixed. Read-only.",
   input: z.object({}),
   output: z.object({

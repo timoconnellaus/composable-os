@@ -89,6 +89,10 @@ export interface IntakeFormSpec {
  * - `marketing` (optional, a boolean field): set by the host when the person ticked a `marketing`
  *   consent line of the version answered ("keep me updated", decision 10), so a list can find
  *   them. The words they saw are the version's.
+ * - `about` and `aboutObject` (optional, together, text fields): set by the host when the answers
+ *   came by a personal link about a record (a booking, ADR 0723): the record's id and its object's
+ *   registry name. A field, not a relation: the record may be any installed pack's (Bookings'),
+ *   and a pack that is not installed cannot be pointed to.
  */
 export interface IntakeSubmissionSpec {
   role: "submission";
@@ -101,6 +105,8 @@ export interface IntakeSubmissionSpec {
   via?: string;
   rating?: string;
   marketing?: string;
+  about?: string;
+  aboutObject?: string;
 }
 
 /**
@@ -147,6 +153,8 @@ export const intakeManifestSchema = z.discriminatedUnion("role", [
       via: fieldName.optional(),
       rating: fieldName.optional(),
       marketing: fieldName.optional(),
+      about: fieldName.optional(),
+      aboutObject: fieldName.optional(),
     })
     .strict(),
   z
@@ -335,6 +343,11 @@ export function checkObjectIntake(
     }
     need("rating", intake.rating, ["number"], "a number");
     need("marketing", intake.marketing, ["boolean"], "a boolean");
+    need("about", intake.about, ["text"], "a text");
+    need("aboutObject", intake.aboutObject, ["text"], "a text");
+    if ((intake.about === undefined) !== (intake.aboutObject === undefined)) {
+      contract(`${at}.about`, "Declare about and aboutObject together");
+    }
     // Nobody outside the org reads a submission, not even its submitter (ADR 0720).
     if (object.customer || object.customerVia || object.public || object.signedIn) {
       contract(at, "A submission is read by staff only: no customer, public or signedIn");

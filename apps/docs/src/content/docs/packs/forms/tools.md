@@ -12,18 +12,20 @@ Each tool is called as `x.forms.<tool>`. Its description is the one a model read
 
 ### form
 
-A form by its address, as the caller may answer it now: its version, title, questions and thank-you words, whether it is anonymous, whether a Turnstile token is needed, and the host's token of when it was shown (send it back with the answers). A form that is not open to the caller now (a draft, closed, not published, out of its dates, for signed-in customers only, or no such address) is not found, the same answer whatever the reason. Read-only.
+A form by its address, as the caller may answer it now: its version, title, questions and thank-you words, whether it is anonymous, whether a Turnstile token is needed, and the host's token of when it was shown (send it back with the answers). A form that is not open to the caller now (a draft, closed, not published, out of its dates, for signed-in customers only, or no such address) is not found, the same answer whatever the reason. Or open the form a personal link is for: `link`, the token from its email (no sign-in needed; a signed-in member's own link from Needs your attention is `linkedForm`). A link that cannot be used (used, expired, unknown) is one answer whatever is wrong, and opening it uses nothing. Read-only.
 
 |  |  |
 | --- | --- |
 | Risk | `read` |
 | Audiences | `customer`, `public` |
+| Kept from the audit log | `link` |
 
 #### Input
 
 | Field | Type | Required | Limits | Description |
 | --- | --- | --- | --- | --- |
-| `slug` | string | yes | min length 1, max length 200 | The form's address, e.g. ask-about-a-trial |
+| `slug` | string |   | min length 1, max length 200 | The form's address, e.g. ask-about-a-trial |
+| `link` | string |   | min length 1, max length 200 | A personal link's token |
 
 #### Output
 
@@ -41,13 +43,13 @@ A form by its address, as the caller may answer it now: its version, title, ques
 
 ### submit
 
-Send answers to a form the caller may answer (from `form`). The host checks the form is still open to them, a visitor's Turnstile token and when the form was shown, the caps and the answers against the version shown, then keeps them in the business's inbox, linked to the sender's person by the email answered. Answers that break the form are refused naming the question's key; a form published again since it was shown is refused with 'load it again'; too many answers just now is 'try again later'. Kept, kept as spam or dropped, the answer is the same.
+Send answers to a form the caller may answer (from `form`). The host checks the form is still open to them, a visitor's Turnstile token and when the form was shown, the caps and the answers against the version shown, then keeps them in the business's inbox, linked to the sender's person by the email answered. Answers that break the form are refused naming the question's key; a form published again since it was shown is refused with 'load it again'; too many answers just now is 'try again later'. Kept, kept as spam or dropped, the answer is the same. By a personal link (`link`, as `form` opened it; signed in, `submitLinked`), the answers are the link's person's, once: no Turnstile token or shown time is needed, and a link that cannot be used is one answer.
 
 |  |  |
 | --- | --- |
 | Risk | `write` |
 | Audiences | `customer`, `public` |
-| Kept from the audit log | `answers`, `turnstileToken`, `shown`, `honeypot` |
+| Kept from the audit log | `answers`, `turnstileToken`, `shown`, `honeypot`, `link` |
 
 #### Input
 
@@ -59,6 +61,62 @@ Send answers to a form the caller may answer (from `form`). The host checks the 
 | `via` | `"site"`, `"app"`, `"page"` |   |   | Which way in: the business's website, its app, or the form's own page |
 | `turnstileToken` | string |   | max length 4096 | A visitor's Turnstile token |
 | `shown` | string |   | max length 200 | `form`'s shown token |
+| `honeypot` | string |   | max length 1000 | The hidden field a person leaves empty |
+| `link` | string |   | min length 1, max length 200 | A personal link's token |
+
+#### Output
+
+| Field | Type | Required | Limits | Description |
+| --- | --- | --- | --- | --- |
+| `received` | `true` | yes |   | The answers were sent: shown the same whatever the host's spam checks decided |
+
+### linkedForm
+
+The form a signed-in member's own personal link is for (or a child's they are a guardian of): `linkId` is the id Needs your attention gives (me.attention, kind form_to_fill). As `form` gives it; a link that cannot be used is one answer. Read-only.
+
+|  |  |
+| --- | --- |
+| Risk | `read` |
+| Audiences | `customer` |
+
+#### Input
+
+| Field | Type | Required | Limits | Description |
+| --- | --- | --- | --- | --- |
+| `linkId` | string | yes | min length 1, max length 64 | The personal link's id, from Needs your attention |
+
+#### Output
+
+| Field | Type | Required | Limits | Description |
+| --- | --- | --- | --- | --- |
+| `id` | string | yes |   |   |
+| `version` | number | yes |   | The version shown: send it with the answers |
+| `title` | string or null | yes |   |   |
+| `questions` | object | yes |   | The questions, in the platform's question schema, in order |
+| `questions.items` | array of map of any | yes |   |   |
+| `thanks` | string or null | yes |   | The words to show once the answers are sent |
+| `anonymous` | boolean | yes |   | Nothing kept says who answered |
+| `turnstile` | boolean | yes |   | A Turnstile token must be sent with the answers |
+| `shown` | string or null | yes |   | Send back as `shown` with the answers |
+
+### submitLinked
+
+Send answers by a signed-in member's own personal link (or a child's they are a guardian of), from Needs your attention: `linkId` as `linkedForm` opened it. The answers are the link's person's, once; a link that cannot be used is one answer, the same as for a token.
+
+|  |  |
+| --- | --- |
+| Risk | `write` |
+| Audiences | `customer` |
+| Kept from the audit log | `answers`, `honeypot` |
+
+#### Input
+
+| Field | Type | Required | Limits | Description |
+| --- | --- | --- | --- | --- |
+| `linkId` | string | yes | min length 1, max length 64 | The personal link's id, from Needs your attention |
+| `id` | string | yes | min length 1, max length 64 | The form (forms.form record id) |
+| `version` | integer | yes | &gt; 0, ≤ 9007199254740991 | The version `linkedForm` showed |
+| `answers` | map of any | yes |   | The answers by question key: text, email, phone and date as strings (a date YYYY-MM-DD), number and rating as numbers, a choice as a string or a list of strings, yes/no and a tick box as true or false. Leave out what was not answered. |
 | `honeypot` | string |   | max length 1000 | The hidden field a person leaves empty |
 
 #### Output
@@ -177,6 +235,16 @@ Take a submission out of Spam: it is back in the inbox as new. A person's act: t
 | Trigger | record on forms.submission (created) |
 | Steps | `tell` Tell the owner, or the admins |
 
+### receipt
+
+**Send a receipt.** When answers arrive to a form whose receipt is on, emails whoever sent them a short receipt naming the form. The host decides who it goes to and refuses it for answers kept as spam, entered by staff or sent anonymously, and after three to one address in a day. Routine email: Receipts.
+
+|  |  |
+| --- | --- |
+| Trigger | record on forms.submission (created) |
+| Steps | `check` Check the form's receipt is on; `send` Email the receipt |
+| Gatekeepers | `email-send` |
+
 ## Core operations it may call
 
 The operations its code may call through `ctx.ops`, as its manifest asks for them.
@@ -185,4 +253,4 @@ The operations its code may call through `ctx.ops`, as its manifest asks for the
 - [`intake.submit`](/reference/operations/intake/#intakesubmit)
 - [`notification.send`](/reference/operations/notification/#notificationsend)
 
-Host modules it asks for: `ops`.
+Host modules it asks for: `ops`, `routine-mail`, `email-send`.

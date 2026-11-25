@@ -16,8 +16,10 @@ import {
   type ActingUser,
   type CustomerPrincipal,
   checkManifest,
+  ensureLink,
   intakeRuntime,
   invoke,
+  linkToken,
   listObjects,
   type OutsideInvocationContext,
   type PublicPrincipal,
@@ -1314,5 +1316,102 @@ describe("several People with the address (criterion 3)", () => {
     const [row] = await submissionsOf(form);
     expect(row).toMatchObject({ person: null, certainty: "address" });
     expect(await adminNotices("intake.several_people")).toBe(before + 1);
+  });
+});
+
+// Stage 29 step 5 (ADR 0723): a link for a child is answered by someone else, and Needs your
+// attention lists links in a fixed number of statements.
+describe("personal links", () => {
+  async function linkFor(personId: string, form: string, sentTo: string) {
+    const now = new Date().toISOString();
+    const made = await ensureLink(db.query, {
+      personId,
+      formObject: FORM,
+      formId: form,
+      recordObject: "bookings.booking",
+      recordId: unique("rec_b"),
+      madeFor: unique("feedback:run"),
+      days: 7,
+      now,
+    });
+    if ("refused" in made) throw new Error("no link");
+    return { id: made.id, token: await linkToken(db.query, made.id, sentTo, now) };
+  }
+
+  it("a child's link answered by their guardian fills none of the child's fields and keeps no tick", async () => {
+    const form = await makeForm({ answeredBy: "links", title: unique("Feedback") });
+    const child = await invoke("person.create", { givenName: "Robin" }, context(admin));
+    await invoke(
+      "person.link.add",
+      { guardianId: member.personId, dependantId: child.id },
+      context(admin),
+    );
+    const { token } = await linkFor(child.id, form, member.personId);
+    const sent = await call(
+      "intake.submit",
+      {
+        object: FORM,
+        id: form,
+        link: token,
+        answers: {
+          email: memberEmail,
+          name: "Mel Member",
+          phone: "+61 400 999 000",
+          news: true,
+        },
+      },
+      asCaller(PUBLIC, later(5000)),
+    );
+    expect(sent.ok).toBe(true);
+    const [row] = await submissionsOf(form);
+    expect(row).toMatchObject({ person: child.id, certainty: "link" });
+    const phones = await env.DB.prepare(
+      "SELECT count(*) AS n FROM core_person_phones WHERE person_id = ?",
+    )
+      .bind(child.id)
+      .first<{ n: number }>();
+    expect(Number(phones?.n)).toBe(0);
+    const named = await env.DB.prepare("SELECT display_name FROM core_person WHERE id = ?")
+      .bind(child.id)
+      .first<{ display_name: string }>();
+    expect(named?.display_name).not.toBe("Mel Member");
+    // Who answered it is kept for the receipt: the guardian the token's email went to.
+    const used = await env.DB.prepare(
+      "SELECT used_by, used_with FROM core_intake_link WHERE submission_id = ?",
+    )
+      .bind(row?.id)
+      .first();
+    expect(used).toEqual({ used_by: member.personId, used_with: "email" });
+  });
+
+  it("Needs your attention reads the same statements with six links as with one", async () => {
+    const form = await makeForm({ answeredBy: "links", title: unique("Survey") });
+    let ran = 0;
+    const counted = new Proxy(env.DB, {
+      get(target, key) {
+        if (key === "prepare") {
+          return (query: string) => {
+            ran += 1;
+            return target.prepare(query);
+          };
+        }
+        const value = Reflect.get(target, key);
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    });
+    const countedDb = createCrmDb(counted);
+    const measure = async () => {
+      ran = 0;
+      const out = await call("me.attention", {}, outside(member, { db: countedDb }));
+      expect(out.ok).toBe(true);
+      const items = (out as { value: { items: { kind: string }[] } }).value.items;
+      return { ran, links: items.filter((i) => i.kind === "form_to_fill").length };
+    };
+    await linkFor(member.personId, form, member.personId);
+    const one = await measure();
+    for (let i = 0; i < 5; i++) await linkFor(member.personId, form, member.personId);
+    const six = await measure();
+    expect(six.links).toBe(one.links + 5);
+    expect(six.ran).toBe(one.ran);
   });
 });
