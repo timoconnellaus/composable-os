@@ -9,7 +9,9 @@ import type {
   PaymentsCheckoutTax,
   PaymentsCustomerEmailInput,
   PaymentsInterval,
+  PaymentsListPayoutsInput,
   PaymentsPauseSubscriptionInput,
+  PaymentsPayoutLinesInput,
   PaymentsPortalInput,
   PaymentsPresentInput,
   PaymentsProviderName,
@@ -623,4 +625,32 @@ export function validInstant(value: unknown): string | null {
   if (typeof value !== "string" || value.length > 40) return null;
   const at = Date.parse(value);
   return Number.isNaN(at) ? null : new Date(at).toISOString();
+}
+
+const DAY = /^\d{4}-(0[1-9]|1[0-2])-(0[1-9]|[12]\d|3[01])$/;
+
+/** A page cursor: the provider's id of the last item read, or null for the first page. */
+function cursorOf(value: unknown): string | null {
+  if (value === undefined || value === null) return null;
+  return assertProviderRef(value, "after");
+}
+
+/** Payouts arriving on or after a day (stage 52 step 4, ADR 0793). */
+export function parseListPayoutsInput(value: unknown): PaymentsListPayoutsInput {
+  const input = record(value, "The payouts input");
+  refuseUnknownKeys(input, ["since", "after"]);
+  return {
+    since: matching(input.since, "since", DAY, "a day, YYYY-MM-DD"),
+    after: cursorOf(input.after),
+  };
+}
+
+/** One payout's lines. */
+export function parsePayoutLinesInput(value: unknown): PaymentsPayoutLinesInput {
+  const input = record(value, "The payout lines input");
+  refuseUnknownKeys(input, ["payoutRef", "after"]);
+  return {
+    payoutRef: assertProviderRef(input.payoutRef, "payoutRef"),
+    after: cursorOf(input.after),
+  };
 }

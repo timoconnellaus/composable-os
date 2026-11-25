@@ -2080,6 +2080,17 @@ Refunds reports are made from the same shares. Seen with `finance:read`, closed 
 (admins, and by grant); closing and reopening are a person's, never an AI's.
 _Avoid_: ledger, journal, accounting period (accounting is stage 61's), lock (the pay period's word)
 
+**Payout** (stage 52 step 4 built: ADR 0793)
+Money the payment provider sent from the business's balance to its bank, and its **lines**: the
+payments, refunds, disputes, adjustments and fees it settled. The host reads payouts once a business
+day through the payments gatekeeper (read only; the bank account is never read) and keeps each as
+the provider reported it, once; a payout the bank returned later is a **failure** of its own, never
+an edit. Each payment and refund line is **matched** to what the host recorded by the provider's
+reference; what matches nothing is listed apart. A payout is counted on the day it arrives, as one
+book entry. **Not yet paid out** is the provider's money the host received that no payout has
+settled yet. A payment recorded by hand never reaches the provider and is in no payout.
+_Avoid_: settlement, transfer (stage 61's word for posting a payout), deposit (a part payment)
+
 **Follows** (a state cascade)
 An object whose records move when the record a relation points to moves (`states.follows`): a
 class cancelled moves its bookings to `cancelled_by_us`, as the host, in the same batch (ADR 0507).

@@ -26,7 +26,8 @@ flow).
 | `PaymentsGatekeeper` | The per-provider gatekeeper facet (Durable Object class, `Gatekeeper<PaymentsSession>`, props `{ provider }`). Holds the refund action journal. |
 | `PaymentsHookController` | The `HookController` the session passes to `bindHook()` (props `{ provider }`). |
 | `PaymentsEvents` | The Durable Object per provider (`idFromName(provider)`): seen event ids, recent events, the hook's initiator and its delivery queue. |
-| `FakePaymentsLedger` | The fake provider's books (`idFromName("fake")`): checkouts, refunds, subscriptions and fake card readers. |
+| `FakePaymentsLedger` | The fake provider's books (`idFromName("fake")`): checkouts, refunds, subscriptions, fake card readers and payouts. |
+| `FakePaymentsControl` | What a test does to the fake provider's payouts (fake on only; a service binding, no route). |
 | `PaymentsVerifier` | The trivial `GatekeeperUserVerifier` (every collaborator may observe). |
 | `PaymentsConfiguratorUi` | The configurator's `ui` capability. |
 
@@ -116,8 +117,27 @@ interface PaymentsSession {
   listReaders(): Promise<PaymentsReader[]>;                     // host only; observation
   presentPayment(input): Promise<PaymentsPresentation>;         // host only; observation, no approval
   cancelPresented(readerRef: string): Promise<void>;            // host only; observation
+  // …and the payouts, for the host's finance reports (stage 52 step 4, ADR 0793):
+  listPayouts(input): Promise<PaymentsPayoutPage>;              // host only; observation, read only
+  payoutLines(input): Promise<PaymentsPayoutLinePage>;          // host only; observation, read only
 }
 ```
+
+### Payouts (stage 52 step 4, ADR 0793)
+
+Read only, the host's own orders call only (`isHostOrders()`): nothing moves, and a payout's bank
+destination is never read or expanded.
+
+| Method | What it does |
+| --- | --- |
+| `listPayouts({ since, after? })` | An observation, then the payouts arriving on or after `since` (`YYYY-MM-DD`), newest first, 100 a page, `next` the cursor: `{ provider, ref, amount, currency, arrivalDate, status, createdAt, itemised }`. Stripe: `GET /v1/payouts?arrival_date[gte]=…&starting_after=…`; `itemised` only for an automatic payout. |
+| `payoutLines({ payoutRef, after? })` | An observation, then one payout's lines, 100 a page: `{ ref, kind, amount, fee, currency, paymentRef, refundRef, reversalOf, occurredAt }`, `kind` one of `payment`, `refund`, `dispute`, `adjustment`, `fee`, `payout_reversal` (an earlier payout's money back after the bank returned it; `reversalOf` names it), `amount` signed before the fee, and `unreadable`, how many of the page's lines could not be read (left out, never silently). Stripe: `GET /v1/balance_transactions?payout=…&expand[]=data.source`, the kind from `reporting_category` (the payout's own transaction left out; `payout_failure` / `payout_reversal` a reversal, its source the failed payout), `paymentRef` the source's payment intent, `refundRef` a refund's id; nothing else of the source is passed on. |
+
+A key that lacks the permission (Stripe answering 403: a restricted key needs **Payouts: read**
+and **Balance: read**, and read access to Charges and Disputes for the expansion) is answered
+`{ unavailable: true, reason }`. Any other failure, a revoked, expired or wrong key (401, "the
+connection needs attention") included, is answered `{ failed: reason }`: not thrown over RPC, and
+the host treats it as a failure to retry. The fake refuses a page cursor it does not know.
 
 `createCheckout` validates its input (order id `[A-Za-z0-9_-]{1,64}`, a positive integer amount in
 minor units, a three-letter currency, a 1 to 200 character description, an https return URL or
@@ -290,6 +310,15 @@ On only when `PAYMENTS_FAKE_PROVIDER` is `"true"`, and off localhost only with i
   (`checkoutRef` and `paymentRef` the same ref); `decline` delivers `reader.action_failed` with
   `failureCode: "card_declined"`; `cancel`, as `cancelPresented` does, delivers one with outcome
   `cancelled`. The reader is free again after each.
+- Fake payouts (ADR 0793): a payout settles each paid checkout, paid subscription invoice and
+  refund the ledger holds once (`fpo_…`, lines `ftx_…`), each payment with a development fee of
+  1.75% and 30 minor units (not any provider's price). In development, a first page of
+  `listPayouts` pays out everything settled before today, arriving today. Tests drive it through
+  `FakePaymentsControl` (a service binding, never a route): `makePayout` (with extra lines, a
+  dispute, an adjustment or a charge the host never saw, a skew so its lines do not sum, or one made
+  by hand with no lines), `makePayouts`, `failPayout` (the next payout carries its money as a
+  `payout_reversal` line naming it), `configurePayoutReads` (`unavailable`, `error`, `revoked`, a
+  cursor that does not move, the page size, the development schedule off) and `payoutState`.
 - Fake deliveries are `{ id, type: "payment.succeeded" | "refund.succeeded" | "reader.action_failed"
   | "subscription.event", created, data }`, where `data` holds the event's fields.
 

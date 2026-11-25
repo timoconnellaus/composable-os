@@ -41819,9 +41819,10 @@
             "enum": [
               "sales",
               "tax",
-              "refunds"
+              "refunds",
+              "payouts"
             ],
-            "description": "sales (by kind of sale and item, and by day), tax (by code and country) or refunds"
+            "description": "sales (by kind of sale and item, and by day), tax (by code and country), refunds, or payouts (each payout the provider sent to the bank, line by line)"
           },
           "month": {
             "description": "A month: its closed version, or a preview while it is open",
@@ -41888,6 +41889,85 @@
         "additionalProperties": false
       },
       "invalidates": []
+    },
+    {
+      "name": "finance.payouts.sync",
+      "description": "Platform use only (the minute cron, as the host, once a business day): reads the payouts the payment provider sent to the bank, and what each settled, through the payments gatekeeper, and keeps them as the provider reported them, each once by the provider's id. Read only at the provider: nothing moves. A bounded number of provider calls a run; a backlog is read over several runs. Returns what it read.",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "provider": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "calls": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991,
+            "description": "Provider calls this run made (pages of payouts or lines)"
+          },
+          "recorded": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991,
+            "description": "Payouts recorded"
+          },
+          "lines": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991,
+            "description": "Payout lines read"
+          },
+          "failed": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991,
+            "description": "Recorded payouts the provider now reports failed"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "ok",
+              "unavailable",
+              "failing",
+              "not_connected",
+              "not_due"
+            ]
+          },
+          "more": {
+            "type": "boolean",
+            "description": "The pass is not finished: the next tick carries on"
+          }
+        },
+        "required": [
+          "provider",
+          "calls",
+          "recorded",
+          "lines",
+          "failed",
+          "state",
+          "more"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "finance.entries",
+        "finance.export",
+        "finance.periods",
+        "finance.report",
+        "finance.settings.get"
+      ]
     },
     {
       "name": "finance.periods",
@@ -42100,7 +42180,7 @@
     },
     {
       "name": "finance.report",
-      "description": "One finance report for a month (its closed version as it was closed, or a preview while it is open) or a preview of any span of days: sales (per kind of sale and item, and by day: sold, discounts, refunded, net, the tax inside and net of tax), tax (per tax code and country, refunds' tax as reported or estimated, untaxed sales beside) or refunds (each refund confirmed: date, order, items, amount, tax given back, who asked and approved, the customer's name). Amounts are integers in the currency's minor units, on the business's days in its own time zone. Each row lists the orders it came from. Needs finance:read.",
+      "description": "One finance report for a month (its closed version as it was closed, or a preview while it is open) or a preview of any span of days: sales (per kind of sale and item, and by day: sold, discounts, refunded, net, the tax inside and net of tax), tax (per tax code and country, refunds' tax as reported or estimated, untaxed sales beside) or refunds (each refund confirmed: date, order, items, amount, tax given back, who asked and approved, the customer's name) or payouts (each payout the payment provider sent to the bank arriving in the span: its amount, payments, refunds, disputes, adjustments, fees, what matches nothing and any difference; each line and the order it matched; payouts the bank returned; and what the provider received that is not yet paid out). Amounts are integers in the currency's minor units, on the business's days in its own time zone. Each row lists the orders it came from. Needs finance:read.",
       "risk": "read",
       "audiences": [
         "staff"
@@ -42114,9 +42194,10 @@
             "enum": [
               "sales",
               "tax",
-              "refunds"
+              "refunds",
+              "payouts"
             ],
-            "description": "sales (by kind of sale and item, and by day), tax (by code and country) or refunds"
+            "description": "sales (by kind of sale and item, and by day), tax (by code and country), refunds, or payouts (each payout the provider sent to the bank, line by line)"
           },
           "month": {
             "description": "A month: its closed version, or a preview while it is open",
@@ -42152,7 +42233,8 @@
             "enum": [
               "sales",
               "tax",
-              "refunds"
+              "refunds",
+              "payouts"
             ]
           },
           "month": {

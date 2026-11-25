@@ -127,6 +127,8 @@ export type SessionMethod =
   | "registerReader"
   | "removeReader"
   | "listReaders"
+  | "listPayouts"
+  | "payoutLines"
   | "presentPayment"
   | "cancelPresented";
 
