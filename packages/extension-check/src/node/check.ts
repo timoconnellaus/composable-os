@@ -66,9 +66,12 @@ function siblingsNamed(dir: string, id: string, manifest: unknown): string[] {
 
 /**
  * Reconciles the extension in `dir` into `local` (after the ones it names), or says why not. One
- * that requires the extension being checked (`root`) is installed after it in a deployment, never
- * before, so it is not one the checked extension builds on: it is left out (stage 49, ADR 0764:
- * Memberships requires Bookings, whose appointments name Memberships' holders as payers).
+ * that requires an extension not yet in place (the one being checked, or one being installed
+ * before it, `pending`) is installed after that one in a deployment, never before, so it is not
+ * one it builds on: it is left out (stage 49, ADR 0764: Memberships requires Bookings, whose
+ * appointments name Memberships' holders as payers; stage 34 step 5: Offers names Bookings' and
+ * Memberships' objects as what a discount covers, so Bookings is installed and Memberships left
+ * out while it is).
  */
 async function installSibling(
   platform: Platform,
@@ -76,7 +79,7 @@ async function installSibling(
   dir: string,
   now: string,
   done: Set<string>,
-  root: string,
+  pending: ReadonlySet<string>,
 ): Promise<string | null> {
   const id = extensionIdOf(dir);
   if (done.has(id)) return null;
@@ -84,12 +87,20 @@ async function installSibling(
   const evaluated = await evaluateFiles(platform, readExtensionFiles(dir));
   if (!evaluated.ok) return evaluated.issues[0]?.message ?? "it does not evaluate";
   const requires = (evaluated.manifest as { requires?: unknown } | null)?.requires;
-  if (Array.isArray(requires) && requires.includes(root)) {
+  if (Array.isArray(requires) && requires.some((r) => pending.has(r))) {
     done.delete(id);
     return null;
   }
+  const inner = new Set([...pending, id]);
   for (const sibling of siblingsNamed(dir, id, evaluated.manifest)) {
-    const why = await installSibling(platform, local, join(dirname(dir), sibling), now, done, root);
+    const why = await installSibling(
+      platform,
+      local,
+      join(dirname(dir), sibling),
+      now,
+      done,
+      inner,
+    );
     if (why) return `${sibling}: ${why}`;
   }
   await refreshSchemaRegistry(local.db);
@@ -181,7 +192,7 @@ export async function checkExtensionDir(
           join(dirname(root), sibling),
           now,
           done,
-          id,
+          new Set([id]),
         );
         if (why) {
           before.push({
