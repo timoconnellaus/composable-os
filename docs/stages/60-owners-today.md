@@ -40,7 +40,7 @@ nothing.
 
 - **Step 2** — built — PR #353 — `todayItems` declaration and contract checks: see "Built" below (ADR 0870, no migration)
 
-- **Step 3** — not built — needs: step 2 — `today.get`, `today.rows`, host items; the pack-role reach (money items after stage 52 merges)
+- **Step 3** — in progress — branch `feat/stage-60-today-get` — `today.get`, `today.rows`, host items; the pack-role reach (money items after stage 52 merges)
 
 - **Step 4** — not built — needs: step 3 — Packs declare items
 

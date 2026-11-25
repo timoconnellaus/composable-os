@@ -96741,6 +96741,272 @@
       "invalidates": []
     },
     {
+      "name": "today.get",
+      "description": "Today at a glance, for the business's current local day in its own time zone: the items you may see, attention first, each with its key, label, value (a count, a percent, or money in the currency's minor unit), a comparison with the same time yesterday or last week, whether it needs attention, and what it opens. Items include takings (for those who may read the finance reports), the changes waiting for your approval, shifts with nobody on them and checklists missed (for those who roster), unread notices, and the numbers installed packs add (such as classes today and who came). An assistant or MCP client gets only the packs' items and the money its user may see. today.rows gives an item's rows. Read-only.",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "day": {
+            "type": "string",
+            "description": "The business's local date, YYYY-MM-DD"
+          },
+          "zone": {
+            "type": "string",
+            "description": "The business's time zone"
+          },
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "key": {
+                  "type": "string",
+                  "description": "host.<item> for the host's own, <pack>.<item> for a pack's; pass to today.rows"
+                },
+                "label": {
+                  "type": "string"
+                },
+                "format": {
+                  "type": "string",
+                  "enum": [
+                    "count",
+                    "percent",
+                    "money"
+                  ],
+                  "description": "money only for the host's own figures, in the currency's minor unit"
+                },
+                "value": {
+                  "type": "number"
+                },
+                "currency": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "detail": {
+                  "description": "A second line, such as how many payments",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "compare": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "against": {
+                          "type": "string",
+                          "enum": [
+                            "yesterday",
+                            "lastWeek"
+                          ]
+                        },
+                        "value": {
+                          "type": "number"
+                        }
+                      },
+                      "required": [
+                        "against",
+                        "value"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "The same figure at the same local time yesterday or a week ago"
+                },
+                "state": {
+                  "type": "string",
+                  "enum": [
+                    "ok",
+                    "attention"
+                  ]
+                },
+                "target": {
+                  "oneOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "kind": {
+                          "type": "string",
+                          "const": "rows"
+                        }
+                      },
+                      "required": [
+                        "kind"
+                      ],
+                      "additionalProperties": false,
+                      "description": "Its rows: today.rows with its key"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "kind": {
+                          "type": "string",
+                          "const": "approvals"
+                        }
+                      },
+                      "required": [
+                        "kind"
+                      ],
+                      "additionalProperties": false,
+                      "description": "The approvals waiting (approval.list)"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "kind": {
+                          "type": "string",
+                          "const": "notices"
+                        }
+                      },
+                      "required": [
+                        "kind"
+                      ],
+                      "additionalProperties": false,
+                      "description": "The notice inbox (notification.list)"
+                    },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "kind": {
+                          "type": "string",
+                          "const": "screen"
+                        },
+                        "pack": {
+                          "type": "string"
+                        },
+                        "screen": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "kind",
+                        "pack",
+                        "screen"
+                      ],
+                      "additionalProperties": false,
+                      "description": "On the web, a pack's staff screen; elsewhere its rows"
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "key",
+                "label",
+                "format",
+                "value",
+                "currency",
+                "detail",
+                "compare",
+                "state",
+                "target"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "day",
+          "zone",
+          "items"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
+      "name": "today.rows",
+      "description": "The rows behind one item of today.get (its key), at most 50: for each a name, a second line and the record it opens, if any. Only an item today.get gives you: any other key is not found. Names and record ids only, never notes, health answers, pay or leave. A look at a money item's rows is audited. Read-only.",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "key": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          }
+        },
+        "required": [
+          "key"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "label": {
+                  "type": "string"
+                },
+                "detail": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "record": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "object": {
+                          "type": "string"
+                        },
+                        "id": {
+                          "type": "string"
+                        }
+                      },
+                      "required": [
+                        "object",
+                        "id"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "label",
+                "detail",
+                "record"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
       "name": "trash.list",
       "description": "List what is in Trash: soft-deleted people, organisations, activities and tasks, most recently deleted first, each with when it was deleted and the date it stays restorable until (30 days). Merged-away records show the record they were merged into. Restore with person.restore, organisation.restore, activity.restore or task.restore. Pass nextCursor back as cursor for the next page. Read-only.",
       "risk": "read",

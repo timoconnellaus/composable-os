@@ -21,7 +21,12 @@ import type { CoreDatabase } from "@composable-os/db";
 import { type Kysely, type RawBuilder, type SqlBool, sql } from "kysely";
 import { ForbiddenError, NotFoundError } from "./errors.ts";
 import { getObject } from "./fields/index.ts";
-import { PACK_ROLE_CORE_READS, PACK_ROLE_OWN, PACK_ROLE_STAFF_READS } from "./pack-roles.ts";
+import {
+  PACK_ROLE_CORE_READS,
+  PACK_ROLE_OWN,
+  PACK_ROLE_STAFF_READS,
+  PACK_ROLE_TODAY,
+} from "./pack-roles.ts";
 import { viewColumnOf } from "./records/columns.ts";
 
 /** The record operations the limit understands: a list, a get, an update, a delete and a create. */
@@ -33,8 +38,16 @@ const CHECKED: ReadonlySet<string> = new Set([
   "record.create",
 ]);
 
-/** Operations that read or write no record of anyone's: the account's own (pack-roles.ts). */
-const LIMIT_PASSES: ReadonlySet<string> = new Set([...PACK_ROLE_CORE_READS, ...PACK_ROLE_OWN]);
+/**
+ * Operations that read or write no record of anyone's: the account's own (pack-roles.ts). And
+ * the account's own Today (ADR 0874), which holds the limit itself: an item its role allows that
+ * reads an object the limit is about is not shown, and a row links only an object the role reads.
+ */
+const LIMIT_PASSES: ReadonlySet<string> = new Set([
+  ...PACK_ROLE_CORE_READS,
+  ...PACK_ROLE_OWN,
+  ...PACK_ROLE_TODAY,
+]);
 
 /** One object whose records say who looks after whom (`team`, ADR 0831), as the role's pack has it. */
 export interface LooksAfterTeam {

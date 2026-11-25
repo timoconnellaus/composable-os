@@ -240,6 +240,40 @@ function rowsOf(rows: Awaited<ReturnType<typeof moneyBook>>["rows"], report: Bui
     .map((r) => (report === "refunds" ? { ...r.data, name: r.name, email: r.email } : r.data));
 }
 
+/** Sales over a span of instants, as `finance.report` totals it: what Today shows as takings. */
+export interface SalesTotal {
+  currency: string | null;
+  /** Sold less refunded, tax inside, in the currency's minor unit (Sales' `net`). */
+  net: number;
+  /** The payments counted in the currency. */
+  payments: number;
+  /** Sales' item rows, largest net first: what was sold, and its figures. */
+  items: Record<string, unknown>[];
+}
+
+/**
+ * Sales' net over any span of instants (stage 60, ADR 0874: Today's takings, from the local
+ * midnight to its end, or to the same time a week ago): the same book `finance.report` reads,
+ * totalled the same way, so the two never differ (the spec's decision 11). Not a preview of a
+ * month: nothing late is counted.
+ */
+export async function salesTotal(
+  ctx: Pick<HandlerContext, "db">,
+  span: { start: string; zone: string; starts: number; ends: number },
+): Promise<SalesTotal> {
+  const book = await moneyBook(ctx.db, span);
+  const rows = rowsOf(book.rows, "sales");
+  const elsewhere = rows.filter((r) => r.type === "exception" && r.kind === "payment").length;
+  return {
+    currency: book.currency,
+    net: totalsOf("sales", rows).net ?? 0,
+    payments: book.counted.filter((c) => c.kind === "payment").length - elsewhere,
+    items: rows
+      .filter((r) => r.type === "item")
+      .sort((a, b) => Number(b.net ?? 0) - Number(a.net ?? 0)),
+  };
+}
+
 /** The most entries one page of `finance.entries` holds. */
 export const ENTRIES_PAGE = 200;
 
