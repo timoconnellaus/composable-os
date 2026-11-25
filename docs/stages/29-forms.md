@@ -67,8 +67,8 @@ interview.
 
 - **Step 4** — not built — needs: step 2 — Hosted page, web and native blocks, headless entry.
 
-- **Step 5** — not built — needs: step 2 — Personal links, the receipt and the form-link slot,
-  Bookings' feedback, the `form_to_fill` attention kind.
+- **Step 5** — in progress — branch `feat/stage-29-personal-links` — Personal links, the receipt
+  and the form-link slot, Bookings' feedback, the `form_to_fill` attention kind.
 
 - **Step 6** — not built — needs: step 2 — Leads as a destination.
 
