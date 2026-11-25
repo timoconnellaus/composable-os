@@ -29,6 +29,7 @@ import {
 import { holdDealUse } from "../discounts/uses.ts";
 import { ConfigError, ConflictError, NotFoundError, ValidationError } from "../errors.ts";
 import { getObject } from "../fields/index.ts";
+import { invoiceObject } from "../fields/invoice.ts";
 import { type OrderState, orderObject } from "../fields/order.ts";
 import type { FieldDefinition, ObjectDefinition } from "../fields/types.ts";
 import { newId } from "../ids.ts";
@@ -93,7 +94,7 @@ export function orderSnapshot(row: OrderRow): Record<string, unknown> {
     currency: row.currency,
     total: row.total,
     paid: row.paid,
-    balance: row.total - row.paid,
+    balance: row.total - row.paid - row.credited,
     refunded: row.refunded,
     pay: row.pay,
     deposit: row.deposit,
@@ -107,7 +108,15 @@ export function orderSnapshot(row: OrderRow): Record<string, unknown> {
     taxRefunded: row.tax_refunded,
     taxCountry: row.tax_country,
     discount: row.discount,
+    // An invoice's order (ADR 0731): its move hook keeps the invoice's state in step.
+    invoiceId: row.invoice_id,
+    credited: row.credited,
   };
+}
+
+/** What is still owed on an order: its total, less what was paid and what credit notes took off. */
+export function owedOn(row: Pick<OrderRow, "total" | "paid" | "credited">): number {
+  return row.total - row.paid - row.credited;
 }
 
 /**
@@ -151,6 +160,11 @@ export interface PricedLine {
   goods?: GoodsFacts;
   /** A delivery option (ADR 0682): its kind, free over, countries and whether it is offered. */
   delivery?: DeliveryFacts;
+  /**
+   * An invoice's line only (ADR 0731): the tax the host worked out on the document for it (ADR
+   * 0732), kept on the order's line. Every other line's tax is the provider's, at checkout.
+   */
+  taxAmount?: number;
 }
 
 /** Why a line cannot be bought. A caller outside the org sees the rule, not the record. */
@@ -398,6 +412,12 @@ export async function priceOrder(
     priced?: readonly PricedLine[] | undefined;
     /** A pending order being priced again: its own use is not counted against a limit. */
     orderId?: string | undefined;
+    /**
+     * An invoice's order (ADR 0731): no deal. Its price is the invoice's, as staff wrote it and the
+     * customer was sent it, with its own discounts on its lines; a member's price or a code found
+     * at issue would make the order differ from the document. The goods rules still hold.
+     */
+    noDeal?: boolean | undefined;
   } = {},
 ): Promise<PricedOrder> {
   const all = delivery
@@ -406,15 +426,17 @@ export async function priceOrder(
   const priced = options.priced
     ? [...options.priced]
     : await priceLines(db, all, currency, now, buyer);
-  const worked = await workOutDeal(
-    db,
-    priced.map((line) => ({ ...line, delivery: Boolean(line.delivery) })),
-    options.dealBuyer ?? { personId: null, placedAs: "public" },
-    options.code,
-    now,
-    currency,
-    { excludeOrderId: options.orderId },
-  );
+  const worked: { deal: Deal | null; code: CodeOutcome } = options.noDeal
+    ? { deal: null, code: { given: false } }
+    : await workOutDeal(
+        db,
+        priced.map((line) => ({ ...line, delivery: Boolean(line.delivery) })),
+        options.dealBuyer ?? { personId: null, placedAs: "public" },
+        options.code,
+        now,
+        currency,
+        { excludeOrderId: options.orderId },
+      );
   const problems: QuoteProblem[] = [];
   if (worked.code.given && !worked.code.valid) {
     const details = {
@@ -446,8 +468,8 @@ export interface NewOrder {
   lines: readonly LineRequest[];
   /** Whose order it is; null when the address matched several people. */
   personId: string | null;
-  /** The address it is placed with, normalised. */
-  email: string;
+  /** The address it is placed with, normalised; null only for an invoice's order with none. */
+  email: string | null;
   placedAs: "customer" | "public" | "staff";
   pay: "full" | "deposit";
   /** SHA-256 of the token a guest is given for this one order. */
@@ -473,6 +495,42 @@ export interface NewOrder {
   delivery?: DeliveryRequest | undefined;
   /** A promo code the buyer typed (ADR 0693). Never an amount: the host reads the discount. */
   code?: string | undefined;
+  /**
+   * Platform code only (`invoice.issue`, ADR 0731): the order an invoice starts, its lines in
+   * `priced` built from the invoice's. No operation takes it from its input.
+   */
+  invoice?: InvoiceOrder | undefined;
+}
+
+/** An adjustment an invoice brings to its order (ADR 0731): the document's own money off. */
+export interface InvoiceAdjustment {
+  /**
+   * `staff`: a line's discount as staff wrote it on the invoice; `rounding`: the cents a whole-unit
+   * price rounds up on a line typed without tax, taken back off it; `prepaid`: a final invoice's
+   * "less deposit paid" (stage 35 step 6 writes its lines), on the whole order.
+   */
+  kind: "staff" | "rounding" | "prepaid";
+  /** The order line it is on; null: the whole order, spread over its lines. */
+  lineId: string | null;
+  amount: number;
+  /** A staff discount asked as a percentage (0 to 100). */
+  percent: number | null;
+  /** A staff discount's why, as on the invoice. */
+  reason: string | null;
+}
+
+/** What an invoice tells the order it starts (ADR 0731). */
+export interface InvoiceOrder {
+  /** The invoice: the order's `invoice_id`, and the source of its host adjustments. */
+  id: string;
+  /** When the invoice is due: the order's `balance_due_at`. It never expires. */
+  dueAt: string;
+  /** In the order the seam takes them off: staff discounts and rounding, then prepaid. */
+  adjustments: readonly InvoiceAdjustment[];
+  /** The invoice's total, which the order's must equal (checked again by the database). */
+  total: number;
+  /** The invoice's tax, worked out on the document (ADR 0732): the order's `tax_amount`. */
+  tax: number;
 }
 
 export interface StartedOrder {
@@ -520,13 +578,34 @@ export async function createOrder(ctx: HandlerContext, input: NewOrder): Promise
     ctx.now,
     callerOf(ctx),
     "start",
-    { code: input.code, dealBuyer, priced: input.priced },
+    { code: input.code, dealBuyer, priced: input.priced, noDeal: Boolean(input.invoice) },
   );
-  const lines = goods.lines;
-  const adjusted = goods.adjusted;
+  const invoice = input.invoice;
+  if (invoice && (input.pay !== "full" || input.placedAs !== "staff" || !input.priced)) {
+    throw new ConflictError("An invoice's order is staff's, paid in full, its lines the host's");
+  }
+  // An invoice's own money off comes off through the same adjustment stage (ADR 0731): its
+  // lines' staff discounts (and their rounding), then any "less deposit paid".
+  const adjusted = invoice
+    ? applyAdjustments(
+        goods.lines,
+        invoice.adjustments.map((a) => ({ lineId: a.lineId, amount: a.amount })),
+      )
+    : goods.adjusted;
+  const lines = invoice
+    ? goods.lines.map((line, i) => ({ ...line, discount: adjusted.discounts[i] ?? 0 }))
+    : goods.lines;
   const total = adjusted.total;
   if (total <= 0) {
     throw new ValidationError("An order with nothing to pay cannot be started", { rule: "total" });
+  }
+  if (invoice && (total !== invoice.total || adjusted.discount !== sumOf(invoice.adjustments))) {
+    // The invoice's lines are mapped so that this always holds: anything else is a bug.
+    throw new ConflictError("The invoice's order does not come to the invoice's total", {
+      rule: "invoice_total",
+      total,
+      invoice: invoice.total,
+    });
   }
 
   let deposit: number | null = null;
@@ -574,7 +653,8 @@ export async function createOrder(ctx: HandlerContext, input: NewOrder): Promise
     },
     input.agreements,
   );
-  const guestRows = await agreed.guestRows({ orderId: id, email: input.email });
+  // A visitor's order always has its address; only an invoice's (staff's) may have none.
+  const guestRows = await agreed.guestRows({ orderId: id, email: input.email ?? "" });
 
   const minutes = await loadOrderExpiryMinutes(ctx.db);
   const row: OrderRow = {
@@ -587,8 +667,9 @@ export async function createOrder(ctx: HandlerContext, input: NewOrder): Promise
     state: "pending",
     pay,
     deposit,
-    balance_due_at: balanceDueAt,
-    expires_at: new Date(Date.parse(ctx.now) + minutes * 60_000).toISOString(),
+    // An invoice's order is due, not expiring (ADR 0731): its due date is the invoice's.
+    balance_due_at: invoice ? invoice.dueAt : balanceDueAt,
+    expires_at: invoice ? null : new Date(Date.parse(ctx.now) + minutes * 60_000).toISOString(),
     placed_as: input.placedAs,
     provider: null,
     provider_ref: null,
@@ -596,7 +677,8 @@ export async function createOrder(ctx: HandlerContext, input: NewOrder): Promise
     access_until: null,
     email_link_hash: null,
     refunded: 0,
-    tax_amount: 0,
+    // The document's tax, worked out by the host (ADR 0732); otherwise the provider's, as paid.
+    tax_amount: invoice ? invoice.tax : 0,
     tax_refunded: 0,
     tax_country: null,
     subscription_id: null,
@@ -613,6 +695,8 @@ export async function createOrder(ctx: HandlerContext, input: NewOrder): Promise
     version: 0,
     discount: adjusted.discount,
     channel: goods.channel,
+    invoice_id: invoice?.id ?? null,
+    credited: 0,
   };
   // The host creates the order: its first history row is the host's, whoever is buying.
   const outcome = await applyTransition(
@@ -644,6 +728,7 @@ export async function createOrder(ctx: HandlerContext, input: NewOrder): Promise
         line_total: line.total,
         line_discount: line.discount,
         created_at: ctx.now,
+        ...(line.taxAmount ? { tax_amount: line.taxAmount } : {}),
       }),
     ),
     ...outcome.history,
@@ -676,6 +761,28 @@ export async function createOrder(ctx: HandlerContext, input: NewOrder): Promise
   // The deal (ADR 0693): an adjustment on each line it takes something off, naming the discount,
   // and its use held in this batch, after the order. The database refuses the use past a limit.
   if (goods.deal) writeDeal(ctx, id, goods.deal, dealBuyer);
+  // An invoice's money off (ADR 0731): one adjustment row each, after its lines, naming the
+  // invoice (the staff discounts their person and why, as stage 34's staff discounts do).
+  if (invoice) {
+    ctx.write(
+      ...invoice.adjustments.map((a) =>
+        ctx.db.insertInto("core_order_adjustment").values({
+          id: newId("orderAdjustment"),
+          order_id: id,
+          line_id: a.lineId,
+          kind: a.kind,
+          source_object: "invoice",
+          source_id: invoice.id,
+          given_by: a.kind === "staff" ? ctx.user.id : null,
+          reason: a.reason,
+          percent: a.percent,
+          amount: a.amount,
+          approval: ctx.approval?.actionId ?? null,
+          created_at: ctx.now,
+        }),
+      ),
+    );
+  }
   // One per Person (ADR 0512): refused, or held in this batch, after the order it names.
   await holdOncePerPerson(
     ctx,
@@ -699,6 +806,9 @@ export async function createOrder(ctx: HandlerContext, input: NewOrder): Promise
     codeApplied: goods.code.given && goods.code.valid ? goods.code.applied : null,
   };
 }
+
+const sumOf = (adjustments: readonly { amount: number }[]) =>
+  adjustments.reduce((sum, a) => sum + a.amount, 0);
 
 /**
  * Queues a deal on a pending order, in the calling batch, after the order and its lines: one
@@ -746,6 +856,7 @@ export type OrderChange = Partial<
     | "tax_amount"
     | "tax_refunded"
     | "tax_country"
+    | "credited"
   >
 >;
 
@@ -904,10 +1015,48 @@ export interface Charge {
  *   when less is owed) and never more than the balance.
  * - Any other state: nothing.
  */
-export function chargeFor(row: OrderRow, minPart: number, amount?: number): Charge {
+export function chargeFor(
+  row: OrderRow,
+  minPart: number,
+  amount?: number,
+  /**
+   * An invoice's order (stage 35 decision 8, ADR 0731): whether staff allowed part payments on
+   * the invoice. Without, a checkout is for the whole balance, whatever is paid already; with, a
+   * part of at least `minPart` (or what is owed, when less), from the first payment on.
+   */
+  options: { partsAllowed?: boolean } = {},
+): Charge {
   const refuse = (message: string, rule: string, extra?: object): never => {
     throw new ValidationError(message, { rule, order: row.id, ...extra });
   };
+  if (row.invoice_id && (row.state === "pending" || row.state === "part_paid")) {
+    // What a credit note took off is not owed (ADR 0735).
+    const owed = owedOn(row);
+    const whole: Charge["kind"] =
+      row.state === "pending" && row.credited === 0 ? "full" : "balance";
+    if (owed <= 0) refuse("Nothing is owed on this invoice", "charge_state", { state: row.state });
+    if (!options.partsAllowed) {
+      if (amount !== undefined && amount !== owed) {
+        refuse(
+          "This invoice is paid in full: part payments are not allowed on it",
+          "charge_amount",
+          {
+            due: owed,
+          },
+        );
+      }
+      return { amount: owed, currency: row.currency, kind: whole };
+    }
+    const least = Math.min(minPart, owed);
+    const wanted = amount ?? owed;
+    if (!Number.isInteger(wanted) || wanted < least || wanted > owed) {
+      refuse(`A payment towards this invoice is between ${least} and ${owed}`, "charge_amount", {
+        least,
+        balance: owed,
+      });
+    }
+    return { amount: wanted, currency: row.currency, kind: wanted === owed ? whole : "part" };
+  }
   if (row.state === "pending") {
     const byDeposit = row.pay === "deposit" && (row.deposit as number) < row.total;
     const due = byDeposit ? (row.deposit as number) : row.total;
@@ -941,24 +1090,71 @@ export function chargeFor(row: OrderRow, minPart: number, amount?: number): Char
   return refuse("Nothing can be paid on this order", "charge_state", { state: row.state });
 }
 
+/**
+ * What `chargeFor` needs to know of an order's invoice (ADR 0731): whether staff allowed part
+ * payments on it. One read, and only for an invoice's order.
+ */
+export async function chargeOptions(
+  db: Kysely<CoreDatabase>,
+  row: OrderRow,
+): Promise<{ partsAllowed?: boolean }> {
+  if (!row.invoice_id) return {};
+  // The host's own read, org-wide, through the seam.
+  const invoice = await viewRow(
+    db,
+    visibleSource(orgReader(db), getObject("invoice") ?? invoiceObject),
+    row.invoice_id,
+  );
+  return { partsAllowed: invoice?.allow_part_payments === 1 };
+}
+
 // --- Overdue balances --------------------------------------------------------------------------
 
 /** How many overdue orders one read returns. */
 export const OVERDUE_LIMIT = 200;
 
 /**
- * Part-paid orders whose balance was due before `now`, oldest first. Nothing moves them: staff
- * extend the date, cancel, or the buyer pays. Reads core_order_balance_due_idx only.
+ * Part-paid orders whose balance was due before `now`, and invoices' orders nothing has been paid
+ * on past their due date (ADR 0731), oldest first. Nothing moves them: staff extend the date,
+ * cancel or credit, or the buyer pays. Reads core_order_balance_due_idx and
+ * core_order_invoice_due_idx only.
  */
-export function overdueOrders(db: Kysely<CoreDatabase>, now: string, limit = OVERDUE_LIMIT) {
+export async function overdueOrders(
+  db: Kysely<CoreDatabase>,
+  now: string,
+  limit = OVERDUE_LIMIT,
+): Promise<OrderRow[]> {
   return db
     .selectFrom("core_order")
     .selectAll()
-    .where("state", "=", "part_paid")
+    .where((eb) =>
+      eb.or([
+        eb("state", "=", "part_paid"),
+        eb.and([eb("state", "=", "pending"), eb("invoice_id", "is not", null)]),
+      ]),
+    )
     .where("balance_due_at", "<", now)
     .orderBy("balance_due_at")
     .limit(Math.min(Math.max(limit, 1), OVERDUE_LIMIT))
     .execute();
+}
+
+/**
+ * Refuses a change to an invoice's order made other than through the invoice (ADR 0731): its money
+ * is moved by the invoice's own operations, so the document, its order and its event log always
+ * agree. `instead` says what to do.
+ */
+export function refuseInvoiceOrder(
+  row: Pick<OrderRow, "id" | "invoice_id">,
+  instead: string,
+): void {
+  if (row.invoice_id) {
+    throw new ConflictError(`This order is an invoice's: ${instead}`, {
+      rule: "invoice_order",
+      order: row.id,
+      invoice: row.invoice_id,
+    });
+  }
 }
 
 /** Refuses a change to an order that is not in one of `states`. */

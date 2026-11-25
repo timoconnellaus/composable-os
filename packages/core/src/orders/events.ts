@@ -19,6 +19,7 @@ import { ConflictError, NotFoundError } from "../errors.ts";
 import type { GateFloor } from "../gate.ts";
 import { newId } from "../ids.ts";
 import type { IntegrationRuntime } from "../integrations/runtime.ts";
+import { eventStatement } from "../invoices/events.ts";
 import { invokeByName } from "../invoke.ts";
 import { errorForLog } from "../log.ts";
 import { resolveChannelTarget } from "../notifications/channels.ts";
@@ -489,6 +490,30 @@ async function confirmRefund(
     // The host's move: the provider confirmed the money went back.
     "host",
   );
+  if (row.invoice_id) {
+    // An invoice's order (ADR 0735): in the document event log, under the credit note that asked
+    // for it (or the invoice, for a late payment given back).
+    const credit = requested
+      ? await ctx.db
+          .selectFrom("core_credit_note_refund")
+          .select("credit_note_id")
+          .where("refund_id", "=", requested.id)
+          .executeTakeFirst()
+      : undefined;
+    ctx.write(
+      eventStatement(ctx.db, {
+        documentKind: credit ? "credit_note" : "invoice",
+        documentId: credit ? credit.credit_note_id : row.invoice_id,
+        invoiceId: row.invoice_id,
+        event: "refund_confirmed",
+        paymentId: requested?.id ?? null,
+        method: "provider",
+        amount: event.amount,
+        currency: row.currency,
+        at: ctx.now,
+      }),
+    );
+  }
   if (!whole && row.person_id) {
     ctx.postActivity({
       subject: `Order refund: ${formatMoney(event.amount, row.currency)}`,

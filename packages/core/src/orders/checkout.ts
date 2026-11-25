@@ -10,7 +10,7 @@ import { sha256Hex } from "../digest.ts";
 import { ConflictError, ValidationError } from "../errors.ts";
 import type { HandlerContext } from "../operation.ts";
 import { openProviderCheckout, paymentsTarget } from "./gateway.ts";
-import { type Charge, chargeFor, type OrderRow } from "./orders.ts";
+import { type Charge, chargeFor, chargeOptions, type OrderRow } from "./orders.ts";
 import { isAllowedReturnUrl, loadMinPartPayment, loadReturnOrigins } from "./settings.ts";
 import { discountsWaiting } from "./staff-discounts.ts";
 import { checkoutTax } from "./tax.ts";
@@ -58,7 +58,12 @@ export async function openCheckout(
       rule: "return_origin",
     });
   }
-  const charge = chargeFor(row, await loadMinPartPayment(ctx.db), input.amount);
+  const charge = chargeFor(
+    row,
+    await loadMinPartPayment(ctx.db),
+    input.amount,
+    await chargeOptions(ctx.db, row),
+  );
   if (row.state === "pending" && (await discountsWaiting(ctx.db, row.id, ctx.now)) > 0) {
     throw new ConflictError(
       "A discount on this order is waiting for approval: pay once it is decided",
@@ -80,8 +85,11 @@ export async function openCheckout(
   const bucket = Math.floor(Date.parse(ctx.now) / IDEMPOTENCY_WINDOW_MS);
   const idempotencyKey = `${row.id}:${row.version}:${charge.amount}:${bucket}:${await shortHash(input.returnUrl)}`;
   // Tax at checkout (ADR 0479): null unless an admin turned it on and the lines declare a code,
-  // and then the request is exactly as before.
-  const taxed = await checkoutTax(ctx.db, row.id, charge.amount, KIND_WORDS[charge.kind]);
+  // and then the request is exactly as before. An invoice's order asks the provider for none,
+  // tax at checkout on or off: its tax was worked out on the document (ADRs 0731 and 0732).
+  const taxed = row.invoice_id
+    ? null
+    : await checkoutTax(ctx.db, row.id, charge.amount, KIND_WORDS[charge.kind]);
   const tax = taxed?.tax ?? null;
   const opened = await openProviderCheckout(ctx.integrations, target, {
     orderId: row.id,

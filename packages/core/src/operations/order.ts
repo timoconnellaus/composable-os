@@ -74,8 +74,10 @@ import {
   type OrderRow,
   OVERDUE_LIMIT,
   overdueOrders,
+  owedOn,
   type PricedLine,
   priceOrder,
+  refuseInvoiceOrder,
   requireState,
 } from "../orders/orders.ts";
 import { applyOtherPayment, RECORDED_KINDS, reverseOtherPayment } from "../orders/payments.ts";
@@ -254,7 +256,7 @@ function fromRow(row: OrderRow, lines: readonly Order["lines"][number][], staff:
     currency: row.currency,
     total: row.total,
     paid: row.paid,
-    balance: row.total - row.paid,
+    balance: owedOn(row),
     refunded: row.refunded,
     pay: row.pay,
     deposit: row.deposit,
@@ -309,7 +311,8 @@ async function linesOf(ctx: HandlerContext, id: string): Promise<Order["lines"]>
 const toAdjustment = (row: AdjustmentRow): z.infer<typeof adjustmentSchema> => ({
   id: row.id,
   lineId: row.line_id,
-  kind: row.kind,
+  // The invoice's host kinds are left out before this (throughSeam).
+  kind: row.kind as z.infer<typeof adjustmentSchema>["kind"],
   amount: row.amount,
   percent: row.percent,
   reason: row.reason,
@@ -385,7 +388,15 @@ async function throughSeam(ctx: HandlerContext, id: string): Promise<Order> {
       taxAmount: line.values.taxAmount ?? 0,
       discount: line.values.discount ?? 0,
     })),
-    ...(staff ? { adjustments: (await liveAdjustments(ctx.db, id)).map(toAdjustment) } : {}),
+    // An invoice's own host adjustments (`rounding`, `prepaid`, ADR 0731) are the invoice's to
+    // show (invoice.get: its lines' discounts and "less deposit paid"); its staff discounts show.
+    ...(staff
+      ? {
+          adjustments: (await liveAdjustments(ctx.db, id))
+            .filter((a) => a.kind !== "rounding" && a.kind !== "prepaid")
+            .map(toAdjustment),
+        }
+      : {}),
     ...(staff ? { personId: text(v.personId), email: text(v.email), placedAs: v.placedAs } : {}),
   });
 }
@@ -926,6 +937,7 @@ export const orderCancel = defineOperation({
     // A customer's own order only: another's is not found, as through the seam.
     if (!isStaff(ctx)) await ctx.records.get("order", input.id);
     const row = await loadOrderRow(ctx.db, input.id);
+    refuseInvoiceOrder(row, "void the invoice or credit it (invoice.void, creditNote.create)");
     requireState(row, ["pending", "part_paid"], "cancelled");
     // The engine has the rule: a customer may make only `pending` → `cancelled`.
     const next = await changeOrder(
@@ -956,6 +968,7 @@ export const orderExtendBalanceDue = defineOperation({
   risk: "write",
   async handler(input, ctx) {
     const row = await loadOrderRow(ctx.db, input.id);
+    refuseInvoiceOrder(row, "it is due when the invoice is");
     requireState(row, ["part_paid"], "given a new due date");
     const due = new Date(input.balanceDueAt).toISOString();
     if (due <= ctx.now) {
@@ -1029,9 +1042,10 @@ export const orderSetPerson = defineOperation({
 export const orderOverdue = defineOperation({
   name: "order.overdue",
   description:
-    "List part-paid orders whose balance is past its due date, oldest first. Nothing happens to " +
-    "them by itself: extend the date (order.extendBalanceDue), cancel (order.cancel), or the " +
-    "buyer pays. Read-only.",
+    "List part-paid orders whose balance is past its due date, and invoices' orders past the " +
+    "invoice's due date, oldest first. Nothing happens to them by itself: extend the date " +
+    "(order.extendBalanceDue), cancel (order.cancel), or the buyer pays; an invoice's is credited " +
+    "or paid on the invoice. Read-only.",
   input: z.object({ limit: z.number().int().min(1).max(OVERDUE_LIMIT).default(50) }),
   output: z.object({ items: z.array(orderSchema.omit({ lines: true })) }),
   permission: "records:read",
@@ -1104,6 +1118,9 @@ export const orderCheckout = defineOperation({
   auditSummary: (output, input) => ({ id: input.id, amount: output.amount, kind: output.kind }),
   async handler(input, ctx) {
     const row = await orderForPaying(ctx, input.id, input.token);
+    // An invoice is paid online from its own page (stage 35 step 8, a reviewed change): until
+    // then only staff open its order's checkout, which asks for what the invoice allows.
+    if (row.invoice_id && !isStaff(ctx)) throw new NotFoundError("order", input.id);
     const opened = await openCheckout(ctx, row, {
       returnUrl: input.returnUrl,
       amount: input.amount,
@@ -1247,7 +1264,13 @@ export const orderRefund = defineOperation({
   }),
   async handler(input, ctx) {
     const row = await loadOrderRow(ctx.db, input.id);
-    const asked = await requestRefund(ctx, row, { amount: input.amount, reason: input.reason });
+    // An invoice's order (ADR 0735): what was applied to it goes back only by a credit note, so
+    // the documents say it; a payment that arrived late or did not match is refunded here.
+    const asked = await requestRefund(ctx, row, {
+      amount: input.amount,
+      reason: input.reason,
+      ...(row.invoice_id ? { outcome: "unapplied" as const } : {}),
+    });
     return {
       refunds: asked.refunds,
       pending: asked.pending as unknown as Record<string, unknown>[],
@@ -1418,7 +1441,7 @@ const RECEIVED_DAYS_BACK = 366;
  * A real calendar day, no later than tomorrow in UTC (today wherever the business is) and at most
  * a year back: a payment is recorded once received, and soon after (review of PR #426).
  */
-function receivedDayOk(day: string, now: string): boolean {
+export function receivedDayOk(day: string, now: string): boolean {
   const at = Date.parse(`${day}T00:00:00Z`);
   if (Number.isNaN(at) || new Date(at).toISOString().slice(0, 10) !== day) return false;
   const today = Date.parse(`${now.slice(0, 10)}T00:00:00Z`);
@@ -1477,6 +1500,10 @@ export const orderRecordPayment = defineOperation({
         { field: "receivedOn", rule: "received_on" },
       );
     }
+    refuseInvoiceOrder(
+      await loadOrderRow(ctx.db, input.id),
+      "record it on the invoice (invoice.recordPayment)",
+    );
     const paid = await applyOtherPayment(ctx, {
       orderId: input.id,
       amount: input.amount,
@@ -1521,6 +1548,17 @@ export const orderReversePayment = defineOperation({
     id: output.order.id,
   }),
   async handler(input, ctx) {
+    const paidOn = await ctx.db
+      .selectFrom("core_order_payment")
+      .select("order_id")
+      .where("event_id", "=", input.paymentId)
+      .executeTakeFirst();
+    if (paidOn) {
+      refuseInvoiceOrder(
+        await loadOrderRow(ctx.db, paidOn.order_id),
+        "reverse it on the invoice (invoice.reversePayment)",
+      );
+    }
     const reversed = await reverseOtherPayment(ctx, {
       paymentId: input.paymentId,
       reason: input.reason,

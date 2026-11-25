@@ -14,6 +14,7 @@
 import type { RecordedKind } from "@composable-os/db";
 import { ConflictError, NotFoundError, ValidationError } from "../errors.ts";
 import { newId } from "../ids.ts";
+import { eventStatement } from "../invoices/events.ts";
 import { notifyStatements } from "../notifications/send.ts";
 import type { HandlerContext } from "../operation.ts";
 import type { PaymentsTaxReport } from "./gateway.ts";
@@ -21,10 +22,12 @@ import {
   type Charge,
   changeOrder,
   chargeFor,
+  chargeOptions,
   formatMoney,
   loadOrderRow,
   type OrderChange,
   type OrderRow,
+  owedOn,
 } from "./orders.ts";
 import { loadMinPartPayment, loadRecordedPaymentNotice } from "./settings.ts";
 import { discountsWaiting } from "./staff-discounts.ts";
@@ -191,7 +194,12 @@ export async function applyVerifiedPayment(
   // is not stored and moves nothing, as an amount that does not match.
   if (currency === row.currency && taxReportFits(payment.amount, payment.sentTax, payment.tax)) {
     try {
-      charge = chargeFor(row, await loadMinPartPayment(ctx.db), payment.amount);
+      charge = chargeFor(
+        row,
+        await loadMinPartPayment(ctx.db),
+        payment.amount,
+        await chargeOptions(ctx.db, row),
+      );
     } catch (error) {
       if (!(error instanceof ValidationError)) throw error;
     }
@@ -232,6 +240,7 @@ export async function applyVerifiedPayment(
     taxed
       ? { tax_amount: row.tax_amount + taxed.amount, tax_country: taxed.country ?? row.tax_country }
       : {},
+    { id: payment.eventId, method: "provider", by: null },
   );
   return { outcome: "applied", order: next, charge };
 }
@@ -247,13 +256,33 @@ async function settle(
   row: OrderRow,
   amount: number,
   change: OrderChange,
+  /** The payment row applied: an invoice's order writes it to the document event log. */
+  payment: { id: string; method: string; by: string | null },
 ): Promise<OrderRow> {
   const paid = row.paid + amount;
-  if (paid > row.total) {
+  // What a credit note took off is not owed (ADR 0735): paid and credited together settle it.
+  if (paid + row.credited > row.total) {
     // Both callers allow at most the balance, so this is a bug, not a caller's mistake.
     throw new ConflictError("A payment would take an order past its total", { order: row.id });
   }
-  const settled = paid === row.total;
+  const settled = paid + row.credited === row.total;
+  // An invoice's order (stage 35, ADR 0731): every payment applied, by either door, is in the
+  // document event log, in the payment's own batch, so no path is missed.
+  if (row.invoice_id) {
+    ctx.write(
+      eventStatement(ctx.db, {
+        documentKind: "invoice",
+        documentId: row.invoice_id,
+        event: "payment_applied",
+        paymentId: payment.id,
+        method: payment.method,
+        amount,
+        currency: row.currency,
+        at: ctx.now,
+        byUser: payment.by,
+      }),
+    );
+  }
   return changeOrder(
     ctx,
     row,
@@ -344,7 +373,16 @@ async function tellAdmins(
  */
 export async function applyOtherPayment(
   ctx: HandlerContext,
-  input: { orderId: string; amount: number; payment: OtherPayment },
+  input: {
+    orderId: string;
+    amount: number;
+    payment: OtherPayment;
+    /**
+     * The threshold over which admins are told, when the calling operation has its own (an
+     * invoice's recorded payment: the invoice settings', stage 35). Left out, the order setting's.
+     */
+    noticeOver?: number | undefined;
+  },
 ): Promise<{ order: OrderRow; paymentId: string }> {
   const { amount, payment } = input;
   if (!Number.isSafeInteger(amount) || amount <= 0) {
@@ -370,7 +408,7 @@ export async function applyOtherPayment(
       { rule: "discount_waiting", order: row.id },
     );
   }
-  const owed = row.total - row.paid;
+  const owed = owedOn(row);
   // A drop-in (a record its order moves, ADR 0560) is paid in full or not at all: its booking
   // moves at the first payment and cannot move back (review of PR #426).
   const { movedRecords } = await import("./moves.ts");
@@ -406,7 +444,17 @@ export async function applyOtherPayment(
       reference: payment.reference,
     }),
   );
-  const order = await settle(ctx, row, amount, {});
+  const order = await settle(
+    ctx,
+    row,
+    amount,
+    {},
+    {
+      id: paymentId,
+      method: payment.method,
+      by: payment.recordedBy,
+    },
+  );
   const what = `${formatMoney(amount, row.currency)} by ${KIND_WORDS[payment.kind]}`;
   if (row.person_id) {
     ctx.postActivity({
@@ -430,7 +478,7 @@ export async function applyOtherPayment(
     .select("ref")
     .where("order_id", "=", row.id)
     .executeTakeFirst();
-  if (pageOpen || amount > (await loadRecordedPaymentNotice(ctx.db))) {
+  if (pageOpen || amount > (input.noticeOver ?? (await loadRecordedPaymentNotice(ctx.db)))) {
     await tellAdmins(
       ctx,
       row.id,
@@ -546,6 +594,22 @@ export async function reverseOtherPayment(
       reason: input.reason,
     }),
   );
+  if (row.invoice_id) {
+    // An invoice's order (ADR 0733): the reversal is in the document event log, in its batch.
+    ctx.write(
+      eventStatement(ctx.db, {
+        documentKind: "invoice",
+        documentId: row.invoice_id,
+        event: "payment_reversed",
+        paymentId: reversalId,
+        method: "recorded",
+        amount: payment.amount,
+        currency: payment.currency,
+        at: ctx.now,
+        byUser: input.reversedBy,
+      }),
+    );
+  }
   const order = await changeOrder(
     ctx,
     row,
