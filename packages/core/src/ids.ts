@@ -105,6 +105,8 @@ export const ID_PREFIXES = {
   routineMail: "rml",
   /** A code sent to a Person's number to check it (stage 30, ADR 0673). */
   phoneCheck: "phk",
+  /** One contact choice on the consent register (stage 30, ADR 0675). */
+  contactChoice: "cch",
   /** An agreement document (stage 44, ADR 0640). */
   agreementDocument: "agd",
   /** A published version of an agreement document, never changed (stage 44, ADR 0640). */
