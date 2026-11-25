@@ -6,7 +6,6 @@ editUrl: false
 
 Stages that have a spec and no pack or capability pages on this site yet, from [docs/roadmap.md](https://github.com/timoconnellaus/composable-os/blob/main/docs/roadmap.md). Pieces of them that are already in the code appear in the reference (operations, behaviours, blocks).
 
-- **Notifications** (stage 30): Email, SMS and push as one primitive: templates, a person's preferences, an SMS gatekeeper, push to client apps. [Its spec](https://github.com/timoconnellaus/composable-os/blob/main/docs/stages/30-notifications.md).
 - **Price adjustments and Offers** (stage 34): Adjustments on orders as a primitive; an Offers pack: promo codes, members' prices, staff discounts up to a limit, gift vouchers and gift cards, referrals, loyalty later; and the shared platform step "an order paid another way" (with stage 35 and the till). [Its spec](https://github.com/timoconnellaus/composable-os/blob/main/docs/stages/34-offers.md).
 - **Shared inbox, Messaging and Help desk** (stage 36): One inbox for email, SMS and in-app chat; campaigns; support requests with replies and response targets. [Its spec](https://github.com/timoconnellaus/composable-os/blob/main/docs/stages/36-inbox.md).
 - **Jobs and projects** (stage 39): Work with stages, tasks and time spent; built on `stages` and Tasks. [Its spec](https://github.com/timoconnellaus/composable-os/blob/main/docs/stages/39-jobs.md).

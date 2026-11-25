@@ -17,6 +17,12 @@ import {
 } from "../../../../packages/gatekeeper-email-send/src/agreement.ts";
 // The email-send gatekeeper's rule for an agreement's copy (ADR 0645). The module imports only
 // types: the fake makes no PDF.
+// The email-send gatekeeper's consent step (ADR 0678): the fake asks the host the same way.
+import {
+  askContact,
+  parseStopLinks,
+  textWithStop,
+} from "../../../../packages/gatekeeper-email-send/src/consent.ts";
 import {
   AGREEMENT_KEY_PREFIX,
   HOST_PRIVATE_CLASSES,
@@ -156,7 +162,8 @@ export interface FakeCalendarSession {
 }
 /** Sending is an outbound action: it waits for approval. */
 export interface FakeOutboxSession {
-  send(message: { to: string[]; subject: string; text: string; internal?: boolean; relatedRecords?: string[] }): Promise<{ id: number; status: "pending" | "sent" }>;
+  /** \`purpose\` ("follow_up" or "news_and_offers") is required to email a person the CRM knows, unless a person sends it; \`dropped\` counts recipients who cannot be contacted this way. */
+  send(message: { to: string[]; subject: string; text: string; internal?: boolean; relatedRecords?: string[]; purpose?: "follow_up" | "news_and_offers" }): Promise<{ id: number; status: "pending" | "sent"; dropped?: number }>;
   listSent(): Promise<{ id: number; to: string[]; subject: string; status: "pending" | "sent" | "rejected" }[]>;
 }
 /** Posting is an outbound action: it waits for approval (a DM to a member is auto-approvable). */
@@ -599,6 +606,8 @@ interface Journal {
       queue?: QueueClass;
       /** The one-tap stop's headers of the host's routine mail (ADR 0675), as email-send sets them. */
       headers?: Record<string, string>;
+      /** A stoppable email's recipients who get a stop link when it is applied (ADR 0678). */
+      stopFor?: string[];
     }
   >;
 }
@@ -637,6 +646,7 @@ class FakeSession extends RpcTarget {
     relatedRecords?: string[];
     idempotencyKey?: string;
     agreement?: unknown;
+    purpose?: string;
   }) {
     return this.#gk.send(this.#queue, message);
   }
@@ -830,14 +840,20 @@ export class FakeGatekeeper extends DurableObject<
       idempotencyKey?: string;
       agreement?: unknown;
       listUnsubscribe?: unknown;
+      purpose?: unknown;
     },
-  ): Promise<{ id: number; status: "pending" | "sent" }> {
+  ): Promise<{ id: number; status: "pending" | "sent"; dropped?: number }> {
     this.#require("outbox");
-    const to = Array.isArray(message?.to) ? message.to.map(String).slice(0, 50) : [];
+    let to = Array.isArray(message?.to) ? message.to.map(String).slice(0, 50) : [];
     const subject = String(message?.subject ?? "").slice(0, 500);
     const text = String(message?.text ?? "").slice(0, 20_000);
     if (!to.length || !subject) throw new Error("send needs `to` and a `subject`");
-    const internal = message.internal === true;
+    // Internal only when every recipient is at the outbox's own domain, as email-send checks its
+    // internal domains: never on the caller's word alone.
+    const ownDomain = this.#props.address.slice(this.#props.address.lastIndexOf("@") + 1);
+    const internal =
+      message.internal === true &&
+      to.every((a) => a.slice(a.lastIndexOf("@") + 1).toLowerCase() === ownDomain);
     // A retried send with the same key answers the first one's receipt (ADR 0574), as email-send:
     // keys are remembered per class of queue (an ordinary caller's per caller, issue #286), and
     // the copy's keys are the agreements mail's alone.
@@ -920,6 +936,37 @@ export class FakeGatekeeper extends DurableObject<
       }
       headers = unsubscribeHeaders(link);
     }
+    // Consent to be contacted (ADR 0678), asked exactly as email-send asks it: a caller's email
+    // asks the host, who drops who may not be contacted and gives each Person's stop link.
+    let stopFor: string[] | undefined;
+    let dropped = 0;
+    if (queueClass === "caller" && !internal) {
+      if (
+        message.purpose !== undefined &&
+        message.purpose !== "follow_up" &&
+        message.purpose !== "news_and_offers"
+      ) {
+        throw new Error('Invalid email: purpose is "follow_up" or "news_and_offers".');
+      }
+      const answer = await askContact(queue, {
+        to,
+        purpose: typeof message.purpose === "string" ? message.purpose : undefined,
+      });
+      if (answer) {
+        const allowed = new Set(answer.allowed.map((a) => a.to.toLowerCase()));
+        to = to.filter((a) => allowed.has(a.toLowerCase()));
+        if (!to.length) {
+          throw new Error(
+            "Refused: recipient_stopped. The recipient cannot be contacted this way; nothing was sent or queued.",
+          );
+        }
+        dropped = answer.dropped;
+        const links = answer.allowed.filter((a) => a.stop);
+        if (links.length) {
+          stopFor = links.map((a) => a.to.toLowerCase());
+        }
+      }
+    }
     const id = this.#journalAction({
       status: "pending",
       to,
@@ -929,9 +976,54 @@ export class FakeGatekeeper extends DurableObject<
       ...(agreement ? { attachments: [AGREEMENT_FILENAME] } : {}),
       ...(queueClass !== "caller" ? { queue: queueClass } : {}),
       ...(headers ? { headers } : {}),
+      ...(stopFor ? { stopFor } : {}),
     });
     if (slot) this.ctx.storage.kv.put(slot, id);
     const related = Array.isArray(message.relatedRecords) ? message.relatedRecords.map(String) : [];
+    try {
+      await this.#submit(queue, id, {
+        to,
+        subject,
+        text,
+        related,
+        agreement,
+        internal,
+        signIn,
+        routine,
+        stopFor,
+        dropped,
+        purpose: typeof message.purpose === "string" ? message.purpose : undefined,
+      });
+    } catch (error) {
+      // Refused by the host (consent, ADR 0678): never queued, and its key forgotten.
+      const journal = this.#journal();
+      const entry = journal.actions[id];
+      if (entry?.status === "pending") entry.status = "rejected";
+      this.ctx.storage.kv.put("journal", journal);
+      if (slot) this.ctx.storage.kv.delete(slot);
+      throw error;
+    }
+    return { id, status: this.#sent(id) ? "sent" : "pending", ...(dropped ? { dropped } : {}) };
+  }
+
+  async #submit(
+    queue: QueueStub,
+    id: number,
+    m: {
+      to: string[];
+      subject: string;
+      text: string;
+      related: string[];
+      agreement: EmailAgreement | null;
+      internal: boolean;
+      signIn: boolean;
+      routine: boolean;
+      stopFor: string[] | undefined;
+      dropped: number;
+      purpose: string | undefined;
+    },
+  ): Promise<void> {
+    const { to, subject, text, related, agreement, internal, signIn, routine } = m;
     await queue.submitAction(id, {
       title: `Send email: ${subject}`,
       description: `To ${to.join(", ")}\n\n${text}`,
@@ -942,6 +1034,13 @@ export class FakeGatekeeper extends DurableObject<
         { label: "Body", value: text, syntax: "markdown" },
         ...(related.length ? [{ label: "Related records", value: related.join(", ") }] : []),
         ...(agreement ? [{ label: "Attachment", value: agreementSummary(agreement) }] : []),
+        ...(m.purpose ? [{ label: "Purpose", value: m.purpose }] : []),
+        ...(m.stopFor
+          ? [{ label: "Stop link", value: "Each recipient's own copy ends with their stop link" }]
+          : []),
+        ...(m.dropped
+          ? [{ label: "Not sent to", value: `${m.dropped} cannot be contacted this way` }]
+          : []),
       ],
       descriptionIsComplete: true,
       implementsRevert: false,
@@ -956,7 +1055,6 @@ export class FakeGatekeeper extends DurableObject<
               ? { tag: "fake.internal", label: "Send internal mail" }
               : { tag: "fake.send", label: "Send mail" },
     });
-    return { id, status: this.#sent(id) ? "sent" : "pending" };
   }
 
   /** A Slack post (`to` is the channel) or DM (`to` is the user); journalled like a send. */
@@ -1053,7 +1151,13 @@ export class FakeGatekeeper extends DurableObject<
       }));
   }
 
-  async applyAction(action: number): Promise<void> {
+  /** A stoppable email applied with the stop links the host just made (ADR 0678), as email-send. */
+  async applyStoppable(action: number, links: unknown): Promise<void> {
+    const entry = this.#journal().actions[action];
+    await this.applyAction(action, parseStopLinks(links, entry?.stopFor ?? []));
+  }
+
+  async applyAction(action: number, links?: Record<string, string>): Promise<void> {
     const journal = this.#journal();
     const entry = journal.actions[action];
     if (!entry) throw new Error(`No action ${action}`);
@@ -1067,6 +1171,25 @@ export class FakeGatekeeper extends DurableObject<
           ([id, a]) => Number(id) < action && a.status === "pending" && !a.independent,
         );
     if (earlier) throw new Error(`Action ${earlier[0]} must be decided first`);
+    // A stoppable email (ADR 0678): one copy per recipient, each ending with its stop link.
+    if (entry.stopFor?.length) {
+      // Never sent without the links the host gives when it applies it.
+      if (!links || typeof links !== "object") {
+        throw new Error("Refused: this email's stop links were not given, and it is not sent.");
+      }
+      for (const to of entry.to) {
+        const stop = links[to.toLowerCase()];
+        await this.#provider().recordSent({
+          action,
+          to: [to],
+          subject: entry.subject,
+          text: stop ? textWithStop(entry.text, stop) : entry.text,
+        });
+      }
+      entry.status = "sent";
+      this.ctx.storage.kv.put("journal", journal);
+      return;
+    }
     await this.#provider().recordSent({
       action,
       to: entry.to,

@@ -302,7 +302,7 @@ describe("outbound through the host", () => {
           connectionId: connection.id,
           resource: "OUTBOX",
           method: "send",
-          args: [{ to: ["colleague@acme.test"], subject, text: ".", internal }],
+          args: [{ to: ["colleague@fake.test"], subject, text: ".", internal }],
         },
         mcp,
       );

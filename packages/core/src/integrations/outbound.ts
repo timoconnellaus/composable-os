@@ -21,6 +21,7 @@ import { judgeUsageStatement } from "../judge/usage.ts";
 import { type ActingUser, type Actor, type Origin, originSchema } from "../principals.ts";
 import { jsonList } from "../records/common.ts";
 import { loadApprovalPolicy } from "../settings.ts";
+import type { OutboundContact } from "./consent.ts";
 import { checkOutbound, textFromAi } from "./outbound-check.ts";
 
 /** The parts of a gatekeeper `ActionDescription` the CRM stores and shows. */
@@ -82,6 +83,12 @@ export interface OutboundSubmission {
    * Anything else from that queue, a held one included, always waits for a person.
    */
   routineMail?: { routine: boolean; ordinary?: boolean } | undefined;
+  /**
+   * Consent to be contacted (ADR 0678): how the host checked a caller's message to people when it
+   * was submitted (`contactAtSubmit`), kept on a pending one so approving it asks again. Set only
+   * by the integration host.
+   */
+  contact?: OutboundContact | undefined;
 }
 
 /**
@@ -155,6 +162,8 @@ export interface OutboundInput {
   autoApprovable: boolean;
   implementsRevert: boolean;
   descriptionIsComplete: boolean;
+  /** How the host checked it for consent at submit (ADR 0678); absent: not a message to people. */
+  contact?: OutboundContact;
 }
 
 /** Bounds what a gatekeeper can make us store (a description is untrusted input). */
@@ -188,6 +197,7 @@ export function outboundInput(s: OutboundSubmission): OutboundInput {
     autoApprovable: d.autoApprovable === true,
     implementsRevert: d.implementsRevert === true,
     descriptionIsComplete: d.descriptionIsComplete === true,
+    ...(s.contact ? { contact: s.contact } : {}),
   };
 }
 
@@ -312,6 +322,9 @@ export async function submitOutbound(db: CrmDb, s: OutboundSubmission): Promise<
   if (decision === "auto" && s.routineMail && !routine && !s.routineMail.ordinary) {
     decision = "review";
   }
+  // An AI's one-to-one email from a person's own mailbox (ADR 0678) is that person's to send:
+  // it always waits for them, whatever the preset or an admin's auto-approve.
+  if (decision === "auto" && s.contact?.personal) decision = "review";
 
   // outbound.message (ADR 0238): a message an AI actor wrote is read before it leaves. A finding,
   // or no answer, turns an automatic send into a review; Jev never lets one through.

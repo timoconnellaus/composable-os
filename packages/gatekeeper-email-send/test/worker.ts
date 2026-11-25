@@ -96,6 +96,24 @@ class FakeQueue extends RpcTarget {
     return this.#hostSignIn;
   }
 
+  /**
+   * As the CRM's integration host answers consent (ADR 0678): a fixed answer, `refuse` for the
+   * host's one plain refusal, or undefined for a host older than it (the method is missing).
+   */
+  contactAnswer:
+    | ((to: string[]) => { allowed: { to: string; stop: boolean }[]; dropped: number })
+    | "refuse"
+    | undefined = undefined;
+  contactAsked: { to: string[]; purpose: unknown }[] = [];
+  async contactCheck(input: { to: string[]; purpose?: unknown }) {
+    if (this.contactAnswer === undefined) throw new Error("contactCheck is not a method");
+    this.contactAsked.push({ to: input.to, purpose: input.purpose });
+    if (this.contactAnswer === "refuse") {
+      throw new Error("Refused: recipient_stopped. The recipient cannot be contacted this way.");
+    }
+    return this.contactAnswer(input.to);
+  }
+
   async submitAction(action: number, description: ActionDescription): Promise<void> {
     submissions.push([action, description]);
     if (description.autoApprovable === true && this.#autoApply) await this.#autoApply(action);
@@ -112,6 +130,12 @@ type SessionMethod = keyof EmailSendSession;
 export class TestHost extends DurableObject<Cloudflare.Env> {
   #facet: Fetcher<EmailSendGatekeeper> | undefined;
   #session: EmailSendSession | undefined;
+  #queue: FakeQueue | undefined;
+
+  /** What the gatekeeper asked the queue about consent (ADR 0678). */
+  async contactAsked(): Promise<{ to: string[]; purpose: unknown }[]> {
+    return this.#queue?.contactAsked ?? [];
+  }
 
   /** Resolves `url` through a fresh account, creates the facet and opens a session. */
   async open(
@@ -127,6 +151,11 @@ export class TestHost extends DurableObject<Cloudflare.Env> {
       callerKeySpace?: string;
       /** A facet whose storage the test may seed (`seed`). */
       seedable?: boolean;
+      /**
+       * How the queue answers consent (ADR 0678): who it drops and each address's stop link, or
+       * its plain refusal. Absent: a host older than it.
+       */
+      contact?: { drop: string[]; stops: Record<string, string> } | "refuse";
     } = {},
   ): Promise<ResourceDescription> {
     const account = this.ctx.exports.EmailSendAccount({});
@@ -152,6 +181,18 @@ export class TestHost extends DurableObject<Cloudflare.Env> {
     );
     queue.hostPurposeAnswer = options.hostPurpose;
     queue.callerKeySpaceAnswer = options.callerKeySpace ?? "";
+    if (options.contact === "refuse") queue.contactAnswer = "refuse";
+    else if (options.contact) {
+      const { stops, drop } = options.contact;
+      queue.contactAnswer = (to) => {
+        const allowed = to.filter((a) => !drop.includes(a));
+        return {
+          allowed: allowed.map((a) => ({ to: a, stop: stops[a] !== undefined })),
+          dropped: to.length - allowed.length,
+        };
+      };
+    }
+    this.#queue = queue;
 
     this.#session = (await facet.startSession(queue as never)) as unknown as EmailSendSession;
     return facet.describe();
@@ -178,6 +219,15 @@ export class TestHost extends DurableObject<Cloudflare.Env> {
 
   async apply(id: number): Promise<void> {
     await this.#requireFacet().applyAction(id);
+  }
+
+  /** Applies a stoppable send with the host's stop links (ADR 0678). */
+  async applyStoppable(id: number, links: unknown): Promise<void> {
+    await (
+      this.#requireFacet() as unknown as {
+        applyStoppable(id: number, links: unknown): Promise<void>;
+      }
+    ).applyStoppable(id, links);
   }
 
   async reject(id: number): Promise<void> {

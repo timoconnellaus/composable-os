@@ -24,6 +24,7 @@ import {
   catalogueEntry,
   claimRoutineMail,
   claimRoutineText,
+  dropStopTokens,
   errorForLog,
   evaluateGate,
   type IntegrationCaller,
@@ -32,6 +33,7 @@ import {
   keepsBooks,
   loadApprovalPolicy,
   loadRoutineMailSettings,
+  mintStopLinks,
   parseFloor,
   ROLES,
   type Role,
@@ -39,6 +41,7 @@ import {
   recordPaymentEvent,
   revokeBindings,
   SIGN_IN_MAIL_ORIGINS,
+  type Stoppable,
   SYNC_BATCH_MAX,
   SYSTEM_USER,
   type SyncConfig,
@@ -790,7 +793,7 @@ export class IntegrationHost extends DurableObject<Env> {
       ownerUserId: meta.ownerUserId,
       facetKey: record.key,
       resourceTitle: record.title,
-      apply: (facetKey, action) => this.applyOutbound(facetKey, action),
+      apply: (facetKey, action, stoppable) => this.applyOutbound(facetKey, action, stoppable),
       reject: async (facetKey, action) => {
         await this.rejectOutbound(facetKey, action);
       },
@@ -1177,9 +1180,22 @@ export class IntegrationHost extends DurableObject<Env> {
 
   // --- Outbound -------------------------------------------------------------------------------
 
-  async applyOutbound(facetKey: string, action: number): Promise<void> {
+  async applyOutbound(facetKey: string, action: number, stoppable?: Stoppable): Promise<void> {
     const { facet } = await this.#facetFor(facetKey);
-    await facet.applyAction(action, null);
+    if (!stoppable?.recipients.length) {
+      await facet.applyAction(action, null);
+      return;
+    }
+    // A stoppable email (ADR 0678): each recipient's stop link is made now, as it goes, and taken
+    // back if it does not, so a refused, failed or retried send leaves no token behind.
+    const db = createCrmDb(this.env.DB).query;
+    const { links, tokens } = await mintStopLinks(db, stoppable);
+    try {
+      await facet.applyStoppable(action, links);
+    } catch (error) {
+      await dropStopTokens(db, tokens);
+      throw error;
+    }
   }
 
   async rejectOutbound(

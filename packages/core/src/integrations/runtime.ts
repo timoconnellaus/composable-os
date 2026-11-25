@@ -3,6 +3,7 @@
 // accounts, facets and hooks); cos-app reaches the same implementation over the RUNNER service
 // binding. Integration operations receive it through the invocation context, so packages/core
 // never imports the runtime or the gatekeeper interface.
+import type { Stoppable } from "../contact/senders.ts";
 import type { PendingApproval } from "../errors.ts";
 import type { Actor, Origin, Permission, Role } from "../principals.ts";
 
@@ -206,7 +207,13 @@ export interface IntegrationRuntime {
   /** The TypeScript declarations agents code against for a bound resource. */
   types(input: { connectionId: string; resource: string }): Promise<string>;
   /** Approval: applies a mirrored outbound action on its facet (in order per facet). */
-  applyOutbound(input: { connectionId: string; facetKey: string; action: number }): Promise<void>;
+  applyOutbound(input: {
+    connectionId: string;
+    facetKey: string;
+    action: number;
+    /** A stoppable email (ADR 0678): who gets a stop link, made by the host as it is applied. */
+    stoppable?: Stoppable;
+  }): Promise<void>;
   /** Rejection (or expiry): tells the facet to drop the action. */
   rejectOutbound(input: {
     connectionId: string;

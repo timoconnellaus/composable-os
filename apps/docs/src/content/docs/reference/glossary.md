@@ -1642,14 +1642,30 @@ _Avoid_: category, marketing flag
 The record of a Person's contact choices (`core_contact_choice`): per channel and scope (a purpose,
 or a routine message kind), on or off (news and offers: yes or no), with when, how and by whom, and
 the words shown for a yes. Never rewritten: the latest choice is in force, the earlier ones its
-history. Every sender asks it through one question at the moment of sending
-(`contactDecision`); a refusal is final, never held for a person. Beside it the **suppression
-list**: salted hashes of addresses and numbers that asked to stop, kept after erase (ADR 0675).
+history. Every sender asks it at the moment of sending: routine messages through one question
+(`contactDecision`), every other message to people (an email, a calendar invitation, a connected server's tool call naming an address or a number) at the integration host's approval queue
+(`checkSend`), whoever sends it and whatever the approval preset; a refusal is final, never held
+for a person, and the sender is told only `recipient_stopped` (ADR 0678). Beside it the
+**suppression list**: salted hashes of addresses and numbers that asked to stop, kept after erase
+(ADR 0675).
 _Avoid_: preferences table, opt-out list
+
+### A person's own message
+
+An email a staff member writes themselves to whoever they write to (a reply, a one-to-one email),
+or an AI's one email to one person from that staff member's own mailbox once they approve it. For
+consent it asks only the suppression list, not the per-kind or per-purpose choices; it reaches a
+child's own address only one to one. Anything an automation, a tool, the assistant, MCP or
+extension code sends otherwise is not one: it declares its **purpose** (`follow_up` or
+`news_and_offers`), is asked in full, and each copy ends with its recipient's own stop link, made
+when it goes (ADR 0678).
+_Avoid_: manual email, one-off email
 
 ### Stop
 
-A person's own "no more of these": the one-tap stop link a stoppable email carries (and its
+A person's own "no more of these": the one-tap stop link a stoppable email carries (a routine
+message's, or the copy of an automation's or the assistant's follow-up that the host gives each
+recipient, ADR 0678) (and a routine one's
 List-Unsubscribe header), which turns that one kind off on that channel without signing in; a
 reply of STOP to the business's texts, which stops every text to that number, whoever it is on,
 until a START from it (kept as a salted hash, past an erase; HELP gets a fixed answer with the

@@ -3,6 +3,7 @@
 import { sql } from "kysely";
 import { z } from "zod";
 import { VERDICT_OPERATION } from "../adjudicator/review.ts";
+import { CONTACT_REFUSED_OPERATION } from "../integrations/consent.ts";
 import { decodeCursor, encodeCursor, pageSchema } from "../list.ts";
 import { AUDITED_READS, defineOperation, PEOPLE_ONLY_AUDIT } from "../operation.ts";
 import { ALL_ACTORS } from "../principals.ts";
@@ -98,6 +99,10 @@ export const auditList = defineOperation({
     // Policy adjudicator verdicts are for people only (ADR 0204): an admin's MCP client or the
     // assistant never reads them, so the actor whose work was judged cannot learn the verdicts.
     if (ctx.actor !== "human") query = query.where("a.operation", "<>", VERDICT_OPERATION);
+    // A send refused for consent (ADR 0678) is for people too: an AI never learns who stopped.
+    if (ctx.actor !== "human") {
+      query = query.where("a.operation", "<>", CONTACT_REFUSED_OPERATION);
+    }
     // The rows of reads audited one by one (`auditReads`: who read whose health answers or
     // marks) are for people only too (stage 44, ADR 0643): together they would list who
     // answered yes.

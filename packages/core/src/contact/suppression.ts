@@ -83,6 +83,32 @@ export async function suppressed(
   return row !== undefined;
 }
 
+/** Hashes per statement in `suppressedAmong`: D1 binds at most 100 values. */
+const HASHES_PER_STATEMENT = 90;
+
+/**
+ * Which of `hashes` are on the list for `channel`: one statement per 90, for every recipient of
+ * a send at once (ADR 0678).
+ */
+export async function suppressedAmong(
+  db: Db,
+  channel: "email" | "text",
+  hashes: readonly string[],
+): Promise<Set<string>> {
+  const out = new Set<string>();
+  const all = [...new Set(hashes)];
+  for (let i = 0; i < all.length; i += HASHES_PER_STATEMENT) {
+    const rows = await db
+      .selectFrom("core_contact_suppression")
+      .select("value_hash")
+      .where("channel", "=", channel)
+      .where("value_hash", "in", all.slice(i, i + HASHES_PER_STATEMENT))
+      .execute();
+    for (const row of rows) out.add(row.value_hash);
+  }
+  return out;
+}
+
 /** Puts a hash on the list (again: the latest moment is kept). */
 export async function suppress(
   db: Db,

@@ -482,6 +482,30 @@
         ]
       },
       {
+        "label": "Consent to be contacted",
+        "collapsed": true,
+        "items": [
+          {
+            "slug": "capabilities/contact"
+          },
+          {
+            "slug": "capabilities/contact/operations"
+          },
+          {
+            "slug": "capabilities/contact/permissions"
+          },
+          {
+            "slug": "capabilities/contact/behaviours"
+          },
+          {
+            "slug": "capabilities/contact/screens"
+          },
+          {
+            "slug": "capabilities/contact/decisions"
+          }
+        ]
+      },
+      {
         "label": "Finance",
         "collapsed": true,
         "items": [

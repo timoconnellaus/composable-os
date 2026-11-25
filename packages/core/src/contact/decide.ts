@@ -120,6 +120,18 @@ export async function registerRefusal(
     return refuse("child", "news and offers never go to a child");
   }
   const mine = (choices ?? (await choicesInForce(db, [q.person]))).get(q.person);
+  return choiceRefusal(mine, q);
+}
+
+/**
+ * What a Person's choices in force say, with no statement: null when it may go, else the refusal.
+ * `registerRefusal` without its child check, for a caller that read the batch's choices and its
+ * recipients' guardians itself (ADR 0678).
+ */
+export function choiceRefusal(
+  mine: ReadonlyMap<string, ContactChoice> | undefined,
+  q: Pick<ContactQuestion, "channel" | "purpose" | "kind" | "essential">,
+): ContactDecision | null {
   const kindChoice = q.kind ? mine?.get(choiceKey(q.channel, q.kind)) : undefined;
   if (q.purpose === "account") {
     // An essential kind's email is never turned off; its text and push may be.

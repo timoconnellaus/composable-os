@@ -37,6 +37,7 @@ import {
   ValidationError,
 } from "../errors.ts";
 import { isProvisionalId, newId, replaceIds } from "../ids.ts";
+import { contactBlockedMany } from "../integrations/consent.ts";
 import {
   ACCOUNTING_VOID_KINDS,
   type OutboundInput,
@@ -200,6 +201,13 @@ export const pendingActionSchema = z.object({
         })
         .nullable()
         .default(null),
+      /**
+       * Consent to be contacted (ADR 0678), for a pending message to people, asked as the inbox
+       * shows it: how many of its recipients may not be contacted now (a stop taken while it
+       * waited). Approving then sends nothing. Null when all may be, or for anyone but a human
+       * approver; never why.
+       */
+      contactBlocked: z.number().int().nullable().default(null),
     })
     .nullable(),
   /**
@@ -365,7 +373,8 @@ async function withVerdicts(
     ctx.db,
     actions.map((a) => a.id),
   );
-  return actions.map((a) => ({ ...a, adjudication: verdicts.get(a.id) ?? null }));
+  const contacted = await withContact(ctx.db, actions, ctx.now);
+  return contacted.map((a) => ({ ...a, adjudication: verdicts.get(a.id) ?? null }));
 }
 
 function outboundView(row: PendingRow): PendingActionView["outbound"] {
@@ -392,7 +401,52 @@ function outboundView(row: PendingRow): PendingActionView["outbound"] {
           lines: outboundCheckLines(check),
         }
       : null,
+    contactBlocked: null,
   };
+}
+
+/** Why an approved message to people was not sent (ADR 0678): the same words whatever the cause. */
+const CONTACT_BLOCKED_REASON =
+  "a recipient cannot be contacted this way, so nothing was sent (approving cannot override it)";
+/** Why an AI's draft from a person's mailbox was not sent by someone else's approval. */
+const PERSONAL_OWNER_REASON =
+  "only the owner of the mailbox it is sent from may approve this email, so nothing was sent";
+
+/** Who owns a connection (the mailbox an email goes from). */
+async function connectionOwner(db: Kysely<CoreDatabase>, connectionId: string) {
+  const row = await db
+    .selectFrom("core_integration_connection")
+    .select("owner_user_id")
+    .where("id", "=", connectionId)
+    .executeTakeFirst();
+  return row?.owner_user_id ?? null;
+}
+
+/**
+ * For human approvers: each pending message to people says how many of its recipients may not be
+ * contacted now (ADR 0678), every one on the page asked together.
+ */
+async function withContact(
+  db: Kysely<CoreDatabase>,
+  actions: PendingActionView[],
+  now: string,
+): Promise<PendingActionView[]> {
+  const pending = actions.filter((a) => a.outbound && a.status === "pending");
+  if (!pending.length) return actions;
+  const blocked = await contactBlockedMany(
+    db,
+    pending.map((a) => ({
+      id: a.id,
+      input: a.input as Partial<OutboundInput>,
+      actor: a.actor as Actor,
+      origin: a.origin as Partial<Origin>,
+    })),
+    now,
+  );
+  return actions.map((a) => {
+    const n = blocked.get(a.id);
+    return n && a.outbound ? { ...a, outbound: { ...a.outbound, contactBlocked: n } } : a;
+  });
 }
 
 async function loadActions(
@@ -1317,9 +1371,32 @@ async function approveActions(
       // A held routine message whose person stopped it (or whose address or number was
       // suppressed) while it waited (ADR 0675): nobody may approve around a stop. Skipped, and
       // dropped on its facet.
+      // Any other message to people (ADR 0678): a recipient who may not be contacted now (a stop
+      // taken while it waited) means it is not sent at all; approving cannot override it.
+      const outboundInput = parse<Partial<OutboundInput>>(action.input, {});
       const stopped =
         action.connection_id !== null
-          ? await stopHeldRoutineMessage(ctx.db, action.id, ctx.now)
+          ? ((await stopHeldRoutineMessage(ctx.db, action.id, ctx.now)) ??
+            ((
+              await contactBlockedMany(
+                ctx.db,
+                [
+                  {
+                    id: action.id,
+                    input: outboundInput,
+                    actor: action.actor,
+                    origin: parse<Partial<Origin>>(action.origin, {}),
+                  },
+                ],
+                ctx.now,
+              )
+            ).has(action.id)
+              ? CONTACT_BLOCKED_REASON
+              : // An AI's one-to-one draft from a person's mailbox is theirs alone to send.
+                outboundInput.contact?.personal &&
+                  (await connectionOwner(ctx.db, action.connection_id)) !== approver
+                ? PERSONAL_OWNER_REASON
+                : null))
           : null;
       if (stopped) {
         failed.add(action.id);
@@ -1355,6 +1432,10 @@ async function approveActions(
             connectionId: action.connection_id,
             facetKey: action.facet_key ?? "",
             action: action.gk_action ?? 0,
+            // A stoppable email's stop links are made now, as it goes (ADR 0678).
+            ...(outboundInput.contact?.stoppable
+              ? { stoppable: outboundInput.contact.stoppable }
+              : {}),
           });
           outcome = { ok: true };
         } catch (error) {
