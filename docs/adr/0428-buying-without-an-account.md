@@ -78,6 +78,15 @@ What it records with `recordChange` is checked in full, exactly as before. No ex
 - The confirmation email carries the token; sending it is the rest of stage 25.
 - `order.view` answers staff and customers too: holding the token is the proof, whoever holds it.
 
+## Amended 2026-11-23: a deployment that serves many clients
+[ADR 0611](0611-one-host-a-database-per-client.md) and stage 66's decision 8 (the owner's answer
+of 2026-11-23). On a deployment that serves many clients there is no Worker per client to hold a
+client's secrets. There, auth secrets are derived per client from one secret in the host's
+environment and are stored nowhere; a secret a client gives (payment keys, its own sign-in
+provider, its own AI keys) is stored encrypted in the host's registry, under a key only the
+host's environment holds, written only by the operator's command and never readable by an
+operation, an extension or the assistant. A deployment for one organisation is unchanged.
+
 ## Amended 2026-11-23: a guest's acceptances settle with the order (stage 44 step 3, [ADR 0644](0644-enforcement-nobody-pays-or-books-without-what-is-due.md))
 - **A guest agrees in the buying call.** `order.start` (and `order.startHeld`, through a pack's
   tool) takes `agreements`: the guest's acceptances of every document attached for everyone at the

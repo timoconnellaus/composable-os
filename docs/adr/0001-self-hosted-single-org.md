@@ -15,6 +15,13 @@ We will run our own instance, deployed exactly like anyone else's. There is no h
 - Simpler data layer and auth. Adding multi-tenancy later would be a significant change, accepted knowingly.
 - Every external dependency (AI keys, OAuth apps) is supplied per deployment.
 
+## Amended 2026-11-23: a deployment may hold many clients
+[ADR 0611](0611-one-host-a-database-per-client.md): a hosted deployment serves many clients, each
+with a database of its own, chosen by the host on every request. What this record protects is
+kept: one organisation's data is one database, the isolation boundary is that database, and no
+table has a tenant id. A self-hosted install, and a client in its own Cloudflare account, is still
+one deployment for one organisation, as described here.
+
 ## Amended 2026-11-24: locations inside the one organisation
 Stage 64 ([ADR 0910](0910-locations-a-base-record-inside-the-one-organisation.md)) adds
 **locations**: the places one organisation works from (a gym's second studio), as a base record
