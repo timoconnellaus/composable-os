@@ -204,11 +204,38 @@ gets its interview and spec when a client needs it, and not before.
 
 Shop, knowledge base and jobs need almost nothing new.
 
+## Stages 67 to 74: a second target, AWS
+
+The host on AWS (Node, Postgres, S3, a Lambda sandbox) beside Cloudflare, for products that cannot
+be put on Cloudflare: the first is a health product that must keep its data in Australia
+([ADR 0950](adr/0950-two-targets-cloudflare-and-aws.md)). The specs are proposals: each stage is
+built only after its own interview. The build starts after stage 66 lands.
+
+| # | Stage | Scope | Status |
+| --- | --- | --- | --- |
+| 67 | Postgres as a second database | A Postgres dialect beside D1 behind the same handle; a second set of migrations; the trigger rules ported with their codes; one SQL subset for dashboards; search; a schema per client; core's tests on both databases ([spec](stages/67-postgres.md)) | spec proposed (2026-11-26) |
+| 68 | The host on Node | The app and the runner as a Node server; queues, schedules and workflows stored in Postgres; files in S3; rate limits; what the small Durable Objects hold ([spec](stages/68-host-on-node.md)) | spec proposed (2026-11-26) |
+| 69 | The Lambda sandbox | Pack and extension code in a Lambda function with no network, one call per run, reaching the host only through host modules; a spike on its latency first ([spec](stages/69-lambda-sandbox.md)) | spec proposed (2026-11-26) |
+| 70 | Deploying to AWS | The release as a container image; an OpenTofu module anyone can use; `cos deploy` to AWS; the registry of clients on Postgres ([spec](stages/70-deploy-to-aws.md)) | spec proposed (2026-11-26) |
+| 71 | Models, search by meaning and mail on AWS | Bedrock behind the model roles; pgvector; SES; the options for video ([spec](stages/71-models-vectors-mail-on-aws.md)) | spec proposed (2026-11-26) |
+| 72 | The assistant on AWS | A thread's state in Postgres, live connections from the Node server, scheduled wake-ups, long jobs ([spec](stages/72-assistant-on-aws.md)) | spec proposed (2026-11-26) |
+| 73 | Connections on AWS | Gatekeepers off Durable Objects: mail, calendar, payments, text messages ([spec](stages/73-connections-on-aws.md)) | spec proposed (2026-11-26) |
+| 74 | Live screens | Screens several people watch at once update without a refresh, on both targets ([spec](stages/74-live-screens.md)) | spec proposed (2026-11-26) |
+
+### Dependencies
+
+- 67 needs stage 66. 68 needs 67. 69 needs 68. 70 needs 68 and 69.
+- 71 needs 68. 72 needs 68 and 71. 73 needs 68 and 69.
+- 74's Cloudflare half needs nothing here; its AWS half needs 68.
+
 ## Later, for the platform
 
 Named so they are not forgotten, not staged:
 
-- **Realtime:** live records shared between people.
+- **A client's own web app on AWS:** today it reaches the host through a Cloudflare binding; no
+  stage gives it an AWS home (stage 70's question 3).
+- **Realtime:** live records shared between people. Stage 74 gives named screens live updates;
+  editing one record together is still not staged.
 - **Ghetto's existing app data** (programmes, workouts, chat) onto the platform.
 - **Skills** for starting a client app, adding a pack, building a screen and migrating a system
   (the first two arrive with stage 24).

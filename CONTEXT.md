@@ -30,6 +30,13 @@ One installed copy of a product (today, the CRM) in one organisation's Cloudflar
 one org's data and is the isolation boundary. There is no tenant id in the data model.
 _Avoid_: tenant, instance (except "Cloudflare OS instance" when quoting upstream)
 
+**Target**
+Where a deployment runs: **Cloudflare**, as built, or **AWS** (Node, Postgres, S3 and a Lambda
+sandbox; ADR 0950, stages 67 to 74, specced and not built). A product's definition names its target
+once. Operations, packs and extensions are the same code on both and never ask which they are on.
+_Avoid_: platform (that is Composable OS), cloud, backend, provider (a provider is a model's or a
+payment's)
+
 **Host**
 The trusted Workers of one deployment: the app Worker (staff UI, `/mcp`, the operations registry
 and approval pipeline and, from stage 23, the HTTP surface), the runner Worker and the gatekeeper

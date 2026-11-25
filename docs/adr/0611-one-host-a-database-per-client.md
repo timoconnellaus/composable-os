@@ -66,3 +66,7 @@ database for each client. It can open a different Durable Object for each.
   results are the record of why the namespace was not used.
 - **Not yet proved:** the result on Cloudflare itself, the app's and the runner's suites, and the
   time a request takes when each query crosses to a Durable Object. Stage 66's first build step.
+
+## Note, 2026-11-26 ([ADR 0950](0950-two-targets-cloudflare-and-aws.md))
+On the AWS target, a client's database is a schema of its own in one Postgres database. The rule
+here is kept as written: no table gains a client column. Not built (stage 67).

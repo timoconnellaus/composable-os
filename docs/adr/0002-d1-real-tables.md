@@ -27,3 +27,7 @@ AI creates new objects and fields at runtime. Options were a DO per workspace, D
 > reads it the same way, which also covers databases migrated by `wrangler d1 migrations apply`.
 > `CORE_SCHEMA_VERSION` is the highest migration number. Applied migration files are never
 > edited. Tested in `packages/db/test/migrate-order.test.ts`.
+
+> Note, 2026-11-26 ([ADR 0950](0950-two-targets-cloudflare-and-aws.md)): Postgres is a second
+> database, for the AWS target, behind the same handle and with its own set of migrations. Real
+> tables and columns, `core_*` by migration and `x_*` by the reconciler, hold on both. Not built.

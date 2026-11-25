@@ -33,3 +33,8 @@ Execution no longer uses the `worker-javascript` backend.
   This is the "own thin loader" fallback this ADR named.
 - **What stays on `@cloudflare/computer`.** The extension workspace (files and git).
 - **What `load()` is for now.** Only Code Mode scripts.
+
+## Note, 2026-11-26 ([ADR 0950](0950-two-targets-cloudflare-and-aws.md))
+On the AWS target, extension code runs in a Lambda function with no network access, under the same
+rule: it reaches the world only through host modules. This record stands for Cloudflare. Not built
+(stage 69).
