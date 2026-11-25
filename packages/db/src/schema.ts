@@ -1782,6 +1782,11 @@ export interface CoreRoutineMailTable {
   wait_until: Defaulted<string | null>;
   /** The kind's moment for the record: a text or push not sent by then is `expired`. */
   until_at: Defaulted<string | null>;
+  /**
+   * Migration 1010 (ADR 0723): what a form-link slot's personal link is made for when the email
+   * is sent (JSON), never the token.
+   */
+  form_link: Defaulted<string | null>;
   created_at: string;
   updated_at: string;
 }
@@ -1859,9 +1864,12 @@ export interface CoreIntakeLinkTable {
   record_object: string | null;
   record_id: string | null;
   made_for: string;
+  once_days: number | null;
   expires_at: string;
   used_at: string | null;
   submission_id: string | null;
+  used_by: string | null;
+  used_with: "email" | "account" | null;
   created_at: string;
 }
 
@@ -1869,6 +1877,7 @@ export interface CoreIntakeLinkTable {
 export interface CoreIntakeLinkTokenTable {
   token_hash: string;
   link_id: string;
+  sent_to: string;
   created_at: string;
 }
 

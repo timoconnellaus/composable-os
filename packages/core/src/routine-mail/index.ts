@@ -66,7 +66,14 @@ import { ForbiddenError, NotFoundError, ValidationError } from "../errors.ts";
 import { getObject } from "../fields/index.ts";
 import { newId } from "../ids.ts";
 import { formIdBySlug, openForm } from "../intake/forms.ts";
-import { ensureLink, linkedSince, linkToken, personalLinkUrl } from "../intake/links.ts";
+import {
+  ensureLink,
+  linkAnswerOf,
+  linkedSince,
+  linkToken,
+  personalLinkUrl,
+  withdrawLink,
+} from "../intake/links.ts";
 import { notifyStatements } from "../notifications/send.ts";
 import { loadRecord } from "../operations/record.ts";
 import { staffPrincipal } from "../principals.ts";
@@ -136,6 +143,8 @@ export const ROUTINE_MAIL_SETTING = "routine_mail";
 
 /** Most routine emails the whole organisation sends in a rolling day, unless an admin chose. */
 export const ROUTINE_ORG_DAILY_CAP = 2_000;
+/** Receipts the whole organisation sends in a rolling day, unless an admin chose (ADR 0724). */
+export const ROUTINE_RECEIPT_DAILY_CAP = 200;
 /** How long the routine email log is kept, in months, unless an admin chose. */
 export const ROUTINE_LOG_MONTHS = 12;
 
@@ -153,6 +162,11 @@ export const routineMailSettingsSchema = z.object({
   orgDailyCap: z.number().int().min(1).max(100_000).default(ROUTINE_ORG_DAILY_CAP),
   /** Months the log is kept. */
   retentionMonths: z.number().int().min(1).max(84).default(ROUTINE_LOG_MONTHS),
+  /**
+   * Receipts (ADR 0724) the organisation sends in a rolling day, apart from `orgDailyCap`: past it
+   * the rest are not sent. Answers from typed addresses never use up the room booking emails need.
+   */
+  receiptDailyCap: z.number().int().min(1).max(100_000).default(ROUTINE_RECEIPT_DAILY_CAP),
   /**
    * Kind id → its text and push switched on by a human admin (ADR 0670), within what the kind
    * declares. Off unless switched on: nothing starts texting or pushing on deploy.
@@ -206,6 +220,7 @@ const DEFAULT_SETTINGS: RoutineMailSettings = {
   siteOrigin: null,
   orgDailyCap: ROUTINE_ORG_DAILY_CAP,
   retentionMonths: ROUTINE_LOG_MONTHS,
+  receiptDailyCap: ROUTINE_RECEIPT_DAILY_CAP,
   channels: {},
   textOnlyWithoutApp: true,
   quietHours: DEFAULT_QUIET_HOURS,
@@ -753,7 +768,32 @@ async function receiptRecipientsOf(
       .executeTakeFirst();
     address = text(customer?.email);
   } else if (certainty === "link") {
-    address = person.email;
+    // To whoever answered by the link (ADR 0724): the Person the token's email went to (the
+    // member, or a guardian), or the signed-in customer who answered their item (their own sign-in
+    // address). Never to a child's own address: a child's link went to their guardians.
+    const answer = await linkAnswerOf(db, text(record.id) ?? "");
+    const by = answer?.used_by ?? null;
+    if (!by) return { ...nobody, personId };
+    if (by === personId && (await hasLiveGuardian(db, personId))) return { ...nobody, personId };
+    if (answer?.used_with === "account") {
+      const customer = await db
+        .selectFrom("core_customer")
+        .select("email")
+        .where("person_id", "=", by)
+        .where("email_verified", "=", 1)
+        .executeTakeFirst();
+      address = text(customer?.email);
+    } else {
+      address = by === personId ? person.email : ((await livePerson(db, by))?.email ?? null);
+    }
+    const a = address?.trim().toLowerCase();
+    if (!a) return { ...nobody, personId };
+    const recipient: Recipient = { address: a, rule: "person", personId: by, self: true };
+    if (!ADDRESS.test(a) || a.length > 254) {
+      recipient.held = "the address is not one the host sends to on its own (check it is right)";
+      recipient.invalid = true;
+    }
+    return { recipients: [recipient], memberName: null, personId };
   } else if (certainty === "address") {
     for (const typed of typedAddresses(record[intake.answers]).slice(0, 3)) {
       if ((await sameEmailPeople(db, typed)).includes(personId)) {
@@ -808,18 +848,62 @@ async function receiptsToday(db: Db, kind: string, address: string, now: string)
   return Number(row?.n ?? 0) >= RECEIPT_DAILY_CAP;
 }
 
+/** Where a prepared email's personal link goes, until the email is sent (ADR 0723). */
+export const PERSONAL_LINK_PLACEHOLDER = "[[cos:personal-link]]";
+
+/** Why an email with a personal link is not sent while the pack's routine email is off. */
+const LINK_NEEDS_ROUTINE =
+  "a personal link goes only in an email the host sends on its own: turn routine email on for this pack (Settings → Routine email)";
+
+/** What a form-link slot's link is made for when its email is sent: kept on the row, no token. */
+export interface FormLinkPlan {
+  formObject: string;
+  formId: string;
+  personId: string;
+  recordObject: string;
+  recordId: string;
+  madeFor: string;
+  days: number;
+  once?: number;
+  /** Who the email goes to (the member, or a guardian): who will answer by its token. */
+  sentTo?: string;
+}
+
 /**
- * The personal link a send's form-link slot carries (ADR 0723): the form the pack's setting names,
- * open to answers by link now, and the link for the record's Person about this record, made now
- * or found again by a retried step. `skip`: not sent at all (asked about this record already, or
- * within the slot's `once` days). `failed`: the email cannot carry a link (no site, no form).
+ * The form a form-link slot may send by personal link, now (ADR 0723): published, open, within its
+ * dates, not anonymous, and answered by personal link only (`links`), so a link never makes a
+ * record elsewhere a form open to the public would (a Lead). Null with why, else its id.
+ */
+export async function linkFormNow(
+  db: Db,
+  now: string,
+  object: string,
+  formId: string,
+): Promise<string | null> {
+  try {
+    const form = await openForm({ db, now }, object, formId, "public", { byLink: true });
+    if (form.answeredBy !== "links") {
+      return "the form chosen is not one answered by personal link (Who may answer: By personal link)";
+    }
+    return null;
+  } catch (error) {
+    if (!(error instanceof NotFoundError)) throw error;
+    return "the form chosen does not take answers by personal link now";
+  }
+}
+
+/**
+ * What a send's form-link slot will carry (ADR 0723): the form the pack's setting names, open to
+ * answers by link now. No link is made here: it is made when the email is sent. `skip`: not sent
+ * at all (asked about this record already, or within the slot's `once` days). `failed`: the email
+ * cannot carry a link (no site, no form, a form not for links).
  */
 async function planLink(
   db: Db,
   p: Prepare,
   [, slot]: [string, FormLinkSlotSpec],
   personId: string,
-): Promise<{ linkId: string; site: string } | { skip: true } | { failed: string }> {
+): Promise<{ plan: FormLinkPlan } | { skip: true } | { failed: string }> {
   const site = siteOriginOf(p.settings.siteOrigin);
   if (!site) {
     return {
@@ -828,34 +912,46 @@ async function planLink(
   }
   const slug = text(p.packSettings[slot.setting]);
   if (!slug) return { failed: `no form is chosen (the ${slot.setting} setting)` };
-  const ctx = { db, now: p.now };
   let formId: string;
   try {
-    formId = await formIdBySlug(ctx, slot.object, slug);
-    await openForm(ctx, slot.object, formId, "public", { byLink: true });
+    formId = await formIdBySlug({ db }, slot.object, slug);
   } catch (error) {
     if (!(error instanceof NotFoundError)) throw error;
     return { failed: "the form chosen does not take answers by personal link now" };
   }
-  const about = {
-    personId,
+  const problem = await linkFormNow(db, p.now, slot.object, formId);
+  if (problem) return { failed: problem };
+  const plan: FormLinkPlan = {
     formObject: slot.object,
     formId,
+    personId,
     recordObject: p.object,
     recordId: p.record,
-  };
-  if (slot.once) {
-    const since = new Date(Date.parse(p.now) - slot.once * 86_400_000).toISOString();
-    if (await linkedSince(db, about, since)) return { skip: true };
-  }
-  const link = await ensureLink(db, {
-    ...about,
     madeFor: `${p.kindId}:${p.keyPrefix}`.slice(0, 200),
     days: slot.days ?? PERSONAL_LINK_DAYS,
-    now: p.now,
-  });
-  if (!link?.live) return { skip: true };
-  return { linkId: link.id, site };
+    ...(slot.once ? { once: slot.once } : {}),
+  };
+  // Asked about this record already (another send made its link): nothing more.
+  const asked = await priorLink(db, plan);
+  if (asked && (asked.made_for !== plan.madeFor || asked.used_at !== null)) return { skip: true };
+  if (slot.once && !asked) {
+    const since = new Date(Date.parse(p.now) - slot.once * 86_400_000).toISOString();
+    if (await linkedSince(db, plan, since)) return { skip: true };
+  }
+  return { plan };
+}
+
+/** The link already made for a plan's Person, form and record, if any. */
+function priorLink(db: Db, plan: FormLinkPlan) {
+  return db
+    .selectFrom("core_intake_link")
+    .select(["made_for", "used_at"])
+    .where("form_object", "=", plan.formObject)
+    .where("form_id", "=", plan.formId)
+    .where("person_id", "=", plan.personId)
+    .where("record_object", "=", plan.recordObject)
+    .where("record_id", "=", plan.recordId)
+    .executeTakeFirst();
 }
 
 /**
@@ -1033,7 +1129,13 @@ function checkSendValues(
   for (const key of Object.keys(values ?? {})) {
     const slot = spec.slots[key];
     if (!slot) throw new ValidationError(`${kindId} has no slot "${key}"`);
-    if ("field" in slot || "link" in slot || "each" in slot || "formLink" in slot) {
+    if (
+      "field" in slot ||
+      "link" in slot ||
+      "each" in slot ||
+      "formLink" in slot ||
+      "business" in slot
+    ) {
       throw new ValidationError(`${kindId}'s slot "${key}" is filled by the host`, { slot: key });
     }
   }
@@ -1336,6 +1438,18 @@ async function prepareRows(db: Db, p: Prepare): Promise<PreparedRoutineMail> {
       fill.values[name] = link;
     } else if ("each" in slot) {
       fill.values[name] = await eachSlot(db, records, p.extensionId, name, slot, p.record, fill);
+    } else if ("business" in slot) {
+      // The business's name (ADR 0724): the one a human admin gave in Settings → Routine email
+      // (routineMail.settings.update, human only), never the general settings others may change.
+      const business = settings.senderName?.trim() || null;
+      fill.values[name] = business;
+      const why = business ? unroutineText(business, TEXT_SENDER_MAX) : null;
+      if (!business) {
+        fill.problems.push({
+          slot: name,
+          why: "the business's name is not set (Settings → Routine email)",
+        });
+      } else if (why) fill.problems.push({ slot: name, why: `${name} holds ${why}` });
     }
   }
   const zoneFor = async (slot: RoutineSlotManifest) =>
@@ -1343,7 +1457,14 @@ async function prepareRows(db: Db, p: Prepare): Promise<PreparedRoutineMail> {
   const packValues = async (guardian: boolean) => {
     const out: Record<string, string | null> = {};
     for (const [name, slot] of Object.entries(spec.slots)) {
-      if ("field" in slot || "link" in slot || "each" in slot || "formLink" in slot) continue;
+      if (
+        "field" in slot ||
+        "link" in slot ||
+        "each" in slot ||
+        "formLink" in slot ||
+        "business" in slot
+      )
+        continue;
       records.context = name;
       out[name] = packValue(name, slot, p.values?.[name], await zoneFor(slot), guardian);
     }
@@ -1720,25 +1841,49 @@ async function prepareRows(db: Db, p: Prepare): Promise<PreparedRoutineMail> {
     // A receipt: at most three a day to one mailbox (decision 3); the fourth is not sent at all.
     const overReceipts =
       receipt && on && !stopped && (await receiptsToday(db, p.kindId, recipient.address, now));
-    // The personal link (ADR 0723): a token of its own for this one email, only for one that may
-    // go. Without a link the email is not sent: it is what the email is for.
+    // The personal link (ADR 0723): planned here, made only when this email is sent
+    // (`claimRoutineMail`), with a token of its own that is never written to the row. Without a
+    // link the email is not sent: it is what the email is for.
     let linkProblem: string | null = null;
-    let shownValues = values;
+    let linkPlan: FormLinkPlan | null = null;
     if (linkSlot && on && !stopped && !overReceipts && !recipient.invalid) {
       plan ??= aboutPersonId
         ? await planLink(db, p, linkSlot, aboutPersonId)
         : { failed: "no personal link could be made" };
       if ("skip" in plan) return none();
-      if ("failed" in plan) {
-        linkProblem = plan.failed;
-      } else {
-        const url = personalLinkUrl(plan.site, await linkToken(db, plan.linkId, now));
-        shownValues = { ...values, [linkSlot[0]]: url };
+      if ("failed" in plan) linkProblem = plan.failed;
+      else linkPlan = plan.plan;
+    }
+    const shownValues =
+      linkPlan && linkSlot ? { ...values, [linkSlot[0]]: PERSONAL_LINK_PLACEHOLDER } : values;
+    let body = renderTemplate(parseTemplate(template.text), shownValues);
+    const { reasons, shown } = judge(
+      [template.subject, template.text],
+      guardian,
+      ofRecipient.get(recipient.address) ?? [],
+      calendar.length > 0,
+    );
+    if (subject.length > 200 || !subject.trim()) reasons.push("the subject is too long or empty");
+    if (body.length > 29_000) reasons.push("the email is too long");
+    if (recipient.held) reasons.push(recipient.held);
+    // A host kind's email with no email channel set cannot go: kept, failed, for staff to see.
+    const noConnection = on && !p.connectionId;
+    // A personal link goes only in an email the host sends on its own: never in one a person
+    // approves (its words, the link among them, would sit in the approval and the action's
+    // stored input). Such an email is kept failed, with why, and no words.
+    if (linkPlan && !linkProblem) {
+      if (noConnection) linkProblem = NO_EMAIL_CHANNEL;
+      else if (!packOn) linkProblem = LINK_NEEDS_ROUTINE;
+      else if (reasons.length) {
+        linkProblem =
+          `it would wait for a person (${reasons.join("; ")}), and an email with a personal link never does`.slice(
+            0,
+            1000,
+          );
       }
     }
-    let body = renderTemplate(parseTemplate(template.text), shownValues);
     // Not sent at all, and nothing kept of its words: a fourth receipt today, or a personal
-    // link that could not be made.
+    // link that cannot go.
     const notSent = Boolean(overReceipts) || linkProblem !== null;
     const live = on && !stopped && !notSent;
     const link =
@@ -1750,15 +1895,6 @@ async function prepareRows(db: Db, p: Prepare): Promise<PreparedRoutineMail> {
           })
         : null;
     if (link) body = `${body}\n\n${STOP_WORDS} ${link}`;
-    const { reasons, shown } = judge(
-      [template.subject, template.text],
-      guardian,
-      ofRecipient.get(recipient.address) ?? [],
-      calendar.length > 0,
-    );
-    if (subject.length > 200 || !subject.trim()) reasons.push("the subject is too long or empty");
-    if (body.length > 30_000) reasons.push("the email is too long");
-    if (recipient.held) reasons.push(recipient.held);
     // The daily caps are counted when the row is claimed (claimRoutineMail), not here.
     // A host kind's occasion is keyed on who it goes to, not the address: an order's address
     // changed since sends the same occasion nothing again (the review of PR #339). A pack's key is
@@ -1768,8 +1904,6 @@ async function prepareRows(db: Db, p: Prepare): Promise<PreparedRoutineMail> {
         ? `${p.keyPrefix}:${p.kindId}:${p.messageName}:${p.record}:${recipient.rule}:${recipient.personId ?? (recipient.rule === "order" ? "order" : recipient.address)}`
         : `${p.keyPrefix}:${p.kindId}:${p.messageName}:${p.record}:${recipient.address}`;
     keys.push(key);
-    // A host kind's email with no email channel set cannot go: kept, failed, for staff to see.
-    const noConnection = on && !p.connectionId;
     rows.push({
       ...common(recipient),
       id: newId("routineMail"),
@@ -1799,6 +1933,10 @@ async function prepareRows(db: Db, p: Prepare): Promise<PreparedRoutineMail> {
             : recipient.invalid || noConnection || linkProblem
               ? "failed"
               : "ready",
+      form_link:
+        live && linkPlan && recipient.personId
+          ? JSON.stringify({ ...linkPlan, sentTo: recipient.personId })
+          : null,
       connection_id: live ? p.connectionId : null,
       subject: live ? subject.slice(0, 200) : null,
       body: live ? body : null,
@@ -2235,7 +2373,14 @@ export async function claimRoutineMail(
   id: string,
   connectionId: string,
   now = new Date().toISOString(),
-): Promise<RoutineMailRow | "off" | "stopped" | null> {
+  options: {
+    /**
+     * Whether the approval policy and the deploy floor let routine email go on its own now (the
+     * runner's `evaluateGate`): an email carrying a personal link goes only then (ADR 0723).
+     */
+    sendsOnItsOwn?: boolean;
+  } = {},
+): Promise<RoutineMailRow | "off" | "stopped" | "failed" | null> {
   let row = await db
     .selectFrom("core_routine_mail")
     .selectAll()
@@ -2288,6 +2433,11 @@ export async function claimRoutineMail(
       .execute();
   } else if (row.routine === 1) {
     const day = new Date(Date.parse(now) - 86_400_000).toISOString();
+    // Receipts (ADR 0724) have a daily cap of their own for the organisation, and do not count
+    // toward the cap the rest of routine email needs: a flood of answers from typed addresses
+    // never uses up booking confirmations' room.
+    const receiptKinds = kinds.filter((k) => k.spec.receipt === true).map((k) => k.id);
+    const isReceipt = kind.spec.receipt === true;
     const claimed = await db
       .updateTable("core_routine_mail")
       .set({ status: "sending", claimed_at: now, updated_at: now })
@@ -2306,21 +2456,75 @@ export async function claimRoutineMail(
             "<",
             ROUTINE_DAILY_CAP,
           ),
-          eb(
-            eb
-              .selectFrom("core_routine_mail as o")
-              .select((o) => o.fn.countAll<number>().as("n"))
-              // Emails only: a text has its own caps and the month's limit (ADR 0672).
-              .where("o.channel", "=", "email")
-              .where("o.routine", "=", 1)
-              .where("o.claimed_at", ">", day)
-              .where("o.id", "!=", id),
-            "<",
-            settings.orgDailyCap,
-          ),
+          isReceipt
+            ? eb(
+                eb
+                  .selectFrom("core_routine_mail as o")
+                  .select((o) => o.fn.countAll<number>().as("n"))
+                  .where("o.channel", "=", "email")
+                  .where("o.routine", "=", 1)
+                  .where("o.kind", "in", receiptKinds)
+                  .where("o.claimed_at", ">", day)
+                  .where("o.id", "!=", id),
+                "<",
+                settings.receiptDailyCap,
+              )
+            : eb(
+                eb
+                  .selectFrom("core_routine_mail as o")
+                  .select((o) => o.fn.countAll<number>().as("n"))
+                  // Emails only: a text has its own caps and the month's limit (ADR 0672).
+                  .where("o.channel", "=", "email")
+                  .where("o.routine", "=", 1)
+                  .where("o.claimed_at", ">", day)
+                  .where("o.id", "!=", id)
+                  .where((o) =>
+                    receiptKinds.length ? o("o.kind", "not in", receiptKinds) : o.lit(true),
+                  ),
+                "<",
+                settings.orgDailyCap,
+              ),
         ]),
       )
       .executeTakeFirst();
+    if (Number(claimed.numUpdatedRows) === 0 && isReceipt) {
+      const mailbox = await db
+        .selectFrom("core_routine_mail")
+        .select((eb) => eb.fn.countAll<number>().as("n"))
+        .where("recipient_key", "=", row.recipient_key)
+        .where("routine", "=", 1)
+        .where("claimed_at", ">", day)
+        .executeTakeFirst();
+      if (Number(mailbox?.n ?? 0) < ROUTINE_DAILY_CAP) {
+        // Over the organisation's receipts for the day: not sent, never held (a receipt is not
+        // worth a person's approval), and the admins told once a day.
+        await settleUnsent(
+          db,
+          id,
+          "over_limit",
+          `${settings.receiptDailyCap} receipts went out today`,
+          now,
+        );
+        const plan = await notifyStatements(
+          db,
+          {
+            to: [{ role: "admin" }],
+            type: "system.message",
+            title: "Receipts reached today's limit",
+            body:
+              `${settings.receiptDailyCap} receipts went out in the last day, so the rest are not ` +
+              "sent (Settings → Routine email sets the limit). If this is not a busy day, it may be spam.",
+            dedupeKey: `routine-mail.receipt-cap:${now.slice(0, 10)}`,
+            source: { actor: "system" },
+          },
+          now,
+        );
+        for (const statement of plan.statements) {
+          await (statement as unknown as { execute(): Promise<unknown> }).execute();
+        }
+        return "failed";
+      }
+    }
     if (Number(claimed.numUpdatedRows) === 0) {
       const mailbox = await db
         .selectFrom("core_routine_mail")
@@ -2371,6 +2575,19 @@ export async function claimRoutineMail(
     .where("id", "=", id)
     .executeTakeFirstOrThrow();
   if (!row.subject || row.body === null) return null;
+  // The personal link (ADR 0723): made now, for an email the host sends on its own, with a token
+  // of its own that is put in the words going out and never written back to the row. An email
+  // that would wait for a person (its pack's routine email off, a value held, a cap reached, a
+  // policy that reviews routine email) is not sent: its link would sit in the approval.
+  let text = row.body;
+  if (row.form_link) {
+    const made = await personalLinkAtSend(db, row, settings, now, options.sendsOnItsOwn === true);
+    if ("unsent" in made) {
+      await settleUnsent(db, id, made.unsent, made.why, now);
+      return "failed";
+    }
+    text = row.body.replace(PERSONAL_LINK_PLACEHOLDER, made.url);
+  }
   let related: string[] = [];
   try {
     related = (JSON.parse(row.related ?? "[]") as unknown[]).map(String).slice(0, 20);
@@ -2406,7 +2623,7 @@ export async function claimRoutineMail(
     message: {
       to: [row.recipient],
       subject: row.subject,
-      text: row.body,
+      text,
       relatedRecords: related,
       ...(events.length === 1
         ? { calendar: events[0] }
@@ -2416,6 +2633,84 @@ export async function claimRoutineMail(
       ...(listUnsubscribe ? { listUnsubscribe } : {}),
     },
   };
+}
+
+/** Settles a claimed row as not sent (`failed` or `over_limit`), its words and its link plan cleared. */
+async function settleUnsent(
+  db: Db,
+  id: string,
+  status: "failed" | "over_limit",
+  why: string,
+  now: string,
+) {
+  await db
+    .updateTable("core_routine_mail")
+    .set({
+      status,
+      routine: 0,
+      error: why.slice(0, 1000),
+      updated_at: now,
+      subject: null,
+      body: null,
+      calendar: null,
+      form_link: null,
+    })
+    .where("id", "=", id)
+    .execute();
+}
+
+/**
+ * The personal link of a row being sent (ADR 0723): the link for its plan, made or found, and a
+ * new token for this one email; or why it is not sent. Only a row still routine after the caps,
+ * under a policy that lets routine email go on its own, carries one.
+ */
+async function personalLinkAtSend(
+  db: Db,
+  row: { routine: number; held_reason: string | null; form_link: string | null },
+  settings: RoutineMailSettings,
+  now: string,
+  sendsOnItsOwn: boolean,
+): Promise<{ url: string } | { unsent: "failed" | "over_limit"; why: string }> {
+  if (row.routine !== 1) {
+    return {
+      unsent: "failed",
+      why: row.held_reason
+        ? `it would wait for a person (${row.held_reason}), and an email with a personal link never does`
+        : LINK_NEEDS_ROUTINE,
+    };
+  }
+  if (!sendsOnItsOwn) {
+    return {
+      unsent: "failed",
+      why: "the approval policy reviews routine email, and an email with a personal link never waits for a person",
+    };
+  }
+  let plan: FormLinkPlan;
+  try {
+    plan = JSON.parse(row.form_link ?? "") as FormLinkPlan;
+  } catch {
+    return { unsent: "failed", why: "no personal link could be made" };
+  }
+  const site = siteOriginOf(settings.siteOrigin);
+  if (!site || !plan.sentTo) {
+    return {
+      unsent: "failed",
+      why: "a personal link is on the business's site: set it in Settings → Routine email",
+    };
+  }
+  const problem = await linkFormNow(db, now, plan.formObject, plan.formId);
+  if (problem) return { unsent: "failed", why: problem };
+  const link = await ensureLink(db, { ...plan, now });
+  if ("refused" in link) {
+    return link.refused === "once"
+      ? {
+          unsent: "over_limit",
+          why: `they were sent a link to this form within ${plan.once ?? 0} days`,
+        }
+      : { unsent: "failed", why: "they were asked about this already" };
+  }
+  if (!link.live) return { unsent: "failed", why: "they answered it already" };
+  return { url: personalLinkUrl(site, await linkToken(db, link.id, plan.sentTo, now)) };
 }
 
 /** Records what became of a send; the words are cleared once it is decided. */
@@ -2430,11 +2725,39 @@ export async function settleRoutineMail(
   now = new Date().toISOString(),
 ): Promise<void> {
   const keep = outcome.status === "ready";
+  // An email with a personal link that did not go (refused, failed, or put to a person after
+  // all): its link is withdrawn, so no token made for it answers anything, it is no
+  // `form_to_fill` and it does not count toward the cool-down, unless another email of the same
+  // send went out with it (ADR 0723).
+  if (outcome.status !== "sent" && outcome.status !== "ready") {
+    const row = await db
+      .selectFrom("core_routine_mail")
+      .select(["form_link", "kind", "record_id"])
+      .where("id", "=", id)
+      .executeTakeFirst();
+    if (row?.form_link) {
+      let plan: FormLinkPlan | null = null;
+      try {
+        plan = JSON.parse(row.form_link) as FormLinkPlan;
+      } catch {}
+      const others = await db
+        .selectFrom("core_routine_mail")
+        .select((eb) => eb.fn.countAll<number>().as("n"))
+        .where("kind", "=", row.kind)
+        .where("record_id", "=", row.record_id)
+        .where("channel", "=", "email")
+        .where("id", "!=", id)
+        .where("status", "in", ["sending", "sent", "delivered"])
+        .executeTakeFirst();
+      if (plan && Number(others?.n ?? 0) === 0) await withdrawLink(db, plan);
+    }
+  }
   await db
     .updateTable("core_routine_mail")
     .set({
       status: outcome.status,
       updated_at: now,
+      ...(keep ? {} : { form_link: null }),
       ...("pendingActionId" in outcome ? { pending_action_id: outcome.pendingActionId } : {}),
       ...("error" in outcome ? { error: outcome.error.slice(0, 1000) } : {}),
       ...(keep ? {} : { subject: null, body: null, calendar: null }),

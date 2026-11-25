@@ -46,7 +46,7 @@ async function link(personId: string, now = new Date().toISOString()) {
     days: 7,
     now,
   });
-  expect(made?.live).toBe(true);
+  expect("live" in made && made.live).toBe(true);
   return made as { id: string; expiresAt: string };
 }
 
@@ -124,7 +124,7 @@ describe("tokens", () => {
     const who = await person();
     const { id } = await link(who);
     const now = new Date().toISOString();
-    const token = await linkToken(db.query, id, now);
+    const token = await linkToken(db.query, id, who, now);
     expect(token).toMatch(LINK_TOKEN);
     const stored = await env.DB.prepare(
       "SELECT token_hash FROM core_intake_link_token WHERE link_id = ?",
@@ -159,7 +159,9 @@ describe("tokens", () => {
     };
     const first = await ensureLink(db.query, want);
     expect(await ensureLink(db.query, want)).toEqual(first);
-    expect(await ensureLink(db.query, { ...want, madeFor: "bookings.feedback:run2" })).toBeNull();
+    expect(await ensureLink(db.query, { ...want, madeFor: "bookings.feedback:run2" })).toEqual({
+      refused: "asked",
+    });
     // The cool-down sees it for any other record, not for this one.
     const since = new Date(Date.now() - DAY).toISOString();
     expect(await linkedSince(db.query, { ...want, recordId: "rec_other" }, since)).toBe(true);
@@ -167,11 +169,83 @@ describe("tokens", () => {
   });
 });
 
+describe("never replaced (the review of PR #458)", () => {
+  it("refuses an INSERT OR REPLACE colliding on what a link is about, or on a token's hash", async () => {
+    const who = await person();
+    const { id } = await link(who);
+    const row = await env.DB.prepare("SELECT * FROM core_intake_link WHERE id = ?")
+      .bind(id)
+      .first<Record<string, string>>();
+    await batch(use(id, "rec_used"));
+    // A fresh unused link for the same Person, form and record would let it be answered twice.
+    await expect(
+      env.DB.prepare(
+        "INSERT OR REPLACE INTO core_intake_link (id, person_id, form_object, form_id, record_object, record_id, made_for, expires_at, created_at) VALUES (?, ?, ?, ?, ?, ?, 'again', '2999-01-01T00:00:00.000Z', ?)",
+      )
+        .bind(
+          unique("ilk_"),
+          who,
+          row?.form_object,
+          row?.form_id,
+          row?.record_object,
+          row?.record_id,
+          new Date().toISOString(),
+        )
+        .run(),
+    ).rejects.toThrow(/core_intake_link_exists/);
+    expect(
+      await env.DB.prepare("SELECT used_at FROM core_intake_link WHERE id = ?").bind(id).first(),
+    ).toMatchObject({ used_at: expect.any(String) });
+    // A token is never pointed at another link.
+    const other = await link(who);
+    await linkToken(db.query, id, who, new Date().toISOString());
+    const hash = await env.DB.prepare(
+      "SELECT token_hash FROM core_intake_link_token WHERE link_id = ?",
+    )
+      .bind(id)
+      .first<{ token_hash: string }>();
+    await expect(
+      env.DB.prepare(
+        "INSERT OR REPLACE INTO core_intake_link_token (token_hash, link_id, sent_to, created_at) VALUES (?, ?, ?, ?)",
+      )
+        .bind(hash?.token_hash, other.id, who, new Date().toISOString())
+        .run(),
+    ).rejects.toThrow(/core_intake_link_fixed/);
+    // A used link goes only with its Person.
+    await expect(
+      env.DB.prepare("DELETE FROM core_intake_link WHERE id = ?").bind(id).run(),
+    ).rejects.toThrow(/core_intake_link_fixed/);
+  });
+});
+
+describe("once a month, kept by the database", () => {
+  it("two links to one form for one Person due at the same moment: one is made", async () => {
+    const who = await person();
+    const now = new Date().toISOString();
+    const base = {
+      personId: who,
+      formObject: "forms.form",
+      formId: unique("rec_f"),
+      recordObject: "bookings.booking",
+      days: 7,
+      once: 30,
+      now,
+    };
+    const results = await Promise.all(
+      Array.from({ length: 4 }, (_, i) =>
+        ensureLink(db.query, { ...base, recordId: unique(`rec_b${i}`), madeFor: unique("run") }),
+      ),
+    );
+    expect(results.filter((r) => "live" in r)).toHaveLength(1);
+    expect(results.filter((r) => "refused" in r && r.refused === "once")).toHaveLength(3);
+  });
+});
+
 describe("erase", () => {
   it("deletes a Person's links and their tokens", async () => {
     const who = await person();
     const { id } = await link(who);
-    await linkToken(db.query, id, new Date().toISOString());
+    await linkToken(db.query, id, who, new Date().toISOString());
     await invokeByName("person.erase", { id: who }, context(admin));
     const left = await env.DB.prepare(
       "SELECT (SELECT count(*) FROM core_intake_link WHERE id = ?1) + (SELECT count(*) FROM core_intake_link_token WHERE link_id = ?1) AS n",

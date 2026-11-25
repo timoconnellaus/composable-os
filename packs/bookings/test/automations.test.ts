@@ -639,6 +639,43 @@ describe("the declared words, as the host renders them", () => {
   });
 });
 
+describe("the organisation's saved settings (found building stage 29 step 5)", () => {
+  it("placeFree reads the waitlist cut-off the organisation saved, not only the default", async () => {
+    const waiting = [
+      booking({ id: "bkg_w1", state: "waiting", person: "per_bob" }),
+      booking({ id: "bkg_gone", state: "cancelled", person: "per_ann" }),
+    ];
+    const ops = {
+      "capacity.get": () => ({ status: "available", available: 1 }),
+      "extensionSettings.list": () => ({
+        items: [{ extension: "bookings", values: { promotionMinutes: 60 } }],
+      }),
+    };
+    const freed = (startsIn: number) => {
+      const h = host(
+        {
+          "bookings.class": [
+            { ...CLASS, startsAt: inHours(startsIn), endsAt: inHours(startsIn + 1) },
+          ],
+          "bookings.booking": waiting,
+        },
+        ops,
+      );
+      return h
+        .runAutomation("placeFree", {
+          record: { object: "bookings.booking", id: "bkg_gone" },
+          change: { action: "updated", diff: { state: { before: "booked", after: "cancelled" } } },
+        })
+        .then(() => h.routineSends.length);
+    };
+    // 90 minutes ahead: before a 60-minute cut-off (the waiting list's own), so nobody is told;
+    // with the default 120 they would be.
+    expect(await freed(1.5)).toBe(0);
+    // 30 minutes ahead: after it, so the waiters are told.
+    expect(await freed(0.5)).toBe(1);
+  });
+});
+
 describe("feedbackAfterClass (stage 29 step 5)", () => {
   const chosen = (feedbackForm: string | null) => ({
     "extensionSettings.list": () => ({

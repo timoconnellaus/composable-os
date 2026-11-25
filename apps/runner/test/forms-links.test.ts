@@ -20,8 +20,10 @@ import {
   type CustomerPrincipal,
   type EventSink,
   type ExtensionHost,
+  ensureLink,
   type InvocationContext,
   type OutsideInvocationContext,
+  prepareRoutineMail,
   queueEventSink,
   refreshSchemaRegistry,
 } from "@composable-os/core";
@@ -236,7 +238,7 @@ beforeAll(async () => {
   // Routine email turned on by a human admin (ADR 0590, D1), with the gym's own site.
   await run(
     "routineMail.settings.update",
-    { packs: { bookings: true, forms: true }, siteOrigin: SITE },
+    { packs: { bookings: true, forms: true }, siteOrigin: SITE, senderName: "Gym Co" },
     staff(),
   );
   for (const id of ["bookings.feedbackAfterClass", "forms.receipt"]) {
@@ -447,20 +449,16 @@ describe("a link answers only its own form, as its own Person (proof b)", {
     const item = items.find((i) => i.kind === "form_to_fill");
     expect(item?.link).toBeTruthy();
     const stranger = await member("stranger");
-    for (const caller of [outside(stranger), outside(PUBLIC)]) {
-      const refused = await refusal(
-        run(
-          "x.forms.submit",
-          { id: feedback.id, version: 1, answers: { score: 2 }, linkId: item?.link },
-          caller,
-        ),
-      );
-      expect(refused.message).toContain("This link cannot be used");
-    }
+    const byId = { linkId: item?.link, id: feedback.id, version: 1, answers: { score: 2 } };
+    const refused = await refusal(run("x.forms.submitLinked", byId, outside(stranger)));
+    expect(refused.message).toContain("This link cannot be used");
+    // The public has no way to name a link by its id at all (not in its contract).
+    expect((await refusal(run("x.forms.submitLinked", byId, outside(PUBLIC)))).code).toBeDefined();
+    expect((await refusal(run("x.forms.submit", byId, outside(PUBLIC)))).code).toBeDefined();
     // And the link still works for its own member: the attention item answers it, then goes.
     await run(
-      "x.forms.submit",
-      { id: feedback.id, version: 1, answers: { score: 5 }, linkId: item?.link },
+      "x.forms.submitLinked",
+      { linkId: item?.link, id: feedback.id, version: 1, answers: { score: 5 } },
       outside(who),
     );
     const kept = (await submissionsOf(feedback.id)).filter(
@@ -542,7 +540,9 @@ describe("the receipt (criterion 15)", { timeout: 90_000 }, () => {
     for (const s of submissions) await finished("forms.receipt", s.id);
     const mails = await mailsOnce(who.email, 3);
     for (const mail of mails) {
-      expect(mail.subject).toMatch(/^We got your answers: /);
+      // The business's name, from Settings → Routine email; the form's title; nothing typed.
+      expect(mail.subject).toBe("Gym Co: we got your answers");
+      expect(mail.text).toContain("Gym Co got your answers to");
       expect(mail.text).not.toContain(typed);
       expect(mail.text).not.toContain("Given-");
     }
@@ -616,5 +616,206 @@ describe("erase and merge (what a link table needs now)", { timeout: 90_000 }, (
       (s) => s.values.about === theirs.bookingId,
     );
     expect(answered.map((s) => s.values.person)).toEqual([kept.personId]);
+  });
+});
+
+// The review of PR #458, M1: a token is made only when its email goes on its own, and is never
+// written to a row, an approval or a pending action's input.
+describe("a personal link never waits for a person (the review's M1)", { timeout: 90_000 }, () => {
+  /** Whatever the host kept that could hold a link: pending actions, the log, the audit. */
+  async function nothingKeptHoldsALink() {
+    const kept = await env.DB.batch([
+      env.DB.prepare("SELECT * FROM core_pending_action"),
+      env.DB.prepare("SELECT * FROM core_routine_mail"),
+      env.DB.prepare("SELECT input, result, error FROM core_audit"),
+    ]);
+    const text = JSON.stringify(kept.map((r) => r.results));
+    expect(text).not.toContain("/form?t=");
+  }
+  const linksAbout = async (bookingId: string) =>
+    Number(
+      (
+        await env.DB.prepare("SELECT count(*) AS n FROM core_intake_link WHERE record_id = ?")
+          .bind(bookingId)
+          .first<{ n: number }>()
+      )?.n,
+    );
+  const rowsAbout = async (bookingId: string) =>
+    (
+      await env.DB.prepare(
+        "SELECT status, error, body, form_link FROM core_routine_mail WHERE kind = 'bookings.feedback' AND record_id = ?",
+      )
+        .bind(bookingId)
+        .all<{
+          status: string;
+          error: string | null;
+          body: string | null;
+          form_link: string | null;
+        }>()
+    ).results;
+
+  it("with Bookings' routine email off: not sent for approval, failed with why, no link made", async () => {
+    await run("routineMail.settings.update", { packs: { bookings: false } }, staff());
+    try {
+      const who = await member("routineoff");
+      await givePass(who.personId);
+      const booking = await cameTo(who);
+      await feedbackDue(booking);
+      const [row, ...more] = await rowsAbout(booking.bookingId);
+      expect(more).toEqual([]);
+      expect(row).toMatchObject({ status: "failed", body: null, form_link: null });
+      expect(row?.error).toMatch(/turn routine email on/);
+      expect(await linksAbout(booking.bookingId)).toBe(0);
+      expect(await mailTo(who.email)).toEqual([]);
+      // Nothing waits in the app either: an unsent link is no form_to_fill.
+      const { items } = await run<{ items: { kind: string }[] }>("me.attention", {}, outside(who));
+      expect(items.filter((i) => i.kind === "form_to_fill")).toEqual([]);
+      await nothingKeptHoldsALink();
+    } finally {
+      await run("routineMail.settings.update", { packs: { bookings: true } }, staff());
+    }
+  });
+
+  it("over a cap at the claim: failed, no link, nothing put to a person", async () => {
+    await run("routineMail.settings.update", { orgDailyCap: 1 }, staff());
+    try {
+      const who = await member("capped");
+      await givePass(who.personId);
+      const booking = await cameTo(who);
+      await feedbackDue(booking);
+      const [row] = await rowsAbout(booking.bookingId);
+      expect(row).toMatchObject({ status: "failed", body: null });
+      expect(row?.error).toMatch(/would wait for a person/);
+      expect(await linksAbout(booking.bookingId)).toBe(0);
+      await nothingKeptHoldsALink();
+    } finally {
+      await run("routineMail.settings.update", { orgDailyCap: 2_000 }, staff());
+    }
+  });
+
+  it("with no email connection: kept failed with no words", async () => {
+    const who = await member("noconn");
+    await givePass(who.personId);
+    const booking = await cameTo(who);
+    // A run of the feedback automation for the booking, prepared with no connection bound.
+    const runId = unique("arn_");
+    const now = new Date().toISOString();
+    await env.DB.prepare(
+      "INSERT INTO core_automation_runs (id, automation_id, extension_id, trigger, record_object, record_id, status, test, started_at, updated_at) VALUES (?, 'bookings.feedbackAfterClass', 'bookings', '{\"type\":\"dateRelative\"}', ?, ?, 'running', 0, ?, ?)",
+    )
+      .bind(runId, BOOKING, booking.bookingId, now, now)
+      .run();
+    await prepareRoutineMail(db.query, {
+      extensionId: "bookings",
+      automationId: "bookings.feedbackAfterClass",
+      runId,
+      connectionId: "",
+      send: { kind: "feedback", record: booking.bookingId, message: "ask" },
+    });
+    const [row] = await rowsAbout(booking.bookingId);
+    expect(row).toMatchObject({ status: "failed", body: null, form_link: null });
+    expect(await linksAbout(booking.bookingId)).toBe(0);
+  });
+
+  it("a feedback form must be one answered by personal link", async () => {
+    const open = await makeForm({ answeredBy: "public", title: unique("Open feedback") });
+    await run(
+      "extensionSettings.update",
+      { extension: "bookings", values: { feedbackForm: open.slug } },
+      staff(),
+    );
+    try {
+      const who = await member("publicform");
+      await givePass(who.personId);
+      const booking = await cameTo(who);
+      await feedbackDue(booking);
+      const [row] = await rowsAbout(booking.bookingId);
+      expect(row).toMatchObject({ status: "failed", body: null });
+      expect(row?.error).toMatch(/not one answered by personal link/);
+      expect(await linksAbout(booking.bookingId)).toBe(0);
+    } finally {
+      await run(
+        "extensionSettings.update",
+        { extension: "bookings", values: { feedbackForm: feedback.slug } },
+        staff(),
+      );
+    }
+  });
+});
+
+// The review of PR #458, M2: a link answer's receipt goes to whoever the link's email went to.
+describe("the receipt of a child's link (the review's M2)", { timeout: 90_000 }, () => {
+  it("goes to the guardian, by token or signed in by its id; never to the child's own address", async () => {
+    await run(
+      "record.update",
+      { object: FORM, id: feedback.id, values: { receipt: true } },
+      staff(),
+    );
+    try {
+      const parent = await member("m2parent");
+      const childEmail = `${unique("m2kid")}@members.test`.toLowerCase();
+      const child = await run<{ id: string }>(
+        "person.create",
+        { givenName: "Sam", emails: [{ email: childEmail }] },
+        staff(),
+      );
+      await run("person.link.add", { guardianId: parent.personId, dependantId: child.id }, staff());
+      await givePass(child.id);
+      // By the token in the guardian's email.
+      const first = await cameTo(parent, child.id);
+      await feedbackDue(first);
+      const token = tokenIn((await mailsOnce(parent.email, 1))[0]);
+      await run(
+        "x.forms.submit",
+        { id: feedback.id, version: 1, answers: { score: 4 }, link: token },
+        outside(PUBLIC),
+      );
+      const byToken = (await submissionsOf(feedback.id)).find(
+        (s) => s.values.about === first.bookingId,
+      );
+      await finished("forms.receipt", String(byToken?.id));
+      const receipts = await mailsOnce(parent.email, 2);
+      expect(receipts[1]?.subject).toBe("Gym Co: we got your answers");
+      // Signed in, by the item's id: a link a later class's email would carry.
+      const second = await cameTo(parent, child.id);
+      const made = await ensureLink(db.query, {
+        personId: child.id,
+        formObject: FORM,
+        formId: feedback.id,
+        recordObject: BOOKING,
+        recordId: second.bookingId,
+        madeFor: unique("bookings.feedback:by-hand"),
+        days: 7,
+        now: new Date().toISOString(),
+      });
+      expect("live" in made).toBe(true);
+      const { items } = await run<{ items: { kind: string; link: string | null }[] }>(
+        "me.attention",
+        {},
+        outside(parent),
+      );
+      const item = items.find(
+        (i) => i.kind === "form_to_fill" && i.link === ("id" in made ? made.id : ""),
+      );
+      expect(item).toBeDefined();
+      await run(
+        "x.forms.submitLinked",
+        { linkId: item?.link, id: feedback.id, version: 1, answers: { score: 5 } },
+        outside(parent),
+      );
+      const byId = (await submissionsOf(feedback.id)).find(
+        (s) => s.values.about === second.bookingId,
+      );
+      await finished("forms.receipt", String(byId?.id));
+      await mailsOnce(parent.email, 3);
+      await new Promise((resolve) => setTimeout(resolve, 500));
+      expect(await mailTo(childEmail)).toEqual([]);
+    } finally {
+      await run(
+        "record.update",
+        { object: FORM, id: feedback.id, values: { receipt: false } },
+        staff(),
+      );
+    }
   });
 });

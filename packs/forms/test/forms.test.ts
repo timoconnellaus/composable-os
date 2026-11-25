@@ -84,7 +84,8 @@ describe("the Forms pack (test host)", () => {
       .filter(([, tool]) => (tool.audiences ?? ["staff"]).some((a) => a !== "staff"))
       .map(([name]) => name)
       .sort();
-    expect(open).toEqual(["form", "submit"]);
+    // Stage 29 step 5: a signed-in member's own personal link, by its id (customers only).
+    expect(open).toEqual(["form", "linkedForm", "submit", "submitLinked"]);
     for (const name of ["enter", "move", "markSpam", "notSpam"]) {
       expect(host.manifest.tools[name]?.permission, name).toBe("forms:answer");
     }
@@ -291,7 +292,13 @@ describe("the receipt", () => {
     const { host } = hostWith();
     const kind = host.manifest.routineMail?.receipt;
     expect(kind).toMatchObject({ about: "submission", receipt: true });
-    expect(kind?.slots).toEqual({ form: { field: "form.title", max: 200 } });
+    expect(kind?.slots).toEqual({
+      business: { business: true },
+      form: { field: "form.title", max: 200 },
+    });
+    // The public is never offered a link by its id: that is a signed-in customer's tool.
+    expect(host.manifest.tools.linkedForm?.audiences).toEqual(["customer"]);
+    expect(host.manifest.tools.submitLinked?.audiences).toEqual(["customer"]);
     expect(host.manifest.permissions.modules).toContain("routine-mail");
   });
 });
@@ -306,7 +313,11 @@ describe("answering by a personal link", () => {
       { id: "frm_1", version: 2, answers: { email: "x@example.test" }, link },
       { caller: { kind: "public" } },
     );
-    await host.runTool("form", { linkId: "ilk_1" }, { caller: { kind: "public" } });
+    await host.runTool(
+      "linkedForm",
+      { linkId: "ilk_1" },
+      { caller: { kind: "customer", customerId: "cus_1", personId: "per_1" } as never },
+    );
     expect(calls).toEqual([
       { operation: "intake.open", input: { object: FORM, link } },
       {
@@ -321,6 +332,23 @@ describe("answering by a personal link", () => {
       },
       { operation: "intake.open", input: { object: FORM, linkId: "ilk_1" } },
     ]);
+    // Signed in, by the link's id: the door is told which link, and the way in is the app.
+    await host.runTool(
+      "submitLinked",
+      { linkId: "ilk_1", id: "frm_1", version: 2, answers: { score: 4 } },
+      { caller: { kind: "customer", customerId: "cus_1", personId: "per_1" } as never },
+    );
+    expect(calls.at(-1)).toEqual({
+      operation: "intake.submit",
+      input: {
+        object: FORM,
+        id: "frm_1",
+        version: 2,
+        answers: { score: 4 },
+        via: "app",
+        linkId: "ilk_1",
+      },
+    });
     // The token is never written to the audit log.
     expect(host.manifest.tools.form?.redact).toContain("link");
     expect(host.manifest.tools.submit?.redact).toContain("link");

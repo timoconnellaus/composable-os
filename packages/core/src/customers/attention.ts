@@ -28,7 +28,7 @@
 // places, their first lines), one for allowance holders and one through the seam for the passes
 // listed, every holder object in the same statement. No statement binds a list of the family or
 // of the documents; the orders and passes read at most 50 ids each. Personal links: one statement
-// for the family's live links (soonest to expire, at most ten), then each link's form (two each).
+// for the family's live links (soonest to expire, at most ten), then their forms together.
 import { sql } from "kysely";
 import { versionIntact } from "../agreements/documents.ts";
 import {
@@ -42,10 +42,10 @@ import {
 } from "../agreements/due.ts";
 import { boundOf } from "../allowance/periods.ts";
 import { holderOf } from "../allowance/records.ts";
-import { NotFoundError, OperationError } from "../errors.ts";
+import { OperationError } from "../errors.ts";
 import { getObject } from "../fields/index.ts";
 import type { ObjectDefinition } from "../fields/types.ts";
-import { openForm } from "../intake/forms.ts";
+import { type OpenForm, openForms } from "../intake/forms.ts";
 import type { HandlerContext } from "../operation.ts";
 import { ORDER_CLAIM_TYPE } from "../orders/holds.ts";
 import { viewColumnOf } from "../records/columns.ts";
@@ -437,16 +437,18 @@ export async function attentionOf(
     WHERE (person_id = ${me} OR person_id IN (${dependantsSql(me)}))
       AND used_at IS NULL AND expires_at > ${now} AND form_id IS NOT NULL
     ORDER BY expires_at, id LIMIT ${LINKS_READ}`.execute(ctx.db);
+  // Their forms, read together: two statements for each form object the links name (in practice
+  // one, Forms'), whatever the number of links.
+  const forms = new Map<string, Map<string, OpenForm>>();
+  for (const object of [...new Set(links.rows.map((l) => l.form_object))]) {
+    if (!getObject(object)) continue;
+    const ids = links.rows.filter((l) => l.form_object === object).map((l) => l.form_id);
+    forms.set(object, await openForms(ctx, object, ids, "customer", { byLink: true }));
+  }
   for (const link of links.rows) {
     const person = people.get(link.person_id);
-    if (!person || !getObject(link.form_object)) continue;
-    const form = await openForm(ctx, link.form_object, link.form_id, "customer", {
-      byLink: true,
-    }).catch((error: unknown) => {
-      if (error instanceof NotFoundError) return null;
-      throw error;
-    });
-    if (!form) continue;
+    const form = forms.get(link.form_object)?.get(link.form_id);
+    if (!person || !form) continue;
     const titleField = form.object.titleField;
     const title = titleField ? form.content[titleField] : null;
     add({

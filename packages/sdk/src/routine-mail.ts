@@ -126,6 +126,12 @@ export type RoutineSlotSpec =
    * guardian is sent it instead), and the email is not sent when no link can be made.
    */
   | { formLink: { object: string; setting: string; days?: number; once?: number } }
+  /**
+   * The business's name (ADR 0724), which the host fills from Settings → Routine email (the name
+   * a human admin gave, the one texts begin with): never anything a pack or a sender wrote. Left
+   * unset there, the email is held for a person.
+   */
+  | { business: true }
   /** One line per record of `object` whose `via` is this record (a buyer's tickets). */
   | {
       each: {
@@ -289,6 +295,7 @@ const slotSchema = z.union([
     .strict(),
   z.object({ count: z.object({ max: z.number().int().min(1).max(1000) }).strict() }).strict(),
   z.object({ flag: z.literal(true) }).strict(),
+  z.object({ business: z.literal(true) }).strict(),
   z
     .object({
       formLink: z
@@ -748,6 +755,7 @@ function slotMaxLength(slot: RoutineSlotSpec, guardian: boolean): number | null 
   if ("at" in slot) return MOMENT_MAX.datetime + (slot.year ? YEAR : 0);
   if ("count" in slot) return String(slot.count.max).length;
   if ("flag" in slot) return 0;
+  if ("business" in slot) return TEXT_SENDER_MAX;
   return null;
 }
 

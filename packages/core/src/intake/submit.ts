@@ -40,7 +40,7 @@ import { notifyStatements } from "../notifications/send.ts";
 import { type HandlerContext, type RecordChange, recordHostChange } from "../operation.ts";
 import { createRecord } from "../operations/record.ts";
 import { extensionSettingValues } from "../records/windows.ts";
-import { isLiveDependant } from "../visibility/guardians.ts";
+import { hasLiveGuardian, isLiveDependant } from "../visibility/guardians.ts";
 import { orgReader } from "../visibility/index.ts";
 import { type Asker, type OpenForm, openForm } from "./forms.ts";
 import {
@@ -453,6 +453,9 @@ export async function submitIntake(
   // no Person and fills nothing: it is kept with the caller's own Person or none. A personal
   // link's answers are its Person's, sent once: no mailbox to count.
   const view = hostView(ctx, form.anonymous);
+  // A link for a child (a Person with a live guardian) is answered by someone else: what they
+  // type fills none of the child's fields, and no "keep me updated" tick is kept for the child.
+  const guarded = link ? await hasLiveGuardian(ctx.db, link.personId) : false;
   const given = form.anonymous ? {} : personAnswers(form.questions, answers);
   const typed =
     given.email && asker !== "customer" && !link ? await usableAddress(ctx, given.email) : null;
@@ -464,7 +467,7 @@ export async function submitIntake(
   const submitter: Submitter | null = form.anonymous
     ? null
     : link
-      ? await linkSubmitter(view, link.personId, given)
+      ? await linkSubmitter(view, link.personId, guarded ? {} : given)
       : spam
         ? caller.kind === "customer"
           ? { personId: caller.personId, certainty: "account", email: null, created: false }
@@ -484,7 +487,7 @@ export async function submitIntake(
     ...(declared.via && via ? { [declared.via]: via } : {}),
     ...(declared.rating ? { [declared.rating]: firstRating(answers) } : {}),
     ...(declared.marketing
-      ? { [declared.marketing]: tickedMarketing(form.questions, answers) }
+      ? { [declared.marketing]: !guarded && tickedMarketing(form.questions, answers) }
       : {}),
     ...(spam && states ? { [states.field]: declared.spam } : {}),
     // What the link was about (a booking): the answers are tied to it (ADR 0723).
@@ -500,7 +503,18 @@ export async function submitIntake(
   });
   // The link is used up in the answers' own batch, by its id alone: a second answer racing this
   // one fails whole at the database (migration 1010's trigger), keeping nothing.
-  if (link) ctx.write(useLinkStatement(ctx.db, link.id, submissionId, ctx.now));
+  if (link) {
+    // Who answered it, for the receipt (ADR 0724): the Person the token's email went to, or the
+    // signed-in customer who answered their item.
+    const by =
+      input.link !== undefined
+        ? { personId: link.sentTo ?? null, with: "email" as const }
+        : {
+            personId: caller.kind === "customer" ? caller.personId : null,
+            with: "account" as const,
+          };
+    ctx.write(useLinkStatement(ctx.db, link.id, submissionId, ctx.now, by));
+  }
 
   if (spam) return RECEIVED;
 

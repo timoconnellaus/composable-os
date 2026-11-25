@@ -44,6 +44,8 @@ export interface LiveLink {
   recordObject: string | null;
   recordId: string | null;
   expiresAt: string;
+  /** Who the token's email went to (by a token only): who is answering it. */
+  sentTo?: string;
 }
 
 function base64url(bytes: Uint8Array): string {
@@ -82,10 +84,11 @@ export async function liveLinkByToken(db: Db, token: string, now: string) {
     .selectFrom("core_intake_link_token as t")
     .innerJoin("core_intake_link as l", "l.id", "t.link_id")
     .selectAll("l")
+    .select("t.sent_to")
     .where("t.token_hash", "=", hash)
     .executeTakeFirst();
   const live = LINK_TOKEN.test(token) ? liveOf(row, now) : null;
-  return live && (await personLive(db, live)) ? live : null;
+  return live && row && (await personLive(db, live)) ? { ...live, sentTo: row.sent_to } : null;
 }
 
 /** The live link `id`, or null. For a signed-in customer's app item: whose it is is checked after. */
@@ -109,18 +112,25 @@ export interface LinkFor {
   /** What asked for it: a routine email's kind and the run its chain began with. */
   madeFor: string;
   days: number;
+  /** At most one link to this form for this Person in so many days (kept by the database). */
+  once?: number | undefined;
   now: string;
 }
 
+/** What `ensureLink` found: the link, or why none may be sent. */
+export type EnsuredLink =
+  | { id: string; expiresAt: string; live: boolean }
+  | { refused: "asked" | "once" };
+
 /**
- * The link for one Person, form and record, made now if there is none (ADR 0723). Null when one
- * was made before by something else (an earlier email about the same record): a record is asked
- * about once. The same `madeFor` (a retried step) finds its own link, live or not.
+ * The link for one Person, form and record, made now if there is none (ADR 0723), when the email
+ * that carries it is sent. Refused `asked` when one was made before by something else (an earlier
+ * email about the same record): a record is asked about once; refused `once` when the Person was
+ * sent a link to the form, about another record, within `once` days: the database keeps both
+ * (migration 1010's insert trigger), so two sends due at the same moment make one link. The same
+ * `madeFor` (a retried step, a second guardian of the same send) finds its own link.
  */
-export async function ensureLink(
-  db: Db,
-  want: LinkFor,
-): Promise<{ id: string; expiresAt: string; live: boolean } | null> {
+export async function ensureLink(db: Db, want: LinkFor): Promise<EnsuredLink> {
   const existing = () =>
     db
       .selectFrom("core_intake_link")
@@ -132,37 +142,73 @@ export async function ensureLink(
       .where("record_id", "=", want.recordId)
       .executeTakeFirst();
   const found = await existing();
-  const answer = (row: { id: string; made_for: string; expires_at: string; used_at: unknown }) =>
+  const answer = (row: {
+    id: string;
+    made_for: string;
+    expires_at: string;
+    used_at: unknown;
+  }): EnsuredLink =>
     row.made_for === want.madeFor
       ? {
           id: row.id,
           expiresAt: row.expires_at,
           live: row.used_at === null && row.expires_at > want.now,
         }
-      : null;
+      : { refused: "asked" };
   if (found) return answer(found);
   const expiresAt = new Date(Date.parse(want.now) + want.days * 86_400_000).toISOString();
-  const id = newId("intakeLink");
-  await db
-    .insertInto("core_intake_link")
-    .values({
-      id,
-      person_id: want.personId,
-      form_object: want.formObject,
-      form_id: want.formId,
-      record_object: want.recordObject,
-      record_id: want.recordId,
-      made_for: want.madeFor,
-      expires_at: expiresAt,
-      used_at: null,
-      submission_id: null,
-      created_at: want.now,
-    })
-    // Two sends about one record at once: the unique index keeps one; the other reads it.
-    .onConflict((oc) => oc.doNothing())
-    .execute();
+  try {
+    await db
+      .insertInto("core_intake_link")
+      .values({
+        id: newId("intakeLink"),
+        person_id: want.personId,
+        form_object: want.formObject,
+        form_id: want.formId,
+        record_object: want.recordObject,
+        record_id: want.recordId,
+        made_for: want.madeFor,
+        once_days: want.once ?? null,
+        expires_at: expiresAt,
+        used_at: null,
+        submission_id: null,
+        used_by: null,
+        used_with: null,
+        created_at: want.now,
+      })
+      .execute();
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (message.includes("core_intake_link_once")) return { refused: "once" };
+    // Two sends about one record at once: the database kept one; the other reads it.
+    if (!message.includes("core_intake_link_exists")) throw error;
+  }
   const made = await existing();
-  return made ? answer(made) : null;
+  return made ? answer(made) : { refused: "asked" };
+}
+
+/**
+ * Withdraws a link whose email was not sent (ADR 0723): deleted, with its tokens, while nothing
+ * used it, so it is no `form_to_fill` and does not count toward the cool-down. A link another
+ * email of the same send went out with is kept.
+ */
+export async function withdrawLink(
+  db: Db,
+  want: Pick<
+    LinkFor,
+    "personId" | "formObject" | "formId" | "recordObject" | "recordId" | "madeFor"
+  >,
+): Promise<void> {
+  await db
+    .deleteFrom("core_intake_link")
+    .where("form_object", "=", want.formObject)
+    .where("form_id", "=", want.formId)
+    .where("person_id", "=", want.personId)
+    .where("record_object", "=", want.recordObject)
+    .where("record_id", "=", want.recordId)
+    .where("made_for", "=", want.madeFor)
+    .where("used_at", "is", null)
+    .execute();
 }
 
 /**
@@ -193,12 +239,25 @@ export async function linkedSince(
   return Boolean(row);
 }
 
-/** A new token for `linkId`, kept as its hash: good as soon as it is returned. */
-export async function linkToken(db: Db, linkId: string, now: string): Promise<string> {
+/**
+ * A new token for `linkId`, for the email going to `sentTo` (the Person who will answer by it),
+ * kept as its hash: good as soon as it is returned. Made only when that email is sent.
+ */
+export async function linkToken(
+  db: Db,
+  linkId: string,
+  sentTo: string,
+  now: string,
+): Promise<string> {
   const token = base64url(crypto.getRandomValues(new Uint8Array(32)));
   await db
     .insertInto("core_intake_link_token")
-    .values({ token_hash: await sha256Hex(token), link_id: linkId, created_at: now })
+    .values({
+      token_hash: await sha256Hex(token),
+      link_id: linkId,
+      sent_to: sentTo,
+      created_at: now,
+    })
     .execute();
   return token;
 }
@@ -219,11 +278,23 @@ export function useLinkStatement(
   linkId: string,
   submissionId: string,
   now: string,
+  by: { personId: string | null; with: "email" | "account" } = { personId: null, with: "email" },
 ): Compilable {
   return db
     .updateTable("core_intake_link")
-    .set({ used_at: now, submission_id: submissionId })
+    .set({ used_at: now, submission_id: submissionId, used_by: by.personId, used_with: by.with })
     .where("id", "=", linkId);
+}
+
+/** Who answered the link a submission used, and which way (its receipt, ADR 0724). */
+export async function linkAnswerOf(db: Db, submissionId: string) {
+  return (
+    (await db
+      .selectFrom("core_intake_link")
+      .select(["person_id", "used_by", "used_with"])
+      .where("submission_id", "=", submissionId)
+      .executeTakeFirst()) ?? null
+  );
 }
 
 /**

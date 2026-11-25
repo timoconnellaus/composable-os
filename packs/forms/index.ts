@@ -28,7 +28,7 @@ import {
 } from "@composable-os/sdk";
 import { formsAutomations } from "./automations.ts";
 import { formsRoutineMail } from "./routine-mail.ts";
-import { enter, form, markSpam, move, notSpam, submit } from "./tools.ts";
+import { enter, form, linkedForm, markSpam, move, notSpam, submit, submitLinked } from "./tools.ts";
 
 const INBOX_COLUMNS = ["title", "person", "certainty", "rating", "via", "owner", "createdAt"];
 
@@ -423,5 +423,5 @@ export default defineExtension({
   },
   automations: formsAutomations,
   routineMail: formsRoutineMail,
-  tools: { form, submit, enter, move, markSpam, notSpam },
+  tools: { form, submit, linkedForm, submitLinked, enter, move, markSpam, notSpam },
 });
