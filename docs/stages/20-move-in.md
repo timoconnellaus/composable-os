@@ -183,3 +183,7 @@ the repository and is done by a person, or with their go-ahead at that moment.
 - Three names were chosen by this spec, not at the interview, and can change without another
   interview: the `cos` command, the `COS_` variable prefix, and the release file pattern.
 - If one install of the old kind turns up, it is reinstalled fresh. That was agreed.
+
+## Status
+
+- **All steps** — built — PR #76 — Move in (still needs a human: the repository rename, the site's deploy and the real-account install).

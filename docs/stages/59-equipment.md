@@ -27,7 +27,10 @@ Status: **spec agreed** (2026-11-24). Every question was decided as best practic
 owner's standing rule (best-practice answers are decided, not asked; the owner may override any of
 them): decisions 1 to 10 below. Nothing waits for an interview. Roadmap stage 59; no issue.
 
-- **Step 1 built** (P1, `feat/stage-59-interval`): `recurring`'s interval rule. The rule gains
+## Status
+
+- **Step 1** — built — PR #413 — P1: the interval rule
+  (`feat/stage-59-interval`): `recurring`'s interval rule. The rule gains
   optional `unit` (a select of `week`, `month`, `year`), `every` (1 to 100), `day` (1 to 31, the
   month's last day when shorter), `month` (1 to 12) and `lengthDays` (a length in whole days,
   ending at the same wall-clock time); `day` and `month` default to the `from` date's. Dates are
@@ -38,6 +41,20 @@ them): decisions 1 to 10 below. Nothing waits for an interview. Roadmap stage 59
   `packages/core/test/recurring-interval.test.ts` (Bookings', Rostering's and the weekly recurring
   suites unchanged and green). No migration; ADR 0860 (0500 amended). Left: the plan and
   maintenance objects that use it are step 4's.
+
+- **Step 2** — not built — P2 to P4: overseers, a move that needs its checklist done, the wording
+
+- **Step 3** — not built — The pack's spine: items, faults, states, uniqueness, permissions, staff tools, out of service
+
+- **Step 4** — not built — needs: step 1, step 2, step 3 — Service plans and maintenance, inspections
+
+- **Step 5** — not built — needs: step 3 — The member's report, Out of order, My reports (reviewed)
+
+- **Step 6** — not built — needs: step 3 — Automations, dashboard, views
+
+- **Step 7** — not built — needs: step 3 — Hooks and blocks, web and native; screens and the My account section once stages 47 and 48 are in
+
+- **Step 8** — not built — needs: step 3 — The site and `SITE.md`
 
 ## Goal
 

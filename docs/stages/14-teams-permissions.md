@@ -260,3 +260,7 @@ Migrations 0300–0309 (block I in `docs/parallel-work.md`). ADRs 0244 and 0245.
 - **Related titles:** a hidden related record shows its title, not clickable.
 - **Members importing:** off by default; an admin setting turns it on (stage 12).
 - **SCIM-managed users' roles:** the identity provider is the source of truth; admins may not override a role set through SCIM.
+
+## Status
+
+- **All steps** — not built — needs: the owner's agreement on the spec — Teams and permissions (spec proposed, PR #49).

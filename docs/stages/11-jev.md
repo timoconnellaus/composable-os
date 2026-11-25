@@ -260,3 +260,7 @@ All answered: on 5 November 2026 (ADR 0232) and 6 November 2026 (ADR 0235 and 02
   records"?
 - **MCP proposals.** Accept a client-reported `request` for the intent check (proposed, labelled as
   the client's), or check only the assistant's proposals?
+
+## Status
+
+- **All steps** — built — PRs #52, #55, #56, #58 — Jev as the typed judge.

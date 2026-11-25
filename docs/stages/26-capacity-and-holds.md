@@ -157,3 +157,7 @@ Migrations 0440 to 0449. ADRs 0430 to 0434.
 
 The spine is steps 1 and 4: the constraint, the concurrency test and the pool claim in one batch.
 The coordinating model reviews those before the rest is built.
+
+## Status
+
+- **All steps** — built — PR #142 — Capacity and holds.

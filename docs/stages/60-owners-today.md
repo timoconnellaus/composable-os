@@ -34,7 +34,20 @@ nothing kept for the owner. Decisions 11 and 12 are the coordinator's notes on h
 others). Build may start in the order below; step 3's money items wait for stage 52, step 1 for
 nothing.
 
-- **Step 6 built** (the owner's client and the headless hooks, [ADR 0872](../adr/0872-the-owners-client.md)):
+## Status
+
+- **Step 1** — built — PR #334 — Day windows in the business's zone (#306): dashboards use the business's day
+
+- **Step 2** — built — PR #353 — `todayItems` declaration and contract checks: see "Built" below (ADR 0870, no migration)
+
+- **Step 3** — not built — needs: step 2 — `today.get`, `today.rows`, host items; the pack-role reach (money items after stage 52 merges)
+
+- **Step 4** — not built — needs: step 3 — Packs declare items
+
+- **Step 5** — not built — needs: step 3 — Alerts: type, ledger migration, host events, overnight hours, preferences
+
+- **Step 6** — built — PR #414 — The owner's client and the headless hooks
+  ([ADR 0872](../adr/0872-the-owners-client.md)):
   `OWNER_CLIENT_OPERATIONS` and `roles.json`'s `owner` (the listed operations the release serves:
   today the approvals, the inbox and `user.me`; Today's own join with steps 3 and 5);
   `mobile.owner: true` and `cos client generate` writing `roles/owner.ts`; `createOwnerHooks` and
@@ -42,6 +55,10 @@ nothing.
   staff device session, called directly or approved (`origin.staffDevice`, "review on a computer",
   criterion 6's host half).
   No migration.
+
+- **Step 7** — not built — needs: step 3, step 6, stage 47 step 2, stage 47 step 3 — Web Today and the Home choice
+
+- **Step 8** — not built — needs: step 3, step 6 — Native blocks `owner-today`, `owner-approvals`
 
 ## Goal
 

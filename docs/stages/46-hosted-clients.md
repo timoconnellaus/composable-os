@@ -20,6 +20,35 @@ Status: **spec agreed** (owner interviewed 2026-11-23, and answered the open que
 day: decisions 13 to 22). Workers for Platforms is on in the fleet's account, and the owner has
 said build step 1 may start.
 
+## Status
+
+The owner's decision on one host with a database per client (ADR 0611, PR #275, open) replaces most
+of this stage; nothing below starts until it is made.
+
+- **Step 1** — not built — needs: the owner's decision on PR #275, a Cloudflare API token — The checks on a real namespace: partly run (commit 37261849, "Step 1: results so far"
+  below); queue consumers, Workflows and namespace-to-namespace bindings are not finished.
+
+- **Step 2** — not built — needs: step 1 — `packages/fleet`, `apps/fleet`: the dispatch Worker, the
+  registry, routes, the cron fan-out.
+
+- **Step 3** — not built — needs: step 2 — `hosting` in `product.ts` and the hosted target of `cos deploy`.
+
+- **Step 4** — not built — needs: step 3 — Client domains.
+
+- **Step 5** — not built — needs: step 4 — The fleet update, holds and rollback.
+
+- **Step 6** — not built — needs: step 5 — The Stream broker.
+
+- **Step 7** — not built — needs: step 6, the first client — The first client's first deploys, staging
+  then live.
+
+- **Step 8** — not built — needs: step 7 — Usage.
+
+- **Step 9** — not built — needs: step 2 — The move: export and import on each Durable Object class, the
+  secrets hand-over, then the command.
+
+- **Step 10** — not built — needs: step 9 — Docs and skills.
+
 ## Goal
 
 A client's product runs in our Cloudflare account by default. `cos deploy`, run in the client's

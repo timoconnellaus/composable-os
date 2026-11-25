@@ -27,3 +27,7 @@ Run this stage **after the in-flight PRs merge**: Stage 6b (#35) and the AI Gate
 2. The release build and golden file use `ros-*` names. The CLI is `create-relationship-os`.
 3. `LICENSE` is FSL-1.1-ALv2, and `NOTICE` and the README licence section are present. The CLA bot runs on PRs.
 4. The landing page builds and deploys to `relationshiposcrm.com`, scores Lighthouse ≥ 95, has no trackers, and the form works.
+
+## Status
+
+- **All steps** — built — PR #40 — Rename, licence and landing page (the names were renamed again in stage 20).
