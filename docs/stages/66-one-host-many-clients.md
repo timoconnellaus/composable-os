@@ -408,3 +408,25 @@ None open. Decisions 7 to 12 answer them.
 
 Spec agreed (owner, 2026-11-23; design confirmed 2026-11-25). No build step is built yet. Each
 build step adds a bullet of its own here (CONTRIBUTING.md, Working in parallel).
+
+- **Step 1** — not built — Prove it on Cloudflare: `ClientDb` carrying the app's and runner's suites, timed (the spike is first brought up to `main`)
+
+- **Step 2** — not built — needs: step 1 — `ClientDb` finished: migrations inside, bookmarks and restore, export and import, size, location hint
+
+- **Step 3** — not built — needs: step 1 — The registry and the client's environment, single-client mode unchanged
+
+- **Step 4** — not built — needs: step 3 — The app's entries, then the runner's, with their wrappers
+
+- **Step 5** — not built — needs: step 4 — Module-level caches and the two-client suite
+
+- **Step 6** — not built — needs: step 3 — Secrets and addresses per client (the desk secret and the person-code keys included)
+
+- **Step 7** — not built — needs: step 2, step 5, step 6 — `cos client add`, the update, export, import, remove
+
+- **Step 8** — not built — needs: step 7 — Hostnames, `cos-front` and the namespace (a desk hostname per client included)
+
+- **Step 9** — not built — needs: step 8, the first client — The first client, staging then live
+
+- **Step 10** — not built — needs: step 7 — Usage
+
+- **Step 11** — not built — needs: step 8, step 10 — Docs, skills and the ADR amendments
