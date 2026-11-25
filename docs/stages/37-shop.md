@@ -77,6 +77,33 @@ questions at the end refine later steps and block none of the first ones.
   of a count's apply with its lines both ways; a line cannot be restored under an applied count; a
   crossing is marked told (it outlives the notices' purge); a fixed role is told only of objects
   it reads. Left: steps 3 to 14.
+- **Step 3, goods, delivery and `order.quote`** (`feat/stage-37-goods-delivery`; migration 0932,
+  ADRs 0682, 0683 and 0685, which amend ADRs 0428, 0435 and 0479): the SDK declarations
+  `sellable.goods: { soldIn? }` (a select of `online`, `in_person`, `both`, through the item's
+  relation; empty is both) and `sellable.delivery: { kind, freeOver?, countries?, active? }` and
+  their checks (a sold object with `stock` must be goods; no deposit, recurring or moves; a delivery
+  has no stock, `maxPerOrder` or `onePerPerson`; refused in a runtime extension, as `sellable` is);
+  `priceOrder` and the goods rules (`orders/goods.ts`) on every path: one delivery per goods order,
+  chosen in `order.start`'s new `delivery` and added by the host as the last line, never a line of
+  `lines`; the channel worked out by the host (`core_order.channel`, written once) and a goods line
+  not sold there refused (`not_sold_here`); post needs an address in the option's countries (`*`:
+  every country no other post option names), collect and here take none; postage the option's
+  price or nothing at or over its free over; `core_order_delivery` with the address (in no view,
+  never in the audit log, fixed by triggers, blanked by the buyer's erase); `order.delivery.get`
+  (staff audited, the buyer, a guest's token); a paid `here` delivery grants nothing; at checkout
+  with tax on, the address is the goods' and the postage's place and the host's copy leaves it
+  out; `order.quote` (staff, customer, public; holds and writes nothing; the same refusals, with
+  `delivery_needed`, `address_needed`, `sold_out` and `not_enough` reported; availability by
+  `show`). Opened to customers and the public: `order.quote` and `order.delivery.get`. Deviations:
+  the delivery is `order.start`'s `delivery: { object, id, address? }`, not a line the caller puts
+  in `lines`; the business's own country is not a host setting, so an option with no countries
+  posts nowhere (the pack seeds its country, step 5); `soldIn` is not built as the till's
+  `placedAs: "desk"` channel (the till's step 1 adds desk orders, in person by this rule);
+  `orders:read` is `records:read` (no such core permission, as step 1); `channel` is not in
+  `rec_order` (a view remade below 0950 would be dropped by 0950 on a fresh database);
+  `order.quote`'s statements are bounded by `priceLines`' per-line reads (at most three a line,
+  under 250 at 50 lines), not constant. Not tried for real: the provider's tax by the delivery
+  address (only the gatekeeper's test double), a basket block. Left: steps 4 to 14.
 
 Vocabulary: "product" is the platform's word for a composition (ADR 0400) and is avoided for what
 a business sells. This spec says **item** (a thing in the shop: "Club hoodie") and **variant** (one
