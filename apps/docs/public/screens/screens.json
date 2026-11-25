@@ -1,0 +1,590 @@
+{
+  "bookings-class-list": {
+    "skin": "web",
+    "width": 720,
+    "height": 476,
+    "fingerprint": "438fad18af31ca6b"
+  },
+  "bookings-desk": {
+    "skin": "web",
+    "width": 720,
+    "height": 728,
+    "fingerprint": "c60d5a0b495e8203"
+  },
+  "bookings-drop-in": {
+    "skin": "web",
+    "width": 720,
+    "height": 700,
+    "fingerprint": "9603407ba33f34af"
+  },
+  "bookings-native-class-list": {
+    "skin": "native",
+    "width": 390,
+    "height": 844,
+    "fingerprint": "47f723015be70c77"
+  },
+  "bookings-native-timetable": {
+    "skin": "native",
+    "width": 390,
+    "height": 844,
+    "fingerprint": "a6aa1252de7c0684"
+  },
+  "bookings-timetable": {
+    "skin": "web",
+    "width": 720,
+    "height": 777,
+    "fingerprint": "b01f78c2f8cfc5bd"
+  },
+  "content-native-post": {
+    "skin": "native",
+    "width": 390,
+    "height": 844,
+    "fingerprint": "0a0c5c74f8d2ac9e"
+  },
+  "content-native-rich-text": {
+    "skin": "native",
+    "width": 390,
+    "height": 844,
+    "fingerprint": "b47b4008fdd76401"
+  },
+  "content-post": {
+    "skin": "web",
+    "width": 860,
+    "height": 1417,
+    "fingerprint": "755abcbecb2f32a9"
+  },
+  "content-post-list": {
+    "skin": "web",
+    "width": 640,
+    "height": 1871,
+    "fingerprint": "722dc14378bb695e"
+  },
+  "content-rich-text": {
+    "skin": "web",
+    "width": 760,
+    "height": 943,
+    "fingerprint": "e9a1a0bff4119cf2"
+  },
+  "courses-builder": {
+    "skin": "web",
+    "width": 880,
+    "height": 1495,
+    "fingerprint": "edb53cea13692435"
+  },
+  "courses-catalogue": {
+    "skin": "web",
+    "width": 1024,
+    "height": 1927,
+    "fingerprint": "6c09e5dce39d8718"
+  },
+  "courses-course": {
+    "skin": "web",
+    "width": 800,
+    "height": 714,
+    "fingerprint": "c20357fb590d060b"
+  },
+  "courses-my-courses": {
+    "skin": "web",
+    "width": 720,
+    "height": 1002,
+    "fingerprint": "db63fe3bd41695b3"
+  },
+  "courses-native-catalogue": {
+    "skin": "native",
+    "width": 390,
+    "height": 844,
+    "fingerprint": "7bf5491c42af04f4"
+  },
+  "courses-native-course": {
+    "skin": "native",
+    "width": 390,
+    "height": 844,
+    "fingerprint": "e1b6c0774b1ae915"
+  },
+  "courses-native-my-courses": {
+    "skin": "native",
+    "width": 390,
+    "height": 844,
+    "fingerprint": "4af67f29a28fa60e"
+  },
+  "courses-native-player": {
+    "skin": "native",
+    "width": 390,
+    "height": 844,
+    "fingerprint": "7856d143e770e85c"
+  },
+  "courses-native-subscription": {
+    "skin": "native",
+    "width": 390,
+    "height": 844,
+    "fingerprint": "c23e35c6f594cb73"
+  },
+  "courses-player": {
+    "skin": "web",
+    "width": 800,
+    "height": 831,
+    "fingerprint": "c40f9a7a220129d4"
+  },
+  "courses-subscribe": {
+    "skin": "web",
+    "width": 720,
+    "height": 516,
+    "fingerprint": "b7b67c8c66f32ba5"
+  },
+  "courses-subscription": {
+    "skin": "web",
+    "width": 640,
+    "height": 238,
+    "fingerprint": "474b3df95dd786d0"
+  },
+  "dailychecks-history": {
+    "skin": "web",
+    "width": 1024,
+    "height": 462,
+    "fingerprint": "b3a2a580747e3472"
+  },
+  "dailychecks-native-today": {
+    "skin": "native",
+    "width": 390,
+    "height": 844,
+    "fingerprint": "0593502e54970ac2"
+  },
+  "dailychecks-today": {
+    "skin": "web",
+    "width": 720,
+    "height": 1388,
+    "fingerprint": "82bf0fd60eff3431"
+  },
+  "memberships-mine": {
+    "skin": "web",
+    "width": 720,
+    "height": 658,
+    "fingerprint": "a6dbf8a627f31566"
+  },
+  "memberships-native-mine": {
+    "skin": "native",
+    "width": 390,
+    "height": 844,
+    "fingerprint": "11926eb42f7faa25"
+  },
+  "memberships-passes": {
+    "skin": "web",
+    "width": 720,
+    "height": 610,
+    "fingerprint": "1918d03200b849c8"
+  },
+  "memberships-plans": {
+    "skin": "web",
+    "width": 720,
+    "height": 710,
+    "fingerprint": "ef088a600f97725f"
+  },
+  "memberships-staff-holdings": {
+    "skin": "web",
+    "width": 720,
+    "height": 1202,
+    "fingerprint": "b91995bd2a93519a"
+  },
+  "native-account": {
+    "skin": "native",
+    "width": 390,
+    "height": 844,
+    "fingerprint": "94c2049a37a0f31e"
+  },
+  "native-account-details": {
+    "skin": "native",
+    "width": 390,
+    "height": 844,
+    "fingerprint": "d4be3a70ca2589b6"
+  },
+  "native-account-devices": {
+    "skin": "native",
+    "width": 390,
+    "height": 844,
+    "fingerprint": "1cf7bc8b23f5dbf5"
+  },
+  "native-account-family": {
+    "skin": "native",
+    "width": 390,
+    "height": 844,
+    "fingerprint": "a527aa47e3ded250"
+  },
+  "native-account-orders": {
+    "skin": "native",
+    "width": 390,
+    "height": 844,
+    "fingerprint": "1adb480a72644f3c"
+  },
+  "native-account-payment": {
+    "skin": "native",
+    "width": 390,
+    "height": 844,
+    "fingerprint": "805721b0c7f44d5b"
+  },
+  "native-account-subscriptions": {
+    "skin": "native",
+    "width": 390,
+    "height": 844,
+    "fingerprint": "6b0ac026a4a72ff2"
+  },
+  "native-agree": {
+    "skin": "native",
+    "width": 390,
+    "height": 844,
+    "fingerprint": "9c353a15b30b27a1"
+  },
+  "native-agreements-due": {
+    "skin": "native",
+    "width": 390,
+    "height": 844,
+    "fingerprint": "18998e33d39409f3"
+  },
+  "native-base": {
+    "skin": "native",
+    "width": 390,
+    "height": 844,
+    "fingerprint": "30d8c2cd7c9dcf7e"
+  },
+  "native-my-agreements": {
+    "skin": "native",
+    "width": 390,
+    "height": 844,
+    "fingerprint": "2fb98379c80a120d"
+  },
+  "native-note-composer": {
+    "skin": "native",
+    "width": 390,
+    "height": 844,
+    "fingerprint": "180998a73c7aa59e"
+  },
+  "native-sign-in": {
+    "skin": "native",
+    "width": 390,
+    "height": 844,
+    "fingerprint": "51c47f58fd300a29"
+  },
+  "programs-bank": {
+    "skin": "web",
+    "width": 880,
+    "height": 1498,
+    "fingerprint": "5580d323007c43ea"
+  },
+  "programs-builder": {
+    "skin": "web",
+    "width": 1024,
+    "height": 2610,
+    "fingerprint": "dd65fef6183629e6"
+  },
+  "programs-class-today": {
+    "skin": "web",
+    "width": 880,
+    "height": 1230,
+    "fingerprint": "a94d7cbf8cb2b66e"
+  },
+  "programs-coach-client": {
+    "skin": "web",
+    "width": 880,
+    "height": 776,
+    "fingerprint": "97c3d766c248d37b"
+  },
+  "programs-history": {
+    "skin": "web",
+    "width": 880,
+    "height": 1267,
+    "fingerprint": "c26a3501e38a7b20"
+  },
+  "programs-native-class-today": {
+    "skin": "native",
+    "width": 390,
+    "height": 844,
+    "fingerprint": "216be4f0374758ed"
+  },
+  "programs-native-coach-client": {
+    "skin": "native",
+    "width": 390,
+    "height": 844,
+    "fingerprint": "25815ce427dadb91"
+  },
+  "programs-native-history": {
+    "skin": "native",
+    "width": 390,
+    "height": 844,
+    "fingerprint": "8137f7ca5ac41300"
+  },
+  "programs-native-progress": {
+    "skin": "native",
+    "width": 390,
+    "height": 844,
+    "fingerprint": "83382191eb206d5a"
+  },
+  "programs-native-session": {
+    "skin": "native",
+    "width": 390,
+    "height": 844,
+    "fingerprint": "b96a09ec928ca65a"
+  },
+  "programs-native-today": {
+    "skin": "native",
+    "width": 390,
+    "height": 844,
+    "fingerprint": "be12e7f0fd2ae496"
+  },
+  "programs-progress": {
+    "skin": "web",
+    "width": 820,
+    "height": 886,
+    "fingerprint": "eb26f35f5772216e"
+  },
+  "programs-session": {
+    "skin": "web",
+    "width": 820,
+    "height": 1566,
+    "fingerprint": "0b22330ef9b3f755"
+  },
+  "programs-today": {
+    "skin": "web",
+    "width": 880,
+    "height": 1706,
+    "fingerprint": "db7e45394b7e078b"
+  },
+  "rostering-away": {
+    "skin": "web",
+    "width": 800,
+    "height": 1037,
+    "fingerprint": "e577fec0c15801d0"
+  },
+  "rostering-checklist": {
+    "skin": "web",
+    "width": 720,
+    "height": 954,
+    "fingerprint": "5fbabd0afeac338f"
+  },
+  "rostering-checklists": {
+    "skin": "web",
+    "width": 800,
+    "height": 1602,
+    "fingerprint": "47ad123cebeac1ab"
+  },
+  "rostering-my-availability": {
+    "skin": "web",
+    "width": 800,
+    "height": 777,
+    "fingerprint": "98a883453bc1dbb7"
+  },
+  "rostering-my-calendar": {
+    "skin": "web",
+    "width": 720,
+    "height": 356,
+    "fingerprint": "594d7aac9974f26c"
+  },
+  "rostering-my-shifts": {
+    "skin": "web",
+    "width": 800,
+    "height": 1106,
+    "fingerprint": "8f211b555cdcb377"
+  },
+  "rostering-native-checklist": {
+    "skin": "native",
+    "width": 390,
+    "height": 844,
+    "fingerprint": "80e69b41af2ca169"
+  },
+  "rostering-native-my-availability": {
+    "skin": "native",
+    "width": 390,
+    "height": 844,
+    "fingerprint": "1b0b86d004acd8e5"
+  },
+  "rostering-native-my-calendar": {
+    "skin": "native",
+    "width": 390,
+    "height": 844,
+    "fingerprint": "3af2e9e108e0c0da"
+  },
+  "rostering-native-my-shifts": {
+    "skin": "native",
+    "width": 390,
+    "height": 844,
+    "fingerprint": "c498381db4a05ab6"
+  },
+  "rostering-native-offers": {
+    "skin": "native",
+    "width": 390,
+    "height": 844,
+    "fingerprint": "152e64d0d7d7f1ff"
+  },
+  "rostering-native-roster": {
+    "skin": "native",
+    "width": 390,
+    "height": 844,
+    "fingerprint": "6e454e8960713fc2"
+  },
+  "rostering-offers": {
+    "skin": "web",
+    "width": 720,
+    "height": 472,
+    "fingerprint": "f3594ca4e0180638"
+  },
+  "rostering-patterns": {
+    "skin": "web",
+    "width": 1280,
+    "height": 598,
+    "fingerprint": "3c2522557c6f99af"
+  },
+  "rostering-pay": {
+    "skin": "web",
+    "width": 900,
+    "height": 1210,
+    "fingerprint": "909c7c46dc65a42f"
+  },
+  "rostering-qualifications": {
+    "skin": "web",
+    "width": 900,
+    "height": 468,
+    "fingerprint": "65c7368845b3d8e3"
+  },
+  "rostering-week": {
+    "skin": "web",
+    "width": 1440,
+    "height": 908,
+    "fingerprint": "2f8b38c938d7fdeb"
+  },
+  "ticketing-checkout": {
+    "skin": "web",
+    "width": 560,
+    "height": 508,
+    "fingerprint": "2a5a20fe94804f79"
+  },
+  "ticketing-events": {
+    "skin": "web",
+    "width": 720,
+    "height": 930,
+    "fingerprint": "6b4625e1681f3490"
+  },
+  "ticketing-my-tickets": {
+    "skin": "web",
+    "width": 640,
+    "height": 256,
+    "fingerprint": "631232e97e79d66b"
+  },
+  "ticketing-native-my-tickets": {
+    "skin": "native",
+    "width": 390,
+    "height": 844,
+    "fingerprint": "516b8949ba584939"
+  },
+  "ticketing-native-scanner": {
+    "skin": "native",
+    "width": 390,
+    "height": 844,
+    "fingerprint": "d0034d81977cc015"
+  },
+  "ticketing-native-ticket": {
+    "skin": "native",
+    "width": 390,
+    "height": 844,
+    "fingerprint": "8291e3db50149e26"
+  },
+  "ticketing-order": {
+    "skin": "web",
+    "width": 640,
+    "height": 240,
+    "fingerprint": "24592c5e78559e3c"
+  },
+  "ui-button": {
+    "skin": "web",
+    "width": 720,
+    "height": 148,
+    "fingerprint": "6cdb4109792f9ee8"
+  },
+  "ui-card": {
+    "skin": "web",
+    "width": 520,
+    "height": 302,
+    "fingerprint": "6b2b88c4be667351"
+  },
+  "ui-input": {
+    "skin": "web",
+    "width": 480,
+    "height": 368,
+    "fingerprint": "279695a7694c8c4e"
+  },
+  "ui-label": {
+    "skin": "web",
+    "width": 480,
+    "height": 178,
+    "fingerprint": "4d45e01955a0680d"
+  },
+  "web-account": {
+    "skin": "web",
+    "width": 1024,
+    "height": 3906,
+    "fingerprint": "a7bcd67ecee94caf"
+  },
+  "web-account-details": {
+    "skin": "web",
+    "width": 720,
+    "height": 592,
+    "fingerprint": "14c13855d53884de"
+  },
+  "web-account-devices": {
+    "skin": "web",
+    "width": 720,
+    "height": 368,
+    "fingerprint": "a3df1710067741c1"
+  },
+  "web-account-family": {
+    "skin": "web",
+    "width": 720,
+    "height": 160,
+    "fingerprint": "03480dae9a19727d"
+  },
+  "web-account-orders": {
+    "skin": "web",
+    "width": 720,
+    "height": 1070,
+    "fingerprint": "dbf174657afea527"
+  },
+  "web-account-payment": {
+    "skin": "web",
+    "width": 720,
+    "height": 116,
+    "fingerprint": "d14579e8bd336c0a"
+  },
+  "web-account-subscriptions": {
+    "skin": "web",
+    "width": 720,
+    "height": 844,
+    "fingerprint": "29c4927f0c2f4b24"
+  },
+  "web-agree": {
+    "skin": "web",
+    "width": 720,
+    "height": 850,
+    "fingerprint": "26de6cfceb064079"
+  },
+  "web-agreements-due": {
+    "skin": "web",
+    "width": 720,
+    "height": 731,
+    "fingerprint": "de8752e8745167ad"
+  },
+  "web-my-agreements": {
+    "skin": "web",
+    "width": 720,
+    "height": 988,
+    "fingerprint": "2cf33b60f8803474"
+  },
+  "web-note-composer": {
+    "skin": "web",
+    "width": 640,
+    "height": 745,
+    "fingerprint": "c37d410a44887abf"
+  },
+  "web-sign-in": {
+    "skin": "web",
+    "width": 440,
+    "height": 158,
+    "fingerprint": "cc9bf3f8138c0dbd"
+  }
+}

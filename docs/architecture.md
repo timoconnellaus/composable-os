@@ -929,6 +929,7 @@ apps/
   runner/              extension runtime, automations, Workflows, Queues         → Worker "cos-runner"
   marketing/           the Composable OS site, composableos.dev                  → Worker "cos-site"
   docs/                the technical docs, docs.composableos.dev, generated from the code (ADR 0930) → Worker "cos-docs"
+  screens/             every block drawn with dummy data, for the docs site's pictures (ADR 0930) → not deployed
 packages/
   core/                operations registry, risk classes, policy types, model role registry (ai/), the judge (judge/), schema reconciler
   db/                  core D1 migrations (incl. core_base_* views), typed core schema

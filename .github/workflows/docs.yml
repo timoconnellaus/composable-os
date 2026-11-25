@@ -10,6 +10,7 @@ on:
     branches: [main]
     paths:
       - apps/docs/**
+      - apps/screens/**
       - packs/**
       - blocks/**
       - packages/core/src/**

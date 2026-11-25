@@ -6,6 +6,10 @@ editUrl: false
 
 The coach's class list in the gym's app (stage 31a step 9, decision 10): today's classes, and for the one picked, who is booked, ticked, not come and waiting, with a button to tick each name, untick it, or mark them as not come. For a staff account holding the Bookings coach role (its role client, never the staff client): the role reaches today's classes only, and no money, no other people, no booking or cancelling. When the list opens, whether a name can be marked and who marked it first when two coaches tick at once are the host's answers, shown as they come. Nothing here shows what anyone paid with.
 
+<img class="cos-screen cos-screen-native" src="/screens/bookings-native-class-list.png" alt="bookings-native-class-list, drawn with dummy data" width="390" height="844" loading="lazy" decoding="async" />
+
+Drawn with dummy data.
+
 |  |  |
 | --- | --- |
 | Skin | native |

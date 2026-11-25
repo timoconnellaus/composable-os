@@ -6,6 +6,10 @@ editUrl: false
 
 The timetable in the gym's app (stage 31a, decision 9): book and cancel with the membership or pass a member already holds. Nothing is bought here: a member with nothing to spend is told so by the host, and buys on the website. Whether booking is open, the places left and whether a cancel is in time are the host's answers, shown as they come. A parent the gym linked to a child picks who they are booking for (ADR 0540); the child's own membership or pass pays. What must be agreed to first (stage 44) is the host's answer too: when "Book" is refused with it, the documents are shown in the class's place (the native-agree block's step), agreed to one by one, and "Book" is tried again.
 
+<img class="cos-screen cos-screen-native" src="/screens/bookings-native-timetable.png" alt="bookings-native-timetable, drawn with dummy data" width="390" height="844" loading="lazy" decoding="async" />
+
+Drawn with dummy data.
+
 |  |  |
 | --- | --- |
 | Skin | native |

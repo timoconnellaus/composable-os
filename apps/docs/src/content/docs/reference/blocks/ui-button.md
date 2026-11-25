@@ -5,6 +5,10 @@ editUrl: false
 
 Its files say nothing about what it shows.
 
+<img class="cos-screen" src="/screens/ui-button.png" alt="ui-button, drawn with dummy data" width="720" height="148" loading="lazy" decoding="async" />
+
+Drawn with dummy data.
+
 |  |  |
 | --- | --- |
 | Skin | web |

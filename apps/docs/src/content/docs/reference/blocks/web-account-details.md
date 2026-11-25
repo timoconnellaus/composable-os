@@ -6,6 +6,10 @@ editUrl: false
 
 Your details (stage 48), for the web: the signed-in customer's name and phone, to change, and the address they sign in with. What is saved, and what the business sees, is the host's (me.get, me.update): only what changed is sent, and the host checks it again. Their birthday, day and month only (stage 53: me.birthday.get, me.birthday.set), where the client holds them.
 
+<img class="cos-screen" src="/screens/web-account-details.png" alt="web-account-details, drawn with dummy data" width="720" height="592" loading="lazy" decoding="async" />
+
+Drawn with dummy data.
+
 |  |  |
 | --- | --- |
 | Skin | web |

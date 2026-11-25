@@ -6,6 +6,10 @@ editUrl: false
 
 The door scanner, for the staff app (stage 27): the camera reads a code, the host checks it in, and the screen says clearly let in or not and why, with a haptic, and counts who was let in on this device. Whether a ticket is valid, used or void, and what is owed, is the host's (`useCheckIn`); the camera and haptics are the app's (for example `expo-camera` and `expo-haptics`), so this block needs neither package.
 
+<img class="cos-screen cos-screen-native" src="/screens/ticketing-native-scanner.png" alt="ticketing-native-scanner, drawn with dummy data" width="390" height="844" loading="lazy" decoding="async" />
+
+Drawn with dummy data.
+
 |  |  |
 | --- | --- |
 | Skin | native |

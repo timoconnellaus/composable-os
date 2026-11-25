@@ -93,7 +93,9 @@
         "packs/rostering/blocks/rostering-checklist/**",
         "packs/rostering/blocks/rostering-checklists/**",
         "packs/dailychecks/blocks/dailychecks-today/**",
-        "packs/dailychecks/blocks/dailychecks-history/**"
+        "packs/dailychecks/blocks/dailychecks-history/**",
+        "apps/screens/src/**",
+        "apps/screens/previews/**"
       ],
       "linter": { "rules": { "correctness": { "noReactNativeRawText": "off" } } }
     },

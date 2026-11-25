@@ -6,6 +6,10 @@ editUrl: false
 
 A signed-in customer's tickets, for a site (stage 27). Which tickets are theirs, and what of them they may see, is the host's (`useMyTickets` reads through the seam).
 
+<img class="cos-screen" src="/screens/ticketing-my-tickets.png" alt="ticketing-my-tickets, drawn with dummy data" width="640" height="256" loading="lazy" decoding="async" />
+
+Drawn with dummy data.
+
 |  |  |
 | --- | --- |
 | Skin | web |

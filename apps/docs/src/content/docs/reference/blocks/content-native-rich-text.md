@@ -6,6 +6,10 @@ editUrl: false
 
 Rich text for the mobile app (stage 28, ADR 0440): a post's body drawn block by block with React Native's own components, from the same structured data the web block draws. Every block type and mark has its element here; its look is the native base layer's theme. Pass `components` to use the app's own for a block type, and `openUrl` (React Native's `Linking.openURL`, or the app's in-app browser) for links, buttons and videos. No web view: an embed is a tappable card that opens the video (or the link) outside the app.
 
+<img class="cos-screen cos-screen-native" src="/screens/content-native-rich-text.png" alt="content-native-rich-text, drawn with dummy data" width="390" height="844" loading="lazy" decoding="async" />
+
+Drawn with dummy data.
+
 |  |  |
 | --- | --- |
 | Skin | native |

@@ -6,6 +6,10 @@ editUrl: false
 
 Sign-in and devices (stage 48), for the web: every place the signed-in customer is signed in (browsers and the app on their devices), when each began and was last used, and signing one out. Which sessions are theirs is the host's (me.sessions.list, me.sessions.revoke): another customer's is never listed. Signing out of this browser is the web app's own route (`onSignOut`: the template posts to /auth/sign-out, which ends the session and its cookie).
 
+<img class="cos-screen" src="/screens/web-account-devices.png" alt="web-account-devices, drawn with dummy data" width="720" height="368" loading="lazy" decoding="async" />
+
+Drawn with dummy data.
+
 |  |  |
 | --- | --- |
 | Skin | web |
