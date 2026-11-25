@@ -32,4 +32,49 @@ describe("the Customer account card", () => {
     expect(html).toContain("No customer account");
     expect(html).not.toContain("customer-account-loading");
   });
+
+  // Stage 48: the pending address change (masked, never its code), the open erase request, and
+  // the admins' buttons, each the host's operation.
+  it("shows a pending address change, an open erase request and the admins' buttons", () => {
+    const client = new QueryClient();
+    client.setQueryData(opKey("customer.list", { personId: PERSON, limit: 1 }), {
+      items: [
+        {
+          id: "cus_1",
+          personId: PERSON,
+          email: "member@example.com",
+          status: "active",
+          linkState: "linked",
+          createdAt: "2026-11-01T00:00:00.000Z",
+          lastSignInAt: null,
+          sessions: 1,
+          emailChange: {
+            newEmail: "n•••@example.org",
+            startedBy: "staff",
+            createdAt: "2026-11-25T09:00:00.000Z",
+            expiresAt: "2099-11-25T09:15:00.000Z",
+            expired: false,
+          },
+          eraseRequest: {
+            requestedAt: "2026-11-24T00:00:00.000Z",
+            dueAt: "2026-12-24T00:00:00.000Z",
+          },
+        },
+      ],
+      nextCursor: null,
+    });
+    const html = render(client);
+    expect(html).toContain('data-testid="customer-email-change"');
+    expect(html).toContain("n•••@example.org");
+    expect(html).toContain('data-testid="customer-erase-request"');
+    for (const button of [
+      "Disable",
+      "Sign out everywhere",
+      "Cancel address change",
+      "Change sign-in address",
+    ]) {
+      expect(html).toContain(`>${button}</button>`);
+    }
+    expect(html).not.toContain(">Enable</button>");
+  });
 });
