@@ -2,9 +2,16 @@
   "name": "web-account-details",
   "pack": null,
   "skin": "web",
-  "operations": ["me.get", "me.update", "me.birthday.get", "me.birthday.set"],
+  "operations": [
+    "me.get",
+    "me.update",
+    "me.birthday.get",
+    "me.birthday.set",
+    "me.email.change",
+    "me.email.confirm"
+  ],
   "files": ["details.tsx", "LICENSE"],
-  "dependsOn": ["ui-button", "ui-input", "ui-label"],
+  "dependsOn": ["ui-button", "ui-input", "ui-label", "web-account-email"],
   "packages": {
     "@composable-os/client": "*"
   }

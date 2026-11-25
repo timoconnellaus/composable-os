@@ -50,7 +50,17 @@ export type BookingsOperations = {
   "x.bookings.timetable": { kind: "query" } & Io<typeof timetable>;
   "x.bookings.classGet": { kind: "query" } & Io<typeof classGet>;
   "x.bookings.mine": { kind: "query" } & Io<typeof mine>;
+  // Kept for the API contract; the blocks read the host's own family (ADR 0540, as amended).
   "x.bookings.family": { kind: "query" } & Io<typeof family>;
+  "me.family": {
+    kind: "query";
+    input: Record<string, never>;
+    output: {
+      self: { personId: string; name: string };
+      dependants: { personId: string; name: string }[];
+      guardians: { personId: string; name: string }[];
+    };
+  };
   "x.bookings.book": { kind: "mutation" } & Io<typeof book>;
   "x.bookings.cancel": { kind: "mutation" } & Io<typeof cancel>;
   "x.bookings.leaveWaitlist": { kind: "mutation" } & Io<typeof leaveWaitlist>;
@@ -201,7 +211,7 @@ export const BOOKINGS_HOOKS_CALL = {
   useTimetable: ["x.bookings.timetable"],
   useClass: ["x.bookings.classGet"],
   useMyBookings: ["x.bookings.mine"],
-  useFamily: ["x.bookings.family"],
+  useFamily: ["me.family"],
   useBook: ["x.bookings.book"],
   useCancel: ["x.bookings.cancel"],
   useLeaveWaitlist: ["x.bookings.leaveWaitlist"],
@@ -254,9 +264,25 @@ function allBookingsHooks(
     useMyBookings(input: In<"x.bookings.mine"> = {}) {
       return useQuery(api.query("x.bookings.mine", input));
     },
-    /** Who the member may book for: themselves and the children staff linked to them. */
+    /**
+     * Who the member may book for: themselves and the children staff linked to them, read from
+     * the host's own family (`me.family`, stage 48) in the `family` tool's shape.
+     */
     useFamily() {
-      return useQuery(api.query("x.bookings.family", {}));
+      const read = api.query("me.family", {});
+      return useQuery({
+        // Its own key under me.family's: a write that makes me.family stale refreshes it too.
+        queryKey: [...read.queryKey, "bookings"],
+        queryFn: async (): Promise<Family> => {
+          const found = await read.queryFn();
+          return {
+            people: [
+              { ...found.self, self: true },
+              ...found.dependants.map((d) => ({ ...d, self: false })),
+            ],
+          };
+        },
+      });
     },
     /** Books the member into a class; the host answers booked, waiting (full) or why not. */
     useBook() {

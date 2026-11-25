@@ -178,6 +178,16 @@ export type MembershipsOperations = {
   "x.memberships.holdings": { kind: "query" } & Io<typeof holdings>;
   "x.memberships.givePass": { kind: "mutation" } & Io<typeof givePass>;
   "x.memberships.voidPass": { kind: "mutation" } & Io<typeof voidPass>;
+  // Whom a member acts for (ADR 0540): the children whose memberships and passes they may see.
+  "me.family": {
+    kind: "query";
+    input: Record<string, never>;
+    output: {
+      self: { personId: string; name: string };
+      dependants: { personId: string; name: string }[];
+      guardians: { personId: string; name: string }[];
+    };
+  };
   // Staff only: the pass types a person may be given by hand, as the admin lists them (stage 47).
   "record.list": {
     kind: "query";
@@ -578,6 +588,7 @@ export const MEMBERSHIPS_HOOKS_CALL = {
   usePassTypes: ["x.memberships.passTypes"],
   useBuyPass: ["x.memberships.buy", "order.checkout"],
   useMine: ["x.memberships.mine"],
+  useFamily: ["me.family"],
   useHoldings: ["x.memberships.holdings"],
   useGivePass: ["x.memberships.givePass"],
   useVoidPass: ["x.memberships.voidPass"],
@@ -651,9 +662,16 @@ function allMembershipsHooks(
         checkout: useMutation(api.mutation("order.checkout")),
       };
     },
-    /** The signed-in member's memberships and passes, with the host's count of what is left. */
-    useMine() {
-      return useQuery(api.query("x.memberships.mine", {}));
+    /**
+     * The signed-in member's memberships and passes, with the host's count of what is left; with
+     * a child's id (from `useFamily`), that child's, where the host shows them to a guardian.
+     */
+    useMine(personId?: string) {
+      return useQuery(api.query("x.memberships.mine", personId ? { personId } : {}));
+    },
+    /** Who the member acts for: themselves and the children the gym linked to them. */
+    useFamily() {
+      return useQuery(api.query("me.family", {}));
     },
     /** Staff: one person's memberships and passes. */
     useHoldings(personId: string) {

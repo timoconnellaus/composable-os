@@ -2,9 +2,11 @@
 // and the address they sign in with. What is saved is the host's (me.get, me.update): only what
 // changed is sent, and the host checks it again. A section's content: the shell gives it a screen.
 // Their birthday, day and month only (stage 53: me.birthday.get, me.birthday.set), where the
-// client holds them.
+// client holds them. Changing the address they sign in with is `native-account-email`'s, under the
+// address (ADR 0712); it works in the app.
 import {
   type AccountHooks,
+  type AccountSignIn,
   accountErrorWords,
   type BirthdayForm,
   birthdayForm,
@@ -17,12 +19,15 @@ import {
 } from "@composable-os/client";
 import { useState } from "react";
 import { ActivityIndicator, StyleSheet, Text, View } from "react-native";
+import { ChangeSignInAddress } from "../native-account-email/email.tsx";
 import { Button } from "../native-base/button.tsx";
 import { Field } from "../native-base/field.tsx";
 import { theme } from "../native-base/theme.ts";
 
 type Hooks = Pick<AccountHooks, "useMe" | "useUpdateMe"> &
-  Partial<Pick<AccountHooks, "useBirthday" | "useSetBirthday">>;
+  Partial<
+    Pick<AccountHooks, "useBirthday" | "useSetBirthday" | "useChangeEmail" | "useConfirmEmail">
+  >;
 
 const FIELDS: { key: keyof DetailsForm; label: string }[] = [
   { key: "displayName", label: "Name" },
@@ -31,7 +36,14 @@ const FIELDS: { key: keyof DetailsForm; label: string }[] = [
   { key: "primaryPhone", label: "Phone" },
 ];
 
-export function YourDetails({ account }: { account: Hooks }) {
+export function YourDetails({
+  account,
+  signIn,
+}: {
+  account: Hooks;
+  /** The app's sign-in, for changing the sign-in address: with it, the change shows. */
+  signIn?: AccountSignIn;
+}) {
   const me = account.useMe();
   const update = account.useUpdateMe();
   const [form, setForm] = useState<DetailsForm | null>(null);
@@ -84,6 +96,16 @@ export function YourDetails({ account }: { account: Hooks }) {
         <Text style={styles.label}>You sign in with</Text>
         <Text style={styles.body}>{person.signInEmail}</Text>
       </View>
+      {signIn && account.useChangeEmail && account.useConfirmEmail ? (
+        <ChangeSignInAddress
+          account={{
+            useMe: account.useMe,
+            useChangeEmail: account.useChangeEmail,
+            useConfirmEmail: account.useConfirmEmail,
+          }}
+          signIn={signIn}
+        />
+      ) : null}
       <Button label="Save" busy={update.isPending} onPress={() => void save()} />
       {said ? <Text style={styles.body}>{said}</Text> : null}
       {account.useBirthday && account.useSetBirthday ? (

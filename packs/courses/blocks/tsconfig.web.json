@@ -20,6 +20,7 @@
     "courses-player/*.tsx",
     "courses-my-courses/*.tsx",
     "courses-builder/*.tsx",
-    "courses-subscribe/*.tsx"
+    "courses-subscribe/*.tsx",
+    "courses-subscription/*.tsx"
   ]
 }

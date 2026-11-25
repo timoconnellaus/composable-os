@@ -2,9 +2,14 @@
   "name": "courses-my-courses",
   "pack": "courses",
   "skin": "web",
-  "operations": ["x.courses.myCourses"],
+  "operations": [
+    "x.courses.myCourses",
+    "subscription.list",
+    "subscription.cancel",
+    "subscription.resume"
+  ],
   "files": ["my-courses.tsx", "LICENSE"],
-  "dependsOn": ["ui-button", "ui-card"],
+  "dependsOn": ["ui-button", "ui-card", "courses-subscription"],
   "packages": {
     "@composable-os/pack-courses": "*"
   }

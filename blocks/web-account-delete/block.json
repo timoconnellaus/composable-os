@@ -1,0 +1,11 @@
+{
+  "name": "web-account-delete",
+  "pack": null,
+  "skin": "web",
+  "operations": ["me.get", "me.deleteAccount"],
+  "files": ["delete.tsx", "LICENSE"],
+  "dependsOn": ["web-account-email", "ui-button", "ui-input", "ui-label"],
+  "packages": {
+    "@composable-os/client": "*"
+  }
+}

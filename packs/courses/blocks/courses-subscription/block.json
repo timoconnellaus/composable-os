@@ -2,15 +2,11 @@
   "name": "courses-subscription",
   "pack": "courses",
   "skin": "web",
-  "operations": [
-    "subscription.list",
-    "subscription.cancel",
-    "subscription.resume",
-    "subscription.portal"
-  ],
+  "operations": ["subscription.list", "subscription.cancel", "subscription.resume"],
   "files": ["my-subscription.tsx", "LICENSE"],
-  "dependsOn": ["ui-button", "ui-card"],
+  "dependsOn": ["web-account-subscriptions"],
   "packages": {
+    "@composable-os/client": "*",
     "@composable-os/pack-courses": "*"
   }
 }
