@@ -133,6 +133,7 @@ export async function recordPaidPeriod(
     updated_at: ctx.now,
     version: 0,
     discount: 0,
+    channel: null,
   };
   const order = getObject("order") ?? orderObject;
   // Created as the host, then paid as the host: two history rows, one batch.

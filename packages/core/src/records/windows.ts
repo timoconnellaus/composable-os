@@ -23,7 +23,7 @@ import type {
 import type { HandlerContext } from "../operation.ts";
 import { loadGeneralSettings } from "../settings.ts";
 import { localDaysBefore } from "../time/local.ts";
-import { visibleSource } from "../visibility/index.ts";
+import { type Reader, visibleSource } from "../visibility/index.ts";
 
 /**
  * Reads the values a record's paths name: its own fields, or through up to two relations
@@ -41,7 +41,7 @@ export interface PathReader {
  * extension's object, the field this extension adds to it (`<extension>.<field>` in the registry).
  */
 export function pathReader(
-  ctx: HandlerContext,
+  ctx: Reader,
   object: ObjectDefinition,
   after: Record<string, unknown>,
 ): PathReader {

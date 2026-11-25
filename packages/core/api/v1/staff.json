@@ -55939,11 +55939,13 @@
         "additionalProperties": false
       },
       "invalidates": [
+        "order.delivery.get",
         "order.get",
         "order.list",
         "order.overdue",
         "order.paidLate",
         "order.payments",
+        "order.quote",
         "order.settings.get",
         "order.view"
       ]
@@ -56038,11 +56040,13 @@
         "additionalProperties": false
       },
       "invalidates": [
+        "order.delivery.get",
         "order.get",
         "order.list",
         "order.overdue",
         "order.paidLate",
         "order.payments",
+        "order.quote",
         "order.settings.get",
         "order.view"
       ]
@@ -56326,11 +56330,13 @@
         "additionalProperties": false
       },
       "invalidates": [
+        "order.delivery.get",
         "order.get",
         "order.list",
         "order.overdue",
         "order.paidLate",
         "order.payments",
+        "order.quote",
         "order.settings.get",
         "order.view"
       ]
@@ -56415,14 +56421,170 @@
         "additionalProperties": false
       },
       "invalidates": [
+        "order.delivery.get",
         "order.get",
         "order.list",
         "order.overdue",
         "order.paidLate",
         "order.payments",
+        "order.quote",
         "order.settings.get",
         "order.view"
       ]
+    },
+    {
+      "name": "order.delivery.get",
+      "description": "How one order's goods get to the buyer: the delivery option chosen, its kind (post, collect, or here: taken now in person), whether the order is online or in person, and for a post delivery the address. One order at a time: addresses are in no list, view, export or search. Staff read any order's (each read is on record in the audit log); a signed-in customer their own; a guest with the order's token. An order without goods has none (not found). Read-only.",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "Order id (ord_…)"
+          },
+          "token": {
+            "description": "A guest's token for the order",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "orderId": {
+            "type": "string"
+          },
+          "channel": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "online",
+                  "in_person"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "post",
+              "collect",
+              "here"
+            ]
+          },
+          "lineId": {
+            "type": "string",
+            "description": "The order's delivery line"
+          },
+          "option": {
+            "type": "object",
+            "properties": {
+              "object": {
+                "type": "string"
+              },
+              "recordId": {
+                "type": "string"
+              },
+              "title": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "object",
+              "recordId",
+              "title"
+            ],
+            "additionalProperties": false
+          },
+          "address": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "line1": {
+                    "type": "string"
+                  },
+                  "line2": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "city": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "region": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "postcode": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "country": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "name",
+                  "line1",
+                  "line2",
+                  "city",
+                  "region",
+                  "postcode",
+                  "country"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A post delivery's; null otherwise"
+          },
+          "erased": {
+            "type": "boolean",
+            "description": "The buyer's erase removed the address"
+          }
+        },
+        "required": [
+          "orderId",
+          "channel",
+          "kind",
+          "lineId",
+          "option",
+          "address",
+          "erased"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": []
     },
     {
       "name": "order.expireDue",
@@ -56459,11 +56621,13 @@
         "additionalProperties": false
       },
       "invalidates": [
+        "order.delivery.get",
         "order.get",
         "order.list",
         "order.overdue",
         "order.paidLate",
         "order.payments",
+        "order.quote",
         "order.settings.get",
         "order.view"
       ]
@@ -56754,11 +56918,13 @@
         "additionalProperties": false
       },
       "invalidates": [
+        "order.delivery.get",
         "order.get",
         "order.list",
         "order.overdue",
         "order.paidLate",
         "order.payments",
+        "order.quote",
         "order.settings.get",
         "order.view"
       ]
@@ -57322,11 +57488,13 @@
         "additionalProperties": false
       },
       "invalidates": [
+        "order.delivery.get",
         "order.get",
         "order.list",
         "order.overdue",
         "order.paidLate",
         "order.payments",
+        "order.quote",
         "order.settings.get",
         "order.view"
       ]
@@ -58281,6 +58449,339 @@
       "invalidates": []
     },
     {
+      "name": "order.quote",
+      "description": "Price a basket without starting an order: the host's price of each line, the delivery (its postage, nothing when the goods reach the option's free-over amount), the total and what is available, exactly as order.start would charge. Holds nothing and writes nothing: stock is held only once an order is started. Refuses what order.start refuses (not for sale, not sold that way, an address outside the option's countries) and reports, in `problems`, what the buyer still has to do (choose a delivery, give an address) and what is sold out or short; `ready` is true when none is left. Amounts are in the currency's minor unit. Read-only.",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "lines": {
+            "minItems": 1,
+            "maxItems": 50,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "object": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 80,
+                  "description": "The object of the record to buy"
+                },
+                "id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 64,
+                  "description": "The record to buy"
+                },
+                "quantity": {
+                  "default": 1,
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 1000
+                }
+              },
+              "required": [
+                "object",
+                "id"
+              ]
+            },
+            "description": "What is in the basket. There is no price here: the host reads it from each record."
+          },
+          "delivery": {
+            "description": "The delivery option chosen, and to post, the address (its country decides whether the option posts there). Left out, the quote says one is needed when there are goods.",
+            "type": "object",
+            "properties": {
+              "object": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 80,
+                "description": "The delivery option's object"
+              },
+              "id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64,
+                "description": "The delivery option chosen"
+              },
+              "address": {
+                "description": "Where to post the goods: needed for a post option, refused for any other",
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200,
+                    "description": "Who it is for"
+                  },
+                  "line1": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200
+                  },
+                  "line2": {
+                    "type": "string",
+                    "maxLength": 200
+                  },
+                  "city": {
+                    "type": "string",
+                    "maxLength": 100
+                  },
+                  "region": {
+                    "description": "State, county or province",
+                    "type": "string",
+                    "maxLength": 100
+                  },
+                  "postcode": {
+                    "type": "string",
+                    "maxLength": 20
+                  },
+                  "country": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z]{2}$"
+                  }
+                },
+                "required": [
+                  "name",
+                  "line1",
+                  "country"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "object",
+              "id"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "lines"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "currency": {
+            "type": "string"
+          },
+          "channel": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "online",
+                  "in_person"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "online (posted or collected) or in_person (taken now); null without goods or delivery"
+          },
+          "lines": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "position": {
+                  "type": "number"
+                },
+                "object": {
+                  "type": "string"
+                },
+                "recordId": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "quantity": {
+                  "type": "number"
+                },
+                "unitPrice": {
+                  "type": "number"
+                },
+                "total": {
+                  "type": "number"
+                },
+                "goods": {
+                  "type": "boolean",
+                  "description": "Goods: posted, collected or taken now"
+                },
+                "availability": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "status": {
+                          "type": "string",
+                          "enum": [
+                            "in_stock",
+                            "low",
+                            "sold_out"
+                          ]
+                        },
+                        "available": {
+                          "description": "How many can be bought now: for staff, and for others when the item shows it",
+                          "type": "number"
+                        },
+                        "onHand": {
+                          "description": "Staff only",
+                          "type": "number"
+                        },
+                        "held": {
+                          "description": "Staff only",
+                          "type": "number"
+                        }
+                      },
+                      "required": [
+                        "status"
+                      ],
+                      "additionalProperties": false,
+                      "description": "Stock, for a line of something counted on a shelf; null for anything else"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "position",
+                "object",
+                "recordId",
+                "title",
+                "quantity",
+                "unitPrice",
+                "total",
+                "goods",
+                "availability"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "delivery": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "object": {
+                    "type": "string"
+                  },
+                  "recordId": {
+                    "type": "string"
+                  },
+                  "title": {
+                    "type": "string"
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "post",
+                      "collect",
+                      "here"
+                    ]
+                  },
+                  "price": {
+                    "type": "number",
+                    "description": "The option's own price"
+                  },
+                  "freeOver": {
+                    "description": "Goods at or above this post free",
+                    "type": [
+                      "number",
+                      "null"
+                    ]
+                  },
+                  "free": {
+                    "type": "boolean"
+                  },
+                  "charged": {
+                    "type": "number",
+                    "description": "What the delivery costs on this order: 0 when free"
+                  }
+                },
+                "required": [
+                  "object",
+                  "recordId",
+                  "title",
+                  "kind",
+                  "price",
+                  "freeOver",
+                  "free",
+                  "charged"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "goodsTotal": {
+            "type": "number",
+            "description": "What the goods cost, before the delivery"
+          },
+          "total": {
+            "type": "number",
+            "description": "What order.start would charge for this basket"
+          },
+          "ready": {
+            "type": "boolean",
+            "description": "Nothing in `problems`: the order can be started as it is"
+          },
+          "problems": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "rule": {
+                  "type": "string",
+                  "enum": [
+                    "delivery_needed",
+                    "address_needed",
+                    "sold_out",
+                    "not_enough"
+                  ]
+                },
+                "message": {
+                  "type": "string"
+                },
+                "line": {
+                  "description": "The position of the line it is about",
+                  "type": "number"
+                }
+              },
+              "required": [
+                "rule",
+                "message"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "currency",
+          "channel",
+          "lines",
+          "delivery",
+          "goodsTotal",
+          "total",
+          "ready",
+          "problems"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
       "name": "order.recordPayment",
       "description": "Record a payment taken another way than the payment page (a bank transfer, cash, a cheque, a card machine) on an order still owed money: any amount up to what is owed, never more (a drop-in that books a place is paid in full). The order becomes paid (or part paid) as if the provider had been paid, and what it bought is given. The payment names you as the person who received it. Admins are told of one over the amount an admin set, or when the buyer had opened a payment page (a payment made there now is refunded). A person only, with the permission to record payments: AI assistants, MCP clients, automations and extensions are refused. Returns the payment's id and the order.",
       "risk": "write",
@@ -58603,11 +59104,13 @@
         "additionalProperties": false
       },
       "invalidates": [
+        "order.delivery.get",
         "order.get",
         "order.list",
         "order.overdue",
         "order.paidLate",
         "order.payments",
+        "order.quote",
         "order.settings.get",
         "order.view"
       ]
@@ -58946,11 +59449,13 @@
         "additionalProperties": false
       },
       "invalidates": [
+        "order.delivery.get",
         "order.get",
         "order.list",
         "order.overdue",
         "order.paidLate",
         "order.payments",
+        "order.quote",
         "order.settings.get",
         "order.view"
       ]
@@ -59041,11 +59546,13 @@
         "additionalProperties": false
       },
       "invalidates": [
+        "order.delivery.get",
         "order.get",
         "order.list",
         "order.overdue",
         "order.paidLate",
         "order.payments",
+        "order.quote",
         "order.settings.get",
         "order.view"
       ]
@@ -59126,11 +59633,13 @@
         "additionalProperties": false
       },
       "invalidates": [
+        "order.delivery.get",
         "order.get",
         "order.list",
         "order.overdue",
         "order.paidLate",
         "order.payments",
+        "order.quote",
         "order.settings.get",
         "order.view"
       ]
@@ -59175,11 +59684,13 @@
         "additionalProperties": false
       },
       "invalidates": [
+        "order.delivery.get",
         "order.get",
         "order.list",
         "order.overdue",
         "order.paidLate",
         "order.payments",
+        "order.quote",
         "order.settings.get",
         "order.view"
       ]
@@ -59483,11 +59994,13 @@
         "additionalProperties": false
       },
       "invalidates": [
+        "order.delivery.get",
         "order.get",
         "order.list",
         "order.overdue",
         "order.paidLate",
         "order.payments",
+        "order.quote",
         "order.settings.get",
         "order.view"
       ]
@@ -59777,11 +60290,13 @@
         "additionalProperties": false
       },
       "invalidates": [
+        "order.delivery.get",
         "order.get",
         "order.list",
         "order.overdue",
         "order.paidLate",
         "order.payments",
+        "order.quote",
         "order.settings.get",
         "order.view"
       ]
@@ -60155,18 +60670,20 @@
         "additionalProperties": false
       },
       "invalidates": [
+        "order.delivery.get",
         "order.get",
         "order.list",
         "order.overdue",
         "order.paidLate",
         "order.payments",
+        "order.quote",
         "order.settings.get",
         "order.view"
       ]
     },
     {
       "name": "order.start",
-      "description": "Start an order for one or more records that are for sale, as a signed-in customer, a guest (with an email address) or staff. The host prices it from the records: a caller never sends a price or a total. The order starts pending and is not paid: paying happens on the payment provider's page (order.checkout), and only the provider's confirmation marks it paid. An unpaid order expires after a few minutes. Nobody buys without the agreements the business needs for what is bought: refused with rule agreements_due and the documents while any is due (a guest passes their acceptances in `agreements`; a signed-in customer agrees first; staff send a link, sign at the desk or record paper). Returns the order with its lines and amounts in the currency's minor unit; a guest also gets `token`, shown once, which is the only way back to the order (order.view).",
+      "description": "Start an order for one or more records that are for sale, as a signed-in customer, a guest (with an email address) or staff. The host prices it from the records: a caller never sends a price or a total. The order starts pending and is not paid: paying happens on the payment provider's page (order.checkout), and only the provider's confirmation marks it paid. An unpaid order expires after a few minutes. Nobody buys without the agreements the business needs for what is bought: refused with rule agreements_due and the documents while any is due (a guest passes their acceptances in `agreements`; a signed-in customer agrees first; staff send a link, sign at the desk or record paper). Goods (things posted, collected or taken now) need a `delivery`: the host adds it as the last line, priced by the host, and refuses goods not sold that way (rule not_sold_here), a post delivery with no address or one outside the option's countries, and what is sold out. order.quote gives the same prices without starting anything. Returns the order with its lines and amounts in the currency's minor unit; a guest also gets `token`, shown once, which is the only way back to the order (order.view).",
       "risk": "write",
       "audiences": [
         "staff"
@@ -60324,6 +60841,73 @@
               "additionalProperties": false
             },
             "description": "A visitor without an account only: what they agreed to on the way to paying, one entry per document the host says is due (each document's current version, the name they typed, a signature for a document agreed to by drawing, every answer for a health form). A signed-in customer agrees first (me.agreements.accept); staff never agree for anyone."
+          },
+          "delivery": {
+            "description": "How the goods get to the buyer, when the order has goods (records sold as goods): one delivery option (posted, collected, or taken now in person) and, to post, the address. Required with goods, refused without. The host prices it (free over an amount when the option says so) and works out from it whether the order is online or in person; each goods line must be sold there.",
+            "type": "object",
+            "properties": {
+              "object": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 80,
+                "description": "The delivery option's object"
+              },
+              "id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64,
+                "description": "The delivery option chosen"
+              },
+              "address": {
+                "description": "Where to post the goods: needed for a post option, refused for any other",
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200,
+                    "description": "Who it is for"
+                  },
+                  "line1": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200
+                  },
+                  "line2": {
+                    "type": "string",
+                    "maxLength": 200
+                  },
+                  "city": {
+                    "type": "string",
+                    "maxLength": 100
+                  },
+                  "region": {
+                    "description": "State, county or province",
+                    "type": "string",
+                    "maxLength": 100
+                  },
+                  "postcode": {
+                    "type": "string",
+                    "maxLength": 20
+                  },
+                  "country": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z]{2}$"
+                  }
+                },
+                "required": [
+                  "name",
+                  "line1",
+                  "country"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "object",
+              "id"
+            ],
+            "additionalProperties": false
           }
         },
         "required": [
@@ -60595,11 +61179,13 @@
         "additionalProperties": false
       },
       "invalidates": [
+        "order.delivery.get",
         "order.get",
         "order.list",
         "order.overdue",
         "order.paidLate",
         "order.payments",
+        "order.quote",
         "order.settings.get",
         "order.view"
       ]
@@ -60890,11 +61476,13 @@
         "additionalProperties": false
       },
       "invalidates": [
+        "order.delivery.get",
         "order.get",
         "order.list",
         "order.overdue",
         "order.paidLate",
         "order.payments",
+        "order.quote",
         "order.settings.get",
         "order.view"
       ]

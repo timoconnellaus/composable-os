@@ -103,9 +103,22 @@ function shop(id: string): ExtensionManifest {
             reorderLevel: { type: "number", label: "Reorder level" },
             reorderQty: { type: "number", label: "Reorder quantity" },
           },
-          sellable: { price: "price" },
+          sellable: { price: "price", goods: {} },
           stock: { reorderAt: "reorderLevel", reorderQty: "reorderQty", notify: `${id}:stock` },
           public: { read: ["name", "price"] },
+        },
+        delivery: {
+          label: "Delivery",
+          plural: "Deliveries",
+          titleField: "name",
+          fields: {
+            name: { type: "text", label: "Name", required: true },
+            price: { type: "currency", label: "Price", currency: CURRENCY },
+            kind: select("post", "collect", "here"),
+          },
+          // An order with goods needs a delivery (ADR 0682): these tests take them now.
+          sellable: { price: "price", delivery: { kind: "kind" } },
+          public: { read: ["name", "price", "kind"] },
         },
         receipt: {
           label: "Receipt",
@@ -208,6 +221,8 @@ let granted: ActingUser;
 let stockroom: ActingUser;
 let gone: ActingUser;
 let door: ActingUser;
+/** "Take it now", for the goods orders here (ADR 0682). */
+let here: { object: string; id: string };
 
 beforeAll(async () => {
   admin = await createUser("admin");
@@ -238,6 +253,10 @@ beforeAll(async () => {
     .bind(now, gone.id)
     .run();
   await run("order.settings.update", { currency: CURRENCY }, context(admin));
+  here = {
+    object: `${ext}.delivery`,
+    id: await create(`${ext}.delivery`, { name: "Take it now", price: 0, kind: "here" }),
+  };
 });
 
 async function create(object: string, values: Record<string, unknown>): Promise<string> {
@@ -330,7 +349,7 @@ async function toldOf(variant: string): Promise<Record<string, number>> {
 const startAsGuest = (lines: { object: string; id: string; quantity?: number }[]) =>
   run<{ id: string; total: number }>(
     "order.start",
-    { lines, email: `${unique("guest")}@buyers.example` },
+    { lines, email: `${unique("guest")}@buyers.example`, delivery: here },
     outside(PUBLIC),
   );
 
@@ -417,7 +436,7 @@ describe("the stockMoves declaration", () => {
     ).toEqual(
       expect.arrayContaining([
         'objects.variant.stock.notify: "decl:nobody" is not the permission of any of this extension\'s tools (tools.<name>.permission)',
-        "objects.part.stock: part has stock but is neither sellable nor moved by a stockMoves of this extension",
+        "objects.part.stock: part has stock but is neither sellable goods nor moved by a stockMoves of this extension",
       ]),
     );
   });

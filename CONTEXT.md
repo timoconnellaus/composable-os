@@ -1455,6 +1455,29 @@ write takes it there, the staff who keep stock (the pack's `stock.notify` permis
 admins) are told once; again only after it has risen above and fallen again (one **crossing**)
 (ADR 0681).
 
+**Goods**
+Records handed over or sent (a variant of an item in a shop), declared `sellable.goods` by their
+object, with where each is sold (`soldIn`: online, in person or both, often read through the item).
+An order with goods needs exactly one **delivery** and has a **channel** (stage 37, ADR 0682).
+
+**Delivery option** and **delivery**
+A record of an object declaring `sellable.delivery`: one way of getting an order's goods to the
+buyer, of a kind: **post** (to an address in the option's countries, or "everywhere else"),
+**collect** (at a place) or **here** ("take it now", in person). The buyer chooses one in
+`order.start`'s `delivery`; the host adds it as the order's last line and prices it (**postage**:
+the option's price, or nothing over its "free over", ADR 0685). A post delivery's address is kept
+by the host (`core_order_delivery`), read one order at a time and blanked by the buyer's erase.
+
+**Channel** (of an order)
+Where an order with goods is sold, worked out by the host from its delivery and never taken from a
+caller: **online** (post or collect) or **in person** (here). A goods line not sold in the order's
+channel is refused on every path (ADR 0682). The till's desk orders will be in person too.
+
+**Quote** (`order.quote`)
+The host's prices for a basket, holding nothing: each line, the delivery, the total, and what is
+available or sold out, exactly as `order.start` would charge. A device's basket shows it (stage 37,
+ADR 0683).
+
 **Series** (of a recurring schedule)
 A record that declares `recurring`: a rule in local wall-clock time (weekdays, a time, a
 length, from and until dates, a zone) that makes dated records of another object ahead, up to its
