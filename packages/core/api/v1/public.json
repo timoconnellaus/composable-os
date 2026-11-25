@@ -3300,7 +3300,7 @@
     },
     {
       "name": "x.forms.form",
-      "description": "A form by its address, as the caller may answer it now: its version, title, questions and thank-you words, whether it is anonymous, whether a Turnstile token is needed, and the host's token of when it was shown (send it back with the answers). A form that is not open to the caller now (a draft, closed, not published, out of its dates, for signed-in customers only, or no such address) is not found, the same answer whatever the reason. Read-only. (Extension tool from Forms 0.1.0.)",
+      "description": "A form by its address, as the caller may answer it now: its version, title, questions and thank-you words, whether it is anonymous, whether a Turnstile token is needed, and the host's token of when it was shown (send it back with the answers). A form that is not open to the caller now (a draft, closed, not published, out of its dates, for signed-in customers only, or no such address) is not found, the same answer whatever the reason. Or open the form a personal link is for: `link`, the token from its email (no sign-in needed), or `linkId`, a signed-in member's own link from Needs your attention. A link that cannot be used (used, expired, unknown) is one answer whatever is wrong, and opening it uses nothing. Read-only. (Extension tool from Forms 0.1.0.)",
       "risk": "read",
       "audiences": ["public"],
       "kind": "query",
@@ -3312,9 +3312,20 @@
             "minLength": 1,
             "maxLength": 200,
             "description": "The form's address, e.g. ask-about-a-trial"
+          },
+          "link": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "description": "A personal link's token"
+          },
+          "linkId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "Your own personal link's id"
           }
         },
-        "required": ["slug"],
         "additionalProperties": {}
       },
       "output": {
@@ -3383,7 +3394,7 @@
     },
     {
       "name": "x.forms.submit",
-      "description": "Send answers to a form the caller may answer (from `form`). The host checks the form is still open to them, a visitor's Turnstile token and when the form was shown, the caps and the answers against the version shown, then keeps them in the business's inbox, linked to the sender's person by the email answered. Answers that break the form are refused naming the question's key; a form published again since it was shown is refused with 'load it again'; too many answers just now is 'try again later'. Kept, kept as spam or dropped, the answer is the same. (Extension tool from Forms 0.1.0.)",
+      "description": "Send answers to a form the caller may answer (from `form`). The host checks the form is still open to them, a visitor's Turnstile token and when the form was shown, the caps and the answers against the version shown, then keeps them in the business's inbox, linked to the sender's person by the email answered. Answers that break the form are refused naming the question's key; a form published again since it was shown is refused with 'load it again'; too many answers just now is 'try again later'. Kept, kept as spam or dropped, the answer is the same. By a personal link (`link` or `linkId`, as `form` opened it), the answers are the link's person's, once: no Turnstile token or shown time is needed, and a link that cannot be used is one answer. (Extension tool from Forms 0.1.0.)",
       "risk": "write",
       "audiences": ["public"],
       "kind": "mutation",
@@ -3431,6 +3442,18 @@
             "type": "string",
             "maxLength": 1000,
             "description": "The hidden field a person leaves empty"
+          },
+          "link": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "description": "A personal link's token"
+          },
+          "linkId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "Your own personal link's id"
           }
         },
         "required": ["id", "version", "answers"],

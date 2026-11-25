@@ -1668,7 +1668,7 @@
     },
     {
       "name": "me.attention",
-      "description": "What needs your attention, as a signed-in customer, soonest first: a document to agree to (for you or a child linked to you), a card payment that failed, a payment waiting for you to confirm with your bank, the rest of a deposit to pay, an order you started paying for and did not finish, a pass about to expire with uses left or with none left (yours or a child's), and a free trial about to end. `days` is how far ahead it looks for a pass or a trial ending. An item goes once its cause is fixed. Read-only.",
+      "description": "What needs your attention, as a signed-in customer, soonest first: a document to agree to (for you or a child linked to you), a card payment that failed, a payment waiting for you to confirm with your bank, the rest of a deposit to pay, an order you started paying for and did not finish, a pass about to expire with uses left or with none left (yours or a child's), a free trial about to end, and a form you were asked to answer (yours or a child's). `days` is how far ahead it looks for a pass or a trial ending. An item goes once its cause is fixed. Read-only.",
       "risk": "read",
       "audiences": ["customer"],
       "kind": "query",
@@ -1702,9 +1702,10 @@
                     "finish_paying",
                     "pass_expiring",
                     "pass_used_up",
-                    "trial_ending"
+                    "trial_ending",
+                    "form_to_fill"
                   ],
-                  "description": "agree: a document to agree to (me.agreements.due has it). card_failing: a card payment for a subscription you pay failed. confirm_payment: a payment waits for you to confirm it with your bank. balance_due: the rest of a deposit to pay. finish_paying: an order holding places you started paying for and did not finish. pass_expiring: a pass about to expire with uses still on it. pass_used_up: a pass with no uses left. trial_ending: a free trial about to end."
+                  "description": "agree: a document to agree to (me.agreements.due has it). card_failing: a card payment for a subscription you pay failed. confirm_payment: a payment waits for you to confirm it with your bank. balance_due: the rest of a deposit to pay. finish_paying: an order holding places you started paying for and did not finish. pass_expiring: a pass about to expire with uses still on it. pass_used_up: a pass with no uses left. trial_ending: a free trial about to end. form_to_fill: a form the business asked you (or a child linked to you) to answer, such as feedback after a class, until it is answered or its link expires."
                 },
                 "person": {
                   "type": "object",
@@ -1738,10 +1739,10 @@
                   },
                   "required": ["object", "id", "title"],
                   "additionalProperties": false,
-                  "description": "What it is about: an agreement document, a subscription, an order, or a pass by its object"
+                  "description": "What it is about: an agreement document, a subscription, an order, a pass by its object, or the form to answer"
                 },
                 "at": {
-                  "description": "The moment it is about: the version taking effect, the first failed payment, the payment started, the balance due, the held order expiring, the pass or trial ending",
+                  "description": "The moment it is about: the version taking effect, the first failed payment, the payment started, the balance due, the held order expiring, the pass or trial ending, the form's link expiring",
                   "type": ["string", "null"]
                 },
                 "amount": {
@@ -1754,6 +1755,10 @@
                 "usesLeft": {
                   "description": "A pass's uses left; null for other kinds",
                   "type": ["number", "null"]
+                },
+                "link": {
+                  "description": "form_to_fill: the personal link's id, sent back as linkId to open and answer the form (signed in only); null for other kinds",
+                  "type": ["string", "null"]
                 }
               },
               "required": [
@@ -1764,7 +1769,8 @@
                 "at",
                 "amount",
                 "currency",
-                "usesLeft"
+                "usesLeft",
+                "link"
               ],
               "additionalProperties": false
             }
@@ -8737,7 +8743,7 @@
     },
     {
       "name": "x.forms.form",
-      "description": "A form by its address, as the caller may answer it now: its version, title, questions and thank-you words, whether it is anonymous, whether a Turnstile token is needed, and the host's token of when it was shown (send it back with the answers). A form that is not open to the caller now (a draft, closed, not published, out of its dates, for signed-in customers only, or no such address) is not found, the same answer whatever the reason. Read-only. (Extension tool from Forms 0.1.0.)",
+      "description": "A form by its address, as the caller may answer it now: its version, title, questions and thank-you words, whether it is anonymous, whether a Turnstile token is needed, and the host's token of when it was shown (send it back with the answers). A form that is not open to the caller now (a draft, closed, not published, out of its dates, for signed-in customers only, or no such address) is not found, the same answer whatever the reason. Or open the form a personal link is for: `link`, the token from its email (no sign-in needed), or `linkId`, a signed-in member's own link from Needs your attention. A link that cannot be used (used, expired, unknown) is one answer whatever is wrong, and opening it uses nothing. Read-only. (Extension tool from Forms 0.1.0.)",
       "risk": "read",
       "audiences": ["customer"],
       "kind": "query",
@@ -8749,9 +8755,20 @@
             "minLength": 1,
             "maxLength": 200,
             "description": "The form's address, e.g. ask-about-a-trial"
+          },
+          "link": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "description": "A personal link's token"
+          },
+          "linkId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "Your own personal link's id"
           }
         },
-        "required": ["slug"],
         "additionalProperties": {}
       },
       "output": {
@@ -8820,7 +8837,7 @@
     },
     {
       "name": "x.forms.submit",
-      "description": "Send answers to a form the caller may answer (from `form`). The host checks the form is still open to them, a visitor's Turnstile token and when the form was shown, the caps and the answers against the version shown, then keeps them in the business's inbox, linked to the sender's person by the email answered. Answers that break the form are refused naming the question's key; a form published again since it was shown is refused with 'load it again'; too many answers just now is 'try again later'. Kept, kept as spam or dropped, the answer is the same. (Extension tool from Forms 0.1.0.)",
+      "description": "Send answers to a form the caller may answer (from `form`). The host checks the form is still open to them, a visitor's Turnstile token and when the form was shown, the caps and the answers against the version shown, then keeps them in the business's inbox, linked to the sender's person by the email answered. Answers that break the form are refused naming the question's key; a form published again since it was shown is refused with 'load it again'; too many answers just now is 'try again later'. Kept, kept as spam or dropped, the answer is the same. By a personal link (`link` or `linkId`, as `form` opened it), the answers are the link's person's, once: no Turnstile token or shown time is needed, and a link that cannot be used is one answer. (Extension tool from Forms 0.1.0.)",
       "risk": "write",
       "audiences": ["customer"],
       "kind": "mutation",
@@ -8868,6 +8885,18 @@
             "type": "string",
             "maxLength": 1000,
             "description": "The hidden field a person leaves empty"
+          },
+          "link": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "description": "A personal link's token"
+          },
+          "linkId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "Your own personal link's id"
           }
         },
         "required": ["id", "version", "answers"],
