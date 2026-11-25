@@ -99,7 +99,7 @@ const tool = (permission?: string, anyStaff = false) =>
     output: z.object({}),
     risk: "read",
     ...(permission ? { permission } : {}),
-    ...(anyStaff ? { anyStaff: true } : {}),
+    ...(anyStaff ? { anyStaff: true, humanOnly: true } : {}),
     handler: () => ({}),
   });
 

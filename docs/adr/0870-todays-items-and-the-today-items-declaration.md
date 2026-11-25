@@ -57,3 +57,11 @@ a pack role's limit to today (ADR 0553), and Programs has a `today` tool.
   base ones.
 - The check adds one statement (the schema's names) to `checkManifest`, only for a manifest with
   items. No bound variables.
+
+**Amended 2026-11-26 (stage 60 step 3):** `today.get` and `today.rows` run the items. A shipped,
+active pack's item is shown to whoever could call every tool of its gate (with two more rules for
+a pack role's account); its SQL is checked again with the widget guards and run through
+`runReadOnlySql`, every visible item a column of one statement, bound to the business's day and,
+for its comparison, the same window a day or a week earlier at the same local time; a row's
+record is linked only where the caller may open it. See
+[ADR 0874](0874-today-get-the-host-items-and-a-pack-roles-today.md).

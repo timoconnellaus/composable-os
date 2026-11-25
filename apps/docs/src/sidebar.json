@@ -576,6 +576,30 @@
             "slug": "capabilities/outside/decisions"
           }
         ]
+      },
+      {
+        "label": "Today",
+        "collapsed": true,
+        "items": [
+          {
+            "slug": "capabilities/today"
+          },
+          {
+            "slug": "capabilities/today/operations"
+          },
+          {
+            "slug": "capabilities/today/permissions"
+          },
+          {
+            "slug": "capabilities/today/behaviours"
+          },
+          {
+            "slug": "capabilities/today/screens"
+          },
+          {
+            "slug": "capabilities/today/decisions"
+          }
+        ]
       }
     ]
   },
@@ -886,6 +910,9 @@
           },
           {
             "slug": "reference/operations/thread"
+          },
+          {
+            "slug": "reference/operations/today"
           },
           {
             "slug": "reference/operations/trash"
