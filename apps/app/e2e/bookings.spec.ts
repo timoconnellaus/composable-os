@@ -584,7 +584,7 @@ test("an admin gives a coach the desk, and the coach books a walk-in", async ({
   // The admin's one tick, in plain words.
   await open(page, "/settings/users");
   const row = page.getByTestId("user-row").filter({ hasText: email });
-  const desk = row.getByLabel(/Front desk: find people, book anyone/);
+  const desk = row.getByLabel(/Front desk: find people; book, cancel and move classes/);
   await expect(desk).not.toBeChecked();
   await desk.click();
   await expect(desk).toBeChecked();
