@@ -466,6 +466,24 @@ export async function assertRosterWrite(
   if (changes(rosterFields(object, before === null)).length) {
     await assertMayRoster(ctx, `say who works a ${object.label.toLowerCase()}`);
   }
+  // A booked shift's provider is booked, not rostered (ADR 0764), only while it is still to come:
+  // who worked one that has started, or a past one made now, is counted for pay, a rosterer's.
+  const open = object.staffed?.open ? object.staffed : null;
+  if (open && changes([open.who.field]).length) {
+    const at = Date.parse(ctx.now);
+    const startOf = (values: Record<string, unknown> | null) =>
+      values ? Date.parse(String(values[open.starts] ?? "")) : Number.NaN;
+    const started = (values: Record<string, unknown> | null) => {
+      const s = startOf(values);
+      return !Number.isFinite(s) || s <= at;
+    };
+    if (before === null ? started(after) : started(before) || started({ ...before, ...after })) {
+      await assertMayRoster(
+        ctx,
+        `say who gave a ${object.label.toLowerCase()} that has started or is over`,
+      );
+    }
+  }
   // What pay is totalled from, before a lock (the review of PR #287, ADR 0627): a kind's set-up
   // and pack-down minutes, and the times of a shift that has started (a future one stays open to
   // whoever may write it).
