@@ -178,7 +178,7 @@ describe("a payout that fails, whenever it fails", () => {
     // fpi_b1, settled by the payout that failed, is no longer waiting to be paid out.
     const unpaid = may.rows.find((r) => r.type === "unpaid") as Row;
     expect(unpaid.sources).not.toContain("fake:evt_fpi_b1");
-    expect(may.totals.amount - may.totals.failed).toBe(39_100);
+    expect((may.totals.amount ?? 0) - (may.totals.failed ?? 0)).toBe(39_100);
   });
 });
 
