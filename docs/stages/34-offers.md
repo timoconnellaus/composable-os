@@ -102,8 +102,8 @@ module (the till): whichever is built first builds it once, to this design.
   recorded refunds are never deleted (and the latter never edited); `rec_order_refund` reports
   refunds by method.
 
-- **Step 4** — not built — needs: step 1 — The `discount` behaviour: codes and automatic discounts
-  in `priceLines`, limits, `discount.check`, `order.applyCode`, rate limits.
+- **Step 4** — in progress — branch `feat/stage-34-discount` — The `discount` behaviour: codes and
+  automatic discounts in `priceLines`, limits, `discount.check`, `order.applyCode`, rate limits.
 
 - **Step 5** — not built — needs: step 1 — The Offers pack's spine: discount, promo code, member
   price and customer rate, tools, views, settings, permissions.
