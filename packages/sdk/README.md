@@ -223,6 +223,10 @@ text/longText/select/email/phone/url/user/relation (one) → `text`; number/curr
 `number`; boolean → `boolean`; date → `date`; datetime → `datetime`. Other formula fields can be
 used (cycles are reported); multiSelect and many-relations cannot. On core objects, core fields can
 be read too (e.g. `name`, `currentPeopleCount` on organisation; `displayName`, `jobTitle` on person).
+Every record's `createdAt` and `updatedAt` can be read, and on a `publishable` object `publishedAt`
+(datetime) and `publishedVersion` (number), the current version's, empty while it is not published
+(ADR 0706): `dateAdd(publishedAt, reviewEvery, "month")`. A date-relative trigger may name a formula
+whose value is a date or a datetime.
 
 | Function | Result |
 | --- | --- |

@@ -942,6 +942,50 @@
       ]
     },
     {
+      "name": "ack.due",
+      "description": "Platform use only (the minute cron, as the host, once a local day): the reminders to people who still have a record to read, the weekly notice to each record's owner of who has not confirmed it, and the welcome of new staff accounts with what they have to read, in the words each acknowledged object declares. Returns how many it wrote.",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "reminders": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "outstanding": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "welcomes": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": [
+          "reminders",
+          "outstanding",
+          "welcomes"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "ack.mine",
+        "ack.overview",
+        "ack.status"
+      ]
+    },
+    {
       "name": "ack.mine",
       "description": "What I must read and have not confirmed (each published record that asks me, with its current version), and what I have confirmed and when. For the person themselves; not for an AI actor. Read-only.",
       "risk": "read",
@@ -1050,7 +1094,7 @@
     },
     {
       "name": "ack.overview",
-      "description": "Every published record staff must read, of the objects the caller manages: its current version, how many must read it and how many have confirmed what counts. For admins and people granted an object's manage permission; never for an AI actor. Read-only.",
+      "description": "Every published record staff must read, of the objects the caller manages: its current version, how many must read it and how many have confirmed what counts. For admins and people granted an object's manage permission, themselves or through a person-only tool of the pack that owns them (its own objects only); never for an AI actor. Read-only.",
       "risk": "read",
       "audiences": [
         "staff"
@@ -1121,7 +1165,7 @@
     },
     {
       "name": "ack.status",
-      "description": "For one published record staff must read (a procedure), its current version: everyone who must read it, who has confirmed it (and when), and who has not (and since when). For admins and people granted the object's manage permission; never for an AI actor. Read-only.",
+      "description": "For one published record staff must read (a procedure), its current version: everyone who must read it, who has confirmed it (and when), and who has not (and since when). For admins and people granted the object's manage permission, themselves or through a person-only tool of the pack that owns it; never for an AI actor. Read-only.",
       "risk": "read",
       "audiences": [
         "staff"
@@ -104988,6 +105032,615 @@
       },
       "invalidates": [],
       "pack": "forms"
+    },
+    {
+      "name": "x.knowledge.confirm",
+      "description": "Confirm that I have read and understood a procedure's current published version: one tap, by the person themselves. Refused for a version that is not the current one (read it again and confirm that), a procedure I am not asked to read, and a second time for the same version. A confirmation is kept for good and never changed. Not for an AI. (Extension tool from Knowledge 0.1.0.)",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "The procedure"
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991,
+            "description": "The version I read: the current one"
+          }
+        },
+        "required": [
+          "id",
+          "version"
+        ],
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "version": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "confirmedAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "version",
+          "confirmedAt"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "x.knowledge.helpTopics",
+        "x.knowledge.readStatus",
+        "x.knowledge.toRead"
+      ],
+      "pack": "knowledge"
+    },
+    {
+      "name": "x.knowledge.draftHelpPage",
+      "description": "Write a help page's working copy from notes: a new one, or the draft of one that exists. The public reads only what a person publishes; ask a person to publish it (record.publish waits for their approval). Never put a customer's name or details in a help page drafted from their question. (Extension tool from Knowledge 0.1.0.)",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "Change this one's working copy; left out, a new one is made"
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "summary": {
+            "type": "string",
+            "maxLength": 500,
+            "description": "One or two sentences for lists"
+          },
+          "notes": {
+            "type": "string",
+            "maxLength": 60000,
+            "description": "The words, as notes: '# ' or '## ' starts a section heading, '- ' a bullet, '1. ' a numbered step, a blank line ends a paragraph"
+          },
+          "topic": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "A help topic's id"
+          }
+        },
+        "required": [
+          "title"
+        ],
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "created": {
+            "type": "boolean"
+          },
+          "open": {
+            "type": "object",
+            "properties": {
+              "object": {
+                "type": "string"
+              },
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "object",
+              "id"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "id",
+          "created",
+          "open"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "x.knowledge.helpTopics",
+        "x.knowledge.readStatus",
+        "x.knowledge.toRead"
+      ],
+      "pack": "knowledge"
+    },
+    {
+      "name": "x.knowledge.draftProcedure",
+      "description": "Write a procedure's working copy from notes: a new one, or the draft of one that exists. Staff read only what a person publishes, so this changes nothing anyone reads until then; ask a person to publish it (record.publish waits for their approval). Who must read it and how often it is reviewed are set by a person. Name a role, not a person, in the words ('the duty manager', not 'Sam'). (Extension tool from Knowledge 0.1.0.)",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "Change this one's working copy; left out, a new one is made"
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "summary": {
+            "type": "string",
+            "maxLength": 500,
+            "description": "One or two sentences for lists"
+          },
+          "notes": {
+            "type": "string",
+            "maxLength": 60000,
+            "description": "The words, as notes: '# ' or '## ' starts a section heading, '- ' a bullet, '1. ' a numbered step, a blank line ends a paragraph"
+          },
+          "section": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "A section's id"
+          }
+        },
+        "required": [
+          "title"
+        ],
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "created": {
+            "type": "boolean"
+          },
+          "open": {
+            "type": "object",
+            "properties": {
+              "object": {
+                "type": "string"
+              },
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "object",
+              "id"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "id",
+          "created",
+          "open"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "x.knowledge.helpTopics",
+        "x.knowledge.readStatus",
+        "x.knowledge.toRead"
+      ],
+      "pack": "knowledge"
+    },
+    {
+      "name": "x.knowledge.helpTopics",
+      "description": "Every help topic, in their order: its id, name, address (slug) and icon, for a help centre's menu. Open to anyone. Read-only. (Extension tool from Knowledge 0.1.0.)",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "default": 100,
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200
+          }
+        },
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "topics": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "slug": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "order": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "icon": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "name",
+                "slug",
+                "order",
+                "icon"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "topics"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [],
+      "pack": "knowledge"
+    },
+    {
+      "name": "x.knowledge.readStatus",
+      "description": "Who has read what. With a procedure's id: for its current version, everyone who must read it, who has confirmed it and when, and who has not and since when. Without one: every published procedure staff must read, with how many have confirmed it of how many must. For admins and people granted Read status; never for an AI. Read-only. (Extension tool from Knowledge 0.1.0.)",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "One procedure"
+          }
+        },
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "procedures": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "version": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991,
+                  "description": "The current published version"
+                },
+                "publishedAt": {
+                  "type": "string"
+                },
+                "mustRead": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                "confirmed": {
+                  "type": "number"
+                }
+              },
+              "required": [
+                "id",
+                "title",
+                "version",
+                "publishedAt",
+                "mustRead",
+                "confirmed"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "procedure": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "title": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "version": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991,
+                    "description": "The current published version"
+                  },
+                  "publishedAt": {
+                    "type": "string"
+                  },
+                  "everyone": {
+                    "type": "boolean"
+                  },
+                  "roles": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "people": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "account": {
+                          "type": "string"
+                        },
+                        "name": {
+                          "type": "string"
+                        },
+                        "email": {
+                          "type": "string"
+                        },
+                        "confirmed": {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "version": {
+                                  "type": "integer",
+                                  "minimum": -9007199254740991,
+                                  "maximum": 9007199254740991
+                                },
+                                "confirmedAt": {
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "version",
+                                "confirmedAt"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "lastConfirmed": {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "version": {
+                                  "type": "integer",
+                                  "minimum": -9007199254740991,
+                                  "maximum": 9007199254740991
+                                },
+                                "confirmedAt": {
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "version",
+                                "confirmedAt"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "since": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "account",
+                        "name",
+                        "email",
+                        "confirmed",
+                        "lastConfirmed",
+                        "since"
+                      ],
+                      "additionalProperties": false
+                    }
+                  }
+                },
+                "required": [
+                  "id",
+                  "title",
+                  "version",
+                  "publishedAt",
+                  "everyone",
+                  "roles",
+                  "people"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "procedures",
+          "procedure"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [],
+      "pack": "knowledge"
+    },
+    {
+      "name": "x.knowledge.toRead",
+      "description": "My procedures: the published ones I must read and have not yet confirmed (oldest first, with the version to read and since when), and the ones I have confirmed (with when). For the person themselves, every staff account. Read-only. (Extension tool from Knowledge 0.1.0.)",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "toRead": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "version": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991,
+                  "description": "The current published version"
+                },
+                "publishedAt": {
+                  "type": "string"
+                },
+                "since": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "title",
+                "version",
+                "publishedAt",
+                "since"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "confirmed": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "version": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991,
+                  "description": "The current published version"
+                },
+                "publishedAt": {
+                  "type": "string"
+                },
+                "confirmedAt": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "title",
+                "version",
+                "publishedAt",
+                "confirmedAt"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "toRead",
+          "confirmed"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [],
+      "pack": "knowledge"
     },
     {
       "name": "x.leads.convert",

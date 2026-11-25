@@ -25,7 +25,9 @@
         "x.dailychecks.day",
         "x.dailychecks.done",
         "x.dailychecks.tick",
-        "x.dailychecks.today"
+        "x.dailychecks.today",
+        "x.knowledge.confirm",
+        "x.knowledge.toRead"
       ]
     },
     {
@@ -47,6 +49,8 @@
         "x.dailychecks.done",
         "x.dailychecks.tick",
         "x.dailychecks.today",
+        "x.knowledge.confirm",
+        "x.knowledge.toRead",
         "x.programs.history",
         "x.programs.logAdd",
         "x.programs.logRemove",
@@ -74,6 +78,8 @@
         "x.dailychecks.done",
         "x.dailychecks.tick",
         "x.dailychecks.today",
+        "x.knowledge.confirm",
+        "x.knowledge.toRead",
         "x.rostering.away",
         "x.rostering.back",
         "x.rostering.checklist",
@@ -113,6 +119,8 @@
         "x.dailychecks.done",
         "x.dailychecks.tick",
         "x.dailychecks.today",
+        "x.knowledge.confirm",
+        "x.knowledge.toRead",
         "x.ticketing.checkIn",
         "x.ticketing.undoCheckIn"
       ]
@@ -162,6 +170,20 @@
       "label": "courses:enrol",
       "restricted": false,
       "operations": ["x.courses.endEnrolment", "x.courses.enrol"]
+    },
+    {
+      "permission": "knowledge:manage",
+      "pack": "knowledge",
+      "label": "See who has read and confirmed each procedure, and change who must read one once published",
+      "restricted": true,
+      "operations": ["x.knowledge.readStatus"]
+    },
+    {
+      "permission": "knowledge:write",
+      "pack": "knowledge",
+      "label": "Write procedures and help pages (a person allowed to publish publishes them)",
+      "restricted": false,
+      "operations": ["x.knowledge.draftHelpPage", "x.knowledge.draftProcedure"]
     },
     {
       "permission": "memberships:passes",

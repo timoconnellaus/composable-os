@@ -598,6 +598,12 @@
       "pack": "forms"
     },
     {
+      "name": "x.knowledge.helpTopics",
+      "audiences": ["staff", "customer", "public"],
+      "risk": "read",
+      "pack": "knowledge"
+    },
+    {
       "name": "x.memberships.buy",
       "audiences": ["customer", "public"],
       "risk": "write",

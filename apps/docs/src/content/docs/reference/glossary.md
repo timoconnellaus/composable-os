@@ -3136,6 +3136,27 @@ slug, through `content.staffGet`, `content.staffList` and `content.search`. Neve
 being edited, never a draft or an unpublished record, never the public or a customer.
 _Avoid_: staff view (a saved view of records), internal (a note's level)
 
+### Procedure
+
+(stage 38, ADR 0706)
+
+How the business does something, for staff (`knowledge.procedure`, the Knowledge pack): "how we
+open up", "what we do when someone is hurt". Read by every staff account, pack roles included, in
+the wording a person last published, never the draft; never public. Its **must read** is asked to
+confirm each version that asks again. It has an owner, who keeps it right, and a review period
+(12 months unless set, 0 for never): on its **next review** date (its last publish plus the period)
+the owner is told to check it. Grouped in **sections**.
+_Avoid_: policy (an agreement's word), SOP, article, guide
+
+### Help page
+
+(stage 38, ADR 0706)
+
+An answer to a customer's common question on the business's website (`knowledge.helppage`):
+"where do I park", "how do I pause my membership". Read by anyone, signed in or not, in its
+published wording, found by address, in its **help topic**, or by searching its published words.
+_Avoid_: FAQ entry, article, knowledge base article, support doc
+
 ### Confirmation
 
 (read and understood; stage 38, ADR 0702)

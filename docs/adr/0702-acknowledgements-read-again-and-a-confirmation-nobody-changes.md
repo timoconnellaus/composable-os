@@ -124,3 +124,17 @@ Each check was removed, its tests seen to fail, and restored (`packages/core/tes
   AI's request shows its suggestion and the approver's choice is what goes live.
 - `apps/app/test/approvals-describe.test.ts`: the suggestion is read from the diff and not shown
   as a field line.
+
+## Amended 2026-11-25: managed fields, the notices, and read status from the owning pack (ADR 0706)
+
+- `acknowledge` gains `managed` (more fields of the object's own, outside the content, guarded as
+  who must read is: a person's, once published only a manager's), `owner` (a user field) and
+  `notices` (the pack's words). The host sends them: `asked` in the publish batch, to exactly who
+  must read a version that asks; `reminder`, `outstanding` and `welcome` from `ack.due`, the minute
+  cron's host step, once a local day.
+- `ack.status` and `ack.overview` are now `actors: ["human", "extension"]`, as `ack.confirm` and
+  `ack.mine` are: an extension's call counts only from a person-only tool of the shipped, active
+  pack that owns the objects, called by a person who manages them, and reads that pack's objects
+  only. It reverses the line above that no extension reads who has confirmed (the review of PR
+  #340): Knowledge's `readStatus` is that tool. Any other extension, an automation and every AI
+  actor still read nothing of it, and the rows are still in no `rec_*` view.

@@ -84,7 +84,9 @@ Each kind has its own file, wired into `defineExtension` (Deals: the last keys o
    (`AutomationTrigger` lists every type; the README's "Triggers" table explains each),
    `conditions` on the trigger record when only some records should start a run, `steps` and
    `run`. A `dateRelative` trigger's `offsetDays` is negative before the date and positive
-   after it, in days (a month before is `-30`). For hours or minutes, give `minutesBefore` or
+   after it, in days (a month before is `-30`); its field may be a `formula` whose value is a
+   date or a time (a procedure's next review: its last publish plus its review period, ADR 0706),
+   which is empty, and so starts nothing, while the formula's inputs are. For hours or minutes, give `minutesBefore` or
    `minutesAfter` a datetime field instead: a number, or `{ field, setting }` read per record (a
    class type's reminder, else the organisation's setting; each declaring a `max` of at most a
    week), run within a minute of the moment, once per record and time (Bookings:
