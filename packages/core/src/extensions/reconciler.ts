@@ -16,6 +16,7 @@ import {
   type ExtensionManifest,
   type FieldManifest,
   type FieldTypeName,
+  foldCode,
   isLosslessChange,
   isRestrictedField,
   type ObjectManifest,
@@ -109,6 +110,7 @@ export interface ReconcileIssue {
     | "foreign_object"
     | "seed"
     | "unique_conflict"
+    | "code_word_conflict"
     | "claims_conflict"
     | "grants_conflict"
     | "staffed_conflict"
@@ -210,7 +212,75 @@ export async function planReconcile(
   const current = await loadSchemaState(db);
   const plan = planFromState(db, current, manifest, options.now, timezone);
   plan.issues.push(...(await dataIssues(db, current, plan.next, manifest.id, options.now, plan)));
+  // Promo code words already there, before their unique index is built (ADR 0940, review of PR
+  // #459 F4): folded in place first; two that fold to one word stop the plan, naming them.
+  const words = await codeWordData(db, current, plan.next, manifest.id);
+  plan.issues.push(...words.issues);
+  plan.statements.unshift(...words.statements);
   return plan;
+}
+
+/**
+ * The live records' code words of every code-word index about to be built: folded in place (one
+ * UPDATE per record not already folded), or, when two would fold to one word, an issue naming them.
+ */
+async function codeWordData(
+  db: Kysely<CoreDatabase>,
+  current: SchemaState,
+  next: SchemaState,
+  ext: string,
+): Promise<{ issues: ReconcileIssue[]; statements: CompiledQuery[] }> {
+  const issues: ReconcileIssue[] = [];
+  const statements: CompiledQuery[] = [];
+  for (const object of next.objects) {
+    if (object.extensionId !== ext || object.status !== "active") continue;
+    const before = current.objects.find(
+      (o) => o.name === object.name && o.tableName === object.tableName && o.status === "active",
+    );
+    if (!before) continue; // A new object has no records.
+    for (const index of codeWordIndexes(next, object, ext)) {
+      if ((current.indexes ?? []).some((i) => i.name === index.name)) continue;
+      const exists = current.fields.some(
+        (f) => f.tableName === object.tableName && f.columnName === index.column,
+      );
+      if (!exists) continue; // A new field: no record has a word yet.
+      // Org-wide, through the seam: the installed object's live records, as dataIssues reads them.
+      const installed = getObject(object.name);
+      const viewColumn = installed?.fields.find((f) => f.column === index.column)?.column;
+      if (!installed || !viewColumn) continue;
+      // biome-ignore lint/suspicious/noExplicitAny: extension views are not in the typed schema.
+      const rows = (await (db as unknown as Kysely<any>)
+        .selectFrom(visibleSource(orgReader(db), installed))
+        .select(["id", sql.ref(viewColumn).as("word")])
+        .where(viewColumn, "is not", null)
+        .execute()) as { id: string; word: string }[];
+      const byWord = new Map<string, string[]>();
+      for (const row of rows) {
+        const folded = foldCode(String(row.word));
+        byWord.set(folded, [...(byWord.get(folded) ?? []), row.id]);
+        if (folded !== row.word) {
+          statements.push(
+            CompiledQuery.raw(
+              `UPDATE ${ident(object.tableName)} SET ${ident(index.column)} = ? WHERE id = ?`,
+              [folded === "" ? null : folded, row.id],
+            ),
+          );
+        }
+      }
+      const clashes = [...byWord].filter(([word, ids]) => word !== "" && ids.length > 1);
+      if (clashes.length) {
+        issues.push({
+          code: "code_word_conflict",
+          path: `objects.${object.localName}`,
+          message: `${object.name}: live records share a promo code once it is compared without case or spaces, and a code must name one record: ${clashes
+            .slice(0, 5)
+            .map(([word, ids]) => `${word} (${ids.join(", ")})`)
+            .join("; ")}. Change or delete all but one of each first.`,
+        });
+      }
+    }
+  }
+  return { issues, statements };
 }
 
 /** A declared uniqueness rule's partial index (ADR 0502): its name, columns and condition. */
@@ -240,6 +310,44 @@ function uniqueIndexes(state: SchemaState, object: ObjectState, ext: string) {
     out.push({ rule: i, name, columns: named, where });
   });
   return out;
+}
+
+/**
+ * A promo code's word, kept folded by the host (ADR 0940): unique among the object's live records,
+ * and the index a code is looked up by. A discount object's own `code` field, and the `word` field
+ * of an object some discount of this extension names as its `codes`.
+ */
+function codeWordIndexes(state: SchemaState, object: ObjectState, ext: string) {
+  const locals: string[] = [];
+  const own = object.definition.discount?.code;
+  if (own) locals.push(own);
+  for (const other of state.objects) {
+    if (other.extensionId !== ext || other.status !== "active") continue;
+    const codes = other.definition.discount?.codes;
+    if (codes && codes.object === object.localName && !locals.includes(codes.word)) {
+      locals.push(codes.word);
+    }
+  }
+  return locals.flatMap((local) => {
+    const column = state.fields.find(
+      (f) =>
+        f.object === object.name &&
+        f.extensionId === ext &&
+        f.localName === local &&
+        f.status === "active" &&
+        f.tableName === object.tableName,
+    )?.columnName;
+    if (!column) return [];
+    const name = ident(`${object.tableName}__${column}__code`);
+    const col = ident(column);
+    return [
+      {
+        name,
+        column,
+        ddl: `CREATE UNIQUE INDEX IF NOT EXISTS ${name} ON ${ident(object.tableName)} (${col}) WHERE deleted_at IS NULL AND ${col} IS NOT NULL`,
+      },
+    ];
+  });
 }
 
 /**
@@ -889,6 +997,8 @@ export function planFromState(
         `CREATE UNIQUE INDEX IF NOT EXISTS ${index.name} ON ${ident(object.tableName)} (${index.columns.join(", ")}) WHERE ${index.where}`,
       );
     }
+    // A promo code's folded word (ADR 0940): one live record per word, looked up by this index.
+    for (const index of codeWordIndexes(next, object, ext)) wanted.set(index.name, index.ddl);
     // A shift's person (ADR 0621): its holder's triggers find its shifts by it.
     const staffed = staffedTables(next, object);
     if (staffed) {

@@ -93,6 +93,21 @@ function StatusPage() {
             </span>
             <Ok ok={health.runner.ok} label="runner" />
           </div>
+          <div className="flex items-center justify-between">
+            <span>
+              Rate limits
+              <span className="text-muted-foreground">
+                {health.publicLimits.missing.length
+                  ? ` · missing ${health.publicLimits.missing.join(", ")}: calls go through unlimited`
+                  : " · bound"}
+                {health.publicLimits.lastDown &&
+                  ` · not counted on ${health.publicLimits.lastDown}`}
+                {health.publicLimits.lastNoVisitor &&
+                  ` · web app named no visitor on ${health.publicLimits.lastNoVisitor}`}
+              </span>
+            </span>
+            <Ok ok={health.publicLimits.ok} label="rate limits" />
+          </div>
         </CardContent>
       </Card>
       <Card>

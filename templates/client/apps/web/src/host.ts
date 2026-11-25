@@ -2,8 +2,19 @@
 // entrypoint. Nothing here opens a database or holds a secret; the host decides who the caller is
 // from the customer's session cookie, which it set on this app's hostname at sign-in.
 //
+// Every call names the visitor's address (`visitorAddress`, the `cos-visitor-address` header,
+// made from Cloudflare's `cf-connecting-ip` on the browser's request): the host limits public
+// operations and sign-in per client address (ADR 0940), and over the binding every call comes from
+// this Worker. Leave it out and all visitors share one limit. Never pass on a `cos-visitor-address`
+// the browser sent: every route here builds its headers afresh, and `forVisitor` never copies one.
+//
 // This file has no framework in it, so it works the same in any Worker. src/server.ts uses it.
-import { CUSTOMER_AUTH_PATH, customerSession, keepCustomerSignedIn } from "@composable-os/client";
+import {
+  CUSTOMER_AUTH_PATH,
+  forVisitor,
+  keepCustomerSignedIn,
+  visitorAddress,
+} from "@composable-os/client";
 import { signedOut } from "./agreements.ts";
 import { createCustomerClient, operations } from "./client/customer.ts";
 
@@ -20,7 +31,7 @@ export function customerApi(env: HostEnv, request: Request) {
   return createCustomerClient({
     baseUrl: BOUND,
     fetch: (url, init) => env.HOST.fetch(url, init),
-    headers: () => customerSession(request.headers.get("cookie")),
+    headers: () => forVisitor(request),
   });
 }
 
@@ -41,10 +52,8 @@ async function signInStep(env: HostEnv, request: Request, route: string, body: u
   // The host refuses a sign-in posted from another site; the browser's Origin says which.
   const origin = request.headers.get("origin");
   if (origin) headers.origin = origin;
-  // The visitor's address, for the host's limit on code requests per address.
-  const address = request.headers.get("cf-connecting-ip");
-  if (address) headers["cf-connecting-ip"] = address;
-  Object.assign(headers, customerSession(request.headers.get("cookie")));
+  // The visitor's address, for the host's limits per address, and their session cookie.
+  Object.assign(headers, forVisitor(request));
   const answer = await env.HOST.fetch(`${BOUND}${CUSTOMER_AUTH_PATH}${route}`, {
     method: "POST",
     headers,
@@ -165,7 +174,7 @@ export async function operationRoute(
   if (body.length > 1_000_000) return refuse(413, "invalid_input", "The body is too large");
   const headers: Record<string, string> = {
     "content-type": "application/json",
-    ...customerSession(request.headers.get("cookie")),
+    ...forVisitor(request),
   };
   const key = request.headers.get("idempotency-key");
   if (key) headers["idempotency-key"] = key;
@@ -202,7 +211,7 @@ export async function agreementPdfRoute(request: Request, env: HostEnv): Promise
   if (!ACCEPTANCE_ID.test(id)) return refuse(404, "not_found", "Not found");
   const answer = await env.HOST.fetch(`${BOUND}${AGREEMENT_PDF_ROUTE}${id}.pdf`, {
     method: "GET",
-    headers: customerSession(request.headers.get("cookie")),
+    headers: forVisitor(request),
   });
   const headers = new Headers({
     "content-type": answer.headers.get("content-type") ?? "application/json",
@@ -240,7 +249,7 @@ export async function mediaRoute(request: Request, env: HostEnv): Promise<Respon
   const query = width && /^[0-9]{1,5}$/.test(width) ? `?w=${width}` : "";
   const answer = await env.HOST.fetch(`${BOUND}/api/media/${id}${query}`, {
     method: request.method,
-    headers: customerSession(request.headers.get("cookie")),
+    headers: forVisitor(request),
   });
   const headers = new Headers({
     "content-type": answer.headers.get("content-type") ?? "application/octet-stream",
@@ -303,20 +312,39 @@ export async function stopRoute(request: Request, env: HostEnv): Promise<Respons
     );
   }
   if (request.method !== "POST") return refuse(405, "invalid_input", "Use GET or POST");
-  if (STOP_TOKEN.test(token)) {
-    try {
-      // The typed client, as the public: no cookie, so the token alone says who and what.
-      await createCustomerClient({
-        baseUrl: BOUND,
-        fetch: (url, init) => env.HOST.fetch(url, init),
-      }).call("contact.stop", { token });
-    } catch {
-      // The same answer whatever happened: a mail app does not retry on our word.
-    }
+  const fromPage = request.headers.get("origin") === url.origin;
+  if (!STOP_TOKEN.test(token)) {
+    return fromPage
+      ? stopPage("<h1>Stop these messages</h1><p>This link is not complete.</p>")
+      : new Response(null, { status: 400 });
   }
-  // The page's own button goes on to say it is done; a mail app's one-click gets a plain yes.
-  if (request.headers.get("origin") === url.origin) {
+  // What the host answered: only a yes is "done". A refusal (too many tries just now, the host
+  // unreachable) is never reported as a stop that happened (review of PR #459, M1).
+  let status = 200;
+  try {
+    // The typed client, as the public: no cookie, so the token alone says who and what.
+    await createCustomerClient({
+      baseUrl: BOUND,
+      fetch: (url, init) => env.HOST.fetch(url, init),
+      // The visitor's address only (ADR 0940).
+      headers: () => visitorAddress(request.headers),
+    }).call("contact.stop", { token });
+  } catch (error) {
+    status =
+      typeof (error as { status?: unknown }).status === "number"
+        ? (error as { status: number }).status
+        : 503;
+    if (status < 400) status = 503;
+  }
+  if (!fromPage) {
+    // A mail app's one-click (RFC 8058) gets the host's status: it may try again on a failure.
+    return new Response(null, { status });
+  }
+  if (status === 200) {
     return new Response(null, { status: 303, headers: { location: `${STOP_ROUTE}?done=1` } });
   }
-  return new Response(null, { status: 200 });
+  const page = stopPage(
+    `<h1>Stop these messages</h1><p>That did not go through just now, so nothing has changed yet. Please try again in a minute.</p><form method="post"><input type="hidden" name="List-Unsubscribe" value="One-Click"><button type="submit">Stop these messages</button></form>`,
+  );
+  return new Response(page.body, { status, headers: page.headers });
 }

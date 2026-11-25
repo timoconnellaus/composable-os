@@ -78,6 +78,13 @@ a live host side by side in one account, `environments` in `product.ts`): each i
    - **An adopted site with data of its own** (its own D1, KV or R2): it keeps them and keeps
      deploying itself. Customers' records live in the host. What moves into the host, and when, is
      the company's decision: say so and do not move data or remove a binding yourself.
+   - **Every call to the host names the visitor** (ADR 0940): send
+     `headers: () => forVisitor(request)` (from `@composable-os/client`) with the typed client, as
+     the host module does. It forwards the customer's cookie and Cloudflare's `cf-connecting-ip` as
+     `cos-visitor-address`, which the host's rate limits key on. Never pass the browser's request
+     headers on as they came (`env.HOST.fetch(request)`): a browser could then name any address.
+     A web app that names no visitor puts all its visitors in one shared limit, and the admins are
+     told once a day.
    - **Calls from the browser** (a block running in the page): the host module's
      `operationRoute(request, env, { allow: ["me.get", …] })`, served before the pages (the
      template's `src/server.ts` does). Same origin only, JSON only, only the operations `allow`

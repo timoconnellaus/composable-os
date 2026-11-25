@@ -150,6 +150,7 @@ export * from "./fields/field-types.ts";
 export * from "./fields/index.ts";
 export * from "./filter.ts";
 export * from "./gate.ts";
+export * from "./guesses.ts";
 export * from "./http/index.ts";
 export * from "./ids.ts";
 export * from "./intake/links.ts";
@@ -313,6 +314,7 @@ export {
 } from "./pipeline.ts";
 export * from "./practitioners/accounts.ts";
 export * from "./principals.ts";
+export * from "./public-limits.ts";
 export { runTrashPurge, type TrashPurgeOptions } from "./purge.ts";
 export * from "./rate-limit.ts";
 export { BATCH_MAX, jsonList, purgeCutoff, restorableUntil } from "./records/common.ts";

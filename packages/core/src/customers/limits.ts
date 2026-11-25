@@ -5,9 +5,9 @@
 // - A request for a sign-in code is limited per address asked for: `code:<mailbox>`, the
 //   normalised email address with a `+tag` (and Gmail's dots) folded away (ADR 0459). So nobody can
 //   flood one person's inbox, whoever asks, nor get round the limit with tags.
-// - Public calls and code requests are also limited per client address, by Cloudflare's rate
-//   limiting rules at the HTTP surface (stage 23). That limit is the edge's: no client address is
-//   ever passed here, stored or logged.
+// - Every call to an operation open to the public, a customer's too, is also limited per client
+//   address (public-limits.ts, ADR 0940), and code requests per address by sign-in itself. Only a
+//   keyed hash of an address reaches the host's code; none is stored or logged.
 //
 // A missing binding allows the call (rateLimit logs a warning once), as everywhere else.
 import { RateLimitedError } from "../errors.ts";
@@ -26,7 +26,7 @@ function refuse(what: string, retryAfterSeconds: number): never {
  * practitioner) over their limit
  * for this operation gets a RateLimitedError, and so does a device (ADR 0781: per device and
  * operation, beside the desk origin's own limit per address). A public call has no account to
- * key on: it is limited per client address at the edge, and passes here.
+ * key on: it is limited per client address (public-limits.ts), and passes here.
  */
 export async function checkOutsideRateLimit(
   binding: RateLimitBinding | undefined,

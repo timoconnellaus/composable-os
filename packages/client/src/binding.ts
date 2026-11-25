@@ -8,7 +8,7 @@
 //   const api = createCustomerClient({
 //     baseUrl: "https://host",                     // any origin: a binding ignores it
 //     fetch: (url, init) => env.HOST.fetch(url, init),
-//     headers: () => customerSession(request.headers.get("cookie")),
+//     headers: () => forVisitor(request),       // the session cookie and the visitor's address
 //   });
 
 import type { FetchLike } from "./types.ts";
@@ -40,6 +40,44 @@ export function customerCookies(cookieHeader: string | null | undefined): string
 export function customerSession(cookieHeader: string | null | undefined): Record<string, string> {
   const cookie = customerCookies(cookieHeader);
   return cookie ? { cookie } : {};
+}
+
+/**
+ * The header a web app names its visitor's address in, on every call over the binding (ADR 0940).
+ * The host limits calls to public operations, and sign-in, per client address; over the binding
+ * every call comes from the web app, so the host takes the visitor's address from a forwarded
+ * `cf-connecting-ip`, else from this header, and only over the binding (on the public HTTP surface
+ * it is the connection's, and this header is ignored). A web app that sends none is counted as one
+ * shared bucket: its visitors share it. Never forward the browser's own request headers as they
+ * came with this header in them: a browser could then name any address.
+ */
+export const VISITOR_ADDRESS_HEADER = "cos-visitor-address";
+
+/**
+ * Headers naming the browser's address to the host: Cloudflare's `cf-connecting-ip` on the web
+ * app's own request (set by Cloudflare, not by the browser), or nothing when there is none (local
+ * development).
+ */
+export function visitorAddress(
+  requestHeaders: { get(name: string): string | null } | null | undefined,
+): Record<string, string> {
+  // Only Cloudflare's own header: a `cos-visitor-address` the browser sent is never read or passed
+  // on (a bound Worker that forwarded it would let a browser choose its own limit, ADR 0940).
+  const address = requestHeaders?.get("cf-connecting-ip")?.trim();
+  return address ? { [VISITOR_ADDRESS_HEADER]: address } : {};
+}
+
+/**
+ * Everything a call made for the browser's visitor forwards over the binding: their customer
+ * session cookie, if any (`customerSession`), and their address (`visitorAddress`).
+ */
+export function forVisitor(request: {
+  headers: { get(name: string): string | null };
+}): Record<string, string> {
+  return {
+    ...customerSession(request.headers.get("cookie")),
+    ...visitorAddress(request.headers),
+  };
 }
 
 /** The web app's own marker: when it last checked the customer's session (not a credential). */

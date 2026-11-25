@@ -75,6 +75,8 @@ export interface CustomerAuthOptions {
    * which is never stored. Unset: not limited here.
    */
   codeAddressRateLimit?: RateLimitBinding | undefined;
+  /** What the address is keyed with (`clientAddressSecret`): one count for every kind of sign-in. */
+  addressSecret?: string | undefined;
   /**
    * Limits codes sent host-wide to addresses that only "anyone starting a subscription" lets sign
    * in (ADR 0459): one key, `code-new`, for the whole host. Over it, nothing is sent, the answer
@@ -116,6 +118,7 @@ export function createCustomerAuth(options: CustomerAuthOptions) {
         await beforeCodeRequest(ctx, {
           ready: options.ready,
           secret: options.secret,
+          addressSecret: options.addressSecret,
           codeRateLimit: options.codeRateLimit,
           codeAddressRateLimit: options.codeAddressRateLimit,
           what: "Customer sign-in",

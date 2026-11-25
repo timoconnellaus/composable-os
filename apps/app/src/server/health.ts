@@ -1,5 +1,6 @@
-// GET /api/health: version, commit, D1 migration level and a cos-runner ping.
+// GET /api/health: version, commit, D1 migration level, a cos-runner ping, and the rate limits.
 import { identityProviderKind } from "@composable-os/auth";
+import { PUBLIC_LIMIT_BINDING_NAMES, PUBLIC_LIMIT_DOWN_NOTICE } from "@composable-os/core";
 import { getMigrationLevel, type MigrationLevel } from "@composable-os/db";
 import { runner } from "./runner.ts";
 
@@ -11,6 +12,17 @@ export interface HealthEnv {
   RUNNER: Fetcher;
 }
 
+/**
+ * The limits on calls from outside (ADR 0940): bindings missing from this deployment (calls then go
+ * through unlimited), and the last day a count could not be made or a client app named no visitor.
+ */
+export interface PublicLimitsHealth {
+  ok: boolean;
+  missing: string[];
+  lastDown: string | null;
+  lastNoVisitor: string | null;
+}
+
 export interface Health {
   status: "ok" | "degraded";
   version: string;
@@ -18,6 +30,7 @@ export interface Health {
   identityProvider: string;
   database: ({ ok: boolean } & MigrationLevel) | { ok: false; error: string };
   runner: { ok: true; worker: string; latencyMs: number } | { ok: false; error: string };
+  publicLimits: PublicLimitsHealth;
 }
 
 const VERSION = typeof __APP_VERSION__ === "string" ? __APP_VERSION__ : "0.0.0";
@@ -27,8 +40,35 @@ function message(error: unknown): string {
   return error instanceof Error ? error.message : String(error);
 }
 
+/** The dedupe key of the admins' notice that a client app names no visitor (bound.ts). */
+const NO_VISITOR_NOTICE = "public_limit.no_visitor:";
+
+async function lastNotice(db: D1Database, prefix: string): Promise<string | null> {
+  try {
+    const row = await db
+      .prepare(
+        "SELECT max(dedupe_key) AS k FROM core_notifications WHERE dedupe_key >= ? AND dedupe_key < ?",
+      )
+      .bind(prefix, `${prefix}~`)
+      .first<{ k: string | null }>();
+    return row?.k ? row.k.slice(prefix.length) : null;
+  } catch {
+    return null;
+  }
+}
+
+async function publicLimitsHealth(env: HealthEnv): Promise<PublicLimitsHealth> {
+  const bound = env as unknown as Record<string, unknown>;
+  const missing = PUBLIC_LIMIT_BINDING_NAMES.filter((name) => !bound[name]);
+  const [lastDown, lastNoVisitor] = await Promise.all([
+    lastNotice(env.DB, PUBLIC_LIMIT_DOWN_NOTICE),
+    lastNotice(env.DB, NO_VISITOR_NOTICE),
+  ]);
+  return { ok: missing.length === 0, missing, lastDown, lastNoVisitor };
+}
+
 export async function getHealth(env: HealthEnv): Promise<Health> {
-  const [database, runnerHealth] = await Promise.all([
+  const [database, runnerHealth, publicLimits] = await Promise.all([
     getMigrationLevel(env.DB).then(
       (level) => ({ ok: level.upToDate, ...level }),
       (error: unknown) => ({ ok: false as const, error: message(error) }),
@@ -42,6 +82,7 @@ export async function getHealth(env: HealthEnv): Promise<Health> {
         return { ok: false as const, error: message(error) };
       }
     })(),
+    publicLimitsHealth(env),
   ]);
 
   let identityProvider: string;
@@ -59,6 +100,7 @@ export async function getHealth(env: HealthEnv): Promise<Health> {
     identityProvider,
     database,
     runner: runnerHealth,
+    publicLimits,
   };
 }
 

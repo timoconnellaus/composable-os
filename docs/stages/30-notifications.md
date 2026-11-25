@@ -82,7 +82,8 @@ coordinator as best practice the same day). Build may start.
   (`web-account-contact`, `native-account-contact`, `useContactChoices` / `useSetContactChoices`),
   the template web app's `/stop` route (a page with one button on GET; the button or a mail app's
   one-click on POST, through the typed client). Migration 0913, ADR 0675 (ADR 0672 amended).
-  Left: `contact.stop` is not rate limited (queued separately); consent for sends that are not
+  Left: `contact.stop` is not rate limited (queued separately; since done, ADR 0940: only tokens
+  that are not valid count per client address); consent for sends that are not
   routine messages (queued separately); the e2e journey (criterion 22, step 7, with the screens); `recordFromForm` is not yet
   called by Forms or checkouts; the push claim (step 4) must ask the register as the text claim
   does; a staff screen for a Person's choices (step 7 reads `contact.forPerson`). Not tried for
@@ -461,7 +462,8 @@ nobody may approve around a missing consent or a stop.
 with a host secret (env-only), naming one Person, one channel and one scope, with no expiry, on the
 business's own site (the client web app's stop route, a base-layer block calling `contact.stop`
 over the typed client). It can only turn something off, answers the same whether the token is good
-or not, and is rate limited. Every stoppable email also carries `List-Unsubscribe` and
+or not, and is rate limited (ADR 0940: only tokens that are not valid count, per client address,
+since a mail provider's few servers send everyone's one-click stops). Every stoppable email also carries `List-Unsubscribe` and
 `List-Unsubscribe-Post` headers to the same route, which only the host's routine queue (and later
 Journeys' and the inbox's host queues) may set at the email gatekeeper. Journeys and the inbox use
 `stopLink`; they make no tokens of their own.
