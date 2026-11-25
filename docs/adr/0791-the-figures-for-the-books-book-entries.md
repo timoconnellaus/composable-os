@@ -58,3 +58,12 @@ Balance, headings and keys are checked by the host (`checkEntry`, in `closePlan`
 database, which checks only a line's side and positive amount and a late entry's month: the only
 writer of a `closing` version is the close's own batch, and a version is never changed once
 closed. A balance is summed exactly (BigInt).
+
+## Amended 2026-11-26 (stage 52 step 4, ADR 0793)
+The `payout` entry is built: `bank` and `fees:provider` against `money_in:provider` (matched
+payments), `money_out:provider` (matched refunds), `disputes`, `adjustments` and `unmatched` (what
+matches nothing, and any difference between the payout and its lines), each side flipping with its
+sign. No heading is added. A recorded payout the provider later reports failed is a second `payout`
+entry, keyed `payout:<id>:failed` (the key's form, `payout:` and the provider's id, is unchanged),
+on the day the host saw it. A payout read after its month closed goes in the first open month's
+`late` entry for that month, whose lines are summed with the late day lines'.

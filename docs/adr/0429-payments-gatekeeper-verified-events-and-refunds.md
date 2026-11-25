@@ -122,3 +122,9 @@ a provider's payment through the same refund approval, asked in the credit note'
 recorded one paid back by a person (`order.recordRefund`) for what the credit note owes on it.
 `order.refund` refunds only a payment that was not applied to an invoice's order (late or not
 matching). See ADR 0735.
+
+## Amendment, 2026-11-26 (stage 52 step 4, ADR 0793): payout reads
+The gatekeeper also reads the account's payouts and what each settled (`listPayouts`,
+`payoutLines`): read only, nothing moves, the bank destination never read, and the host's own call
+only (`callAsHost`, purpose `orders`), for its finance reports. A key that may not read payouts is
+answered `unavailable`, never thrown. See ADR 0793.

@@ -6,8 +6,8 @@
 // cut short. The tables' triggers keep a closed version as it was, for every writer.
 //
 // What a month holds is `periodBook`'s: the reports each add their entries, rows, sources and
-// guards there. Step 3 adds the day summaries, Sales, Tax and Refunds (`finance/book.ts`); steps
-// 4 to 6 and 8 add theirs.
+// guards there. Step 3 adds the day summaries, Sales, Tax and Refunds (`finance/book.ts`), step 4
+// the payout entries and Payouts (`finance/payouts.ts`); steps 5, 6 and 8 add theirs.
 import { CompiledQuery } from "kysely";
 import { ConflictError } from "../errors.ts";
 import type { HandlerContext } from "../operation.ts";

@@ -149,7 +149,7 @@
 - [Consent to be contacted: screens](https://docs.composableos.dev/capabilities/contact/screens/)
 - [Finance: behaviours](https://docs.composableos.dev/capabilities/finance/behaviours/)
 - [Finance: decisions](https://docs.composableos.dev/capabilities/finance/decisions/)
-- [Finance](https://docs.composableos.dev/capabilities/finance/): The business's figures for the books, by the business's own day. Day summaries, Sales, Tax and Refunds, a monthly close that keeps a month exactly as it was, and one CSV file per report for its accountant.
+- [Finance](https://docs.composableos.dev/capabilities/finance/): The business's figures for the books, by the business's own day. Day summaries, Sales, Tax, Refunds and the payment provider's payouts, a monthly close that keeps a month exactly as it was, and one CSV file per report for its accountant.
 - [Finance: operations](https://docs.composableos.dev/capabilities/finance/operations/)
 - [Finance: permissions](https://docs.composableos.dev/capabilities/finance/permissions/)
 - [Finance: screens](https://docs.composableos.dev/capabilities/finance/screens/)

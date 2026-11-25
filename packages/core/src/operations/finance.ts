@@ -3,13 +3,14 @@
 // public, ADR 0402):
 //
 //   finance.periods          staff (finance:read)                  the current month and 24 before
-//   finance.report           staff (finance:read)                  Sales, Tax or Refunds: closed or preview
+//   finance.report           staff (finance:read)                  Sales, Tax, Refunds or Payouts
 //   finance.entries          staff (finance:read)                  a closed version's book entries, paged
 //   finance.export           staff (finance:read, a person)        one report as a CSV file
 //   finance.close            staff (finance:close, a person)       close an ended month
 //   finance.reopen           staff (finance:close, a person)       reopen a closed month, with why
 //   finance.settings.get     staff (finance:read)                  the year's first month, …
 //   finance.settings.update  staff (settings:manage, a person)     change them
+//   finance.payouts.sync     the host (the minute cron)            read the provider's payouts (ADR 0793)
 //
 // Closing, reopening and the settings are a person's at the screen (`actors: ["human"]`): an AI
 // may read figures for an account that holds `finance:read`, and never closes, reopens or changes
@@ -453,7 +454,10 @@ const localDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, "a date, YYYY-MM-DD");
 const reportInput = z.object({
   report: z
     .enum(BUILT_REPORTS)
-    .describe("sales (by kind of sale and item, and by day), tax (by code and country) or refunds"),
+    .describe(
+      "sales (by kind of sale and item, and by day), tax (by code and country), refunds, or " +
+        "payouts (each payout the provider sent to the bank, line by line)",
+    ),
   month: month.optional().describe("A month: its closed version, or a preview while it is open"),
   version: z
     .number()
@@ -490,7 +494,10 @@ export const financeReport = defineOperation({
     "sold, discounts, refunded, net, the tax inside and net of tax), tax (per tax code and " +
     "country, refunds' tax as reported or estimated, untaxed sales beside) or refunds (each " +
     "refund confirmed: date, order, items, amount, tax given back, who asked and approved, the " +
-    "customer's name). Amounts are integers in the currency's minor units, on the business's " +
+    "customer's name) or payouts (each payout the payment provider sent to the bank arriving in " +
+    "the span: its amount, payments, refunds, disputes, adjustments, fees, what matches nothing " +
+    "and any difference; each line and the order it matched; payouts the bank returned; and what " +
+    "the provider received that is not yet paid out). Amounts are integers in the currency's minor units, on the business's " +
     "days in its own time zone. Each row lists the orders it came from. Needs finance:read.",
   input: reportInput,
   output: reportOutput,
