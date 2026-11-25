@@ -172,6 +172,12 @@
 - [Booking system copy: operations](https://docs.composableos.dev/capabilities/outside/operations/)
 - [Booking system copy: permissions](https://docs.composableos.dev/capabilities/outside/permissions/)
 - [Booking system copy: screens](https://docs.composableos.dev/capabilities/outside/screens/)
+- [Today: behaviours](https://docs.composableos.dev/capabilities/today/behaviours/)
+- [Today: decisions](https://docs.composableos.dev/capabilities/today/decisions/)
+- [Today](https://docs.composableos.dev/capabilities/today/): The day at a glance for one person, in the business's own time zone. The host's numbers (takings, changes waiting, shifts with nobody on them, checklists missed, unread notices) and the numbers installed packs declare, each shown only to someone who could already read it, with the rows behind each.
+- [Today: operations](https://docs.composableos.dev/capabilities/today/operations/)
+- [Today: permissions](https://docs.composableos.dev/capabilities/today/permissions/)
+- [Today: screens](https://docs.composableos.dev/capabilities/today/screens/)
 
 ## Solutions
 
@@ -410,6 +416,7 @@
 - [task.* operations](https://docs.composableos.dev/reference/operations/task/): The core operations named task.*
 - [teamMemory.* operations](https://docs.composableos.dev/reference/operations/teammemory/): The core operations named teamMemory.*
 - [thread.* operations](https://docs.composableos.dev/reference/operations/thread/): The core operations named thread.*
+- [today.* operations](https://docs.composableos.dev/reference/operations/today/): The core operations named today.*
 - [trash.* operations](https://docs.composableos.dev/reference/operations/trash/): The core operations named trash.*
 - [update.* operations](https://docs.composableos.dev/reference/operations/update/): The core operations named update.*
 - [user.* operations](https://docs.composableos.dev/reference/operations/user/): The core operations named user.*

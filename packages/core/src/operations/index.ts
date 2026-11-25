@@ -118,6 +118,7 @@ import { summaryOperations } from "./summary.ts";
 import { supportOperations } from "./support.ts";
 import { taskOperations } from "./task.ts";
 import { timedMoveOperations } from "./timed-moves.ts";
+import { todayOperations } from "./today.ts";
 import { trashOperations } from "./trash.ts";
 import { updateOperations } from "./update.ts";
 import { userOperations } from "./user.ts";
@@ -236,6 +237,7 @@ export const coreOperations = [
   ...staffingTimeApproveOperations,
   ...staffingScreenOperations,
   ...screenOperations,
+  ...todayOperations,
   ...checklistOperations,
   ...checklistDayOperations,
   ...financeOperations,

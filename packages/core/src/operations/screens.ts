@@ -125,7 +125,7 @@ export const screensMine = defineOperation({
         // Another manifest under this pack's id contributes nothing.
         if (screenGateFingerprint(manifest) !== fingerprint) continue;
         for (const [key, screen] of Object.entries(manifest.screens ?? {})) {
-          if (!mayOpen(manifest, screen, ctx.user, rights)) continue;
+          if (!mayOpenScreen(manifest, screen, ctx.user, rights)) continue;
           theirs.push({
             pack: row.id,
             key,
@@ -166,9 +166,10 @@ export function personMayCall(
 
 /**
  * Whether the caller passes the screen's gate: every tool in `opens` (an unknown one opens
- * nothing) and a write of every object in `writes`. A gate naming nothing opens nothing.
+ * nothing) and a write of every object in `writes`. A gate naming nothing opens nothing. Today's
+ * items open a pack's screen only for a person who passes it (ADR 0874).
  */
-function mayOpen(
+export function mayOpenScreen(
   manifest: ExtensionManifest,
   screen: ScreenManifest,
   user: { id: string; role: Role },

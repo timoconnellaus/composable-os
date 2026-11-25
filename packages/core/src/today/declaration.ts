@@ -91,6 +91,11 @@ export function todayItemSqlIssues(
   }
   const check = (path: string, source: string, wants: readonly string[]) => {
     try {
+      // Today reads an item as one column of a statement of many (ADR 0874): no `;`, even last.
+      if (tokenize(source).some((t) => t.kind !== "comment" && t.text === ";")) {
+        issues.push({ path, message: "A Today item's query has no semicolon, even at its end" });
+        return;
+      }
       const bound = bindNamedParams(source, {}, TODAY_ITEM_PARAMS);
       validateReadOnlySql(bound.sql, names);
     } catch (error) {

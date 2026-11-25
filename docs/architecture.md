@@ -2943,8 +2943,8 @@ declaring any is refused. `apps/app/screens-plugin.ts` reads every pack's declar
 time and emits `virtual:cos-screens`, one lazy chunk per screen (a missing block or export fails
 the build; the server's build holds none), so the admin's source names no pack. The core read
 `screens.mine` answers which screens the caller may open (the pack active and shipped, and the
-pipeline's `staffAuthority` for every gate tool, as a person; empty for any other actor; the one
-core read every pack role reaches; a gate tool may be `anyStaff` or held to a core permission, ADR
+pipeline's `staffAuthority` for every gate tool, as a person; empty for any other actor; a core
+read every pack role reaches, as is its own Today, ADR 0874; a gate tool may be `anyStaff` or held to a core permission, ADR
 0652). The admin's navigation, `/s/<pack>/<screen>` (client-only,
 "not found" when not listed) and the record tabs render that answer; each screen sits in an error
 boundary, with its pack's hooks over the staff client on the app's own origin
@@ -2961,7 +2961,31 @@ SQL over `rec_*` views returning one `value`, a comparison, when it needs attent
 the shape and the gate; `checkManifest` checks the SQL with the widget guards (`bindNamedParams`
 with only `:today_from`, `:today_to` and `:now`, then `validateReadOnlySql`) and that it returns
 exactly the columns it declares (`packages/core/src/today/declaration.ts`). A runtime extension
-declaring any is refused. `today.get`, which runs them, is step 3.
+declaring any is refused.
+
+**Today** (stage 60, [ADR 0874](adr/0874-today-get-the-host-items-and-a-pack-roles-today.md)):
+`today.get` returns the items one person may see for the business's local day (`localDay` in the
+organisation's zone; the comparison is the same window a day or a week earlier, `:now` at the same
+local time), attention first; `today.rows` the at most 50 rows behind one. Both are staff reads in
+`packages/core/src/today/` (`items.ts`, `host.ts`, `pack.ts`). Each item is gated by what the
+caller could already call, by the pipeline's own `staffAuthority`, actor and MCP scopes: a pack
+item by every tool of its `opens`; the host's by the operation it stands for, and each reads
+through that operation's own code: takings by `finance.report` (Finance reports' Sales net,
+`salesTotal`, never summed in `today/`), changes waiting by `approval.approve` and the approver
+rules (`approvals/approvers.ts`, the one table `approval.approve` holds too), shifts with nobody
+on them by `staffing.uncovered` and checklists missed by `checklist.runs` for someone who rosters,
+unread notices by `notification.list`. Payments failing waits for Finance reports' Money owed. An
+AI actor gets the pack items and the money its user may see, never approvals, checklists, the
+roster or the inbox. The visible pack items are columns of one statement (`json_array` of today's
+value and the compared one, at most 90 a statement, nine parameters), run through
+`runReadOnlySql`; the statement and the takings are cached 60 seconds, the person's own items read
+on every call (one failing item is left out for a minute and listed to admins). Every pack role
+reaches both (`PACK_ROLE_TODAY`): no host item reaches it; a pack item only by its role's or a
+grant's tools (never an every-staff tool); one its role opens reads only views of objects the role
+reads; whatever opened it, one reading an object the role reaches only for some People is hidden,
+and one over an object it reaches only on today is read in today's window with no comparison;
+rows only over objects the role reads (`roleReach`, crossed with every shipped item and role in
+`today-reach.test.ts`).
 
 **My account** (stage 48, [spec](stages/48-my-account.md)) is base-layer blocks over a base
 headless entry in the typed client's runtime (`packages/client/src/account.ts`:
