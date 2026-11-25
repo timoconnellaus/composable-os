@@ -5,7 +5,9 @@
   "private": true,
   "type": "module",
   "exports": {
-    ".": "./index.ts"
+    ".": "./index.ts",
+    "./client": "./client/index.ts",
+    "./page": "./client/page.ts"
   },
   "description": "Forms: forms a business builds and publishes, and the answers people send to them, kept as submissions in an inbox (stage 29, ADR 0726). Answers arrive only through the host's intake door (ADR 0720). Bundled as source into cos-runner.",
   "composableOs": {
@@ -14,16 +16,24 @@
     "description": "Enquiry, sign-up, survey, feedback and staff forms the business builds and publishes, with every answer in one inbox, linked to the person who sent it."
   },
   "scripts": {
-    "typecheck": "tsc --noEmit",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p blocks/tsconfig.web.json && tsc --noEmit -p blocks/tsconfig.native.json",
     "test": "vitest run"
   },
   "dependencies": {
+    "@composable-os/client": "workspace:*",
     "@composable-os/sdk": "workspace:*"
   },
   "devDependencies": {
     "@cloudflare/vitest-plugin": "1.5.1",
     "@cloudflare/workers-types": "5.20261104.1",
     "@composable-os/config": "workspace:*",
+    "@types/react": "19.3.0",
+    "class-variance-authority": "0.7.1",
+    "clsx": "2.1.1",
+    "radix-ui": "1.8.1",
+    "react": "19.3.1",
+    "react-native": "0.88.1",
+    "tailwind-merge": "3.7.0",
     "typescript": "6.0.3",
     "vitest": "5.1.0"
   }

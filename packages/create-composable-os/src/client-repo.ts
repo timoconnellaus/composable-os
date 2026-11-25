@@ -73,10 +73,17 @@ export function hostRoutes(product?: Pick<ClientProductDefinition, "web">): stri
  * reach the host (the sign-in route and the operation route), so on a site with its own API it
  * does not throttle the site's own routes for everyone behind one address.
  */
-export function edgeRuleStep(product?: Pick<ClientProductDefinition, "web">): string {
-  const expression = hostRoutes(product)
-    .map((route) => `starts_with(http.request.uri.path, "${route}")`)
-    .join(" or ");
+export function edgeRuleStep(
+  product?: Pick<ClientProductDefinition, "web"> & { packs?: readonly string[] },
+): string {
+  const expression = [
+    ...hostRoutes(product).map((route) => `starts_with(http.request.uri.path, "${route}")`),
+    // With Forms, the form page the site forwards to the host (stage 29, ADR 0728): a form's own
+    // page and a personal link's, which post to the host as the operation route does.
+    ...(product?.packs?.includes("forms")
+      ? ['starts_with(http.request.uri.path, "/f/")', 'http.request.uri.path eq "/form"']
+      : []),
+  ].join(" or ");
   return `The host limits calls from the web app itself, per visitor (ADR 0940). Against floods, also
 add a rate limiting rule on the web app's zone (Security > WAF > Rate limiting rules): calls over
 the binding do not pass the host's zone. It names only the routes that reach the host (web.routes in

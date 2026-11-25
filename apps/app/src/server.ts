@@ -55,12 +55,19 @@ import {
   isCustomerAuthPath,
   isPractitionerAuthPath,
 } from "./server/http/api.ts";
+import { handleBound } from "./server/http/bound.ts";
 import {
   type CustomerFeedEnv,
   handleCustomerFeed,
   isCustomerFeedPath,
 } from "./server/http/customer-feed.ts";
 import { type DeskHandlerEnv, handleDesk, isDeskPath } from "./server/http/desk.ts";
+import {
+  type FormPageEnv,
+  handleFormPage,
+  hostVisitor,
+  isFormPagePath,
+} from "./server/http/form-page.ts";
 import { handleNativeStaffSignIn, NATIVE_STAFF_SIGN_IN_PATH } from "./server/http/native.ts";
 import {
   handleStaffFeed,
@@ -150,6 +157,12 @@ export default {
     // caller (staff, customer or public) from the request's session, so it is not behind the
     // staff-only identity middleware that guards TanStack Start's routes.
     if (isApiPath(pathname)) return apiResponse(request, env as unknown as ApiEnv);
+    // A form's own page and a personal link's (stage 29 step 4, ADR 0728): public, drawn as HTML,
+    // its calls through the client-app binding's door (a customer or the public, never staff).
+    if (isFormPagePath(pathname)) {
+      const api = env as unknown as FormPageEnv;
+      return handleFormPage(request, api, (call) => handleBound(call, api), hostVisitor(request));
+    }
     // Customer sign-in (stage 22's routes, mounted by stage 23): a code by email, then a session.
     if (isCustomerAuthPath(pathname)) return handleCustomerAuth(request, env as unknown as ApiEnv);
     // Practitioner sign-in (stage 43, ADR 0581): the same shape, its own session.

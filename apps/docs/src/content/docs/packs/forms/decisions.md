@@ -21,5 +21,6 @@ The decisions this pack rests on, as recorded in the repository's ADRs.
 | [ADR 0724](https://github.com/timoconnellaus/composable-os/blob/main/docs/adr/0724-the-receipt-and-the-form-link-slot.md) | The receipt to a public address, and the form-link slot |
 | [ADR 0725](https://github.com/timoconnellaus/composable-os/blob/main/docs/adr/0725-anonymous-submissions.md) | Anonymous submissions |
 | [ADR 0726](https://github.com/timoconnellaus/composable-os/blob/main/docs/adr/0726-the-forms-pack-forms-submissions-and-who-reads-them.md) | The Forms pack: forms, submissions, and who reads them |
+| [ADR 0728](https://github.com/timoconnellaus/composable-os/blob/main/docs/adr/0728-the-form-page-and-the-form-blocks.md) | The form page and the form blocks |
 
 The specification is stage 29's, [29-forms.md](https://github.com/timoconnellaus/composable-os/blob/main/docs/stages/29-forms.md).

@@ -1,6 +1,6 @@
 // The solutions' pages, as data: each has a route-safe slug, a title and description of the length
 // the landing-page skill asks for, and pieces whose status is one of the site's words, in the group
-// that matches it. The gym page says plainly that what would replace a booking system is not built,
+// that matches it. The gym page says plainly that moving from a booking system is not built,
 // and names its first gym only as being moved, never as live.
 import { describe, expect, it } from "vitest";
 import { SOLUTIONS } from "../src/solutions.ts";
@@ -50,19 +50,22 @@ describe("solutions", () => {
     });
   }
 
-  it("the gym page marks what would replace a booking system as not built", () => {
+  it("the gym page marks each piece as far along as the repository shows", () => {
     const gyms = SOLUTIONS.find((solution) => solution.slug === "gyms");
     const status = (title: string) =>
       [...(gyms?.pieces.built ?? []), ...(gyms?.pieces.notYet ?? [])].find(
         (piece) => piece.title === title,
       )?.status;
-    // Stage 31a: the spine, spending and the waitlist are merged; families and the rest to come.
-    expect(status("Class bookings")).toBe("building");
-    // Stage 32b step 6: plans, memberships and passes are merged; the rest is in progress.
-    expect(status("Memberships and passes")).toBe("building");
+    // Stage 31a steps 1 to 9 and stage 49 step 5 are merged; the import is not on the card.
+    expect(status("Class bookings")).toBe("built");
+    // Stage 32b steps 5 to 7 are merged; the import of members (step 8) is not on the card.
+    expect(status("Memberships and passes")).toBe("built");
+    // Stage 45 steps 1 to 7 and 4b are merged; step 8 is the first client's set-up.
+    expect(status("Rostering")).toBe("built");
+    // Stage 44 steps 1 to 8 are merged; step 9 waits for stage 43, step 10 is the first client's.
+    expect(status("Waivers and agreements")).toBe("built");
+    // Stage 33 has no spec: moving from a booking system is not built.
     expect(status("Moving from your booking system")).toBe("planned");
-    // Stage 44 steps 1 to 5: agreeing on the web and in the app; the desk and cooling off to come.
-    expect(status("Waivers and agreements")).toBe("building");
     // Stage 32a: the subscription (step 3) and moving the current subscribers (step 4) are built.
     expect(status("Course subscriptions")).toBe("built");
     expect(status("Moving your course subscribers")).toBe("built");

@@ -41,6 +41,11 @@ It requires no other pack.
   week, is spent by its first answer, and is shown in the member's app under Needs your attention.
 - **Receipt**: the short email whoever sent answers gets, naming the business and the form and
   nothing they typed.
+- **Form page**: a form drawn as a plain web page by the host, which works with no JavaScript: a
+  form's own page, `/f/<slug>`, for a link or a QR code, and a personal link's, `/form?t=…`. Served
+  on the host's address and, through the web app's binding, on the business's own site.
+- **Form block**: the same form in a client app's own screens: `forms-form` on the website,
+  `forms-native-form` in the app, over the pack's headless entry.
 
 ## How the pieces fit
 
@@ -81,6 +86,28 @@ It requires no other pack.
   anonymously, at most three a day to one address and 200 a day for the organisation (Settings →
   Routine email). The form's "Send a receipt" turns it off.
 
+- **The page and the blocks hold no rule.** They draw every question kind, show a question that
+  waits on an earlier answer only once it holds, check the answers first with the host's own
+  check (so what to fix is said beside each question) and show the host's answer: a refusal stays
+  on the screen with the answers as typed. The spam checks travel with the send: a field a person
+  never sees (the honeypot), the host's token of when the form was shown (kept through a redraw, so a
+  quick correction is not taken for a bot), and on a public form a visitor's Turnstile token (the page draws Cloudflare's widget with the host's site key; a block
+  is given the app's widget). What a person typed is kept nowhere but their screen.
+- **A personal link's page** is sent with no referrer, loads nothing from anywhere else (no
+  Turnstile: the host skips it for a link), and takes the token out of the address bar once
+  loaded, keeping it only in the page for the send. Opening it uses nothing; the send uses it, once,
+  and a reload of the thanks is answered from the host's store. A site that shows a link's form
+  with the web block instead keeps the same three rules on its own page: no referrer, no
+  third-party script (analytics would read the address before the token is out), and the token
+  taken out at once with `takeLinkToken`.
+- **Every page** is never cached or framed and sets no cookie. Each send carries the page's own
+  idempotency key, so a reload or a second press is one answer. A send posted from another site is
+  refused. On the business's site the web app forwards the page's two paths to the host
+  (`formPageRoute` in the template's host module), with the customer's cookie and the form's
+  fields only, and the visitor's address. A send is taken only from the page's own origin
+  (`Sec-Fetch-Site: same-origin`, else its own or a `null` Origin): another site's form, or a page on
+  a sibling subdomain, is refused.
+
 ## Main flows
 
 1. **Build and publish a form.** Staff create a form, write its questions, open it and publish
@@ -98,19 +125,26 @@ It requires no other pack.
 6. **A receipt.** When answers arrive to a form whose receipt is on, the `receipt` automation asks
    the host for the receipt; the host decides who it goes to, or that none does. A person binds
    the email connection it sends from, and turns the pack's routine email on.
-7. **Answer by a personal link.** A member opens the link from their email (or the item in their
-   app), the page asks `form` with the link and sends the answers with `submit` and the same
-   link; the submission is the member's, tied to what the link was about.
+7. **Answer by a personal link.** A member opens the link from their email on the business's
+   site; the page asks `form` with the link (using nothing) and sends the answers with `submit`
+   and the same link; the submission is the member's, tied to what the link was about. In the app,
+   the Needs your attention item opens `forms-native-form`'s `LinkedFormScreen`, by the link's id.
+8. **A form's own page.** A link or a QR code opens `/f/<slug>`; the visitor answers with no
+   account, and the page sends the answers with `submit` (`via` page).
+9. **A form on the website or in the app.** The client app draws `forms-form`'s `FormBlock` (or
+   `forms-native-form`'s `FormScreen`) with the form's address and its hooks
+   (`createFormsHooks` from `@composable-os/pack-forms/client`), and passes its Turnstile widget
+   for a public form.
 
 ## What is built
 
 The forms and submissions, the tools above, the views (new answers, in hand, spam, asked to hear
 from us, open forms), the answers tab on a Person and on a form, the hourly cap setting, the
 low-rating notice, personal links (answered with `link`, or signed in with `linkedForm` and
-`submitLinked`) and the receipt.
+`submitLinked`), the receipt, the form page (`/f/<slug>` and `/form`, on the host's address and
+the business's site), the `forms-form` and `forms-native-form` blocks and the headless entry.
 
-Not in the code yet: the hosted page and the web and native form blocks (and the site's `/form`
-page a personal link opens), sending a form by personal link by hand, a record of another pack (a
+Not in the code yet: sending a form by personal link by hand, a record of another pack (a
 lead) as a destination, deleting a person's submissions when they are erased (erase deletes their
 personal links, and clears the Person and the answers it recognises, not free text) and
 retention, the builder and inbox screens and the dashboard, and file uploads.

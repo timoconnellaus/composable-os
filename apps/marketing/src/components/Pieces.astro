@@ -1,37 +1,26 @@
 ---
 // What can go into a company's product. Each line is true of the repository today, and each status
 // word means what apps/marketing/SITE.md says it means: "Customers and sales" is the base records
-// plus the Deals and Leads packs, ready today; Ticketing, Content, Programs and Courses are packs
-// that are built and merged (stages 27, 28, 41 and 42) but have not run for a customer yet, and
-// say so. Courses' monthly subscription (stage 32a step 3) and moving subscribers from another
-// platform (continuation offers, step 4) are built too, with the rest of the card. Bookings is
-// being built: its spine (stage 31a step 3: the timetable, booking and cancelling within each
-// class type's rules, staff bookings), spending a membership's use and the waitlist (steps 4
-// and 5), parents booking for their children (step 6, the family link), attendance, moves
-// and cancelling a class (step 7), drop-ins (step 8), and the emails with their calendar file and
-// the reminder, the dashboard and the coach's list in the app (step 9) are merged; the import
-// (step 10) is not yet. One-to-one sessions booked by staff (stage 49 step 5) are merged; members
-// booking their own (step 6) are not yet. Its staff screens on the web (the front desk
-// and the class list) are shown in the product's admin (stage 47). Memberships (stage 32b) is
-// being built: its plans, memberships and passes, spent by bookings (step 6), plan changes, staff
-// pauses and its dashboard (steps 6 and 7) are merged; the import of members (step 8) is not yet.
-// Rostering (stage 45) is being built: the host's rules for shifts (steps 1 to 3: one person never
-// on two shifts at once, warnings, offers and takes, time off) and the pack's duties, weekly
-// patterns and tools (step 4), pay (step 6), the calendar feed (step 5) and the screens on the web
-// and in the app (step 7, not yet tried on phones; the web screens are in the product's admin,
-// stage 47), checklists on a duty (step 4b) and checklists on their own (the Daily checklists pack,
-// ADR 0651) are merged.
-// Agreements (stage 44) is being built: documents and versions (step 1), acceptances (step 2),
-// the check before paying, subscribing and booking (step 3), the copy and the signed PDF (step 4),
-// the screens on the web and in the app (step 5, and the ticket and course checkouts, issue
-// #292), cooling off (step 7), erase and retention (step 8) and signing at the desk on the
-// enrolled tablet (step 6, with stage 51's step 1) are merged.
+// plus the Deals and Leads packs, ready today. Every other card is a pack built and merged but not
+// yet used by a customer, and says so ("Built, not yet live"):
+// - Ticketing (stage 27 steps 1 to 5), Content (stage 28), Programs (stage 41) and Courses (stage
+//   42, with its monthly subscription and moving subscribers, stage 32a steps 3 and 4).
+// - Bookings: stage 31a steps 1 to 9 (the timetable and its rules, spending a membership's use,
+//   the waiting list, parents for children, attendance, moves and cancelling a class, drop-ins, the
+//   emails and reminder, the coach's list in the app) and stage 49 step 5 (one-to-one sessions
+//   booked by staff). Not built: the import (31 step 10) and members booking their own sessions
+//   (49 step 6), which the card says. Staff screens on the web are in the product's admin (47).
+// - Memberships: stage 32b steps 5 to 7 (plans, memberships and passes, plan changes, pauses), and
+//   passes for one-to-one sessions (49 step 5). Not built: the import of members (32 step 8).
+// - Rostering: stage 45 steps 1 to 7 and 4b, the follow-ups, and checklists on their own (the
+//   Daily checklists pack, ADR 0651). Step 8 is the first client's set-up.
+// - Agreements: stage 44 steps 1 to 8 and the follow-ups (the ticket and course checkouts, issue
+//   #292). Step 9 waits for outside practitioners (stage 43) and step 10 is the first client's.
 // The last card is the piece built only for this business.
 import { STATUS } from "../status.ts";
 import Icon from "./Icon.astro";
 
 const BUILT = STATUS.built;
-const BUILDING = STATUS.building;
 
 const pieces = [
   {
@@ -60,22 +49,22 @@ const pieces = [
     body: "Video lessons sold one at a time, in bundles or by a monthly subscription with a free trial, with progress, and only those who hold them can play them. Members cancel and update their card on the web. Subscribers moving from another platform continue free until the date they have already paid up to.",
   },
   {
-    soon: BUILDING,
+    soon: BUILT,
     title: "Bookings",
-    body: "Classes made from a weekly timetable, booked and cancelled on the web and in the app within each class type's rules: when booking opens and closes, and when a cancel is late. A full class has a waiting list that moves people in on their own. Parents book for their children. A visitor pays for a single class on the website, no account needed, their place held while they pay. Staff book anyone, walk-ins too, move a member to another class and cancel a class before it ends, giving back the class of everyone on it who booked with a membership or pass, even those already ticked or who cancelled late, and refunding to the card anyone who paid for that class on the website once a member of staff approves it. Members are emailed when they book, when the gym changes or cancels their class, and with a reminder before it, with a file that adds the class to their calendar, by default staff approve each one until the gym turns automatic emails on. Coaches tick who came in the app. On the web, staff work the front desk and the class list in the product's admin, and a coach signs in there to just the class list; the web screens are not yet tried on a live host. Staff book one-to-one sessions with a coach for a member, paid from a pass or at the desk, a coach never booked over a class or another session; members booking their own sessions is still to come.",
+    body: "Classes made from a weekly timetable, booked and cancelled on the web and in the app within each class type's rules: when booking opens and closes, and when a cancel is late. A full class has a waiting list that moves people in on their own. Parents book for their children. A visitor pays for a single class on the website, no account needed, their place held while they pay. Staff book anyone, walk-ins too, move a member to another class and cancel a class before it ends, giving back the class of everyone on it who booked with a membership or pass, even those already ticked or who cancelled late, and refunding to the card anyone who paid for that class on the website once a member of staff approves it. Members are emailed when they book, when the gym changes or cancels their class, and with a reminder before it, with a file that adds the class to their calendar, by default staff approve each one until the gym turns automatic emails on. Coaches tick who came in the app. On the web, staff work the front desk and the class list in the product's admin, and a coach signs in there to just the class list; the web screens are not yet tried on a live host. Staff book one-to-one sessions with a coach for a member, paid from a pass or at the desk, a coach never booked over a class or another session; members cannot yet book their own sessions online.",
   },
   {
-    soon: STATUS.building,
+    soon: BUILT,
     title: "Memberships",
     body: "Monthly memberships, unlimited or a number of classes a week or month, and passes bought once: class packs that expire, drop-ins, an intro offer one per person, and packs of one-to-one sessions. Members see what they have left, used up as they book classes, and change plan on the web; staff pause a membership for a set time.",
   },
   {
-    soon: STATUS.building,
+    soon: BUILT,
     title: "Rostering",
     body: "Who works each class and each shift that is not a class, like cleaning. A weekly pattern makes the shifts eight weeks ahead, nobody is ever put on two at once, and staff say when they are away and offer a shift they cannot work for a qualified colleague to take, with the manager told. A duty can carry a checklist the person on the shift ticks off. Checklists also work on their own, with no roster: opening, closing and cleaning, due on set days by a set time, ticked off by whoever may do them (a cleaner or a coach too), and the manager sees how each day went and is told when one is missed. Hours and classes are totalled per pay period for the staff paid by them and locked, with a file for payroll, and each of them can see their own; no pay rates are kept. Each person's own shifts are published at a private calendar address only they get, from their own calendar screen. Staff use the screens on the web in the product's admin, each person seeing only the ones they may use, and in the app (not yet tried on phones); the web screens are not yet tried on a live host, and the calendar address is not yet tried in phone calendars.",
   },
   {
-    soon: STATUS.building,
+    soon: BUILT,
     title: "Agreements",
     body: "Terms, waivers, health questions and a parent's consent, written by the business and agreed to on the web or in the app, with a typed name or a drawn signature. Visitors agree on the way to paying, parents agree for their children, and nobody books a class or buys a membership, a pass, a ticket or a course without agreeing first to what the business asks there. A copy goes by email to whoever agrees online, and the business can download the signed PDF at any time. The app's screens are built but not yet tried on phones. The business can set a cooling-off period: a new member can end their membership on the website inside it, once, and what they paid in that period is refunded once a member of staff approves it (not for members moving over from another system). A member can also sign at the desk, on the business's own tablet: someone on the staff starts a session for them, the tablet holds no sign-in, and the copy is emailed to them (not yet tried on a real tablet or a live host).",
   },
@@ -89,7 +78,8 @@ const pieces = [
       <h2 id="pieces-title">Take the pieces your business needs. Leave the rest.</h2>
       <p class="lead">
         Each piece works with the others, on the same records and rules. Yours might be one of
-        them, all of them, or mostly something nobody else has.
+        them, all of them, or mostly something nobody else has. "Built, not yet live" means tested,
+        with no business using it yet, and card payments and video have so far run only against stand-ins, not the real payment or video service.
       </p>
     </div>
     <div class="grid">
