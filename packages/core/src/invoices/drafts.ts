@@ -15,10 +15,25 @@ import type { Compilable, Kysely, Selectable } from "kysely";
 import { z } from "zod";
 import { ConflictError, NotFoundError, ValidationError } from "../errors.ts";
 import { getObject } from "../fields/index.ts";
-import type { InvoiceKind, TaxMode } from "../fields/invoice.ts";
+import {
+  creditNoteObject,
+  type InvoiceKind,
+  invoiceObject,
+  quoteObject,
+  type TaxMode,
+} from "../fields/invoice.ts";
+import type { ObjectDefinition } from "../fields/types.ts";
 import { type IdKind, newId } from "../ids.ts";
 import type { HandlerContext } from "../operation.ts";
-import { ORDER_MAX_LINES, ORDER_MAX_QUANTITY, priceLines } from "../orders/orders.ts";
+import { applyGoodsRules } from "../orders/goods.ts";
+import {
+  ORDER_MAX_LINES,
+  ORDER_MAX_QUANTITY,
+  type PricedLine,
+  priceLines,
+} from "../orders/orders.ts";
+import { viewRow } from "../orders/sellable.ts";
+import { orgReader, type Viewer, visibleSource } from "../visibility/index.ts";
 import { type InvoiceSettings, rateFor, type TaxRate } from "./settings.ts";
 import { type Discount, documentTotals, lineAmounts, unitPriceFromRecord } from "./tax.ts";
 
@@ -259,6 +274,20 @@ export const invoiceOutput = documentBase.extend({
   dueOn: z.string().nullable().describe("Set on a draft, or worked out at issue from the terms"),
   allowPartPayments: z.boolean(),
   remindersPaused: z.boolean(),
+  money: z
+    .object({
+      paid: z.number(),
+      credited: z.number().describe("What credit notes took off what was owed"),
+      refunded: z.number().describe("What has gone back, confirmed or recorded"),
+      balance: z.number().describe("What is still owed: total less paid less credited"),
+      owedBack: z
+        .number()
+        .describe("What credit notes give back that has not gone back yet, nor waits for approval"),
+      orderState: z.string(),
+    })
+    .nullable()
+    .optional()
+    .describe("Once issued (invoice.get): its order's money"),
 });
 
 const parseRates = (json: string) => {
@@ -387,38 +416,77 @@ export function auditSnapshot(
 
 // --- Reading --------------------------------------------------------------------------------
 
+/** The base object of a kind of document, as the seam knows it (fields/invoice.ts). */
+export function documentObject(kind: DraftKind | "creditNote"): ObjectDefinition {
+  const fallback =
+    kind === "quote" ? quoteObject : kind === "invoice" ? invoiceObject : creditNoteObject;
+  return getObject(fallback.name) ?? fallback;
+}
+
+/**
+ * Whether the document `id` of `kind` is one `reader` may see, through the seam (its `rec_*`
+ * view). The document's own columns that the view leaves out (the bill-to as printed, its notes,
+ * its snapshot, its version) are read from its table after it, by the callers below.
+ */
+export async function documentVisible(
+  db: Kysely<CoreDatabase>,
+  reader: Viewer,
+  kind: DraftKind | "creditNote",
+  id: string,
+): Promise<boolean> {
+  return Boolean(await viewRow(db, visibleSource(reader, documentObject(kind)), id));
+}
+
+/**
+ * The document, whole, as host code reads it (staff only; ADR 0730): first through the seam,
+ * org-wide, then its table for the columns its view leaves out.
+ */
 export async function loadDocument<K extends DraftKind>(
   db: Kysely<CoreDatabase>,
   kind: K,
   id: string,
+  /** Whose read it is: the caller's (`ctx`) for a caller's operation; org-wide for host code. */
+  reader: Viewer = orgReader(db),
 ): Promise<K extends "quote" ? QuoteRow : InvoiceRow> {
-  const row = await loose(db)
-    .selectFrom(KIND_TABLES[kind].doc)
-    .selectAll()
-    .where("id", "=", id)
-    .executeTakeFirst();
+  if (!(await documentVisible(db, reader, kind, id))) {
+    throw new NotFoundError(KIND_TABLES[kind].label, id);
+  }
+  const row =
+    kind === "quote"
+      ? await db.selectFrom("core_quote").selectAll().where("id", "=", id).executeTakeFirst()
+      : await db.selectFrom("core_invoice").selectAll().where("id", "=", id).executeTakeFirst();
   if (!row) throw new NotFoundError(KIND_TABLES[kind].label, id);
   return row as K extends "quote" ? QuoteRow : InvoiceRow;
 }
 
+/** A document's lines: parts of a document read through `loadDocument` first. */
 export async function linesOf(
   db: Kysely<CoreDatabase>,
   kind: DraftKind,
   id: string,
 ): Promise<LineRow[]> {
-  const t = KIND_TABLES[kind];
-  const rows = (await loose(db)
-    .selectFrom(t.line)
+  if (kind === "quote") {
+    const rows = await db
+      .selectFrom("core_quote_line")
+      .selectAll()
+      .where("quote_id", "=", id)
+      .orderBy("position")
+      .limit(DOCUMENT_MAX_LINES + 1)
+      .execute();
+    return rows.map(({ quote_id, ...row }) => ({
+      ...row,
+      document_id: quote_id,
+      deducts_invoice_id: null,
+    }));
+  }
+  const rows = await db
+    .selectFrom("core_invoice_line")
     .selectAll()
-    .where(t.fk, "=", id)
+    .where("invoice_id", "=", id)
     .orderBy("position")
     .limit(DOCUMENT_MAX_LINES + 1)
-    .execute()) as Record<string, unknown>[];
-  return rows.map((row) => ({
-    ...(row as unknown as LineRow),
-    document_id: String(row[t.fk]),
-    deducts_invoice_id: (row.deducts_invoice_id as string | null | undefined) ?? null,
-  }));
+    .execute();
+  return rows.map(({ invoice_id, ...row }) => ({ ...row, document_id: invoice_id }));
 }
 
 /** The line `lineId` and the draft it is on. */
@@ -426,15 +494,32 @@ export async function loadLine(
   db: Kysely<CoreDatabase>,
   kind: DraftKind,
   lineId: string,
+  reader: Viewer = orgReader(db),
 ): Promise<{ doc: DocumentRow; lines: LineRow[]; line: LineRow }> {
   const t = KIND_TABLES[kind];
-  const row = (await loose(db)
-    .selectFrom(t.line)
-    .select(t.fk)
-    .where("id", "=", lineId)
-    .executeTakeFirst()) as Record<string, string> | undefined;
-  if (!row) throw new NotFoundError(`${t.label} line`, lineId);
-  const doc = await loadDocument(db, kind, String(row[t.fk]));
+  // The documents the caller may read, through the seam, first; then the line among their parts
+  // (review of PR #460): a line id from input never reaches a table on its own.
+  const docs = visibleSource(reader, documentObject(kind));
+  const view = documentObject(kind).source;
+  // biome-ignore lint/suspicious/noExplicitAny: the source is a registry-driven view, not a key of the typed schema.
+  const anyDb = db as any;
+  const found = (
+    kind === "quote"
+      ? await anyDb
+          .selectFrom(docs)
+          .innerJoin("core_quote_line as l", "l.quote_id", `${view}.id`)
+          .select(`${view}.id as doc`)
+          .where("l.id", "=", lineId)
+          .executeTakeFirst()
+      : await anyDb
+          .selectFrom(docs)
+          .innerJoin("core_invoice_line as l", "l.invoice_id", `${view}.id`)
+          .select(`${view}.id as doc`)
+          .where("l.id", "=", lineId)
+          .executeTakeFirst()
+  ) as { doc: string } | undefined;
+  if (!found) throw new NotFoundError(`${t.label} line`, lineId);
+  const doc = await loadDocument(db, kind, found.doc, reader);
   const lines = await linesOf(db, kind, doc.id);
   const line = lines.find((l) => l.id === lineId);
   if (!line) throw new NotFoundError(`${t.label} line`, lineId);
@@ -557,14 +642,17 @@ function recordQuantity(quantity: number): void {
 /**
  * The document's record lines, checked together as the one order an invoice becomes (stage 35
  * step 3): the same item on two lines, more than a record's most per order, more grants than an
- * order holds, a record no longer for sale. The same rules, by the same code, as `order.start`,
- * so a draft that passes can be issued. Every write that adds or changes a record's line asks.
+ * order holds, a record no longer for sale, and the goods rules (ADR 0682): goods are sold on an
+ * order with a delivery, which a document does not choose, so a goods record is refused on one
+ * (a typed line describes goods handed over another way). The same rules, by the same code, as
+ * `order.start`, so a draft that passes can be issued; `invoice.issue` runs them again, through
+ * `createOrder`. Every write that adds or changes a record's line asks. Returns the lines priced.
  */
 export async function checkRecordLines(
   ctx: HandlerContext,
   currency: string,
   lines: readonly LineRow[],
-): Promise<void> {
+): Promise<PricedLine[]> {
   const requests = lines
     .filter((l) => l.source === "record" && l.source_object && l.source_id)
     .map((l) => ({
@@ -572,7 +660,22 @@ export async function checkRecordLines(
       id: l.source_id as string,
       quantity: l.quantity_milli / 1000,
     }));
-  if (requests.length) await priceLines(ctx.db, requests, currency, ctx.now);
+  if (!requests.length) return [];
+  const priced = await priceLines(ctx.db, requests, currency, ctx.now);
+  try {
+    await applyGoodsRules(ctx.db, priced, undefined, "start");
+  } catch (error) {
+    const rule = (error as { details?: { rule?: unknown } } | undefined)?.details?.rule;
+    if (error instanceof ValidationError && rule === "delivery_needed") {
+      const goods = priced.find((line) => line.goods);
+      throw new ValidationError(
+        `${goods?.title ?? "This"} is goods, sold on an order with a delivery, which a ${KIND_TABLES.invoice.label} does not choose: sell it with an order, or type the line`,
+        { field: "lines", rule: "goods_need_delivery", line: goods?.position ?? null },
+      );
+    }
+    throw error;
+  }
+  return priced;
 }
 
 /**
@@ -730,17 +833,24 @@ export function renumbered(lines: readonly LineRow[]): LineRow[] {
     .map((line, position) => ({ ...line, position }));
 }
 
-/** The totals columns for `lines`. */
+/**
+ * The totals columns for `lines`. A deduction line ("less deposit paid", the host's, stage 35
+ * step 6) takes its amounts off, by its rate (ADR 0732); on the order it is a `prepaid`
+ * adjustment (ADR 0731).
+ */
 export function totalsOf(lines: readonly LineRow[]) {
   const totals = documentTotals(
-    lines.map((l) => ({
-      taxKey: l.tax_key,
-      taxLabel: l.tax_label,
-      taxRate: l.tax_rate,
-      net: l.line_net,
-      tax: l.line_tax,
-      total: l.line_total,
-    })),
+    lines.map((l) => {
+      const sign = l.source === "deduction" ? -1 : 1;
+      return {
+        taxKey: l.tax_key,
+        taxLabel: l.tax_label,
+        taxRate: l.tax_rate,
+        net: sign * l.line_net,
+        tax: sign * l.line_tax,
+        total: sign * l.line_total,
+      };
+    }),
   );
   return {
     net_total: totals.net,

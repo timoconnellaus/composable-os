@@ -148,6 +148,12 @@
 - [Finance: permissions](https://docs.composableos.dev/capabilities/finance/permissions/)
 - [Finance: screens](https://docs.composableos.dev/capabilities/finance/screens/)
 - [Capabilities](https://docs.composableos.dev/capabilities/)
+- [Invoices: behaviours](https://docs.composableos.dev/capabilities/invoices/behaviours/)
+- [Invoices: decisions](https://docs.composableos.dev/capabilities/invoices/decisions/)
+- [Invoices](https://docs.composableos.dev/capabilities/invoices/): Quotes, invoices and credit notes with numbers nobody reuses and documents nobody changes. An issued invoice is an order, paid online or recorded by a person, and put right with a credit note.
+- [Invoices: operations](https://docs.composableos.dev/capabilities/invoices/operations/)
+- [Invoices: permissions](https://docs.composableos.dev/capabilities/invoices/permissions/)
+- [Invoices: screens](https://docs.composableos.dev/capabilities/invoices/screens/)
 - [Client notes: behaviours](https://docs.composableos.dev/capabilities/notes/behaviours/)
 - [Client notes: decisions](https://docs.composableos.dev/capabilities/notes/decisions/)
 - [Client notes](https://docs.composableos.dev/capabilities/notes/): Notes staff keep about a person, each with a kind and a level that decides who reads it, written from the kind's template.
@@ -327,6 +333,7 @@
 - [contact.* operations](https://docs.composableos.dev/reference/operations/contact/): The core operations named contact.*
 - [content.* operations](https://docs.composableos.dev/reference/operations/content/): The core operations named content.*
 - [conversation.* operations](https://docs.composableos.dev/reference/operations/conversation/): The core operations named conversation.*
+- [creditNote.* operations](https://docs.composableos.dev/reference/operations/creditnote/): The core operations named creditNote.*
 - [customer.* operations](https://docs.composableos.dev/reference/operations/customer/): The core operations named customer.*
 - [dashboard.* operations](https://docs.composableos.dev/reference/operations/dashboard/): The core operations named dashboard.*
 - [desk.* operations](https://docs.composableos.dev/reference/operations/desk/): The core operations named desk.*

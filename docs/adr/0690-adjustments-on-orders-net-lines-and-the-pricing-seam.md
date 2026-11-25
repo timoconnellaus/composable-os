@@ -96,3 +96,12 @@ than 100 values. From the review of PR #380: a discount given while the buyer's 
 refuses that page and the next asks for the new price; the database refuses a new total once a
 page is recorded; erase redacts the discount calls' audit rows; a whole-order 99% on lines of 1 and
 3 cents takes 0 and 2.
+
+## Amendment, 2026-11-25 (stage 35 step 3, ADR 0731): the invoice's adjustments
+One kind only the host writes, on an invoice's order only, in the batch that starts it: `prepaid`
+(a final invoice's "less deposit paid", on the whole order). An invoice's line discounts are
+`staff` adjustments given by the person who issues it, within the limit or approved; the cents of
+a whole-unit price are never an adjustment (the line is split, ADR 0731), so an order's discount is
+only money off. None of an invoice's adjustments is ever taken off (the database refuses it).
+Migration 1031 remakes `core_order_adjustment` for the kind; a later remake carries it forward.
+See ADR 0731.

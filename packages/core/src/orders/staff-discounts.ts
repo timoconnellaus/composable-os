@@ -24,7 +24,13 @@ import {
   percentOff,
   type SeamLine,
 } from "./adjustments.ts";
-import { changeOrderPrice, loadOrderRow, type OrderRow, requireState } from "./orders.ts";
+import {
+  changeOrderPrice,
+  loadOrderRow,
+  type OrderRow,
+  refuseInvoiceOrder,
+  requireState,
+} from "./orders.ts";
 import { type DiscountLimit, loadDiscountLimit } from "./settings.ts";
 
 export type AdjustmentRow = Selectable<CoreDatabase["core_order_adjustment"]>;
@@ -168,7 +174,8 @@ export async function staffDiscountWithinLimit(
     if (error instanceof NotFoundError) return true;
     throw error;
   }
-  if (row.state !== "pending") return true;
+  // Not pending, or an invoice's (refused by the handler, ADR 0731): it runs and is refused.
+  if (row.state !== "pending" || row.invoice_id) return true;
   const [lines, live, limit] = await Promise.all([
     linesOf(db, row.id),
     liveAdjustments(db, row.id),
@@ -266,6 +273,7 @@ export async function giveStaffDiscount(
   request: StaffDiscountRequest,
 ): Promise<Repriced & { adjustmentId: string }> {
   const row = await loadOrderRow(ctx.db, orderId);
+  refuseInvoiceOrder(row, "a discount is given on the invoice's line before it is issued");
   requireState(row, ["pending"], "given a discount");
   await refuseOpenCheckout(ctx, row);
   const [lines, live, limit] = await Promise.all([
@@ -313,6 +321,7 @@ export async function removeAdjustment(
   adjustmentId: string,
 ): Promise<Repriced> {
   const row = await loadOrderRow(ctx.db, orderId);
+  refuseInvoiceOrder(row, "an issued invoice's price is never changed: credit it instead");
   requireState(row, ["pending"], "changed");
   await refuseOpenCheckout(ctx, row);
   const [lines, live] = await Promise.all([

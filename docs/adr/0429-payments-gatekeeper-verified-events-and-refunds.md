@@ -115,3 +115,10 @@ the gatekeeper, as above. A payment a person recorded is paid back by a person, 
 (`order.recordRefund`, `orders:refund`, human only): a confirmed refund row of method `recorded`,
 with nothing sent and nothing in Approvals. Refunds back onto a voucher or stored value come with
 stage 34 steps 7 and 8. See ADR 0694.
+
+## Amendment, 2026-11-25 (stage 35 step 5, ADR 0735): an invoice's money goes back by a credit note
+On an invoice's order, what was applied goes back only as a credit note says (`creditNote.issue`):
+a provider's payment through the same refund approval, asked in the credit note's batch, and a
+recorded one paid back by a person (`order.recordRefund`) for what the credit note owes on it.
+`order.refund` refunds only a payment that was not applied to an invoice's order (late or not
+matching). See ADR 0735.

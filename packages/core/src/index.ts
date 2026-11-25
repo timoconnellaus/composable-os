@@ -163,6 +163,7 @@ export * from "./integrations/outcome.ts";
 export * from "./integrations/runtime.ts";
 export * from "./invites.ts";
 export { eventStatement, INVOICE_EVENTS } from "./invoices/events.ts";
+export { INVOICE_LINE_OBJECT } from "./invoices/issue.ts";
 export { formatNumber, numberStatements, SERIES } from "./invoices/numbering.ts";
 export { DEFAULT_INVOICE_SETTINGS, loadInvoiceSettings } from "./invoices/settings.ts";
 export {

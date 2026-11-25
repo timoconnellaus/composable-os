@@ -34,6 +34,7 @@ Every operation in the core registry, grouped by the first part of its name. Any
 - [`contact`](/reference/operations/contact/)
 - [`content`](/reference/operations/content/)
 - [`conversation`](/reference/operations/conversation/)
+- [`creditNote`](/reference/operations/creditnote/)
 - [`customer`](/reference/operations/customer/)
 - [`dashboard`](/reference/operations/dashboard/)
 - [`desk`](/reference/operations/desk/)

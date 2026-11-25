@@ -43,6 +43,9 @@ export const ORDER_MACHINE: StatesDefinition = {
     // A late deposit staff honour (ADR 0429) makes an expired order part paid; a recorded payment
     // entered in error and reversed (ADR 0694) leaves a paid one part paid, its balance owed.
     { from: ["pending", "expired", "paid"], to: "part_paid", by: ["host"] },
+    // An invoice's order whose recorded payments were all reversed is unpaid again (stage 35,
+    // ADR 0733): the host's move, in the reversal's batch. What was granted stays.
+    { from: ["paid", "part_paid"], to: "pending", by: ["host"] },
     // A buyer may give up an order they have paid nothing on. Once money is on it, staff cancel.
     // The host too (ADR 0560): a drop-in booking that leaves its held place another way (its
     // class cancelled) cancels its unpaid order in the same batch.

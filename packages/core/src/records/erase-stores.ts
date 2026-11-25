@@ -1156,8 +1156,11 @@ export async function queueEraseOrders(ctx: HandlerContext, s: StoreSubject): Pr
   // handled the same way. A subscription checkout the provider has not confirmed is closed, so a
   // later confirmation makes nothing (subscriptions/events.ts). Their guest acceptances go with
   // them (agreements/people.ts).
+  // An issued invoice's order is never cancelled (stage 35, ADR 0731): the invoice stays owed and
+  // is detached like any part-paid order, keeping its number, amounts and the bill-to as printed
+  // until step 11's retention decides otherwise; staff credit or void it.
   for (const row of orders) {
-    if (row.state === "pending" && row.paid === 0) {
+    if (row.state === "pending" && row.paid === 0 && row.invoice_id === null) {
       await changeOrder(ctx, row, "cancelled", { person_id: null }, "host");
     }
   }

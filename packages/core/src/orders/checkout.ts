@@ -10,7 +10,7 @@ import { sha256Hex } from "../digest.ts";
 import { ConflictError, ValidationError } from "../errors.ts";
 import type { HandlerContext } from "../operation.ts";
 import { openProviderCheckout, paymentsTarget } from "./gateway.ts";
-import { type Charge, chargeFor, type OrderRow } from "./orders.ts";
+import { type Charge, chargeFor, chargeOptions, type OrderRow } from "./orders.ts";
 import { isAllowedReturnUrl, loadMinPartPayment, loadReturnOrigins } from "./settings.ts";
 import { discountsWaiting } from "./staff-discounts.ts";
 import { checkoutTax } from "./tax.ts";
@@ -23,6 +23,43 @@ export interface OpenedCheckout {
   currency: string;
   kind: Charge["kind"];
   expiresAt: string | null;
+}
+
+/** How long the provider's page stays open after it is made (its sessions last a day). */
+export const CHECKOUT_OPEN_HOURS = 24;
+
+/**
+ * Refuses a change to what an invoice's order is owed (a credit note, a recorded payment) while a
+ * payment page opened for it in the last day has had no payment since (stage 35): the page asks
+ * for the old amount, and a payment made there would no longer match. The host cannot close the
+ * provider's page (the gatekeeper has no such action), so it waits for the page to be paid or to
+ * lapse.
+ */
+export async function refusePageOpen(ctx: HandlerContext, row: OrderRow, what: string) {
+  const since = new Date(Date.parse(ctx.now) - CHECKOUT_OPEN_HOURS * 3_600_000).toISOString();
+  const page = await ctx.db
+    .selectFrom("core_order_checkout")
+    .select(["created_at"])
+    .where("order_id", "=", row.id)
+    .where("created_at", ">", since)
+    .orderBy("created_at", "desc")
+    .limit(1)
+    .executeTakeFirst();
+  if (!page) return;
+  const paidSince = await ctx.db
+    .selectFrom("core_order_payment")
+    .select("event_id")
+    .where("order_id", "=", row.id)
+    // A payment made on a page (a recorded one leaves the page open).
+    .where("provider", "!=", "host")
+    .where("received_at", ">=", page.created_at)
+    .limit(1)
+    .executeTakeFirst();
+  if (paidSince) return;
+  throw new ConflictError(
+    `A payment page for this invoice was opened for what it owed then: ${what} once it is paid, or after it lapses (a day after it opened)`,
+    { rule: "checkout_open", order: row.id, openedAt: page.created_at },
+  );
 }
 
 /** A retried press of "Pay" within ten minutes, for the same amount, opens the same page. */
@@ -58,7 +95,12 @@ export async function openCheckout(
       rule: "return_origin",
     });
   }
-  const charge = chargeFor(row, await loadMinPartPayment(ctx.db), input.amount);
+  const charge = chargeFor(
+    row,
+    await loadMinPartPayment(ctx.db),
+    input.amount,
+    await chargeOptions(ctx.db, row),
+  );
   if (row.state === "pending" && (await discountsWaiting(ctx.db, row.id, ctx.now)) > 0) {
     throw new ConflictError(
       "A discount on this order is waiting for approval: pay once it is decided",
@@ -80,8 +122,11 @@ export async function openCheckout(
   const bucket = Math.floor(Date.parse(ctx.now) / IDEMPOTENCY_WINDOW_MS);
   const idempotencyKey = `${row.id}:${row.version}:${charge.amount}:${bucket}:${await shortHash(input.returnUrl)}`;
   // Tax at checkout (ADR 0479): null unless an admin turned it on and the lines declare a code,
-  // and then the request is exactly as before.
-  const taxed = await checkoutTax(ctx.db, row.id, charge.amount, KIND_WORDS[charge.kind]);
+  // and then the request is exactly as before. An invoice's order asks the provider for none,
+  // tax at checkout on or off: its tax was worked out on the document (ADRs 0731 and 0732).
+  const taxed = row.invoice_id
+    ? null
+    : await checkoutTax(ctx.db, row.id, charge.amount, KIND_WORDS[charge.kind]);
   const tax = taxed?.tax ?? null;
   const opened = await openProviderCheckout(ctx.integrations, target, {
     orderId: row.id,

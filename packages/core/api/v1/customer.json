@@ -2517,6 +2517,10 @@
                   "moreUnpaidOrders": {
                     "type": "number"
                   },
+                  "invoicesOwed": {
+                    "type": "number",
+                    "description": "Invoices still owed: deleting the account never cancels one, it stays owed"
+                  },
                   "subscriptions": {
                     "type": "array",
                     "items": {
@@ -2549,6 +2553,7 @@
                   "records",
                   "partPaidOrders",
                   "moreUnpaidOrders",
+                  "invoicesOwed",
                   "subscriptions",
                   "dependantsWithoutGuardian"
                 ],

@@ -2834,15 +2834,35 @@ _Avoid_: estimate (Jobs' estimate lines are what a quote is made from)
 A numbered request for payment, issued to a bill-to, with its own order from issue (stage 35
 step 3). Kinds `standard`, `deposit`, `final`. A core record (`core_invoice`, `inv_…`): a draft has
 no number; once issued the database refuses any change to its lines, totals, tax, bill-to, dates
-and snapshot, and a mistake is put right with a credit note (ADR 0730).
+and snapshot, and a mistake is put right with a credit note (ADR 0730). Its order (`invoice_id` on
+it) is due on the invoice's due date and never expires, takes no deal, keeps the document's tax,
+and is moved only through the invoice: paid online or by `invoice.recordPayment`, credited or
+voided (ADR 0731). Its state follows its order: issued, part paid, paid; or credited, void.
 _Avoid_: bill, the provider's invoice (`core_order.invoice_ref`, a subscription period's, is not
 one of these)
 
 ### Credit note
 
 A numbered document that reduces what an invoice asks for, in part or in full (`core_credit_note`,
-`cn_…`; its operations are stage 35 step 5).
+`cn_…`): some of its lines or an amount at one of its rates. Issued by a person with
+`invoices:credit`, it takes off what is still owed first (the order's `credited`), then gives back
+what was paid, the way it came, never more than was paid (ADR 0735).
 _Avoid_: refund for it (a refund is money going back, which a credit note may cause)
+
+### Void
+
+(an invoice)
+
+A full credit note on an issued invoice nothing was paid on, issued at once: the invoice is `void`,
+its order cancelled and its places given back (`invoice.void`, ADR 0735).
+_Avoid_: cancel, delete (an issued invoice is never deleted)
+
+### Credited
+
+(on an order)
+
+What credit notes took off what an invoice's order still owed: its balance is the total less what
+was paid less this. Only an invoice's order has it, and it never goes down (ADR 0735).
 
 ### Bill-to
 
