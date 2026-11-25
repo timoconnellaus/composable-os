@@ -53,7 +53,7 @@ exactly what the role lists. Stage 14a builds its roles and scopes on that check
 
 ## Note, 2026-11-25: re-specced for the platform (stage 14, proposal)
 Stage 14 was re-specced ([the spec](../stages/14-teams-permissions.md)). Once agreed and built, it
-changes this ADR as follows (the build records it in ADR 0943, block CC):
+changes this ADR as follows (the build records it in ADR 0953, block CD):
 1. **Roles:** still Admin, Manager, Member and Read-only (stored `viewer`), beside the fixed pack
    roles as built. **`core_user` is not rebuilt.** D1 enforces foreign keys, and dropping it fires
    the `ON DELETE` actions of the 42 keys that reference it (sessions and device sessions are

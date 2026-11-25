@@ -97,4 +97,4 @@ when every policy is Everyone. What the re-spec changes, once it is agreed and b
 - **The ratchet** (ADR 0410): stage 14 moves every read listed as `sql`, `later` or `part` onto the
   seam and deletes those reasons. The reads with no caller, a write's own checks and host code stay
   listed with their reasons; "empties the list" now means that.
-The build records this in ADR 0940 (block CC).
+The build records this in ADR 0950 (block CD).

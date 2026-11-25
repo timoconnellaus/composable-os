@@ -58,3 +58,24 @@ nav.sidebar a[aria-current="page"] {
     font-size: 1.05rem;
   }
 }
+
+/* A block's picture (apps/screens draws it with dummy data): a page in a frame, or a phone. */
+.sl-markdown-content img.cos-screen {
+  display: block;
+  max-width: 100%;
+  height: auto;
+  /* A long page (an account page, a program builder) shows its top, not a thin strip. */
+  max-height: 64rem;
+  object-fit: cover;
+  object-position: top;
+  background: #fff;
+  border: 1px solid #d9e1f2;
+  border-radius: 0.5rem;
+  box-shadow: 0 6px 24px rgb(20 41 92 / 0.08);
+}
+
+.sl-markdown-content img.cos-screen-native {
+  width: 320px;
+  border: 8px solid #14161b;
+  border-radius: 2rem;
+}

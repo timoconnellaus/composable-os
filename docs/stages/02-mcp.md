@@ -132,3 +132,7 @@ bulk.
     the first report is committed. The target is at least 17/20, with failures analysed.
 12. `pnpm lint typecheck test` and e2e pass in CI. ADRs, `CONTEXT.md` (Change set, Pending action,
     Provisional ID, Connected app) and `docs/architecture.md` are updated.
+
+## Status
+
+- **All steps** — built — PRs #11, #15 — MCP: the OAuth server, approval queue and simulation (#11); the approvals inbox and connected apps UI (#15).

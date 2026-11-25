@@ -8,6 +8,8 @@
     "me.update",
     "me.sessions.list",
     "me.sessions.revoke",
+    "me.contact.choices",
+    "me.contact.setChoices",
     "me.family",
     "my.list",
     "subscription.list",
@@ -19,6 +21,7 @@
   ],
   "files": ["account.tsx", "LICENSE"],
   "dependsOn": [
+    "web-account-contact",
     "web-account-details",
     "web-account-devices",
     "web-account-family",

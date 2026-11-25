@@ -172,3 +172,16 @@ earned: `finance: { category?: { key, label }, earned?: "at_sale" | "over_period
 "at_date", at? }`, checked by `checkObjectSellable` and carried by the field registry with its
 defaults filled (`other`, `at_sale`). It labels the object's sales only: nothing about buying,
 granting or moving changes.
+
+## Amended 2026-11-25: goods and delivery options (stage 37 step 3, [ADR 0682](0682-goods-on-an-order-where-sold-the-channel-and-the-delivery.md))
+A sellable object may declare `goods: { soldIn? }` (where its records are sold, online, in person
+or both) or `delivery: { kind, freeOver?, countries?, active? }` (a way of getting goods to the
+buyer: post, collect, here). An order with goods needs exactly one delivery, chosen in `delivery`
+and never put among the lines; its channel follows from it and each goods line must be sold
+there. A delivery line of kind `here` grants nothing; post and collect grant as declared. Postage
+is the option's price, or nothing over its free over ([ADR 0685](0685-postage-priced-by-the-host.md)).
+
+## Amended 2026-11-25: less the order's deal (stage 34 step 4, [ADR 0693](0693-the-discount-behaviour-codes-automatic-prices-one-deal-limits-held-by-the-database.md))
+A line is still priced from its record, and then the order's one deal (a record of an object
+declaring the `discount` behaviour: a promo code or a member's price) comes off as adjustments,
+worked out by the host in the same seam. A caller sends at most a code, never an amount.

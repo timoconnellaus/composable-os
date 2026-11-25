@@ -1,9 +1,9 @@
 ---
 title: Bookings
-summary: A gym's or studio's timetable and the bookings members make on it, with places, waitlists, spending a membership's uses, attendance and drop-ins.
+summary: A gym's or studio's timetable and the bookings members make on it, with places, waitlists, spending a membership's uses, attendance and drop-ins; and one-to-one appointments staff book.
 stage: 31
 spec: docs/stages/31-bookings.md
-adrs: [0404, 0500, 0501, 0502, 0503, 0504, 0505, 0506, 0507, 0520, 0550, 0551, 0552, 0553, 0560, 0570, 0571, 0572, 0600, 0620, 0621, 0765]
+adrs: [0404, 0500, 0501, 0502, 0503, 0504, 0505, 0506, 0507, 0520, 0550, 0551, 0552, 0553, 0560, 0570, 0571, 0572, 0600, 0620, 0621, 0723, 0724, 0760, 0761, 0762, 0763, 0764, 0765]
 ---
 
 ## What it is for
@@ -15,6 +15,11 @@ cancel it, and join a waitlist when it is full. Parents book their children. A v
 single class on the web. Coaches see the day's classes and tick who came. The business's rules
 (how far ahead a class may be booked, when booking closes, when a cancel is late, which class
 types only staff book) hold for everyone: members, staff, the assistant and any API call.
+
+It also runs one-to-one sessions (appointments): the business's kinds of session (a 60-minute
+personal training session), booked by staff for a client with one of its coaches, paid from a pass
+that covers sessions or at the desk. A coach is never booked into a session over a class, a duty
+or another session, and a private room is never taken twice.
 
 It requires the [Programs](/packs/programs/) pack, whose class types it uses, and spends the uses
 that [Memberships](/packs/memberships/) holds.
@@ -36,6 +41,13 @@ that [Memberships](/packs/memberships/) holds.
   A coach is a staff account with a coach profile.
 - **The coach role** (`bookings.coach`): a staff role that sees the day's classes and their lists
   and ticks names, and nothing else.
+- **Service** (`bookings.service`): a kind of one-to-one session: its length, a buffer before and
+  after, the rooms it may use in order, the step its start times keep, and its own booking rules
+  when they differ from the business's. Who gives it is a qualification (Rostering's), not a list
+  on the service.
+- **Appointment** (`bookings.appointment`): one booked session: a client, a coach, a service, a
+  start and an end, and the room it takes. Its state is booked, cancelled, cancelled late, moved,
+  attended, no-show, excused (a late cancel or no-show given back) or cancelled by the business.
 
 ## How the pieces fit
 
@@ -62,8 +74,26 @@ the host's operations and add no rules of their own.
   takes one class at a time is never double booked).
 - Drop-ins use [`sellable`](/reference/behaviours/#sellable): the booking is held while its order
   is unpaid and booked when the payment is verified.
+- An appointment declares [`staffed`](/reference/behaviours/#staffed) too, with the service's
+  buffer in its coach's time and a coach with a staff account required; the roster and the
+  calendar feed show it as its service, never the client. It
+  [`occupies`](/reference/behaviours/#occupies) its room (with the buffer), which the host chooses
+  when staff name none: the first of the service's rooms free then. It spends a use of a pass or
+  membership that pays for sessions and covers its service ([`allowance`](/reference/behaviours/#allowance)),
+  unless booked paid at the desk. A cancel from "late from" (24 hours before unless the service
+  says otherwise) is late and keeps the session, with no fee, as a no-show does; only a person
+  excuses either, giving it back. 30 minutes after it ends the host marks one nobody marked as
+  attended.
 - Messages are automations that email members through the `email-send` gatekeeper on what the
   host did, as [routine mail](/packs/bookings/messages/) an admin can turn off.
+- **Feedback after a class** is routine mail too (`feedback`, a follow-up a member can stop with
+  one tap): a few hours after a member is ticked as come (`feedbackMinutes`, 3 hours by default),
+  when a Forms form answered by personal link is chosen (`feedbackForm`, its address), the host
+  emails a personal link to it, made for the booking's Person about that booking, good for a week. The host sends it at most
+  once a month to a member, never to a child's own address (their parents or guardians get it),
+  and never to someone who stopped follow-ups; the same link is the member's Needs your attention
+  item, and the answer is tied to the booking. It needs the Forms pack, the business's site and
+  Bookings' routine email turned on: an email with a personal link is never sent for approval.
 
 ## Main flows
 
@@ -87,9 +117,19 @@ the host's operations and add no rules of their own.
 8. **Move or cancel.** Staff move a booking to another class (`move`) in one batch, or cancel a
    class (`cancelClass`, a person's act or a person's approval of an assistant's request), which
    cancels its bookings and gives their uses back.
-9. **Tell people.** The host emails confirmations, waitlist news, changes, cancellations, a
+9. **Book a session for a client.** Staff book an appointment (`bookAppointment`) with a coach,
+   or with whichever qualified coach is free then; the host refuses a clash and says what it was
+   made with (the coach away, not qualified, outside their open hours, the client busy). Staff
+   move it (`moveAppointment`, the session moving with it), cancel it (`cancelAppointment`, in time
+   or late by the clock), mark it attended or a no-show (`markAppointment`), excuse a late cancel
+   or no-show (`excuseAppointment`, a person only), give it to another coach
+   (`reassignAppointment`), or cancel it for the business (`cancelAppointmentByUs`, a person's
+   act); the coaches' day (`coachDay`) lists each coach's classes, appointments and duties.
+10. **Tell people.** The host emails confirmations, waitlist news, changes, cancellations, a
    reminder before the class with an add-to-calendar file, and drop-in refunds; staff are told of
    a class whose list was not taken.
+11. **Ask for feedback.** Choose a Forms form in the settings; members ticked as come are asked
+   by email (`feedbackAfterClass`) and in the app, and answer once by their personal link.
 
 ## What is built
 
@@ -104,7 +144,13 @@ Stage 31a's steps 3 to 9, as the code has them:
   blocks; the front desk and class list as staff screens in the admin;
 - the class as its coach's shift (stage 45) and the room it occupies (stage 49);
 - a section of the member's My account (stage 48): the timetable with their bookings and a linked
-  child's, shown once they or the child have a booking.
+  child's, shown once they or the child have a booking;
+- appointments booked by staff (stage 49's step 5): services, appointments and their states,
+  paying from a pass or at the desk, late cancels and no-shows with no fee, excusing, moving,
+  reassigning and the coaches' day, under `bookings:desk` or the grantable
+  `bookings:appointments`;
+- feedback after a class by a personal link to a Forms form (stage 29's step 5).
 
-Not in the code: `cos bookings import` (31a's step 10) and appointments booked by staff (31b,
-now [stage 49](/planned/)).
+Not in the code: `cos bookings import` (31a's step 10), and members booking appointments
+themselves, appointment emails, outside practitioners, paying per session and standing
+appointments ([stage 49](/planned/)'s later steps).

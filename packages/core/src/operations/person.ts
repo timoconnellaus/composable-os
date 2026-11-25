@@ -12,6 +12,7 @@ import {
 } from "../agreements/people.ts";
 import { queueMergeAllowances } from "../allowance/people.ts";
 import { assignOwner, recordAssignment } from "../assignment/index.ts";
+import { mergeChoiceStatements } from "../contact/register.ts";
 import { queueMergeCustomers } from "../customers/merge.ts";
 import { checkPerson } from "../duplicates/check.ts";
 import { personNameKey } from "../duplicates/normalise.ts";
@@ -22,6 +23,7 @@ import { ConflictError, ForbiddenError, NotFoundError, ValidationError } from ".
 import { getObject } from "../fields/index.ts";
 import { personObject } from "../fields/person.ts";
 import { newId } from "../ids.ts";
+import { mergeLinkStatement } from "../intake/links.ts";
 import {
   assertMayChangeBirthday,
   assertMergeKeepsMemberBirthday,
@@ -38,6 +40,7 @@ import { defineOperation, type HandlerContext } from "../operation.ts";
 import { queueMergeOrders } from "../orders/merge.ts";
 import { matchPersonAddresses } from "../outside/match.ts";
 import { queueMergePersonCodes } from "../people-codes/people.ts";
+import { queueMergePractitioners } from "../practitioners/merge.ts";
 import { holdsPermission } from "../principals.ts";
 import { bulkTagListSchema, queueBulkTags } from "../records/bulk-tags.ts";
 import {
@@ -1192,6 +1195,8 @@ export const personMerge = defineOperation({
     await queueMergeCustomers(ctx, survivor.id, merged.id, [
       ...new Set([...survivor.emails, ...merged.emails].map((e) => e.email)),
     ]);
+    // A practitioner account moves to the survivor; refused while both people have one (ADR 0581).
+    await queueMergePractitioners(ctx, survivor.id, merged.id);
     // Orders, subscriptions, their checkouts and trials follow the Person (stage 32a, #221).
     await queueMergeOrders(ctx, survivor.id, merged.id);
     await queueMergeSubscriptions(ctx, survivor.id, merged.id);
@@ -1286,6 +1291,10 @@ export const personMerge = defineOperation({
     );
     // Acceptances follow the Person, after merged_into_id is set (the trigger checks it, ADR 0642).
     queueMergeAgreements(ctx, survivor.id, merged.id);
+    // Contact choices follow the Person (ADR 0675): the later wins, a stop or a no always stays.
+    ctx.write(...(await mergeChoiceStatements(ctx.db, survivor.id, merged.id, ctx.now)));
+    // Personal links follow the Person too (ADR 0723): a live one stays answerable, by the survivor.
+    ctx.write(mergeLinkStatement(survivor.id, merged.id));
     // One primary affiliation per person: the survivor's wins.
     if (survivor.primaryAffiliation) {
       ctx.write(

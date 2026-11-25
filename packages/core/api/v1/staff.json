@@ -942,6 +942,62 @@
       ]
     },
     {
+      "name": "ack.due",
+      "description": "Platform use only (the minute cron, as the host, once a local day): the reminders to people who still have a record to read, the weekly notice to each record's owner of who has not confirmed it, and the welcome of new staff accounts with what they have to read, in the words each acknowledged object declares, at most a few hundred a run (the next tick carries on). Returns how many it wrote.",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "asked": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991,
+            "description": "Asked of someone never told of the version (new in must read)"
+          },
+          "reminders": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "outstanding": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "welcomes": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "more": {
+            "type": "boolean",
+            "description": "More is left for the day: the next tick carries on"
+          }
+        },
+        "required": [
+          "asked",
+          "reminders",
+          "outstanding",
+          "welcomes",
+          "more"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "ack.mine",
+        "ack.overview",
+        "ack.status"
+      ]
+    },
+    {
       "name": "ack.mine",
       "description": "What I must read and have not confirmed (each published record that asks me, with its current version), and what I have confirmed and when. For the person themselves; not for an AI actor. Read-only.",
       "risk": "read",
@@ -1050,7 +1106,7 @@
     },
     {
       "name": "ack.overview",
-      "description": "Every published record staff must read, of the objects the caller manages: its current version, how many must read it and how many have confirmed what counts. For admins and people granted an object's manage permission; never for an AI actor. Read-only.",
+      "description": "Every published record staff must read, of the objects the caller manages: its current version, how many must read it and how many have confirmed what counts. For admins and people granted an object's manage permission, themselves or through a person-only tool of the pack that owns them (its own objects only); never for an AI actor. Read-only.",
       "risk": "read",
       "audiences": [
         "staff"
@@ -1121,7 +1177,7 @@
     },
     {
       "name": "ack.status",
-      "description": "For one published record staff must read (a procedure), its current version: everyone who must read it, who has confirmed it (and when), and who has not (and since when). For admins and people granted the object's manage permission; never for an AI actor. Read-only.",
+      "description": "For one published record staff must read (a procedure), its current version: everyone who must read it, who has confirmed it (and when), and who has not (and since when). For admins and people granted the object's manage permission, themselves or through a person-only tool of the pack that owns it; never for an AI actor. Read-only.",
       "risk": "read",
       "audiences": [
         "staff"
@@ -19291,7 +19347,8 @@
               "extension",
               "customer",
               "public",
-              "device"
+              "device",
+              "practitioner"
             ]
           },
           "operation": {
@@ -25825,6 +25882,208 @@
         "connection.list",
         "connection.resourceTypes"
       ]
+    },
+    {
+      "name": "contact.forPerson",
+      "description": "A Person's contact choices: each kind of message they may get on each channel with what is in force, and the history of every choice (when, how, by whom, why). Read-only.",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "personId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          }
+        },
+        "required": [
+          "personId"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "child": {
+            "type": "boolean"
+          },
+          "lines": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "scope": {
+                  "type": "string"
+                },
+                "label": {
+                  "type": "string"
+                },
+                "description": {
+                  "type": "string"
+                },
+                "purpose": {
+                  "type": "string",
+                  "enum": [
+                    "account",
+                    "follow_up",
+                    "news_and_offers"
+                  ]
+                },
+                "essential": {
+                  "type": "boolean",
+                  "description": "Its email always goes"
+                },
+                "channels": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "channel": {
+                        "type": "string",
+                        "enum": [
+                          "email",
+                          "text",
+                          "push"
+                        ]
+                      },
+                      "value": {
+                        "type": "string",
+                        "enum": [
+                          "on",
+                          "off",
+                          "yes",
+                          "no"
+                        ],
+                        "description": "What is in force (a default when unset)"
+                      },
+                      "fixed": {
+                        "type": "boolean",
+                        "description": "Cannot be changed here: an essential kind's email always goes"
+                      },
+                      "stopped": {
+                        "type": "boolean",
+                        "description": "Stopped by a stop link or a STOP reply"
+                      },
+                      "since": {
+                        "description": "When the choice in force was made; null: the default",
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "channel",
+                      "value",
+                      "fixed",
+                      "stopped",
+                      "since"
+                    ],
+                    "additionalProperties": false
+                  }
+                }
+              },
+              "required": [
+                "scope",
+                "label",
+                "description",
+                "purpose",
+                "essential",
+                "channels"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "history": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "scope": {
+                  "type": "string"
+                },
+                "channel": {
+                  "type": "string",
+                  "enum": [
+                    "email",
+                    "text",
+                    "push"
+                  ]
+                },
+                "value": {
+                  "type": "string",
+                  "enum": [
+                    "on",
+                    "off",
+                    "yes",
+                    "no"
+                  ]
+                },
+                "at": {
+                  "type": "string"
+                },
+                "how": {
+                  "type": "string",
+                  "enum": [
+                    "member",
+                    "staff_on_request",
+                    "staff_from_paper",
+                    "form",
+                    "checkout",
+                    "stop_link",
+                    "stop_reply",
+                    "start_reply",
+                    "import",
+                    "merge"
+                  ]
+                },
+                "by": {
+                  "description": "The staff user or customer account who made it, if any",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "reason": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "wording": {
+                  "description": "The words shown when they said yes",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "scope",
+                "channel",
+                "value",
+                "at",
+                "how",
+                "by",
+                "reason",
+                "wording"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "child",
+          "lines",
+          "history"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": []
     },
     {
       "name": "content.get",
@@ -34803,6 +35062,127 @@
         "required": [
           "text",
           "changed"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
+      "name": "discount.check",
+      "description": "Check a promo code against a basket before an order is started: whether it applies to these lines for this caller, and what it would take off each. Nothing is held: the code's uses are kept only once an order is started (order.start, order.applyCode). A code that does not apply gets one answer, whatever the reason (unknown, ended, used up, not for this buyer, not for these items): valid false and the same message. `better` says that a price applying by itself (a member's) takes more off, so the code would not be the order's deal. A guest is nobody proved: a code for members, new customers or one per person is not valid for them. Amounts are in the currency's minor unit. Read-only.",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "A promo code the buyer typed. The host decides what it takes off, from the discount it names: the better for the buyer of it and any member's price applies. One answer for a code that does not apply, whatever the reason."
+          },
+          "lines": {
+            "minItems": 1,
+            "maxItems": 50,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "object": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 80,
+                  "description": "The object of the record to buy"
+                },
+                "id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 64,
+                  "description": "The record to buy"
+                },
+                "quantity": {
+                  "default": 1,
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 1000
+                }
+              },
+              "required": [
+                "object",
+                "id"
+              ]
+            },
+            "description": "What is in the basket. There is no price here: the host reads it from each record."
+          }
+        },
+        "required": [
+          "code",
+          "lines"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "valid": {
+            "type": "boolean"
+          },
+          "message": {
+            "description": "Why not, the same words for every reason",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "title": {
+            "description": "The discount's name, when valid",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "amount": {
+            "type": "number",
+            "description": "What the code takes off these lines; 0 when not valid"
+          },
+          "lines": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "position": {
+                  "type": "number"
+                },
+                "discount": {
+                  "type": "number",
+                  "description": "What it takes off this line"
+                }
+              },
+              "required": [
+                "position",
+                "discount"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "better": {
+            "type": "boolean",
+            "description": "A price that applies by itself takes more off: that would be the deal instead"
+          },
+          "reason": {
+            "description": "Staff only: why it does not apply",
+            "type": "string"
+          }
+        },
+        "required": [
+          "valid",
+          "message",
+          "title",
+          "amount",
+          "lines",
+          "better"
         ],
         "additionalProperties": false
       },
@@ -55938,11 +56318,360 @@
         "additionalProperties": false
       },
       "invalidates": [
+        "order.delivery.get",
         "order.get",
         "order.list",
         "order.overdue",
         "order.paidLate",
         "order.payments",
+        "order.quote",
+        "order.settings.get",
+        "order.view"
+      ]
+    },
+    {
+      "name": "order.applyCode",
+      "description": "Put a promo code on a pending order whose payment page has not opened. The host works out what it takes off from the discount it names, for the order's own buyer and lines: the better for the buyer of the code and any price that applies by itself (a member's) is the deal, and only one deal is on an order (a staff discount may be added on top). A code that does not apply is refused with one answer, rule code_not_valid, whatever the reason (unknown, ended, used up, not for this buyer or these items), and nothing changes. A code never makes an order free. A signed-in customer changes their own orders; a guest passes the order's token. Returns the order, its deal and whether the code is it.",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "Order id (ord_…)"
+          },
+          "token": {
+            "description": "A guest's token for the order",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "code": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "A promo code the buyer typed. The host decides what it takes off, from the discount it names: the better for the buyer of it and any member's price applies. One answer for a code that does not apply, whatever the reason."
+          }
+        },
+        "required": [
+          "id",
+          "code"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "part_paid",
+              "paid",
+              "cancelled",
+              "expired",
+              "refunded"
+            ]
+          },
+          "currency": {
+            "type": "string"
+          },
+          "total": {
+            "type": "number"
+          },
+          "paid": {
+            "type": "number"
+          },
+          "balance": {
+            "type": "number"
+          },
+          "refunded": {
+            "type": "number",
+            "description": "What has gone back to the buyer, confirmed by the provider"
+          },
+          "pay": {
+            "type": "string",
+            "enum": [
+              "full",
+              "deposit"
+            ]
+          },
+          "deposit": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "balanceDueAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "expiresAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "paidAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "taxAmount": {
+            "type": "number",
+            "description": "The tax inside what has been paid, as the payment provider calculated it. Prices include it, so it does not add to the total. Zero when tax is off or none was charged."
+          },
+          "taxRefunded": {
+            "type": "number",
+            "description": "The tax the provider said went back with refunds"
+          },
+          "taxCountry": {
+            "description": "The country the latest taxed payment was for",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "discount": {
+            "type": "number",
+            "description": "Money taken off the order (its discounts), already out of the total"
+          },
+          "lines": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "position": {
+                  "type": "number"
+                },
+                "object": {
+                  "type": "string"
+                },
+                "recordId": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "quantity": {
+                  "type": "number"
+                },
+                "unitPrice": {
+                  "type": "number"
+                },
+                "total": {
+                  "type": "number"
+                },
+                "taxAmount": {
+                  "type": "number",
+                  "description": "The tax inside this line's payments, as the payment provider calculated it"
+                },
+                "discount": {
+                  "type": "number",
+                  "description": "The line's share of the order's discounts: it costs total less this"
+                }
+              },
+              "required": [
+                "id",
+                "position",
+                "object",
+                "recordId",
+                "title",
+                "quantity",
+                "unitPrice",
+                "total",
+                "taxAmount",
+                "discount"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "adjustments": {
+            "description": "Staff only: the discounts on the order, in the order they were given",
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "lineId": {
+                  "description": "The line it is on; null: spread over the order",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "code",
+                    "automatic",
+                    "staff",
+                    "referral"
+                  ]
+                },
+                "amount": {
+                  "type": "number",
+                  "description": "What it took off, in the currency's minor unit"
+                },
+                "percent": {
+                  "description": "The percentage asked for, when it was one",
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "reason": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "givenBy": {
+                  "description": "The staff account that gave it",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "approval": {
+                  "description": "The approval it waited in, when it did",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "createdAt": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "lineId",
+                "kind",
+                "amount",
+                "percent",
+                "reason",
+                "givenBy",
+                "approval",
+                "createdAt"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "personId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "email": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "placedAs": {
+            "type": "string",
+            "enum": [
+              "customer",
+              "public",
+              "staff"
+            ]
+          },
+          "deal": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "code",
+                      "automatic"
+                    ],
+                    "description": "code: a promo code; automatic: e.g. a member's price"
+                  },
+                  "title": {
+                    "type": "string",
+                    "description": "The discount's name"
+                  },
+                  "amount": {
+                    "type": "number",
+                    "description": "What it takes off the order, in the currency's minor unit"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "title",
+                  "amount"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The order's one deal: a promo code or a price that applied by itself; null: none"
+          },
+          "codeApplied": {
+            "description": "Whether the code given is the deal: false when a better one applied instead (a member's price); null when no code was given",
+            "type": [
+              "boolean",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "state",
+          "currency",
+          "total",
+          "paid",
+          "balance",
+          "refunded",
+          "pay",
+          "deposit",
+          "balanceDueAt",
+          "expiresAt",
+          "paidAt",
+          "createdAt",
+          "taxAmount",
+          "taxRefunded",
+          "taxCountry",
+          "discount",
+          "lines",
+          "deal",
+          "codeApplied"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "order.delivery.get",
+        "order.get",
+        "order.list",
+        "order.overdue",
+        "order.paidLate",
+        "order.payments",
+        "order.quote",
         "order.settings.get",
         "order.view"
       ]
@@ -56037,11 +56766,13 @@
         "additionalProperties": false
       },
       "invalidates": [
+        "order.delivery.get",
         "order.get",
         "order.list",
         "order.overdue",
         "order.paidLate",
         "order.payments",
+        "order.quote",
         "order.settings.get",
         "order.view"
       ]
@@ -56325,11 +57056,13 @@
         "additionalProperties": false
       },
       "invalidates": [
+        "order.delivery.get",
         "order.get",
         "order.list",
         "order.overdue",
         "order.paidLate",
         "order.payments",
+        "order.quote",
         "order.settings.get",
         "order.view"
       ]
@@ -56414,14 +57147,170 @@
         "additionalProperties": false
       },
       "invalidates": [
+        "order.delivery.get",
         "order.get",
         "order.list",
         "order.overdue",
         "order.paidLate",
         "order.payments",
+        "order.quote",
         "order.settings.get",
         "order.view"
       ]
+    },
+    {
+      "name": "order.delivery.get",
+      "description": "How one order's goods get to the buyer: the delivery option chosen, its kind (post, collect, or here: taken now in person), whether the order is online or in person, and for a post delivery the address. One order at a time: addresses are in no list, view, export or search. Staff read any order's (each read is on record in the audit log); a signed-in customer their own; a guest with the order's token. An order without goods has none (not found). Read-only.",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "Order id (ord_…)"
+          },
+          "token": {
+            "description": "A guest's token for the order",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "orderId": {
+            "type": "string"
+          },
+          "channel": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "online",
+                  "in_person"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "post",
+              "collect",
+              "here"
+            ]
+          },
+          "lineId": {
+            "type": "string",
+            "description": "The order's delivery line"
+          },
+          "option": {
+            "type": "object",
+            "properties": {
+              "object": {
+                "type": "string"
+              },
+              "recordId": {
+                "type": "string"
+              },
+              "title": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "object",
+              "recordId",
+              "title"
+            ],
+            "additionalProperties": false
+          },
+          "address": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "line1": {
+                    "type": "string"
+                  },
+                  "line2": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "city": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "region": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "postcode": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "country": {
+                    "type": "string"
+                  }
+                },
+                "required": [
+                  "name",
+                  "line1",
+                  "line2",
+                  "city",
+                  "region",
+                  "postcode",
+                  "country"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A post delivery's; null otherwise"
+          },
+          "erased": {
+            "type": "boolean",
+            "description": "The buyer's erase removed the address"
+          }
+        },
+        "required": [
+          "orderId",
+          "channel",
+          "kind",
+          "lineId",
+          "option",
+          "address",
+          "erased"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": []
     },
     {
       "name": "order.expireDue",
@@ -56458,11 +57347,13 @@
         "additionalProperties": false
       },
       "invalidates": [
+        "order.delivery.get",
         "order.get",
         "order.list",
         "order.overdue",
         "order.paidLate",
         "order.payments",
+        "order.quote",
         "order.settings.get",
         "order.view"
       ]
@@ -56753,11 +57644,13 @@
         "additionalProperties": false
       },
       "invalidates": [
+        "order.delivery.get",
         "order.get",
         "order.list",
         "order.overdue",
         "order.paidLate",
         "order.payments",
+        "order.quote",
         "order.settings.get",
         "order.view"
       ]
@@ -57321,11 +58214,13 @@
         "additionalProperties": false
       },
       "invalidates": [
+        "order.delivery.get",
         "order.get",
         "order.list",
         "order.overdue",
         "order.paidLate",
         "order.payments",
+        "order.quote",
         "order.settings.get",
         "order.view"
       ]
@@ -58280,6 +59175,400 @@
       "invalidates": []
     },
     {
+      "name": "order.quote",
+      "description": "Price a basket without starting an order: the host's price of each line, the delivery (its postage, nothing when the goods reach the option's free-over amount), the total and what is available, exactly as order.start would charge. Holds nothing and writes nothing: stock is held only once an order is started. Refuses what order.start refuses (not for sale, not sold that way, an address outside the option's countries) and reports, in `problems`, what the buyer still has to do (choose a delivery, give an address) and what is sold out or short; `ready` is true when none is left. Money off is worked out as order.start would: a member's price by itself, and `code` (the better of the two), without holding a use of it; a code that does not apply is reported as code_not_valid. Amounts are in the currency's minor unit. Read-only.",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "lines": {
+            "minItems": 1,
+            "maxItems": 50,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "object": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 80,
+                  "description": "The object of the record to buy"
+                },
+                "id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 64,
+                  "description": "The record to buy"
+                },
+                "quantity": {
+                  "default": 1,
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 1000
+                }
+              },
+              "required": [
+                "object",
+                "id"
+              ]
+            },
+            "description": "What is in the basket. There is no price here: the host reads it from each record."
+          },
+          "delivery": {
+            "description": "The delivery option chosen, and to post, the address (its country decides whether the option posts there). Left out, the quote says one is needed when there are goods.",
+            "type": "object",
+            "properties": {
+              "object": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 80,
+                "description": "The delivery option's object"
+              },
+              "id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64,
+                "description": "The delivery option chosen"
+              },
+              "address": {
+                "description": "Where to post the goods: needed for a post option, refused for any other",
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200,
+                    "description": "Who it is for"
+                  },
+                  "line1": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200
+                  },
+                  "line2": {
+                    "type": "string",
+                    "maxLength": 200
+                  },
+                  "city": {
+                    "type": "string",
+                    "maxLength": 100
+                  },
+                  "region": {
+                    "description": "State, county or province",
+                    "type": "string",
+                    "maxLength": 100
+                  },
+                  "postcode": {
+                    "type": "string",
+                    "maxLength": 20
+                  },
+                  "country": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z]{2}$"
+                  }
+                },
+                "required": [
+                  "name",
+                  "line1",
+                  "country"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "object",
+              "id"
+            ],
+            "additionalProperties": false
+          },
+          "code": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "A promo code the buyer typed. The host decides what it takes off, from the discount it names: the better for the buyer of it and any member's price applies. One answer for a code that does not apply, whatever the reason."
+          }
+        },
+        "required": [
+          "lines"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "currency": {
+            "type": "string"
+          },
+          "channel": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "online",
+                  "in_person"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "online (posted or collected) or in_person (taken now); null without goods or delivery"
+          },
+          "lines": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "position": {
+                  "type": "number"
+                },
+                "object": {
+                  "type": "string"
+                },
+                "recordId": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "quantity": {
+                  "type": "number"
+                },
+                "unitPrice": {
+                  "type": "number"
+                },
+                "total": {
+                  "type": "number"
+                },
+                "discount": {
+                  "type": "number",
+                  "description": "The line's share of the deal: it costs total less this"
+                },
+                "goods": {
+                  "type": "boolean",
+                  "description": "Goods: posted, collected or taken now"
+                },
+                "availability": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "status": {
+                          "type": "string",
+                          "enum": [
+                            "in_stock",
+                            "low",
+                            "sold_out"
+                          ]
+                        },
+                        "available": {
+                          "description": "How many can be bought now: for staff, and for others when the item shows it",
+                          "type": "number"
+                        },
+                        "onHand": {
+                          "description": "Staff only",
+                          "type": "number"
+                        },
+                        "held": {
+                          "description": "Staff only",
+                          "type": "number"
+                        }
+                      },
+                      "required": [
+                        "status"
+                      ],
+                      "additionalProperties": false,
+                      "description": "Stock, for a line of something counted on a shelf; null for anything else"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "position",
+                "object",
+                "recordId",
+                "title",
+                "quantity",
+                "unitPrice",
+                "total",
+                "discount",
+                "goods",
+                "availability"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "delivery": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "object": {
+                    "type": "string"
+                  },
+                  "recordId": {
+                    "type": "string"
+                  },
+                  "title": {
+                    "type": "string"
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "post",
+                      "collect",
+                      "here"
+                    ]
+                  },
+                  "price": {
+                    "type": "number",
+                    "description": "The option's own price"
+                  },
+                  "freeOver": {
+                    "description": "Goods at or above this post free",
+                    "type": [
+                      "number",
+                      "null"
+                    ]
+                  },
+                  "free": {
+                    "type": "boolean"
+                  },
+                  "charged": {
+                    "type": "number",
+                    "description": "What the delivery costs on this order: 0 when free"
+                  }
+                },
+                "required": [
+                  "object",
+                  "recordId",
+                  "title",
+                  "kind",
+                  "price",
+                  "freeOver",
+                  "free",
+                  "charged"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "goodsTotal": {
+            "type": "number",
+            "description": "What the goods cost, before the delivery and after the deal (free over counts it)"
+          },
+          "discount": {
+            "type": "number",
+            "description": "What the deal takes off"
+          },
+          "deal": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "code",
+                      "automatic"
+                    ],
+                    "description": "code: a promo code; automatic: e.g. a member's price"
+                  },
+                  "title": {
+                    "type": "string",
+                    "description": "The discount's name"
+                  },
+                  "amount": {
+                    "type": "number",
+                    "description": "What it takes off the order, in the currency's minor unit"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "title",
+                  "amount"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The order's one deal: a promo code or a price that applied by itself; null: none"
+          },
+          "codeApplied": {
+            "description": "Whether the code given is the deal: false when a better one applied instead (a member's price); null when no code was given",
+            "type": [
+              "boolean",
+              "null"
+            ]
+          },
+          "total": {
+            "type": "number",
+            "description": "What order.start would charge for this basket"
+          },
+          "ready": {
+            "type": "boolean",
+            "description": "Nothing in `problems`: the order can be started as it is"
+          },
+          "problems": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "rule": {
+                  "type": "string",
+                  "enum": [
+                    "delivery_needed",
+                    "address_needed",
+                    "sold_out",
+                    "not_enough",
+                    "code_not_valid"
+                  ]
+                },
+                "message": {
+                  "type": "string"
+                },
+                "line": {
+                  "description": "The position of the line it is about",
+                  "type": "number"
+                }
+              },
+              "required": [
+                "rule",
+                "message"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "currency",
+          "channel",
+          "lines",
+          "delivery",
+          "goodsTotal",
+          "discount",
+          "deal",
+          "codeApplied",
+          "total",
+          "ready",
+          "problems"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
       "name": "order.recordPayment",
       "description": "Record a payment taken another way than the payment page (a bank transfer, cash, a cheque, a card machine) on an order still owed money: any amount up to what is owed, never more (a drop-in that books a place is paid in full). The order becomes paid (or part paid) as if the provider had been paid, and what it bought is given. The payment names you as the person who received it. Admins are told of one over the amount an admin set, or when the buyer had opened a payment page (a payment made there now is refunded). A person only, with the permission to record payments: AI assistants, MCP clients, automations and extensions are refused. Returns the payment's id and the order.",
       "risk": "write",
@@ -58602,11 +59891,13 @@
         "additionalProperties": false
       },
       "invalidates": [
+        "order.delivery.get",
         "order.get",
         "order.list",
         "order.overdue",
         "order.paidLate",
         "order.payments",
+        "order.quote",
         "order.settings.get",
         "order.view"
       ]
@@ -58945,11 +60236,13 @@
         "additionalProperties": false
       },
       "invalidates": [
+        "order.delivery.get",
         "order.get",
         "order.list",
         "order.overdue",
         "order.paidLate",
         "order.payments",
+        "order.quote",
         "order.settings.get",
         "order.view"
       ]
@@ -59040,11 +60333,13 @@
         "additionalProperties": false
       },
       "invalidates": [
+        "order.delivery.get",
         "order.get",
         "order.list",
         "order.overdue",
         "order.paidLate",
         "order.payments",
+        "order.quote",
         "order.settings.get",
         "order.view"
       ]
@@ -59125,11 +60420,13 @@
         "additionalProperties": false
       },
       "invalidates": [
+        "order.delivery.get",
         "order.get",
         "order.list",
         "order.overdue",
         "order.paidLate",
         "order.payments",
+        "order.quote",
         "order.settings.get",
         "order.view"
       ]
@@ -59174,11 +60471,353 @@
         "additionalProperties": false
       },
       "invalidates": [
+        "order.delivery.get",
         "order.get",
         "order.list",
         "order.overdue",
         "order.paidLate",
         "order.payments",
+        "order.quote",
+        "order.settings.get",
+        "order.view"
+      ]
+    },
+    {
+      "name": "order.removeCode",
+      "description": "Take the promo code off a pending order whose payment page has not opened: the order is priced again without it (a price that applies by itself, such as a member's, still does). Refused (rule no_code) when the order has no code. A signed-in customer changes their own orders; a guest passes the order's token. Returns the order and its deal.",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "Order id (ord_…)"
+          },
+          "token": {
+            "description": "A guest's token for the order",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "pending",
+              "part_paid",
+              "paid",
+              "cancelled",
+              "expired",
+              "refunded"
+            ]
+          },
+          "currency": {
+            "type": "string"
+          },
+          "total": {
+            "type": "number"
+          },
+          "paid": {
+            "type": "number"
+          },
+          "balance": {
+            "type": "number"
+          },
+          "refunded": {
+            "type": "number",
+            "description": "What has gone back to the buyer, confirmed by the provider"
+          },
+          "pay": {
+            "type": "string",
+            "enum": [
+              "full",
+              "deposit"
+            ]
+          },
+          "deposit": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "balanceDueAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "expiresAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "paidAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "taxAmount": {
+            "type": "number",
+            "description": "The tax inside what has been paid, as the payment provider calculated it. Prices include it, so it does not add to the total. Zero when tax is off or none was charged."
+          },
+          "taxRefunded": {
+            "type": "number",
+            "description": "The tax the provider said went back with refunds"
+          },
+          "taxCountry": {
+            "description": "The country the latest taxed payment was for",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "discount": {
+            "type": "number",
+            "description": "Money taken off the order (its discounts), already out of the total"
+          },
+          "lines": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "position": {
+                  "type": "number"
+                },
+                "object": {
+                  "type": "string"
+                },
+                "recordId": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "quantity": {
+                  "type": "number"
+                },
+                "unitPrice": {
+                  "type": "number"
+                },
+                "total": {
+                  "type": "number"
+                },
+                "taxAmount": {
+                  "type": "number",
+                  "description": "The tax inside this line's payments, as the payment provider calculated it"
+                },
+                "discount": {
+                  "type": "number",
+                  "description": "The line's share of the order's discounts: it costs total less this"
+                }
+              },
+              "required": [
+                "id",
+                "position",
+                "object",
+                "recordId",
+                "title",
+                "quantity",
+                "unitPrice",
+                "total",
+                "taxAmount",
+                "discount"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "adjustments": {
+            "description": "Staff only: the discounts on the order, in the order they were given",
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "lineId": {
+                  "description": "The line it is on; null: spread over the order",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": [
+                    "code",
+                    "automatic",
+                    "staff",
+                    "referral"
+                  ]
+                },
+                "amount": {
+                  "type": "number",
+                  "description": "What it took off, in the currency's minor unit"
+                },
+                "percent": {
+                  "description": "The percentage asked for, when it was one",
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "reason": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "givenBy": {
+                  "description": "The staff account that gave it",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "approval": {
+                  "description": "The approval it waited in, when it did",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "createdAt": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "lineId",
+                "kind",
+                "amount",
+                "percent",
+                "reason",
+                "givenBy",
+                "approval",
+                "createdAt"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "personId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "email": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "placedAs": {
+            "type": "string",
+            "enum": [
+              "customer",
+              "public",
+              "staff"
+            ]
+          },
+          "deal": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "code",
+                      "automatic"
+                    ],
+                    "description": "code: a promo code; automatic: e.g. a member's price"
+                  },
+                  "title": {
+                    "type": "string",
+                    "description": "The discount's name"
+                  },
+                  "amount": {
+                    "type": "number",
+                    "description": "What it takes off the order, in the currency's minor unit"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "title",
+                  "amount"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The order's one deal: a promo code or a price that applied by itself; null: none"
+          },
+          "codeApplied": {
+            "description": "Whether the code given is the deal: false when a better one applied instead (a member's price); null when no code was given",
+            "type": [
+              "boolean",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "state",
+          "currency",
+          "total",
+          "paid",
+          "balance",
+          "refunded",
+          "pay",
+          "deposit",
+          "balanceDueAt",
+          "expiresAt",
+          "paidAt",
+          "createdAt",
+          "taxAmount",
+          "taxRefunded",
+          "taxCountry",
+          "discount",
+          "lines",
+          "deal",
+          "codeApplied"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "order.delivery.get",
+        "order.get",
+        "order.list",
+        "order.overdue",
+        "order.paidLate",
+        "order.payments",
+        "order.quote",
         "order.settings.get",
         "order.view"
       ]
@@ -59482,11 +61121,13 @@
         "additionalProperties": false
       },
       "invalidates": [
+        "order.delivery.get",
         "order.get",
         "order.list",
         "order.overdue",
         "order.paidLate",
         "order.payments",
+        "order.quote",
         "order.settings.get",
         "order.view"
       ]
@@ -59776,11 +61417,13 @@
         "additionalProperties": false
       },
       "invalidates": [
+        "order.delivery.get",
         "order.get",
         "order.list",
         "order.overdue",
         "order.paidLate",
         "order.payments",
+        "order.quote",
         "order.settings.get",
         "order.view"
       ]
@@ -59859,6 +61502,10 @@
             "additionalProperties": false,
             "description": "How much staff may take off one order on their own (order.adjust). Above it, a discount waits for an admin. Nothing (0) until a human admin sets it."
           },
+          "minCharge": {
+            "type": "number",
+            "description": "The smallest amount an order can be charged, in minor units (0.50 by default): a discount that would leave an order with something to pay but less than this does not apply. It stands in for the payment provider's own minimum."
+          },
           "recordedPaymentNotice": {
             "type": "number",
             "description": "Admins are told of a payment recorded by hand (order.recordPayment) for more than this, in minor units. 0 until a human admin sets it: every one is told."
@@ -59906,6 +61553,7 @@
           "tax",
           "taxCodes",
           "discountLimit",
+          "minCharge",
           "recordedPaymentNotice",
           "taxObjects"
         ],
@@ -59915,7 +61563,7 @@
     },
     {
       "name": "order.settings.update",
-      "description": "Change the order settings: the currency every order is in, the minutes an unpaid order lasts, the least part payment, the sites a buyer may come back to after paying, whether the payment provider calculates tax at checkout, the product tax code of an object for sale, how much staff may take off an order on their own, or above what a payment recorded by hand tells admins. Only what you pass changes. Orders already started keep the currency they were started in; turning tax on or off changes only payments made from then on. Admins only, and only a human can call it: AI assistants, MCP clients, automations and extensions are refused.",
+      "description": "Change the order settings: the currency every order is in, the minutes an unpaid order lasts, the least part payment, the sites a buyer may come back to after paying, whether the payment provider calculates tax at checkout, the product tax code of an object for sale, how much staff may take off an order on their own, or above what a payment recorded by hand tells admins, or the smallest amount an order can be charged after a discount. Only what you pass changes. Orders already started keep the currency they were started in; turning tax on or off changes only payments made from then on. Admins only, and only a human can call it: AI assistants, MCP clients, automations and extensions are refused.",
       "risk": "write",
       "audiences": [
         "staff"
@@ -59985,6 +61633,12 @@
               "amount"
             ],
             "additionalProperties": false
+          },
+          "minCharge": {
+            "description": "The smallest amount an order can be charged (minor units): a discount leaving less does not apply",
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 100000000
           },
           "recordedPaymentNotice": {
             "description": "Tell admins of a payment recorded by hand for more than this (minor units)",
@@ -60056,6 +61710,10 @@
             "additionalProperties": false,
             "description": "How much staff may take off one order on their own (order.adjust). Above it, a discount waits for an admin. Nothing (0) until a human admin sets it."
           },
+          "minCharge": {
+            "type": "number",
+            "description": "The smallest amount an order can be charged, in minor units (0.50 by default): a discount that would leave an order with something to pay but less than this does not apply. It stands in for the payment provider's own minimum."
+          },
           "recordedPaymentNotice": {
             "type": "number",
             "description": "Admins are told of a payment recorded by hand (order.recordPayment) for more than this, in minor units. 0 until a human admin sets it: every one is told."
@@ -60122,6 +61780,10 @@
                 "additionalProperties": false,
                 "description": "How much staff may take off one order on their own (order.adjust). Above it, a discount waits for an admin. Nothing (0) until a human admin sets it."
               },
+              "minCharge": {
+                "type": "number",
+                "description": "The smallest amount an order can be charged, in minor units (0.50 by default): a discount that would leave an order with something to pay but less than this does not apply. It stands in for the payment provider's own minimum."
+              },
               "recordedPaymentNotice": {
                 "type": "number",
                 "description": "Admins are told of a payment recorded by hand (order.recordPayment) for more than this, in minor units. 0 until a human admin sets it: every one is told."
@@ -60135,6 +61797,7 @@
               "tax",
               "taxCodes",
               "discountLimit",
+              "minCharge",
               "recordedPaymentNotice"
             ],
             "additionalProperties": false
@@ -60148,24 +61811,27 @@
           "tax",
           "taxCodes",
           "discountLimit",
+          "minCharge",
           "recordedPaymentNotice",
           "previous"
         ],
         "additionalProperties": false
       },
       "invalidates": [
+        "order.delivery.get",
         "order.get",
         "order.list",
         "order.overdue",
         "order.paidLate",
         "order.payments",
+        "order.quote",
         "order.settings.get",
         "order.view"
       ]
     },
     {
       "name": "order.start",
-      "description": "Start an order for one or more records that are for sale, as a signed-in customer, a guest (with an email address) or staff. The host prices it from the records: a caller never sends a price or a total. The order starts pending and is not paid: paying happens on the payment provider's page (order.checkout), and only the provider's confirmation marks it paid. An unpaid order expires after a few minutes. Nobody buys without the agreements the business needs for what is bought: refused with rule agreements_due and the documents while any is due (a guest passes their acceptances in `agreements`; a signed-in customer agrees first; staff send a link, sign at the desk or record paper). Returns the order with its lines and amounts in the currency's minor unit; a guest also gets `token`, shown once, which is the only way back to the order (order.view).",
+      "description": "Start an order for one or more records that are for sale, as a signed-in customer, a guest (with an email address) or staff. The host prices it from the records: a caller never sends a price or a total. The order starts pending and is not paid: paying happens on the payment provider's page (order.checkout), and only the provider's confirmation marks it paid. An unpaid order expires after a few minutes. Nobody buys without the agreements the business needs for what is bought: refused with rule agreements_due and the documents while any is due (a guest passes their acceptances in `agreements`; a signed-in customer agrees first; staff send a link, sign at the desk or record paper). Goods (things posted, collected or taken now) need a `delivery`: the host adds it as the last line, priced by the host, and refuses goods not sold that way (rule not_sold_here), a post delivery with no address or one outside the option's countries, and what is sold out. order.quote gives the same prices without starting anything. Money off is the host's: a member's price applies by itself, and `code` is a promo code the buyer typed; the one that takes more off applies (rule code_not_valid, one answer whatever the reason, when the code does not). Returns the order with its lines and amounts in the currency's minor unit; a guest also gets `token`, shown once, which is the only way back to the order (order.view).",
       "risk": "write",
       "audiences": [
         "staff"
@@ -60323,6 +61989,79 @@
               "additionalProperties": false
             },
             "description": "A visitor without an account only: what they agreed to on the way to paying, one entry per document the host says is due (each document's current version, the name they typed, a signature for a document agreed to by drawing, every answer for a health form). A signed-in customer agrees first (me.agreements.accept); staff never agree for anyone."
+          },
+          "code": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "A promo code the buyer typed. The host decides what it takes off, from the discount it names: the better for the buyer of it and any member's price applies. One answer for a code that does not apply, whatever the reason."
+          },
+          "delivery": {
+            "description": "How the goods get to the buyer, when the order has goods (records sold as goods): one delivery option (posted, collected, or taken now in person) and, to post, the address. Required with goods, refused without. The host prices it (free over an amount when the option says so) and works out from it whether the order is online or in person; each goods line must be sold there.",
+            "type": "object",
+            "properties": {
+              "object": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 80,
+                "description": "The delivery option's object"
+              },
+              "id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64,
+                "description": "The delivery option chosen"
+              },
+              "address": {
+                "description": "Where to post the goods: needed for a post option, refused for any other",
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200,
+                    "description": "Who it is for"
+                  },
+                  "line1": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200
+                  },
+                  "line2": {
+                    "type": "string",
+                    "maxLength": 200
+                  },
+                  "city": {
+                    "type": "string",
+                    "maxLength": 100
+                  },
+                  "region": {
+                    "description": "State, county or province",
+                    "type": "string",
+                    "maxLength": 100
+                  },
+                  "postcode": {
+                    "type": "string",
+                    "maxLength": 20
+                  },
+                  "country": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z]{2}$"
+                  }
+                },
+                "required": [
+                  "name",
+                  "line1",
+                  "country"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "object",
+              "id"
+            ],
+            "additionalProperties": false
           }
         },
         "required": [
@@ -60568,6 +62307,48 @@
               "string",
               "null"
             ]
+          },
+          "deal": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": [
+                      "code",
+                      "automatic"
+                    ],
+                    "description": "code: a promo code; automatic: e.g. a member's price"
+                  },
+                  "title": {
+                    "type": "string",
+                    "description": "The discount's name"
+                  },
+                  "amount": {
+                    "type": "number",
+                    "description": "What it takes off the order, in the currency's minor unit"
+                  }
+                },
+                "required": [
+                  "kind",
+                  "title",
+                  "amount"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The order's one deal: a promo code or a price that applied by itself; null: none"
+          },
+          "codeApplied": {
+            "description": "Whether the code given is the deal: false when a better one applied instead (a member's price); null when no code was given",
+            "type": [
+              "boolean",
+              "null"
+            ]
           }
         },
         "required": [
@@ -60589,16 +62370,20 @@
           "taxCountry",
           "discount",
           "lines",
-          "token"
+          "token",
+          "deal",
+          "codeApplied"
         ],
         "additionalProperties": false
       },
       "invalidates": [
+        "order.delivery.get",
         "order.get",
         "order.list",
         "order.overdue",
         "order.paidLate",
         "order.payments",
+        "order.quote",
         "order.settings.get",
         "order.view"
       ]
@@ -60889,11 +62674,13 @@
         "additionalProperties": false
       },
       "invalidates": [
+        "order.delivery.get",
         "order.get",
         "order.list",
         "order.overdue",
         "order.paidLate",
         "order.payments",
+        "order.quote",
         "order.settings.get",
         "order.view"
       ]
@@ -64678,6 +66465,111 @@
           "ended",
           "started",
           "activityId"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "person.get",
+        "person.link.list",
+        "person.link.mergePlan",
+        "person.list"
+      ]
+    },
+    {
+      "name": "person.contact.record",
+      "description": "Records a member's contact choice they gave by phone or on paper: a kind of message, a channel and on or off (news_and_offers: yes or no, with the words they agreed to). Says why. A person only, never an AI. It cannot turn back on what the member stopped themselves.",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "personId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "choices": {
+            "minItems": 1,
+            "maxItems": 40,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "scope": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 80,
+                  "description": "A kind of message: a routine message kind (bookings.reminder), follow_up, or news_and_offers"
+                },
+                "channel": {
+                  "type": "string",
+                  "enum": [
+                    "email",
+                    "text",
+                    "push"
+                  ]
+                },
+                "value": {
+                  "type": "string",
+                  "enum": [
+                    "on",
+                    "off",
+                    "yes",
+                    "no"
+                  ],
+                  "description": "on or off; for news_and_offers, yes or no"
+                }
+              },
+              "required": [
+                "scope",
+                "channel",
+                "value"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "how": {
+            "type": "string",
+            "enum": [
+              "staff_on_request",
+              "staff_from_paper"
+            ],
+            "description": "They asked (by phone, at the desk), or on a paper form"
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 500,
+            "description": "Why, in a few words"
+          },
+          "wording": {
+            "description": "For a yes to news and offers: the words they agreed to",
+            "type": "string",
+            "maxLength": 1000
+          }
+        },
+        "required": [
+          "personId",
+          "choices",
+          "how",
+          "reason"
+        ],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "changed": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": [
+          "changed"
         ],
         "additionalProperties": false
       },
@@ -68872,8 +70764,506 @@
       ]
     },
     {
+      "name": "practitioner.end",
+      "description": "End an outside practitioner's account, with the reason: they can no longer sign in, and every session of theirs ends at once. An invite not yet accepted is withdrawn the same way. Needs practitioners:manage, and only a person can call it. Returns the account.",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "Practitioner account id (prc_…)"
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500,
+            "description": "Why the account ends"
+          }
+        },
+        "required": [
+          "id",
+          "reason"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "personId": {
+            "type": "string"
+          },
+          "email": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "discipline": {
+            "type": "string"
+          },
+          "practiceId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "invited",
+              "active",
+              "ended"
+            ]
+          },
+          "invitedBy": {
+            "type": "string"
+          },
+          "invitedAt": {
+            "type": "string"
+          },
+          "activatedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "endedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "endedBy": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "endedReason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "lastSignInAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "personId",
+          "email",
+          "name",
+          "discipline",
+          "practiceId",
+          "status",
+          "invitedBy",
+          "invitedAt",
+          "activatedAt",
+          "endedAt",
+          "endedBy",
+          "endedReason",
+          "lastSignInAt"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "practitioner.get",
+        "practitioner.list"
+      ]
+    },
+    {
+      "name": "practitioner.get",
+      "description": "One outside practitioner's account by id (prc_…): name, sign-in address, discipline, practice, state, who invited and ended it and why. Needs practitioners:manage, and only a person can call it. Read-only.",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "Practitioner account id (prc_…)"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "personId": {
+            "type": "string"
+          },
+          "email": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "discipline": {
+            "type": "string"
+          },
+          "practiceId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "invited",
+              "active",
+              "ended"
+            ]
+          },
+          "invitedBy": {
+            "type": "string"
+          },
+          "invitedAt": {
+            "type": "string"
+          },
+          "activatedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "endedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "endedBy": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "endedReason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "lastSignInAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "personId",
+          "email",
+          "name",
+          "discipline",
+          "practiceId",
+          "status",
+          "invitedBy",
+          "invitedAt",
+          "activatedAt",
+          "endedAt",
+          "endedBy",
+          "endedReason",
+          "lastSignInAt"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
+      "name": "practitioner.invite",
+      "description": "Invite an outside practitioner (a physiotherapist, a dietitian) to their own practitioner account, by email, with their name, discipline and optionally the practice (an Organisation) they work for. They accept by signing in with a code emailed to that address. The account is apart from any staff or customer account the same address has, and reaches nothing about any client until that client agrees. The address's Person is used, or made when there is none. Inviting an address whose invite is not yet accepted updates and resends it; an address with an active or ended practitioner account cannot be invited. Needs practitioners:manage, and only a person can call it.",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "email": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 254,
+            "description": "Their email address"
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "description": "Their name"
+          },
+          "discipline": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 80,
+            "description": "What they do, as a label (\"Physiotherapist\", \"Dietitian\")"
+          },
+          "practiceId": {
+            "description": "The practice they work for: an Organisation's id (org_…)",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          }
+        },
+        "required": [
+          "email",
+          "name",
+          "discipline"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "personId": {
+            "type": "string"
+          },
+          "email": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string"
+          },
+          "discipline": {
+            "type": "string"
+          },
+          "practiceId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "invited",
+              "active",
+              "ended"
+            ]
+          },
+          "invitedBy": {
+            "type": "string"
+          },
+          "invitedAt": {
+            "type": "string"
+          },
+          "activatedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "endedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "endedBy": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "endedReason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "lastSignInAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "invitationEmail": {
+            "type": "string",
+            "enum": [
+              "sent",
+              "pending",
+              "not_sent"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "personId",
+          "email",
+          "name",
+          "discipline",
+          "practiceId",
+          "status",
+          "invitedBy",
+          "invitedAt",
+          "activatedAt",
+          "endedAt",
+          "endedBy",
+          "endedReason",
+          "lastSignInAt",
+          "invitationEmail"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "practitioner.get",
+        "practitioner.list"
+      ]
+    },
+    {
+      "name": "practitioner.list",
+      "description": "List the outside practitioners (physiotherapists, dietitians and the like) the business has invited: each one's name, sign-in address, discipline, practice, whether they are invited (not yet signed in), active or ended, and who invited and ended them. Needs practitioners:manage, and only a person can call it. Read-only.",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "description": "Only accounts in this state",
+            "type": "string",
+            "enum": [
+              "invited",
+              "active",
+              "ended"
+            ]
+          }
+        }
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "personId": {
+                  "type": "string"
+                },
+                "email": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "discipline": {
+                  "type": "string"
+                },
+                "practiceId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "status": {
+                  "type": "string",
+                  "enum": [
+                    "invited",
+                    "active",
+                    "ended"
+                  ]
+                },
+                "invitedBy": {
+                  "type": "string"
+                },
+                "invitedAt": {
+                  "type": "string"
+                },
+                "activatedAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "endedAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "endedBy": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "endedReason": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "lastSignInAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "personId",
+                "email",
+                "name",
+                "discipline",
+                "practiceId",
+                "status",
+                "invitedBy",
+                "invitedAt",
+                "activatedAt",
+                "endedAt",
+                "endedBy",
+                "endedReason",
+                "lastSignInAt"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "items"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
       "name": "query.sql",
-      "description": "Run one read-only SQL query (SQLite dialect) over the rec_* views: rec_person, rec_organisation, rec_affiliation, rec_activity, rec_activity_link, rec_task, rec_task_link, rec_record_tag, rec_user, rec_publish_version (the published versions of publishable records, without their content), rec_capacity and rec_capacity_claim (places, held, taken and claims of records with a capacity), rec_allowance, rec_allowance_period and rec_allowance_use (passes' and memberships' uses: terms, counts per period, every use spent or given back), rec_stock_movement (the stock ledger: every movement of a record with stock, its kind, signed quantity, place and source; on hand is rec_capacity's places - taken), rec_order, rec_order_line, rec_order_adjustment, rec_order_payment and rec_order_refund (orders, their lines, money off, and payments and refunds by method), rec_stage_history (stage entered/left times, days_in_stage), rec_state_history (the same for objects with a state machine: state, is_final, days_in_state) and extension objects as rec_x_<ext>_<object> (e.g. rec_x_deals_deal; see schema.objects). Only a single SELECT or WITH is allowed; core_* and sqlite_* tables, PRAGMA, ATTACH, writes, recursive CTEs and named parameters are refused. Pass values as params bound to ? (or ?1, ?2) placeholders, never by pasting them into the SQL. Multi-valued columns (emails, domains, tags) are JSON arrays: use json_each. Returns at most maxRows rows (default 200, max 1000) with truncated set when there were more, and fails after timeoutMs (default 5000). Use list operations for simple filtering; use this for joins, grouping and counts. Read-only.",
+      "description": "Run one read-only SQL query (SQLite dialect) over the rec_* views: rec_person, rec_organisation, rec_affiliation, rec_activity, rec_activity_link, rec_task, rec_task_link, rec_record_tag, rec_user, rec_publish_version (the published versions of publishable records, without their content), rec_capacity and rec_capacity_claim (places, held, taken and claims of records with a capacity), rec_allowance, rec_allowance_period and rec_allowance_use (passes' and memberships' uses: terms, counts per period, every use spent or given back), rec_stock_movement (the stock ledger: every movement of a record with stock, its kind, signed quantity, place and source; on hand is rec_capacity's places - taken), rec_order, rec_order_line, rec_order_adjustment, rec_order_payment and rec_order_refund (orders, their lines, money off, and payments and refunds by method), rec_discount_use (each order a discount was used on: held, used or released, and what it took off), rec_stage_history (stage entered/left times, days_in_stage), rec_state_history (the same for objects with a state machine: state, is_final, days_in_state) and extension objects as rec_x_<ext>_<object> (e.g. rec_x_deals_deal; see schema.objects). Only a single SELECT or WITH is allowed; core_* and sqlite_* tables, PRAGMA, ATTACH, writes, recursive CTEs and named parameters are refused. Pass values as params bound to ? (or ?1, ?2) placeholders, never by pasting them into the SQL. Multi-valued columns (emails, domains, tags) are JSON arrays: use json_each. Returns at most maxRows rows (default 200, max 1000) with truncated set when there were more, and fails after timeoutMs (default 5000). Use list operations for simple filtering; use this for joins, grouping and counts. Read-only.",
       "risk": "read",
       "audiences": [
         "staff"
@@ -79248,6 +81638,12 @@
             "maximum": 9007199254740991,
             "description": "Months the log is kept"
           },
+          "receiptDailyCap": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991,
+            "description": "Receipts the organisation sends in a day, apart from the routine email limit"
+          },
           "siteOrigin": {
             "description": "The business's own site: the only place a routine email links to",
             "type": [
@@ -79341,6 +81737,7 @@
           "kinds",
           "orgDailyCap",
           "retentionMonths",
+          "receiptDailyCap",
           "siteOrigin",
           "textOnlyWithoutApp",
           "quietHours",
@@ -79582,7 +81979,7 @@
     },
     {
       "name": "routineMail.settings.update",
-      "description": "Turn a pack's routine email on (packs: { bookings: true }: its kinds then send without approval; off, each is an ordinary send the policy decides), turn one kind on or off (kinds: { 'bookings.reminder': false }: off sends nothing and queues nothing), or set the business's own site, the only place routine email links to (siteOrigin, an https origin; null removes the links), the organisation's daily limit (orgDailyCap) or how long the log is kept (retentionMonths). Switch a kind's text or push on (channels: { 'bookings.reminder': { push: true } }, only channels the kind declares), whether a member reached by push is also texted (textOnlyWithoutApp), or quiet hours, when texts and pushes wait (quietHours: { start: '21:00', end: '07:00' }; the same start and end: none) and the time zone they are read in (quietZone, e.g. 'Europe/London'), or the name every text begins with (senderName, at most 30 characters). A text or push cannot be switched on until quietZone is set, nor a text until senderName is. Texts: the month's limit (textLimitMinor, in minor units of the business's currency; 0 sends none), what one segment costs (textSegmentPriceMinor, from the provider's price list), and the countries texts may go to (textCountries, ISO codes, the business's own first). Only what you pass changes. Admins only, and only a human can call it: AI assistants, MCP clients, automations and extensions are refused.",
+      "description": "Turn a pack's routine email on (packs: { bookings: true }: its kinds then send without approval; off, each is an ordinary send the policy decides), turn one kind on or off (kinds: { 'bookings.reminder': false }: off sends nothing and queues nothing), or set the business's own site, the only place routine email links to (siteOrigin, an https origin; null removes the links), the organisation's daily limit (orgDailyCap), the receipts' own daily limit (receiptDailyCap) or how long the log is kept (retentionMonths). Switch a kind's text or push on (channels: { 'bookings.reminder': { push: true } }, only channels the kind declares), whether a member reached by push is also texted (textOnlyWithoutApp), or quiet hours, when texts and pushes wait (quietHours: { start: '21:00', end: '07:00' }; the same start and end: none) and the time zone they are read in (quietZone, e.g. 'Europe/London'), or the name every text begins with (senderName, at most 30 characters). A text or push cannot be switched on until quietZone is set, nor a text until senderName is. Texts: the month's limit (textLimitMinor, in minor units of the business's currency; 0 sends none), what one segment costs (textSegmentPriceMinor, from the provider's price list), and the countries texts may go to (textCountries, ISO codes, the business's own first). Only what you pass changes. Admins only, and only a human can call it: AI assistants, MCP clients, automations and extensions are refused.",
       "risk": "write",
       "audiences": [
         "staff"
@@ -79623,6 +82020,11 @@
             ]
           },
           "orgDailyCap": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100000
+          },
+          "receiptDailyCap": {
             "type": "integer",
             "minimum": 1,
             "maximum": 100000
@@ -79760,6 +82162,11 @@
             "minimum": -9007199254740991,
             "maximum": 9007199254740991
           },
+          "receiptDailyCap": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
           "retentionMonths": {
             "type": "integer",
             "minimum": -9007199254740991,
@@ -79853,6 +82260,7 @@
           "kinds",
           "siteOrigin",
           "orgDailyCap",
+          "receiptDailyCap",
           "retentionMonths",
           "channels",
           "textOnlyWithoutApp",
@@ -98030,6 +100438,221 @@
       "invalidates": []
     },
     {
+      "name": "x.bookings.bookAppointment",
+      "description": "Staff book a one-to-one session (an appointment) for a client: a service, a start time, a coach (or none: the first qualified coach free then), and the client (personId; look them up with findPeople). It ends after the service's length. The host refuses it when the coach is on anything else then (a class, a duty or another session, the service's buffer included), when no room the service needs is free, when the coach has no staff account, or when nothing the client holds pays for the service; staff may book any time, outside the booking windows and the coach's open hours, and are told what it was made with (warnings: the coach away, not qualified, outside open hours, the client busy). It spends one session of a pass or membership covering the service, unless paidAtDesk. The room is the first of the service's rooms free then unless roomId names one. Audited. (Extension tool from Bookings 0.1.0.)",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "serviceId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "startsAt": {
+            "type": "string",
+            "allOf": [
+              {
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+              },
+              {
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+              }
+            ],
+            "description": "When it starts (ISO 8601)"
+          },
+          "personId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "The client"
+          },
+          "coachId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "Left out: any coach free then"
+          },
+          "roomId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "holderId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "A pass or membership to spend"
+          },
+          "paidAtDesk": {
+            "default": false,
+            "description": "Paid at the desk: it spends no session",
+            "type": "boolean"
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 2000,
+            "description": "A staff note, never shown to the client"
+          }
+        },
+        "required": [
+          "serviceId",
+          "startsAt",
+          "personId"
+        ],
+        "additionalProperties": {}
+      },
+      "output": {
+        "anyOf": [
+          {
+            "type": "object",
+            "properties": {
+              "result": {
+                "type": "string",
+                "const": "booked"
+              },
+              "appointmentId": {
+                "type": "string"
+              },
+              "coachId": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "roomId": {
+                "description": "The room it takes: the first of the service's free",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "startsAt": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "endsAt": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "holderId": {
+                "description": "The pass or membership a session was spent from; null when paid at the desk",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "paidAtDesk": {
+                "type": "boolean"
+              },
+              "warnings": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "code": {
+                      "type": "string",
+                      "description": "unavailable, not_qualified, outside_hours, client_busy, uncovered"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "code",
+                    "message"
+                  ],
+                  "additionalProperties": false
+                },
+                "description": "Made anyway: the coach away, not qualified, outside their open hours, client busy"
+              }
+            },
+            "required": [
+              "result",
+              "appointmentId",
+              "coachId",
+              "roomId",
+              "startsAt",
+              "endsAt",
+              "holderId",
+              "paidAtDesk",
+              "warnings"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "result": {
+                "type": "string",
+                "const": "refused"
+              },
+              "reason": {
+                "type": "string",
+                "enum": [
+                  "not_found",
+                  "double_booked",
+                  "room_taken",
+                  "no_account",
+                  "no_coach_free",
+                  "no_use",
+                  "not_offered",
+                  "not_booked",
+                  "too_late",
+                  "started",
+                  "not_started",
+                  "same_time",
+                  "changed"
+                ],
+                "description": "double_booked: the coach is on something else then (a class, a duty or another session, buffers included; see message). room_taken: no room the service may use is free then. no_account: the coach has no staff account, so cannot be booked. no_coach_free: nobody qualified is free at that time (any coach). no_use: nothing the client holds pays for this service (see detail): book it paid at the desk. not_offered: the service is no longer offered. not_booked: it is not booked (see state). too_late: it has started. started: it has started, so it cannot be moved. not_started: it can be marked once it has started. same_time: it is already at that time with that coach. changed: it changed meanwhile."
+              },
+              "message": {
+                "type": "string"
+              },
+              "detail": {
+                "description": "The host's reason for an allowance refusal (no_uses_left, not_covered…)",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "state": {
+                "description": "What the appointment is now, when that is the reason",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "result",
+              "reason",
+              "message",
+              "detail",
+              "state"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "invalidates": [
+        "x.bookings.classList",
+        "x.bookings.coachDay",
+        "x.bookings.day",
+        "x.bookings.findPeople",
+        "x.bookings.roster"
+      ],
+      "pack": "bookings"
+    },
+    {
       "name": "x.bookings.bookFor",
       "description": "Staff book a person into a class: someone on file (`personId`; look them up with findPeople first), or a walk-in not on file yet (`newPerson`). A walk-in and their booking are made in one batch, so a refused booking leaves nobody behind; the platform's duplicate check runs first, and a match is answered (person_exists or possible_duplicates, with who) rather than made twice: book them, or pass confirmNew when you checked it is someone else. Staff are not bound by the booking windows or by 'booked by staff only'; a class that was cancelled or is over, the places, one booking per person per class and the use it spends still hold. With `paidAtDesk` it spends no use (they paid at the desk). With `waitlist`, a person on file is put on a full class's waitlist instead of being refused (it spends nothing until the host moves them in). Audited. (Extension tool from Bookings 0.1.0.)",
       "risk": "write",
@@ -98283,6 +100906,195 @@
       },
       "invalidates": [
         "x.bookings.classList",
+        "x.bookings.coachDay",
+        "x.bookings.day",
+        "x.bookings.findPeople",
+        "x.bookings.roster"
+      ],
+      "pack": "bookings"
+    },
+    {
+      "name": "x.bookings.cancelAppointment",
+      "description": "Staff cancel a booked appointment, in time or late by the host's clock: before the service's late-cancel point (24 hours before unless the service sets its own) it is cancelled and its session given back; from then until it starts it is cancelled late and the session is used, with no fee. With keepUse it is cancelled late whatever the time. After it starts it cannot be cancelled. To give a session back after the late point a person excuses it (excuseAppointment); the business cancelling its own appointment is cancelAppointmentByUs. Without confirm it only says which it would be. (Extension tool from Bookings 0.1.0.)",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "appointmentId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "confirm": {
+            "default": false,
+            "type": "boolean"
+          },
+          "keepUse": {
+            "default": false,
+            "type": "boolean"
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 2000
+          }
+        },
+        "required": [
+          "appointmentId"
+        ],
+        "additionalProperties": {}
+      },
+      "output": {
+        "anyOf": [
+          {
+            "type": "object",
+            "properties": {
+              "result": {
+                "type": "string",
+                "enum": [
+                  "preview",
+                  "cancelled",
+                  "late_cancelled"
+                ]
+              },
+              "appointmentId": {
+                "type": "string"
+              },
+              "state": {
+                "type": "string",
+                "enum": [
+                  "cancelled",
+                  "late_cancelled"
+                ]
+              },
+              "late": {
+                "type": "boolean",
+                "description": "A late cancel keeps the session it spent"
+              }
+            },
+            "required": [
+              "result",
+              "appointmentId",
+              "state",
+              "late"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "result": {
+                "type": "string",
+                "const": "refused"
+              },
+              "reason": {
+                "type": "string",
+                "enum": [
+                  "not_found",
+                  "double_booked",
+                  "room_taken",
+                  "no_account",
+                  "no_coach_free",
+                  "no_use",
+                  "not_offered",
+                  "not_booked",
+                  "too_late",
+                  "started",
+                  "not_started",
+                  "same_time",
+                  "changed"
+                ],
+                "description": "double_booked: the coach is on something else then (a class, a duty or another session, buffers included; see message). room_taken: no room the service may use is free then. no_account: the coach has no staff account, so cannot be booked. no_coach_free: nobody qualified is free at that time (any coach). no_use: nothing the client holds pays for this service (see detail): book it paid at the desk. not_offered: the service is no longer offered. not_booked: it is not booked (see state). too_late: it has started. started: it has started, so it cannot be moved. not_started: it can be marked once it has started. same_time: it is already at that time with that coach. changed: it changed meanwhile."
+              },
+              "message": {
+                "type": "string"
+              },
+              "detail": {
+                "description": "The host's reason for an allowance refusal (no_uses_left, not_covered…)",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "state": {
+                "description": "What the appointment is now, when that is the reason",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "result",
+              "reason",
+              "message",
+              "detail",
+              "state"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "invalidates": [
+        "x.bookings.classList",
+        "x.bookings.coachDay",
+        "x.bookings.day",
+        "x.bookings.findPeople",
+        "x.bookings.roster"
+      ],
+      "pack": "bookings"
+    },
+    {
+      "name": "x.bookings.cancelAppointmentByUs",
+      "description": "The business cancels an appointment that is booked, held while paying or not paid yet (the coach is ill, the room is closed): it is cancelled by the business and the session it spent is given back, whatever the time, with the reason kept. A person's act: the assistant, MCP clients and automations may ask, and it waits for a person to approve it. Fails with the reason when it cannot be done, so an approved request shows it did not apply. (The client's email comes in a later release.) (Extension tool from Bookings 0.1.0.)",
+      "risk": "destructive",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "appointmentId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 2000
+          }
+        },
+        "required": [
+          "appointmentId",
+          "reason"
+        ],
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "result": {
+            "type": "string",
+            "const": "cancelled_by_us"
+          },
+          "appointmentId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "result",
+          "appointmentId"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "x.bookings.classList",
+        "x.bookings.coachDay",
         "x.bookings.day",
         "x.bookings.findPeople",
         "x.bookings.roster"
@@ -98341,6 +101153,7 @@
       },
       "invalidates": [
         "x.bookings.classList",
+        "x.bookings.coachDay",
         "x.bookings.day",
         "x.bookings.findPeople",
         "x.bookings.roster"
@@ -98497,6 +101310,7 @@
       },
       "invalidates": [
         "x.bookings.classList",
+        "x.bookings.coachDay",
         "x.bookings.day",
         "x.bookings.findPeople",
         "x.bookings.roster"
@@ -98747,6 +101561,175 @@
       "pack": "bookings"
     },
     {
+      "name": "x.bookings.coachDay",
+      "description": "The coaches' day for staff: for each coach (or one, with coachId), their classes, appointments (service, client, room, state) and other shifts (duties) on one local date of the organisation, in start order. Classes and appointments cancelled, moved or done are left out but for attended and no-show sessions. Read-only. (Extension tool from Bookings 0.1.0.)",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "date": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+            "description": "The local date, YYYY-MM-DD"
+          },
+          "coachId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          }
+        },
+        "required": [
+          "date"
+        ],
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "date": {
+            "type": "string"
+          },
+          "timeZone": {
+            "type": "string"
+          },
+          "coaches": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "coachId": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "items": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "enum": [
+                          "class",
+                          "appointment",
+                          "shift"
+                        ]
+                      },
+                      "object": {
+                        "type": "string"
+                      },
+                      "id": {
+                        "type": "string"
+                      },
+                      "title": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "startsAt": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "endsAt": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "room": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "state": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "service": {
+                        "description": "An appointment's service",
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "client": {
+                        "anyOf": [
+                          {
+                            "type": "object",
+                            "properties": {
+                              "id": {
+                                "type": "string"
+                              },
+                              "name": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              }
+                            },
+                            "required": [
+                              "id",
+                              "name"
+                            ],
+                            "additionalProperties": false
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "description": "An appointment's client"
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "object",
+                      "id",
+                      "title",
+                      "startsAt",
+                      "endsAt",
+                      "room",
+                      "state",
+                      "service",
+                      "client"
+                    ],
+                    "additionalProperties": false
+                  }
+                }
+              },
+              "required": [
+                "coachId",
+                "name",
+                "items"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "date",
+          "timeZone",
+          "coaches"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [],
+      "pack": "bookings"
+    },
+    {
       "name": "x.bookings.day",
       "description": "Staff's day view: every class on one local date (scheduled, cancelled or done), in start order, with its class type, coach, room, places, how many are booked and held, and whether its class type is booked by staff only. For the front desk and coaches. Read-only. (Extension tool from Bookings 0.1.0.)",
       "risk": "read",
@@ -98909,6 +101892,117 @@
         "additionalProperties": false
       },
       "invalidates": [],
+      "pack": "bookings"
+    },
+    {
+      "name": "x.bookings.excuseAppointment",
+      "description": "A person on the staff gives the session back for a late cancel or a no-show (a client who was ill): it becomes excused and the pass or membership gets its session back. A person's own act: the assistant, MCP clients, automations and other code cannot call it. The reason is kept on the appointment and in the audit log. (Extension tool from Bookings 0.1.0.)",
+      "risk": "destructive",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "appointmentId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 2000
+          }
+        },
+        "required": [
+          "appointmentId",
+          "reason"
+        ],
+        "additionalProperties": {}
+      },
+      "output": {
+        "anyOf": [
+          {
+            "type": "object",
+            "properties": {
+              "result": {
+                "type": "string",
+                "const": "excused"
+              },
+              "appointmentId": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "result",
+              "appointmentId"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "result": {
+                "type": "string",
+                "const": "refused"
+              },
+              "reason": {
+                "type": "string",
+                "enum": [
+                  "not_found",
+                  "double_booked",
+                  "room_taken",
+                  "no_account",
+                  "no_coach_free",
+                  "no_use",
+                  "not_offered",
+                  "not_booked",
+                  "too_late",
+                  "started",
+                  "not_started",
+                  "same_time",
+                  "changed"
+                ],
+                "description": "double_booked: the coach is on something else then (a class, a duty or another session, buffers included; see message). room_taken: no room the service may use is free then. no_account: the coach has no staff account, so cannot be booked. no_coach_free: nobody qualified is free at that time (any coach). no_use: nothing the client holds pays for this service (see detail): book it paid at the desk. not_offered: the service is no longer offered. not_booked: it is not booked (see state). too_late: it has started. started: it has started, so it cannot be moved. not_started: it can be marked once it has started. same_time: it is already at that time with that coach. changed: it changed meanwhile."
+              },
+              "message": {
+                "type": "string"
+              },
+              "detail": {
+                "description": "The host's reason for an allowance refusal (no_uses_left, not_covered…)",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "state": {
+                "description": "What the appointment is now, when that is the reason",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "result",
+              "reason",
+              "message",
+              "detail",
+              "state"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "invalidates": [
+        "x.bookings.classList",
+        "x.bookings.coachDay",
+        "x.bookings.day",
+        "x.bookings.findPeople",
+        "x.bookings.roster"
+      ],
       "pack": "bookings"
     },
     {
@@ -99076,6 +102170,127 @@
       },
       "invalidates": [
         "x.bookings.classList",
+        "x.bookings.coachDay",
+        "x.bookings.day",
+        "x.bookings.findPeople",
+        "x.bookings.roster"
+      ],
+      "pack": "bookings"
+    },
+    {
+      "name": "x.bookings.markAppointment",
+      "description": "Mark an appointment once it has started: attended (they came) or no_show (they did not; the session is used, with no fee). Either may be corrected into the other for 7 days after it ends. The host marks one nobody marked as attended 30 minutes after it ends. Who marked it and when are kept. To give a no-show's session back a person excuses it. (Extension tool from Bookings 0.1.0.)",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "appointmentId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "mark": {
+            "type": "string",
+            "enum": [
+              "attended",
+              "no_show"
+            ]
+          }
+        },
+        "required": [
+          "appointmentId",
+          "mark"
+        ],
+        "additionalProperties": {}
+      },
+      "output": {
+        "anyOf": [
+          {
+            "type": "object",
+            "properties": {
+              "result": {
+                "type": "string",
+                "enum": [
+                  "attended",
+                  "no_show"
+                ]
+              },
+              "appointmentId": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "result",
+              "appointmentId",
+              "message"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "result": {
+                "type": "string",
+                "const": "refused"
+              },
+              "reason": {
+                "type": "string",
+                "enum": [
+                  "not_found",
+                  "double_booked",
+                  "room_taken",
+                  "no_account",
+                  "no_coach_free",
+                  "no_use",
+                  "not_offered",
+                  "not_booked",
+                  "too_late",
+                  "started",
+                  "not_started",
+                  "same_time",
+                  "changed"
+                ],
+                "description": "double_booked: the coach is on something else then (a class, a duty or another session, buffers included; see message). room_taken: no room the service may use is free then. no_account: the coach has no staff account, so cannot be booked. no_coach_free: nobody qualified is free at that time (any coach). no_use: nothing the client holds pays for this service (see detail): book it paid at the desk. not_offered: the service is no longer offered. not_booked: it is not booked (see state). too_late: it has started. started: it has started, so it cannot be moved. not_started: it can be marked once it has started. same_time: it is already at that time with that coach. changed: it changed meanwhile."
+              },
+              "message": {
+                "type": "string"
+              },
+              "detail": {
+                "description": "The host's reason for an allowance refusal (no_uses_left, not_covered…)",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "state": {
+                "description": "What the appointment is now, when that is the reason",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "result",
+              "reason",
+              "message",
+              "detail",
+              "state"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "invalidates": [
+        "x.bookings.classList",
+        "x.bookings.coachDay",
         "x.bookings.day",
         "x.bookings.findPeople",
         "x.bookings.roster"
@@ -99221,6 +102436,7 @@
       },
       "invalidates": [
         "x.bookings.classList",
+        "x.bookings.coachDay",
         "x.bookings.day",
         "x.bookings.findPeople",
         "x.bookings.roster"
@@ -99366,6 +102582,7 @@
       },
       "invalidates": [
         "x.bookings.classList",
+        "x.bookings.coachDay",
         "x.bookings.day",
         "x.bookings.findPeople",
         "x.bookings.roster"
@@ -99609,6 +102826,376 @@
       },
       "invalidates": [
         "x.bookings.classList",
+        "x.bookings.coachDay",
+        "x.bookings.day",
+        "x.bookings.findPeople",
+        "x.bookings.roster"
+      ],
+      "pack": "bookings"
+    },
+    {
+      "name": "x.bookings.moveAppointment",
+      "description": "Staff move a booked appointment to another start time, or another coach, or both, in one batch: a new appointment is made at the new time and the old one is moved, the session it spent moving with it (a session paid at the desk stays paid). The host refuses it whole, nothing changed, when the coach is on anything else then, no room is free, or it has started. Same warnings as booking. Only a booked appointment, before it starts. (Extension tool from Bookings 0.1.0.)",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "appointmentId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "startsAt": {
+            "type": "string",
+            "allOf": [
+              {
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+              },
+              {
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+              }
+            ],
+            "description": "The new start (ISO 8601)"
+          },
+          "coachId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "Left out: the same coach"
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 2000
+          }
+        },
+        "required": [
+          "appointmentId",
+          "startsAt"
+        ],
+        "additionalProperties": {}
+      },
+      "output": {
+        "anyOf": [
+          {
+            "type": "object",
+            "properties": {
+              "result": {
+                "type": "string",
+                "const": "booked"
+              },
+              "appointmentId": {
+                "type": "string"
+              },
+              "coachId": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "roomId": {
+                "description": "The room it takes: the first of the service's free",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "startsAt": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "endsAt": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "holderId": {
+                "description": "The pass or membership a session was spent from; null when paid at the desk",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "paidAtDesk": {
+                "type": "boolean"
+              },
+              "warnings": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "code": {
+                      "type": "string",
+                      "description": "unavailable, not_qualified, outside_hours, client_busy, uncovered"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "code",
+                    "message"
+                  ],
+                  "additionalProperties": false
+                },
+                "description": "Made anyway: the coach away, not qualified, outside their open hours, client busy"
+              },
+              "fromAppointmentId": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "result",
+              "appointmentId",
+              "coachId",
+              "roomId",
+              "startsAt",
+              "endsAt",
+              "holderId",
+              "paidAtDesk",
+              "warnings",
+              "fromAppointmentId"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "result": {
+                "type": "string",
+                "const": "refused"
+              },
+              "reason": {
+                "type": "string",
+                "enum": [
+                  "not_found",
+                  "double_booked",
+                  "room_taken",
+                  "no_account",
+                  "no_coach_free",
+                  "no_use",
+                  "not_offered",
+                  "not_booked",
+                  "too_late",
+                  "started",
+                  "not_started",
+                  "same_time",
+                  "changed"
+                ],
+                "description": "double_booked: the coach is on something else then (a class, a duty or another session, buffers included; see message). room_taken: no room the service may use is free then. no_account: the coach has no staff account, so cannot be booked. no_coach_free: nobody qualified is free at that time (any coach). no_use: nothing the client holds pays for this service (see detail): book it paid at the desk. not_offered: the service is no longer offered. not_booked: it is not booked (see state). too_late: it has started. started: it has started, so it cannot be moved. not_started: it can be marked once it has started. same_time: it is already at that time with that coach. changed: it changed meanwhile."
+              },
+              "message": {
+                "type": "string"
+              },
+              "detail": {
+                "description": "The host's reason for an allowance refusal (no_uses_left, not_covered…)",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "state": {
+                "description": "What the appointment is now, when that is the reason",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "result",
+              "reason",
+              "message",
+              "detail",
+              "state"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "invalidates": [
+        "x.bookings.classList",
+        "x.bookings.coachDay",
+        "x.bookings.day",
+        "x.bookings.findPeople",
+        "x.bookings.roster"
+      ],
+      "pack": "bookings"
+    },
+    {
+      "name": "x.bookings.reassignAppointment",
+      "description": "Give an appointment still to come to another coach (decision 7: the coach is off or away), keeping its time, room and how it was paid. The host refuses it when that coach is on anything else then (buffers included) or has no staff account, and says what it was made with (warnings: not qualified for the service, away, outside their open hours). (The client's email comes in a later release.) (Extension tool from Bookings 0.1.0.)",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "appointmentId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "coachId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          }
+        },
+        "required": [
+          "appointmentId",
+          "coachId"
+        ],
+        "additionalProperties": {}
+      },
+      "output": {
+        "anyOf": [
+          {
+            "type": "object",
+            "properties": {
+              "result": {
+                "type": "string",
+                "const": "booked"
+              },
+              "appointmentId": {
+                "type": "string"
+              },
+              "coachId": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "roomId": {
+                "description": "The room it takes: the first of the service's free",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "startsAt": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "endsAt": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "holderId": {
+                "description": "The pass or membership a session was spent from; null when paid at the desk",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "paidAtDesk": {
+                "type": "boolean"
+              },
+              "warnings": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "code": {
+                      "type": "string",
+                      "description": "unavailable, not_qualified, outside_hours, client_busy, uncovered"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "code",
+                    "message"
+                  ],
+                  "additionalProperties": false
+                },
+                "description": "Made anyway: the coach away, not qualified, outside their open hours, client busy"
+              }
+            },
+            "required": [
+              "result",
+              "appointmentId",
+              "coachId",
+              "roomId",
+              "startsAt",
+              "endsAt",
+              "holderId",
+              "paidAtDesk",
+              "warnings"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "result": {
+                "type": "string",
+                "const": "refused"
+              },
+              "reason": {
+                "type": "string",
+                "enum": [
+                  "not_found",
+                  "double_booked",
+                  "room_taken",
+                  "no_account",
+                  "no_coach_free",
+                  "no_use",
+                  "not_offered",
+                  "not_booked",
+                  "too_late",
+                  "started",
+                  "not_started",
+                  "same_time",
+                  "changed"
+                ],
+                "description": "double_booked: the coach is on something else then (a class, a duty or another session, buffers included; see message). room_taken: no room the service may use is free then. no_account: the coach has no staff account, so cannot be booked. no_coach_free: nobody qualified is free at that time (any coach). no_use: nothing the client holds pays for this service (see detail): book it paid at the desk. not_offered: the service is no longer offered. not_booked: it is not booked (see state). too_late: it has started. started: it has started, so it cannot be moved. not_started: it can be marked once it has started. same_time: it is already at that time with that coach. changed: it changed meanwhile."
+              },
+              "message": {
+                "type": "string"
+              },
+              "detail": {
+                "description": "The host's reason for an allowance refusal (no_uses_left, not_covered…)",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "state": {
+                "description": "What the appointment is now, when that is the reason",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "result",
+              "reason",
+              "message",
+              "detail",
+              "state"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "invalidates": [
+        "x.bookings.classList",
+        "x.bookings.coachDay",
         "x.bookings.day",
         "x.bookings.findPeople",
         "x.bookings.roster"
@@ -99760,6 +103347,7 @@
       },
       "invalidates": [
         "x.bookings.classList",
+        "x.bookings.coachDay",
         "x.bookings.day",
         "x.bookings.findPeople",
         "x.bookings.roster"
@@ -100137,6 +103725,7 @@
       },
       "invalidates": [
         "x.bookings.classList",
+        "x.bookings.coachDay",
         "x.bookings.day",
         "x.bookings.findPeople",
         "x.bookings.roster"
@@ -102413,6 +106002,615 @@
       },
       "invalidates": [],
       "pack": "forms"
+    },
+    {
+      "name": "x.knowledge.confirm",
+      "description": "Confirm that I have read and understood a procedure's current published version: one tap, by the person themselves. Refused for a version that is not the current one (read it again and confirm that), a procedure I am not asked to read, and a second time for the same version. A confirmation is kept for good and never changed. Not for an AI. (Extension tool from Knowledge 0.1.0.)",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "The procedure"
+          },
+          "version": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991,
+            "description": "The version I read: the current one"
+          }
+        },
+        "required": [
+          "id",
+          "version"
+        ],
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "version": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "confirmedAt": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id",
+          "version",
+          "confirmedAt"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "x.knowledge.helpTopics",
+        "x.knowledge.readStatus",
+        "x.knowledge.toRead"
+      ],
+      "pack": "knowledge"
+    },
+    {
+      "name": "x.knowledge.draftHelpPage",
+      "description": "Write a help page's working copy from notes: a new one, or the draft of one that exists. The public reads only what a person publishes; ask a person to publish it (record.publish waits for their approval). Never put a customer's name or details in a help page drafted from their question. (Extension tool from Knowledge 0.1.0.)",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "Change this one's working copy; left out, a new one is made"
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "summary": {
+            "type": "string",
+            "maxLength": 500,
+            "description": "One or two sentences for lists"
+          },
+          "notes": {
+            "type": "string",
+            "maxLength": 60000,
+            "description": "The words, as notes: '# ' or '## ' starts a section heading, '- ' a bullet, '1. ' a numbered step, a blank line ends a paragraph"
+          },
+          "topic": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "A help topic's id"
+          }
+        },
+        "required": [
+          "title"
+        ],
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "created": {
+            "type": "boolean"
+          },
+          "open": {
+            "type": "object",
+            "properties": {
+              "object": {
+                "type": "string"
+              },
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "object",
+              "id"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "id",
+          "created",
+          "open"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "x.knowledge.helpTopics",
+        "x.knowledge.readStatus",
+        "x.knowledge.toRead"
+      ],
+      "pack": "knowledge"
+    },
+    {
+      "name": "x.knowledge.draftProcedure",
+      "description": "Write a procedure's working copy from notes: a new one, or the draft of one that exists. Staff read only what a person publishes, so this changes nothing anyone reads until then; ask a person to publish it (record.publish waits for their approval). Who must read it and how often it is reviewed are set by a person. Name a role, not a person, in the words ('the duty manager', not 'Sam'). (Extension tool from Knowledge 0.1.0.)",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "Change this one's working copy; left out, a new one is made"
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "summary": {
+            "type": "string",
+            "maxLength": 500,
+            "description": "One or two sentences for lists"
+          },
+          "notes": {
+            "type": "string",
+            "maxLength": 60000,
+            "description": "The words, as notes: '# ' or '## ' starts a section heading, '- ' a bullet, '1. ' a numbered step, a blank line ends a paragraph"
+          },
+          "section": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "A section's id"
+          }
+        },
+        "required": [
+          "title"
+        ],
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "created": {
+            "type": "boolean"
+          },
+          "open": {
+            "type": "object",
+            "properties": {
+              "object": {
+                "type": "string"
+              },
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "object",
+              "id"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "id",
+          "created",
+          "open"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "x.knowledge.helpTopics",
+        "x.knowledge.readStatus",
+        "x.knowledge.toRead"
+      ],
+      "pack": "knowledge"
+    },
+    {
+      "name": "x.knowledge.helpTopics",
+      "description": "Every help topic, in their order: its id, name, address (slug) and icon, for a help centre's menu. Open to anyone. Read-only. (Extension tool from Knowledge 0.1.0.)",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "default": 100,
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200
+          }
+        },
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "topics": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "slug": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "order": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "icon": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "name",
+                "slug",
+                "order",
+                "icon"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "topics"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [],
+      "pack": "knowledge"
+    },
+    {
+      "name": "x.knowledge.readStatus",
+      "description": "Who has read what. With a procedure's id: for its current version, everyone who must read it, who has confirmed it and when, and who has not and since when. Without one: every published procedure staff must read, with how many have confirmed it of how many must. For admins and people granted Read status; never for an AI. Read-only. (Extension tool from Knowledge 0.1.0.)",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "One procedure"
+          }
+        },
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "procedures": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "version": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991,
+                  "description": "The current published version"
+                },
+                "publishedAt": {
+                  "type": "string"
+                },
+                "mustRead": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                "confirmed": {
+                  "type": "number"
+                }
+              },
+              "required": [
+                "id",
+                "title",
+                "version",
+                "publishedAt",
+                "mustRead",
+                "confirmed"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "procedure": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "title": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "version": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991,
+                    "description": "The current published version"
+                  },
+                  "publishedAt": {
+                    "type": "string"
+                  },
+                  "everyone": {
+                    "type": "boolean"
+                  },
+                  "roles": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "people": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "properties": {
+                        "account": {
+                          "type": "string"
+                        },
+                        "name": {
+                          "type": "string"
+                        },
+                        "email": {
+                          "type": "string"
+                        },
+                        "confirmed": {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "version": {
+                                  "type": "integer",
+                                  "minimum": -9007199254740991,
+                                  "maximum": 9007199254740991
+                                },
+                                "confirmedAt": {
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "version",
+                                "confirmedAt"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "lastConfirmed": {
+                          "anyOf": [
+                            {
+                              "type": "object",
+                              "properties": {
+                                "version": {
+                                  "type": "integer",
+                                  "minimum": -9007199254740991,
+                                  "maximum": 9007199254740991
+                                },
+                                "confirmedAt": {
+                                  "type": "string"
+                                }
+                              },
+                              "required": [
+                                "version",
+                                "confirmedAt"
+                              ],
+                              "additionalProperties": false
+                            },
+                            {
+                              "type": "null"
+                            }
+                          ]
+                        },
+                        "since": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "account",
+                        "name",
+                        "email",
+                        "confirmed",
+                        "lastConfirmed",
+                        "since"
+                      ],
+                      "additionalProperties": false
+                    }
+                  }
+                },
+                "required": [
+                  "id",
+                  "title",
+                  "version",
+                  "publishedAt",
+                  "everyone",
+                  "roles",
+                  "people"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "procedures",
+          "procedure"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [],
+      "pack": "knowledge"
+    },
+    {
+      "name": "x.knowledge.toRead",
+      "description": "My procedures: the published ones I must read and have not yet confirmed (oldest first, with the version to read and since when), and the ones I have confirmed (with when). For the person themselves, every staff account. Read-only. (Extension tool from Knowledge 0.1.0.)",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "toRead": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "version": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991,
+                  "description": "The current published version"
+                },
+                "publishedAt": {
+                  "type": "string"
+                },
+                "since": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "title",
+                "version",
+                "publishedAt",
+                "since"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "confirmed": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "version": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991,
+                  "description": "The current published version"
+                },
+                "publishedAt": {
+                  "type": "string"
+                },
+                "confirmedAt": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "title",
+                "version",
+                "publishedAt",
+                "confirmedAt"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "toRead",
+          "confirmed"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [],
+      "pack": "knowledge"
     },
     {
       "name": "x.leads.convert",
@@ -111014,6 +115212,753 @@
         "x.rostering.week"
       ],
       "pack": "rostering"
+    },
+    {
+      "name": "x.shop.markCollected",
+      "description": "Mark a ready shipment collected: the buyer has picked it up. It cannot be undone. (Extension tool from Shop 0.1.0.)",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "shipmentId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "The shipment's id"
+          }
+        },
+        "required": [
+          "shipmentId"
+        ],
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "moved": {
+            "type": "boolean"
+          },
+          "message": {
+            "type": "string"
+          },
+          "shipment": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "name": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "orderId": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "kind": {
+                "description": "post or collect",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "state": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "tracking": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "collectAt": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "buyerId": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "buyer": {
+                "description": "The buyer's name, if they are a Person",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "createdAt": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "id",
+              "name",
+              "orderId",
+              "kind",
+              "state",
+              "tracking",
+              "collectAt",
+              "buyerId",
+              "buyer",
+              "createdAt"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "moved",
+          "message",
+          "shipment"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "x.shop.shipmentsToSend",
+        "x.shop.stockLevels"
+      ],
+      "pack": "shop"
+    },
+    {
+      "name": "x.shop.markPacked",
+      "description": "Mark a shipment packed: its goods are boxed and waiting to be sent or collected. Safe to call twice; two people at once: one marks it, the other is told. (Extension tool from Shop 0.1.0.)",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "shipmentId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "The shipment's id"
+          }
+        },
+        "required": [
+          "shipmentId"
+        ],
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "moved": {
+            "type": "boolean"
+          },
+          "message": {
+            "type": "string"
+          },
+          "shipment": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "name": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "orderId": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "kind": {
+                "description": "post or collect",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "state": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "tracking": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "collectAt": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "buyerId": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "buyer": {
+                "description": "The buyer's name, if they are a Person",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "createdAt": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "id",
+              "name",
+              "orderId",
+              "kind",
+              "state",
+              "tracking",
+              "collectAt",
+              "buyerId",
+              "buyer",
+              "createdAt"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "moved",
+          "message",
+          "shipment"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "x.shop.shipmentsToSend",
+        "x.shop.stockLevels"
+      ],
+      "pack": "shop"
+    },
+    {
+      "name": "x.shop.markReady",
+      "description": "Mark a shipment to collect as ready: its goods are waiting where the buyer collects them. (Extension tool from Shop 0.1.0.)",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "shipmentId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "The shipment's id"
+          }
+        },
+        "required": [
+          "shipmentId"
+        ],
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "moved": {
+            "type": "boolean"
+          },
+          "message": {
+            "type": "string"
+          },
+          "shipment": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "name": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "orderId": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "kind": {
+                "description": "post or collect",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "state": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "tracking": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "collectAt": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "buyerId": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "buyer": {
+                "description": "The buyer's name, if they are a Person",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "createdAt": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "id",
+              "name",
+              "orderId",
+              "kind",
+              "state",
+              "tracking",
+              "collectAt",
+              "buyerId",
+              "buyer",
+              "createdAt"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "moved",
+          "message",
+          "shipment"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "x.shop.shipmentsToSend",
+        "x.shop.stockLevels"
+      ],
+      "pack": "shop"
+    },
+    {
+      "name": "x.shop.markSent",
+      "description": "Mark a posted shipment sent, with the carrier's tracking reference if there is one. It cannot be undone. The buyer sees the state and the reference on their own shipments. (Extension tool from Shop 0.1.0.)",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "shipmentId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "The shipment's id"
+          },
+          "tracking": {
+            "type": "string",
+            "maxLength": 200,
+            "description": "The carrier's tracking reference"
+          }
+        },
+        "required": [
+          "shipmentId"
+        ],
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "moved": {
+            "type": "boolean"
+          },
+          "message": {
+            "type": "string"
+          },
+          "shipment": {
+            "type": "object",
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "name": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "orderId": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "kind": {
+                "description": "post or collect",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "state": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "tracking": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "collectAt": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "buyerId": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "buyer": {
+                "description": "The buyer's name, if they are a Person",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "createdAt": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "id",
+              "name",
+              "orderId",
+              "kind",
+              "state",
+              "tracking",
+              "collectAt",
+              "buyerId",
+              "buyer",
+              "createdAt"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "moved",
+          "message",
+          "shipment"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "x.shop.shipmentsToSend",
+        "x.shop.stockLevels"
+      ],
+      "pack": "shop"
+    },
+    {
+      "name": "x.shop.shipmentsToSend",
+      "description": "What paid online orders have left to do: shipments to pack, packed ones to send or have ready, and those waiting to be collected, oldest first, with the buyer's name, the kind (post or collect), where to collect and the tracking reference. Read-only. (Extension tool from Shop 0.1.0.)",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "state": {
+            "type": "string",
+            "enum": [
+              "to_pack",
+              "packed",
+              "ready"
+            ],
+            "description": "Only shipments in this state; left out, all three"
+          }
+        },
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "shipments": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "orderId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "kind": {
+                  "description": "post or collect",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "state": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "tracking": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "collectAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "buyerId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "buyer": {
+                  "description": "The buyer's name, if they are a Person",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "createdAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "name",
+                "orderId",
+                "kind",
+                "state",
+                "tracking",
+                "collectAt",
+                "buyerId",
+                "buyer",
+                "createdAt"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "shipments"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [],
+      "pack": "shop"
+    },
+    {
+      "name": "x.shop.stockLevels",
+      "description": "The stock of the shop's active variants: on hand, held by orders being paid for, available, the reorder level and quantity, and the usual supplier, lowest first. Use lowOnly for 'what's low?' (on hand at or below the reorder level), and category or supplierId to narrow it. Numbers are the host's, kept from the stock ledger; this changes nothing. Read-only. (Extension tool from Shop 0.1.0.)",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "lowOnly": {
+            "type": "boolean",
+            "description": "Only variants at or below their reorder level"
+          },
+          "category": {
+            "type": "string",
+            "maxLength": 80,
+            "description": "Only items of this category"
+          },
+          "supplierId": {
+            "type": "string",
+            "maxLength": 64,
+            "description": "Only variants this organisation supplies"
+          }
+        },
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "variants": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "variantId": {
+                  "type": "string"
+                },
+                "variant": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "itemId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "item": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "category": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "onHand": {
+                  "type": "number",
+                  "description": "On the shelf now: opening, received and returned, less sold"
+                },
+                "held": {
+                  "type": "number",
+                  "description": "Held by orders being paid for"
+                },
+                "available": {
+                  "type": "number",
+                  "description": "On hand less held: what can still be sold"
+                },
+                "reorderAt": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "reorderQty": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "low": {
+                  "type": "boolean",
+                  "description": "On hand is at or below the reorder level"
+                },
+                "supplierId": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "supplier": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "variantId",
+                "variant",
+                "itemId",
+                "item",
+                "category",
+                "onHand",
+                "held",
+                "available",
+                "reorderAt",
+                "reorderQty",
+                "low",
+                "supplierId",
+                "supplier"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "truncated": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "variants",
+          "truncated"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [],
+      "pack": "shop"
     },
     {
       "name": "x.ticketing.checkIn",

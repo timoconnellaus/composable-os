@@ -19,6 +19,31 @@ stage 31: steps 5 to 7 built; step 8 to come). The decisions already made at sta
 42's interview are listed below and are not asked again. Where this spec guesses, it says
 **(guess)**.
 
+## Status
+
+- **Step 1** — built — PR #218 — The gatekeeper's subscription checkout, events, cancel, resume and
+  portal, for Stripe and the fake provider (details in "Built: 32a steps 1 and 2" below).
+
+- **Step 2** — built — PR #218 — `core_subscription` and its host moves from verified events; the
+  order per paid period; tax on each period.
+
+- **Step 3** — built — PRs #223, #226 — The `subscription` access kind and `courses.plan`; the
+  trial rule; self-service; the staff side (#226: customer sign-in when starting a subscription).
+
+- **Step 4** — built — PR #228 — Continuation offers, their import and report, and the Stripe
+  test-mode runbook. The runbook has not been run on a real Stripe account.
+
+- **Step 5** — built — PR #241 — The `allowance` behaviour with a fixture spender, its concurrency
+  test.
+
+- **Step 6** — built — PRs #244, #249 — `recurring.grants`; the Memberships pack, passes; plan
+  changes and pauses (#249 the rest of step 6).
+
+- **Step 7** — built — PR #249 — Dashboard, views, the Person tab; hooks and blocks.
+
+- **Step 8** — not built — `cos memberships import` and the subscription import from a migration
+  mapping, for stage 33.
+
 ## Goal
 
 A company can sell something that is paid for every month: a subscription to its online courses,

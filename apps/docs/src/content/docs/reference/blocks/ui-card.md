@@ -5,6 +5,10 @@ editUrl: false
 
 Its files say nothing about what it shows.
 
+<img class="cos-screen" src="/screens/ui-card.png" alt="ui-card, drawn with dummy data" width="520" height="302" loading="lazy" decoding="async" />
+
+Drawn with dummy data.
+
 |  |  |
 | --- | --- |
 | Skin | web |

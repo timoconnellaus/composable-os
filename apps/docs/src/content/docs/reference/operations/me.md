@@ -234,7 +234,7 @@ The signed PDF of one of your acceptances, as a signed-in customer, or a linked 
 
 ## me.attention
 
-What needs your attention, as a signed-in customer, soonest first: a document to agree to (for you or a child linked to you), a card payment that failed, a payment waiting for you to confirm with your bank, the rest of a deposit to pay, an order you started paying for and did not finish, a pass about to expire with uses left or with none left (yours or a child's), and a free trial about to end. `days` is how far ahead it looks for a pass or a trial ending. An item goes once its cause is fixed. Read-only.
+What needs your attention, as a signed-in customer, soonest first: a document to agree to (for you or a child linked to you), a card payment that failed, a payment waiting for you to confirm with your bank, the rest of a deposit to pay, an order you started paying for and did not finish, a pass about to expire with uses left or with none left (yours or a child's), a free trial about to end, and a form you were asked to answer (yours or a child's). `days` is how far ahead it looks for a pass or a trial ending. An item goes once its cause is fixed. Read-only.
 
 |  |  |
 | --- | --- |
@@ -254,19 +254,20 @@ No fields.
 | `days` | number | yes |   | How many days ahead a pass or trial ending is listed |
 | `items` | array of object | yes |   |   |
 | `items[].key` | string | yes |   | Stable for the same cause: kind, record and Person |
-| `items[].kind` | `"agree"`, `"card_failing"`, `"confirm_payment"`, `"balance_due"`, `"finish_paying"`, `"pass_expiring"`, `"pass_used_up"`, `"trial_ending"` | yes |   | agree: a document to agree to (me.agreements.due has it). card_failing: a card payment for a subscription you pay failed. confirm_payment: a payment waits for you to confirm it with your bank. balance_due: the rest of a deposit to pay. finish_paying: an order holding places you started paying for and did not finish. pass_expiring: a pass about to expire with uses still on it. pass_used_up: a pass with no uses left. trial_ending: a free trial about to end. |
+| `items[].kind` | `"agree"`, `"card_failing"`, `"confirm_payment"`, `"balance_due"`, `"finish_paying"`, `"pass_expiring"`, `"pass_used_up"`, `"trial_ending"`, `"form_to_fill"` | yes |   | agree: a document to agree to (me.agreements.due has it). card_failing: a card payment for a subscription you pay failed. confirm_payment: a payment waits for you to confirm it with your bank. balance_due: the rest of a deposit to pay. finish_paying: an order holding places you started paying for and did not finish. pass_expiring: a pass about to expire with uses still on it. pass_used_up: a pass with no uses left. trial_ending: a free trial about to end. form_to_fill: a form the business asked you (or a child linked to you) to answer, such as feedback after a class, until it is answered or its link expires. |
 | `items[].person` | object | yes |   | Whose it is: you (self), or a child linked to you |
 | `items[].person.id` | string | yes |   |   |
 | `items[].person.name` | string | yes |   |   |
 | `items[].person.self` | boolean | yes |   |   |
-| `items[].record` | object | yes |   | What it is about: an agreement document, a subscription, an order, or a pass by its object |
+| `items[].record` | object | yes |   | What it is about: an agreement document, a subscription, an order, a pass by its object, or the form to answer |
 | `items[].record.object` | string | yes |   |   |
 | `items[].record.id` | string | yes |   |   |
 | `items[].record.title` | string | yes |   |   |
-| `items[].at` | string or null | yes |   | The moment it is about: the version taking effect, the first failed payment, the payment started, the balance due, the held order expiring, the pass or trial ending |
+| `items[].at` | string or null | yes |   | The moment it is about: the version taking effect, the first failed payment, the payment started, the balance due, the held order expiring, the pass or trial ending, the form's link expiring |
 | `items[].amount` | number or null | yes |   | Money due or to be charged, in the currency's minor unit; null where none |
 | `items[].currency` | string or null | yes |   |   |
 | `items[].usesLeft` | number or null | yes |   | A pass's uses left; null for other kinds |
+| `items[].link` | string or null | yes |   | form_to_fill: the personal link's id, sent back as linkId to open and answer the form (signed in only); null for other kinds |
 
 ## me.birthday.get
 
@@ -414,6 +415,71 @@ No fields.
 | `algorithm.hash` | `"SHA-1"` | yes |   |   |
 | `algorithm.periodSeconds` | number | yes |   |   |
 | `algorithm.digits` | number | yes |   |   |
+
+## me.contact.choices
+
+Your contact preferences, as a signed-in customer, and those of each child you act for: each kind of message you may get, on each channel it goes by (email, text, push), with what is in force. Messages about something booked or paid for are always emailed (fixed); follow-ups and news and offers are per channel. Read-only.
+
+|  |  |
+| --- | --- |
+| Permission | `records:read` |
+| Risk | `read` |
+| Audiences | `customer` |
+| Also | host-internal (`hostInternal`); not offered to MCP clients (`mcp.expose: false`) |
+
+### Input
+
+No fields.
+
+### Output
+
+| Field | Type | Required | Limits | Description |
+| --- | --- | --- | --- | --- |
+| `people` | array of object | yes |   |   |
+| `people[].personId` | string | yes |   |   |
+| `people[].name` | string | yes |   |   |
+| `people[].self` | boolean | yes |   | The caller's own Person (false: a child they act for) |
+| `people[].child` | boolean | yes |   | A child: news and offers never go to them |
+| `people[].lines` | array of object | yes |   |   |
+| `people[].lines[].scope` | string | yes |   |   |
+| `people[].lines[].label` | string | yes |   |   |
+| `people[].lines[].description` | string | yes |   |   |
+| `people[].lines[].purpose` | `"account"`, `"follow_up"`, `"news_and_offers"` | yes |   |   |
+| `people[].lines[].essential` | boolean | yes |   | Its email always goes |
+| `people[].lines[].channels` | array of object | yes |   |   |
+| `people[].lines[].channels[].channel` | `"email"`, `"text"`, `"push"` | yes |   |   |
+| `people[].lines[].channels[].value` | `"on"`, `"off"`, `"yes"`, `"no"` | yes |   | What is in force (a default when unset) |
+| `people[].lines[].channels[].fixed` | boolean | yes |   | Cannot be changed here: an essential kind's email always goes |
+| `people[].lines[].channels[].stopped` | boolean | yes |   | Stopped by a stop link or a STOP reply |
+| `people[].lines[].channels[].since` | string or null | yes |   | When the choice in force was made; null: the default |
+
+## me.contact.setChoices
+
+Changes your contact preferences, as a signed-in customer, or those of a child you act for (personId). Each choice is a kind of message, a channel and on or off (news_and_offers: yes or no, with the words you were shown). A booking's or a payment's email cannot be turned off. You may turn back on what you stopped by a link or a STOP reply.
+
+|  |  |
+| --- | --- |
+| Permission | `records:write` |
+| Risk | `write` |
+| Audiences | `customer` |
+| Also | host-internal (`hostInternal`); not offered to MCP clients (`mcp.expose: false`) |
+
+### Input
+
+| Field | Type | Required | Limits | Description |
+| --- | --- | --- | --- | --- |
+| `personId` | string |   | min length 1, max length 64 | A child you act for; default you |
+| `choices` | array of object | yes | at least 1, at most 40 |   |
+| `choices[].scope` | string | yes | min length 1, max length 80 | A kind of message: a routine message kind (bookings.reminder), follow_up, or news_and_offers |
+| `choices[].channel` | `"email"`, `"text"`, `"push"` | yes |   |   |
+| `choices[].value` | `"on"`, `"off"`, `"yes"`, `"no"` | yes |   | on or off; for news_and_offers, yes or no |
+| `wording` | string |   | max length 1000 | For a yes to news and offers: the words you were shown |
+
+### Output
+
+| Field | Type | Required | Limits | Description |
+| --- | --- | --- | --- | --- |
+| `changed` | integer | yes | ≥ -9007199254740991, ≤ 9007199254740991 |   |
 
 ## me.deleteAccount
 

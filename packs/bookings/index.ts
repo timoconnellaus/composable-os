@@ -45,6 +45,16 @@
 //   - a class takes its room while it is on, when the room takes one booking at a time
 //     (`occupies`, stage 49, ADR 0765): a second class in it at an overlapping time is refused by
 //     the database for every writer; a series' date that would clash is made with no room.
+//   - appointments (stage 49 step 5, ADR 0764): one-to-one sessions of a service with a coach,
+//     booked by staff for a client. An appointment is its coach's shift (`staffed`), so a coach is
+//     never on a class, a duty and an appointment at once, the service's buffer kept free around
+//     it (claim margins, ADR 0760), and it must have a coach with a staff account (ADR 0760). It
+//     takes a private room the service needs (`occupies`, ADR 0765): the first free one, chosen
+//     by the host when staff name none. Its client is kept off the roster and the feed (ADR 0761).
+//     Booked, it spends a use of a pass or membership that covers the service, unless staff mark
+//     it paid at the desk (`allowance`, `waived`, ADR 0506); a cancel before the service's "late
+//     from" gives it back; a late cancel and a no-show keep it, with no fee (decision 1), until a
+//     person excuses it. 30 minutes after it ends, the host marks one nobody marked as attended.
 // The tools in tools.ts compose the host's operations and add no rules of their own. The messages
 // in automations.ts (step 9, ADR 0572) email members and their guardians through the email-send
 // gatekeeper on what the host did: booked, moved in, passed over, a place free after the cut-off,
@@ -57,22 +67,30 @@ import { bookingsDashboards } from "./dashboards.ts";
 import { bookingsRoutineMail } from "./routine-mail.ts";
 import {
   book,
+  bookAppointment,
   bookFor,
   buy,
   cancel,
+  cancelAppointment,
+  cancelAppointmentByUs,
   cancelClass,
   cancelFor,
   classGet,
   classList,
+  coachDay,
   day,
+  excuseAppointment,
   family,
   findPeople,
   leaveWaitlist,
   markAll,
+  markAppointment,
   markAttended,
   markNoShow,
   mine,
   move,
+  moveAppointment,
+  reassignAppointment,
   returnUse,
   roster,
   timetable,
@@ -129,6 +147,46 @@ const lateFrom = {
 /** A class's list opens for ticking an hour before it starts (guess: people arrive early). */
 const listOpens = { at: "class.startsAt", minutesBefore: 60 };
 
+/** An appointment's states (stage 49, "Appointment states"). */
+const APPOINTMENT_STATES = [
+  { value: "booked", label: "Booked" },
+  { value: "pending", label: "Held while paying" },
+  { value: "unpaid", label: "Not paid yet" },
+  { value: "cancelled", label: "Cancelled" },
+  { value: "late_cancelled", label: "Cancelled late" },
+  { value: "excused", label: "Cancelled, session given back" },
+  { value: "attended", label: "Attended" },
+  { value: "no_show", label: "No-show" },
+  { value: "cancelled_by_us", label: "Cancelled by the business" },
+  { value: "moved", label: "Moved" },
+  { value: "expired", label: "Expired" },
+];
+
+/**
+ * An appointment takes its coach's time and its room in these states: held while paying, not paid
+ * yet, booked, and after it (a coach who waited for a no-show was there, and pay counts it).
+ */
+const APPOINTMENT_LIVE = ["pending", "unpaid", "booked", "attended", "no_show"];
+
+/** When a customer may book an appointment, and when a cancel is late, from the service or org. */
+const appointmentOpens = {
+  at: "startsAt",
+  daysBefore: { field: "service.opensDays", setting: "appointmentOpensDays" },
+  zone: "timezone",
+};
+const appointmentCloses = {
+  at: "startsAt",
+  minutesBefore: { field: "service.closesMinutes", setting: "appointmentClosesMinutes" },
+};
+// Counted from the appointment's anchor (ADR 0764): its own start, or, once moved, the start of the
+// one it replaced, so a move never makes a late cancel in time again.
+const appointmentLateFrom = {
+  at: "lateAnchor",
+  minutesBefore: { field: "service.lateMinutes", setting: "appointmentLateMinutes" },
+};
+/** Attended and no-show may be corrected, one into the other, for 7 days after the end. */
+const correctable = { at: "endsAt", minutesBefore: -10_080 };
+
 /** What a customer reads of a class: on the public timetable, and of a class they booked. */
 const CLASS_READ = [
   "title",
@@ -182,6 +240,9 @@ export default defineExtension({
     // members' email (routine-mail.ts, ADR 0590: the host decides who it goes to and what it
     // says), sent from the email-send connection a person binds to each automation; storage,
     // which class changes are still to be told (several edits within two minutes make one email).
+    // staffing.free: who is free for a service at a time, for "any coach" when staff book an
+    // appointment (stage 49, ADR 0763); staffing.week: a coach's duties beside their classes and
+    // appointments on the coach's day (ADR 0626), as the roster shows them to the reader.
     // agreement.listHealthNotes: the "health note" mark beside a name on a class list (stage 44,
     // decision 18), a yes or no per Person on the class's bookings (the host reads them) and
     // nothing of the form; the host gives it only when a person called the tool themselves.
@@ -198,6 +259,8 @@ export default defineExtension({
       "extensionSettings.list",
       "notification.send",
       "agreement.listHealthNotes",
+      "staffing.free",
+      "staffing.week",
     ],
     modules: ["ops", "routine-mail", "email-send", "storage"],
   },
@@ -935,6 +998,421 @@ export default defineExtension({
       timelineLinks: ["person"],
       indexes: [["class", "state"], ["person", "state"], ["state"]],
     },
+    service: {
+      label: "Service",
+      plural: "Services",
+      icon: "user-check",
+      titleField: "title",
+      description:
+        "A kind of one-to-one session the business offers (personal training, 60 minutes): its " +
+        "length, buffers, the rooms it may use and its booking rules. Who gives it is a " +
+        "qualification, not a list here.",
+      navigation: "settings",
+      fields: {
+        title: { type: "text", label: "Title", required: true },
+        description: { type: "longText", label: "Description" },
+        length: {
+          type: "number",
+          label: "Length (minutes)",
+          required: true,
+          min: 5,
+          max: 480,
+          step: 5,
+        },
+        // The buffer (stage 49, ADR 0760): minutes kept free in the coach's time and the room,
+        // never part of the appointment's own times or its pay.
+        bufferBefore: {
+          type: "number",
+          label: "Buffer before (minutes)",
+          description: "Minutes kept free before each session, for the coach and the room.",
+          min: 0,
+          max: 240,
+          step: 5,
+        },
+        bufferAfter: {
+          type: "number",
+          label: "Buffer after (minutes)",
+          description: "Minutes kept free after each session, for the coach and the room.",
+          min: 0,
+          max: 240,
+          step: 5,
+        },
+        price: {
+          type: "currency",
+          label: "Price per session",
+          description:
+            "What one session costs when paid for on its own. Empty: not sold per session.",
+          personApproves: true,
+        },
+        rooms: {
+          type: "relation",
+          label: "Rooms it may use",
+          to: "bookings.room",
+          many: true,
+          description:
+            "In the order they are offered: an appointment takes the first one free. Empty: it " +
+            "needs no room.",
+        },
+        step: {
+          type: "number",
+          label: "Start times every (minutes)",
+          description:
+            "15, 30 or 60: start times on the hour and every this many minutes. Empty: 30.",
+          min: 15,
+          max: 60,
+          step: 15,
+        },
+        opensDays: {
+          type: "number",
+          label: "Booking opens (days before)",
+          description: "Clients may book this many days ahead. Empty: the organisation's setting.",
+          min: 0,
+          max: 365,
+          step: 1,
+          personApproves: true,
+        },
+        closesMinutes: minutes(
+          "Booking closes (minutes before)",
+          "Clients may book until this many minutes before a session. Empty: the organisation's " +
+            "setting.",
+        ),
+        lateMinutes: minutes(
+          "Late cancel from (minutes before)",
+          "A cancel this close to the start or closer is late and keeps the session it used. " +
+            "Empty: the organisation's setting.",
+        ),
+        whoBooks: {
+          type: "select",
+          label: "Who books it",
+          default: "members_visitors",
+          options: [
+            { value: "members_visitors", label: "Members and visitors" },
+            { value: "members", label: "Members only" },
+            { value: "staff", label: "Staff only" },
+          ],
+          personApproves: true,
+        },
+        active: { type: "boolean", label: "Offered", default: true },
+        // Booked by staff only: a customer cannot book it themselves (the create rule).
+        staffOnly: {
+          type: "formula",
+          label: "Booked by staff only",
+          expression: 'coalesce(whoBooks, "members_visitors") = "staff"',
+        },
+        // A service no longer offered: nobody books it, staff included (the create rule).
+        closed: {
+          type: "formula",
+          label: "Not offered",
+          expression: "not coalesce(active, true)",
+        },
+      },
+      indexes: [["active"]],
+    },
+    appointment: {
+      label: "Appointment",
+      plural: "Appointments",
+      icon: "calendar-heart",
+      titleField: "title",
+      titleDefault: { from: ["service", "person"] },
+      description:
+        "One booked one-to-one session: a client, a coach, a service, a start and an end, and " +
+        "the room it takes.",
+      navigation: "main",
+      navigationOrder: 33,
+      fields: {
+        title: { type: "text", label: "Title" },
+        service: { type: "relation", label: "Service", to: "bookings.service", required: true },
+        // Required when it is made (states.create.requires); not `required`, so erasing the client
+        // keeps the appointment for pay and the business's books with the client cleared.
+        person: { type: "relation", label: "Client", to: "person" },
+        // Who gives it: a coach profile holding a staff account (account required, ADR 0760).
+        // Empty only once a coach has left (uncovered): a manager gives it to another coach
+        // (reassignAppointment, which an AI may only ask a person to do).
+        coach: { type: "relation", label: "Coach", to: "bookings.coach" },
+        room: {
+          type: "relation",
+          label: "Room",
+          to: "bookings.room",
+          description: "Left empty, the host gives it the first of the service's rooms free then.",
+        },
+        // Its times and service change only by a move (a new appointment, ADR 0764).
+        startsAt: { type: "datetime", label: "Starts", required: true },
+        endsAt: { type: "datetime", label: "Ends", required: true },
+        timezone: { type: "timezone", label: "Time zone", required: true },
+        lateAnchor: {
+          type: "datetime",
+          label: "Late cancel counted from",
+          readOnly: true,
+          description:
+            "Set by the host: its start, or, when it was moved, the start of the appointment it " +
+            "replaced. The late-cancel point is counted back from it.",
+        },
+        state: {
+          type: "select",
+          label: "State",
+          track: "timeline",
+          options: APPOINTMENT_STATES,
+        },
+        holder: {
+          type: "text",
+          label: "Paid from",
+          description:
+            "The pass or membership the appointment spent a session of (its id). Left empty, the " +
+            "host chooses the one whose session would lapse first.",
+        },
+        // What a pass's or a membership's services and limits read, filled by the host.
+        serviceId: {
+          type: "text",
+          label: "Service (for passes)",
+          readOnly: true,
+          description: "The service, copied by the host: what a pass's services are compared with.",
+        },
+        weekday: {
+          type: "number",
+          label: "Weekday",
+          readOnly: true,
+          description: "The local weekday (1 Monday to 7 Sunday), set by the host.",
+        },
+        minute: {
+          type: "number",
+          label: "Local minute",
+          readOnly: true,
+          description: "The local start, in minutes after midnight, set by the host.",
+        },
+        paidOtherwise: {
+          type: "boolean",
+          label: "Paid at the desk",
+          readOnly: true,
+          description:
+            "Paid at the desk or another way: it spends no session. Set when it is made.",
+        },
+        bookedBy: {
+          type: "user",
+          label: "Booked by",
+          readOnly: true,
+          description: "The staff account that booked it.",
+        },
+        movedFrom: {
+          type: "relation",
+          label: "Moved from",
+          to: "bookings.appointment",
+          readOnly: true,
+          description: "The appointment this one replaced when it was moved to another time.",
+        },
+        note: { type: "longText", label: "Staff note" },
+        markedAt: {
+          type: "datetime",
+          label: "Attendance marked",
+          readOnly: true,
+          description: "When it was marked attended or not come.",
+        },
+        markedBy: {
+          type: "user",
+          label: "Marked by",
+          readOnly: true,
+          description: "The staff account that marked it. Empty when the host marked it attended.",
+        },
+        markedByName: {
+          type: "text",
+          label: "Marked by (name)",
+          readOnly: true,
+          description: "That staff member's name as it was then.",
+        },
+        cancelledReason: {
+          type: "longText",
+          label: "Why it was cancelled or given back",
+          readOnly: true,
+        },
+      },
+      states: {
+        field: "state",
+        initial: "booked",
+        create: {
+          // Held while paying (stage 49 step 8) and not paid yet (a standing series' date, step 9)
+          // are the host's alone.
+          in: { pending: ["host"], unpaid: ["host"] },
+          window: { from: appointmentOpens, until: appointmentCloses },
+          staffOnly: "service.staffOnly",
+          // A service no longer offered: nobody books it, staff included.
+          closed: "service.closed",
+          // Made for a client, by everyone, the host included.
+          requires: ["person"],
+        },
+        // A cancel is in time or late by the host's clock, for every caller (ADR 0503).
+        requests: { cancel: ["cancelled", "late_cancelled"] },
+        moves: [
+          { from: "pending", to: "booked", by: ["host"] },
+          { from: "pending", to: "expired", by: ["host"], final: true },
+          // Not paid yet: staff book it (a session spent, or paid at the desk).
+          { from: "unpaid", to: "booked", by: ["staff"] },
+          // In time, for everyone, staff included (ADR 0507): giving a session back later is a
+          // person's own act (excuseAppointment), never a cancel's.
+          {
+            from: "booked",
+            to: "cancelled",
+            by: ["staff", "customer"],
+            final: true,
+            window: { until: appointmentLateFrom },
+            bindsStaff: true,
+          },
+          // Late: the session is used, with no fee (decision 1). Not final: a person may excuse it.
+          {
+            from: "booked",
+            to: "late_cancelled",
+            by: ["staff", "customer"],
+            window: { from: appointmentLateFrom, until: "startsAt" },
+          },
+          // A move to another time or coach: made only by making the new appointment
+          // (`movedFrom`), in its batch (ADR 0551), before it starts; the session moves with it.
+          {
+            from: "booked",
+            to: "moved",
+            by: ["staff"],
+            final: true,
+            window: { until: "startsAt" },
+            bindsStaff: true,
+          },
+          // Marked once it has started, by the coach or staff; attended by the host 30 minutes
+          // after the end when nobody marked it (`after`). Each keeps the session.
+          {
+            from: "booked",
+            to: "attended",
+            by: ["staff", "host"],
+            window: { from: "startsAt" },
+            bindsStaff: true,
+          },
+          {
+            from: "booked",
+            to: "no_show",
+            by: ["staff", "host"],
+            window: { from: "startsAt" },
+            bindsStaff: true,
+          },
+          // A correction, one into the other, within 7 days of the end.
+          {
+            from: "attended",
+            to: "no_show",
+            by: ["staff"],
+            window: { until: correctable },
+            bindsStaff: true,
+          },
+          {
+            from: "no_show",
+            to: "attended",
+            by: ["staff"],
+            window: { until: correctable },
+            bindsStaff: true,
+          },
+          // A person on the staff gives the session back (decision 1), with a reason, through
+          // excuseAppointment alone (ADR 0513).
+          {
+            from: ["late_cancelled", "no_show"],
+            to: "excused",
+            by: ["host"],
+            tools: ["excuseAppointment"],
+            final: true,
+          },
+          // The business cancels it, the session given back: the host (a membership cooled off;
+          // later a closure or a provider leaving), and a person through cancelAppointmentByUs.
+          {
+            from: ["pending", "unpaid", "booked"],
+            to: "cancelled_by_us",
+            by: ["host"],
+            tools: ["cancelAppointmentByUs"],
+            final: true,
+          },
+        ],
+        // Nobody marked it: attended, 30 minutes after it ends (the spec's decision 9). The
+        // session is kept either way, so this changes only reporting. Never one whose coach left
+        // (no coach): nobody gave it.
+        after: [
+          { from: "booked", to: "attended", at: "endsAt", minutesAfter: 30, ifSet: ["coach"] },
+        ],
+      },
+      // The coach's shift (stage 45, ADR 0621): one staff account is never on a class, a duty and
+      // an appointment at once, the service's buffer included (ADR 0760), refused by the database
+      // for every writer. A coach profile with no account cannot be booked (`account`). Its title
+      // names the client, so the roster and the feed show it as its service (ADR 0761). Booked at
+      // free times (ADRs 0762, 0763): the coach's open hours, the service's length, step and
+      // rooms, the client's own appointments, the closures; staff are warned outside them.
+      staffed: {
+        who: { field: "coach", account: "user" },
+        starts: "startsAt",
+        ends: "endsAt",
+        zone: "timezone",
+        kind: "service",
+        live: APPOINTMENT_LIVE,
+        place: "room.name",
+        claimBefore: { field: "service.bufferBefore" },
+        claimAfter: { field: "service.bufferAfter" },
+        account: "required",
+        private: true,
+        open: {
+          length: { field: "service.length" },
+          step: { field: "service.step" },
+          rooms: { field: "service.rooms" },
+          client: "person",
+          closedBy: { object: "closure", from: "fromDate", until: "untilDate" },
+          customer: true,
+        },
+      },
+      // Its room while it is on, when the room takes one booking at a time (ADR 0765), the
+      // service's buffer kept free in it too. The room calendar shows the service, not the client.
+      occupies: {
+        thing: "room",
+        starts: "startsAt",
+        ends: "endsAt",
+        live: APPOINTMENT_LIVE,
+        before: { field: "service.bufferBefore" },
+        after: { field: "service.bufferAfter" },
+        only: "exclusive",
+      },
+      // A spender of the Memberships pack's holders, as a class booking is: booked spends one
+      // session of a pass or membership that covers the service; an in-time cancel, a move, an
+      // excuse and the business's cancel give it back; a late cancel and a no-show keep it, with
+      // no fee (decision 1). Staff may book it paid at the desk (`waived`, ADR 0506).
+      allowance: {
+        spends: {
+          person: "person",
+          holder: "holder",
+          spendIn: ["booked"],
+          returnIn: ["cancelled", "excused", "cancelled_by_us", "moved"],
+          at: "startsAt",
+          copy: { serviceId: "service.id" },
+          local: { weekday: "weekday", minute: "minute", zone: "timezone" },
+          // Its times and service change only by a move, and a moved one keeps the late point of
+          // the one it replaced (ADR 0764): a used session never comes back by a change of time.
+          movedFrom: {
+            field: "movedFrom",
+            state: "moved",
+            fixed: ["startsAt", "endsAt", "service"],
+            anchor: { field: "lateAnchor", from: "startsAt" },
+          },
+          paidBy: ["memberships.membership", "memberships.pass"],
+          waived: "paidOtherwise",
+          released: "cancelled_by_us",
+        },
+      },
+      // Before an appointment (stage 44, ADRs 0641 and 0644): what the business attaches here is
+      // due before the client's appointment is booked.
+      agreements: {
+        point: "appointment",
+        label: "Before an appointment",
+        suggests: ["waiver", "health", "guardian"],
+        enter: ["booked"],
+        person: "person",
+        inlineStep: true,
+      },
+      timelineLinks: ["person"],
+      indexes: [
+        ["startsAt"],
+        ["coach", "startsAt"],
+        ["person", "startsAt"],
+        ["state", "startsAt"],
+        ["service"],
+        ["endsAt"],
+      ],
+    },
   },
   views: {
     todaysClasses: {
@@ -1058,6 +1536,31 @@ export default defineExtension({
       },
       order: 35,
     },
+    // A client's appointments (stage 49), soonest last.
+    personAppointments: {
+      label: "Appointments",
+      on: "person",
+      view: {
+        type: "table",
+        object: "bookings.appointment",
+        relation: "person",
+        columns: ["service", "startsAt", "coach", "room", "state", "holder", "paidOtherwise"],
+        sort: { field: "startsAt", direction: "desc" },
+      },
+      order: 36,
+    },
+    serviceAppointments: {
+      label: "Appointments",
+      on: "bookings.service",
+      view: {
+        type: "table",
+        object: "bookings.appointment",
+        relation: "service",
+        columns: ["startsAt", "person", "coach", "room", "state"],
+        sort: { field: "startsAt", direction: "desc" },
+      },
+      order: 10,
+    },
   },
   // The members' email (ADR 0590): routine mail the host sends without a person's approval.
   routineMail: bookingsRoutineMail,
@@ -1154,6 +1657,36 @@ export default defineExtension({
       max: 2_880,
       personApproves: true,
     },
+    // Appointments' booking rules (stage 49), which a service's own values override.
+    appointmentOpensDays: {
+      type: "number",
+      label: "Appointments: booking opens (days before)",
+      description: "Clients may book a one-to-one session this many days ahead.",
+      default: 28,
+      min: 0,
+      max: 365,
+      personApproves: true,
+    },
+    appointmentClosesMinutes: {
+      type: "number",
+      label: "Appointments: booking closes (minutes before)",
+      description: "Clients may book a session until this many minutes before it (720: 12 hours).",
+      default: 720,
+      min: 0,
+      max: 10_080,
+      personApproves: true,
+    },
+    appointmentLateMinutes: {
+      type: "number",
+      label: "Appointments: late cancel from (minutes before)",
+      description:
+        "A cancel this close to a session's start is late: the session is used, with no fee " +
+        "(1,440: 24 hours). Staff can give it back.",
+      default: 1_440,
+      min: 0,
+      max: 10_080,
+      personApproves: true,
+    },
     bookingsUrl: {
       type: "text",
       label: "Where members see their bookings",
@@ -1162,6 +1695,27 @@ export default defineExtension({
         "every booking email, when it is on your site (Settings → Routine email). Empty: the emails " +
         "say to sign in.",
       // The link every member email carries: a person's to change, as the booking rules are.
+      personApproves: true,
+    },
+    // Feedback after a class (stage 29 step 5, decision 4; ADR 0723): which Forms form members
+    // are asked to answer, and when. Who is asked and what they are sent is a person's choice.
+    feedbackForm: {
+      type: "text",
+      label: "Feedback form (its address)",
+      description:
+        "The address of a Forms form answered by personal link (open, published, Who may answer: " +
+        "By personal link) that members are asked to " +
+        "answer after a class they came to, with a link that works once and for a week; at most " +
+        "once a month each, a child's to their parent or guardian. Empty: nobody is asked.",
+      personApproves: true,
+    },
+    feedbackMinutes: {
+      type: "number",
+      label: "Feedback asked (minutes after the tick)",
+      description: "How long after a member is ticked as come the feedback email goes.",
+      default: 180,
+      min: 0,
+      max: 2_880,
       personApproves: true,
     },
   },
@@ -1190,12 +1744,19 @@ export default defineExtension({
   // member of staff holds them; an admin grants them to a coach, whose coach role they add to:
   // the coach's own list and ticks stay today's. Not cancelling a class (its own permission, and
   // a person's), not refunds (orders:refund), not people, orders, passes or memberships.
-  grantable: ["bookings:desk"],
+  // Appointments (stage 49, ADR 0764): `bookings:appointments` books, moves, cancels, marks and
+  // reassigns one-to-one sessions, and reads any coach's day. Any member of staff holds it; an
+  // admin grants it to a coach (a manager of the coaches).
+  grantable: ["bookings:desk", "bookings:appointments"],
   grantableLabels: {
     "bookings:desk":
-      "Front desk: find people, book anyone (walk-ins too) into any class, cancel or move their " +
-      "bookings, give a use back, and see any day's classes and full lists. For a coach who " +
-      "also works the desk.",
+      "Front desk: find people; book, cancel and move classes and one-to-one sessions for " +
+      "anyone; give a use back; mark sessions; see any day's classes and lists and every " +
+      "coach's day with its clients. For a coach who also works the desk.",
+    "bookings:appointments":
+      "Appointments: book one-to-one sessions for clients, move, cancel and mark them, give a " +
+      "session back, give a session to another coach, and see any coach's day. For a coach who " +
+      "manages the others' sessions.",
   },
   tools: {
     timetable,
@@ -1219,6 +1780,14 @@ export default defineExtension({
     move,
     cancelClass,
     family,
+    bookAppointment,
+    moveAppointment,
+    cancelAppointment,
+    cancelAppointmentByUs,
+    markAppointment,
+    excuseAppointment,
+    reassignAppointment,
+    coachDay,
   },
   automations: bookingsAutomations,
   dashboards: bookingsDashboards,

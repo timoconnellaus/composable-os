@@ -12,10 +12,12 @@
 //   go over it; over it the text is `over_limit` (its email went) and admins are told once that
 //   day, and at 80% once that month. Five texts a day per number, counted at the same claim.
 // - A STOP (the gatekeeper's verified reply) stops every text to the number, on any Person: the
-//   next is `stopped`. START lifts it. Numbers are kept only as salted hashes.
+//   next is `stopped`. START lifts it. Numbers are kept only as salted hashes, on the consent
+//   register's suppression list (contact/suppression.ts, ADR 0675).
 import type { CoreDatabase } from "@composable-os/db";
 import { type Kysely, sql } from "kysely";
-import { sha256Hex } from "../digest.ts";
+import { registerRefusal } from "../contact/decide.ts";
+import { saltedHash, suppress, suppressed, unsuppress } from "../contact/suppression.ts";
 import { newId } from "../ids.ts";
 import type { IntegrationRuntime } from "../integrations/runtime.ts";
 import { notifyStatements } from "../notifications/send.ts";
@@ -33,7 +35,6 @@ export const TEXTS_PER_DAY = 5;
 export const CODES_PER_DAY = 3;
 /** The text gatekeeper's resource: the business's sender number. */
 export const TEXT_SENDER_URL = "text://sender";
-const SALT = "text_number_salt";
 const DAY_MS = 86_400_000;
 
 /** Tells executeTakeFirst-style kysely results apart from a plan's statements. */
@@ -44,33 +45,8 @@ async function run(statements: readonly unknown[]): Promise<void> {
 }
 
 /** The salted hash a number is kept as (the caps' key, a stop), never the number. */
-export async function numberHash(db: Db, number: string): Promise<string> {
-  let row = await db
-    .selectFrom("core_settings")
-    .select("value")
-    .where("key", "=", SALT)
-    .executeTakeFirst();
-  if (!row) {
-    // Migration 0911 makes it; a database restored without it gets one now, once.
-    const salt = [...crypto.getRandomValues(new Uint8Array(16))]
-      .map((b) => b.toString(16).padStart(2, "0"))
-      .join("");
-    await db
-      .insertInto("core_settings")
-      .values({ key: SALT, value: JSON.stringify(salt), updated_at: new Date().toISOString() })
-      .onConflict((oc) => oc.column("key").doNothing())
-      .execute();
-    row = await db
-      .selectFrom("core_settings")
-      .select("value")
-      .where("key", "=", SALT)
-      .executeTakeFirstOrThrow();
-  }
-  let salt = "";
-  try {
-    salt = String(JSON.parse(row.value));
-  } catch {}
-  return sha256Hex(`${salt}:${number}`);
+export function numberHash(db: Db, number: string): Promise<string> {
+  return saltedHash(db, number);
 }
 
 /** The month (`YYYY-MM`) `at` falls in, in the business's zone (UTC when none is set). */
@@ -160,12 +136,8 @@ export async function textReach(db: Db, personId: string): Promise<Reached> {
           : "nobody stands behind this number: a person must add it, or the member check it",
     };
   }
-  const stop = await db
-    .selectFrom("core_text_stop")
-    .select("at")
-    .where("number_hash", "=", key)
-    .executeTakeFirst();
-  if (stop) return { reason: "the number replied STOP", stopped: true };
+  if (await suppressed(db, "text", key))
+    return { reason: "the number replied STOP", stopped: true };
   return { to: chosen.to, key: `text:${key}` };
 }
 
@@ -390,14 +362,20 @@ export async function claimRoutineText(
   // A limit of 0 is texts switched off, not used up: no notice (the review of PR #435).
   if (limit <= 0) return settle("off", "the month's text limit is 0, so texts are off");
   const key = row.recipient_key.startsWith("text:") ? row.recipient_key.slice(5) : "";
-  const stop = key
-    ? await db
-        .selectFrom("core_text_stop")
-        .select("at")
-        .where("number_hash", "=", key)
-        .executeTakeFirst()
-    : undefined;
-  if (stop) return settle("stopped", "the number replied STOP");
+  if (key && (await suppressed(db, "text", key))) {
+    return settle("stopped", "the number replied STOP");
+  }
+  // Their choices, asked again at the moment of sending (ADR 0675): texts of this kind turned off
+  // or stopped since it was prepared.
+  if (row.recipient_person_id) {
+    const refused = await registerRefusal(db, {
+      person: row.recipient_person_id,
+      channel: "text",
+      purpose: kind.spec.purpose ?? "account",
+      kind: kind.id,
+    });
+    if (refused && !refused.send) return settle("stopped", refused.detail);
+  }
   const business = settings.senderName?.trim() ?? "";
   const price = settings.textSegmentPriceMinor;
   if (!business)
@@ -685,15 +663,11 @@ export async function applyTextEvent(
   }
   const hash = await numberHash(db, event.from);
   if (event.keyword === "stop") {
-    await db
-      .insertInto("core_text_stop")
-      .values({ number_hash: hash, how: "stop_reply", at: event.at })
-      .onConflict((oc) => oc.column("number_hash").doUpdateSet({ at: event.at }))
-      .execute();
+    await suppress(db, "text", hash, "stop_reply", event.at);
     return "stopped";
   }
   if (event.keyword === "start") {
-    await db.deleteFrom("core_text_stop").where("number_hash", "=", hash).execute();
+    await unsuppress(db, "text", hash);
     return "started";
   }
   if (event.answeredSegments) {
@@ -814,12 +788,8 @@ export async function startPhoneCheck(
   now: string,
 ): Promise<{ id: string; hash: string } | { refused: string }> {
   const hash = await numberHash(db, number);
-  const stop = await db
-    .selectFrom("core_text_stop")
-    .select("at")
-    .where("number_hash", "=", hash)
-    .executeTakeFirst();
-  if (stop) return { refused: "this number replied STOP to our texts: reply START from it first" };
+  if (await suppressed(db, "text", hash))
+    return { refused: "this number replied STOP to our texts: reply START from it first" };
   const day = new Date(Date.parse(now) - DAY_MS).toISOString();
   const id = newId("phoneCheck");
   const written = await db

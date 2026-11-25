@@ -28,16 +28,29 @@ import {
 import { type Compilable, sql } from "kysely";
 import { usableAddress } from "../customers/address-person.ts";
 import { mailboxKey } from "../customers/limits.ts";
-import { RateLimitedError, UnknownOperationError, ValidationError } from "../errors.ts";
+import {
+  NotFoundError,
+  RateLimitedError,
+  UnknownOperationError,
+  ValidationError,
+} from "../errors.ts";
 import { objectTableOf } from "../extensions/schema.ts";
 import type { ObjectDefinition } from "../fields/types.ts";
 import { notifyStatements } from "../notifications/send.ts";
 import { type HandlerContext, type RecordChange, recordHostChange } from "../operation.ts";
 import { createRecord } from "../operations/record.ts";
 import { extensionSettingValues } from "../records/windows.ts";
+import { hasLiveGuardian, isLiveDependant } from "../visibility/guardians.ts";
 import { orgReader } from "../visibility/index.ts";
 import { type Asker, type OpenForm, openForm } from "./forms.ts";
-import { personAnswers, type Submitter, submitterOf } from "./person.ts";
+import {
+  type LiveLink,
+  linkRefused,
+  liveLinkById,
+  liveLinkByToken,
+  useLinkStatement,
+} from "./links.ts";
+import { linkSubmitter, personAnswers, type Submitter, submitterOf } from "./person.ts";
 import { NO_INTAKE_RUNTIME } from "./runtime.ts";
 
 /** A form shown less than this long before it is sent was not filled in by a person. */
@@ -67,12 +80,62 @@ export interface SubmitInput {
   turnstileToken?: string | undefined;
   shown?: string | undefined;
   honeypot?: string | undefined;
+  /** A personal link's token, from its email (ADR 0723). */
+  link?: string | undefined;
+  /** A signed-in customer's own personal link, by its id (their "Needs your attention" item). */
+  linkId?: string | undefined;
 }
 
 /** Who is calling, from the verified context: never from the input. */
 export function askerOf(ctx: HandlerContext): Asker {
   const caller = ctx.onBehalfOf ?? ctx.principal;
   return caller.kind === "staff" ? "staff" : caller.kind === "customer" ? "customer" : "public";
+}
+
+/**
+ * The live personal link a call names (ADR 0723), or null when it names none; any link that
+ * cannot be used is the one refusal (`linkRefused`), whatever was wrong. A token is anyone's who
+ * holds it (the public's, or a customer's); a link's id is only for a signed-in customer whose
+ * Person it is, or who is a live guardian of that Person. Staff answer by `x.forms.enter`, never
+ * by a link.
+ */
+export async function linkOfCall(
+  ctx: HandlerContext,
+  input: { link?: string | undefined; linkId?: string | undefined },
+  object: string,
+): Promise<LiveLink | null> {
+  if (input.link === undefined && input.linkId === undefined) return null;
+  const asker = askerOf(ctx);
+  if (asker === "staff" || (input.link !== undefined && input.linkId !== undefined)) {
+    throw linkRefused();
+  }
+  let link: LiveLink | null;
+  if (input.link !== undefined) {
+    link = await liveLinkByToken(ctx.db, input.link, ctx.now);
+  } else {
+    const caller = ctx.onBehalfOf ?? ctx.principal;
+    if (caller.kind !== "customer") throw linkRefused();
+    link = await liveLinkById(ctx.db, input.linkId as string, ctx.now);
+    const theirs =
+      link !== null &&
+      (link.personId === caller.personId ||
+        (await isLiveDependant(ctx.db, caller.personId, link.personId)));
+    if (!theirs) link = null;
+  }
+  if (!link || link.formObject !== object || !link.formId) throw linkRefused();
+  return link;
+}
+
+/** `openForm` for a personal link: a form that no longer takes answers by link is the refusal. */
+export async function openLinkedForm(ctx: HandlerContext, link: LiveLink): Promise<OpenForm> {
+  try {
+    return await openForm(ctx, link.formObject, link.formId as string, askerOf(ctx), {
+      byLink: true,
+    });
+  } catch (error) {
+    if (error instanceof NotFoundError) throw linkRefused();
+    throw error;
+  }
 }
 
 /**
@@ -289,8 +352,16 @@ export async function submitIntake(
   const asker = askerOf(ctx);
   assertCalledByOwner(ctx, "intake.submit", input.object);
 
-  // 2. Published, open, within its dates and open to this caller.
-  const form = await openForm(ctx, input.object, input.id, asker);
+  // A personal link (ADR 0723): live, for this very form, and the bearer's only say in whose the
+  // answers are is the link itself.
+  const link = await linkOfCall(ctx, input, input.object);
+  if (link && link.formId !== input.id) throw linkRefused();
+
+  // 2. Published, open, within its dates and open to this caller (by the link, any form but a
+  // staff form or an anonymous one).
+  const form = link
+    ? await openLinkedForm(ctx, link)
+    : await openForm(ctx, input.object, input.id, asker);
   // Nothing of an anonymous form's call names the account, a refusal's audit row included
   // (ADR 0725).
   if (form.anonymous && asker === "customer") ctx.anonymise?.();
@@ -302,9 +373,9 @@ export async function submitIntake(
     });
   }
 
-  // 3. Turnstile, for the public.
+  // 3. Turnstile, for the public (a personal link skips it: the host sent it to one Person).
   const runtime = ctx.intake ?? NO_INTAKE_RUNTIME;
-  if (asker === "public") {
+  if (asker === "public" && !link) {
     if (!runtime.turnstile) {
       await tellAdmins(
         ctx,
@@ -332,7 +403,7 @@ export async function submitIntake(
   // 4. The honeypot (anyone outside) and the fill time (the public): success, nothing stored.
   if (asker !== "staff") {
     if (input.honeypot) return RECEIVED;
-    if (asker === "public") {
+    if (asker === "public" && !link) {
       const shown = input.shown ? await runtime.readShown(form.id, input.shown) : null;
       if (!shown) return RECEIVED;
       const age = Date.parse(ctx.now) - Date.parse(shown);
@@ -373,26 +444,35 @@ export async function submitIntake(
       });
     }
   }
-  const via = asker === "staff" ? "staff" : input.via;
-  if (asker !== "staff" && (via === "staff" || via === "link")) {
+  if (asker !== "staff" && (input.via === "staff" || input.via === "link")) {
     throw new ValidationError("That is not a way in for this call", { field: "via" });
   }
+  const via = asker === "staff" ? "staff" : link ? "link" : input.via;
 
   // 7. The per-mailbox count, then the submitter's Person (none on an anonymous form). Spam makes
-  // no Person and fills nothing: it is kept with the caller's own Person or none.
+  // no Person and fills nothing: it is kept with the caller's own Person or none. A personal
+  // link's answers are its Person's, sent once: no mailbox to count.
   const view = hostView(ctx, form.anonymous);
+  // A link for a child (a Person with a live guardian) is answered by someone else: what they
+  // type fills none of the child's fields, and no "keep me updated" tick is kept for the child.
+  const guarded = link ? await hasLiveGuardian(ctx.db, link.personId) : false;
   const given = form.anonymous ? {} : personAnswers(form.questions, answers);
-  const typed = given.email && asker !== "customer" ? await usableAddress(ctx, given.email) : null;
+  const typed =
+    given.email && asker !== "customer" && !link ? await usableAddress(ctx, given.email) : null;
   const spam =
-    asker !== "staff" && given.email ? await mailboxOverLimit(ctx, form, given.email) : false;
+    asker !== "staff" && !link && given.email
+      ? await mailboxOverLimit(ctx, form, given.email)
+      : false;
   const caller = ctx.onBehalfOf ?? ctx.principal;
   const submitter: Submitter | null = form.anonymous
     ? null
-    : spam
-      ? caller.kind === "customer"
-        ? { personId: caller.personId, certainty: "account", email: null, created: false }
-        : { personId: null, certainty: "address", email: typed, created: false }
-      : await submitterOf(view, given, asker);
+    : link
+      ? await linkSubmitter(view, link.personId, guarded ? {} : given)
+      : spam
+        ? caller.kind === "customer"
+          ? { personId: caller.personId, certainty: "account", email: null, created: false }
+          : { personId: null, certainty: "address", email: typed, created: false }
+        : await submitterOf(view, given, asker);
 
   // The submission, as the host's own change.
   const { submission } = form;
@@ -407,9 +487,13 @@ export async function submitIntake(
     ...(declared.via && via ? { [declared.via]: via } : {}),
     ...(declared.rating ? { [declared.rating]: firstRating(answers) } : {}),
     ...(declared.marketing
-      ? { [declared.marketing]: tickedMarketing(form.questions, answers) }
+      ? { [declared.marketing]: !guarded && tickedMarketing(form.questions, answers) }
       : {}),
     ...(spam && states ? { [states.field]: declared.spam } : {}),
+    // What the link was about (a booking): the answers are tied to it (ADR 0723).
+    ...(link?.recordId && declared.about && declared.aboutObject
+      ? { [declared.about]: link.recordId, [declared.aboutObject]: link.recordObject }
+      : {}),
   };
   const created = submitter?.created === true;
   const submissionId = await createRecord(view, submission, values, {
@@ -417,6 +501,20 @@ export async function submitIntake(
     // The Person made in this batch cannot be read yet; the form was read above.
     ...(created ? { checkReferences: false } : {}),
   });
+  // The link is used up in the answers' own batch, by its id alone: a second answer racing this
+  // one fails whole at the database (migration 1010's trigger), keeping nothing.
+  if (link) {
+    // Who answered it, for the receipt (ADR 0724): the Person the token's email went to, or the
+    // signed-in customer who answered their item.
+    const by =
+      input.link !== undefined
+        ? { personId: link.sentTo ?? null, with: "email" as const }
+        : {
+            personId: caller.kind === "customer" ? caller.personId : null,
+            with: "account" as const,
+          };
+    ctx.write(useLinkStatement(ctx.db, link.id, submissionId, ctx.now, by));
+  }
 
   if (spam) return RECEIVED;
 

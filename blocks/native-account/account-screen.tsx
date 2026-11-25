@@ -1,7 +1,7 @@
 // My account (stage 48), for the mobile app's Account tab: the signed-in customer's own area, a
 // list of sections, each opening on its own screen. The base sections come with it: Orders,
-// Agreements, Family, Payment method (only for someone who pays a subscription), Your details, and
-// Sign-in and devices. The packs' sections are passed in `sections`, each the pack's own screen,
+// Agreements, Family, Payment method (only for someone who pays a subscription), Your details,
+// Contact preferences (stage 30) and Sign-in and devices. The packs' sections are passed in `sections`, each the pack's own screen,
 // and take their place by `order` (a pack's come first).
 //
 // Money in the app is the website's (ADR 0490, ADR 0714): the app shows orders and subscriptions,
@@ -22,6 +22,7 @@ import {
 } from "@composable-os/client";
 import { type ComponentType, createElement, type ReactNode, useMemo, useState } from "react";
 import { Linking, SafeAreaView, StyleSheet, Text, View } from "react-native";
+import { ContactPreferences } from "../native-account-contact/contact.tsx";
 import { YourDetails } from "../native-account-details/details.tsx";
 import { SignInAndDevices } from "../native-account-devices/devices.tsx";
 import { YourFamily } from "../native-account-family/family.tsx";
@@ -74,6 +75,8 @@ type Hooks = Pick<
   | "useMe"
   | "useUpdateMe"
   | "useSessions"
+  | "useContactChoices"
+  | "useSetContactChoices"
   | "useRevokeSession"
   | "useFamily"
   | "useOrders"
@@ -116,6 +119,7 @@ export function AccountScreen({
     family: () => <YourFamily account={account} />,
     payment: () => <PaymentMethod onManage={manage} />,
     details: () => <YourDetails account={account} />,
+    contact: () => <ContactPreferences account={account} />,
     devices: () => <SignInAndDevices account={account} onSignOut={onSignOut} />,
   };
 

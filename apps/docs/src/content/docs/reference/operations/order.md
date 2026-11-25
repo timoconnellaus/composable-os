@@ -74,6 +74,76 @@ Give a discount on a pending order whose payment page has not opened: a percenta
 | `email` | string or null |   |   |   |
 | `placedAs` | `"customer"`, `"public"`, `"staff"` |   |   |   |
 
+## order.applyCode
+
+Put a promo code on a pending order whose payment page has not opened. The host works out what it takes off from the discount it names, for the order's own buyer and lines: the better for the buyer of the code and any price that applies by itself (a member's) is the deal, and only one deal is on an order (a staff discount may be added on top). A code that does not apply is refused with one answer, rule code_not_valid, whatever the reason (unknown, ended, used up, not for this buyer or these items), and nothing changes. A code never makes an order free. A signed-in customer changes their own orders; a guest passes the order's token. Returns the order, its deal and whether the code is it.
+
+|  |  |
+| --- | --- |
+| Permission | `records:write` |
+| Risk | `write` |
+| Audiences | `staff`, `customer`, `public` |
+| Also | host-internal (`hostInternal`); not offered to MCP clients (`mcp.expose: false`) |
+
+### Input
+
+| Field | Type | Required | Limits | Description |
+| --- | --- | --- | --- | --- |
+| `id` | string | yes | min length 1, max length 64 | Order id (ord_…) |
+| `token` | string |   | min length 1, max length 128 | A guest's token for the order |
+| `code` | string | yes | min length 1, max length 64 | A promo code the buyer typed. The host decides what it takes off, from the discount it names: the better for the buyer of it and any member's price applies. One answer for a code that does not apply, whatever the reason. |
+
+### Output
+
+| Field | Type | Required | Limits | Description |
+| --- | --- | --- | --- | --- |
+| `id` | string | yes |   |   |
+| `state` | `"pending"`, `"part_paid"`, `"paid"`, `"cancelled"`, `"expired"`, `"refunded"` | yes |   |   |
+| `currency` | string | yes |   |   |
+| `total` | number | yes |   |   |
+| `paid` | number | yes |   |   |
+| `balance` | number | yes |   |   |
+| `refunded` | number | yes |   | What has gone back to the buyer, confirmed by the provider |
+| `pay` | `"full"`, `"deposit"` | yes |   |   |
+| `deposit` | number or null | yes |   |   |
+| `balanceDueAt` | string or null | yes |   |   |
+| `expiresAt` | string or null | yes |   |   |
+| `paidAt` | string or null | yes |   |   |
+| `createdAt` | string | yes |   |   |
+| `taxAmount` | number | yes |   | The tax inside what has been paid, as the payment provider calculated it. Prices include it, so it does not add to the total. Zero when tax is off or none was charged. |
+| `taxRefunded` | number | yes |   | The tax the provider said went back with refunds |
+| `taxCountry` | string or null | yes |   | The country the latest taxed payment was for |
+| `discount` | number | yes |   | Money taken off the order (its discounts), already out of the total |
+| `lines` | array of object | yes |   |   |
+| `lines[].id` | string | yes |   |   |
+| `lines[].position` | number | yes |   |   |
+| `lines[].object` | string | yes |   |   |
+| `lines[].recordId` | string | yes |   |   |
+| `lines[].title` | string | yes |   |   |
+| `lines[].quantity` | number | yes |   |   |
+| `lines[].unitPrice` | number | yes |   |   |
+| `lines[].total` | number | yes |   |   |
+| `lines[].taxAmount` | number | yes |   | The tax inside this line's payments, as the payment provider calculated it |
+| `lines[].discount` | number | yes |   | The line's share of the order's discounts: it costs total less this |
+| `adjustments` | array of object |   |   | Staff only: the discounts on the order, in the order they were given |
+| `adjustments[].id` | string | yes |   |   |
+| `adjustments[].lineId` | string or null | yes |   | The line it is on; null: spread over the order |
+| `adjustments[].kind` | `"code"`, `"automatic"`, `"staff"`, `"referral"` | yes |   |   |
+| `adjustments[].amount` | number | yes |   | What it took off, in the currency's minor unit |
+| `adjustments[].percent` | number or null | yes |   | The percentage asked for, when it was one |
+| `adjustments[].reason` | string or null | yes |   |   |
+| `adjustments[].givenBy` | string or null | yes |   | The staff account that gave it |
+| `adjustments[].approval` | string or null | yes |   | The approval it waited in, when it did |
+| `adjustments[].createdAt` | string | yes |   |   |
+| `personId` | string or null |   |   |   |
+| `email` | string or null |   |   |   |
+| `placedAs` | `"customer"`, `"public"`, `"staff"` |   |   |   |
+| `deal` | object or null | yes |   | The order's one deal: a promo code or a price that applied by itself; null: none |
+| `deal.kind` | `"code"`, `"automatic"` | yes |   | code: a promo code; automatic: e.g. a member's price |
+| `deal.title` | string | yes |   | The discount's name |
+| `deal.amount` | number | yes |   | What it takes off the order, in the currency's minor unit |
+| `codeApplied` | boolean or null | yes |   | Whether the code given is the deal: false when a better one applied instead (a member's price); null when no code was given |
+
 ## order.applyPaymentEvent
 
 Platform use only: apply a payment or refund event the payments gatekeeper verified and the host stored. Takes only the event's key: the event itself is read from what the host stored, so nothing passed here can describe a payment. Applying an event twice changes nothing. Run by the host's payments adapter and the minute cron.
@@ -196,6 +266,46 @@ Open the payment provider's own page to pay for an order, and get its address to
 | `currency` | string | yes |   |   |
 | `kind` | `"full"`, `"deposit"`, `"balance"`, `"part"` | yes |   |   |
 | `expiresAt` | string or null | yes |   |   |
+
+## order.delivery.get
+
+How one order's goods get to the buyer: the delivery option chosen, its kind (post, collect, or here: taken now in person), whether the order is online or in person, and for a post delivery the address. One order at a time: addresses are in no list, view, export or search. Staff read any order's (each read is on record in the audit log); a signed-in customer their own; a guest with the order's token. An order without goods has none (not found). Read-only.
+
+|  |  |
+| --- | --- |
+| Permission | `records:read` |
+| Risk | `read` |
+| Audiences | `staff`, `customer`, `public` |
+| Also | host-internal (`hostInternal`); not offered to MCP clients (`mcp.expose: false`) |
+
+### Input
+
+| Field | Type | Required | Limits | Description |
+| --- | --- | --- | --- | --- |
+| `id` | string | yes | min length 1, max length 64 | Order id (ord_…) |
+| `token` | string |   | min length 1, max length 128 | A guest's token for the order |
+
+### Output
+
+| Field | Type | Required | Limits | Description |
+| --- | --- | --- | --- | --- |
+| `orderId` | string | yes |   |   |
+| `channel` | `"online"`, `"in_person"` or null | yes |   |   |
+| `kind` | `"post"`, `"collect"`, `"here"` | yes |   |   |
+| `lineId` | string | yes |   | The order's delivery line |
+| `option` | object | yes |   |   |
+| `option.object` | string | yes |   |   |
+| `option.recordId` | string | yes |   |   |
+| `option.title` | string | yes |   |   |
+| `address` | object or null | yes |   | A post delivery's; null otherwise |
+| `address.name` | string | yes |   |   |
+| `address.line1` | string | yes |   |   |
+| `address.line2` | string or null | yes |   |   |
+| `address.city` | string or null | yes |   |   |
+| `address.region` | string or null | yes |   |   |
+| `address.postcode` | string or null | yes |   |   |
+| `address.country` | string | yes |   |   |
+| `erased` | boolean | yes |   | The buyer's erase removed the address |
 
 ## order.expireDue
 
@@ -613,6 +723,82 @@ An order's money in detail, for staff: each checkout opened, each payment (the p
 | `refundable[].paid` | number | yes |   |   |
 | `refundable[].refundable` | number | yes |   |   |
 
+## order.quote
+
+Price a basket without starting an order: the host's price of each line, the delivery (its postage, nothing when the goods reach the option's free-over amount), the total and what is available, exactly as order.start would charge. Holds nothing and writes nothing: stock is held only once an order is started. Refuses what order.start refuses (not for sale, not sold that way, an address outside the option's countries) and reports, in `problems`, what the buyer still has to do (choose a delivery, give an address) and what is sold out or short; `ready` is true when none is left. Money off is worked out as order.start would: a member's price by itself, and `code` (the better of the two), without holding a use of it; a code that does not apply is reported as code_not_valid. Amounts are in the currency's minor unit. Read-only.
+
+|  |  |
+| --- | --- |
+| Permission | `records:read` |
+| Risk | `read` |
+| Audiences | `staff`, `customer`, `public` |
+| Also | host-internal (`hostInternal`) |
+
+### Input
+
+| Field | Type | Required | Limits | Description |
+| --- | --- | --- | --- | --- |
+| `lines` | array of object | yes | at least 1, at most 50 | What is in the basket. There is no price here: the host reads it from each record. |
+| `lines[].object` | string | yes | min length 1, max length 80 | The object of the record to buy |
+| `lines[].id` | string | yes | min length 1, max length 64 | The record to buy |
+| `lines[].quantity` | integer |   | ≥ 1, ≤ 1000, default `1` |   |
+| `delivery` | object |   |   | The delivery option chosen, and to post, the address (its country decides whether the option posts there). Left out, the quote says one is needed when there are goods. |
+| `delivery.object` | string | yes | min length 1, max length 80 | The delivery option's object |
+| `delivery.id` | string | yes | min length 1, max length 64 | The delivery option chosen |
+| `delivery.address` | object |   |   | Where to post the goods: needed for a post option, refused for any other |
+| `delivery.address.name` | string | yes | min length 1, max length 200 | Who it is for |
+| `delivery.address.line1` | string | yes | min length 1, max length 200 |   |
+| `delivery.address.line2` | string |   | max length 200 |   |
+| `delivery.address.city` | string |   | max length 100 |   |
+| `delivery.address.region` | string |   | max length 100 | State, county or province |
+| `delivery.address.postcode` | string |   | max length 20 |   |
+| `delivery.address.country` | string | yes | pattern `^[A-Za-z]{2}$` |   |
+| `code` | string |   | min length 1, max length 64 | A promo code the buyer typed. The host decides what it takes off, from the discount it names: the better for the buyer of it and any member's price applies. One answer for a code that does not apply, whatever the reason. |
+
+### Output
+
+| Field | Type | Required | Limits | Description |
+| --- | --- | --- | --- | --- |
+| `currency` | string | yes |   |   |
+| `channel` | `"online"`, `"in_person"` or null | yes |   | online (posted or collected) or in_person (taken now); null without goods or delivery |
+| `lines` | array of object | yes |   |   |
+| `lines[].position` | number | yes |   |   |
+| `lines[].object` | string | yes |   |   |
+| `lines[].recordId` | string | yes |   |   |
+| `lines[].title` | string | yes |   |   |
+| `lines[].quantity` | number | yes |   |   |
+| `lines[].unitPrice` | number | yes |   |   |
+| `lines[].total` | number | yes |   |   |
+| `lines[].discount` | number | yes |   | The line's share of the deal: it costs total less this |
+| `lines[].goods` | boolean | yes |   | Goods: posted, collected or taken now |
+| `lines[].availability` | object or null | yes |   |   |
+| `lines[].availability.status` | `"in_stock"`, `"low"`, `"sold_out"` | yes |   |   |
+| `lines[].availability.available` | number |   |   | How many can be bought now: for staff, and for others when the item shows it |
+| `lines[].availability.onHand` | number |   |   | Staff only |
+| `lines[].availability.held` | number |   |   | Staff only |
+| `delivery` | object or null | yes |   |   |
+| `delivery.object` | string | yes |   |   |
+| `delivery.recordId` | string | yes |   |   |
+| `delivery.title` | string | yes |   |   |
+| `delivery.kind` | `"post"`, `"collect"`, `"here"` | yes |   |   |
+| `delivery.price` | number | yes |   | The option's own price |
+| `delivery.freeOver` | number or null | yes |   | Goods at or above this post free |
+| `delivery.free` | boolean | yes |   |   |
+| `delivery.charged` | number | yes |   | What the delivery costs on this order: 0 when free |
+| `goodsTotal` | number | yes |   | What the goods cost, before the delivery and after the deal (free over counts it) |
+| `discount` | number | yes |   | What the deal takes off |
+| `deal` | object or null | yes |   | The order's one deal: a promo code or a price that applied by itself; null: none |
+| `deal.kind` | `"code"`, `"automatic"` | yes |   | code: a promo code; automatic: e.g. a member's price |
+| `deal.title` | string | yes |   | The discount's name |
+| `deal.amount` | number | yes |   | What it takes off the order, in the currency's minor unit |
+| `codeApplied` | boolean or null | yes |   | Whether the code given is the deal: false when a better one applied instead (a member's price); null when no code was given |
+| `total` | number | yes |   | What order.start would charge for this basket |
+| `ready` | boolean | yes |   | Nothing in `problems`: the order can be started as it is |
+| `problems` | array of object | yes |   |   |
+| `problems[].rule` | `"delivery_needed"`, `"address_needed"`, `"sold_out"`, `"not_enough"`, `"code_not_valid"` | yes |   |   |
+| `problems[].message` | string | yes |   |   |
+| `problems[].line` | number |   |   | The position of the line it is about |
+
 ## order.recordPayment
 
 Record a payment taken another way than the payment page (a bank transfer, cash, a cheque, a card machine) on an order still owed money: any amount up to what is owed, never more (a drop-in that books a place is paid in full). The order becomes paid (or part paid) as if the provider had been paid, and what it bought is given. The payment names you as the person who received it. Admins are told of one over the amount an admin set, or when the buyer had opened a payment page (a payment made there now is refunded). A person only, with the permission to record payments: AI assistants, MCP clients, automations and extensions are refused. Returns the payment's id and the order.
@@ -840,6 +1026,75 @@ Platform use only (the minute cron): release one paid guest drop-in still held f
 | --- | --- | --- | --- | --- |
 | `released` | boolean | yes |   |   |
 
+## order.removeCode
+
+Take the promo code off a pending order whose payment page has not opened: the order is priced again without it (a price that applies by itself, such as a member's, still does). Refused (rule no_code) when the order has no code. A signed-in customer changes their own orders; a guest passes the order's token. Returns the order and its deal.
+
+|  |  |
+| --- | --- |
+| Permission | `records:write` |
+| Risk | `write` |
+| Audiences | `staff`, `customer`, `public` |
+| Also | host-internal (`hostInternal`); not offered to MCP clients (`mcp.expose: false`) |
+
+### Input
+
+| Field | Type | Required | Limits | Description |
+| --- | --- | --- | --- | --- |
+| `id` | string | yes | min length 1, max length 64 | Order id (ord_…) |
+| `token` | string |   | min length 1, max length 128 | A guest's token for the order |
+
+### Output
+
+| Field | Type | Required | Limits | Description |
+| --- | --- | --- | --- | --- |
+| `id` | string | yes |   |   |
+| `state` | `"pending"`, `"part_paid"`, `"paid"`, `"cancelled"`, `"expired"`, `"refunded"` | yes |   |   |
+| `currency` | string | yes |   |   |
+| `total` | number | yes |   |   |
+| `paid` | number | yes |   |   |
+| `balance` | number | yes |   |   |
+| `refunded` | number | yes |   | What has gone back to the buyer, confirmed by the provider |
+| `pay` | `"full"`, `"deposit"` | yes |   |   |
+| `deposit` | number or null | yes |   |   |
+| `balanceDueAt` | string or null | yes |   |   |
+| `expiresAt` | string or null | yes |   |   |
+| `paidAt` | string or null | yes |   |   |
+| `createdAt` | string | yes |   |   |
+| `taxAmount` | number | yes |   | The tax inside what has been paid, as the payment provider calculated it. Prices include it, so it does not add to the total. Zero when tax is off or none was charged. |
+| `taxRefunded` | number | yes |   | The tax the provider said went back with refunds |
+| `taxCountry` | string or null | yes |   | The country the latest taxed payment was for |
+| `discount` | number | yes |   | Money taken off the order (its discounts), already out of the total |
+| `lines` | array of object | yes |   |   |
+| `lines[].id` | string | yes |   |   |
+| `lines[].position` | number | yes |   |   |
+| `lines[].object` | string | yes |   |   |
+| `lines[].recordId` | string | yes |   |   |
+| `lines[].title` | string | yes |   |   |
+| `lines[].quantity` | number | yes |   |   |
+| `lines[].unitPrice` | number | yes |   |   |
+| `lines[].total` | number | yes |   |   |
+| `lines[].taxAmount` | number | yes |   | The tax inside this line's payments, as the payment provider calculated it |
+| `lines[].discount` | number | yes |   | The line's share of the order's discounts: it costs total less this |
+| `adjustments` | array of object |   |   | Staff only: the discounts on the order, in the order they were given |
+| `adjustments[].id` | string | yes |   |   |
+| `adjustments[].lineId` | string or null | yes |   | The line it is on; null: spread over the order |
+| `adjustments[].kind` | `"code"`, `"automatic"`, `"staff"`, `"referral"` | yes |   |   |
+| `adjustments[].amount` | number | yes |   | What it took off, in the currency's minor unit |
+| `adjustments[].percent` | number or null | yes |   | The percentage asked for, when it was one |
+| `adjustments[].reason` | string or null | yes |   |   |
+| `adjustments[].givenBy` | string or null | yes |   | The staff account that gave it |
+| `adjustments[].approval` | string or null | yes |   | The approval it waited in, when it did |
+| `adjustments[].createdAt` | string | yes |   |   |
+| `personId` | string or null |   |   |   |
+| `email` | string or null |   |   |   |
+| `placedAs` | `"customer"`, `"public"`, `"staff"` |   |   |   |
+| `deal` | object or null | yes |   | The order's one deal: a promo code or a price that applied by itself; null: none |
+| `deal.kind` | `"code"`, `"automatic"` | yes |   | code: a promo code; automatic: e.g. a member's price |
+| `deal.title` | string | yes |   | The discount's name |
+| `deal.amount` | number | yes |   | What it takes off the order, in the currency's minor unit |
+| `codeApplied` | boolean or null | yes |   | Whether the code given is the deal: false when a better one applied instead (a member's price); null when no code was given |
+
 ## order.reversePayment
 
 Reverse a payment recorded in error (order.recordPayment): a second entry takes it back off, nothing is deleted, and an order it had paid is part paid again with the amount owed. What the order gave stays: take the right payment or cancel the order. A drop-in's booking is cancelled first. Not for the payment provider's payments (refund those). Admins are told. A person only, with the permission to record payments. Get the payment's id from order.payments. Returns the reversal's id and the order.
@@ -997,6 +1252,7 @@ No fields.
 | `discountLimit` | object | yes |   | How much staff may take off one order on their own (order.adjust). Above it, a discount waits for an admin. Nothing (0) until a human admin sets it. |
 | `discountLimit.percent` | number | yes | ≥ 0, ≤ 100 | At most this percentage of the order |
 | `discountLimit.amount` | integer | yes | ≥ 0, ≤ 100000000 | And at most this much, in the currency's minor unit |
+| `minCharge` | number | yes |   | The smallest amount an order can be charged, in minor units (0.50 by default): a discount that would leave an order with something to pay but less than this does not apply. It stands in for the payment provider's own minimum. |
 | `recordedPaymentNotice` | number | yes |   | Admins are told of a payment recorded by hand (order.recordPayment) for more than this, in minor units. 0 until a human admin sets it: every one is told. |
 | `taxObjects` | array of object | yes |   |   |
 | `taxObjects[].object` | string | yes |   |   |
@@ -1007,7 +1263,7 @@ No fields.
 
 ## order.settings.update
 
-Change the order settings: the currency every order is in, the minutes an unpaid order lasts, the least part payment, the sites a buyer may come back to after paying, whether the payment provider calculates tax at checkout, the product tax code of an object for sale, how much staff may take off an order on their own, or above what a payment recorded by hand tells admins. Only what you pass changes. Orders already started keep the currency they were started in; turning tax on or off changes only payments made from then on. Admins only, and only a human can call it: AI assistants, MCP clients, automations and extensions are refused.
+Change the order settings: the currency every order is in, the minutes an unpaid order lasts, the least part payment, the sites a buyer may come back to after paying, whether the payment provider calculates tax at checkout, the product tax code of an object for sale, how much staff may take off an order on their own, or above what a payment recorded by hand tells admins, or the smallest amount an order can be charged after a discount. Only what you pass changes. Orders already started keep the currency they were started in; turning tax on or off changes only payments made from then on. Admins only, and only a human can call it: AI assistants, MCP clients, automations and extensions are refused.
 
 |  |  |
 | --- | --- |
@@ -1030,6 +1286,7 @@ Change the order settings: the currency every order is in, the minutes an unpaid
 | `discountLimit` | object |   |   | How much staff may take off one order without an admin's approval: at most this percentage of the order and at most this amount (minor units), both at once. |
 | `discountLimit.percent` | number | yes | ≥ 0, ≤ 100 | At most this percentage of the order |
 | `discountLimit.amount` | integer | yes | ≥ 0, ≤ 100000000 | And at most this much, in the currency's minor unit |
+| `minCharge` | integer |   | ≥ 0, ≤ 100000000 | The smallest amount an order can be charged (minor units): a discount leaving less does not apply |
 | `recordedPaymentNotice` | integer |   | ≥ 0, ≤ 100000000 | Tell admins of a payment recorded by hand for more than this (minor units) |
 
 ### Output
@@ -1045,6 +1302,7 @@ Change the order settings: the currency every order is in, the minutes an unpaid
 | `discountLimit` | object | yes |   | How much staff may take off one order on their own (order.adjust). Above it, a discount waits for an admin. Nothing (0) until a human admin sets it. |
 | `discountLimit.percent` | number | yes | ≥ 0, ≤ 100 | At most this percentage of the order |
 | `discountLimit.amount` | integer | yes | ≥ 0, ≤ 100000000 | And at most this much, in the currency's minor unit |
+| `minCharge` | number | yes |   | The smallest amount an order can be charged, in minor units (0.50 by default): a discount that would leave an order with something to pay but less than this does not apply. It stands in for the payment provider's own minimum. |
 | `recordedPaymentNotice` | number | yes |   | Admins are told of a payment recorded by hand (order.recordPayment) for more than this, in minor units. 0 until a human admin sets it: every one is told. |
 | `previous` | object | yes |   |   |
 | `previous.currency` | string or null | yes |   | The one currency every order is in (ISO 4217). Null: not set, nothing can be sold. |
@@ -1056,11 +1314,12 @@ Change the order settings: the currency every order is in, the minutes an unpaid
 | `previous.discountLimit` | object | yes |   | How much staff may take off one order on their own (order.adjust). Above it, a discount waits for an admin. Nothing (0) until a human admin sets it. |
 | `previous.discountLimit.percent` | number | yes | ≥ 0, ≤ 100 | At most this percentage of the order |
 | `previous.discountLimit.amount` | integer | yes | ≥ 0, ≤ 100000000 | And at most this much, in the currency's minor unit |
+| `previous.minCharge` | number | yes |   | The smallest amount an order can be charged, in minor units (0.50 by default): a discount that would leave an order with something to pay but less than this does not apply. It stands in for the payment provider's own minimum. |
 | `previous.recordedPaymentNotice` | number | yes |   | Admins are told of a payment recorded by hand (order.recordPayment) for more than this, in minor units. 0 until a human admin sets it: every one is told. |
 
 ## order.start
 
-Start an order for one or more records that are for sale, as a signed-in customer, a guest (with an email address) or staff. The host prices it from the records: a caller never sends a price or a total. The order starts pending and is not paid: paying happens on the payment provider's page (order.checkout), and only the provider's confirmation marks it paid. An unpaid order expires after a few minutes. Nobody buys without the agreements the business needs for what is bought: refused with rule agreements_due and the documents while any is due (a guest passes their acceptances in `agreements`; a signed-in customer agrees first; staff send a link, sign at the desk or record paper). Returns the order with its lines and amounts in the currency's minor unit; a guest also gets `token`, shown once, which is the only way back to the order (order.view).
+Start an order for one or more records that are for sale, as a signed-in customer, a guest (with an email address) or staff. The host prices it from the records: a caller never sends a price or a total. The order starts pending and is not paid: paying happens on the payment provider's page (order.checkout), and only the provider's confirmation marks it paid. An unpaid order expires after a few minutes. Nobody buys without the agreements the business needs for what is bought: refused with rule agreements_due and the documents while any is due (a guest passes their acceptances in `agreements`; a signed-in customer agrees first; staff send a link, sign at the desk or record paper). Goods (things posted, collected or taken now) need a `delivery`: the host adds it as the last line, priced by the host, and refuses goods not sold that way (rule not_sold_here), a post delivery with no address or one outside the option's countries, and what is sold out. order.quote gives the same prices without starting anything. Money off is the host's: a member's price applies by itself, and `code` is a promo code the buyer typed; the one that takes more off applies (rule code_not_valid, one answer whatever the reason, when the code does not). Returns the order with its lines and amounts in the currency's minor unit; a guest also gets `token`, shown once, which is the only way back to the order (order.view).
 
 |  |  |
 | --- | --- |
@@ -1090,6 +1349,18 @@ Start an order for one or more records that are for sale, as a signed-in custome
 | `agreements[].answers[].key` | string | yes | min length 1, max length 40 |   |
 | `agreements[].answers[].yes` | boolean | yes |   |   |
 | `agreements[].answers[].note` | string |   | max length 1000 |   |
+| `code` | string |   | min length 1, max length 64 | A promo code the buyer typed. The host decides what it takes off, from the discount it names: the better for the buyer of it and any member's price applies. One answer for a code that does not apply, whatever the reason. |
+| `delivery` | object |   |   | How the goods get to the buyer, when the order has goods (records sold as goods): one delivery option (posted, collected, or taken now in person) and, to post, the address. Required with goods, refused without. The host prices it (free over an amount when the option says so) and works out from it whether the order is online or in person; each goods line must be sold there. |
+| `delivery.object` | string | yes | min length 1, max length 80 | The delivery option's object |
+| `delivery.id` | string | yes | min length 1, max length 64 | The delivery option chosen |
+| `delivery.address` | object |   |   | Where to post the goods: needed for a post option, refused for any other |
+| `delivery.address.name` | string | yes | min length 1, max length 200 | Who it is for |
+| `delivery.address.line1` | string | yes | min length 1, max length 200 |   |
+| `delivery.address.line2` | string |   | max length 200 |   |
+| `delivery.address.city` | string |   | max length 100 |   |
+| `delivery.address.region` | string |   | max length 100 | State, county or province |
+| `delivery.address.postcode` | string |   | max length 20 |   |
+| `delivery.address.country` | string | yes | pattern `^[A-Za-z]{2}$` |   |
 
 ### Output
 
@@ -1137,10 +1408,15 @@ Start an order for one or more records that are for sale, as a signed-in custome
 | `email` | string or null |   |   |   |
 | `placedAs` | `"customer"`, `"public"`, `"staff"` |   |   |   |
 | `token` | string or null | yes |   | A guest's key to this order. Null for everyone else. |
+| `deal` | object or null | yes |   | The order's one deal: a promo code or a price that applied by itself; null: none |
+| `deal.kind` | `"code"`, `"automatic"` | yes |   | code: a promo code; automatic: e.g. a member's price |
+| `deal.title` | string | yes |   | The discount's name |
+| `deal.amount` | number | yes |   | What it takes off the order, in the currency's minor unit |
+| `codeApplied` | boolean or null | yes |   | Whether the code given is the deal: false when a better one applied instead (a member's price); null when no code was given |
 
 ## order.startHeld
 
-From a pack's tool: make a record that is bought when it is made (a drop-in booking for a class) and start its order, in one step. The record is held for the order (a place in the class) while it is unpaid, and the host prices it: a caller never sends a price. Paying on the provider's page (order.checkout) moves it on; the order expiring unpaid releases it. `values` are the record's fields a customer may set (its class); whose it is is the caller, or with forPersonId a child staff linked to them. A guest gives their email address and is matched to no one until the payment is verified (the answer is the same whatever it matches). The record's own rules apply as for the caller's own booking (when booking opens and closes, booked by staff only, places left, one per person). Returns the order; a guest also gets `token`, shown once.
+From a pack's tool: make a record that is bought when it is made (a drop-in booking for a class) and start its order, in one step. The record is held for the order (a place in the class) while it is unpaid, and the host prices it: a caller never sends a price. Paying on the provider's page (order.checkout) moves it on; the order expiring unpaid releases it. `values` are the record's fields a customer may set (its class); whose it is is the caller, or with forPersonId a child staff linked to them. A guest gives their email address and is matched to no one until the payment is verified (the answer is the same whatever it matches). The record's own rules apply as for the caller's own booking (when booking opens and closes, booked by staff only, places left, one per person). A member's price applies by itself, and `code` is a promo code the buyer typed (the better of the two). Returns the order; a guest also gets `token`, shown once.
 
 |  |  |
 | --- | --- |
@@ -1168,6 +1444,7 @@ From a pack's tool: make a record that is bought when it is made (a drop-in book
 | `agreements[].answers[].key` | string | yes | min length 1, max length 40 |   |
 | `agreements[].answers[].yes` | boolean | yes |   |   |
 | `agreements[].answers[].note` | string |   | max length 1000 |   |
+| `code` | string |   | min length 1, max length 64 | A promo code the buyer typed. The host decides what it takes off, from the discount it names: the better for the buyer of it and any member's price applies. One answer for a code that does not apply, whatever the reason. |
 
 ### Output
 
@@ -1216,6 +1493,11 @@ From a pack's tool: make a record that is bought when it is made (a drop-in book
 | `placedAs` | `"customer"`, `"public"`, `"staff"` |   |   |   |
 | `recordId` | string | yes |   | The record made and held for the order |
 | `token` | string or null | yes |   | A guest's key to this order. Null for everyone else. |
+| `deal` | object or null | yes |   | The order's one deal: a promo code or a price that applied by itself; null: none |
+| `deal.kind` | `"code"`, `"automatic"` | yes |   | code: a promo code; automatic: e.g. a member's price |
+| `deal.title` | string | yes |   | The discount's name |
+| `deal.amount` | number | yes |   | What it takes off the order, in the currency's minor unit |
+| `codeApplied` | boolean or null | yes |   | Whether the code given is the deal: false when a better one applied instead (a member's price); null when no code was given |
 
 ## order.unadjust
 

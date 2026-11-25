@@ -31,6 +31,7 @@ import { checklistOperations } from "./checklist.ts";
 import { checklistDayOperations } from "./checklist-days.ts";
 import { codeOperations } from "./code.ts";
 import { connectedAppOperations } from "./connected-app.ts";
+import { contactOperations } from "./contact.ts";
 import { contentOperations } from "./content.ts";
 import { countOperations } from "./count.ts";
 import { customerOperations } from "./customer.ts";
@@ -38,6 +39,7 @@ import { customerSettingsOperations } from "./customer-settings.ts";
 import { dashboardOperations } from "./dashboard.ts";
 import { deviceOperations } from "./device.ts";
 import { deviceSessionOperations } from "./device-session.ts";
+import { discountOperations } from "./discount.ts";
 import { duplicateOperations } from "./duplicate.ts";
 import { enrichmentOperations } from "./enrichment.ts";
 import { eraseRequestOperations } from "./erase-request.ts";
@@ -81,6 +83,7 @@ import { personLinkOperations } from "./person-link.ts";
 import { personWithRecordOperations } from "./person-with-record.ts";
 import { planOperations } from "./plan.ts";
 import { policyOperations } from "./policy.ts";
+import { practitionerOperations } from "./practitioner.ts";
 import { publicReadOperations } from "./public-read.ts";
 import { queryOperations } from "./query.ts";
 import { recordOperations } from "./record.ts";
@@ -132,6 +135,7 @@ export const coreOperations = [
   ...trashOperations,
   ...userOperations,
   ...inviteOperations,
+  ...practitionerOperations,
   ...userEmailOperations,
   ...activityOperations,
   ...taskOperations,
@@ -203,6 +207,7 @@ export const coreOperations = [
   ...customerOperations,
   ...meOperations,
   ...mePhoneOperations,
+  ...contactOperations,
   ...meAttentionOperations,
   ...mePortalOperations,
   ...personLinkOperations,
@@ -211,6 +216,7 @@ export const coreOperations = [
   ...carerOperations,
   ...personCodeOperations,
   ...orderOperations,
+  ...discountOperations,
   ...subscriptionOperations,
   ...subscriptionOfferOperations,
   ...myOperations,

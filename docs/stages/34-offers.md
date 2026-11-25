@@ -42,7 +42,8 @@ module (the till): whichever is built first builds it once, to this design.
 
 ## Status
 
-- **Step 1, adjustments and the pricing seam** (`feat/stage-34-adjustments`, migration 0950, ADRs
+- **Step 1** — built — PR #380 — Adjustments and the pricing seam (`feat/stage-34-adjustments`,
+  migration 0950, ADRs
   0690 and 0691): `core_order_adjustment` (kept as given: only marked removed, or a reason blanked
   by erase), each line's `line_discount`, the order's `discount` and its `total` after
   adjustments; `applyAdjustments` (`orders/adjustments.ts`) as the adjustment stage after
@@ -65,7 +66,8 @@ module (the till): whichever is built first builds it once, to this design.
   the handler's read; an AI's `order.unadjust` waits for an admin; erase redacts the discount
   calls' audit rows; a whole-order percentage gives each line its own rounded-down share; only a
   person's waiting discount holds the checkout, not an AI's.
-- **Step 2, folding plus addresses** (branch `feat/stage-34-address-folding`, issue #225;
+
+- **Step 2** — built — PR #363 — Folding plus addresses (branch `feat/stage-34-address-folding`, issue #225;
   migration 0955, ADR 0692, amending 0489 and 0512): an index over the folded form of
   `core_person_emails.email` (the `+tag` dropped on every domain, dots kept; an expression, nothing
   stored), `foldAddress`, `foldedSql` and `samePeople` in `customers/accounts.ts`; free trials
@@ -74,7 +76,8 @@ module (the till): whichever is built first builds it once, to this design.
   at once by such People. A trial page goes back only to its caller for the same holder. A pass
   given by hand stays per Person (a person's override). Left for later steps: per-person codes and the new-customer check (step 4) and
   referrals (step 9) read `samePeople`; migrations 0956 and 0957 of this step's range are unused.
-- **Step 3, an order paid another way** (the shared step; branch `feat/stage-34-other-payment`,
+
+- **Step 3** — built — PR #426 — An order paid another way (the shared step; branch `feat/stage-34-other-payment`,
   migration 0952, ADR 0694, amending 0427, 0429 and 0479): `method` on `core_order_payment`
   (`provider`, `recorded` with `recorded_kind`, `recorded_by`, `received_on`, `reference`;
   `voucher` and `stored_value` columns for steps 7 and 8) and on `core_order_refund`;
@@ -98,6 +101,50 @@ module (the till): whichever is built first builds it once, to this design.
   the day received is a real day, not after today and at most a year back; host payment rows and
   recorded refunds are never deleted (and the latter never edited); `rec_order_refund` reports
   refunds by method.
+
+- **Step 4** — built — PR #454 — The `discount` behaviour: codes and automatic discounts in
+  `priceLines`, limits, `discount.check`, `order.applyCode`, rate limits (`feat/stage-34-discount`,
+  migration 0953, ADR 0693, amending 0435, 0683 and 0685): the SDK's `discount` declaration and its
+  contract (a live state entered only by a person's tool or a `personApproves` state field; a
+  runtime extension may declare it); the order's one deal worked out in `priceOrder` for
+  `order.start`, `order.startHeld`, `order.quote` and `discount.check` (the better of a code and
+  every automatic discount the buyer qualifies for, a tie to the automatic one; a guest gets only
+  what anyone gets; members, new customers over folded addresses, an organisation, a tag), written
+  as `code` / `automatic` adjustments with staff discounts after it; free postage on the goods' net
+  after the deal; a deal leaving the deposit at the total pays in full; `core_discount_use` held,
+  used, released (expiry, cancel, a changed code) and kept after a refund, a trigger refusing a use
+  past the total, per-code or per-person limit; one answer, "not valid here", for every reason a
+  code does not apply (a race included), the reason for staff only; `order.applyCode` /
+  `order.removeCode` on a pending order before its checkout opens; any change by a non-person to a
+  live discount waits for a person. Deviations: no host throttle on wrong codes (criterion 3's "20
+  tries slowed": public operations have no rate limit yet; customers have the per-account limit);
+  rule 5's provider minimum is "never takes every line but the delivery to nothing". Left for
+  later: subscriptions and `subscription.start`'s code (6), `invite` (9), blocks, screens and e2e
+  (10). After the PR's review: any non-person write of a promo code record, and restoring a
+  discount, waits for a person; a late payment honoured past a limit is refused with words saying
+  so; the order setting `minCharge` (50 by default) is rule 5's minimum; automatic discounts are
+  filtered by dates and audience before the cap; a race lost on an automatic price prices the
+  order again rather than naming a code; erase blanks a use's Person. Until the platform's
+  per-address limit for public operations exists, no shipped pack declares `discount` (it gates
+  step 5).
+
+- **Step 5** — not built — needs: step 1 — The Offers pack's spine: discount, promo code, member
+  price and customer rate, tools, views, settings, permissions.
+
+- **Step 6** — not built — needs: step 4 — Subscriptions: a discount for 1 or N periods, plan
+  changes, a one-period discount on a running subscription.
+
+- **Step 7** — not built — needs: step 3, step 4 — Gift vouchers for a named thing.
+
+- **Step 8** — not built — needs: step 3, step 7 — Gift cards and account credit.
+
+- **Step 9** — not built — needs: step 4, step 7 — Referrals (money-off-next-payment rewards also
+  after step 6).
+
+- **Step 10** — not built — needs: step 4 — Blocks and screens, e2e, the site; free postage over
+  an amount once stage 37's delivery (stage 37 step 3) is built.
+
+- **Step 11** — not built — needs: step 7, the owner's loyalty interview — Loyalty.
 
 ## Goal
 

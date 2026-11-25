@@ -6,6 +6,10 @@ editUrl: false
 
 "Before you go on" (stage 44 step 5), for the mobile app: after sign-in, when the host says something is due (me.agreements.due), each due document in turn, the member's own first, then each child's; "Not now" goes on to the app. A convenience only: the host refuses a booking while anything it needs is due, whatever this screen did.
 
+<img class="cos-screen cos-screen-native" src="/screens/native-agreements-due.png" alt="native-agreements-due, drawn with dummy data" width="390" height="844" loading="lazy" decoding="async" />
+
+Drawn with dummy data.
+
 |  |  |
 | --- | --- |
 | Skin | native |

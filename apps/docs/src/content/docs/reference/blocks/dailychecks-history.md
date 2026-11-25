@@ -6,6 +6,10 @@ editUrl: false
 
 How each day went (ADR 0651), for those who manage checklists: every checklist done on its own, day by day, done (by whom, for whom, when, and whether after its due time) or missed (with the steps nobody ticked). Opening a day shows its steps and who ticked each and when. Read-only: a finished or missed day never changes, and today's is ticked on Today's checklists. The host decides who reads this (checklists:write); anyone else is refused and sees that state. What someone wrote on a step is kept no longer than it is on screen (`gcTime: 0`).
 
+<img class="cos-screen" src="/screens/dailychecks-history.png" alt="dailychecks-history, drawn with dummy data" width="1024" height="462" loading="lazy" decoding="async" />
+
+Drawn with dummy data.
+
 |  |  |
 | --- | --- |
 | Skin | web |

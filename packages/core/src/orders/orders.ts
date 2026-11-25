@@ -19,6 +19,14 @@ import {
   guestMinorNotice,
   pointsOfObjects,
 } from "../agreements/enforce.ts";
+import {
+  CODE_NOT_VALID,
+  type CodeOutcome,
+  type Deal,
+  type DealBuyer,
+  workOutDeal,
+} from "../discounts/deal.ts";
+import { holdDealUse } from "../discounts/uses.ts";
 import { ConfigError, ConflictError, NotFoundError, ValidationError } from "../errors.ts";
 import { getObject } from "../fields/index.ts";
 import { type OrderState, orderObject } from "../fields/order.ts";
@@ -36,7 +44,16 @@ import {
   type VisibleSource,
   visibleSource,
 } from "../visibility/index.ts";
-import { applyAdjustments } from "./adjustments.ts";
+import { type Adjusted, type AdjustmentShare, applyAdjustments } from "./adjustments.ts";
+import {
+  applyGoodsRules,
+  type DeliveryFacts,
+  type DeliveryRequest,
+  type GoodsFacts,
+  type GoodsOutcome,
+  goodsFactsOf,
+  type QuoteProblem,
+} from "./goods.ts";
 import { claimOrderPlaces } from "./holds.ts";
 import { holdOncePerPerson } from "./once.ts";
 import {
@@ -130,6 +147,10 @@ export interface PricedLine {
   recurring?: { interval: "week" | "month" | "year"; trialDays: number | null };
   /** Sold once per Person (ADR 0512): the record's `onePerPerson` field is on. */
   once?: boolean;
+  /** Goods (ADR 0682): where the record is sold. */
+  goods?: GoodsFacts;
+  /** A delivery option (ADR 0682): its kind, free over, countries and whether it is offered. */
+  delivery?: DeliveryFacts;
 }
 
 /** Why a line cannot be bought. A caller outside the org sees the rule, not the record. */
@@ -299,7 +320,13 @@ export async function priceLines(
     const title = object.titleField ? read(object.titleField) : null;
     const trial = sellable.recurring?.trialDays ? read(sellable.recurring.trialDays) : null;
     const onceFlag = sellable.onePerPerson ? read(sellable.onePerPerson) : null;
+    // Goods and delivery (ADR 0682): what the record says, for the goods rules (orders/goods.ts).
+    const facts =
+      sellable.goods || sellable.delivery
+        ? await goodsFactsOf(db, object, sellable, row, currency)
+        : {};
     priced.push({
+      ...facts,
       ...(onceFlag === 1 || onceFlag === true ? { once: true } : {}),
       ...(sellable.recurring
         ? {
@@ -323,6 +350,94 @@ export async function priceLines(
     });
   }
   return priced;
+}
+
+/** An order as the seam priced it: the goods rules' outcome, its deal and what is owed. */
+export interface PricedOrder extends GoodsOutcome {
+  /** The one discount on the order (ADR 0693), taken off `lines` (each line's `discount`). */
+  deal: Deal | null;
+  /** What the code given did: nothing given, applied, beaten by a better deal, or not valid. */
+  code: CodeOutcome;
+  /** The lines after the deal: what each costs and what is owed. */
+  adjusted: Adjusted;
+}
+
+/** The deal's shares as the seam's adjustments: one on each line it takes something off. */
+export function dealShares(deal: Deal | null): AdjustmentShare[] {
+  return (deal?.shares ?? []).map((share) => ({
+    lineId: share.lineId,
+    amount: share.amount,
+    percent: deal?.percent ?? null,
+  }));
+}
+
+/**
+ * Prices an order as the host (ADRs 0682, 0685 and 0693): the lines, then the delivery chosen (a
+ * line of quantity 1, last), then the deal (the one discount the buyer gets: an automatic one or
+ * the code, the better for them), then the goods rules, which work out the channel, refuse what is
+ * not sold there or cannot be delivered so, and price the postage, its free-over on the goods' net
+ * after the deal. `order.start`, `order.startHeld` (its lines priced by the host, `priced`) and
+ * `order.quote` all price through it, so a quote and the order it becomes agree. A code that does
+ * not apply is refused (`start`) or reported (`quote`), with one answer whatever the reason: the
+ * reason goes to staff only.
+ */
+export async function priceOrder(
+  db: Kysely<CoreDatabase>,
+  lines: readonly LineRequest[],
+  delivery: DeliveryRequest | undefined,
+  currency: string,
+  now: string,
+  buyer: Principal | undefined,
+  mode: "start" | "quote",
+  options: {
+    /** What the buyer typed, if anything. Never an amount. */
+    code?: string | undefined;
+    /** Whose order it is, for who a discount is for; left out, nobody proved (a guest's). */
+    dealBuyer?: DealBuyer | undefined;
+    /** Lines the host priced itself for a record made in the same batch (order.startHeld). */
+    priced?: readonly PricedLine[] | undefined;
+    /** A pending order being priced again: its own use is not counted against a limit. */
+    orderId?: string | undefined;
+  } = {},
+): Promise<PricedOrder> {
+  const all = delivery
+    ? [...lines, { object: delivery.object, id: delivery.id, quantity: 1 }]
+    : [...lines];
+  const priced = options.priced
+    ? [...options.priced]
+    : await priceLines(db, all, currency, now, buyer);
+  const worked = await workOutDeal(
+    db,
+    priced.map((line) => ({ ...line, delivery: Boolean(line.delivery) })),
+    options.dealBuyer ?? { personId: null, placedAs: "public" },
+    options.code,
+    now,
+    currency,
+    { excludeOrderId: options.orderId },
+  );
+  const problems: QuoteProblem[] = [];
+  if (worked.code.given && !worked.code.valid) {
+    const details = {
+      rule: "code_not_valid",
+      field: "code",
+      // Staff read the discounts anyway; nobody else learns why, or whether the code exists.
+      ...(buyer?.kind === "staff" ? { reason: worked.code.reason } : {}),
+    };
+    if (mode === "start") throw new ValidationError(CODE_NOT_VALID, details);
+    problems.push({ rule: "code_not_valid", message: CODE_NOT_VALID });
+  }
+  const shares = new Map((worked.deal?.shares ?? []).map((s) => [s.lineId, s.amount]));
+  const discounted = priced.map((line) => ({ ...line, discount: shares.get(line.id) ?? 0 }));
+  const goods = await applyGoodsRules(db, discounted, delivery, mode);
+  const adjusted = applyAdjustments(goods.lines, dealShares(worked.deal));
+  return {
+    ...goods,
+    lines: goods.lines.map((line, i) => ({ ...line, discount: adjusted.discounts[i] ?? 0 })),
+    problems: [...problems, ...goods.problems],
+    deal: worked.deal,
+    code: worked.code,
+    adjusted,
+  };
 }
 
 // --- Starting an order -------------------------------------------------------------------------
@@ -351,11 +466,22 @@ export interface NewOrder {
   participantId?: string | null;
   /** A visitor's acceptances, carried in the buying call (only `placedAs: "public"`). */
   agreements?: readonly GuestAcceptance[] | undefined;
+  /**
+   * How an order with goods gets to the buyer (ADR 0682): a delivery option and, for post, the
+   * address. Priced by the host; the channel follows from it.
+   */
+  delivery?: DeliveryRequest | undefined;
+  /** A promo code the buyer typed (ADR 0693). Never an amount: the host reads the discount. */
+  code?: string | undefined;
 }
 
 export interface StartedOrder {
   row: OrderRow;
   lines: PricedLine[];
+  /** The order's one deal (ADR 0693), when it has one. */
+  deal: Deal | null;
+  /** Whether the code given applied (false: a better deal did); null when none was given. */
+  codeApplied: boolean | null;
 }
 
 /**
@@ -381,14 +507,23 @@ export async function createOrder(ctx: HandlerContext, input: NewOrder): Promise
   if (!currency) {
     throw new ConfigError("No currency is set for orders yet, so nothing can be sold");
   }
-  const priced = input.priced
-    ? [...input.priced]
-    : await priceLines(ctx.db, input.lines, currency, ctx.now, callerOf(ctx));
-  // The seam's adjustment stage (ADR 0690): nothing is taken off an order as it starts yet (a
-  // code or a member's price joins here with the discount behaviour); staff take money off a
-  // pending order afterwards (orders/staff-discounts.ts), through the same function.
-  const adjusted = applyAdjustments(priced, []);
-  const lines = priced.map((line, i) => ({ ...line, discount: adjusted.discounts[i] ?? 0 }));
+  // One seam for every path (ADR 0693): the lines (or, for order.startHeld, the lines the host
+  // priced itself for a record made in this batch: the goods rules hold for them too), the deal,
+  // the delivery. Staff take money off a pending order afterwards (orders/staff-discounts.ts),
+  // through the same adjustment stage.
+  const dealBuyer: DealBuyer = { personId: input.personId, placedAs: input.placedAs };
+  const goods = await priceOrder(
+    ctx.db,
+    input.lines,
+    input.delivery,
+    currency,
+    ctx.now,
+    callerOf(ctx),
+    "start",
+    { code: input.code, dealBuyer, priced: input.priced },
+  );
+  const lines = goods.lines;
+  const adjusted = goods.adjusted;
   const total = adjusted.total;
   if (total <= 0) {
     throw new ValidationError("An order with nothing to pay cannot be started", { rule: "total" });
@@ -396,7 +531,8 @@ export async function createOrder(ctx: HandlerContext, input: NewOrder): Promise
 
   let deposit: number | null = null;
   let balanceDueAt: string | null = null;
-  if (input.pay === "deposit") {
+  let pay = input.pay;
+  if (pay === "deposit") {
     for (const line of lines) {
       if (!line.deposit) {
         refuseLine("deposit_not_offered", line.position, "This cannot be paid by deposit");
@@ -406,12 +542,18 @@ export async function createOrder(ctx: HandlerContext, input: NewOrder): Promise
     deposit = lines.reduce((sum, line, i) => sum + (offered[i]?.amount ?? 0) * line.quantity, 0);
     // The earliest date any line gives: every item is paid for by the time its own is due.
     balanceDueAt = offered.map((d) => d.balanceDueAt).sort()[0] as string;
-    if (deposit >= total) {
+    if (deposit >= adjusted.subtotal) {
       throw new ValidationError("The deposit is the whole price: pay in full", {
         rule: "deposit_not_offered",
       });
     }
-    if (balanceDueAt <= ctx.now) {
+    if (deposit >= total) {
+      // The deal left the deposit at or above what is owed (the spec's rule 6): the buyer pays in
+      // full, as `chargeFor` would ask.
+      pay = "full";
+      deposit = null;
+      balanceDueAt = null;
+    } else if (balanceDueAt <= ctx.now) {
       throw new ValidationError("The balance was due before today: pay in full", {
         rule: "deposit_not_offered",
       });
@@ -443,7 +585,7 @@ export async function createOrder(ctx: HandlerContext, input: NewOrder): Promise
     total,
     paid: 0,
     state: "pending",
-    pay: input.pay,
+    pay,
     deposit,
     balance_due_at: balanceDueAt,
     expires_at: new Date(Date.parse(ctx.now) + minutes * 60_000).toISOString(),
@@ -470,6 +612,7 @@ export async function createOrder(ctx: HandlerContext, input: NewOrder): Promise
     updated_at: ctx.now,
     version: 0,
     discount: adjusted.discount,
+    channel: goods.channel,
   };
   // The host creates the order: its first history row is the host's, whoever is buying.
   const outcome = await applyTransition(
@@ -508,6 +651,31 @@ export async function createOrder(ctx: HandlerContext, input: NewOrder): Promise
     // After the order: a guest's acceptance names an order that must exist (migration 0851).
     ...guestRows,
   );
+  // The order's delivery and, for post, its address (ADR 0682), after its line.
+  if (goods.delivery) {
+    const address = goods.delivery.address;
+    ctx.write(
+      ctx.db.insertInto("core_order_delivery").values({
+        order_id: id,
+        line_id: goods.delivery.line.id,
+        kind: goods.delivery.kind,
+        name: address?.name ?? null,
+        line1: address?.line1 ?? null,
+        line2: address?.line2 || null,
+        city: address?.city || null,
+        region: address?.region || null,
+        postcode: address?.postcode || null,
+        country: address?.country ?? null,
+        created_at: ctx.now,
+        // What free postage was decided from (ADR 0693): a code put on later decides it again.
+        price: goods.delivery.price,
+        free_over: goods.delivery.freeOver,
+      }),
+    );
+  }
+  // The deal (ADR 0693): an adjustment on each line it takes something off, naming the discount,
+  // and its use held in this batch, after the order. The database refuses the use past a limit.
+  if (goods.deal) writeDeal(ctx, id, goods.deal, dealBuyer);
   // One per Person (ADR 0512): refused, or held in this batch, after the order it names.
   await holdOncePerPerson(
     ctx,
@@ -524,7 +692,40 @@ export async function createOrder(ctx: HandlerContext, input: NewOrder): Promise
   );
   recordHostChange(ctx, { object: "order", id, action: "create", after: orderSnapshot(row) });
   postOrderMove(ctx, row, null);
-  return { row, lines };
+  return {
+    row,
+    lines,
+    deal: goods.deal,
+    codeApplied: goods.code.given && goods.code.valid ? goods.code.applied : null,
+  };
+}
+
+/**
+ * Queues a deal on a pending order, in the calling batch, after the order and its lines: one
+ * `code` or `automatic` adjustment per line it takes something off, and its use, held.
+ */
+export function writeDeal(
+  ctx: HandlerContext,
+  orderId: string,
+  deal: Deal,
+  buyer: DealBuyer,
+): void {
+  ctx.write(
+    ...deal.shares.map((share) =>
+      ctx.db.insertInto("core_order_adjustment").values({
+        id: newId("orderAdjustment"),
+        order_id: orderId,
+        line_id: share.lineId,
+        kind: deal.kind,
+        source_object: deal.discountObject,
+        source_id: deal.discountId,
+        percent: deal.percent,
+        amount: share.amount,
+        created_at: ctx.now,
+      }),
+    ),
+  );
+  holdDealUse(ctx, orderId, deal, buyer);
 }
 
 // --- Changing an order -------------------------------------------------------------------------

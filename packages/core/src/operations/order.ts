@@ -22,6 +22,9 @@
 //   order.reversePayment   staff (a person, orders:payments) undo one entered in error
 //   order.recordRefund     staff (a person, orders:refund)   money paid back on a recorded payment
 //   order.startHeld        a pack's tool: staff, customers, the public   a record made with its order
+//   order.applyCode        staff, customers (own order), the public (token)  a promo code on a pending
+//   order.removeCode       order before its payment page opens (ADR 0693); the host decides what
+//                          it takes off, the better of it and any member's price
 //   order.applyPaymentEvent, order.expireDue, order.refundDue the host's own (actor automation)
 //   order.settings.*       staff; changed by a human admin only
 //
@@ -40,14 +43,18 @@ import { z } from "zod";
 import { isMinor, personFacts } from "../agreements/due.ts";
 import { enforcePurchase, guestAcceptancesSchema, pointsOfObjects } from "../agreements/enforce.ts";
 import { sameEmailPeople } from "../customers/accounts.ts";
-import { ConflictError, NotFoundError, ValidationError } from "../errors.ts";
+import { CODE_MAX_LENGTH, type Deal } from "../discounts/deal.ts";
+import { ConfigError, ConflictError, NotFoundError, ValidationError } from "../errors.ts";
 import { getObject, listObjects } from "../fields/index.ts";
 import { ORDER_STATES } from "../fields/order.ts";
+import type { ObjectDefinition, StockDefinition } from "../fields/types.ts";
 import { filterSchema } from "../filter.ts";
 import { LIST_MAX_LIMIT, sortSchema } from "../list.ts";
 import { defineOperation, type HandlerContext } from "../operation.ts";
 import { openCheckout } from "../orders/checkout.ts";
+import { changeOrderCode } from "../orders/codes.ts";
 import { applyPaymentEvent } from "../orders/events.ts";
+import { deliveryRequestSchema } from "../orders/goods.ts";
 import { grantsFollowPerson } from "../orders/grants.ts";
 import {
   hashOrderToken,
@@ -68,6 +75,7 @@ import {
   OVERDUE_LIMIT,
   overdueOrders,
   type PricedLine,
+  priceOrder,
   requireState,
 } from "../orders/orders.ts";
 import { applyOtherPayment, RECORDED_KINDS, reverseOtherPayment } from "../orders/payments.ts";
@@ -77,6 +85,7 @@ import {
   currencySchema,
   discountLimitSchema,
   loadDiscountLimit,
+  loadMinCharge,
   loadMinPartPayment,
   loadOrderCurrency,
   loadOrderExpiryMinutes,
@@ -84,10 +93,12 @@ import {
   loadOrderTaxCodes,
   loadRecordedPaymentNotice,
   loadReturnOrigins,
+  minChargeSchema,
   minPartPaymentSchema,
   ORDER_CURRENCY_SETTING,
   ORDER_DISCOUNT_LIMIT_SETTING,
   ORDER_EXPIRY_SETTING,
+  ORDER_MIN_CHARGE_SETTING,
   ORDER_MIN_PART_SETTING,
   ORDER_RECORDED_NOTICE_SETTING,
   ORDER_RETURN_ORIGINS_SETTING,
@@ -109,9 +120,57 @@ import {
 import { taxCodeOf } from "../orders/tax.ts";
 import { placedAs } from "../principals.ts";
 import { callerMover } from "../records/lifecycle.ts";
+import { callerOf } from "../records/transitions.ts";
 import type { VisibleRecord } from "../visibility/records.ts";
+import { outsideStockView, stockStatus } from "../visibility/stock.ts";
+
+/** A post delivery's address, as its buyer and staff read it. */
+const deliveryAddressOutput = z.object({
+  name: z.string(),
+  line1: z.string(),
+  line2: z.string().nullable(),
+  city: z.string().nullable(),
+  region: z.string().nullable(),
+  postcode: z.string().nullable(),
+  country: z.string(),
+});
 
 const orderId = z.string().min(1).max(64).describe("Order id (ord_…)");
+
+/** A promo code a buyer typed (ADR 0693): a word, never an amount. */
+export const codeSchema = z
+  .string()
+  .trim()
+  .min(1)
+  .max(CODE_MAX_LENGTH)
+  .describe(
+    "A promo code the buyer typed. The host decides what it takes off, from the discount it " +
+      "names: the better for the buyer of it and any member's price applies. One answer for a " +
+      "code that does not apply, whatever the reason.",
+  );
+
+/** The one deal on an order (ADR 0693), as its buyer reads it. */
+export const dealSchema = z
+  .object({
+    kind: z
+      .enum(["code", "automatic"])
+      .describe("code: a promo code; automatic: e.g. a member's price"),
+    title: z.string().describe("The discount's name"),
+    amount: z.number().describe("What it takes off the order, in the currency's minor unit"),
+  })
+  .nullable()
+  .describe("The order's one deal: a promo code or a price that applied by itself; null: none");
+
+const toDeal = (deal: Deal | null): z.infer<typeof dealSchema> =>
+  deal ? { kind: deal.kind, title: deal.title, amount: deal.amount } : null;
+
+const codeAppliedSchema = z
+  .boolean()
+  .nullable()
+  .describe(
+    "Whether the code given is the deal: false when a better one applied instead (a member's " +
+      "price); null when no code was given",
+  );
 const when = z.string().nullable();
 
 const lineSchema = z.object({
@@ -365,6 +424,16 @@ export const orderStartInput = z.object({
         "signed-in customer's order uses their account's address and must not pass one.",
     ),
   agreements: guestAcceptancesSchema.optional(),
+  code: codeSchema.optional(),
+  delivery: deliveryRequestSchema
+    .optional()
+    .describe(
+      "How the goods get to the buyer, when the order has goods (records sold as goods): one " +
+        "delivery option (posted, collected, or taken now in person) and, to post, the address. " +
+        "Required with goods, refused without. The host prices it (free over an amount when " +
+        "the option says so) and works out from it whether the order is online or in person; " +
+        "each goods line must be sold there.",
+    ),
 });
 
 export const orderStart = defineOperation({
@@ -377,12 +446,21 @@ export const orderStart = defineOperation({
     "paid. An unpaid order expires after a few minutes. Nobody buys without the agreements the " +
     "business needs for what is bought: refused with rule agreements_due and the documents " +
     "while any is due (a guest passes their acceptances in `agreements`; a signed-in customer " +
-    "agrees first; staff send a link, sign at the desk or record paper). Returns the order with " +
-    "its lines and amounts in the currency's minor unit; a guest also gets `token`, shown once, " +
-    "which is the only way back to the order (order.view).",
+    "agrees first; staff send a link, sign at the desk or record paper). Goods (things posted, " +
+    "collected or taken now) need a `delivery`: the host adds it as the last line, priced by " +
+    "the host, and refuses goods not sold that way (rule not_sold_here), a post delivery with " +
+    "no address or one outside the option's countries, and what is sold out. order.quote gives " +
+    "the same prices without starting anything. Money off is the host's: a member's price " +
+    "applies by itself, and `code` is a promo code the buyer typed; the one that takes more off " +
+    "applies (rule code_not_valid, one answer whatever the reason, when the code does not). " +
+    "Returns the order with its lines and amounts " +
+    "in the currency's minor unit; a guest also gets `token`, shown once, which is the only way " +
+    "back to the order (order.view).",
   input: orderStartInput,
   output: orderSchema.extend({
     token: z.string().nullable().describe("A guest's key to this order. Null for everyone else."),
+    deal: dealSchema,
+    codeApplied: codeAppliedSchema,
   }),
   permission: "records:write",
   risk: "write",
@@ -390,7 +468,7 @@ export const orderStart = defineOperation({
   hostInternal: true,
   mcp: { expose: false },
   // What a visitor typed, drew and answered never reaches the audit log.
-  redact: ["agreements"],
+  redact: ["agreements", "address"],
   // Never the token: it is the guest's, and the audit log is read by staff.
   auditSummary: (output) => ({ id: output.id }),
   async handler(input, ctx) {
@@ -429,8 +507,310 @@ export const orderStart = defineOperation({
       pay: input.pay,
       accessHash: token ? await hashOrderToken(token) : null,
       agreements: input.agreements,
+      delivery: input.delivery,
+      code: input.code,
     });
-    return { ...fromRow(started.row, started.lines.map(toLine), isStaff(ctx)), token };
+    return {
+      ...fromRow(started.row, started.lines.map(toLine), isStaff(ctx)),
+      token,
+      deal: toDeal(started.deal),
+      codeApplied: started.codeApplied,
+    };
+  },
+});
+
+// --- A quote: the host's prices, holding nothing (ADR 0683) ------------------------------------
+
+const availabilitySchema = z
+  .object({
+    status: z.enum(["in_stock", "low", "sold_out"]),
+    available: z
+      .number()
+      .optional()
+      .describe("How many can be bought now: for staff, and for others when the item shows it"),
+    onHand: z.number().optional().describe("Staff only"),
+    held: z.number().optional().describe("Staff only"),
+  })
+  .describe("Stock, for a line of something counted on a shelf; null for anything else");
+
+const quoteProblemSchema = z.object({
+  rule: z.enum(["delivery_needed", "address_needed", "sold_out", "not_enough", "code_not_valid"]),
+  message: z.string(),
+  line: z.number().optional().describe("The position of the line it is about"),
+});
+
+export const orderQuote = defineOperation({
+  name: "order.quote",
+  description:
+    "Price a basket without starting an order: the host's price of each line, the delivery " +
+    "(its postage, nothing when the goods reach the option's free-over amount), the total and " +
+    "what is available, exactly as order.start would charge. Holds nothing and writes nothing: " +
+    "stock is held only once an order is started. Refuses what order.start refuses (not for " +
+    "sale, not sold that way, an address outside the option's countries) and reports, in " +
+    "`problems`, what the buyer still has to do (choose a delivery, give an address) and what " +
+    "is sold out or short; `ready` is true when none is left. Money off is worked out as " +
+    "order.start would: a member's price by itself, and `code` (the better of the two), without " +
+    "holding a use of it; a code that does not apply is reported as code_not_valid. Amounts are " +
+    "in the currency's minor unit. Read-only.",
+  input: z.object({
+    lines: orderStartInput.shape.lines.describe(
+      "What is in the basket. There is no price here: the host reads it from each record.",
+    ),
+    delivery: deliveryRequestSchema
+      .optional()
+      .describe(
+        "The delivery option chosen, and to post, the address (its country decides whether " +
+          "the option posts there). Left out, the quote says one is needed when there are goods.",
+      ),
+    code: codeSchema.optional(),
+  }),
+  output: z.object({
+    currency: z.string(),
+    channel: z
+      .enum(["online", "in_person"])
+      .nullable()
+      .describe(
+        "online (posted or collected) or in_person (taken now); null without goods or delivery",
+      ),
+    lines: z.array(
+      z.object({
+        position: z.number(),
+        object: z.string(),
+        recordId: z.string(),
+        title: z.string(),
+        quantity: z.number(),
+        unitPrice: z.number(),
+        total: z.number(),
+        discount: z.number().describe("The line's share of the deal: it costs total less this"),
+        goods: z.boolean().describe("Goods: posted, collected or taken now"),
+        availability: availabilitySchema.nullable(),
+      }),
+    ),
+    delivery: z
+      .object({
+        object: z.string(),
+        recordId: z.string(),
+        title: z.string(),
+        kind: z.enum(["post", "collect", "here"]),
+        price: z.number().describe("The option's own price"),
+        freeOver: z.number().nullable().describe("Goods at or above this post free"),
+        free: z.boolean(),
+        charged: z.number().describe("What the delivery costs on this order: 0 when free"),
+      })
+      .nullable(),
+    goodsTotal: z
+      .number()
+      .describe(
+        "What the goods cost, before the delivery and after the deal (free over counts it)",
+      ),
+    discount: z.number().describe("What the deal takes off"),
+    deal: dealSchema,
+    codeApplied: codeAppliedSchema,
+    total: z.number().describe("What order.start would charge for this basket"),
+    ready: z.boolean().describe("Nothing in `problems`: the order can be started as it is"),
+    problems: z.array(quoteProblemSchema),
+  }),
+  permission: "records:read",
+  risk: "read",
+  audiences: ["staff", "customer", "public"],
+  hostInternal: true,
+  mcp: { idempotent: true },
+  redact: ["address"],
+  async handler(input, ctx) {
+    const currency = await loadOrderCurrency(ctx.db);
+    if (!currency) {
+      throw new ConfigError("No currency is set for orders yet, so nothing can be sold");
+    }
+    // Whose basket it is, for who a discount is for: a signed-in customer's own Person; staff
+    // and guests are nobody proved (order.start, for a Person, may find more).
+    const caller = ctx.principal;
+    const outcome = await priceOrder(
+      ctx.db,
+      input.lines,
+      input.delivery,
+      currency,
+      ctx.now,
+      callerOf(ctx),
+      "quote",
+      {
+        code: input.code,
+        dealBuyer:
+          caller.kind === "customer"
+            ? { personId: caller.personId, placedAs: "customer" }
+            : { personId: null, placedAs: caller.kind === "staff" ? "staff" : "public" },
+      },
+    );
+    const deliveryLine = outcome.delivery?.line;
+    const things = outcome.lines.filter((line) => line !== deliveryLine && !line.delivery);
+    // Stock, read once for every counted line: what an order would hold now. Nothing is held.
+    const counted = things.filter((line) => getObject(line.object)?.stock);
+    const counters = counted.length
+      ? await ctx.db
+          .selectFrom("core_capacity")
+          .select(["object_type", "record_id", "places", "held", "taken"])
+          .where(
+            "record_id",
+            "in",
+            counted.map((line) => line.recordId),
+          )
+          .execute()
+      : [];
+    const problems: z.infer<typeof quoteProblemSchema>[] = [...outcome.problems];
+    const staff = isStaff(ctx);
+    const lines = things.map((line) => {
+      const object = getObject(line.object);
+      let availability: z.infer<typeof availabilitySchema> | null = null;
+      if (object?.stock) {
+        const row = counters.find(
+          (c) => c.object_type === line.object && c.record_id === line.recordId,
+        );
+        const onHand = Number(row?.places ?? 0) - Number(row?.taken ?? 0);
+        const held = Number(row?.held ?? 0);
+        const available = Math.max(onHand - held, 0);
+        const withStock = object as ObjectDefinition & { stock: StockDefinition };
+        const view = staff
+          ? { status: stockStatus(withStock.stock, available), available, onHand, held }
+          : outsideStockView(withStock, line.recordId, available);
+        availability = {
+          status: view.status,
+          ...(view.available !== undefined ? { available: view.available } : {}),
+          ...(staff ? { onHand, held } : {}),
+        };
+        if (available <= 0) {
+          problems.push({
+            rule: "sold_out",
+            message: `${line.title} is sold out`,
+            line: line.position,
+          });
+        } else if (line.quantity > available && view.available !== undefined) {
+          // Only a caller who is shown the count is told a quantity is too many: for anyone
+          // else each answer would narrow the count down (ADR 0683). order.start still
+          // refuses at the database.
+          problems.push({
+            rule: "not_enough",
+            message: `Only ${available} of ${line.title} left`,
+            line: line.position,
+          });
+        }
+      }
+      return {
+        position: line.position,
+        object: line.object,
+        recordId: line.recordId,
+        title: line.title,
+        quantity: line.quantity,
+        unitPrice: line.unitPrice,
+        total: line.total,
+        discount: line.discount,
+        goods: Boolean(line.goods),
+        availability,
+      };
+    });
+    // The same seam as order.start: the deal is already off (ADR 0693).
+    const adjusted = outcome.adjusted;
+    const delivery = outcome.delivery;
+    return {
+      currency,
+      channel: outcome.channel,
+      lines,
+      delivery: delivery
+        ? {
+            object: delivery.line.object,
+            recordId: delivery.line.recordId,
+            title: delivery.line.title,
+            kind: delivery.kind,
+            price: delivery.price,
+            freeOver: delivery.freeOver,
+            free: delivery.free,
+            charged: delivery.line.total,
+          }
+        : null,
+      goodsTotal: outcome.goodsTotal,
+      discount: adjusted.discount,
+      deal: toDeal(outcome.deal),
+      codeApplied: outcome.code.given && outcome.code.valid ? outcome.code.applied : null,
+      total: adjusted.total,
+      ready: problems.length === 0 && adjusted.total > 0,
+      problems,
+    };
+  },
+});
+
+// --- An order's delivery and its address (ADR 0682) --------------------------------------------
+
+export const orderDeliveryGet = defineOperation({
+  name: "order.delivery.get",
+  description:
+    "How one order's goods get to the buyer: the delivery option chosen, its kind (post, " +
+    "collect, or here: taken now in person), whether the order is online or in person, and " +
+    "for a post delivery the address. One order at a time: addresses are in no list, view, " +
+    "export or search. Staff read any order's (each read is on record in the audit log); a " +
+    "signed-in customer their own; a guest with the order's token. An order without goods " +
+    "has none (not found). Read-only.",
+  input: z.object({
+    id: orderId,
+    token: z.string().min(1).max(128).optional().describe("A guest's token for the order"),
+  }),
+  output: z.object({
+    orderId: z.string(),
+    channel: z.enum(["online", "in_person"]).nullable(),
+    kind: z.enum(["post", "collect", "here"]),
+    lineId: z.string().describe("The order's delivery line"),
+    option: z.object({ object: z.string(), recordId: z.string(), title: z.string() }),
+    address: deliveryAddressOutput.nullable().describe("A post delivery's; null otherwise"),
+    erased: z.boolean().describe("The buyer's erase removed the address"),
+  }),
+  permission: "records:read",
+  risk: "read",
+  audiences: ["staff", "customer", "public"],
+  hostInternal: true,
+  // An address is a person's, read one order at a time by a person or the buyer.
+  mcp: { expose: false },
+  auditReads: true,
+  redact: ["token"],
+  auditSummary: (output) => ({ id: output.orderId, kind: output.kind }),
+  redactResult: ["address"],
+  async handler(input, ctx) {
+    const row = await orderForPaying(ctx, input.id, input.token);
+    const delivery = await ctx.db
+      .selectFrom("core_order_delivery")
+      .select([
+        "kind",
+        "line_id",
+        "name",
+        "line1",
+        "line2",
+        "city",
+        "region",
+        "postcode",
+        "country",
+        "erased_at",
+      ])
+      .where("order_id", "=", row.id)
+      .executeTakeFirst();
+    if (!delivery) throw new NotFoundError("order delivery", row.id);
+    const line = (await linesOf(ctx, row.id)).find((l) => l.id === delivery.line_id);
+    if (!line) throw new NotFoundError("order delivery", row.id);
+    return {
+      orderId: row.id,
+      channel: row.channel ?? null,
+      kind: delivery.kind,
+      lineId: delivery.line_id,
+      option: { object: line.object, recordId: line.recordId, title: line.title },
+      address:
+        delivery.kind === "post" && delivery.erased_at === null && delivery.country
+          ? {
+              name: delivery.name ?? "",
+              line1: delivery.line1 ?? "",
+              line2: delivery.line2,
+              city: delivery.city,
+              region: delivery.region,
+              postcode: delivery.postcode,
+              country: delivery.country,
+            }
+          : null,
+      erased: delivery.erased_at !== null,
+    };
   },
 });
 
@@ -1286,6 +1666,85 @@ export const orderUnadjust = defineOperation({
   },
 });
 
+// --- Promo codes on a pending order (stage 34 step 4, ADR 0693) -------------------------------
+
+const codeOutput = orderSchema.extend({ deal: dealSchema, codeApplied: codeAppliedSchema });
+
+/** The order as a change of its code leaves it: its lines' shares are not written yet. */
+async function withCode(
+  ctx: HandlerContext,
+  result: Awaited<ReturnType<typeof changeOrderCode>>,
+): Promise<z.infer<typeof codeOutput>> {
+  const lines = await linesOf(ctx, result.order.id);
+  return {
+    ...fromRow(
+      result.order,
+      lines.map((line) => {
+        const now = result.lines.get(line.id);
+        return now ? { ...line, ...now } : line;
+      }),
+      isStaff(ctx),
+    ),
+    deal: toDeal(result.deal),
+    codeApplied: result.codeApplied,
+  };
+}
+
+export const orderApplyCode = defineOperation({
+  name: "order.applyCode",
+  description:
+    "Put a promo code on a pending order whose payment page has not opened. The host works out " +
+    "what it takes off from the discount it names, for the order's own buyer and lines: the " +
+    "better for the buyer of the code and any price that applies by itself (a member's) is the " +
+    "deal, and only one deal is on an order (a staff discount may be added on top). A code that " +
+    "does not apply is refused with one answer, rule code_not_valid, whatever the reason " +
+    "(unknown, ended, used up, not for this buyer or these items), and nothing changes. A code " +
+    "never makes an order free. A signed-in customer changes their own orders; a guest passes " +
+    "the order's token. Returns the order, its deal and whether the code is it.",
+  input: z.object({
+    id: orderId,
+    token: z.string().min(1).max(128).optional().describe("A guest's token for the order"),
+    code: codeSchema,
+  }),
+  output: codeOutput,
+  permission: "records:write",
+  risk: "write",
+  audiences: ["staff", "customer", "public"],
+  hostInternal: true,
+  mcp: { expose: false },
+  redact: ["token"],
+  auditSummary: (output) => ({ id: output.id, total: output.total, deal: output.deal?.kind }),
+  async handler(input, ctx) {
+    const row = await orderForPaying(ctx, input.id, input.token);
+    return withCode(ctx, await changeOrderCode(ctx, row.id, input.code));
+  },
+});
+
+export const orderRemoveCode = defineOperation({
+  name: "order.removeCode",
+  description:
+    "Take the promo code off a pending order whose payment page has not opened: the order is " +
+    "priced again without it (a price that applies by itself, such as a member's, still does). " +
+    "Refused (rule no_code) when the order has no code. A signed-in customer changes their own " +
+    "orders; a guest passes the order's token. Returns the order and its deal.",
+  input: z.object({
+    id: orderId,
+    token: z.string().min(1).max(128).optional().describe("A guest's token for the order"),
+  }),
+  output: codeOutput,
+  permission: "records:write",
+  risk: "write",
+  audiences: ["staff", "customer", "public"],
+  hostInternal: true,
+  mcp: { expose: false },
+  redact: ["token"],
+  auditSummary: (output) => ({ id: output.id, total: output.total }),
+  async handler(input, ctx) {
+    const row = await orderForPaying(ctx, input.id, input.token);
+    return withCode(ctx, await changeOrderCode(ctx, row.id, null));
+  },
+});
+
 // --- Settings ----------------------------------------------------------------------------------
 
 const orderSettings = z.object({
@@ -1313,6 +1772,13 @@ const orderSettings = z.object({
     "How much staff may take off one order on their own (order.adjust). Above it, a discount " +
       "waits for an admin. Nothing (0) until a human admin sets it.",
   ),
+  minCharge: z
+    .number()
+    .describe(
+      "The smallest amount an order can be charged, in minor units (0.50 by default): a " +
+        "discount that would leave an order with something to pay but less than this does not " +
+        "apply. It stands in for the payment provider's own minimum.",
+    ),
   recordedPaymentNotice: z
     .number()
     .describe(
@@ -1331,6 +1797,7 @@ async function loadSettings(ctx: HandlerContext) {
     taxCodes: await loadOrderTaxCodes(ctx.db),
     discountLimit: await loadDiscountLimit(ctx.db),
     recordedPaymentNotice: await loadRecordedPaymentNotice(ctx.db),
+    minCharge: await loadMinCharge(ctx.db),
   };
 }
 
@@ -1381,7 +1848,8 @@ export const orderSettingsUpdate = defineOperation({
     "lasts, the least part payment, the sites a buyer may come back to after paying, whether " +
     "the payment provider calculates tax at checkout, the product tax code of an object for " +
     "sale, how much staff may take off an order on their own, or above what a payment recorded " +
-    "by hand tells admins. Only what you pass changes. Orders already started keep the currency they were " +
+    "by hand tells admins, or the smallest amount an order can be charged after a discount. " +
+    "Only what you pass changes. Orders already started keep the currency they were " +
     "started in; turning tax on or off changes only payments made from then on. Admins only, " +
     "and only a human can call it: AI assistants, MCP clients, automations and extensions are " +
     "refused.",
@@ -1414,6 +1882,11 @@ export const orderSettingsUpdate = defineOperation({
         "How much staff may take off one order without an admin's approval: at most this " +
           "percentage of the order and at most this amount (minor units), both at once.",
       ),
+    minCharge: minChargeSchema
+      .optional()
+      .describe(
+        "The smallest amount an order can be charged (minor units): a discount leaving less does not apply",
+      ),
     recordedPaymentNotice: recordedPaymentNoticeSchema
       .optional()
       .describe("Tell admins of a payment recorded by hand for more than this (minor units)"),
@@ -1426,7 +1899,7 @@ export const orderSettingsUpdate = defineOperation({
   async handler(input, ctx) {
     if (Object.values(input).every((value) => value === undefined)) {
       throw new ValidationError(
-        "Pass currency, expiryMinutes, minPartPayment, returnOrigins, tax, taxCodes, discountLimit or recordedPaymentNotice",
+        "Pass currency, expiryMinutes, minPartPayment, returnOrigins, tax, taxCodes, discountLimit, recordedPaymentNotice or minCharge",
       );
     }
     for (const object of Object.keys(input.taxCodes ?? {})) {
@@ -1449,6 +1922,7 @@ export const orderSettingsUpdate = defineOperation({
       taxCodes: input.taxCodes ?? previous.taxCodes,
       discountLimit: input.discountLimit ?? previous.discountLimit,
       recordedPaymentNotice: input.recordedPaymentNotice ?? previous.recordedPaymentNotice,
+      minCharge: input.minCharge ?? previous.minCharge,
     };
     const store = (key: string, field: keyof typeof next) => {
       const value = JSON.stringify(next[field]);
@@ -1475,6 +1949,7 @@ export const orderSettingsUpdate = defineOperation({
     if (input.tax !== undefined) store(ORDER_TAX_SETTING, "tax");
     if (input.taxCodes !== undefined) store(ORDER_TAX_CODES_SETTING, "taxCodes");
     if (input.discountLimit !== undefined) store(ORDER_DISCOUNT_LIMIT_SETTING, "discountLimit");
+    if (input.minCharge !== undefined) store(ORDER_MIN_CHARGE_SETTING, "minCharge");
     if (input.recordedPaymentNotice !== undefined) {
       store(ORDER_RECORDED_NOTICE_SETTING, "recordedPaymentNotice");
     }
@@ -1495,8 +1970,9 @@ export const orderStartHeld = defineOperation({
     "or with forPersonId a child staff linked to them. A guest gives their email address and is " +
     "matched to no one until the payment is verified (the answer is the same whatever it matches). The " +
     "record's own rules apply as for the caller's own booking (when booking opens and closes, " +
-    "booked by staff only, places left, one per person). Returns the order; a guest also gets " +
-    "`token`, shown once.",
+    "booked by staff only, places left, one per person). A member's price applies by itself, and " +
+    "`code` is a promo code the buyer typed (the better of the two). Returns the order; a guest " +
+    "also gets `token`, shown once.",
   input: z.object({
     object: z
       .string()
@@ -1520,10 +1996,13 @@ export const orderStartHeld = defineOperation({
       .optional()
       .describe("The buyer's address: required for a guest; a signed-in customer passes none"),
     agreements: guestAcceptancesSchema.optional(),
+    code: codeSchema.optional(),
   }),
   output: orderSchema.extend({
     recordId: z.string().describe("The record made and held for the order"),
     token: z.string().nullable().describe("A guest's key to this order. Null for everyone else."),
+    deal: dealSchema,
+    codeApplied: codeAppliedSchema,
   }),
   permission: "records:write",
   risk: "write",
@@ -1539,6 +2018,8 @@ export const orderStartHeld = defineOperation({
       ...fromRow(started.row, started.lines.map(toLine), isStaff(ctx)),
       recordId: started.recordId,
       token: started.token,
+      deal: toDeal(started.deal),
+      codeApplied: started.codeApplied,
     };
   },
 });
@@ -1593,6 +2074,8 @@ export const orderRefundDue = defineOperation({
 
 export const orderOperations = [
   orderStart,
+  orderQuote,
+  orderDeliveryGet,
   orderStartHeld,
   orderRefundDue,
   orderReleaseUnsettled,
@@ -1615,6 +2098,8 @@ export const orderOperations = [
   orderRecordRefund,
   orderAdjust,
   orderUnadjust,
+  orderApplyCode,
+  orderRemoveCode,
   orderSettingsGet,
   orderSettingsUpdate,
 ] as const;

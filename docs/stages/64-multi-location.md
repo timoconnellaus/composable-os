@@ -36,7 +36,7 @@ as best practice without asking, below). Build may start.
 
 ## Status
 
-- **Step 1, `core_location`, its operations, the main location and the public reads**
+- **Step 1** — built — PR #416 — `core_location`, its operations, the main location and the public reads
   (`feat/stage-64-locations`; migration 1390, ADRs 0910 and 0916, which amend ADRs 0001 and 0610):
   the base record `location` (`fields/location.ts`, in the registry's base objects; `core_location`
   and `rec_location`), with name (unique whatever the case), short name, address, zone, public,
@@ -49,6 +49,28 @@ as best practice without asking, below). Build may start.
   of a public open location, through `public.list` and `public.get` from a pack's tool; no new
   open operation). Not yet: the coverage choices in `location.create` (step 4), a closed location
   refusing new classes (step 2), what a pack-role account reads of locations (step 5), screens.
+
+- **Step 2** — not built — needs: step 1 — `located`, `agree`, the reconciler fill, the located zone
+  default.
+
+- **Step 3** — not built — needs: step 2 — Zone readers made location-aware; `core_staff_hours.location`
+  (1393); the dashboard filter and day.
+
+- **Step 4** — not built — needs: step 2 — Bookings and Memberships: fields, copies, `covers` and the
+  coverage step in `location.create`, `SPENDS_ON`, the price chain, `core_order.location` (1392),
+  emails, dashboards.
+
+- **Step 5** — not built — needs: step 2 — Staff limits: `core_user_location` (1391), `user.locations.*`,
+  the limit beside "today", the registry-wide test.
+
+- **Step 6** — not built — needs: step 5 — Rostering: duty series and duty shifts located, the grid
+  filter, offers and notices by location, the warning.
+
+- **Step 7** — not built — needs: step 4, step 6, stage 47, stage 48 — Screens and blocks: Settings →
+  Locations with coverage, Works at, the switcher, the picker, My account sections, native.
+
+- **Step 8** — not built — needs: step 1, step 2, step 3, step 4, step 5, step 6, step 7 — Docs and the
+  site: `CONTEXT.md`, `docs/architecture.md`, `apps/marketing` and `SITE.md` (last).
 
 ## Goal
 

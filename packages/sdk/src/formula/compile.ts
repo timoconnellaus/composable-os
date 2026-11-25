@@ -21,6 +21,16 @@ export type FormulaFieldRef =
   /** Another formula field, compiled on demand (cycles are reported). */
   | { expression: string };
 
+/**
+ * The host's read-only published values a formula of a publishable object's own fields may read
+ * (ADR 0706): when the current version went live, and its number. Columns of the object's rec_*
+ * view, empty while it is not published.
+ */
+export const PUBLISHED_FORMULA_FIELDS = {
+  publishedAt: { type: "datetime", sql: '"_pub_at"' },
+  publishedVersion: { type: "number", sql: '"_pub_version"' },
+} as const satisfies Record<string, FormulaFieldRef>;
+
 export interface FormulaEnvironment {
   /** Fields of the same record, by name. Names are case-sensitive. */
   fields: Record<string, FormulaFieldRef>;

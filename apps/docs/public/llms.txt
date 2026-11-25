@@ -12,7 +12,7 @@
 
 - [Approvals and AI](https://docs.composableos.dev/guides/approvals-and-ai/): The approval pipeline, the policy adjudicator, model roles, and what an AI may and may not do.
 - [Architecture](https://docs.composableos.dev/guides/architecture/): The host, operations, data, extensions, gatekeepers and the release, in one page.
-- [Audiences and the visibility seam](https://docs.composableos.dev/guides/audiences-and-visibility/): Who may call an operation (staff, customers, the public) and how the host limits what each one sees.
+- [Audiences and the visibility seam](https://docs.composableos.dev/guides/audiences-and-visibility/): Who may call an operation (staff, customers, the public, practitioners) and how the host limits what each one sees.
 - [Client apps and blocks](https://docs.composableos.dev/guides/client-apps-and-blocks/): A company's own web and mobile apps, the typed client, and blocks copied with cos add.
 - [Deploying](https://docs.composableos.dev/guides/deploying/): Installing a product, a company's own repository and cos deploy, upgrades and rollback.
 - [Extensions and packs](https://docs.composableos.dev/guides/extensions/): What an extension declares, how a pack is made, and how both are checked.
@@ -21,7 +21,7 @@
 
 - [Bookings: data model](https://docs.composableos.dev/packs/bookings/data-model/)
 - [Bookings: decisions](https://docs.composableos.dev/packs/bookings/decisions/)
-- [Bookings](https://docs.composableos.dev/packs/bookings/): A gym's or studio's timetable and the bookings members make on it, with places, waitlists, spending a membership's uses, attendance and drop-ins.
+- [Bookings](https://docs.composableos.dev/packs/bookings/): A gym's or studio's timetable and the bookings members make on it, with places, waitlists, spending a membership's uses, attendance and drop-ins; and one-to-one appointments staff book.
 - [Bookings: messages](https://docs.composableos.dev/packs/bookings/messages/)
 - [Bookings: permissions and roles](https://docs.composableos.dev/packs/bookings/permissions/)
 - [Bookings: screens](https://docs.composableos.dev/packs/bookings/screens/)
@@ -68,6 +68,14 @@
 - [Forms: settings](https://docs.composableos.dev/packs/forms/settings/)
 - [Forms: operations and tools](https://docs.composableos.dev/packs/forms/tools/)
 - [Packs](https://docs.composableos.dev/packs/)
+- [Knowledge: data model](https://docs.composableos.dev/packs/knowledge/data-model/)
+- [Knowledge: decisions](https://docs.composableos.dev/packs/knowledge/decisions/)
+- [Knowledge](https://docs.composableos.dev/packs/knowledge/): Staff procedures read in their published wording and confirmed as read and understood, with a review reminder, and help pages for customers on the business's website.
+- [Knowledge: messages](https://docs.composableos.dev/packs/knowledge/messages/)
+- [Knowledge: permissions and roles](https://docs.composableos.dev/packs/knowledge/permissions/)
+- [Knowledge: screens](https://docs.composableos.dev/packs/knowledge/screens/)
+- [Knowledge: settings](https://docs.composableos.dev/packs/knowledge/settings/)
+- [Knowledge: operations and tools](https://docs.composableos.dev/packs/knowledge/tools/)
 - [Leads: data model](https://docs.composableos.dev/packs/leads/data-model/)
 - [Leads: decisions](https://docs.composableos.dev/packs/leads/decisions/)
 - [Leads](https://docs.composableos.dev/packs/leads/): Inbound interest linked to a person and an organisation, worked from a leads inbox, qualified or disqualified, and converted into deals. Requires Deals.
@@ -86,7 +94,7 @@
 - [Lifecycle stage: operations and tools](https://docs.composableos.dev/packs/lifecycle/tools/)
 - [Memberships: data model](https://docs.composableos.dev/packs/memberships/data-model/)
 - [Memberships: decisions](https://docs.composableos.dev/packs/memberships/decisions/)
-- [Memberships](https://docs.composableos.dev/packs/memberships/): Membership plans paid every month and class passes bought once, with what each allows and what a member has left.
+- [Memberships](https://docs.composableos.dev/packs/memberships/): What a gym sells its members, membership plans paid every month and passes bought once, and the classes and one-to-one sessions each pays for.
 - [Memberships: messages](https://docs.composableos.dev/packs/memberships/messages/)
 - [Memberships: permissions and roles](https://docs.composableos.dev/packs/memberships/permissions/)
 - [Memberships: screens](https://docs.composableos.dev/packs/memberships/screens/)
@@ -108,6 +116,14 @@
 - [Rostering: screens](https://docs.composableos.dev/packs/rostering/screens/)
 - [Rostering: settings](https://docs.composableos.dev/packs/rostering/settings/)
 - [Rostering: operations and tools](https://docs.composableos.dev/packs/rostering/tools/)
+- [Shop: data model](https://docs.composableos.dev/packs/shop/data-model/)
+- [Shop: decisions](https://docs.composableos.dev/packs/shop/decisions/)
+- [Shop](https://docs.composableos.dev/packs/shop/): One list of what a business sells, in its versions, sold online, in person or both, with stock the host keeps, ways to get an order to its buyer, and the shipments staff pack and send.
+- [Shop: messages](https://docs.composableos.dev/packs/shop/messages/)
+- [Shop: permissions and roles](https://docs.composableos.dev/packs/shop/permissions/)
+- [Shop: screens](https://docs.composableos.dev/packs/shop/screens/)
+- [Shop: settings](https://docs.composableos.dev/packs/shop/settings/)
+- [Shop: operations and tools](https://docs.composableos.dev/packs/shop/tools/)
 - [Ticketing: data model](https://docs.composableos.dev/packs/ticketing/data-model/)
 - [Ticketing: decisions](https://docs.composableos.dev/packs/ticketing/decisions/)
 - [Ticketing](https://docs.composableos.dev/packs/ticketing/): Events, ticket types for sale and the tickets a paid order grants, with check-in at the door. Buyers are people; tickets are theirs to see.
@@ -186,6 +202,7 @@
 - [memberships-passes](https://docs.composableos.dev/reference/blocks/memberships-passes/): Buying a pass on a gym's site (stage 32b): the pass types on sale (class packs, drop-ins, an intro offer) with the host's price, what each gives and how long it is valid, and a button that starts the order and opens the payment provider's page.
 - [memberships-plans](https://docs.composableos.dev/reference/blocks/memberships-plans/): Joining a gym on its site (stage 32b): the membership plans on sale with the host's price per month, what each allows and its trial, and a button that opens the payment provider's page.
 - [memberships-staff-holdings](https://docs.composableos.dev/reference/blocks/memberships-staff-holdings/): For staff (stage 32b): one person's memberships and passes, with what each allows and what is left, as the host counts it; giving a pass by hand or voiding one given by hand, with a reason; and pausing their membership for a set time or ending a pause (stage 32b, decision 10: the host holds the plan's shortest and longest pause and asks the provider; the membership shows paused once the provider confirms).
+- [native-account-contact](https://docs.composableos.dev/reference/blocks/native-account-contact/): Contact preferences (stage 30, ADR 0675), for the mobile app: each kind of message the signed-in customer may get, on each channel it goes by, and the same for each child they act for.
 - [native-account-details](https://docs.composableos.dev/reference/blocks/native-account-details/): Your details (stage 48), for the mobile app: the signed-in customer's name and phone, to change, and the address they sign in with.
 - [native-account-devices](https://docs.composableos.dev/reference/blocks/native-account-devices/): Sign-in and devices (stage 48), for the mobile app: every place the signed-in customer is signed in, when each began and was last used, and signing one out.
 - [native-account-family](https://docs.composableos.dev/reference/blocks/native-account-family/): Family (stage 48), for the mobile app: who the signed-in customer acts for and who acts for them.
@@ -242,6 +259,7 @@
 - [ui-input](https://docs.composableos.dev/reference/blocks/ui-input/)
 - [ui-label](https://docs.composableos.dev/reference/blocks/ui-label/)
 - [ui-utils](https://docs.composableos.dev/reference/blocks/ui-utils/)
+- [web-account-contact](https://docs.composableos.dev/reference/blocks/web-account-contact/): Contact preferences (stage 30, ADR 0675), for the web: each kind of message the signed-in customer may get, on each channel it goes by, and the same for each child they act for.
 - [web-account-details](https://docs.composableos.dev/reference/blocks/web-account-details/): Your details (stage 48), for the web: the signed-in customer's name and phone, to change, and the address they sign in with.
 - [web-account-devices](https://docs.composableos.dev/reference/blocks/web-account-devices/): Sign-in and devices (stage 48), for the web: every place the signed-in customer is signed in (browsers and the app on their devices), when each began and was last used, and signing one out.
 - [web-account-family](https://docs.composableos.dev/reference/blocks/web-account-family/): Family (stage 48), for the web: who the signed-in customer acts for (a child linked to them) and who acts for them (a parent or guardian).
@@ -298,6 +316,7 @@
 - [code.* operations](https://docs.composableos.dev/reference/operations/code/): The core operations named code.*
 - [connectedApp.* operations](https://docs.composableos.dev/reference/operations/connectedapp/): The core operations named connectedApp.*
 - [connection.* operations](https://docs.composableos.dev/reference/operations/connection/): The core operations named connection.*
+- [contact.* operations](https://docs.composableos.dev/reference/operations/contact/): The core operations named contact.*
 - [content.* operations](https://docs.composableos.dev/reference/operations/content/): The core operations named content.*
 - [conversation.* operations](https://docs.composableos.dev/reference/operations/conversation/): The core operations named conversation.*
 - [customer.* operations](https://docs.composableos.dev/reference/operations/customer/): The core operations named customer.*
@@ -306,6 +325,7 @@
 - [device.* operations](https://docs.composableos.dev/reference/operations/device/): The core operations named device.*
 - [deviceSession.* operations](https://docs.composableos.dev/reference/operations/devicesession/): The core operations named deviceSession.*
 - [dictation.* operations](https://docs.composableos.dev/reference/operations/dictation/): The core operations named dictation.*
+- [discount.* operations](https://docs.composableos.dev/reference/operations/discount/): The core operations named discount.*
 - [duplicate.* operations](https://docs.composableos.dev/reference/operations/duplicate/): The core operations named duplicate.*
 - [enrichment.* operations](https://docs.composableos.dev/reference/operations/enrichment/): The core operations named enrichment.*
 - [eraseRequest.* operations](https://docs.composableos.dev/reference/operations/eraserequest/): The core operations named eraseRequest.*
@@ -342,6 +362,7 @@
 - [personCode.* operations](https://docs.composableos.dev/reference/operations/personcode/): The core operations named personCode.*
 - [plan.* operations](https://docs.composableos.dev/reference/operations/plan/): The core operations named plan.*
 - [policy.* operations](https://docs.composableos.dev/reference/operations/policy/): The core operations named policy.*
+- [practitioner.* operations](https://docs.composableos.dev/reference/operations/practitioner/): The core operations named practitioner.*
 - [public.* operations](https://docs.composableos.dev/reference/operations/public/): The core operations named public.*
 - [query.* operations](https://docs.composableos.dev/reference/operations/query/): The core operations named query.*
 - [quote.* operations](https://docs.composableos.dev/reference/operations/quote/): The core operations named quote.*

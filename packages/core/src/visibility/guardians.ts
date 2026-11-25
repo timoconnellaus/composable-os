@@ -240,3 +240,42 @@ export async function sharedEmailWarning(
     "the child's: give the child their own address or none."
   );
 }
+
+/**
+ * Whether `personId` is a live dependant of anyone (a child, for consent to be contacted: news
+ * and offers never go to them, ADR 0675). One statement.
+ */
+export async function hasLiveGuardian(
+  db: Kysely<CoreDatabase>,
+  personId: string,
+): Promise<boolean> {
+  const { rows } = await sql<{
+    one: number;
+  }>`SELECT 1 AS one FROM core_person_link l JOIN core_person g ON g.id = l.guardian_id AND g.deleted_at IS NULL WHERE l.dependant_id = ${personId} AND l.kind = ${GUARDIAN_LINK} AND l.ended_at IS NULL LIMIT 1`.execute(
+    db,
+  );
+  return rows.length > 0;
+}
+
+/**
+ * The live Person a host-made link names now (a stop link, ADR 0675): itself, or the Person it
+ * was merged into (followed a few hops); null for one erased, or in the Trash and not merged.
+ */
+export async function livePersonAfterMerges(
+  db: Kysely<CoreDatabase>,
+  personId: string,
+): Promise<string | null> {
+  let id = personId;
+  for (let hop = 0; hop < 5; hop += 1) {
+    const { rows } = await sql<{
+      deleted_at: string | null;
+      merged_into_id: string | null;
+    }>`SELECT deleted_at, merged_into_id FROM core_person WHERE id = ${id}`.execute(db);
+    const row = rows[0];
+    if (!row) return null;
+    if (row.deleted_at === null) return id;
+    if (!row.merged_into_id) return null;
+    id = row.merged_into_id;
+  }
+  return null;
+}

@@ -4,6 +4,7 @@
 // Registry entries are trusted code: `column`, `related.from`, `related.link` and
 // `related.column` are spliced into SQL as identifiers. They never come from user input, and
 // stage-3 extension fields must be generated from validated identifiers.
+import type { AcknowledgeNotices } from "@composable-os/sdk";
 
 export type FieldType =
   | "text"
@@ -143,6 +144,8 @@ export interface ObjectDefinition {
   stockMoves?: StockMovesDefinition;
   /** Extension objects: uses held (a pass) or spent (a booking) (stage 32b, ADR 0493). */
   allowance?: AllowanceDefinition;
+  /** Extension objects: records that are discounts, priced by the host (stage 34, ADR 0693). */
+  discount?: DiscountDefinition;
   /**
    * Extension objects: an agreement point (stage 44, ADR 0641), as declared (it names no field the
    * registry renames; `person` and `enter` are local names, read only from step 3 on).
@@ -274,7 +277,16 @@ export interface PublishableDefinition {
    * Read and understood (ADR 0702): `who`, the object's "must read" document field; `manage`, the
    * restricted, grantable permission whose holders (and admins) read who has confirmed.
    */
-  readonly acknowledge?: { readonly who: string; readonly manage: string };
+  readonly acknowledge?: {
+    readonly who: string;
+    readonly manage: string;
+    /** More fields guarded as `who` is (ADR 0706). */
+    readonly managed?: readonly string[];
+    /** A user field: who is told each week who has not confirmed (ADR 0706). */
+    readonly owner?: string;
+    /** The pack's words for the notices the host sends (ADR 0706). */
+    readonly notices?: AcknowledgeNotices;
+  };
   /**
    * Staff read (ADR 0701): every staff account, pack roles included, reads the current published
    * version's content and slug through `content.staffGet`, `content.staffList` and `content.search`.
@@ -287,14 +299,21 @@ export interface PublishableDefinition {
  * tests a select field of the record or, with `via` (a relation to one record), of the record it
  * points to. Stage 28's `publishable` adds being published as another condition.
  */
+/**
+ * One condition of a read declaration's `when` (ADRs 0438 and 0689): a state of the record, or
+ * with `via` of the record it points to; or `via` alone (public only), that the record it points
+ * to is one the public reads.
+ */
+export interface PublicCondition {
+  readonly via?: string | undefined;
+  readonly field?: string | undefined;
+  readonly in?: readonly string[] | undefined;
+}
+
 export interface PublicDeclaration {
   readonly read: readonly string[];
-  /** Left out, every live record is public. */
-  readonly when?: {
-    readonly via?: string | undefined;
-    readonly field: string;
-    readonly in: readonly string[];
-  };
+  /** Left out, every live record is public. A list: every condition holds (ADR 0689). */
+  readonly when?: PublicCondition | readonly PublicCondition[];
 }
 
 /**
@@ -338,10 +357,48 @@ export interface GuardiansDeclaration {
 
 /** One condition of a holder's `spendsOn` (the SDK's AllowanceCondition), validated. */
 export interface AllowanceConditionDefinition {
-  readonly field: string;
+  /** The spender's field compared, or `value`, a fixed word every record of it is (ADR 0764). */
+  readonly field?: string | undefined;
+  readonly value?: string | undefined;
   readonly in?: string | readonly string[] | undefined;
   readonly atLeast?: string | number | undefined;
   readonly below?: string | number | undefined;
+  /** `"none"`: an empty holder field for `in` allows nothing (ADR 0764). */
+  readonly empty?: "any" | "none" | undefined;
+}
+
+/**
+ * The discount behaviour as the host enforces it (the SDK's DiscountSpec, validated, ADR 0693):
+ * an object's own fields are named as declared; `codes.object` is the registry name of the object
+ * holding its codes.
+ */
+export interface DiscountDefinition {
+  readonly kind: string;
+  readonly percent?: string | undefined;
+  readonly amount?: string | undefined;
+  readonly live: readonly string[];
+  readonly automatic?: string | undefined;
+  readonly code?: string | undefined;
+  readonly codes?:
+    | {
+        readonly object: string;
+        readonly discount: string;
+        readonly word: string;
+        readonly uses?: string | undefined;
+        readonly active?: string | undefined;
+      }
+    | undefined;
+  readonly who?: string | undefined;
+  readonly plans?: string | undefined;
+  readonly organisations?: string | undefined;
+  readonly tag?: string | undefined;
+  readonly objects?: string | undefined;
+  readonly records?: readonly string[] | undefined;
+  readonly from?: string | undefined;
+  readonly until?: string | undefined;
+  readonly totalUses?: string | undefined;
+  readonly perPerson?: string | undefined;
+  readonly minSpend?: string | undefined;
 }
 
 /**
@@ -380,7 +437,16 @@ export type AllowanceDefinition =
         readonly minute?: string | undefined;
         readonly zone?: string | undefined;
       };
-      readonly movedFrom?: { readonly field: string; readonly state: string } | undefined;
+      readonly movedFrom?:
+        | {
+            readonly field: string;
+            readonly state: string;
+            /** Fields changed only by a move, never by an update (ADR 0764). */
+            readonly fixed?: readonly string[] | undefined;
+            /** The moment its windows count from, kept from the record it moved (ADR 0764). */
+            readonly anchor?: { readonly field: string; readonly from: string } | undefined;
+          }
+        | undefined;
       /** Holders of other extensions that may pay for it (objects or extension ids). */
       readonly paidBy: readonly string[];
       /** A boolean field: while true, entering a spend state spends nothing (ADR 0506). */
@@ -475,6 +541,17 @@ export interface SellableDefinition {
     earned: "at_sale" | "over_period" | "per_use" | "at_date";
     at?: string | undefined;
   };
+  /** Goods (ADR 0682): `soldIn` a path to a select of online, in_person, both, as declared. */
+  goods?: { soldIn?: string | undefined } | undefined;
+  /** A delivery option (ADR 0682): its kind, free over, countries and active fields. */
+  delivery?:
+    | {
+        kind: string;
+        freeOver?: string | undefined;
+        countries?: string | undefined;
+        active?: string | undefined;
+      }
+    | undefined;
 }
 
 /** What an order does to the record it was started for (ADR 0560), with registry names. */
@@ -582,6 +659,8 @@ export interface StatesDefinition {
         staffOnly?: string | readonly string[] | undefined;
         /** While any is true nobody but the host creates one (ADR 0507). */
         closed?: string | readonly string[] | undefined;
+        /** Fields every create gives a value, emptied later only by erase (ADR 0764). */
+        requires?: readonly string[] | undefined;
       }
     | undefined;
   /** Moves asked for by name, resolved by the host (ADR 0503). */
@@ -602,6 +681,8 @@ export interface StatesDefinition {
         at: string;
         minutesAfter?: number | undefined;
         ifAnyIn?: readonly string[] | undefined;
+        /** Only while each of these fields has a value (ADR 0764). */
+        ifSet?: readonly string[] | undefined;
       }[]
     | undefined;
 }

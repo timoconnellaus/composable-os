@@ -86,6 +86,8 @@ export * from "./capacity/claimants.ts";
 export * from "./capacity/holds.ts";
 export * from "./capacity/index.ts";
 export * from "./capacity/records.ts";
+// Consent to be contacted (stage 30 step 5, ADR 0675): the seam Journeys, the inbox and Reviews use.
+export * from "./contact/index.ts";
 export {
   CONTENT_CACHE_SECONDS,
   type ContentCacheStore,
@@ -120,6 +122,7 @@ export {
   ROTATE_MS,
 } from "./devices/devices.ts";
 export * from "./diff.ts";
+export * from "./discounts/index.ts";
 export { runDuplicateCron } from "./duplicates/cron.ts";
 export * from "./duplicates/normalise.ts";
 export * from "./duplicates/rules.ts";
@@ -149,6 +152,7 @@ export * from "./filter.ts";
 export * from "./gate.ts";
 export * from "./http/index.ts";
 export * from "./ids.ts";
+export * from "./intake/links.ts";
 export * from "./intake/runtime.ts";
 export * from "./integrations/catalogue.ts";
 export * from "./integrations/events.ts";
@@ -201,6 +205,7 @@ export * from "./notifications/send.ts";
 export * from "./notifications/types.ts";
 export * from "./operation.ts";
 export * from "./operations/a2ui.ts";
+export { runAckDue } from "./operations/ack.ts";
 export * from "./operations/activity.ts";
 export * from "./operations/adjudicator.ts";
 export * from "./operations/affiliation.ts";
@@ -306,6 +311,7 @@ export {
   readCountHour,
   redactInput,
 } from "./pipeline.ts";
+export * from "./practitioners/accounts.ts";
 export * from "./principals.ts";
 export { runTrashPurge, type TrashPurgeOptions } from "./purge.ts";
 export * from "./rate-limit.ts";

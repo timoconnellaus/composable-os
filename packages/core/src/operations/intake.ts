@@ -14,11 +14,21 @@ import { z } from "zod";
 import { ConflictError, NotFoundError } from "../errors.ts";
 import { formIdBySlug, openForm } from "../intake/forms.ts";
 import { NO_INTAKE_RUNTIME } from "../intake/runtime.ts";
-import { askerOf, assertCalledByOwner, type RECEIVED, submitIntake } from "../intake/submit.ts";
+import {
+  askerOf,
+  assertCalledByOwner,
+  linkOfCall,
+  openLinkedForm,
+  type RECEIVED,
+  submitIntake,
+} from "../intake/submit.ts";
 import { defineOperation } from "../operation.ts";
 
 const objectName = z.string().min(1).max(81).describe("The form object, e.g. forms.form");
 const recordId = z.string().min(1).max(64);
+// A token's shape is checked by the host, with the same answer as a wrong one: only its length here.
+const linkToken = z.string().min(1).max(200);
+const linkId = z.string().min(1).max(64);
 
 export const intakeOpen = defineOperation({
   name: "intake.open",
@@ -29,16 +39,25 @@ export const intakeOpen = defineOperation({
     "a caller who is not signed in, `shown`: the host's token of when the form was shown, which " +
     "intake.submit needs to tell a person from a script. Give the form's id, or its address " +
     "(`slug`) when the form object has one: a link or a QR code names a form by its address. " +
-    "Read-only.",
+    "Or give a personal link (`link`, its token, or `linkId` for a signed-in customer's own): " +
+    "the form it is for, if it is live; one answer whatever is wrong with it, and opening it " +
+    "uses nothing. Read-only.",
   input: z
     .object({
       object: objectName,
       id: recordId.optional(),
       slug: z.string().min(1).max(200).optional().describe("The form's address, instead of id"),
+      link: linkToken.optional().describe("A personal link's token, instead of id (ADR 0723)"),
+      linkId: linkId
+        .optional()
+        .describe("A signed-in customer's own personal link, by its id, instead of id"),
     })
-    .refine((input) => (input.id === undefined) !== (input.slug === undefined), {
-      message: "Give the form's id or its slug, not both",
-    }),
+    .refine(
+      (input) =>
+        [input.id, input.slug, input.link, input.linkId].filter((v) => v !== undefined).length ===
+        1,
+      { message: "Give the form's id, its slug, a link or a link's id: one of them" },
+    ),
   output: z.object({
     id: z.string(),
     version: z.number(),
@@ -55,11 +74,17 @@ export const intakeOpen = defineOperation({
   toolOnly: true,
   hostInternal: true,
   mcp: { expose: false },
+  // A personal link's token is never written to the audit log.
+  redact: ["link"],
   async handler(input, ctx) {
     assertCalledByOwner(ctx, "intake.open", input.object);
     const asker = askerOf(ctx);
-    const form =
-      input.id !== undefined
+    // Opening a personal link reads it and uses nothing: a mail scanner that follows every link
+    // in an email spends none (ADR 0723). Nothing of the link's Person is in the answer.
+    const link = await linkOfCall(ctx, input, input.object);
+    const form = link
+      ? await openLinkedForm(ctx, link)
+      : input.id !== undefined
         ? await openForm(ctx, input.object, input.id, asker)
         : await openForm(
             ctx,
@@ -75,13 +100,14 @@ export const intakeOpen = defineOperation({
             throw error;
           });
     const runtime = ctx.intake ?? NO_INTAKE_RUNTIME;
+    const visitor = asker === "public" && !link;
     return {
       id: form.id,
       version: form.version,
       content: form.content,
       anonymous: form.anonymous,
-      turnstile: asker === "public",
-      shown: asker === "public" ? await runtime.signShown(form.id, ctx.now) : null,
+      turnstile: visitor,
+      shown: visitor ? await runtime.signShown(form.id, ctx.now) : null,
     };
   },
 });
@@ -96,7 +122,10 @@ export const intakeSubmit = defineOperation({
     "empty fields of a Person are filled), and any destination record the form names, in one " +
     "batch, and tells staff. Answers that break the version are refused naming the question's " +
     "key, never the value. A submission kept as spam, or dropped by the honeypot or the fill " +
-    "time, is answered exactly as a kept one: { received: true }.",
+    "time, is answered exactly as a kept one: { received: true }. With a personal link (`link` or " +
+    "`linkId`, ADR 0723) the answers are the link's Person's (certainty link), to the link's own " +
+    "form, once: a used, expired, unknown or wrong link is one refusal, and of two answers at " +
+    "once by one link the database keeps one.",
   input: z.object({
     object: objectName,
     id: recordId,
@@ -113,6 +142,15 @@ export const intakeSubmit = defineOperation({
     turnstileToken: z.string().max(4096).optional().describe("A visitor's Turnstile token"),
     shown: z.string().max(200).optional().describe("intake.open's shown token"),
     honeypot: z.string().max(1000).optional().describe("The hidden field a person leaves empty"),
+    link: linkToken
+      .optional()
+      .describe(
+        "A personal link's token (ADR 0723): the answers are the link's Person's, once; no " +
+          "Turnstile token or shown time is needed",
+      ),
+    linkId: linkId
+      .optional()
+      .describe("A signed-in customer's own personal link (or a child's), by its id"),
   }),
   output: z.object({ received: z.literal(true) }),
   permission: "records:write",
@@ -121,8 +159,8 @@ export const intakeSubmit = defineOperation({
   toolOnly: true,
   hostInternal: true,
   mcp: { expose: false },
-  // What a person answered never reaches the audit row's input; the token is redacted by name.
-  redact: ["answers", "honeypot", "shown"],
+  // What a person answered never reaches the audit row's input; the tokens are redacted by name.
+  redact: ["answers", "honeypot", "shown", "link"],
   // Only which questions were answered, never a value.
   auditSummary: (_output, input) => ({
     object: input.object,

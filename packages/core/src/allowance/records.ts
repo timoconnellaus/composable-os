@@ -500,10 +500,12 @@ function meets(
   spender: Values,
   holder: Values,
 ): boolean {
-  const value = spender[clause.field];
+  // A fixed word is what every record of the spender is (ADR 0764): "sessions", never a class.
+  const value = clause.field === undefined ? (clause.value ?? null) : spender[clause.field];
   if (clause.in !== undefined) {
     const limit = typeof clause.in === "string" ? holder[clause.in] : clause.in;
-    if (!present(limit)) return true;
+    // Empty allows anything, unless the declaration says it allows nothing (ADR 0764).
+    if (!present(limit)) return clause.empty !== "none";
     const allowed = (Array.isArray(limit) ? limit : [limit]).map(String);
     const given = Array.isArray(value) ? value.map(String) : present(value) ? [String(value)] : [];
     return given.some((v) => allowed.includes(v));
@@ -638,6 +640,8 @@ async function readSpender(
         related.set(rel, to ? await readValues(ctx, to, id) : undefined);
       }
     }
+    // `<relation>.id`: the related record's own id (ADR 0764), when it exists.
+    if (target === "id") return related.get(rel) ? id : null;
     return related.get(rel)?.[target] ?? null;
   };
   for (const [target, source] of Object.entries(def.copy)) {
@@ -844,6 +848,22 @@ export async function spenderWrite(
       { rule: "allowance", reason: "move_needs_target", field: object.states.field },
     );
   }
+  // What a record that moves by a new record keeps (ADR 0764): its fixed fields (an
+  // appointment's times and service) and its anchor change only by a move, for every caller but
+  // the host, so a session used by a late cancel never comes back by moving its time first.
+  if (before !== null && by !== "host" && def.movedFrom) {
+    const fixed = [
+      ...(def.movedFrom.fixed ?? []),
+      ...(def.movedFrom.anchor ? [def.movedFrom.anchor.field] : []),
+    ];
+    const changed = fixed.find((f) => changedIn(written, before, f));
+    if (changed) {
+      throw new ValidationError(
+        `${object.label} moves to another time only by making the new one in its place (naming it in ${def.movedFrom.field}): "${changed}" cannot be changed`,
+        { rule: "allowance", reason: "moves_only", field: changed },
+      );
+    }
+  }
   const entering = to !== undefined && def.spendIn.includes(to);
   const returning = to !== undefined && def.returnIn.includes(to);
   const { relations, ownAt } = sources(def);
@@ -897,6 +917,9 @@ export async function spenderWrite(
   let sourceMadeBy: unknown;
   const orderField = object.sellable?.moves?.order;
   let sourceOrder: unknown = null;
+  // The moment its windows count from (ADR 0764): its own, or the moved record's.
+  const anchor = def.movedFrom?.anchor;
+  let sourceAnchor: unknown = null;
   if (def.movedFrom && moving) {
     if (by === "customer") {
       throw new ValidationError(
@@ -923,6 +946,7 @@ export async function spenderWrite(
     // A drop-in's order moves with it (ADR 0560): what it paid for is now the new record, so a
     // later cancel of that one owes the refund, once, and the old one no longer does.
     if (orderField) sourceOrder = source[orderField] ?? null;
+    if (anchor) sourceAnchor = source[anchor.field] ?? source[anchor.from] ?? null;
     if (!sourceWaived && isWaived(after)) {
       // Moving a paid one into one paid another way would give its use back for nothing.
       throw new ValidationError(
@@ -942,6 +966,10 @@ export async function spenderWrite(
     ...(sourceWaived && def.waived ? { [def.waived]: true } : {}),
     ...(madeByField && moving ? { [madeByField]: sourceMadeBy ?? null } : {}),
     ...(orderField && moving && sourceOrder ? { [orderField]: sourceOrder } : {}),
+    // Set by the host at create only: the moved record's anchor, else its own `from`.
+    ...(anchor && before === null
+      ? { [anchor.field]: (moving ? sourceAnchor : null) ?? after[anchor.from] ?? null }
+      : {}),
   };
   const statements: CompiledQuery[] = [];
   if (object.sellable?.moves && moving) {

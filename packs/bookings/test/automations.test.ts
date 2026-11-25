@@ -50,7 +50,7 @@ function host(
       "extensionSettings.list": (input) => {
         // Only this extension's settings are asked for.
         expect(input).toEqual({ extension: "bookings" });
-        return { items: [{ id: "bookings", values: { promotionMinutes: 120 } }] };
+        return { items: [{ extension: "bookings", values: { promotionMinutes: 120 } }] };
       },
       ...operations,
     },
@@ -81,6 +81,8 @@ describe("the manifest", () => {
       "classChanged",
       "classReminder",
       "dropInOrder",
+      // Stage 29 step 5: feedback after a class, by a personal link to a Forms form.
+      "feedbackAfterClass",
       "noAttendanceTaken",
       "placeFree",
       "waitlistPassedOver",
@@ -90,6 +92,7 @@ describe("the manifest", () => {
       "change",
       "confirmation",
       "dropIn",
+      "feedback",
       "reminder",
       "waitingList",
     ]);
@@ -633,5 +636,97 @@ describe("the declared words, as the host renders them", () => {
     expect(moved).toContain("Your booking stays as it is.");
     expect(moved).toContain("The attached file updates it in your calendar.");
     expect(moved).not.toContain("ends at");
+  });
+});
+
+describe("the organisation's saved settings (found building stage 29 step 5)", () => {
+  it("placeFree reads the waitlist cut-off the organisation saved, not only the default", async () => {
+    const waiting = [
+      booking({ id: "bkg_w1", state: "waiting", person: "per_bob" }),
+      booking({ id: "bkg_gone", state: "cancelled", person: "per_ann" }),
+    ];
+    const ops = {
+      "capacity.get": () => ({ status: "available", available: 1 }),
+      "extensionSettings.list": () => ({
+        items: [{ extension: "bookings", values: { promotionMinutes: 60 } }],
+      }),
+    };
+    const freed = (startsIn: number) => {
+      const h = host(
+        {
+          "bookings.class": [
+            { ...CLASS, startsAt: inHours(startsIn), endsAt: inHours(startsIn + 1) },
+          ],
+          "bookings.booking": waiting,
+        },
+        ops,
+      );
+      return h
+        .runAutomation("placeFree", {
+          record: { object: "bookings.booking", id: "bkg_gone" },
+          change: { action: "updated", diff: { state: { before: "booked", after: "cancelled" } } },
+        })
+        .then(() => h.routineSends.length);
+    };
+    // 90 minutes ahead: before a 60-minute cut-off (the waiting list's own), so nobody is told;
+    // with the default 120 they would be.
+    expect(await freed(1.5)).toBe(0);
+    // 30 minutes ahead: after it, so the waiters are told.
+    expect(await freed(0.5)).toBe(1);
+  });
+});
+
+describe("feedbackAfterClass (stage 29 step 5)", () => {
+  const chosen = (feedbackForm: string | null) => ({
+    "extensionSettings.list": () => ({
+      items: [{ extension: "bookings", values: { feedbackForm, feedbackMinutes: 180 } }],
+    }),
+  });
+
+  it("asks the host for the feedback email about a booking ticked as come, once a form is chosen", async () => {
+    const h = host(
+      { "bookings.class": [CLASS], "bookings.booking": [booking({ state: "attended" })] },
+      chosen("how-was-your-class"),
+    );
+    const run = await h.runAutomation("feedbackAfterClass", {
+      record: { object: "bookings.booking", id: "bkg_1" },
+    });
+    expect(run.undeclared).toEqual([]);
+    // The host makes the link and decides who it goes to: the pack names the booking only.
+    expect(asked(h)).toEqual([{ kind: "feedback", record: "bkg_1", message: "ask" }]);
+  });
+
+  it("asks nothing with no form chosen, or for a booking unticked since", async () => {
+    const none = host(
+      { "bookings.class": [CLASS], "bookings.booking": [booking({ state: "attended" })] },
+      chosen(null),
+    );
+    await none.runAutomation("feedbackAfterClass", {
+      record: { object: "bookings.booking", id: "bkg_1" },
+    });
+    expect(none.routineSends).toEqual([]);
+    const unticked = host(
+      { "bookings.class": [CLASS], "bookings.booking": [booking({ state: "booked" })] },
+      chosen("how-was-your-class"),
+    );
+    await unticked.runAutomation("feedbackAfterClass", {
+      record: { object: "bookings.booking", id: "bkg_1" },
+    });
+    expect(unticked.routineSends).toEqual([]);
+  });
+
+  it("is a follow-up with a personal link a person chose, at the tick's moment", () => {
+    const kind = bookings.routineMail?.feedback;
+    expect(kind?.purpose).toBe("follow_up");
+    expect(kind?.slots?.form).toEqual({
+      formLink: { object: "forms.form", setting: "feedbackForm", days: 7, once: 30 },
+    });
+    expect(bookings.settings?.feedbackForm).toMatchObject({ type: "text", personApproves: true });
+    expect(bookings.automations?.feedbackAfterClass?.trigger).toEqual({
+      type: "dateRelative",
+      object: "bookings.booking",
+      field: "markedAt",
+      minutesAfter: { setting: "feedbackMinutes" },
+    });
   });
 });

@@ -3,7 +3,12 @@
 // diffs and reconciles the manifest. `validateManifest` is the contract check `extension.check`
 // runs; it returns structured issues a model can act on.
 import { z } from "zod";
-import { MUST_READ_SCHEMA } from "./acknowledge.ts";
+import {
+  ACKNOWLEDGE_NOTICE_BODY_MAX,
+  ACKNOWLEDGE_NOTICE_TITLE_MAX,
+  ACKNOWLEDGE_REMINDER_MAX_DAYS,
+  MUST_READ_SCHEMA,
+} from "./acknowledge.ts";
 import {
   agreementsManifestSchema,
   checkObjectAgreements,
@@ -33,6 +38,7 @@ import {
   TOOL_AUDIENCES,
   TOOL_RISKS,
 } from "./contract.ts";
+import { checkObjectDiscount, discountManifestSchema } from "./discount.ts";
 import {
   checkDocumentSchema,
   DOCUMENT_MAX_BYTES,
@@ -41,7 +47,7 @@ import {
   documentPathNode,
 } from "./document.ts";
 import { FIELD_TYPES, type FieldTypeName, formulaTypeOf } from "./field-types.ts";
-import { checkFormula, type FormulaFieldRef } from "./formula/compile.ts";
+import { checkFormula, type FormulaFieldRef, PUBLISHED_FORMULA_FIELDS } from "./formula/compile.ts";
 import { checkObjectIntake, intakeManifestSchema } from "./intake.ts";
 import { journeySignalIssues, journeySignalsManifestSchema } from "./journey-signals.ts";
 import { checkRoleMine, mineManifestSchema } from "./mine.ts";
@@ -178,19 +184,29 @@ export const PUBLISHED_FIELD_NAMES = [
   "publishAt",
 ] as const;
 
+// One condition of `when` (ADRs 0438 and 0689): a state of the record, or of the one `via` points
+// to; or `via` alone, that the record it points to is public. Which shapes hold is checked below.
+const readConditionSchema = z
+  .object({
+    via: z.string().max(40).optional(),
+    field: z.string().max(40).optional(),
+    in: z.array(z.string().max(100)).min(1).max(20).optional(),
+  })
+  .strict();
+
 const readDeclarationSchema = z
   .object({
     read: z.array(z.string().max(40)).min(1).max(100),
-    when: z
-      .object({
-        via: z.string().max(40).optional(),
-        field: z.string().max(40),
-        in: z.array(z.string().max(100)).min(1).max(20),
-      })
-      .strict()
-      .optional(),
+    // One condition, or up to three that must all hold (ADR 0689).
+    when: z.union([readConditionSchema, z.array(readConditionSchema).min(1).max(3)]).optional(),
   })
   .strict();
+
+/** A `when` as its list of conditions, all of which must hold (ADR 0689). */
+export function whenConditions<C>(when: C | readonly C[] | undefined): readonly C[] {
+  if (when === undefined) return [];
+  return Array.isArray(when) ? when : [when as C];
+}
 
 export const stagesManifestSchema = z.object({
   field: z.string().max(40),
@@ -212,7 +228,15 @@ export const stagesManifestSchema = z.object({
 });
 export type StagesManifest = z.infer<typeof stagesManifestSchema>;
 
-export const objectManifestSchema = z.object({
+export /** The words of one notice the host sends for an acknowledged object (ADR 0706). */
+const ackNotice = z
+  .object({
+    title: z.string().trim().min(1).max(ACKNOWLEDGE_NOTICE_TITLE_MAX),
+    body: z.string().trim().min(1).max(ACKNOWLEDGE_NOTICE_BODY_MAX).optional(),
+  })
+  .strict();
+
+const objectManifestSchema = z.object({
   label: z.string().min(1).max(100),
   plural: z.string().min(1).max(100),
   icon: z.string().max(60).optional(),
@@ -232,6 +256,7 @@ export const objectManifestSchema = z.object({
   stock: stockManifestSchema.optional(),
   stockMoves: stockMovesManifestSchema.optional(),
   allowance: allowanceManifestSchema.optional(),
+  discount: discountManifestSchema.optional(),
   agreements: agreementsManifestSchema.optional(),
   healthNotes: healthNotesManifestSchema.optional(),
   states: statesManifestSchema.optional(),
@@ -315,7 +340,27 @@ export const objectManifestSchema = z.object({
       date: z.string().max(40).optional(),
       publishIn: z.array(z.string().max(100)).min(1).max(20).optional(),
       acknowledge: z
-        .object({ who: z.string().max(40), manage: z.string().max(80) })
+        .object({
+          who: z.string().max(40),
+          manage: z.string().max(80),
+          // ADR 0706: more fields guarded as who must read is, who is told weekly, the words.
+          managed: z.array(z.string().max(40)).min(1).max(8).optional(),
+          owner: z.string().max(40).optional(),
+          notices: z
+            .object({
+              asked: ackNotice.optional(),
+              reminder: ackNotice
+                .extend({
+                  afterDays: z.number().int().min(1).max(ACKNOWLEDGE_REMINDER_MAX_DAYS),
+                })
+                .strict()
+                .optional(),
+              outstanding: ackNotice.optional(),
+              welcome: ackNotice.optional(),
+            })
+            .strict()
+            .optional(),
+        })
         .strict()
         .optional(),
       staffRead: z.boolean().optional(),
@@ -1143,6 +1188,23 @@ export interface ValidateOptions {
   reservedIds?: readonly string[];
 }
 
+/**
+ * The environment a formula of an object's own field compiles in, as on the host
+ * (formulaEnvironment): its fields, every record's timestamps and, on a publishable object, when
+ * its current version went live and its number (ADR 0706).
+ */
+export function objectFormulaEnvironment(object: {
+  fields: Record<string, FieldManifest>;
+  publishable?: unknown;
+}): Record<string, FormulaFieldRef> {
+  return {
+    createdAt: { type: "datetime", sql: '"created_at"' },
+    updatedAt: { type: "datetime", sql: '"updated_at"' },
+    ...(object.publishable ? PUBLISHED_FORMULA_FIELDS : {}),
+    ...formulaFields(object.fields),
+  };
+}
+
 /** Formula environment for a set of field manifests (formula fields compile on demand). */
 export function formulaFields(
   fields: Record<string, FieldManifest>,
@@ -1703,11 +1765,7 @@ export function validateManifest(
       );
     }
     // Every record's own timestamps can be read too, as on the host (formulaEnvironment).
-    const env = {
-      createdAt: { type: "datetime", sql: '"created_at"' } as FormulaFieldRef,
-      updatedAt: { type: "datetime", sql: '"updated_at"' } as FormulaFieldRef,
-      ...formulaFields(object.fields),
-    };
+    const env = objectFormulaEnvironment(object);
     checkFields(`${path}.fields`, `${m.id}.${name}`, object.fields, env);
     checkObjectBehaviour(m, name, object, contract);
     checkObjectCapacity(m, name, object, contract);
@@ -1715,6 +1773,7 @@ export function validateManifest(
     checkObjectStock(m, name, object, contract);
     checkObjectStockMoves(m, name, object, contract);
     checkObjectAllowance(m, name, object, contract);
+    checkObjectDiscount(m, name, object, contract);
     checkObjectAgreements(m, name, object, contract);
     checkObjectHealthNotes(m, name, object, contract);
     checkObjectStates(m, name, object, contract);
@@ -1856,36 +1915,69 @@ export function validateManifest(
       }
     }
     if (!p.when) continue;
-    let target = object;
-    let targetName = name;
-    if (p.when.via !== undefined) {
-      const via = object.fields[p.when.via];
-      const local =
-        via?.type === "relation" && !via.many && via.to?.startsWith(`${m.id}.`)
-          ? via.to.slice(m.id.length + 1)
-          : null;
-      const pointed = local ? m.objects[local] : undefined;
-      if (!pointed || !local) {
-        contract(
-          `${path}.when.via`,
-          `${key}.when.via must name a relation of ${name} to one record of another of this extension's objects`,
-        );
-        continue;
+    // One condition, or a list of them that must all hold (ADR 0689).
+    const list = Array.isArray(p.when);
+    whenConditions(p.when).forEach((when, i) => {
+      const at = list ? `${path}.when.${i}` : `${path}.when`;
+      let target = object;
+      let targetName = name;
+      if (when.via !== undefined) {
+        const via = object.fields[when.via];
+        const local =
+          via?.type === "relation" && !via.many && via.to?.startsWith(`${m.id}.`)
+            ? via.to.slice(m.id.length + 1)
+            : null;
+        const pointed = local ? m.objects[local] : undefined;
+        if (!pointed || !local) {
+          contract(
+            `${at}.via`,
+            `${key}.when.via must name a relation of ${name} to one record of another of this extension's objects`,
+          );
+          return;
+        }
+        target = pointed;
+        targetName = local;
       }
-      target = pointed;
-      targetName = local;
-    }
-    const field = target.fields[p.when.field];
-    if (!field || field.type !== "select") {
-      contract(`${path}.when.field`, `${key}.when.field must name a select field of ${targetName}`);
-      continue;
-    }
-    const values = new Set((field.options ?? []).map((o) => (typeof o === "string" ? o : o.value)));
-    for (const value of p.when.in) {
-      if (!values.has(value)) {
-        contract(`${path}.when.in`, `"${value}" is not an option of ${targetName}.${p.when.field}`);
+      if (when.field === undefined && when.in === undefined) {
+        // `via` alone (ADR 0689): the record it points to is one the public reads.
+        if (when.via === undefined) {
+          contract(at, `${key}.when needs a field and its values, or a via`);
+        } else if (key !== "public") {
+          contract(
+            `${at}.via`,
+            "via alone is the public's: it reads the record it points to as the public does",
+          );
+        } else if (!target.public) {
+          contract(
+            `${at}.via`,
+            `${targetName} declares no public: via alone means its record is one the public reads`,
+          );
+        } else if (whenConditions(target.public.when).some((c) => c.field === undefined)) {
+          contract(
+            `${at}.via`,
+            `${targetName}'s own public.when uses via alone: one step only, no chains`,
+          );
+        }
+        return;
       }
-    }
+      if (when.field === undefined || when.in === undefined) {
+        contract(at, `${key}.when names a field and its values (in) together`);
+        return;
+      }
+      const field = target.fields[when.field];
+      if (field?.type !== "select") {
+        contract(`${at}.field`, `${key}.when.field must name a select field of ${targetName}`);
+        return;
+      }
+      const values = new Set(
+        (field.options ?? []).map((o) => (typeof o === "string" ? o : o.value)),
+      );
+      for (const value of when.in) {
+        if (!values.has(value)) {
+          contract(`${at}.in`, `"${value}" is not an option of ${targetName}.${when.field}`);
+        }
+      }
+    });
   }
 
   // Versions (ADR 0446): the content a version keeps is fields of the object's own that a person
@@ -2047,6 +2139,38 @@ export function validateManifest(
         contract(
           `${path}.acknowledge`,
           "An acknowledged object is for staff: it declares no public or signedIn",
+        );
+      }
+      // ADR 0706: fields guarded as who must read is are the object's own, outside the content;
+      // the owner told each week is a user field of its own.
+      const managed = p.acknowledge.managed ?? [];
+      managed.forEach((fieldName, i) => {
+        const at = `${path}.acknowledge.managed.${i}`;
+        const f = object.fields[fieldName];
+        if (!f || f.type === "formula" || f.readOnly) {
+          contract(at, `"${fieldName}" is not a field of ${name} a person writes`);
+        } else if (p.content.includes(fieldName) || fieldName === who) {
+          contract(
+            at,
+            fieldName === who
+              ? "Who must read is guarded already: leave it out of managed"
+              : "A managed field is not content: it changes at once, not with a publish",
+          );
+        } else if (managed.indexOf(fieldName) !== i) {
+          contract(at, `"${fieldName}" is listed twice`);
+        }
+      });
+      const owner = p.acknowledge.owner;
+      if (owner !== undefined && object.fields[owner]?.type !== "user") {
+        contract(
+          `${path}.acknowledge.owner`,
+          `acknowledge.owner must name a user field of ${name}: who is told who has not confirmed`,
+        );
+      }
+      if (p.acknowledge.notices?.outstanding && owner === undefined) {
+        contract(
+          `${path}.acknowledge.notices.outstanding`,
+          "The weekly notice goes to the record's owner: name its user field in acknowledge.owner",
         );
       }
     }

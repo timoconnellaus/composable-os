@@ -442,6 +442,10 @@ describe("a pack role reaches screens.mine, the every-staff tools and nothing el
         "x.dailychecks.done",
         "x.dailychecks.tick",
         "x.dailychecks.today",
+        // Knowledge's own list and confirm (ADR 0706): the host's ack.mine and ack.confirm
+        // decide what is the caller's.
+        "x.knowledge.confirm",
+        "x.knowledge.toRead",
       ]);
       expect(reached.sort()).toEqual(
         [...before, ...anyStaff, "screens.mine", ...own, ...staffReads].sort(),

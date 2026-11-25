@@ -57,6 +57,8 @@ export const ID_PREFIXES = {
   execution: "exe",
   /** A customer account (stage 22, ADR 0402): a Person who can sign in. Never a core_user. */
   customer: "cus",
+  /** A practitioner account (stage 43, ADR 0581): an outside person the business invited. */
+  practitioner: "prc",
   /** A request to erase a Person, made when a customer deletes their account (stage 22). */
   eraseRequest: "erq",
   /** An order and one of its lines (stage 25, ADR 0426). */
@@ -64,6 +66,8 @@ export const ID_PREFIXES = {
   orderLine: "orl",
   /** Money off an order (stage 34, ADR 0690). */
   orderAdjustment: "oad",
+  /** A discount's use by an order (stage 34, ADR 0693). */
+  discountUse: "dcu",
   /** A payment the host made on an order: a recorded one, or its reversal (stage 34, ADR 0694). */
   orderPayment: "opy",
   /** A refund of an order's payment (stage 25, ADR 0429). */
@@ -103,8 +107,12 @@ export const ID_PREFIXES = {
   refundDue: "rdu",
   /** A routine email the host was asked to send (ADR 0590). */
   routineMail: "rml",
+  /** A personal link: one Person's one use of one form (stage 29, ADR 0723). */
+  intakeLink: "ilk",
   /** A code sent to a Person's number to check it (stage 30, ADR 0673). */
   phoneCheck: "phk",
+  /** One contact choice on the consent register (stage 30, ADR 0675). */
+  contactChoice: "cch",
   /** An agreement document (stage 44, ADR 0640). */
   agreementDocument: "agd",
   /** A published version of an agreement document, never changed (stage 44, ADR 0640). */

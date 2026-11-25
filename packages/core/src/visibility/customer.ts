@@ -85,7 +85,10 @@ export interface CustomerScope {
    * 0447): the condition they meet (null: every live record) and the view columns shown of
    * them, a subset of `columns`. Read only: a customer writes their own records alone.
    */
-  readonly shared?: { readonly condition: Condition | null; readonly columns: ReadonlySet<string> };
+  readonly shared?: {
+    readonly condition: readonly Condition[] | null;
+    readonly columns: ReadonlySet<string>;
+  };
 }
 
 /** The customer scope of `object` for `personId`, or null when the object declares none. */
@@ -129,7 +132,7 @@ function sharedPart(object: ObjectDefinition): CustomerScope["shared"] {
     object.fields.filter((f) => readable.has(f.name)).map((f) => viewColumnOf(f) as string),
   );
   return {
-    condition: resolveCondition(object, declared, "signedIn") as Condition | null,
+    condition: resolveCondition(object, declared, "signedIn") as readonly Condition[] | null,
     columns,
   };
 }

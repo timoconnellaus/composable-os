@@ -635,13 +635,14 @@ None open. The six questions this spec raised were decided by the coordinator (d
 
 ## Status
 
-- **Step 1, the published-text index and `content.search`** (PR #340): built. Migration 0970
+- **Step 1** — built — PR #340 — The published-text index and `content.search`. Migration 0970
   (`core_published_text` and its FTS5 table), ADR 0700 (amends ADR 0442). Section anchors in the
   SDK (`headingAnchors`, `richTextSections`), used by both content renderers; the index written in
   the publish and unpublish batch, remade by erase and caught up by the minute cron
   (`content.reindex`); `content.search` for the public, customers and staff over published words
   only. Left: passages for the assistant (step 7).
-- **Step 2, staff read** (branch `feat/stage-38-staff-read`): built. ADR 0701 (amends ADRs 0436,
+
+- **Step 2** — built — PR #418 — Staff read (branch `feat/stage-38-staff-read`). ADR 0701 (amends ADRs 0436,
   0446, 0600 and 0700); no migration. `publishable.staffRead` in the SDK and the registry; the
   seam's staff-read source over the live view (`visibility/staff-read.ts`: the content fields and
   slug, the version and when, never the working copy); `content.staffGet` (by id or slug, an old
@@ -654,9 +655,43 @@ None open. The six questions this spec raised were decided by the coordinator (d
   (`packages/core/test/staff-read.test.ts`). Left: a pack-role account is not served a
   procedure's pictures (`media.serve` is not in its reach; the spec lists no such reach, so it
   waits for a decision); the Knowledge pack declaring it (step 5).
-- **Step 3, acknowledgements** (PR #340): built. Migration 0971 (`core_publish_ack` and its
+
+- **Step 3** — built — PR #340 — Acknowledgements. Migration 0971 (`core_publish_ack` and its
   triggers, `read_again` on versions and schedules), ADR 0702 (amends ADRs 0480 and 0436).
   `publishable.acknowledge { who, manage }`, read again or small fix on every later publish (the
   approver chooses for an AI's request), `ack.confirm`, `ack.mine`, `ack.status`, `ack.overview`,
   who must read by staff role, pack role and grant on the day; every pack role reaches its own
   list and confirmations. Left: the `to_read` warning (step 4), the notices (step 5).
+
+- **Step 4** — not built — needs: step 3 — The `to_read` warning on the roster
+
+- **Step 5** — built — PR #457 — The Knowledge pack: objects, views, settings, tools, hooks,
+  notices, the review reminder. ADR 0706 (amends ADR 0702); no migration. `packs/knowledge`:
+  `knowledge.procedure` (staff-read, acknowledged, never public; review period guarded by
+  `acknowledge.managed`, next review a formula over `publishedAt`), `knowledge.section`,
+  `knowledge.helppage` (public as published) and `knowledge.helptopic`; tools `toRead`, `confirm`,
+  `readStatus`, `helpTopics`, `draftProcedure`, `draftHelpPage`; the review reminder; client hooks.
+  Platform: the host sends the declaration's notices (asked in the publish batch; reminder, weekly
+  owner notice and welcome from `ack.due`); `ack.status`/`ack.overview` from the owning pack's
+  person-only tool; formulas read `publishedAt`, date-relative triggers name a date formula. No
+  settings (none named). Not added to a product's `packs` list: the CRM is this repository's
+  only product and lists no gym pack; a client product lists it, and the release carries every
+  pack. Left: blocks and screens (step 6); pack-role accounts are not served a procedure's
+  pictures and cannot read section names.
+
+- **Step 6** — not built — needs: step 5, stage 47 — Blocks: help centre, procedure reader, to
+  read, confirm, read status; the declared screens
+
+- **Step 7** — not built — needs: step 1 — Passages and the assistant: chunking at headings,
+  passage vectors, `content.passages`, citations
+
+- **Step 8** — not built — needs: step 5 — Checklist "how to"
+
+- **Step 9** — not built — needs: step 6, the first client — The first client: its procedures and
+  its help pages on its site
+
+- **Step 10a** — not built — needs: step 3, step 4 — Training through Courses, the platform: the
+  staff own-row scope, the `training` source, the learners' reach, completion
+
+- **Step 10b** — not built — needs: step 10a, step 5 — Training through Courses, `packs/courses`
+  and Knowledge's training course field

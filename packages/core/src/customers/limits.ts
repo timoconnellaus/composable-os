@@ -22,7 +22,8 @@ function refuse(what: string, retryAfterSeconds: number): never {
 }
 
 /**
- * Counts one call by a customer, the public or an enrolled device. A customer over their limit
+ * Counts one call by a customer, a practitioner, the public or an enrolled device. A customer (or a
+ * practitioner) over their limit
  * for this operation gets a RateLimitedError, and so does a device (ADR 0781: per device and
  * operation, beside the desk origin's own limit per address). A public call has no account to
  * key on: it is limited per client address at the edge, and passes here.
@@ -36,7 +37,10 @@ export async function checkOutsideRateLimit(
   const key =
     principal.kind === "customer"
       ? `customer:${principal.customerId}:${operation}`
-      : `device:${principal.deviceId}:${operation}`;
+      : principal.kind === "practitioner"
+        ? // Per account, as a customer's (ADR 0581).
+          `practitioner:${principal.practitionerId}:${operation}`
+        : `device:${principal.deviceId}:${operation}`;
   const result = await rateLimit(binding, key);
   if (!result.ok) refuse("calls", result.retryAfterSeconds);
 }

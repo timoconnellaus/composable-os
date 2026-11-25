@@ -45,7 +45,9 @@ Read these before writing. They are the source of truth; this skill only gives t
 4. **Declare the objects** in `index.ts` with `defineExtension`. For each: `label`, `plural`,
    `icon`, `titleField`, `description`, `fields`. Use the field type that says what the value is
    (`currency`, `date`, `user`, `select` with options), not `text` for everything. A `formula`
-   reads only the same record's fields. See Deals: `objects.deal.fields`, `weightedValue`.
+   reads only the same record's fields (and, on a `publishable` object, `publishedAt` and
+   `publishedVersion`: a date from the last publish, ADR 0706). See Deals:
+   `objects.deal.fields`, `weightedValue`.
    `ObjectSpec` has more than the examples use; read it for `owner` (the record's user field),
    `titleDefault` (a title taken from a relation) and `requireOneOf` (Leads uses all three).
    A number a person or a device records has bounds: `min`, `max` and `step` on a `number`,
@@ -144,7 +146,8 @@ extension declares it; it never implements it. Each behaviour the platform has i
   `StockSpec` in `packages/sdk/src/stock.ts` and ADR 0680. `stock.notify: "<ext>:<word>"` (a
   permission of one of your tools, with `reorderAt`) names who the host tells when a record falls
   to its reorder level, once per crossing; without it the admins are told. Never send that notice
-  from a tool or an automation. The object must be sellable, or moved by a `stockMoves`.
+  from a tool or an automation. The object must be sellable goods (`sellable.goods`), or moved
+  by a `stockMoves`.
 - **`stockMoves`** on an object whose records move stock (a receipt, a write-off, a count line):
   `stockMoves: { move: "add" | "remove" | "set", on: "<relation to a stock object>", quantity:
   "<number field>", when: "<state>", through?: "<relation to the record whose state it is>",
@@ -156,6 +159,18 @@ extension declares it; it never implements it. Each behaviour the platform has i
   person's act, and an AI's waits for one. Never change stock from a tool otherwise: move the
   record. What moved stock cannot be edited afterwards. A shipped pack only. See
   `StockMovesSpec` and ADR 0681.
+- **`discount`** on an object whose records are money off (a promo code's discount, a member's
+  price): `discount: { kind: "<select of percent, amount, price>", percent?, amount?, live:
+  [<states>], automatic?: "<boolean>", code?: "<text>", codes?: { object, discount, word, uses?,
+  active? }, who?, plans?, organisations?, tag?, objects?, records?, from?, until?, totalUses?,
+  perPerson?, minSpend? }`, each a field of the object. The host works out the order's one deal
+  when it prices it (the better of the code and any automatic discount) and keeps the limits in
+  the order's batch; never compute a price or a discount in a tool or a block. Declare every move
+  into a live state `by: ["host"], tools: [...]` (a person's tool) or `by: ["staff"]` with the
+  state field `personApproves: true`, never `create.in` a live state; an AI's change to a live
+  discount, and any write of a promo code record by anyone but a person (your pack's tools
+  included), waits for a person. Not in a shipped pack until public operations have a
+  per-address rate limit (ADR 0693). See `DiscountSpec` in `packages/sdk/src/discount.ts` and ADR 0693.
 - **`unique`** on an object: `unique: [{ fields: [<up to 4 fields>], states?: [<states>] }]`, no
   two live records in those states share the fields (one active booking per Person per class).
   The database refuses the second, however many write at once (`conflict`, `rule: "unique"`).
@@ -306,7 +321,16 @@ extension declares it; it never implements it. Each behaviour the platform has i
   the org's own extension (its client repo) may declare `sellable`: one written in the workspace
   is refused, since selling to the public is a reviewed change. Never create tickets or check a
   sale window in a tool or an automation. See `SellableSpec` in `packages/sdk/src/sellable.ts`
-  and ADR 0435.
+  and ADR 0435. Things handed over or sent (a shop's variants) declare `goods: { soldIn?:
+  "<select of online, in_person, both, or item.<that select>>" }` (empty: both; a sold object
+  with `stock` must). Ways of getting them to the buyer are another object declaring
+  `delivery: { kind: "<select of post, collect, here>", freeOver?: "<currency field>",
+  countries?: "<text field: AU NZ, or * for everywhere else>", active?: "<boolean field>" }`,
+  with a price (0 is fine) and, for what staff pack, `grants` (a shipment; `here` grants
+  nothing). The buyer chooses one in `order.start`'s `delivery` (never a line); the host works
+  out the order's channel from it, refuses a goods line not sold there, needs an address for
+  post and prices the postage (ADRs 0682, 0685). Never filter "where sold" only in a block, and
+  never total a basket in one: `order.quote` gives the host's numbers.
 - **`allowance`** on an object: its records hold uses that something else spends (a pass, a
   membership), or spend them (a booking, a visit). A holder declares `allowance: { holds: { person,
   uses, per, spendsOn, from?, until?, live?, zone? } }`: a relation to person, a number field
@@ -355,8 +379,12 @@ extension declares it; it never implements it. Each behaviour the platform has i
 - **`public`** on an object: what the public may read (ADR 0438), `public: { read: [fields],
   when?: { field, in } | { via, field, in } }`: the fields, of the records whose state (a select
   field of the record, or of the one its `via` relation points to) is one of `in`. Left without
-  `when`, every live record. Nothing is public by default, and an object declares `customer` or
-  `public`, not both. A customer reads it too. The public reaches it only through your tool, which
+  `when`, every live record. `when` may be a list of up to three conditions that all hold, and a
+  condition may be `{ via: "<relation>" }` alone: the record it points to is one the public reads
+  (published, if its object is publishable, and meeting its own `when`; one step, no chains). A
+  shop's variant: `when: [{ field: "state", in: ["active"] }, { via: "item" }]`, never sold while
+  its item is a draft (ADR 0689; Shop: `objects.variant.public`). Nothing is public by default,
+  and an object declares `customer` or `public`, not both. A customer reads it too. The public reaches it only through your tool, which
   calls `public.list` or `public.get` (add them to `permissions.operations`); never filter by state
   in the tool, the seam does. Anything you sell to customers or guests must declare it: they buy
   only what they may read. See Ticketing: `objects.event.public`, `objects.tickettype.public`.
@@ -408,6 +436,23 @@ extension declares it; it never implements it. Each behaviour the platform has i
   Publishing, scheduling (`record.schedulePublish`) and unpublishing are a person's; your code and
   the assistant write the working copy, and a call of theirs to publish waits for a person's
   approval whatever the policy (ADR 0480). See Content: `packs/content/index.ts`.
+- **What every staff account reads, and confirms** (stage 38, ADRs 0701, 0702 and 0706; a staff
+  procedure): `publishable.staffRead: true` opens the current published version (the content and
+  the slug, never the working copy) to every staff account, pack roles included, through
+  `content.staffGet`, `content.staffList` and `content.search`; a block reads it with those, never
+  `record.get`. `publishable.acknowledge: { who, manage, managed?, owner?, notices? }` asks the
+  staff a "must read" field names (`who`: a `document` field with `MUST_READ_SCHEMA`, outside the
+  content: everyone, staff roles, pack roles, granted pack permissions) to confirm each version
+  that asks again, with one tap; `manage` is a restricted, grantable permission of yours (who
+  reads who has confirmed); `managed` lists more fields guarded as `who` is (a person's, once
+  published a manager's, never an AI's: a review period, the owner); `owner` a user field told weekly who has
+  not confirmed (when it manages, else the admins); `notices` your words for what the host sends (`asked`, `reminder` with
+  `afterDays`, `outstanding`, `welcome`; `{record}` is the title). An acknowledged object declares
+  no `public` or `signedIn`. Your tools call `ack.mine` and `ack.confirm` (a `humanOnly`,
+  `anyStaff` tool: the host decides what is the caller's) and `ack.status` / `ack.overview` (a
+  `humanOnly` tool naming `manage`); add them to `permissions.operations`. Never work out who must
+  read, whether a confirmation counts, or who to notify in a tool: the host does, and tells them.
+  See Knowledge: `packs/knowledge/index.ts`.
 - **Videos and downloads** (stage 42, ADR 0475): a **`video`** field (`{ media, poster? }`, a
   ready video in Cloudflare Stream, checked by the host), or in your own document a ref to media
   with its kind: `{ type: "ref", to: "media", media: "video" }` (`VIDEO_NODE`) or

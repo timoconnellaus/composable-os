@@ -37,6 +37,14 @@ export type Operations = {
     output: { object: string; id: string; status: ("available") | ("low") | ("sold_out"); available?: (number) | (null); places?: (number) | (null); held?: number; taken?: number; show?: ("exact") | ("low") | ("availability"); lowAt?: (number) | (null); pool?: ({ object: string; id: string; places: (number) | (null); held: number; taken: number; available: (number) | (null) }) | (null) };
   };
   /**
+   * The one-tap stop in an email: turns off the one kind of message, on the one channel, that the link's token names, for the one Person it names. It can only turn something off. The answer is the same whether the token was good or not.
+   */
+  "contact.stop": {
+    kind: "mutation";
+    input: { token: string };
+    output: { done: true };
+  };
+  /**
    * Read one published record of a content object (a blog post) by its slug, as the public reads it: its published version, with only the fields the object lets the public read. An old slug of a record whose slug changed answers `redirect` with the slug it has now. A draft, an unpublished record and an unknown slug are all not found. Read-only.
    */
   "content.get": {
@@ -67,6 +75,14 @@ export type Operations = {
     kind: "query";
     input: { object: string; q: string; cursor?: string; limit?: number };
     output: { items: ({ object: string; id: string; slug: string; title: (string) | (null); titleHighlight: { text: string; match: boolean }[]; version: number; section: { field: string; anchor: (string) | (null); heading: string; headingHighlight: { text: string; match: boolean }[] }; snippet: ({ text: string; match: boolean }[]) | (null) })[]; nextCursor: (string) | (null) };
+  };
+  /**
+   * Check a promo code against a basket before an order is started: whether it applies to these lines for this caller, and what it would take off each. Nothing is held: the code's uses are kept only once an order is started (order.start, order.applyCode). A code that does not apply gets one answer, whatever the reason (unknown, ended, used up, not for this buyer, not for these items): valid false and the same message. `better` says that a price applying by itself (a member's) takes more off, so the code would not be the order's deal. A guest is nobody proved: a code for members, new customers or one per person is not valid for them. Amounts are in the currency's minor unit. Read-only.
+   */
+  "discount.check": {
+    kind: "query";
+    input: { code: string; lines: { object: string; id: string; quantity?: number }[] };
+    output: { valid: boolean; message: (string) | (null); title: (string) | (null); amount: number; lines: { position: number; discount: number }[]; better: boolean; reason?: string };
   };
   /**
    * Agree to a version of a document, as a signed-in customer: for yourself, or with forPersonId for a child linked to you. Give the name you type, a signature for a document agreed to by drawing, and every answer for a health form. Recorded for good and never changed. Refused for yourself when a parent or guardian agrees for you.
@@ -109,12 +125,12 @@ export type Operations = {
     output: { filename: string; document: { business: string; title: string; versionNumber: number; versionHash: string; body: { blocks: unknown[] }; tickLabel: string; questions?: { key: string; text: string }[]; answers?: ({ key: string; yes: boolean; note?: string }[]) | ("in-app") | ("withheld"); record?: { label: string; value: string }[]; signature?: { width: number; height: number; strokes: number[][][] }; acceptanceId?: string; blank?: boolean } };
   };
   /**
-   * What needs your attention, as a signed-in customer, soonest first: a document to agree to (for you or a child linked to you), a card payment that failed, a payment waiting for you to confirm with your bank, the rest of a deposit to pay, an order you started paying for and did not finish, a pass about to expire with uses left or with none left (yours or a child's), and a free trial about to end. `days` is how far ahead it looks for a pass or a trial ending. An item goes once its cause is fixed. Read-only.
+   * What needs your attention, as a signed-in customer, soonest first: a document to agree to (for you or a child linked to you), a card payment that failed, a payment waiting for you to confirm with your bank, the rest of a deposit to pay, an order you started paying for and did not finish, a pass about to expire with uses left or with none left (yours or a child's), a free trial about to end, and a form you were asked to answer (yours or a child's). `days` is how far ahead it looks for a pass or a trial ending. An item goes once its cause is fixed. Read-only.
    */
   "me.attention": {
     kind: "query";
     input: Record<string, unknown>;
-    output: { days: number; items: ({ key: string; kind: ("agree") | ("card_failing") | ("confirm_payment") | ("balance_due") | ("finish_paying") | ("pass_expiring") | ("pass_used_up") | ("trial_ending"); person: { id: string; name: string; self: boolean }; record: { object: string; id: string; title: string }; at: (string) | (null); amount: (number) | (null); currency: (string) | (null); usesLeft: (number) | (null) })[] };
+    output: { days: number; items: ({ key: string; kind: ("agree") | ("card_failing") | ("confirm_payment") | ("balance_due") | ("finish_paying") | ("pass_expiring") | ("pass_used_up") | ("trial_ending") | ("form_to_fill"); person: { id: string; name: string; self: boolean }; record: { object: string; id: string; title: string }; at: (string) | (null); amount: (number) | (null); currency: (string) | (null); usesLeft: (number) | (null); link: (string) | (null) })[] };
   };
   /**
    * Your birthday as the business has it, as a signed-in customer: day and month only, or null when none is recorded. Read-only.
@@ -163,6 +179,22 @@ export type Operations = {
     kind: "mutation";
     input: Record<string, never>;
     output: { codes: ({ givenName: (string) | (null); own: boolean; payload: string; secret: (string) | (null) })[]; refreshAt: string; algorithm: { kind: "totp"; hash: "SHA-1"; periodSeconds: number; digits: number } };
+  };
+  /**
+   * Your contact preferences, as a signed-in customer, and those of each child you act for: each kind of message you may get, on each channel it goes by (email, text, push), with what is in force. Messages about something booked or paid for are always emailed (fixed); follow-ups and news and offers are per channel. Read-only.
+   */
+  "me.contact.choices": {
+    kind: "query";
+    input: Record<string, never>;
+    output: { people: ({ personId: string; name: string; self: boolean; child: boolean; lines: ({ scope: string; label: string; description: string; purpose: ("account") | ("follow_up") | ("news_and_offers"); essential: boolean; channels: ({ channel: ("email") | ("text") | ("push"); value: ("on") | ("off") | ("yes") | ("no"); fixed: boolean; stopped: boolean; since: (string) | (null) })[] })[] })[] };
+  };
+  /**
+   * Changes your contact preferences, as a signed-in customer, or those of a child you act for (personId). Each choice is a kind of message, a channel and on or off (news_and_offers: yes or no, with the words you were shown). A booking's or a payment's email cannot be turned off. You may turn back on what you stopped by a link or a STOP reply.
+   */
+  "me.contact.setChoices": {
+    kind: "mutation";
+    input: { personId?: string; choices: ({ scope: string; channel: ("email") | ("text") | ("push"); value: ("on") | ("off") | ("yes") | ("no") })[]; wording?: string };
+    output: { changed: number };
   };
   /**
    * Delete your customer account and ask for your personal data to be erased, signed in within the last 15 minutes (else sign_in_again, for the preview too). Without `confirm` it changes nothing and says what will happen: each subscription you pay ends when the period already paid for ends (nothing refunded, nothing more charged), or with a cooling off you asked for; one that cannot be ended that way (an end date set later, or waiting for payment, unpaid or paused) is left for staff and may charge until they end it. Your unpaid orders are cancelled, and your bookings, tickets and other records stay for staff to decide when they erase your data. With `confirm: true` and the preview's `expect` it does that: you are signed out everywhere at once and can no longer sign in, and staff erase your data, or tell you by email why some of it must be kept, by the due date returned. A preview that changed meanwhile is a conflict: ask for it again.
@@ -309,6 +341,14 @@ export type Operations = {
     output: { items: { object: string; id: string; values: Record<string, unknown> }[]; nextCursor: (string) | (null); currency?: (string) | (null) };
   };
   /**
+   * Put a promo code on a pending order whose payment page has not opened. The host works out what it takes off from the discount it names, for the order's own buyer and lines: the better for the buyer of the code and any price that applies by itself (a member's) is the deal, and only one deal is on an order (a staff discount may be added on top). A code that does not apply is refused with one answer, rule code_not_valid, whatever the reason (unknown, ended, used up, not for this buyer or these items), and nothing changes. A code never makes an order free. A signed-in customer changes their own orders; a guest passes the order's token. Returns the order, its deal and whether the code is it.
+   */
+  "order.applyCode": {
+    kind: "mutation";
+    input: { id: string; token?: string; code: string };
+    output: { id: string; state: ("pending") | ("part_paid") | ("paid") | ("cancelled") | ("expired") | ("refunded"); currency: string; total: number; paid: number; balance: number; refunded: number; pay: ("full") | ("deposit"); deposit: (number) | (null); balanceDueAt: (string) | (null); expiresAt: (string) | (null); paidAt: (string) | (null); createdAt: string; taxAmount: number; taxRefunded: number; taxCountry: (string) | (null); discount: number; lines: { id: string; position: number; object: string; recordId: string; title: string; quantity: number; unitPrice: number; total: number; taxAmount: number; discount: number }[]; adjustments?: ({ id: string; lineId: (string) | (null); kind: ("code") | ("automatic") | ("staff") | ("referral"); amount: number; percent: (number) | (null); reason: (string) | (null); givenBy: (string) | (null); approval: (string) | (null); createdAt: string })[]; personId?: (string) | (null); email?: (string) | (null); placedAs?: ("customer") | ("public") | ("staff"); deal: ({ kind: ("code") | ("automatic"); title: string; amount: number }) | (null); codeApplied: (boolean) | (null) };
+  };
+  /**
    * Cancel an order. A signed-in customer can cancel their own order while nothing has been paid on it. Staff can also cancel an order that is part paid (a deposit was paid): that gives up its places, and refunding what was paid is a separate step. A paid order is refunded, not cancelled. Returns the order.
    */
   "order.cancel": {
@@ -325,6 +365,14 @@ export type Operations = {
     output: { url: string; amount: number; currency: string; kind: ("full") | ("deposit") | ("balance") | ("part"); expiresAt: (string) | (null) };
   };
   /**
+   * How one order's goods get to the buyer: the delivery option chosen, its kind (post, collect, or here: taken now in person), whether the order is online or in person, and for a post delivery the address. One order at a time: addresses are in no list, view, export or search. Staff read any order's (each read is on record in the audit log); a signed-in customer their own; a guest with the order's token. An order without goods has none (not found). Read-only.
+   */
+  "order.delivery.get": {
+    kind: "query";
+    input: { id: string; token?: string };
+    output: { orderId: string; channel: (("online") | ("in_person")) | (null); kind: ("post") | ("collect") | ("here"); lineId: string; option: { object: string; recordId: string; title: string }; address: ({ name: string; line1: string; line2: (string) | (null); city: (string) | (null); region: (string) | (null); postcode: (string) | (null); country: string }) | (null); erased: boolean };
+  };
+  /**
    * Get one order with its lines: its state, amounts (in the currency's minor unit), what has been paid, the balance and when it is due. A signed-in customer gets their own orders only; anyone else's is not found. Read-only.
    */
   "order.get": {
@@ -333,12 +381,28 @@ export type Operations = {
     output: { id: string; state: ("pending") | ("part_paid") | ("paid") | ("cancelled") | ("expired") | ("refunded"); currency: string; total: number; paid: number; balance: number; refunded: number; pay: ("full") | ("deposit"); deposit: (number) | (null); balanceDueAt: (string) | (null); expiresAt: (string) | (null); paidAt: (string) | (null); createdAt: string; taxAmount: number; taxRefunded: number; taxCountry: (string) | (null); discount: number; lines: { id: string; position: number; object: string; recordId: string; title: string; quantity: number; unitPrice: number; total: number; taxAmount: number; discount: number }[]; adjustments?: ({ id: string; lineId: (string) | (null); kind: ("code") | ("automatic") | ("staff") | ("referral"); amount: number; percent: (number) | (null); reason: (string) | (null); givenBy: (string) | (null); approval: (string) | (null); createdAt: string })[]; personId?: (string) | (null); email?: (string) | (null); placedAs?: ("customer") | ("public") | ("staff") };
   };
   /**
-   * Start an order for one or more records that are for sale, as a signed-in customer, a guest (with an email address) or staff. The host prices it from the records: a caller never sends a price or a total. The order starts pending and is not paid: paying happens on the payment provider's page (order.checkout), and only the provider's confirmation marks it paid. An unpaid order expires after a few minutes. Nobody buys without the agreements the business needs for what is bought: refused with rule agreements_due and the documents while any is due (a guest passes their acceptances in `agreements`; a signed-in customer agrees first; staff send a link, sign at the desk or record paper). Returns the order with its lines and amounts in the currency's minor unit; a guest also gets `token`, shown once, which is the only way back to the order (order.view).
+   * Price a basket without starting an order: the host's price of each line, the delivery (its postage, nothing when the goods reach the option's free-over amount), the total and what is available, exactly as order.start would charge. Holds nothing and writes nothing: stock is held only once an order is started. Refuses what order.start refuses (not for sale, not sold that way, an address outside the option's countries) and reports, in `problems`, what the buyer still has to do (choose a delivery, give an address) and what is sold out or short; `ready` is true when none is left. Money off is worked out as order.start would: a member's price by itself, and `code` (the better of the two), without holding a use of it; a code that does not apply is reported as code_not_valid. Amounts are in the currency's minor unit. Read-only.
+   */
+  "order.quote": {
+    kind: "query";
+    input: { lines: { object: string; id: string; quantity?: number }[]; delivery?: { object: string; id: string; address?: { name: string; line1: string; line2?: string; city?: string; region?: string; postcode?: string; country: string } }; code?: string };
+    output: { currency: string; channel: (("online") | ("in_person")) | (null); lines: ({ position: number; object: string; recordId: string; title: string; quantity: number; unitPrice: number; total: number; discount: number; goods: boolean; availability: ({ status: ("in_stock") | ("low") | ("sold_out"); available?: number; onHand?: number; held?: number }) | (null) })[]; delivery: ({ object: string; recordId: string; title: string; kind: ("post") | ("collect") | ("here"); price: number; freeOver: (number) | (null); free: boolean; charged: number }) | (null); goodsTotal: number; discount: number; deal: ({ kind: ("code") | ("automatic"); title: string; amount: number }) | (null); codeApplied: (boolean) | (null); total: number; ready: boolean; problems: ({ rule: ("delivery_needed") | ("address_needed") | ("sold_out") | ("not_enough") | ("code_not_valid"); message: string; line?: number })[] };
+  };
+  /**
+   * Take the promo code off a pending order whose payment page has not opened: the order is priced again without it (a price that applies by itself, such as a member's, still does). Refused (rule no_code) when the order has no code. A signed-in customer changes their own orders; a guest passes the order's token. Returns the order and its deal.
+   */
+  "order.removeCode": {
+    kind: "mutation";
+    input: { id: string; token?: string };
+    output: { id: string; state: ("pending") | ("part_paid") | ("paid") | ("cancelled") | ("expired") | ("refunded"); currency: string; total: number; paid: number; balance: number; refunded: number; pay: ("full") | ("deposit"); deposit: (number) | (null); balanceDueAt: (string) | (null); expiresAt: (string) | (null); paidAt: (string) | (null); createdAt: string; taxAmount: number; taxRefunded: number; taxCountry: (string) | (null); discount: number; lines: { id: string; position: number; object: string; recordId: string; title: string; quantity: number; unitPrice: number; total: number; taxAmount: number; discount: number }[]; adjustments?: ({ id: string; lineId: (string) | (null); kind: ("code") | ("automatic") | ("staff") | ("referral"); amount: number; percent: (number) | (null); reason: (string) | (null); givenBy: (string) | (null); approval: (string) | (null); createdAt: string })[]; personId?: (string) | (null); email?: (string) | (null); placedAs?: ("customer") | ("public") | ("staff"); deal: ({ kind: ("code") | ("automatic"); title: string; amount: number }) | (null); codeApplied: (boolean) | (null) };
+  };
+  /**
+   * Start an order for one or more records that are for sale, as a signed-in customer, a guest (with an email address) or staff. The host prices it from the records: a caller never sends a price or a total. The order starts pending and is not paid: paying happens on the payment provider's page (order.checkout), and only the provider's confirmation marks it paid. An unpaid order expires after a few minutes. Nobody buys without the agreements the business needs for what is bought: refused with rule agreements_due and the documents while any is due (a guest passes their acceptances in `agreements`; a signed-in customer agrees first; staff send a link, sign at the desk or record paper). Goods (things posted, collected or taken now) need a `delivery`: the host adds it as the last line, priced by the host, and refuses goods not sold that way (rule not_sold_here), a post delivery with no address or one outside the option's countries, and what is sold out. order.quote gives the same prices without starting anything. Money off is the host's: a member's price applies by itself, and `code` is a promo code the buyer typed; the one that takes more off applies (rule code_not_valid, one answer whatever the reason, when the code does not). Returns the order with its lines and amounts in the currency's minor unit; a guest also gets `token`, shown once, which is the only way back to the order (order.view).
    */
   "order.start": {
     kind: "mutation";
-    input: { lines: { object: string; id: string; quantity?: number }[]; pay?: ("full") | ("deposit"); email?: string; agreements?: { versionId: string; typedName: string; signature?: { width: 1000; height: 400; strokes: [number, number][][] }; answers?: { key: string; yes: boolean; note?: string }[] }[] };
-    output: { id: string; state: ("pending") | ("part_paid") | ("paid") | ("cancelled") | ("expired") | ("refunded"); currency: string; total: number; paid: number; balance: number; refunded: number; pay: ("full") | ("deposit"); deposit: (number) | (null); balanceDueAt: (string) | (null); expiresAt: (string) | (null); paidAt: (string) | (null); createdAt: string; taxAmount: number; taxRefunded: number; taxCountry: (string) | (null); discount: number; lines: { id: string; position: number; object: string; recordId: string; title: string; quantity: number; unitPrice: number; total: number; taxAmount: number; discount: number }[]; adjustments?: ({ id: string; lineId: (string) | (null); kind: ("code") | ("automatic") | ("staff") | ("referral"); amount: number; percent: (number) | (null); reason: (string) | (null); givenBy: (string) | (null); approval: (string) | (null); createdAt: string })[]; personId?: (string) | (null); email?: (string) | (null); placedAs?: ("customer") | ("public") | ("staff"); token: (string) | (null) };
+    input: { lines: { object: string; id: string; quantity?: number }[]; pay?: ("full") | ("deposit"); email?: string; agreements?: { versionId: string; typedName: string; signature?: { width: 1000; height: 400; strokes: [number, number][][] }; answers?: { key: string; yes: boolean; note?: string }[] }[]; code?: string; delivery?: { object: string; id: string; address?: { name: string; line1: string; line2?: string; city?: string; region?: string; postcode?: string; country: string } } };
+    output: { id: string; state: ("pending") | ("part_paid") | ("paid") | ("cancelled") | ("expired") | ("refunded"); currency: string; total: number; paid: number; balance: number; refunded: number; pay: ("full") | ("deposit"); deposit: (number) | (null); balanceDueAt: (string) | (null); expiresAt: (string) | (null); paidAt: (string) | (null); createdAt: string; taxAmount: number; taxRefunded: number; taxCountry: (string) | (null); discount: number; lines: { id: string; position: number; object: string; recordId: string; title: string; quantity: number; unitPrice: number; total: number; taxAmount: number; discount: number }[]; adjustments?: ({ id: string; lineId: (string) | (null); kind: ("code") | ("automatic") | ("staff") | ("referral"); amount: number; percent: (number) | (null); reason: (string) | (null); givenBy: (string) | (null); approval: (string) | (null); createdAt: string })[]; personId?: (string) | (null); email?: (string) | (null); placedAs?: ("customer") | ("public") | ("staff"); token: (string) | (null); deal: ({ kind: ("code") | ("automatic"); title: string; amount: number }) | (null); codeApplied: (boolean) | (null) };
   };
   /**
    * See one order with the token it was started with (a guest's link from order.start or the confirmation email). The token opens that order only, while it is open and for 30 days after it closes. A wrong id, a wrong token and an old link are all not found. Read-only.
@@ -452,44 +516,52 @@ export const operations = {
   "allowance.get": { kind: "query", invalidates: [] },
   "allowance.list": { kind: "query", invalidates: [] },
   "capacity.get": { kind: "query", invalidates: [] },
+  "contact.stop": { kind: "mutation", invalidates: [] },
   "content.get": { kind: "query", invalidates: [] },
   "content.list": { kind: "query", invalidates: [] },
   "content.preview": { kind: "query", invalidates: [] },
   "content.search": { kind: "query", invalidates: [] },
-  "me.agreements.accept": { kind: "mutation", invalidates: ["me.agreements.due","me.agreements.get","me.agreements.list","me.agreements.pdf","me.attention","me.birthday.get","me.calendarFeed.status","me.family","me.get","me.portal","me.sessions.list","my.get","my.list"] },
+  "discount.check": { kind: "query", invalidates: [] },
+  "me.agreements.accept": { kind: "mutation", invalidates: ["me.agreements.due","me.agreements.get","me.agreements.list","me.agreements.pdf","me.attention","me.birthday.get","me.calendarFeed.status","me.contact.choices","me.family","me.get","me.portal","me.sessions.list","my.get","my.list"] },
   "me.agreements.due": { kind: "query", invalidates: [] },
   "me.agreements.get": { kind: "query", invalidates: [] },
   "me.agreements.list": { kind: "query", invalidates: [] },
   "me.agreements.pdf": { kind: "query", invalidates: [] },
   "me.attention": { kind: "query", invalidates: [] },
   "me.birthday.get": { kind: "query", invalidates: [] },
-  "me.birthday.set": { kind: "mutation", invalidates: ["me.agreements.due","me.agreements.get","me.agreements.list","me.agreements.pdf","me.attention","me.birthday.get","me.calendarFeed.status","me.family","me.get","me.portal","me.sessions.list","my.get","my.list"] },
-  "me.calendarFeed.revoke": { kind: "mutation", invalidates: ["me.agreements.due","me.agreements.get","me.agreements.list","me.agreements.pdf","me.attention","me.birthday.get","me.calendarFeed.status","me.family","me.get","me.portal","me.sessions.list","my.get","my.list"] },
-  "me.calendarFeed.rotate": { kind: "mutation", invalidates: ["me.agreements.due","me.agreements.get","me.agreements.list","me.agreements.pdf","me.attention","me.birthday.get","me.calendarFeed.status","me.family","me.get","me.portal","me.sessions.list","my.get","my.list"] },
+  "me.birthday.set": { kind: "mutation", invalidates: ["me.agreements.due","me.agreements.get","me.agreements.list","me.agreements.pdf","me.attention","me.birthday.get","me.calendarFeed.status","me.contact.choices","me.family","me.get","me.portal","me.sessions.list","my.get","my.list"] },
+  "me.calendarFeed.revoke": { kind: "mutation", invalidates: ["me.agreements.due","me.agreements.get","me.agreements.list","me.agreements.pdf","me.attention","me.birthday.get","me.calendarFeed.status","me.contact.choices","me.family","me.get","me.portal","me.sessions.list","my.get","my.list"] },
+  "me.calendarFeed.rotate": { kind: "mutation", invalidates: ["me.agreements.due","me.agreements.get","me.agreements.list","me.agreements.pdf","me.attention","me.birthday.get","me.calendarFeed.status","me.contact.choices","me.family","me.get","me.portal","me.sessions.list","my.get","my.list"] },
   "me.calendarFeed.status": { kind: "query", invalidates: [] },
-  "me.code": { kind: "mutation", invalidates: ["me.agreements.due","me.agreements.get","me.agreements.list","me.agreements.pdf","me.attention","me.birthday.get","me.calendarFeed.status","me.family","me.get","me.portal","me.sessions.list","my.get","my.list"] },
-  "me.deleteAccount": { kind: "mutation", invalidates: ["me.agreements.due","me.agreements.get","me.agreements.list","me.agreements.pdf","me.attention","me.birthday.get","me.calendarFeed.status","me.family","me.get","me.portal","me.sessions.list","my.get","my.list"] },
-  "me.email.change": { kind: "mutation", invalidates: ["me.agreements.due","me.agreements.get","me.agreements.list","me.agreements.pdf","me.attention","me.birthday.get","me.calendarFeed.status","me.family","me.get","me.portal","me.sessions.list","my.get","my.list"] },
-  "me.email.confirm": { kind: "mutation", invalidates: ["me.agreements.due","me.agreements.get","me.agreements.list","me.agreements.pdf","me.attention","me.birthday.get","me.calendarFeed.status","me.family","me.get","me.portal","me.sessions.list","my.get","my.list"] },
+  "me.code": { kind: "mutation", invalidates: ["me.agreements.due","me.agreements.get","me.agreements.list","me.agreements.pdf","me.attention","me.birthday.get","me.calendarFeed.status","me.contact.choices","me.family","me.get","me.portal","me.sessions.list","my.get","my.list"] },
+  "me.contact.choices": { kind: "query", invalidates: [] },
+  "me.contact.setChoices": { kind: "mutation", invalidates: ["me.agreements.due","me.agreements.get","me.agreements.list","me.agreements.pdf","me.attention","me.birthday.get","me.calendarFeed.status","me.contact.choices","me.family","me.get","me.portal","me.sessions.list","my.get","my.list"] },
+  "me.deleteAccount": { kind: "mutation", invalidates: ["me.agreements.due","me.agreements.get","me.agreements.list","me.agreements.pdf","me.attention","me.birthday.get","me.calendarFeed.status","me.contact.choices","me.family","me.get","me.portal","me.sessions.list","my.get","my.list"] },
+  "me.email.change": { kind: "mutation", invalidates: ["me.agreements.due","me.agreements.get","me.agreements.list","me.agreements.pdf","me.attention","me.birthday.get","me.calendarFeed.status","me.contact.choices","me.family","me.get","me.portal","me.sessions.list","my.get","my.list"] },
+  "me.email.confirm": { kind: "mutation", invalidates: ["me.agreements.due","me.agreements.get","me.agreements.list","me.agreements.pdf","me.attention","me.birthday.get","me.calendarFeed.status","me.contact.choices","me.family","me.get","me.portal","me.sessions.list","my.get","my.list"] },
   "me.family": { kind: "query", invalidates: [] },
   "me.get": { kind: "query", invalidates: [] },
-  "me.phone.check": { kind: "mutation", invalidates: ["me.agreements.due","me.agreements.get","me.agreements.list","me.agreements.pdf","me.attention","me.birthday.get","me.calendarFeed.status","me.family","me.get","me.portal","me.sessions.list","my.get","my.list"] },
-  "me.phone.startCheck": { kind: "mutation", invalidates: ["me.agreements.due","me.agreements.get","me.agreements.list","me.agreements.pdf","me.attention","me.birthday.get","me.calendarFeed.status","me.family","me.get","me.portal","me.sessions.list","my.get","my.list"] },
-  "me.pin.clear": { kind: "mutation", invalidates: ["me.agreements.due","me.agreements.get","me.agreements.list","me.agreements.pdf","me.attention","me.birthday.get","me.calendarFeed.status","me.family","me.get","me.portal","me.sessions.list","my.get","my.list"] },
-  "me.pin.set": { kind: "mutation", invalidates: ["me.agreements.due","me.agreements.get","me.agreements.list","me.agreements.pdf","me.attention","me.birthday.get","me.calendarFeed.status","me.family","me.get","me.portal","me.sessions.list","my.get","my.list"] },
+  "me.phone.check": { kind: "mutation", invalidates: ["me.agreements.due","me.agreements.get","me.agreements.list","me.agreements.pdf","me.attention","me.birthday.get","me.calendarFeed.status","me.contact.choices","me.family","me.get","me.portal","me.sessions.list","my.get","my.list"] },
+  "me.phone.startCheck": { kind: "mutation", invalidates: ["me.agreements.due","me.agreements.get","me.agreements.list","me.agreements.pdf","me.attention","me.birthday.get","me.calendarFeed.status","me.contact.choices","me.family","me.get","me.portal","me.sessions.list","my.get","my.list"] },
+  "me.pin.clear": { kind: "mutation", invalidates: ["me.agreements.due","me.agreements.get","me.agreements.list","me.agreements.pdf","me.attention","me.birthday.get","me.calendarFeed.status","me.contact.choices","me.family","me.get","me.portal","me.sessions.list","my.get","my.list"] },
+  "me.pin.set": { kind: "mutation", invalidates: ["me.agreements.due","me.agreements.get","me.agreements.list","me.agreements.pdf","me.attention","me.birthday.get","me.calendarFeed.status","me.contact.choices","me.family","me.get","me.portal","me.sessions.list","my.get","my.list"] },
   "me.portal": { kind: "query", invalidates: [] },
   "me.sessions.list": { kind: "query", invalidates: [] },
-  "me.sessions.revoke": { kind: "mutation", invalidates: ["me.agreements.due","me.agreements.get","me.agreements.list","me.agreements.pdf","me.attention","me.birthday.get","me.calendarFeed.status","me.family","me.get","me.portal","me.sessions.list","my.get","my.list"] },
-  "me.signOut": { kind: "mutation", invalidates: ["me.agreements.due","me.agreements.get","me.agreements.list","me.agreements.pdf","me.attention","me.birthday.get","me.calendarFeed.status","me.family","me.get","me.portal","me.sessions.list","my.get","my.list"] },
-  "me.update": { kind: "mutation", invalidates: ["me.agreements.due","me.agreements.get","me.agreements.list","me.agreements.pdf","me.attention","me.birthday.get","me.calendarFeed.status","me.family","me.get","me.portal","me.sessions.list","my.get","my.list"] },
+  "me.sessions.revoke": { kind: "mutation", invalidates: ["me.agreements.due","me.agreements.get","me.agreements.list","me.agreements.pdf","me.attention","me.birthday.get","me.calendarFeed.status","me.contact.choices","me.family","me.get","me.portal","me.sessions.list","my.get","my.list"] },
+  "me.signOut": { kind: "mutation", invalidates: ["me.agreements.due","me.agreements.get","me.agreements.list","me.agreements.pdf","me.attention","me.birthday.get","me.calendarFeed.status","me.contact.choices","me.family","me.get","me.portal","me.sessions.list","my.get","my.list"] },
+  "me.update": { kind: "mutation", invalidates: ["me.agreements.due","me.agreements.get","me.agreements.list","me.agreements.pdf","me.attention","me.birthday.get","me.calendarFeed.status","me.contact.choices","me.family","me.get","me.portal","me.sessions.list","my.get","my.list"] },
   "media.play": { kind: "query", invalidates: [] },
   "media.serve": { kind: "query", invalidates: [] },
   "my.get": { kind: "query", invalidates: [] },
   "my.list": { kind: "query", invalidates: [] },
-  "order.cancel": { kind: "mutation", invalidates: ["order.get","order.view"] },
-  "order.checkout": { kind: "mutation", invalidates: ["order.get","order.view"] },
+  "order.applyCode": { kind: "mutation", invalidates: ["order.delivery.get","order.get","order.quote","order.view"] },
+  "order.cancel": { kind: "mutation", invalidates: ["order.delivery.get","order.get","order.quote","order.view"] },
+  "order.checkout": { kind: "mutation", invalidates: ["order.delivery.get","order.get","order.quote","order.view"] },
+  "order.delivery.get": { kind: "query", invalidates: [] },
   "order.get": { kind: "query", invalidates: [] },
-  "order.start": { kind: "mutation", invalidates: ["order.get","order.view"] },
+  "order.quote": { kind: "query", invalidates: [] },
+  "order.removeCode": { kind: "mutation", invalidates: ["order.delivery.get","order.get","order.quote","order.view"] },
+  "order.start": { kind: "mutation", invalidates: ["order.delivery.get","order.get","order.quote","order.view"] },
   "order.view": { kind: "query", invalidates: [] },
   "stock.get": { kind: "query", invalidates: [] },
   "subscription.cancel": { kind: "mutation", invalidates: ["subscription.coolingOff","subscription.get","subscription.list","subscription.offer.mine","subscription.portal"] },

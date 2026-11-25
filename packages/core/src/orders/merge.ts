@@ -14,6 +14,9 @@
 // order waiting to be paid). The one released, when it was held, leaves its pending order without
 // its claim: if that order is paid later, its once-per-Person line grants nothing and staff are
 // told to refund it (orders/grants.ts), so a merge never yields a second intro offer.
+//
+// Discount uses (ADR 0693) move to the survivor, so their per-person limits count them as one.
+import { queueMergeDiscountUses } from "../discounts/uses.ts";
 import type { HandlerContext } from "../operation.ts";
 
 export async function queueMergeOrders(
@@ -27,6 +30,9 @@ export async function queueMergeOrders(
       .set({ person_id: survivorId, updated_at: ctx.now })
       .where("person_id", "=", mergedId),
   );
+  // Their discount uses too (ADR 0693): the two already counted as one for a per-person limit
+  // only when they shared a folded address; from now on they are one Person.
+  queueMergeDiscountUses(ctx, survivorId, mergedId);
   const rows = await ctx.db
     .selectFrom("core_sellable_once")
     .select(["id", "person_id", "object_type", "state", "created_at"])

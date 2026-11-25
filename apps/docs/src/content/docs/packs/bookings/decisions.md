@@ -31,6 +31,13 @@ The decisions this pack rests on, as recorded in the repository's ADRs.
 | [ADR 0600](https://github.com/timoconnellaus/composable-os/blob/main/docs/adr/0600-a-pack-role-and-its-grants-add-up.md) | A pack role and its grants add up; the front desk's permission |
 | [ADR 0620](https://github.com/timoconnellaus/composable-os/blob/main/docs/adr/0620-field-level-exceptions-in-recurring.md) | Field-level exceptions in `recurring` |
 | [ADR 0621](https://github.com/timoconnellaus/composable-os/blob/main/docs/adr/0621-the-staffed-behaviour-and-the-time-claim.md) | The `staffed` behaviour and the time claim |
+| [ADR 0723](https://github.com/timoconnellaus/composable-os/blob/main/docs/adr/0723-personal-links-used-once.md) | Personal links, used once |
+| [ADR 0724](https://github.com/timoconnellaus/composable-os/blob/main/docs/adr/0724-the-receipt-and-the-form-link-slot.md) | The receipt to a public address, and the form-link slot |
+| [ADR 0760](https://github.com/timoconnellaus/composable-os/blob/main/docs/adr/0760-claim-margins-and-a-required-account-on-staffed.md) | Claim margins and a required account on `staffed` |
+| [ADR 0761](https://github.com/timoconnellaus/composable-os/blob/main/docs/adr/0761-a-shift-that-names-a-client-kept-off-the-roster-and-the-feed.md) | A shift that names a client, kept off the roster and the feed |
+| [ADR 0762](https://github.com/timoconnellaus/composable-os/blob/main/docs/adr/0762-open-hours-and-free-times.md) | Open hours and free times |
+| [ADR 0763](https://github.com/timoconnellaus/composable-os/blob/main/docs/adr/0763-the-customers-check-on-a-free-time.md) | The customer's check on a free time, and staff warnings |
+| [ADR 0764](https://github.com/timoconnellaus/composable-os/blob/main/docs/adr/0764-appointments-in-the-bookings-pack.md) | Appointments in the Bookings pack, booked by staff |
 | [ADR 0765](https://github.com/timoconnellaus/composable-os/blob/main/docs/adr/0765-occupies-the-claim-on-a-thing.md) | `occupies`, the claim on a thing |
 
 The specification is stage 31's, [31-bookings.md](https://github.com/timoconnellaus/composable-os/blob/main/docs/stages/31-bookings.md).

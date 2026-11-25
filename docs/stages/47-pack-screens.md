@@ -16,6 +16,21 @@ and `lib/nav.ts`; `packages/create-composable-os/src/blocks.ts` and `scripts/che
 Status: **built** 2026-11-24 (owner interviewed 2026-11-24: decisions 1 to 4;
 [ADR 0660](../adr/0660-pack-screens-in-the-admin.md); see "Built" at the end).
 
+## Status
+
+All four steps were built in one PR ("Built" at the end).
+
+- **Step 1** — built — PR #303 — The `screens` declaration and its contract checks; `screens.mine`; the
+  pack-role reach for it. ADR 0660, no migration.
+
+- **Step 2** — built — PR #303 — The build plugin, the registry, the route, the record tab, the error
+  boundary, the staff client.
+
+- **Step 3** — built — PR #303 — Navigation from `screens.mine`; the fixed-role shell.
+
+- **Step 4** — built — PR #303 — The first screens declared in Bookings, Memberships, Rostering, Programs
+  and Courses; e2e through the navigation.
+
 ## Goal
 
 Staff use a pack's own screens on the web, in the product's admin, on the host's address. A coach

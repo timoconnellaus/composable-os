@@ -427,6 +427,37 @@
       "invalidates": []
     },
     {
+      "name": "contact.stop",
+      "description": "The one-tap stop in an email: turns off the one kind of message, on the one channel, that the link's token names, for the one Person it names. It can only turn something off. The answer is the same whether the token was good or not.",
+      "risk": "write",
+      "audiences": ["customer"],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "token": {
+            "type": "string",
+            "maxLength": 400,
+            "description": "The token from the stop link (its t parameter)"
+          }
+        },
+        "required": ["token"],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "done": {
+            "type": "boolean",
+            "const": true
+          }
+        },
+        "required": ["done"],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
       "name": "content.get",
       "description": "Read one published record of a content object (a blog post) by its slug, as the public reads it: its published version, with only the fields the object lets the public read. An old slug of a record whose slug changed answers `redirect` with the slug it has now. A draft, an unpublished record and an unknown slug are all not found. Read-only.",
       "risk": "read",
@@ -866,6 +897,103 @@
       "invalidates": []
     },
     {
+      "name": "discount.check",
+      "description": "Check a promo code against a basket before an order is started: whether it applies to these lines for this caller, and what it would take off each. Nothing is held: the code's uses are kept only once an order is started (order.start, order.applyCode). A code that does not apply gets one answer, whatever the reason (unknown, ended, used up, not for this buyer, not for these items): valid false and the same message. `better` says that a price applying by itself (a member's) takes more off, so the code would not be the order's deal. A guest is nobody proved: a code for members, new customers or one per person is not valid for them. Amounts are in the currency's minor unit. Read-only.",
+      "risk": "read",
+      "audiences": ["customer"],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "code": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "A promo code the buyer typed. The host decides what it takes off, from the discount it names: the better for the buyer of it and any member's price applies. One answer for a code that does not apply, whatever the reason."
+          },
+          "lines": {
+            "minItems": 1,
+            "maxItems": 50,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "object": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 80,
+                  "description": "The object of the record to buy"
+                },
+                "id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 64,
+                  "description": "The record to buy"
+                },
+                "quantity": {
+                  "default": 1,
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 1000
+                }
+              },
+              "required": ["object", "id"]
+            },
+            "description": "What is in the basket. There is no price here: the host reads it from each record."
+          }
+        },
+        "required": ["code", "lines"]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "valid": {
+            "type": "boolean"
+          },
+          "message": {
+            "description": "Why not, the same words for every reason",
+            "type": ["string", "null"]
+          },
+          "title": {
+            "description": "The discount's name, when valid",
+            "type": ["string", "null"]
+          },
+          "amount": {
+            "type": "number",
+            "description": "What the code takes off these lines; 0 when not valid"
+          },
+          "lines": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "position": {
+                  "type": "number"
+                },
+                "discount": {
+                  "type": "number",
+                  "description": "What it takes off this line"
+                }
+              },
+              "required": ["position", "discount"],
+              "additionalProperties": false
+            }
+          },
+          "better": {
+            "type": "boolean",
+            "description": "A price that applies by itself takes more off: that would be the deal instead"
+          },
+          "reason": {
+            "description": "Staff only: why it does not apply",
+            "type": "string"
+          }
+        },
+        "required": ["valid", "message", "title", "amount", "lines", "better"],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
       "name": "me.agreements.accept",
       "description": "Agree to a version of a document, as a signed-in customer: for yourself, or with forPersonId for a child linked to you. Give the name you type, a signature for a document agreed to by drawing, and every answer for a health form. Recorded for good and never changed. Refused for yourself when a parent or guardian agrees for you.",
       "risk": "write",
@@ -996,6 +1124,7 @@
         "me.attention",
         "me.birthday.get",
         "me.calendarFeed.status",
+        "me.contact.choices",
         "me.family",
         "me.get",
         "me.portal",
@@ -1636,7 +1765,7 @@
     },
     {
       "name": "me.attention",
-      "description": "What needs your attention, as a signed-in customer, soonest first: a document to agree to (for you or a child linked to you), a card payment that failed, a payment waiting for you to confirm with your bank, the rest of a deposit to pay, an order you started paying for and did not finish, a pass about to expire with uses left or with none left (yours or a child's), and a free trial about to end. `days` is how far ahead it looks for a pass or a trial ending. An item goes once its cause is fixed. Read-only.",
+      "description": "What needs your attention, as a signed-in customer, soonest first: a document to agree to (for you or a child linked to you), a card payment that failed, a payment waiting for you to confirm with your bank, the rest of a deposit to pay, an order you started paying for and did not finish, a pass about to expire with uses left or with none left (yours or a child's), a free trial about to end, and a form you were asked to answer (yours or a child's). `days` is how far ahead it looks for a pass or a trial ending. An item goes once its cause is fixed. Read-only.",
       "risk": "read",
       "audiences": ["customer"],
       "kind": "query",
@@ -1670,9 +1799,10 @@
                     "finish_paying",
                     "pass_expiring",
                     "pass_used_up",
-                    "trial_ending"
+                    "trial_ending",
+                    "form_to_fill"
                   ],
-                  "description": "agree: a document to agree to (me.agreements.due has it). card_failing: a card payment for a subscription you pay failed. confirm_payment: a payment waits for you to confirm it with your bank. balance_due: the rest of a deposit to pay. finish_paying: an order holding places you started paying for and did not finish. pass_expiring: a pass about to expire with uses still on it. pass_used_up: a pass with no uses left. trial_ending: a free trial about to end."
+                  "description": "agree: a document to agree to (me.agreements.due has it). card_failing: a card payment for a subscription you pay failed. confirm_payment: a payment waits for you to confirm it with your bank. balance_due: the rest of a deposit to pay. finish_paying: an order holding places you started paying for and did not finish. pass_expiring: a pass about to expire with uses still on it. pass_used_up: a pass with no uses left. trial_ending: a free trial about to end. form_to_fill: a form the business asked you (or a child linked to you) to answer, such as feedback after a class, until it is answered or its link expires."
                 },
                 "person": {
                   "type": "object",
@@ -1706,10 +1836,10 @@
                   },
                   "required": ["object", "id", "title"],
                   "additionalProperties": false,
-                  "description": "What it is about: an agreement document, a subscription, an order, or a pass by its object"
+                  "description": "What it is about: an agreement document, a subscription, an order, a pass by its object, or the form to answer"
                 },
                 "at": {
-                  "description": "The moment it is about: the version taking effect, the first failed payment, the payment started, the balance due, the held order expiring, the pass or trial ending",
+                  "description": "The moment it is about: the version taking effect, the first failed payment, the payment started, the balance due, the held order expiring, the pass or trial ending, the form's link expiring",
                   "type": ["string", "null"]
                 },
                 "amount": {
@@ -1722,6 +1852,10 @@
                 "usesLeft": {
                   "description": "A pass's uses left; null for other kinds",
                   "type": ["number", "null"]
+                },
+                "link": {
+                  "description": "form_to_fill: the personal link's id, sent back as linkId to open and answer the form (signed in only); null for other kinds",
+                  "type": ["string", "null"]
                 }
               },
               "required": [
@@ -1732,7 +1866,8 @@
                 "at",
                 "amount",
                 "currency",
-                "usesLeft"
+                "usesLeft",
+                "link"
               ],
               "additionalProperties": false
             }
@@ -1875,6 +2010,7 @@
         "me.attention",
         "me.birthday.get",
         "me.calendarFeed.status",
+        "me.contact.choices",
         "me.family",
         "me.get",
         "me.portal",
@@ -1911,6 +2047,7 @@
         "me.attention",
         "me.birthday.get",
         "me.calendarFeed.status",
+        "me.contact.choices",
         "me.family",
         "me.get",
         "me.portal",
@@ -1951,6 +2088,7 @@
         "me.attention",
         "me.birthday.get",
         "me.calendarFeed.status",
+        "me.contact.choices",
         "me.family",
         "me.get",
         "me.portal",
@@ -2058,6 +2196,196 @@
         "me.attention",
         "me.birthday.get",
         "me.calendarFeed.status",
+        "me.contact.choices",
+        "me.family",
+        "me.get",
+        "me.portal",
+        "me.sessions.list",
+        "my.get",
+        "my.list"
+      ]
+    },
+    {
+      "name": "me.contact.choices",
+      "description": "Your contact preferences, as a signed-in customer, and those of each child you act for: each kind of message you may get, on each channel it goes by (email, text, push), with what is in force. Messages about something booked or paid for are always emailed (fixed); follow-ups and news and offers are per channel. Read-only.",
+      "risk": "read",
+      "audiences": ["customer"],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {},
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "people": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "personId": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "self": {
+                  "type": "boolean",
+                  "description": "The caller's own Person (false: a child they act for)"
+                },
+                "child": {
+                  "type": "boolean",
+                  "description": "A child: news and offers never go to them"
+                },
+                "lines": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "scope": {
+                        "type": "string"
+                      },
+                      "label": {
+                        "type": "string"
+                      },
+                      "description": {
+                        "type": "string"
+                      },
+                      "purpose": {
+                        "type": "string",
+                        "enum": ["account", "follow_up", "news_and_offers"]
+                      },
+                      "essential": {
+                        "type": "boolean",
+                        "description": "Its email always goes"
+                      },
+                      "channels": {
+                        "type": "array",
+                        "items": {
+                          "type": "object",
+                          "properties": {
+                            "channel": {
+                              "type": "string",
+                              "enum": ["email", "text", "push"]
+                            },
+                            "value": {
+                              "type": "string",
+                              "enum": ["on", "off", "yes", "no"],
+                              "description": "What is in force (a default when unset)"
+                            },
+                            "fixed": {
+                              "type": "boolean",
+                              "description": "Cannot be changed here: an essential kind's email always goes"
+                            },
+                            "stopped": {
+                              "type": "boolean",
+                              "description": "Stopped by a stop link or a STOP reply"
+                            },
+                            "since": {
+                              "description": "When the choice in force was made; null: the default",
+                              "type": ["string", "null"]
+                            }
+                          },
+                          "required": ["channel", "value", "fixed", "stopped", "since"],
+                          "additionalProperties": false
+                        }
+                      }
+                    },
+                    "required": [
+                      "scope",
+                      "label",
+                      "description",
+                      "purpose",
+                      "essential",
+                      "channels"
+                    ],
+                    "additionalProperties": false
+                  }
+                }
+              },
+              "required": ["personId", "name", "self", "child", "lines"],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["people"],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
+      "name": "me.contact.setChoices",
+      "description": "Changes your contact preferences, as a signed-in customer, or those of a child you act for (personId). Each choice is a kind of message, a channel and on or off (news_and_offers: yes or no, with the words you were shown). A booking's or a payment's email cannot be turned off. You may turn back on what you stopped by a link or a STOP reply.",
+      "risk": "write",
+      "audiences": ["customer"],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "personId": {
+            "description": "A child you act for; default you",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "choices": {
+            "minItems": 1,
+            "maxItems": 40,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "scope": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 80,
+                  "description": "A kind of message: a routine message kind (bookings.reminder), follow_up, or news_and_offers"
+                },
+                "channel": {
+                  "type": "string",
+                  "enum": ["email", "text", "push"]
+                },
+                "value": {
+                  "type": "string",
+                  "enum": ["on", "off", "yes", "no"],
+                  "description": "on or off; for news_and_offers, yes or no"
+                }
+              },
+              "required": ["scope", "channel", "value"],
+              "additionalProperties": false
+            }
+          },
+          "wording": {
+            "description": "For a yes to news and offers: the words you were shown",
+            "type": "string",
+            "maxLength": 1000
+          }
+        },
+        "required": ["choices"],
+        "additionalProperties": false
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "changed": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": ["changed"],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "me.agreements.due",
+        "me.agreements.get",
+        "me.agreements.list",
+        "me.agreements.pdf",
+        "me.attention",
+        "me.birthday.get",
+        "me.calendarFeed.status",
+        "me.contact.choices",
         "me.family",
         "me.get",
         "me.portal",
@@ -2304,6 +2632,7 @@
         "me.attention",
         "me.birthday.get",
         "me.calendarFeed.status",
+        "me.contact.choices",
         "me.family",
         "me.get",
         "me.portal",
@@ -2354,6 +2683,7 @@
         "me.attention",
         "me.birthday.get",
         "me.calendarFeed.status",
+        "me.contact.choices",
         "me.family",
         "me.get",
         "me.portal",
@@ -2404,6 +2734,7 @@
         "me.attention",
         "me.birthday.get",
         "me.calendarFeed.status",
+        "me.contact.choices",
         "me.family",
         "me.get",
         "me.portal",
@@ -2571,6 +2902,7 @@
         "me.attention",
         "me.birthday.get",
         "me.calendarFeed.status",
+        "me.contact.choices",
         "me.family",
         "me.get",
         "me.portal",
@@ -2627,6 +2959,7 @@
         "me.attention",
         "me.birthday.get",
         "me.calendarFeed.status",
+        "me.contact.choices",
         "me.family",
         "me.get",
         "me.portal",
@@ -2664,6 +2997,7 @@
         "me.attention",
         "me.birthday.get",
         "me.calendarFeed.status",
+        "me.contact.choices",
         "me.family",
         "me.get",
         "me.portal",
@@ -2709,6 +3043,7 @@
         "me.attention",
         "me.birthday.get",
         "me.calendarFeed.status",
+        "me.contact.choices",
         "me.family",
         "me.get",
         "me.portal",
@@ -2906,6 +3241,7 @@
         "me.attention",
         "me.birthday.get",
         "me.calendarFeed.status",
+        "me.contact.choices",
         "me.family",
         "me.get",
         "me.portal",
@@ -2942,6 +3278,7 @@
         "me.attention",
         "me.birthday.get",
         "me.calendarFeed.status",
+        "me.contact.choices",
         "me.family",
         "me.get",
         "me.portal",
@@ -3040,6 +3377,7 @@
         "me.attention",
         "me.birthday.get",
         "me.calendarFeed.status",
+        "me.contact.choices",
         "me.family",
         "me.get",
         "me.portal",
@@ -3425,6 +3763,273 @@
       "invalidates": []
     },
     {
+      "name": "order.applyCode",
+      "description": "Put a promo code on a pending order whose payment page has not opened. The host works out what it takes off from the discount it names, for the order's own buyer and lines: the better for the buyer of the code and any price that applies by itself (a member's) is the deal, and only one deal is on an order (a staff discount may be added on top). A code that does not apply is refused with one answer, rule code_not_valid, whatever the reason (unknown, ended, used up, not for this buyer or these items), and nothing changes. A code never makes an order free. A signed-in customer changes their own orders; a guest passes the order's token. Returns the order, its deal and whether the code is it.",
+      "risk": "write",
+      "audiences": ["customer"],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "Order id (ord_…)"
+          },
+          "token": {
+            "description": "A guest's token for the order",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          },
+          "code": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "A promo code the buyer typed. The host decides what it takes off, from the discount it names: the better for the buyer of it and any member's price applies. One answer for a code that does not apply, whatever the reason."
+          }
+        },
+        "required": ["id", "code"]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string",
+            "enum": ["pending", "part_paid", "paid", "cancelled", "expired", "refunded"]
+          },
+          "currency": {
+            "type": "string"
+          },
+          "total": {
+            "type": "number"
+          },
+          "paid": {
+            "type": "number"
+          },
+          "balance": {
+            "type": "number"
+          },
+          "refunded": {
+            "type": "number",
+            "description": "What has gone back to the buyer, confirmed by the provider"
+          },
+          "pay": {
+            "type": "string",
+            "enum": ["full", "deposit"]
+          },
+          "deposit": {
+            "type": ["number", "null"]
+          },
+          "balanceDueAt": {
+            "type": ["string", "null"]
+          },
+          "expiresAt": {
+            "type": ["string", "null"]
+          },
+          "paidAt": {
+            "type": ["string", "null"]
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "taxAmount": {
+            "type": "number",
+            "description": "The tax inside what has been paid, as the payment provider calculated it. Prices include it, so it does not add to the total. Zero when tax is off or none was charged."
+          },
+          "taxRefunded": {
+            "type": "number",
+            "description": "The tax the provider said went back with refunds"
+          },
+          "taxCountry": {
+            "description": "The country the latest taxed payment was for",
+            "type": ["string", "null"]
+          },
+          "discount": {
+            "type": "number",
+            "description": "Money taken off the order (its discounts), already out of the total"
+          },
+          "lines": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "position": {
+                  "type": "number"
+                },
+                "object": {
+                  "type": "string"
+                },
+                "recordId": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "quantity": {
+                  "type": "number"
+                },
+                "unitPrice": {
+                  "type": "number"
+                },
+                "total": {
+                  "type": "number"
+                },
+                "taxAmount": {
+                  "type": "number",
+                  "description": "The tax inside this line's payments, as the payment provider calculated it"
+                },
+                "discount": {
+                  "type": "number",
+                  "description": "The line's share of the order's discounts: it costs total less this"
+                }
+              },
+              "required": [
+                "id",
+                "position",
+                "object",
+                "recordId",
+                "title",
+                "quantity",
+                "unitPrice",
+                "total",
+                "taxAmount",
+                "discount"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "adjustments": {
+            "description": "Staff only: the discounts on the order, in the order they were given",
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "lineId": {
+                  "description": "The line it is on; null: spread over the order",
+                  "type": ["string", "null"]
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": ["code", "automatic", "staff", "referral"]
+                },
+                "amount": {
+                  "type": "number",
+                  "description": "What it took off, in the currency's minor unit"
+                },
+                "percent": {
+                  "description": "The percentage asked for, when it was one",
+                  "type": ["number", "null"]
+                },
+                "reason": {
+                  "type": ["string", "null"]
+                },
+                "givenBy": {
+                  "description": "The staff account that gave it",
+                  "type": ["string", "null"]
+                },
+                "approval": {
+                  "description": "The approval it waited in, when it did",
+                  "type": ["string", "null"]
+                },
+                "createdAt": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "lineId",
+                "kind",
+                "amount",
+                "percent",
+                "reason",
+                "givenBy",
+                "approval",
+                "createdAt"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "personId": {
+            "type": ["string", "null"]
+          },
+          "email": {
+            "type": ["string", "null"]
+          },
+          "placedAs": {
+            "type": "string",
+            "enum": ["customer", "public", "staff"]
+          },
+          "deal": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": ["code", "automatic"],
+                    "description": "code: a promo code; automatic: e.g. a member's price"
+                  },
+                  "title": {
+                    "type": "string",
+                    "description": "The discount's name"
+                  },
+                  "amount": {
+                    "type": "number",
+                    "description": "What it takes off the order, in the currency's minor unit"
+                  }
+                },
+                "required": ["kind", "title", "amount"],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The order's one deal: a promo code or a price that applied by itself; null: none"
+          },
+          "codeApplied": {
+            "description": "Whether the code given is the deal: false when a better one applied instead (a member's price); null when no code was given",
+            "type": ["boolean", "null"]
+          }
+        },
+        "required": [
+          "id",
+          "state",
+          "currency",
+          "total",
+          "paid",
+          "balance",
+          "refunded",
+          "pay",
+          "deposit",
+          "balanceDueAt",
+          "expiresAt",
+          "paidAt",
+          "createdAt",
+          "taxAmount",
+          "taxRefunded",
+          "taxCountry",
+          "discount",
+          "lines",
+          "deal",
+          "codeApplied"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": ["order.delivery.get", "order.get", "order.quote", "order.view"]
+    },
+    {
       "name": "order.cancel",
       "description": "Cancel an order. A signed-in customer can cancel their own order while nothing has been paid on it. Staff can also cancel an order that is part paid (a deposit was paid): that gives up its places, and refunding what was paid is a separate step. A paid order is refunded, not cancelled. Returns the order.",
       "risk": "write",
@@ -3643,7 +4248,7 @@
         ],
         "additionalProperties": false
       },
-      "invalidates": ["order.get", "order.view"]
+      "invalidates": ["order.delivery.get", "order.get", "order.quote", "order.view"]
     },
     {
       "name": "order.checkout",
@@ -3705,7 +4310,118 @@
         "required": ["url", "amount", "currency", "kind", "expiresAt"],
         "additionalProperties": false
       },
-      "invalidates": ["order.get", "order.view"]
+      "invalidates": ["order.delivery.get", "order.get", "order.quote", "order.view"]
+    },
+    {
+      "name": "order.delivery.get",
+      "description": "How one order's goods get to the buyer: the delivery option chosen, its kind (post, collect, or here: taken now in person), whether the order is online or in person, and for a post delivery the address. One order at a time: addresses are in no list, view, export or search. Staff read any order's (each read is on record in the audit log); a signed-in customer their own; a guest with the order's token. An order without goods has none (not found). Read-only.",
+      "risk": "read",
+      "audiences": ["customer"],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "Order id (ord_…)"
+          },
+          "token": {
+            "description": "A guest's token for the order",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          }
+        },
+        "required": ["id"]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "orderId": {
+            "type": "string"
+          },
+          "channel": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": ["online", "in_person"]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "kind": {
+            "type": "string",
+            "enum": ["post", "collect", "here"]
+          },
+          "lineId": {
+            "type": "string",
+            "description": "The order's delivery line"
+          },
+          "option": {
+            "type": "object",
+            "properties": {
+              "object": {
+                "type": "string"
+              },
+              "recordId": {
+                "type": "string"
+              },
+              "title": {
+                "type": "string"
+              }
+            },
+            "required": ["object", "recordId", "title"],
+            "additionalProperties": false
+          },
+          "address": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string"
+                  },
+                  "line1": {
+                    "type": "string"
+                  },
+                  "line2": {
+                    "type": ["string", "null"]
+                  },
+                  "city": {
+                    "type": ["string", "null"]
+                  },
+                  "region": {
+                    "type": ["string", "null"]
+                  },
+                  "postcode": {
+                    "type": ["string", "null"]
+                  },
+                  "country": {
+                    "type": "string"
+                  }
+                },
+                "required": ["name", "line1", "line2", "city", "region", "postcode", "country"],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "A post delivery's; null otherwise"
+          },
+          "erased": {
+            "type": "boolean",
+            "description": "The buyer's erase removed the address"
+          }
+        },
+        "required": ["orderId", "channel", "kind", "lineId", "option", "address", "erased"],
+        "additionalProperties": false
+      },
+      "invalidates": []
     },
     {
       "name": "order.get",
@@ -3929,8 +4645,620 @@
       "invalidates": []
     },
     {
+      "name": "order.quote",
+      "description": "Price a basket without starting an order: the host's price of each line, the delivery (its postage, nothing when the goods reach the option's free-over amount), the total and what is available, exactly as order.start would charge. Holds nothing and writes nothing: stock is held only once an order is started. Refuses what order.start refuses (not for sale, not sold that way, an address outside the option's countries) and reports, in `problems`, what the buyer still has to do (choose a delivery, give an address) and what is sold out or short; `ready` is true when none is left. Money off is worked out as order.start would: a member's price by itself, and `code` (the better of the two), without holding a use of it; a code that does not apply is reported as code_not_valid. Amounts are in the currency's minor unit. Read-only.",
+      "risk": "read",
+      "audiences": ["customer"],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "lines": {
+            "minItems": 1,
+            "maxItems": 50,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "object": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 80,
+                  "description": "The object of the record to buy"
+                },
+                "id": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 64,
+                  "description": "The record to buy"
+                },
+                "quantity": {
+                  "default": 1,
+                  "type": "integer",
+                  "minimum": 1,
+                  "maximum": 1000
+                }
+              },
+              "required": ["object", "id"]
+            },
+            "description": "What is in the basket. There is no price here: the host reads it from each record."
+          },
+          "delivery": {
+            "description": "The delivery option chosen, and to post, the address (its country decides whether the option posts there). Left out, the quote says one is needed when there are goods.",
+            "type": "object",
+            "properties": {
+              "object": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 80,
+                "description": "The delivery option's object"
+              },
+              "id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64,
+                "description": "The delivery option chosen"
+              },
+              "address": {
+                "description": "Where to post the goods: needed for a post option, refused for any other",
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200,
+                    "description": "Who it is for"
+                  },
+                  "line1": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200
+                  },
+                  "line2": {
+                    "type": "string",
+                    "maxLength": 200
+                  },
+                  "city": {
+                    "type": "string",
+                    "maxLength": 100
+                  },
+                  "region": {
+                    "description": "State, county or province",
+                    "type": "string",
+                    "maxLength": 100
+                  },
+                  "postcode": {
+                    "type": "string",
+                    "maxLength": 20
+                  },
+                  "country": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z]{2}$"
+                  }
+                },
+                "required": ["name", "line1", "country"],
+                "additionalProperties": false
+              }
+            },
+            "required": ["object", "id"],
+            "additionalProperties": false
+          },
+          "code": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "A promo code the buyer typed. The host decides what it takes off, from the discount it names: the better for the buyer of it and any member's price applies. One answer for a code that does not apply, whatever the reason."
+          }
+        },
+        "required": ["lines"]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "currency": {
+            "type": "string"
+          },
+          "channel": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": ["online", "in_person"]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "online (posted or collected) or in_person (taken now); null without goods or delivery"
+          },
+          "lines": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "position": {
+                  "type": "number"
+                },
+                "object": {
+                  "type": "string"
+                },
+                "recordId": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "quantity": {
+                  "type": "number"
+                },
+                "unitPrice": {
+                  "type": "number"
+                },
+                "total": {
+                  "type": "number"
+                },
+                "discount": {
+                  "type": "number",
+                  "description": "The line's share of the deal: it costs total less this"
+                },
+                "goods": {
+                  "type": "boolean",
+                  "description": "Goods: posted, collected or taken now"
+                },
+                "availability": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "status": {
+                          "type": "string",
+                          "enum": ["in_stock", "low", "sold_out"]
+                        },
+                        "available": {
+                          "description": "How many can be bought now: for staff, and for others when the item shows it",
+                          "type": "number"
+                        },
+                        "onHand": {
+                          "description": "Staff only",
+                          "type": "number"
+                        },
+                        "held": {
+                          "description": "Staff only",
+                          "type": "number"
+                        }
+                      },
+                      "required": ["status"],
+                      "additionalProperties": false,
+                      "description": "Stock, for a line of something counted on a shelf; null for anything else"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "position",
+                "object",
+                "recordId",
+                "title",
+                "quantity",
+                "unitPrice",
+                "total",
+                "discount",
+                "goods",
+                "availability"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "delivery": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "object": {
+                    "type": "string"
+                  },
+                  "recordId": {
+                    "type": "string"
+                  },
+                  "title": {
+                    "type": "string"
+                  },
+                  "kind": {
+                    "type": "string",
+                    "enum": ["post", "collect", "here"]
+                  },
+                  "price": {
+                    "type": "number",
+                    "description": "The option's own price"
+                  },
+                  "freeOver": {
+                    "description": "Goods at or above this post free",
+                    "type": ["number", "null"]
+                  },
+                  "free": {
+                    "type": "boolean"
+                  },
+                  "charged": {
+                    "type": "number",
+                    "description": "What the delivery costs on this order: 0 when free"
+                  }
+                },
+                "required": [
+                  "object",
+                  "recordId",
+                  "title",
+                  "kind",
+                  "price",
+                  "freeOver",
+                  "free",
+                  "charged"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "goodsTotal": {
+            "type": "number",
+            "description": "What the goods cost, before the delivery and after the deal (free over counts it)"
+          },
+          "discount": {
+            "type": "number",
+            "description": "What the deal takes off"
+          },
+          "deal": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": ["code", "automatic"],
+                    "description": "code: a promo code; automatic: e.g. a member's price"
+                  },
+                  "title": {
+                    "type": "string",
+                    "description": "The discount's name"
+                  },
+                  "amount": {
+                    "type": "number",
+                    "description": "What it takes off the order, in the currency's minor unit"
+                  }
+                },
+                "required": ["kind", "title", "amount"],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The order's one deal: a promo code or a price that applied by itself; null: none"
+          },
+          "codeApplied": {
+            "description": "Whether the code given is the deal: false when a better one applied instead (a member's price); null when no code was given",
+            "type": ["boolean", "null"]
+          },
+          "total": {
+            "type": "number",
+            "description": "What order.start would charge for this basket"
+          },
+          "ready": {
+            "type": "boolean",
+            "description": "Nothing in `problems`: the order can be started as it is"
+          },
+          "problems": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "rule": {
+                  "type": "string",
+                  "enum": [
+                    "delivery_needed",
+                    "address_needed",
+                    "sold_out",
+                    "not_enough",
+                    "code_not_valid"
+                  ]
+                },
+                "message": {
+                  "type": "string"
+                },
+                "line": {
+                  "description": "The position of the line it is about",
+                  "type": "number"
+                }
+              },
+              "required": ["rule", "message"],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "currency",
+          "channel",
+          "lines",
+          "delivery",
+          "goodsTotal",
+          "discount",
+          "deal",
+          "codeApplied",
+          "total",
+          "ready",
+          "problems"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
+      "name": "order.removeCode",
+      "description": "Take the promo code off a pending order whose payment page has not opened: the order is priced again without it (a price that applies by itself, such as a member's, still does). Refused (rule no_code) when the order has no code. A signed-in customer changes their own orders; a guest passes the order's token. Returns the order and its deal.",
+      "risk": "write",
+      "audiences": ["customer"],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "Order id (ord_…)"
+          },
+          "token": {
+            "description": "A guest's token for the order",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 128
+          }
+        },
+        "required": ["id"]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string",
+            "enum": ["pending", "part_paid", "paid", "cancelled", "expired", "refunded"]
+          },
+          "currency": {
+            "type": "string"
+          },
+          "total": {
+            "type": "number"
+          },
+          "paid": {
+            "type": "number"
+          },
+          "balance": {
+            "type": "number"
+          },
+          "refunded": {
+            "type": "number",
+            "description": "What has gone back to the buyer, confirmed by the provider"
+          },
+          "pay": {
+            "type": "string",
+            "enum": ["full", "deposit"]
+          },
+          "deposit": {
+            "type": ["number", "null"]
+          },
+          "balanceDueAt": {
+            "type": ["string", "null"]
+          },
+          "expiresAt": {
+            "type": ["string", "null"]
+          },
+          "paidAt": {
+            "type": ["string", "null"]
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "taxAmount": {
+            "type": "number",
+            "description": "The tax inside what has been paid, as the payment provider calculated it. Prices include it, so it does not add to the total. Zero when tax is off or none was charged."
+          },
+          "taxRefunded": {
+            "type": "number",
+            "description": "The tax the provider said went back with refunds"
+          },
+          "taxCountry": {
+            "description": "The country the latest taxed payment was for",
+            "type": ["string", "null"]
+          },
+          "discount": {
+            "type": "number",
+            "description": "Money taken off the order (its discounts), already out of the total"
+          },
+          "lines": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "position": {
+                  "type": "number"
+                },
+                "object": {
+                  "type": "string"
+                },
+                "recordId": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "quantity": {
+                  "type": "number"
+                },
+                "unitPrice": {
+                  "type": "number"
+                },
+                "total": {
+                  "type": "number"
+                },
+                "taxAmount": {
+                  "type": "number",
+                  "description": "The tax inside this line's payments, as the payment provider calculated it"
+                },
+                "discount": {
+                  "type": "number",
+                  "description": "The line's share of the order's discounts: it costs total less this"
+                }
+              },
+              "required": [
+                "id",
+                "position",
+                "object",
+                "recordId",
+                "title",
+                "quantity",
+                "unitPrice",
+                "total",
+                "taxAmount",
+                "discount"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "adjustments": {
+            "description": "Staff only: the discounts on the order, in the order they were given",
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "lineId": {
+                  "description": "The line it is on; null: spread over the order",
+                  "type": ["string", "null"]
+                },
+                "kind": {
+                  "type": "string",
+                  "enum": ["code", "automatic", "staff", "referral"]
+                },
+                "amount": {
+                  "type": "number",
+                  "description": "What it took off, in the currency's minor unit"
+                },
+                "percent": {
+                  "description": "The percentage asked for, when it was one",
+                  "type": ["number", "null"]
+                },
+                "reason": {
+                  "type": ["string", "null"]
+                },
+                "givenBy": {
+                  "description": "The staff account that gave it",
+                  "type": ["string", "null"]
+                },
+                "approval": {
+                  "description": "The approval it waited in, when it did",
+                  "type": ["string", "null"]
+                },
+                "createdAt": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "lineId",
+                "kind",
+                "amount",
+                "percent",
+                "reason",
+                "givenBy",
+                "approval",
+                "createdAt"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "personId": {
+            "type": ["string", "null"]
+          },
+          "email": {
+            "type": ["string", "null"]
+          },
+          "placedAs": {
+            "type": "string",
+            "enum": ["customer", "public", "staff"]
+          },
+          "deal": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": ["code", "automatic"],
+                    "description": "code: a promo code; automatic: e.g. a member's price"
+                  },
+                  "title": {
+                    "type": "string",
+                    "description": "The discount's name"
+                  },
+                  "amount": {
+                    "type": "number",
+                    "description": "What it takes off the order, in the currency's minor unit"
+                  }
+                },
+                "required": ["kind", "title", "amount"],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The order's one deal: a promo code or a price that applied by itself; null: none"
+          },
+          "codeApplied": {
+            "description": "Whether the code given is the deal: false when a better one applied instead (a member's price); null when no code was given",
+            "type": ["boolean", "null"]
+          }
+        },
+        "required": [
+          "id",
+          "state",
+          "currency",
+          "total",
+          "paid",
+          "balance",
+          "refunded",
+          "pay",
+          "deposit",
+          "balanceDueAt",
+          "expiresAt",
+          "paidAt",
+          "createdAt",
+          "taxAmount",
+          "taxRefunded",
+          "taxCountry",
+          "discount",
+          "lines",
+          "deal",
+          "codeApplied"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": ["order.delivery.get", "order.get", "order.quote", "order.view"]
+    },
+    {
       "name": "order.start",
-      "description": "Start an order for one or more records that are for sale, as a signed-in customer, a guest (with an email address) or staff. The host prices it from the records: a caller never sends a price or a total. The order starts pending and is not paid: paying happens on the payment provider's page (order.checkout), and only the provider's confirmation marks it paid. An unpaid order expires after a few minutes. Nobody buys without the agreements the business needs for what is bought: refused with rule agreements_due and the documents while any is due (a guest passes their acceptances in `agreements`; a signed-in customer agrees first; staff send a link, sign at the desk or record paper). Returns the order with its lines and amounts in the currency's minor unit; a guest also gets `token`, shown once, which is the only way back to the order (order.view).",
+      "description": "Start an order for one or more records that are for sale, as a signed-in customer, a guest (with an email address) or staff. The host prices it from the records: a caller never sends a price or a total. The order starts pending and is not paid: paying happens on the payment provider's page (order.checkout), and only the provider's confirmation marks it paid. An unpaid order expires after a few minutes. Nobody buys without the agreements the business needs for what is bought: refused with rule agreements_due and the documents while any is due (a guest passes their acceptances in `agreements`; a signed-in customer agrees first; staff send a link, sign at the desk or record paper). Goods (things posted, collected or taken now) need a `delivery`: the host adds it as the last line, priced by the host, and refuses goods not sold that way (rule not_sold_here), a post delivery with no address or one outside the option's countries, and what is sold out. order.quote gives the same prices without starting anything. Money off is the host's: a member's price applies by itself, and `code` is a promo code the buyer typed; the one that takes more off applies (rule code_not_valid, one answer whatever the reason, when the code does not). Returns the order with its lines and amounts in the currency's minor unit; a guest also gets `token`, shown once, which is the only way back to the order (order.view).",
       "risk": "write",
       "audiences": ["customer"],
       "kind": "mutation",
@@ -4070,6 +5398,72 @@
               "additionalProperties": false
             },
             "description": "A visitor without an account only: what they agreed to on the way to paying, one entry per document the host says is due (each document's current version, the name they typed, a signature for a document agreed to by drawing, every answer for a health form). A signed-in customer agrees first (me.agreements.accept); staff never agree for anyone."
+          },
+          "code": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "A promo code the buyer typed. The host decides what it takes off, from the discount it names: the better for the buyer of it and any member's price applies. One answer for a code that does not apply, whatever the reason."
+          },
+          "delivery": {
+            "description": "How the goods get to the buyer, when the order has goods (records sold as goods): one delivery option (posted, collected, or taken now in person) and, to post, the address. Required with goods, refused without. The host prices it (free over an amount when the option says so) and works out from it whether the order is online or in person; each goods line must be sold there.",
+            "type": "object",
+            "properties": {
+              "object": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 80,
+                "description": "The delivery option's object"
+              },
+              "id": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 64,
+                "description": "The delivery option chosen"
+              },
+              "address": {
+                "description": "Where to post the goods: needed for a post option, refused for any other",
+                "type": "object",
+                "properties": {
+                  "name": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200,
+                    "description": "Who it is for"
+                  },
+                  "line1": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 200
+                  },
+                  "line2": {
+                    "type": "string",
+                    "maxLength": 200
+                  },
+                  "city": {
+                    "type": "string",
+                    "maxLength": 100
+                  },
+                  "region": {
+                    "description": "State, county or province",
+                    "type": "string",
+                    "maxLength": 100
+                  },
+                  "postcode": {
+                    "type": "string",
+                    "maxLength": 20
+                  },
+                  "country": {
+                    "type": "string",
+                    "pattern": "^[A-Za-z]{2}$"
+                  }
+                },
+                "required": ["name", "line1", "country"],
+                "additionalProperties": false
+              }
+            },
+            "required": ["object", "id"],
+            "additionalProperties": false
           }
         },
         "required": ["lines"]
@@ -4255,6 +5649,38 @@
           "token": {
             "description": "A guest's key to this order. Null for everyone else.",
             "type": ["string", "null"]
+          },
+          "deal": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "kind": {
+                    "type": "string",
+                    "enum": ["code", "automatic"],
+                    "description": "code: a promo code; automatic: e.g. a member's price"
+                  },
+                  "title": {
+                    "type": "string",
+                    "description": "The discount's name"
+                  },
+                  "amount": {
+                    "type": "number",
+                    "description": "What it takes off the order, in the currency's minor unit"
+                  }
+                },
+                "required": ["kind", "title", "amount"],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The order's one deal: a promo code or a price that applied by itself; null: none"
+          },
+          "codeApplied": {
+            "description": "Whether the code given is the deal: false when a better one applied instead (a member's price); null when no code was given",
+            "type": ["boolean", "null"]
           }
         },
         "required": [
@@ -4276,11 +5702,13 @@
           "taxCountry",
           "discount",
           "lines",
-          "token"
+          "token",
+          "deal",
+          "codeApplied"
         ],
         "additionalProperties": false
       },
-      "invalidates": ["order.get", "order.view"]
+      "invalidates": ["order.delivery.get", "order.get", "order.quote", "order.view"]
     },
     {
       "name": "order.view",
@@ -6121,6 +7549,7 @@
         "me.attention",
         "me.birthday.get",
         "me.calendarFeed.status",
+        "me.contact.choices",
         "me.family",
         "me.get",
         "me.portal",
@@ -6300,6 +7729,7 @@
         "me.attention",
         "me.birthday.get",
         "me.calendarFeed.status",
+        "me.contact.choices",
         "me.family",
         "me.get",
         "me.portal",
@@ -6447,6 +7877,7 @@
         "me.attention",
         "me.birthday.get",
         "me.calendarFeed.status",
+        "me.contact.choices",
         "me.family",
         "me.get",
         "me.portal",
@@ -6758,6 +8189,7 @@
         "me.attention",
         "me.birthday.get",
         "me.calendarFeed.status",
+        "me.contact.choices",
         "me.family",
         "me.get",
         "me.portal",
@@ -7186,6 +8618,7 @@
         "me.attention",
         "me.birthday.get",
         "me.calendarFeed.status",
+        "me.contact.choices",
         "me.family",
         "me.get",
         "me.portal",
@@ -7968,6 +9401,7 @@
         "me.attention",
         "me.birthday.get",
         "me.calendarFeed.status",
+        "me.contact.choices",
         "me.family",
         "me.get",
         "me.portal",
@@ -8030,7 +9464,7 @@
     },
     {
       "name": "x.forms.form",
-      "description": "A form by its address, as the caller may answer it now: its version, title, questions and thank-you words, whether it is anonymous, whether a Turnstile token is needed, and the host's token of when it was shown (send it back with the answers). A form that is not open to the caller now (a draft, closed, not published, out of its dates, for signed-in customers only, or no such address) is not found, the same answer whatever the reason. Read-only. (Extension tool from Forms 0.1.0.)",
+      "description": "A form by its address, as the caller may answer it now: its version, title, questions and thank-you words, whether it is anonymous, whether a Turnstile token is needed, and the host's token of when it was shown (send it back with the answers). A form that is not open to the caller now (a draft, closed, not published, out of its dates, for signed-in customers only, or no such address) is not found, the same answer whatever the reason. Or open the form a personal link is for: `link`, the token from its email (no sign-in needed; a signed-in member's own link from Needs your attention is `linkedForm`). A link that cannot be used (used, expired, unknown) is one answer whatever is wrong, and opening it uses nothing. Read-only. (Extension tool from Forms 0.1.0.)",
       "risk": "read",
       "audiences": ["customer"],
       "kind": "query",
@@ -8042,9 +9476,97 @@
             "minLength": 1,
             "maxLength": 200,
             "description": "The form's address, e.g. ask-about-a-trial"
+          },
+          "link": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "description": "A personal link's token"
           }
         },
-        "required": ["slug"],
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "version": {
+            "type": "number",
+            "description": "The version shown: send it with the answers"
+          },
+          "title": {
+            "type": ["string", "null"]
+          },
+          "questions": {
+            "type": "object",
+            "properties": {
+              "items": {
+                "type": "array",
+                "items": {
+                  "propertyNames": {
+                    "type": "string"
+                  },
+                  "type": "object",
+                  "properties": {},
+                  "additionalProperties": {}
+                }
+              }
+            },
+            "required": ["items"],
+            "additionalProperties": false,
+            "description": "The questions, in the platform's question schema, in order"
+          },
+          "thanks": {
+            "description": "The words to show once the answers are sent",
+            "type": ["string", "null"]
+          },
+          "anonymous": {
+            "type": "boolean",
+            "description": "Nothing kept says who answered"
+          },
+          "turnstile": {
+            "type": "boolean",
+            "description": "A Turnstile token must be sent with the answers"
+          },
+          "shown": {
+            "description": "Send back as `shown` with the answers",
+            "type": ["string", "null"]
+          }
+        },
+        "required": [
+          "id",
+          "version",
+          "title",
+          "questions",
+          "thanks",
+          "anonymous",
+          "turnstile",
+          "shown"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [],
+      "pack": "forms"
+    },
+    {
+      "name": "x.forms.linkedForm",
+      "description": "The form a signed-in member's own personal link is for (or a child's they are a guardian of): `linkId` is the id Needs your attention gives (me.attention, kind form_to_fill). As `form` gives it; a link that cannot be used is one answer. Read-only. (Extension tool from Forms 0.1.0.)",
+      "risk": "read",
+      "audiences": ["customer"],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "linkId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "The personal link's id, from Needs your attention"
+          }
+        },
+        "required": ["linkId"],
         "additionalProperties": {}
       },
       "output": {
@@ -8113,7 +9635,7 @@
     },
     {
       "name": "x.forms.submit",
-      "description": "Send answers to a form the caller may answer (from `form`). The host checks the form is still open to them, a visitor's Turnstile token and when the form was shown, the caps and the answers against the version shown, then keeps them in the business's inbox, linked to the sender's person by the email answered. Answers that break the form are refused naming the question's key; a form published again since it was shown is refused with 'load it again'; too many answers just now is 'try again later'. Kept, kept as spam or dropped, the answer is the same. (Extension tool from Forms 0.1.0.)",
+      "description": "Send answers to a form the caller may answer (from `form`). The host checks the form is still open to them, a visitor's Turnstile token and when the form was shown, the caps and the answers against the version shown, then keeps them in the business's inbox, linked to the sender's person by the email answered. Answers that break the form are refused naming the question's key; a form published again since it was shown is refused with 'load it again'; too many answers just now is 'try again later'. Kept, kept as spam or dropped, the answer is the same. By a personal link (`link`, as `form` opened it; signed in, `submitLinked`), the answers are the link's person's, once: no Turnstile token or shown time is needed, and a link that cannot be used is one answer. (Extension tool from Forms 0.1.0.)",
       "risk": "write",
       "audiences": ["customer"],
       "kind": "mutation",
@@ -8161,6 +9683,12 @@
             "type": "string",
             "maxLength": 1000,
             "description": "The hidden field a person leaves empty"
+          },
+          "link": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "description": "A personal link's token"
           }
         },
         "required": ["id", "version", "answers"],
@@ -8186,15 +9714,148 @@
         "me.attention",
         "me.birthday.get",
         "me.calendarFeed.status",
+        "me.contact.choices",
         "me.family",
         "me.get",
         "me.portal",
         "me.sessions.list",
         "my.get",
         "my.list",
-        "x.forms.form"
+        "x.forms.form",
+        "x.forms.linkedForm"
       ],
       "pack": "forms"
+    },
+    {
+      "name": "x.forms.submitLinked",
+      "description": "Send answers by a signed-in member's own personal link (or a child's they are a guardian of), from Needs your attention: `linkId` as `linkedForm` opened it. The answers are the link's person's, once; a link that cannot be used is one answer, the same as for a token. (Extension tool from Forms 0.1.0.)",
+      "risk": "write",
+      "audiences": ["customer"],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "linkId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "The personal link's id, from Needs your attention"
+          },
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "The form (forms.form record id)"
+          },
+          "version": {
+            "type": "integer",
+            "exclusiveMinimum": 0,
+            "maximum": 9007199254740991,
+            "description": "The version `linkedForm` showed"
+          },
+          "answers": {
+            "propertyNames": {
+              "type": "string",
+              "maxLength": 40
+            },
+            "description": "The answers by question key: text, email, phone and date as strings (a date YYYY-MM-DD), number and rating as numbers, a choice as a string or a list of strings, yes/no and a tick box as true or false. Leave out what was not answered.",
+            "type": "object",
+            "properties": {},
+            "additionalProperties": {}
+          },
+          "honeypot": {
+            "type": "string",
+            "maxLength": 1000,
+            "description": "The hidden field a person leaves empty"
+          }
+        },
+        "required": ["linkId", "id", "version", "answers"],
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "received": {
+            "type": "boolean",
+            "const": true,
+            "description": "The answers were sent: shown the same whatever the host's spam checks decided"
+          }
+        },
+        "required": ["received"],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "me.agreements.due",
+        "me.agreements.get",
+        "me.agreements.list",
+        "me.agreements.pdf",
+        "me.attention",
+        "me.birthday.get",
+        "me.calendarFeed.status",
+        "me.contact.choices",
+        "me.family",
+        "me.get",
+        "me.portal",
+        "me.sessions.list",
+        "my.get",
+        "my.list",
+        "x.forms.form",
+        "x.forms.linkedForm"
+      ],
+      "pack": "forms"
+    },
+    {
+      "name": "x.knowledge.helpTopics",
+      "description": "Every help topic, in their order: its id, name, address (slug) and icon, for a help centre's menu. Open to anyone. Read-only. (Extension tool from Knowledge 0.1.0.)",
+      "risk": "read",
+      "audiences": ["customer"],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "default": 100,
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200
+          }
+        },
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "topics": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": ["string", "null"]
+                },
+                "slug": {
+                  "type": ["string", "null"]
+                },
+                "order": {
+                  "type": ["number", "null"]
+                },
+                "icon": {
+                  "type": ["string", "null"]
+                }
+              },
+              "required": ["id", "name", "slug", "order", "icon"],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["topics"],
+        "additionalProperties": false
+      },
+      "invalidates": [],
+      "pack": "knowledge"
     },
     {
       "name": "x.memberships.buy",
@@ -8263,6 +9924,7 @@
         "me.attention",
         "me.birthday.get",
         "me.calendarFeed.status",
+        "me.contact.choices",
         "me.family",
         "me.get",
         "me.portal",
@@ -9116,6 +10778,7 @@
         "me.attention",
         "me.birthday.get",
         "me.calendarFeed.status",
+        "me.contact.choices",
         "me.family",
         "me.get",
         "me.portal",
@@ -9195,6 +10858,7 @@
         "me.attention",
         "me.birthday.get",
         "me.calendarFeed.status",
+        "me.contact.choices",
         "me.family",
         "me.get",
         "me.portal",
@@ -9357,6 +11021,7 @@
         "me.attention",
         "me.birthday.get",
         "me.calendarFeed.status",
+        "me.contact.choices",
         "me.family",
         "me.get",
         "me.portal",
@@ -9597,6 +11262,7 @@
         "me.attention",
         "me.birthday.get",
         "me.calendarFeed.status",
+        "me.contact.choices",
         "me.family",
         "me.get",
         "me.portal",
@@ -10460,6 +12126,7 @@
         "me.attention",
         "me.birthday.get",
         "me.calendarFeed.status",
+        "me.contact.choices",
         "me.family",
         "me.get",
         "me.portal",

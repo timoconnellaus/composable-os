@@ -6,6 +6,10 @@ editUrl: false
 
 A member's course subscription in the studio's app (stage 32a), read only: its state, the next charge date or when it ends, and that it gives every course; and a continuation offer they have not taken yet (moving from another platform), in words, to take on the web. Starting, cancelling, resuming and the card are on the web only (`noPurchase`: the block lint refuses a subscription operation or a price here). What the subscription gives is the host's; this only says what the host reports.
 
+<img class="cos-screen cos-screen-native" src="/screens/courses-native-subscription.png" alt="courses-native-subscription, drawn with dummy data" width="390" height="844" loading="lazy" decoding="async" />
+
+Drawn with dummy data.
+
 |  |  |
 | --- | --- |
 | Skin | native |

@@ -92,7 +92,7 @@ export type TaskStatus = "open" | "done";
 export type StaffActor = "human" | "assistant" | "mcp" | "automation" | "extension";
 /** Every actor the audit log records: staff-side actors, customers and the public (migration 0400). */
 /** `device`: an enrolled device holding a device role (stage 51, ADR 0781). */
-export type AuditActor = StaffActor | "customer" | "public" | "device";
+export type AuditActor = StaffActor | "customer" | "public" | "device" | "practitioner";
 export type AuditRisk =
   | "read"
   | "write"
@@ -899,6 +899,52 @@ export interface CoreCustomerSessionTable {
 
 /** Migration 0401: a customer's one-time sign-in code (hashed). */
 export interface CoreCustomerVerificationTable {
+  id: string;
+  identifier: string;
+  value: string;
+  expires_at: DateColumn;
+  created_at: DateColumn;
+  updated_at: DateColumn;
+}
+
+/**
+ * Migration 0730 (stage 43 step 3, ADR 0581): a practitioner account, an outside person the
+ * business invited, with their own sign-in. Never a core_user and never a core_customer. Better
+ * Auth's user model for practitioners (packages/auth/src/practitioner-auth.ts).
+ */
+export interface CorePractitionerTable {
+  id: string;
+  person_id: string;
+  email: string;
+  email_verified: Defaulted<number>;
+  name: string;
+  discipline: string;
+  practice_id: Defaulted<string | null>;
+  status: Defaulted<PractitionerStatus>;
+  invited_by: string;
+  invited_at: string;
+  activated_at: Defaulted<string | null>;
+  ended_at: Defaulted<string | null>;
+  ended_by: Defaulted<string | null>;
+  ended_reason: Defaulted<string | null>;
+  last_sign_in_at: Defaulted<string | null>;
+  created_at: DateColumn;
+  updated_at: DateColumn;
+}
+export type PractitionerStatus = "invited" | "active" | "ended";
+
+/** Migration 0730: a practitioner's session. No client address and no user agent, by design. */
+export interface CorePractitionerSessionTable {
+  id: string;
+  practitioner_id: string;
+  token: string;
+  expires_at: DateColumn;
+  created_at: DateColumn;
+  updated_at: DateColumn;
+}
+
+/** Migration 0730: a practitioner's one-time sign-in code (hashed). */
+export interface CorePractitionerVerificationTable {
   id: string;
   identifier: string;
   value: string;
@@ -1736,6 +1782,11 @@ export interface CoreRoutineMailTable {
   wait_until: Defaulted<string | null>;
   /** The kind's moment for the record: a text or push not sent by then is `expired`. */
   until_at: Defaulted<string | null>;
+  /**
+   * Migration 1010 (ADR 0723): what a form-link slot's personal link is made for when the email
+   * is sent (JSON), never the token.
+   */
+  form_link: Defaulted<string | null>;
   created_at: string;
   updated_at: string;
 }
@@ -1763,10 +1814,81 @@ export interface CorePhoneCheckTable {
   tries: Defaulted<number>;
 }
 
-/** Migration 0911 (ADR 0672): a number that replied STOP, as a salted hash; START deletes it. */
-export interface CoreTextStopTable {
-  number_hash: string;
-  how: "stop_reply";
+/**
+ * Migration 0913 (ADR 0675): the consent register, one row per contact choice, never changed
+ * (person_id moves on a merge). The latest row for (Person, channel, scope) is in force.
+ */
+export interface CoreContactChoiceTable {
+  seq: Generated<number>;
+  id: string;
+  person_id: string;
+  channel: "email" | "text" | "push";
+  /** A purpose (`follow_up`, `news_and_offers`) or a routine kind (`bookings.reminder`). */
+  scope: string;
+  value: "on" | "off" | "yes" | "no";
+  at: string;
+  how:
+    | "member"
+    | "staff_on_request"
+    | "staff_from_paper"
+    | "form"
+    | "checkout"
+    | "stop_link"
+    | "stop_reply"
+    | "start_reply"
+    | "import"
+    | "merge";
+  by_id: string | null;
+  reason: string | null;
+  wording: string | null;
+}
+
+/** Migration 0913 (ADR 0675): a stop link's token, only its SHA-256, naming what it stops. */
+export interface CoreContactStopTokenTable {
+  token_hash: string;
+  person_id: string;
+  channel: "email" | "text" | "push";
+  scope: string;
+  created_at: string;
+}
+
+/**
+ * Migration 1010 (ADR 0723): a personal link, one Person's one use of one form (optionally about
+ * one record), made by the host; used once and before it expires (a trigger refuses the rest).
+ */
+export interface CoreIntakeLinkTable {
+  id: string;
+  person_id: string;
+  form_object: string;
+  form_id: string | null;
+  record_object: string | null;
+  record_id: string | null;
+  made_for: string;
+  once_days: number | null;
+  expires_at: string;
+  used_at: string | null;
+  submission_id: string | null;
+  used_by: string | null;
+  used_with: "email" | "account" | null;
+  created_at: string;
+}
+
+/** Migration 1010 (ADR 0723): the SHA-256 of one email's token for a personal link. */
+export interface CoreIntakeLinkTokenTable {
+  token_hash: string;
+  link_id: string;
+  sent_to: string;
+  created_at: string;
+}
+
+/**
+ * Migration 0913 (ADR 0675, taking migration 0911's core_text_stop): a salted hash of an address
+ * or number that asked to stop, kept after erase; START deletes a number's.
+ */
+export interface CoreContactSuppressionTable {
+  channel: "email" | "text";
+  value_hash: string;
+  how: "stop_reply" | "provider_unsubscribed";
   at: string;
 }
 
@@ -3086,6 +3208,33 @@ export interface CoreOrderTable {
   provider_paid_at: Defaulted<Timestamp | null>;
   /** Migration 0950: the sum of the order's adjustments; `total` is after them (ADR 0690). */
   discount: Generated<number>;
+  /**
+   * Migration 0932 (ADR 0682): where an order with goods is sold, worked out by the host from its
+   * delivery when it starts, never changed. Null: no goods.
+   */
+  channel: Defaulted<"online" | "in_person" | null>;
+}
+
+/**
+ * Migration 0932 (stage 37, ADR 0682): an order's delivery, its kind and a post delivery's
+ * address. In no rec_* view; read one order at a time. The buyer's erase blanks the address.
+ */
+export interface CoreOrderDeliveryTable {
+  order_id: string;
+  line_id: string;
+  kind: "post" | "collect" | "here";
+  name: string | null;
+  line1: string | null;
+  line2: string | null;
+  city: string | null;
+  region: string | null;
+  postcode: string | null;
+  country: string | null;
+  created_at: Timestamp;
+  erased_at: Defaulted<Timestamp | null>;
+  /** Migration 0953: the option's own price and its free-over amount, as priced at the start. */
+  price: Defaulted<number | null>;
+  free_over: Defaulted<number | null>;
 }
 
 export interface CoreOrderLineTable {
@@ -3132,6 +3281,29 @@ export interface CoreOrderAdjustmentTable {
   created_at: Timestamp;
   removed_at: Defaulted<Timestamp | null>;
   removed_by: Defaulted<string | null>;
+}
+
+/**
+ * A discount's use by an order (stage 34 step 4, ADR 0693, migration 0953): held from the order's
+ * start, used when it is paid, released when it ends unpaid or its code is changed. The limits are
+ * copied from the discount (and code) record so the database refuses a use past them.
+ */
+export interface CoreDiscountUseTable {
+  id: string;
+  discount_object: string;
+  discount_id: string;
+  code_object: string | null;
+  code_id: string | null;
+  kind: "code" | "automatic";
+  person_id: string | null;
+  order_id: string;
+  state: "held" | "used" | "released";
+  amount: number;
+  max_uses: number | null;
+  max_per_person: number | null;
+  code_max_uses: number | null;
+  created_at: Timestamp;
+  updated_at: Timestamp;
 }
 
 /** A record a paid order line granted (stage 27, ADR 0435, migration 0450). */
@@ -3548,6 +3720,25 @@ export interface CrmOrderAdjustmentView {
   removed_by: string | null;
   order_state: OrderState;
   currency: string;
+}
+
+/** Migration 0953: discount uses, for reports. */
+export interface CrmDiscountUseView {
+  id: string;
+  discount_object: string;
+  discount_id: string;
+  code_object: string | null;
+  code_id: string | null;
+  kind: "code" | "automatic";
+  person_id: string | null;
+  order_id: string;
+  state: "held" | "used" | "released";
+  amount: number;
+  created_at: Timestamp;
+  updated_at: Timestamp;
+  order_state: OrderState;
+  currency: string;
+  order_total: number;
 }
 
 /** Migration 0952: an order's payments by method, for reports. */
@@ -4311,9 +4502,11 @@ export interface CoreDatabase {
   core_order: CoreOrderTable;
   core_order_line: CoreOrderLineTable;
   core_order_adjustment: CoreOrderAdjustmentTable;
+  core_discount_use: CoreDiscountUseTable;
   core_order_grant: CoreOrderGrantTable;
   core_order_payment: CoreOrderPaymentTable;
   core_order_checkout: CoreOrderCheckoutTable;
+  core_order_delivery: CoreOrderDeliveryTable;
   core_payment_event: CorePaymentEventTable;
   core_subscription: CoreSubscriptionTable;
   core_subscription_checkout: CoreSubscriptionCheckoutTable;
@@ -4355,6 +4548,9 @@ export interface CoreDatabase {
   core_customer_email_change: CoreCustomerEmailChangeTable;
   core_customer_verification: CoreCustomerVerificationTable;
   core_customer_invite: CoreCustomerInviteTable;
+  core_practitioner: CorePractitionerTable;
+  core_practitioner_session: CorePractitionerSessionTable;
+  core_practitioner_verification: CorePractitionerVerificationTable;
   core_erase_request: CoreEraseRequestTable;
   core_idempotency_key: CoreIdempotencyKeyTable;
   core_idempotency_claim: CoreIdempotencyClaimTable;
@@ -4390,7 +4586,11 @@ export interface CoreDatabase {
   core_routine_mail: CoreRoutineMailTable;
   core_text_spend: CoreTextSpendTable;
   core_phone_check: CorePhoneCheckTable;
-  core_text_stop: CoreTextStopTable;
+  core_contact_choice: CoreContactChoiceTable;
+  core_contact_suppression: CoreContactSuppressionTable;
+  core_contact_stop_token: CoreContactStopTokenTable;
+  core_intake_link: CoreIntakeLinkTable;
+  core_intake_link_token: CoreIntakeLinkTokenTable;
   core_value_mark: CoreValueMarkTable;
   core_person_signal: CorePersonSignalTable;
   core_birthday_guard: CoreBirthdayGuardTable;
@@ -4496,6 +4696,7 @@ export interface CoreDatabase {
   rec_order: CrmOrderView;
   rec_order_line: CrmOrderLineView;
   rec_order_adjustment: CrmOrderAdjustmentView;
+  rec_discount_use: CrmDiscountUseView;
   rec_order_payment: CrmOrderPaymentView;
   rec_order_refund: CrmOrderRefundView;
   rec_task_link: CrmTaskLinksView;

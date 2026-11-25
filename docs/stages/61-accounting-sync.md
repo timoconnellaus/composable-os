@@ -26,7 +26,13 @@ and a reopen); `packages/gatekeeper-payments/src/`, `packages/core/src/integrati
 Status: **spec agreed** (owner interviewed 2026-11-24: decisions 1 to 8). Build may start with
 steps 1 to 4 and 8; summaries wait for stage 52, documents for stage 35.
 
-- **Step 2 built** (`feat/stage-61-accounting-core`, migration 1330, no ADR): the core tables
+## Status
+
+- **Step 1** — built — PR #338 — The contract, fake and conformance suite: `packages/gatekeeper-accounting`,
+  the fake in the runner, `implements` in the catalogue.
+
+- **Step 2** — built — PR #361 — Core records, settings, mapping, `accounting:manage`
+  (`feat/stage-61-accounting-core`, migration 1330, no ADR): the core tables
   `core_accounting_settings`, `_map`, `_link`, `_post`, `_item` and `_match`, guarded by triggers
   against every form of write, `UPDATE OR REPLACE` included (a post's id and reference never change;
   a sent or skipped post never changes but for an erase clearing its `detail`, and is never deleted;
@@ -42,7 +48,8 @@ steps 1 to 4 and 8; summaries wait for stage 52, documents for stage 35.
   `accounting.map.set`, `accounting.map.clear` (a person, per connection). Left for later steps:
   `accounting.options` and checking a mapped ref against the books' live lists and base currency
   (they need purpose `accounting`, step 3); every other operation, the runner and the screens.
-- **Step 3 built** (`feat/stage-61-host-path`, ADR 0881, no migration): `callAsHost` purpose
+
+- **Step 3** — built — PR #425 — The host path (`feat/stage-61-host-path`, ADR 0881, no migration): `callAsHost` purpose
   `accounting` (core `IntegrationRuntime`, the integration host and its queue): the system user's
   session on the books, its contacts and entries applied at once unless the deploy-time floor
   denies them, its writes in the outbound audit as the system's (`system.accounting`), never read
@@ -54,6 +61,21 @@ steps 1 to 4 and 8; summaries wait for stage 52, documents for stage 35.
   the host's `call` (Code Mode's and an extension's `codemode:<gatekeeper>`) and `openSession` are
   refused for every caller; `integration.types` still reads the contract's types. Tests:
   `apps/runner/test/accounting-host-path.test.ts`.
+
+- **Step 4** — not built — needs: step 2, step 3 — The outbox runner: references, retries, uncertain
+  outcomes, holds, dependencies, lock date, start date, approval, the daily cron.
+
+- **Step 5** — not built — needs: step 4, stage 52 — Summaries and payouts: daily, late events, the
+  reopen adjustment, transfers (needs stage 52's figures, close and payouts).
+
+- **Step 6** — not built — needs: step 4, stage 35, stage 34 step 3 — Contacts, documents, paid in the
+  books (migration 1331).
+
+- **Step 7** — not built — needs: step 4 — Admin screens, notifications, e2e, the site.
+
+- **Step 8** — not built — needs: step 1, a person with a Xero test organisation — The Xero gatekeeper.
+
+- **Step 9** — not built — needs: step 5, step 6 — Erase, merge, retention (last).
 
 **This is not accounting or tax advice.** The host sends what it recorded to the accounts a person
 chose. Which accounts and tax rates, and how a figure is treated, are for the business to confirm

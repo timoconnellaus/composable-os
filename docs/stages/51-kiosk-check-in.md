@@ -651,7 +651,8 @@ may override any of them.
 
 One bullet per build step, written by that step (CONTRIBUTING.md, Working in parallel).
 
-- **Step 1, the enrolled device** (built 2026-11-24 on `feat/stage-44-desk-signing`, with stage
+- **Step 1** — built — PR #390 — The enrolled device: migration 1130, ADR 0780
+  (built 2026-11-24 on `feat/stage-44-desk-signing`, with stage
   44's step 6, which built `core_device` general from the start as [What stage 44 step 6 takes
   from this](#what-stage-44-step-6-takes-from-this) says): migration 1130 (`core_device`: its use
   `signing`, `role` with its device role, or `till`; the enrolment code and the credential as
@@ -674,7 +675,9 @@ One bullet per build step, written by that step (CONTRIBUTING.md, Working in par
     (a desk call without an enrolled credential, from another origin or with a staff session is
     refused; a revoked device at its next call), 20 in part (e2e: an admin enrols and revokes a
     tablet). The rest are steps 2 to 6.
-- **Step 2, a device as a caller and device roles** (branch `feat/stage-51-device-caller`; no
+
+- **Step 2** — built — PR #432 — A device as a caller and device roles: no migration, ADR 0781
+  (branch `feat/stage-51-device-caller`; no
   migration, ADR [0781](../adr/0781-a-device-as-a-caller-the-device-audience-and-device-roles.md),
   ADRs 0402, 0436 and 0780 amended). Built:
   - the `device` audience (`AUDIENCES`, `TOOL_AUDIENCES`): open to nobody else, read or write, in
@@ -699,7 +702,9 @@ One bullet per build step, written by that step (CONTRIBUTING.md, Working in par
     credential, a revoked device, another origin or a staff session refused), 15 (a device role on
     a runtime extension refused by check and install), 16 in part (the AI, MCP and automations
     reach no device operation). The rest are steps 4 to 6.
-- **Step 3, the person's code and PIN** (branch `feat/stage-51-person-code`; migration 1135, ADR
+
+- **Step 3** — built — PR #382 — The person's code and PIN: migration 1135, ADR 0783
+  (branch `feat/stage-51-person-code`; migration 1135, ADR
   [0783](../adr/0783-a-persons-code-the-rotating-app-code-cards-and-the-pin.md), ADR 0600 amended).
   Built:
   - `core_person_code` (app codes tied to one sign-in, cards by HMAC), `core_person_pin` and
@@ -720,3 +725,12 @@ One bullet per build step, written by that step (CONTRIBUTING.md, Working in par
   - Left: the host path from step 4's `doorNow` to `identifyPerson` (steps 2 and 4); the door
     log's and handles' erase (step 4); Cards on the Person page (step 6); the member's blocks
     (step 5).
+
+- **Step 4** — not built — needs: step 1, step 2, step 3 — Bookings: the `bookings.checkin` role,
+  `doorNow`, `checkInHere`, `doorLog`, walk in at the door, the closing setting, the door log
+
+- **Step 5** — not built — needs: step 3 — The member's Check-in code and Set a PIN (web and
+  native blocks, one hook)
+
+- **Step 6** — not built — needs: step 4, step 5, stage 47 — The tablet's screen on the desk
+  origin, At the door, e2e, the site and `SITE.md`

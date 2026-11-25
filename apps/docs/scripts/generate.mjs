@@ -14,6 +14,10 @@
 import { existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { dirname, join, relative } from "node:path";
 import { fileURLToPath } from "node:url";
+import {
+  readManifest as readScreens,
+  problems as screenProblems,
+} from "../../screens/scripts/blocks.mjs";
 import defaultConfig from "../docs.config.mjs";
 import { anchors, internalLinks } from "./lib/links.mjs";
 import { frontMatter } from "./lib/text.mjs";
@@ -108,6 +112,8 @@ export async function generate({ root, markdownOnly = false, config = defaultCon
     stages: sources.roadmapStages(root),
     blocks: sources.blocks(root),
     gatekeepers: sources.gatekeepers(root),
+    // Each block's picture, drawn by apps/screens: its size and skin.
+    screens: readScreens(root),
     facts: null,
     opNames: null,
   };
@@ -130,6 +136,8 @@ export async function generate({ root, markdownOnly = false, config = defaultCon
       );
     }
   }
+  // A block with no picture, or one drawn before its block or preview last changed.
+  for (const p of screenProblems(root)) problems.push(`apps/screens: ${p}`);
   for (const id of Object.keys(config.overviewsPending)) {
     if (!packIds.includes(id))
       problems.push(`docs.config.mjs: overviewsPending names ${id}, which is not a pack`);

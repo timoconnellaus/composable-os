@@ -6,6 +6,10 @@ editUrl: false
 
 Joining a gym on its site (stage 32b): the membership plans on sale with the host's price per month, what each allows and its trial, and a button that opens the payment provider's page. The price is the host's (`usePlans`); whether the trial is given, and the page, are the host's (`useSubscribe`, `subscription.start`): one trial per person per plan object, signed in. The membership itself is granted by the host once the provider confirms the subscription. Web only. A guest who wants the trial confirms their address with a code here, on the plan, when the app passes `signIn` (the web sign-in block's two calls), and goes on to the provider's page signed in, with the trial (ADR 0459). Whether a new address gets a code is the host's. What must be agreed to first (stage 44: the membership terms, a waiver) is the host's answer too: when "Join" is refused with it, the documents are shown inline (the web-agree block's step) and "Join" is tried again. A visitor's agreements travel in subscription.start, held in memory until then; a member's are recorded as they agree. A minor is told a parent or guardian buys it.
 
+<img class="cos-screen" src="/screens/memberships-plans.png" alt="memberships-plans, drawn with dummy data" width="720" height="710" loading="lazy" decoding="async" />
+
+Drawn with dummy data.
+
 |  |  |
 | --- | --- |
 | Skin | web |

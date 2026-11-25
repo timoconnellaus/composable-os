@@ -79,6 +79,20 @@ export async function submitterOf(
 }
 
 /**
+ * A personal link's submitter (ADR 0723): the link's own Person, certainty `link`, whatever
+ * address was typed (the bearer never chooses whose answers these are). Only their empty fields
+ * fill, as for a signed-in customer.
+ */
+export async function linkSubmitter(
+  ctx: HandlerContext,
+  personId: string,
+  given: PersonAnswers,
+): Promise<Submitter> {
+  await fillEmptyFields(ctx, personId, given);
+  return { personId, certainty: "link", email: null, created: false };
+}
+
+/**
  * Fills the Person's name when it has none of its own (only an address shown as its name) and its
  * phone when it has none, as the host's change. Changes nothing that is there.
  */

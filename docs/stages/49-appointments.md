@@ -32,14 +32,33 @@ stages [31](31-bookings.md) (its 31b section, which this stage replaces), [32](3
 Status: **spec agreed** (owner interviewed 2026-11-24; the other points decided the same day by the
 coordinator as best practice, below). Build may start with step 1.
 
-- **Step 1 built** (`feat/stage-49-claim-margins`; migration 1091, ADRs 0760 and 0761): claim
+This stage was drafted as "31b". It **replaces stage 31's 31b section** and widens it: stage 31's
+decision 1 agreed appointments "booked by staff" and left members booking their own to #239; a gym
+needs members booking one-to-one sessions themselves on day one, so this stage takes #239 in. Stage
+31's 31b section, its acceptance criterion 18 and its "Left out" line are superseded
+by this spec (a dated note in stage 31 points here; the coordinator adds it). It also takes in
+**outside practitioners** (stage 43): a physiotherapist the gym works with takes appointments in the
+gym's rooms on the same calendar, which stage 43 did not cover.
+
+## Status
+
+- **Step 1** — built — PR #360 — Claim margins and `account: "required"` on `staffed`; the client kept off roster and feed
+  (`feat/stage-49-claim-margins`; migration 1091, ADRs 0760 and 0761): claim
   margins on `staffed` (`claimBefore`, `claimAfter`, kept on the claim as `margin_before` and
   `margin_after`, followed on the kind's table for shifts not yet ended), `account: "required"`
   (refused at write and by triggers on the shift's and the profile's tables), and `private`
   (the roster shows the kind to anyone but the provider and rosterers, clash answers name the kind,
   never offered; the feed already showed no title). Platform only: no Bookings object declares them
   yet (step 5). The spec's ADR "0764" part about the roster and the feed is ADR 0761.
-- **Step 4 built** (`feat/stage-49-free-times`; migration 1092, ADR 0763, ADR 0762 amended): free
+
+- **Step 2** — built — PR #336 — `occupies` and `core_thing_time`; `bookings.room.exclusive`; classes occupy
+  their room (`feat/stage-49-occupies`; migration 1095, ADR 0765).
+
+- **Step 3** — built — PR #333 — Open hours: `core_staff_hours`, `staffing.hours.*` (`feat/stage-49-open-hours`;
+  migration 1090, ADR 0762).
+
+- **Step 4** — built — PR #430 — Free times and the customer's check
+  (`feat/stage-49-free-times`; migration 1092, ADR 0763, ADR 0762 amended): free
   times and the customer's check. `staffed.open` (the kind's length, step and rooms, the client,
   the closures, `customer: true`); `freeTimes` (`staffing/free.ts`) worked out at read time from
   open hours less time off, claims with margins (the batch's queued ones counted), taken rooms (the
@@ -55,13 +74,37 @@ coordinator as best practice, below). Build may start with step 1.
   rosterer's act (ADR 0626 amended) and carries no staff warnings or roster notices. Platform only:
   no Bookings object declares `open` yet (step 5), so nothing calls `staffing.free` outside tests.
 
-This stage was drafted as "31b". It **replaces stage 31's 31b section** and widens it: stage 31's
-decision 1 agreed appointments "booked by staff" and left members booking their own to #239; a gym
-needs members booking one-to-one sessions themselves on day one, so this stage takes #239 in. Stage
-31's 31b section, its acceptance criterion 18 and its "Left out" line are superseded
-by this spec (a dated note in stage 31 points here; the coordinator adds it). It also takes in
-**outside practitioners** (stage 43): a physiotherapist the gym works with takes appointments in the
-gym's rooms on the same calendar, which stage 43 did not cover.
+- **Step 5** — built — PR #452 — The pack spine, staff-booked: services, appointments,
+  states, passes paying, desk payment, late cancel and no-show, excuse, reassign, the coach's day;
+  Memberships' services (`feat/stage-49-pack-spine`; ADR 0764, the spec's "0765"; no migration):
+  `bookings.service` and `bookings.appointment` (staffed with the buffer and a required account,
+  private, open; occupies its room; states with late from 24 hours, excused and cancelled by us
+  only through a person's tools, attended by the host 30 minutes after; the allowance spender), the
+  staff tools under `bookings:desk` or the grantable `bookings:appointments`, and Memberships'
+  `covers` and `services` (Memberships now requires Bookings). Platform: allowance conditions
+  `value` and `empty: "none"`, a copy of `<relation>.id`, the host choosing a booked shift's room,
+  booking a provider not being rostering, and `cos ext check` leaving out a sibling that requires
+  the checked one; after the review, times and service fixed but for a move that keeps the late
+  point, the provider a rosterer's once started and an AI's change of it a person's, a client
+  required at create only, and no attended mark without a coach. Nothing opened to customers or
+  the public; the appointment emails are step 6's and 10's.
+
+- **Step 6** — not built — needs: step 4, step 5 — Members book online: freeTimes, book, move, cancel (web
+  and native blocks); the coach role's own reach; confirmation and reminder mail; staff screens; the
+  My account section.
+
+- **Step 7** — not built — needs: step 5, stage 43 step 3, stage 43 step 4 — Outside practitioners as
+  providers: the profile's practitioner field, the claim keyed by a practitioner account, hours,
+  consent inline, `staffing.mine`, `appointments.mark`, no pay.
+
+- **Step 8** — not built — needs: step 6 — Visitors pay per session (held, order, guest, hold caps,
+  refunds owed).
+
+- **Step 9** — not built — needs: step 5 — Standing appointments (`recurring`, the `unpaid` date, rooms on
+  generation).
+
+- **Step 10** — not built — needs: step 6 — Dashboards, views, the rest of the mail kinds; appointments in
+  `cos bookings import` once stage 31 step 10 exists (the import part waits for it).
 
 ## Goal
 
@@ -279,9 +322,9 @@ and "reservation" in the product; Programs' "session" stays Programs' word.
 | `pending` | `booked` / `expired` | host (paid / hold ended) | confirmed / released |
 | (new) | `unpaid` | host (a series date with nothing to spend) | time and room claimed; staff told |
 | `unpaid` | `booked` / `cancelled_by_us` | staff | spent or paid at the desk / released |
-| `booked` | `cancelled` | customer until "late from"; staff any time before the start | released; use given back; money owed back through a person's approval |
+| `booked` | `cancelled` | customer and staff until "late from" (amended 2026-11-25: decision 1 and criterion 9 win, so after "late from" a staff cancel is late too; a session is given back late only by a person excusing it) | released; use given back; money owed back through a person's approval |
 | `booked` | `late_cancelled` | customer or staff, from "late from" to the start | released; use kept, no fee (decision 1) |
-| `booked` | `moved` | customer before "late from"; staff before the start | the new appointment made in the batch; the use moves |
+| `booked` | `moved` | customer before "late from"; staff before the start | the new appointment made in the batch; the use moves; the new one keeps the original's late point (amended 2026-11-25, ADR 0764) |
 | `booked` | `attended` / `no_show` | the provider or staff; the host marks `attended` 30 minutes after the end if nobody marked | use kept (decision 1) |
 | `attended` / `no_show` | the other | the provider or staff, within 7 days | a correction, audited |
 | `late_cancelled` / `no_show` | `excused` | staff (a person) | use given back (decision 1: staff can give it back) |

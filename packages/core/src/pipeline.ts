@@ -88,18 +88,20 @@ import type { Judge } from "./judge/types.ts";
 import { errorForLog } from "./log.ts";
 import type { ModelRunner } from "./models.ts";
 import { notifyStatements } from "./notifications/send.ts";
-import type { FollowerBudget, MediaUpload } from "./operation.ts";
 import {
   type AnyOperation,
   type ApplyingApproval,
   type AssistantTurn,
   afterCommit,
   type ExtensionCaller,
+  type FollowerBudget,
   type HandlerContext,
   isAfterCommit,
   isHostTool,
+  type MediaUpload,
   type NestedInvocation,
   type OperationOutput,
+  personsTool,
   type RecordChange,
   runAfterCommit,
   type SystemActivityInput,
@@ -625,13 +627,14 @@ function activityStatements(
       occurred_at: activity.occurredAt ?? now,
       author_user_id: author.userId,
       // core_activity.author_actor predates the extension actor; extension posts are `system`,
-      // and so are posts from a customer's, the public's or a device's call (no staff user wrote
-      // them).
+      // and so are posts from a customer's, the public's, a device's or a practitioner's call (no
+      // staff user wrote them).
       author_actor:
         author.actor === "extension" ||
         author.actor === "customer" ||
         author.actor === "public" ||
-        author.actor === "device"
+        author.actor === "device" ||
+        author.actor === "practitioner"
           ? "system"
           : author.actor,
       created_at: now,
@@ -742,6 +745,15 @@ const ASSIGNMENT_RETRIES = 5;
 
 class AssignmentRetry extends Error {
   override name = "AssignmentRetry";
+}
+
+/**
+ * The database refused an automatic discount's use past its limit (migration 0953, ADR 0693):
+ * another order took the last one at the same moment. The buyer typed no code for it, so the
+ * call is priced again once rather than refused.
+ */
+function isDealTaken(error: unknown): boolean {
+  return error instanceof Error && error.message.includes("core_discount_use_auto_limit");
 }
 
 export async function invokeOperation<O extends AnyOperation>(
@@ -881,6 +893,7 @@ async function invokeOnce<O extends AnyOperation>(
     (Array.isArray(op.alwaysReview) && op.alwaysReview.includes(ctx.actor)) ||
     (!ctx.approval &&
       ALWAYS_REVIEWED_PUBLISHERS.includes(ctx.actor) &&
+      !writtenByPersonsTool(ctx, input) &&
       (await touchesPersonApproves(ctx.db.query, op.name, input))) ||
     (!ctx.approval &&
       decision === "auto" &&
@@ -1534,6 +1547,9 @@ async function invokeOnce<O extends AnyOperation>(
       if (isAssignmentConflict(error) && attempt < ASSIGNMENT_RETRIES) {
         throw new AssignmentRetry();
       }
+      // An automatic discount's last use taken a moment before (ADR 0693): priced again once,
+      // the order then goes through without it. Nothing of this attempt was written.
+      if (isDealTaken(error) && attempt < 1) throw new AssignmentRetry();
       // A race the database decided: the operation may read again and say what happened.
       if (op.explainFailure) {
         const explained = await op
@@ -2023,7 +2039,12 @@ const ID = /^[A-Za-z0-9_-]{1,64}$/;
 
 /** The principal as a plain, frozen value of a known kind, or a refusal. */
 function outsidePrincipal(value: unknown): OutsidePrincipal | DeviceCaller {
-  const p = (value ?? {}) as { kind?: unknown; customerId?: unknown; personId?: unknown };
+  const p = (value ?? {}) as {
+    kind?: unknown;
+    customerId?: unknown;
+    practitionerId?: unknown;
+    personId?: unknown;
+  };
   if (p.kind === "public") return Object.freeze({ kind: "public" });
   // Which device is the pipeline's to say, from the credential (ADR 0781): nothing else is read.
   if (p.kind === "device") return Object.freeze({ kind: "device" });
@@ -2036,7 +2057,22 @@ function outsidePrincipal(value: unknown): OutsidePrincipal | DeviceCaller {
   ) {
     return Object.freeze({ kind: "customer", customerId: p.customerId, personId: p.personId });
   }
-  throw new OperationError("internal", "Not a customer or public principal");
+  // A practitioner (ADR 0581): their account and their own Person, nothing else. Only these two
+  // members are read, so a value that also says `customerId` is still only a practitioner.
+  if (
+    p.kind === "practitioner" &&
+    typeof p.practitionerId === "string" &&
+    typeof p.personId === "string" &&
+    ID.test(p.practitionerId) &&
+    ID.test(p.personId)
+  ) {
+    return Object.freeze({
+      kind: "practitioner",
+      practitionerId: p.practitionerId,
+      personId: p.personId,
+    });
+  }
+  throw new OperationError("internal", "Not a customer, practitioner or public principal");
 }
 
 /**
@@ -2120,6 +2156,18 @@ function outsideError(error: unknown): OperationError {
   ) {
     return typed;
   }
+  // A discount's last use taken by another order a moment before (migration 0953, ADR 0693): the
+  // one answer a code that does not apply gets, whatever the reason.
+  if (
+    typed.code === "invalid_input" &&
+    (typed.details as { rule?: unknown })?.rule === "code_not_valid"
+  ) {
+    return typed;
+  }
+  // An automatic price's last use taken twice in a row at the same moment: told to start again.
+  if (typed.code === "conflict" && (typed.details as { rule?: unknown })?.rule === "deal_taken") {
+    return typed;
+  }
   // The same for a continuation offer's page (migration 0532, ADR 0491): the caller's own offer.
   const offerRule = (typed.details as { rule?: unknown })?.rule;
   if (typed.code === "conflict" && (offerRule === "offer_held" || offerRule === "offer_changed")) {
@@ -2173,7 +2221,10 @@ interface OutsideAudit {
   id: string;
   op: AnyOperation;
   actor: OutsideActor;
-  /** The customer account, the enrolled device (dev_…), or null for the public. */
+  /**
+   * The customer account, the enrolled device (dev_…), the practitioner account (prc_…), or null
+   * for the public.
+   */
   subjectId: string | null;
   origin: Origin;
   input: unknown;
@@ -2256,6 +2307,8 @@ async function invokeOutside<O extends AnyOperation>(
   op: O,
   rawInput: unknown,
   ctx: OutsideInvocationContext | DeviceInvocationContext,
+  /** Priced again once after an automatic discount's last use was taken (ADR 0693). */
+  retried = false,
 ): Promise<OperationOutput<O>> {
   const given = outsidePrincipal(ctx.principal);
   const now = (ctx.clock?.() ?? new Date()).toISOString();
@@ -2345,9 +2398,12 @@ async function invokeOutside<O extends AnyOperation>(
       ? principal.customerId
       : principal.kind === "device"
         ? principal.deviceId
-        : null;
+        : principal.kind === "practitioner"
+          ? principal.practitionerId
+          : null;
   const origin = originSchema.parse(ctx.origin ?? { surface: "client" });
-  // `{ $relative: "me" }` in a customer's filter is their own Person.
+  // `{ $relative: "me" }` in a customer's filter is their own Person. A practitioner's own Person
+  // is never one of their clients (ADR 0581), so for them it names no one.
   const me = principal.kind === "customer" ? principal.personId : "";
   const input: unknown = resolveInputFilter(op.name, parsed.data, me, now);
   await refreshSchemaRegistry(ctx.db.query);
@@ -2403,7 +2459,8 @@ async function invokeOutside<O extends AnyOperation>(
     get pipeline() {
       return staffOnly("pipeline");
     },
-    // Record code stamps who wrote a row: the customer account, or `public`.
+    // Record code stamps who wrote a row: the customer account, the practitioner account, or
+    // `public`.
     user: { id: subjectId ?? "public", email: "", name: actor, role: "viewer" },
     // The host's own reads while it writes (the row before, a relation's target) are org-wide.
     principal: orgReader(ctx.db.query).principal,
@@ -2584,7 +2641,8 @@ async function invokeOutside<O extends AnyOperation>(
     changeRows.push({ o: change.object, r: change.id, a: change.action, d: JSON.stringify(diff) });
     marked.push(markedChange(change, diff));
   }
-  // A customer's own writes are theirs; the public's, an unauthenticated buyer's (ADR 0590).
+  // A customer's own writes are theirs; the public's, an unauthenticated buyer's (ADR 0590). A
+  // practitioner's carry the public's standing, the weakest (ADR 0581): no customer's own say.
   if (!isRead && marked.length) {
     statements.push(
       ...(await markStatements(
@@ -2641,6 +2699,8 @@ async function invokeOutside<O extends AnyOperation>(
     try {
       await ctx.db.batch(statements);
     } catch (error) {
+      // An automatic discount's last use taken a moment before (ADR 0693): priced again once.
+      if (isDealTaken(error) && !retried) return invokeOutside(op, rawInput, ctx, true);
       // A race the database decided: the operation may read again and say what happened, as on
       // a staff call (stage 29: two first answers from one new address at once).
       if (op.explainFailure) {
@@ -2745,4 +2805,17 @@ function staffStanding(ctx: InvocationContext): Standing {
   // own automation, an AI's for one authored in the app (ADR 0590, the third review).
   if (ctx.actor === "extension" || ctx.actor === "automation") return ctx.markStanding ?? "host";
   return "host";
+}
+
+/**
+ * Whether a record write comes from a person's own tool of the record's extension (`humanOnly` or
+ * `personApproves`, with a permission, ADR 0513): the tool's call was already a person's act, or
+ * waited for a person, so the fields only a person changes are a person's here (ADR 0764: an
+ * appointment's coach given to another by `reassignAppointment`).
+ */
+function writtenByPersonsTool(ctx: { extension?: InvocationContext["extension"] }, input: unknown) {
+  const object =
+    typeof input === "object" && input !== null ? (input as { object?: unknown }).object : null;
+  if (typeof object !== "string") return false;
+  return personsTool(ctx, getObject(object)?.extension) !== null;
 }

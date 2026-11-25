@@ -25,11 +25,14 @@ import {
   claimRoutineMail,
   claimRoutineText,
   errorForLog,
+  evaluateGate,
   type IntegrationCaller,
   type IntegrationCallResult,
   invoke,
   keepsBooks,
+  loadApprovalPolicy,
   loadRoutineMailSettings,
+  parseFloor,
   ROLES,
   type Role,
   recordIntegrationEvents,
@@ -953,17 +956,32 @@ export class IntegrationHost extends DurableObject<Env> {
    * and the gatekeeper whether the host decided it routine. Org connections only, the row's own.
    */
   async sendRoutineMail(input: { id: string; resource: string }): Promise<{
-    status: "sent" | "waiting" | "denied" | "failed" | "skipped" | "off";
+    status: "sent" | "waiting" | "denied" | "failed" | "skipped" | "off" | "stopped";
     pendingActionId?: string;
     error?: string;
   }> {
     const meta = await this.#meta();
     if (meta.scope !== "org") throw new Error("Routine mail goes out from org connections only");
     const db = createCrmDb(this.env.DB).query;
-    const row = await claimRoutineMail(db, input.id, meta.connectionId);
+    // Whether routine email goes on its own under the policy and the deploy floor now: an email
+    // carrying a personal link goes only then, never to a person's approval (ADR 0723).
+    const gate = evaluateGate(
+      {
+        actor: "automation",
+        risk: "outbound",
+        outbound: { autoApprovable: false, enabled: false, routine: true },
+      },
+      await loadApprovalPolicy(db),
+      parseFloor(this.env.APPROVAL_FLOOR),
+    );
+    const row = await claimRoutineMail(db, input.id, meta.connectionId, undefined, {
+      sendsOnItsOwn: gate.decision === "auto",
+    });
     if (!row) return { status: "skipped" };
-    // Turned off since it was prepared (F2): nothing is sent.
-    if (row === "off") return { status: "off" };
+    // Turned off since it was prepared (F2), or stopped by the person (ADR 0675): nothing is sent.
+    if (row === "off" || row === "stopped") return { status: row };
+    // Not sent and settled (a receipt over the day's limit, a personal link that cannot go).
+    if (row === "failed") return { status: "failed" };
     const settings = await loadRoutineMailSettings(db);
     const caller: QueueCaller = {
       kind: "system",

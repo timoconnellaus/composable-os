@@ -40,8 +40,14 @@ owner's earlier decisions in the Accounting sync interview and stage 48 (decisio
 built in. Build may start with steps 1 and 2. Step 3 waits for stage 34's step 1 (adjustments) to
 merge; step 4 builds on, or builds, stage 34's shared step "an order paid another way".
 
-- **Step 2, records, numbering, settings, drafts and the event log** (`feat/stage-35-invoice-records`;
-  migration 1030, ADRs 0730 and 0732, ADRs 0479 and 0625 amended): `core_quote`, `core_invoice`,
+## Status
+
+- **Step 1** — built — PR #331 — The PDF writer generalised: `packages/agreement-pdf` became
+  `@composable-os/pdf` with a table layout, an invoice and a receipt renderer (branch
+  `feat/stage-35-pdf-writer`).
+
+- **Step 2** — built — PR #386 — Records, numbering, settings, drafts and the event log
+  (`feat/stage-35-invoice-records`; migration 1030, ADRs 0730 and 0732, ADRs 0479 and 0625 amended): `core_quote`, `core_invoice`,
   `core_credit_note` and their lines, with triggers that refuse any change to a sent or issued
   document and any number but the series' next; the three series (`core_document_counter`) and
   `numberStatements`, the SQL that gives a number in the issuing batch; the append-only
@@ -58,6 +64,30 @@ merge; step 4 builds on, or builds, stage 34's shared step "an order paid anothe
   order's 50 lines, a record's lines are whole units checked together as one order, and until
   step 11 an erase leaves a draft's text and a merge leaves documents on the merged-away Person
   (step 11 amends the update triggers for the re-point; ADR 0730).
+
+- **Step 3** — not built — needs: step 2, stage 34 step 1 — Issue as an order
+
+- **Step 4** — not built — needs: step 3, stage 34 step 3 — Recorded payments and reversal, on
+  stage 34's shared step (built there by PR #426)
+
+- **Step 5** — not built — needs: step 3, step 4 — Credit notes and void
+
+- **Step 6** — not built — needs: step 2 — Quotes and acceptance (the deposit invoice needs step 3)
+
+- **Step 7** — not built — needs: step 1, step 2 — Sending, the `invoice` attachment, reminders
+
+- **Step 8** — not built — needs: step 3, step 6 — Public and customer surfaces
+
+- **Step 9** — not built — needs: step 8, stage 48 step 1, stage 48 step 4, stage 48 step 5 — My
+  account
+
+- **Step 10** — not built — needs: step 2, stage 47 — The Invoicing pack (its screens after steps
+  3 to 6)
+
+- **Step 11** — not built — needs: step 5, step 6, step 7, step 8, step 9, step 10 — Erase, merge,
+  retention, export; the site
+
+- **Step 12** — not built — needs: the first client — The first client in test mode
 
 ## Goal
 

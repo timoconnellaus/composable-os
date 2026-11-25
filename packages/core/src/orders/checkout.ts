@@ -81,7 +81,8 @@ export async function openCheckout(
   const idempotencyKey = `${row.id}:${row.version}:${charge.amount}:${bucket}:${await shortHash(input.returnUrl)}`;
   // Tax at checkout (ADR 0479): null unless an admin turned it on and the lines declare a code,
   // and then the request is exactly as before.
-  const tax = await checkoutTax(ctx.db, row.id, charge.amount, KIND_WORDS[charge.kind]);
+  const taxed = await checkoutTax(ctx.db, row.id, charge.amount, KIND_WORDS[charge.kind]);
+  const tax = taxed?.tax ?? null;
   const opened = await openProviderCheckout(ctx.integrations, target, {
     orderId: row.id,
     amount: charge.amount,
@@ -103,7 +104,8 @@ export async function openCheckout(
         currency: charge.currency,
         kind: charge.kind,
         created_at: ctx.now,
-        tax_lines: tax ? JSON.stringify(tax.lines) : null,
+        // Without a buyer's address (ADR 0682): the provider was told where posted goods go.
+        tax_lines: taxed ? JSON.stringify(taxed.stored) : null,
       })
       .onConflict((oc) => oc.columns(["provider", "ref"]).doNothing()),
     // The latest checkout's reference, for staff and the provider's dashboard. Not a record field

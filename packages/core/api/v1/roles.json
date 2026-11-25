@@ -25,7 +25,9 @@
         "x.dailychecks.day",
         "x.dailychecks.done",
         "x.dailychecks.tick",
-        "x.dailychecks.today"
+        "x.dailychecks.today",
+        "x.knowledge.confirm",
+        "x.knowledge.toRead"
       ]
     },
     {
@@ -47,6 +49,8 @@
         "x.dailychecks.done",
         "x.dailychecks.tick",
         "x.dailychecks.today",
+        "x.knowledge.confirm",
+        "x.knowledge.toRead",
         "x.programs.history",
         "x.programs.logAdd",
         "x.programs.logRemove",
@@ -74,6 +78,8 @@
         "x.dailychecks.done",
         "x.dailychecks.tick",
         "x.dailychecks.today",
+        "x.knowledge.confirm",
+        "x.knowledge.toRead",
         "x.rostering.away",
         "x.rostering.back",
         "x.rostering.checklist",
@@ -95,6 +101,30 @@
       ]
     },
     {
+      "name": "shop.stockroom",
+      "pack": "shop",
+      "label": "Stockroom",
+      "description": "Sees the items, the variants and their stock levels, for someone who only receives and counts stock. Nothing else: no people, orders, prices to change or settings.",
+      "read": ["shop.item", "shop.variant"],
+      "operations": [
+        "ack.confirm",
+        "ack.mine",
+        "content.search",
+        "content.staffGet",
+        "content.staffList",
+        "record.get",
+        "record.list",
+        "screens.mine",
+        "x.dailychecks.day",
+        "x.dailychecks.done",
+        "x.dailychecks.tick",
+        "x.dailychecks.today",
+        "x.knowledge.confirm",
+        "x.knowledge.toRead",
+        "x.shop.stockLevels"
+      ]
+    },
+    {
       "name": "ticketing.door",
       "pack": "ticketing",
       "label": "Door",
@@ -113,6 +143,8 @@
         "x.dailychecks.done",
         "x.dailychecks.tick",
         "x.dailychecks.today",
+        "x.knowledge.confirm",
+        "x.knowledge.toRead",
         "x.ticketing.checkIn",
         "x.ticketing.undoCheckIn"
       ]
@@ -120,17 +152,39 @@
   ],
   "grants": [
     {
-      "permission": "bookings:desk",
+      "permission": "bookings:appointments",
       "pack": "bookings",
-      "label": "Front desk: find people, book anyone (walk-ins too) into any class, cancel or move their bookings, give a use back, and see any day's classes and full lists. For a coach who also works the desk.",
+      "label": "Appointments: book one-to-one sessions for clients, move, cancel and mark them, give a session back, give a session to another coach, and see any coach's day. For a coach who manages the others' sessions.",
       "restricted": false,
       "operations": [
+        "x.bookings.bookAppointment",
+        "x.bookings.cancelAppointment",
+        "x.bookings.cancelAppointmentByUs",
+        "x.bookings.coachDay",
+        "x.bookings.excuseAppointment",
+        "x.bookings.markAppointment",
+        "x.bookings.moveAppointment",
+        "x.bookings.reassignAppointment"
+      ]
+    },
+    {
+      "permission": "bookings:desk",
+      "pack": "bookings",
+      "label": "Front desk: find people; book, cancel and move classes and one-to-one sessions for anyone; give a use back; mark sessions; see any day's classes and lists and every coach's day with its clients. For a coach who also works the desk.",
+      "restricted": false,
+      "operations": [
+        "x.bookings.bookAppointment",
         "x.bookings.bookFor",
+        "x.bookings.cancelAppointment",
         "x.bookings.cancelFor",
         "x.bookings.classList",
+        "x.bookings.coachDay",
         "x.bookings.day",
+        "x.bookings.excuseAppointment",
         "x.bookings.findPeople",
+        "x.bookings.markAppointment",
         "x.bookings.move",
+        "x.bookings.moveAppointment",
         "x.bookings.returnUse"
       ]
     },
@@ -140,6 +194,20 @@
       "label": "courses:enrol",
       "restricted": false,
       "operations": ["x.courses.endEnrolment", "x.courses.enrol"]
+    },
+    {
+      "permission": "knowledge:manage",
+      "pack": "knowledge",
+      "label": "See who has read and confirmed each procedure, and change who must read one once published",
+      "restricted": true,
+      "operations": ["x.knowledge.readStatus"]
+    },
+    {
+      "permission": "knowledge:write",
+      "pack": "knowledge",
+      "label": "Write procedures and help pages (a person allowed to publish publishes them)",
+      "restricted": false,
+      "operations": ["x.knowledge.draftHelpPage", "x.knowledge.draftProcedure"]
     },
     {
       "permission": "memberships:passes",
@@ -212,12 +280,32 @@
         "x.rostering.week",
         "x.rostering.withdraw"
       ]
+    },
+    {
+      "permission": "shop:fulfil",
+      "pack": "shop",
+      "label": "Shop orders: see what is to pack, send or hand over, and mark it packed, sent, ready or collected.",
+      "restricted": false,
+      "operations": [
+        "x.shop.markCollected",
+        "x.shop.markPacked",
+        "x.shop.markReady",
+        "x.shop.markSent",
+        "x.shop.shipmentsToSend"
+      ]
+    },
+    {
+      "permission": "shop:read",
+      "pack": "shop",
+      "label": "Shop stock: see every variant's stock, what is held by orders being paid and what is low.",
+      "restricted": false,
+      "operations": ["x.shop.stockLevels"]
     }
   ],
   "requires": {
     "bookings": ["programs"],
     "courses": ["programs", "content"],
-    "memberships": ["programs"]
+    "memberships": ["programs", "bookings"]
   },
   "owner": {
     "operations": [

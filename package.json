@@ -12,7 +12,7 @@
     "dev": "pnpm --filter @composable-os/app dev",
     "build": "turbo run build",
     "typecheck": "turbo run typecheck",
-    "lint": "biome check . && node scripts/check-agent-imports.mjs && node scripts/check-stray-names.mjs && node scripts/check-skills-version.mjs && node scripts/check-blocks.mjs && node blocks/web-base.mjs --check && node scripts/ci-unit-shards.mjs --check && node --test scripts/check-blocks.test.mjs scripts/check-agent-imports.test.mjs scripts/check-stray-names.test.mjs scripts/check-skills-version.test.mjs scripts/ci-docs-only.test.mjs scripts/ci-unit-shards.test.mjs scripts/smoke-deployment.test.mjs",
+    "lint": "biome check . && node scripts/check-agent-imports.mjs && node scripts/check-stray-names.mjs && node scripts/stage-status.mjs --check && node scripts/check-skills-version.mjs && node scripts/check-blocks.mjs && node blocks/web-base.mjs --check && node scripts/ci-unit-shards.mjs --check && node --test scripts/check-blocks.test.mjs scripts/check-agent-imports.test.mjs scripts/check-stray-names.test.mjs scripts/stage-status.test.mjs scripts/check-skills-version.test.mjs scripts/ci-docs-only.test.mjs scripts/ci-unit-shards.test.mjs scripts/smoke-deployment.test.mjs",
     "format": "biome check --write .",
     "test": "turbo run test",
     "test:e2e": "pnpm --filter @composable-os/app test:e2e",
@@ -22,7 +22,8 @@
     "db:seed": "pnpm --filter @composable-os/db seed",
     "upstream:check": "node scripts/upstream-sync-check.mjs",
     "ai:replay-cache": "node scripts/ai-replay-cache.mjs",
-    "eval:calibrate": "pnpm --filter @composable-os/evals-judge calibrate"
+    "eval:calibrate": "pnpm --filter @composable-os/evals-judge calibrate",
+    "stage:status": "node scripts/stage-status.mjs"
   },
   "devDependencies": {
     "@biomejs/biome": "2.6.4",

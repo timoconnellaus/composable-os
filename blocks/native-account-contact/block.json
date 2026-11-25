@@ -1,0 +1,11 @@
+{
+  "name": "native-account-contact",
+  "pack": null,
+  "skin": "native",
+  "operations": ["me.contact.choices", "me.contact.setChoices"],
+  "files": ["contact.tsx", "LICENSE"],
+  "dependsOn": ["native-base"],
+  "packages": {
+    "@composable-os/client": "*"
+  }
+}

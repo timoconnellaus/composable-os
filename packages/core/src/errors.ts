@@ -300,6 +300,24 @@ export function toOperationError(error: unknown): OperationError {
       { rule: "once_per_person", reason: "held" },
     );
   }
+  // A discount's use past its limit (migration 0953, ADR 0693): another order took the last use
+  // a moment before. Nothing of this one was recorded. The same answer as a code used up when it
+  // was read, so a race tells a caller nothing a read would not.
+  if (message.includes("core_discount_use_limit")) {
+    return new ValidationError("This code is not valid here", {
+      rule: "code_not_valid",
+      field: "code",
+    });
+  }
+  // An automatic discount's last use (a member's price) taken by another order a moment before
+  // (migration 0953): the pipeline prices the call again once (it then goes through without that
+  // price); if it is taken again, the buyer is told to start again, never that a code is invalid.
+  if (message.includes("core_discount_use_auto_limit")) {
+    return new ConflictError(
+      "A price on this order was used up by another order at the same moment. Start again.",
+      { rule: "deal_taken" },
+    );
+  }
   // Two events for one subscription granting at once (migration 0580, ADR 0510): the other one
   // granted it. Nothing of this one was applied; the provider delivers it again.
   if (message.includes("UNIQUE constraint failed: core_subscription_grant")) {
@@ -436,6 +454,24 @@ export function toOperationError(error: unknown): OperationError {
     return new ConflictError(
       "That time is not free. Nothing was changed: choose another free time.",
       { rule: "not_free_time" },
+    );
+  }
+  // A personal link used, or expired, while these answers were being kept (migration 1010, ADR
+  // 0723): of two answers racing for one link exactly one landed. The same words as any link
+  // that cannot be used, naming nothing about it.
+  if (message.includes("core_intake_link_used")) {
+    return new OperationError(
+      "not_found",
+      "This link cannot be used: it may have been used already or have expired",
+      { rule: "personal_link" },
+    );
+  }
+  if (message.includes("core_intake_link_fixed")) {
+    return new ConflictError(
+      "A personal link never changes what it is for, so nothing was changed.",
+      {
+        rule: "personal_link_fixed",
+      },
     );
   }
   // An offer of a shift left `open` meanwhile (migration 0812, ADR 0623): taken by someone else a

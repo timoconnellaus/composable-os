@@ -6,6 +6,10 @@ editUrl: false
 
 The course catalogue for a studio's site (stage 42): courses by theme and level, and bundles, with their prices. What is published and what it costs are the host's (`useCatalogue`); this lays them out.
 
+<img class="cos-screen" src="/screens/courses-catalogue.png" alt="courses-catalogue, drawn with dummy data" width="1024" height="1927" loading="lazy" decoding="async" />
+
+Drawn with dummy data.
+
 |  |  |
 | --- | --- |
 | Skin | web |

@@ -46,7 +46,7 @@ export type Asker = "public" | "customer" | "staff";
  * caller nothing a closed or unpublished form would not. Whether it takes answers is `openForm`'s.
  */
 export async function formIdBySlug(
-  ctx: HandlerContext,
+  ctx: Pick<HandlerContext, "db">,
   objectName: string,
   slug: string,
 ): Promise<string> {
@@ -76,13 +76,16 @@ export async function formIdBySlug(
  * The form `id` of `objectName`, published and taking answers from `asker` now; otherwise not
  * found, the same answer whatever the reason (a draft, closed, unpublished, out of its dates, not
  * open to this caller, or no such form). Staff enter any published form (a phone call, paper, a
- * staff form). A `links` form takes answers only by a personal link (step 5 builds them).
+ * staff form). A `links` form takes answers only by a personal link (ADR 0723): `byLink` opens a
+ * form to the holder of a live link whoever it is open to, but never a staff form or an anonymous
+ * one (an anonymous form keeps no Person, so a link to one would be a lie).
  */
 export async function openForm(
-  ctx: HandlerContext,
+  ctx: Pick<HandlerContext, "db" | "now">,
   objectName: string,
   id: string,
   asker: Asker,
+  options: { byLink?: boolean } = {},
 ): Promise<OpenForm> {
   const object = formObjectOf(getObject(objectName));
   const notFound = () => new NotFoundError(objectName, id);
@@ -93,8 +96,26 @@ export async function openForm(
   if (!record) throw notFound();
   const live = await liveContent(ctx, object.name, id);
   if (!live) throw notFound();
+  const open = formAsOpen(object, submission, id, record.values, live, asker, options, ctx.now);
+  if (!open) throw notFound();
+  return open;
+}
+
+/**
+ * Whether a form with these working values and this published version takes answers from `asker`
+ * now, and how: `openForm`'s judgement, with no read of its own. Null when it does not.
+ */
+function formAsOpen(
+  object: FormObject,
+  submission: SubmissionObject,
+  id: string,
+  values: Record<string, unknown>,
+  live: { version: number; content: Record<string, unknown> },
+  asker: Asker,
+  options: { byLink?: boolean },
+  at: string,
+): OpenForm | null {
   const { intake } = object;
-  const values = record.values;
   const published = live.content;
   // Who may answer, anonymity and the destination are the version's, as the questions are: an
   // edit does not change how a published form treats answers until a person publishes it.
@@ -104,18 +125,21 @@ export async function openForm(
       : null;
   if (asker !== "staff") {
     const state = object.states ? values[object.states.field] : null;
-    if (typeof state !== "string" || !intake.openIn.includes(state)) throw notFound();
+    if (typeof state !== "string" || !intake.openIn.includes(state)) return null;
     const opens = intake.opensAt ? values[intake.opensAt] : null;
     const closes = intake.closesAt ? values[intake.closesAt] : null;
-    const now = Date.parse(ctx.now);
-    if (typeof opens === "string" && Date.parse(opens) > now) throw notFound();
-    if (typeof closes === "string" && Date.parse(closes) <= now) throw notFound();
-    const open = answeredBy === "public" || (answeredBy === "customers" && asker === "customer");
-    if (!open) throw notFound();
+    const now = Date.parse(at);
+    if (typeof opens === "string" && Date.parse(opens) > now) return null;
+    if (typeof closes === "string" && Date.parse(closes) <= now) return null;
+    const open = options.byLink
+      ? answeredBy === "public" || answeredBy === "customers" || answeredBy === "links"
+      : answeredBy === "public" || (answeredBy === "customers" && asker === "customer");
+    if (!open) return null;
   }
   const questions = published[intake.questions] as Questions | null | undefined;
-  if (!questions || !Array.isArray(questions.items)) throw notFound();
+  if (!questions || !Array.isArray(questions.items)) return null;
   const anonymous = intake.anonymous ? isTrue(published[intake.anonymous]) : false;
+  if (options.byLink && anonymous) return null;
   const destination =
     !anonymous && intake.destination ? destinationObjectOf(published[intake.destination]) : null;
   // What a client draws: the published content without the host's own settings.
@@ -135,4 +159,61 @@ export async function openForm(
     answeredBy,
     destination,
   };
+}
+
+/**
+ * Several forms of one form object at once, as `openForm` judges each (`openForm`'s answer, by
+ * id, for those that take answers): two reads whatever the number of ids (at most 50), for a list
+ * that must stay bounded ("Needs your attention").
+ */
+export async function openForms(
+  ctx: Pick<HandlerContext, "db" | "now">,
+  objectName: string,
+  ids: readonly string[],
+  asker: Asker,
+  options: { byLink?: boolean } = {},
+): Promise<Map<string, OpenForm>> {
+  const out = new Map<string, OpenForm>();
+  const object = formObjectOf(getObject(objectName));
+  const submission = object ? submissionObjectOf(object) : null;
+  const wanted = [...new Set(ids)].slice(0, 50);
+  if (!object || !submission || !wanted.length) return out;
+  const page = await listVisible(orgReader(ctx.db), object, {
+    filter: { field: "id", op: "in", value: wanted },
+    limit: wanted.length,
+  });
+  if (!page.items.length) return out;
+  const versions = await ctx.db
+    .selectFrom("core_publish_version")
+    .select(["record_id", "version", "content"])
+    .where("object_type", "=", object.name)
+    .where("current", "=", 1)
+    .where(
+      "record_id",
+      "in",
+      page.items.map((item) => item.id),
+    )
+    .execute();
+  const live = new Map(
+    versions.map((v) => [
+      v.record_id,
+      { version: Number(v.version), content: JSON.parse(v.content) as Record<string, unknown> },
+    ]),
+  );
+  for (const item of page.items) {
+    const version = live.get(item.id);
+    if (!version) continue;
+    const open = formAsOpen(
+      object,
+      submission,
+      item.id,
+      item.values,
+      version,
+      asker,
+      options,
+      ctx.now,
+    );
+    if (open) out.set(item.id, open);
+  }
+  return out;
 }

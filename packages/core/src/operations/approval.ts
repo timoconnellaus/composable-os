@@ -77,6 +77,7 @@ const READ_AGAIN_OPERATIONS: ReadonlySet<string> = new Set([
   "record.schedulePublish",
 ]);
 
+import { stopHeldRoutineMessage } from "../routine-mail/index.ts";
 import { approvalMarkStatements } from "../routine-mail/marks.ts";
 import { assertRosterApprover } from "../staffing/approvals.ts";
 
@@ -1303,6 +1304,39 @@ async function approveActions(
             .where("id", "=", action.id)
             .where("status", "=", "pending"),
         ]);
+        results.push({
+          actionId: action.id,
+          operation: action.operation,
+          status: "skipped",
+          statusReason,
+          error: null,
+          bindings: null,
+        });
+        continue;
+      }
+      // A held routine message whose person stopped it (or whose address or number was
+      // suppressed) while it waited (ADR 0675): nobody may approve around a stop. Skipped, and
+      // dropped on its facet.
+      const stopped =
+        action.connection_id !== null
+          ? await stopHeldRoutineMessage(ctx.db, action.id, ctx.now)
+          : null;
+      if (stopped) {
+        failed.add(action.id);
+        const statusReason = `Skipped: ${stopped}`;
+        await crm.batch([
+          ctx.db
+            .updateTable("core_pending_action")
+            .set({
+              status: "skipped",
+              status_reason: statusReason,
+              decided_by: approver,
+              decided_at: ctx.now,
+            })
+            .where("id", "=", action.id)
+            .where("status", "=", "pending"),
+        ]);
+        await rejectOnFacets(integrations, [action]);
         results.push({
           actionId: action.id,
           operation: action.operation,

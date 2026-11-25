@@ -424,8 +424,25 @@ Stage 6a ([ADR 0110](adr/0110-integration-host-per-connection.md) to
   the month's limit in one statement on `core_text_spend` (past it, `over_limit`; admins told once
   a day, and at 80% once a month) and within its number's five a day; the minute cron hands ready
   texts over (one pool of 500 pending at the gatekeeper; a full pool leaves them ready). Verified
-  receipts settle a row `delivered` or `failed`; STOP and START, read at the gatekeeper, keep
-  `core_text_stop` (salted hashes, kept after erase).
+  receipts settle a row `delivered` or `failed`; STOP and START, read at the gatekeeper, keep the
+  number on the suppression list (`core_contact_suppression`: salted hashes, kept after erase).
+- **Consent to be contacted** ([ADR 0675](adr/0675-consent-to-be-contacted.md), stage 30 step
+  5): one register (`core_contact_choice`, append-only: the latest row per Person, channel and
+  scope is in force), one suppression list, and one question every sender asks at the moment of
+  sending, `contactDecision` (`packages/core/src/contact/`): the register for the kind and its
+  purpose (`account`, `follow_up`, `news_and_offers`, which needs a recorded yes and never goes to
+  a child), the suppression list, where it goes (an address, the textable number, a device), its
+  moment and quiet hours. A refusal is final: the row is `stopped`, never held for a person.
+  Routine messages ask it for each recipient and channel when a row is prepared and ask the
+  register again when an email or a text is claimed; Journeys and the inbox use the same. A
+  stoppable email (an optional kind's, a follow-up's) ends with the host's stop link
+  (`stopLink`: an opaque random token, only its hash kept, naming one Person, channel and scope,
+  no expiry, on the business's site) and, when
+  routine, carries it as `List-Unsubscribe` with one-click, which the email gatekeeper takes from
+  the host's routine mail only. The public `contact.stop` takes the token and can only turn that
+  scope off; the client web app's `/stop` route shows one button and posts it. Members change
+  their choices in My account's Contact preferences (`me.contact.*`); staff record a member's on
+  request or from paper (`person.contact.record`, a person only), never lifting a stop.
 - **Gatekeepers we wrote**: `gatekeeper-email-send`, `gatekeeper-slack-post`, `gatekeeper-webhook`,
   `gatekeeper-text` (texts, above).
   `gatekeeper-accounting` (stage 61, ADR 0880) is the **accounting contract** every accounting
@@ -929,6 +946,7 @@ apps/
   runner/              extension runtime, automations, Workflows, Queues         → Worker "cos-runner"
   marketing/           the Composable OS site, composableos.dev                  → Worker "cos-site"
   docs/                the technical docs, docs.composableos.dev, generated from the code (ADR 0930) → Worker "cos-docs"
+  screens/             every block drawn with dummy data, for the docs site's pictures (ADR 0930) → not deployed
 packages/
   core/                operations registry, risk classes, policy types, model role registry (ai/), the judge (judge/), schema reconciler
   db/                  core D1 migrations (incl. core_base_* views), typed core schema
@@ -1038,8 +1056,9 @@ definition into its client repo.
 
 Stage 22; [ADR 0402](adr/0402-staff-and-customers.md).
 
-Every operation declares its audiences: `staff` (the default), `customer`, `public`, or
-`device` alone (stage 51, [ADR 0781](adr/0781-a-device-as-a-caller-the-device-audience-and-device-roles.md)).
+Every operation declares its audiences: `staff` (the default), `customer`, `public`,
+`practitioner` (stage 43, [ADR 0581](adr/0581-the-practitioner-principal-accounts-and-sign-in.md)),
+or `device` alone (stage 51, [ADR 0781](adr/0781-a-device-as-a-caller-the-device-audience-and-device-roles.md)).
 
 - **Staff** are today's users, with roles.
 - A **customer** is a Person with a sign-in. An object says which relation field is its customer;
@@ -1048,6 +1067,10 @@ Every operation declares its audiences: `staff` (the default), `customer`, `publ
 - **Public** callers have no account. Public operations are few, low risk and rate limited.
 - A **device** is the business's own enrolled tablet holding a device role, signed in as nobody.
   It calls only on the desk origin, and only its role's tools and `device.heartbeat`.
+- A **practitioner** is an outside person the business invited (a physiotherapist, a dietitian),
+  signed in to their own practitioner account. Until stage 43's care link and practitioner scope
+  they reach nothing about anyone: the seam's scope for them is `none` on every object, and the
+  one operation open to them is `practitioner.me`.
 
 As built (stage 22; ADRs [0410](adr/0410-the-seams-first-door-as-built.md),
 [0411](adr/0411-audiences-on-operations-as-built.md),
@@ -1090,6 +1113,17 @@ As built (stage 22; ADRs [0410](adr/0410-the-seams-first-door-as-built.md),
   device's id; the seam gives it nothing, and its tools' own calls run as the extension.
 - **Its handler has no raw database.** It reads and writes records through `ctx.records`. A core
   operation marked `hostInternal` keeps the database for account and session bookkeeping.
+- **A call by a practitioner** (ADR 0581) takes the customer's path: no role, never queued, the
+  risk floor, no raw database unless `hostInternal`, rate limited per account, audited with actor
+  `practitioner` and the account's id. Any record change by one is refused at the seam.
+- **Practitioner accounts** (`core_practitioner`, migration 0730) are made only by
+  `practitioner.invite` (staff with `practitioners:manage`, a person at the web admin; never an
+  AI, MCP, an automation, an extension or a device session) and ended by `practitioner.end`, which
+  deletes their sessions in the same batch. A third Better Auth configuration signs them in by an
+  emailed code at `/api/practitioner-auth/*` (on the host and over the client-app binding), with
+  its own tables, cookie (`cos-practitioner.*`) and key (derived from `CUSTOMER_AUTH_SECRET`).
+  One address may hold a staff, a customer and a practitioner account; a request carrying two
+  kinds of session is refused, and a practitioner's session is never exchanged for app tokens.
 - **Customer accounts** are `core_customer` and its sessions, apart from `core_user`. A second
   Better Auth configuration in `packages/auth` signs customers in by a one-time emailed code,
   with its own cookie and secret, and resolves a request to a customer or the public, never to
@@ -1196,7 +1230,8 @@ The rules products share, declared in a manifest and enforced by the host in the
 `stages`, `states`, `capacity`, `sellable` and `publishable` exist (the last with its public
 half, and the media library beside it, since stage 28). `allowance` exists since stage 32b;
 `recurring`, capacity claimants and declared uniqueness since stage 31 (below); `staffed` since
-stage 45, `occupies` since stage 49 and `stock` since stage 37 (below). Behaviours stack:
+stage 45, `occupies` since stage 49, `stock` since stage 37 and `discount` since stage 34
+(below). Behaviours stack:
 an event is publishable, sellable and has a capacity.
 
 `stages` and `states` are two declarations on one **transition engine**
@@ -1399,8 +1434,8 @@ the database can read (the contract requires both; an unreadable time is refused
 overlap check reads one claim (claims on one thing never overlap, indexed by thing and start). Marking a room exclusive over a clash to come is refused; a
 reconcile over records that clash and have not ended is refused (`occupies_conflict`, past ones
 skipped and reported); a series' date whose room is taken is made with no room (a field exception)
-and the rosterers are told. Bookings' class declares it; appointments (stage 49 step 5) and stage
-57's venues reuse it.
+and the rosterers are told. Bookings' class and appointment declare it (the appointment since
+stage 49 step 5), and stage 57's venues reuse it.
 
 **The room calendar** ([ADR 0844](adr/0844-the-room-calendar-and-provisional-and-title-on-occupies.md),
 `packages/core/src/occupancy/`, `operations/rooms.ts`; stage 57 step 1). Two display-only keys on
@@ -1709,7 +1744,11 @@ customers; a record that does not meet it is not found. A customer reads it too,
 with no customer of its own. The public reach it only through a pack's tool, which calls the
 tool-only `public.list` and `public.get`. `capacity.get` and `order.start` answer outsiders only
 for records their scope shows them. On a publishable object the public's source is the object's
-live view, so the public reads only published versions (below).
+live view, so the public reads only published versions (below). `when` may list up to three
+conditions that all hold, and a condition may be `via` alone: the record that relation points to
+is one the public reads, a row of its object's public source meeting its own `when`, one step and
+no chains (stage 37 step 5, [ADR 0689](adr/0689-the-shop-pack-and-public-reads-through-a-public-record.md)).
+The Shop's variant is public while it is active and its item is published.
 
 **The signed-in scope** ([ADR 0447](adr/0447-the-signed-in-scope.md)). `signedIn: { read, when? }`
 has the public scope's shape and is read by every signed-in customer, never the public. Beside a
@@ -1833,6 +1872,38 @@ declare it: a form with no public scope (the public reads it only through `intak
 submission inbox (new, in hand, done, spam) read only by staff accounts, with no pack role reaching
 either.
 
+**Personal links and the receipt** (stage 29, step 5, [ADR 0723](adr/0723-personal-links-used-once.md)
+and [ADR 0724](adr/0724-the-receipt-and-the-form-link-slot.md), `packages/core/src/intake/links.ts`,
+migration 1010). A personal link is a host row (`core_intake_link`: one Person, one form, optionally
+the record it is about, an expiry, when it was used) with one token per email that carries it, of
+which only the SHA-256 is kept (`core_intake_link_token`): 32 random bytes, no signing key, as the
+stop link's. Only routine mail's **form-link slot** (`{ formLink: { object, setting, days, once } }`,
+a `links` form) makes one, for the record's own Person: never to a child's own address (their
+guardians get it), not again about the same record, not within the slot's `once` days (kept by the
+insert trigger), and none for an email the register stops. Preparing plans it; the link and the
+email's token are made only when `claimRoutineMail` sends the email on its own (still routine after
+the caps, under a policy that sends routine email without review), and the token goes only into
+the words handed to the gatekeeper, never a row, an approval or a pending action; an email with a
+link that would wait for a person is kept failed, and a link whose email did not go is withdrawn.
+The link is on the business's site (`/form?t=`), so the email gatekeeper's rule holds unchanged.
+`intake.open` and `intake.submit` take the token (`link`, from anyone holding it: no Turnstile
+token or shown time) or, for a signed-in customer whose link (or whose live dependant's) it is,
+its id (`linkId`, from "Needs your attention", kind `form_to_fill`, through Forms' customer-only
+tools). A child's link fills none of the child's fields.
+The answers are the link's Person's (certainty `link`), to that form only, tied to the record in the
+submission's host-only `about` and `aboutObject`; the answers' batch uses the link by its id and
+migration 1010's trigger fails it when it is already used or expired, so of two racing answers one
+commits. Every refusal is one answer; opening a link uses nothing; `link` is redacted from the audit
+log. Erase deletes links with their Person (the cascade); merge moves them to the survivor. A
+routine kind declaring `receipt: true` (about an intake submission, the form's fields and the
+business's name from Settings → Routine email only) goes to whoever sent the answers: their sign-in
+address, whoever answered the link (`used_by`: the token's recipient or the signed-in customer),
+or the address they typed, which may carry the public's mark (the amendment to ADR 0590); never for
+staff's answers, spam or an anonymous form; the fourth in a day to one mailbox is kept
+`over_limit`, and receipts have the organisation's daily cap of their own (`receiptDailyCap`,
+200), outside the routine email cap. Forms declares
+`forms.receipt`; Bookings declares `bookings.feedback` with the slot and its automation.
+
 **`publishable`** ([ADR 0446](adr/0446-publishable-without-its-public-half.md),
 [ADR 0441](adr/0441-publishable-states-schedules-and-versions.md),
 `packages/core/src/operations/record-versions.ts`, `packages/core/src/records/publish.ts`).
@@ -1919,8 +1990,26 @@ small fix (`read_again`, migration 0971; the first always asks; `record.publish`
 `core_publish_ack` (the person's own, the current version only, once; triggers refuse anything
 else and every update and delete); `ack.mine` lists what is to read and what was confirmed; both
 reach every pack role (`PACK_ROLE_OWN`). `ack.status` and `ack.overview` are for a person who is an
-admin or holds the object's `manage` grant. Who must read is a person's to change, and once a
-record is published a manager's. The confirmations are in no `rec_*` view.
+admin or holds the object's `manage` grant, called by the person or through a person-only tool of
+the shipped pack that owns the object (ADR 0706). Who must read, and the fields `managed` names, are
+a person's to change, and once a record is published a manager's. The confirmations are in no
+`rec_*` view. The declaration's `owner` and `notices` (ADR 0706,
+`packages/core/src/records/acknowledge-notices.ts`) are the pack's words for notices the host
+sends, each the person's only (`human_only`, never in an AI's list or the digest): a version
+that asks tells exactly who must read it, in the publish batch; `ack.due`, the minute cron's host
+step once a local day and bounded (at most 300 notices a run, carried on at the next tick), asks
+anyone never told, reminds who still has one to read, tells each owner who manages (else the
+admins) weekly who has not, and welcomes new accounts, each keyed so it is sent once. Titles are the
+published version's.
+
+**The Knowledge pack** (stage 38 step 5, [ADR 0706](adr/0706-the-knowledge-pack.md),
+`packs/knowledge`). Procedures (`knowledge.procedure`: publishable, `staffRead`, acknowledged,
+never public; its review period `managed`, its next review a formula over `publishedAt`, which a
+date-relative automation reminds the owner on) in sections, and help pages
+(`knowledge.helppage`, public as published) in help topics. Its tools compose `ack.*`,
+`public.list` and the record writes; it adds no rule. A formula of a publishable object's own
+fields may read `publishedAt` and `publishedVersion`, and a date-relative trigger may name a date
+formula.
 
 **Media** ([ADR 0444](adr/0444-media-the-editor-and-the-content-pack.md),
 `packages/core/src/operations/media.ts`, `packages/core/src/http/media.ts`). A base record,
@@ -2079,7 +2168,32 @@ a class the host cancels moves its live bookings to `cancelled_by_us` in its bat
 class and holder are create-only (`customer.createOnly`), the booking rules are a person's
 (`personApproves`: other actors' writes wait for a person's approval), walk-ins are made with their booking in one
 batch (`person.createWith`), an extension tool is not run by the approval queue's dry run, and
-the runner carries the packs' sources as a Text module.
+the runner carries the packs' sources as a Text module. Appointments (stage 49 step 5,
+[ADR 0764](adr/0764-appointments-in-the-bookings-pack.md)): `bookings.service` (length, buffers,
+rooms in order, step, its own booking rules over the organisation's `appointment*` settings, who
+books it, offered) is the kind of `bookings.appointment`, which declares `staffed` (its coach
+profile's account, required; the service's buffer as claim margins; `private`; `open` with the
+service's length, step and rooms, the client and the closures), `occupies` (its room when
+exclusive, with the buffer), `states` (booked, a cancel in time or late by "late from", moved,
+attended and no-show from the start and corrected for 7 days, `excused` only through the
+`humanOnly` `excuseAppointment`, `cancelled_by_us` only through the `personApproves`
+`cancelAppointmentByUs` or the host; attended by the host 30 minutes after the end), `allowance`
+(spender: the service's own id copied as `serviceId`, its local weekday and minute; `waived` for
+paid at the desk; `released`), and the agreement point `appointment`. The host gives a new
+appointment that names no room the first of its service's rooms free then (`hostRoomFor`,
+`staffing/free.ts`), and naming an appointment's provider is a booking, not rostering, where
+Rostering is installed, while it is still to come (`staffed.open` objects leave `who` out of the
+roster's fields until the shift starts; an AI's change of it waits for a person unless a person's
+own tool makes it). Its start, end and service change only by a move (`allowance.spends.movedFrom.fixed`),
+a moved one keeps the late point of the one it replaced (`movedFrom.anchor`, the window counting
+from `lateAnchor`), a client is required at create only (`states.create.requires`, so erase keeps
+the appointment), and the host's attended mark skips one with no coach (`states.after[].ifSet`). Staff
+tools: `bookAppointment` (any coach through `staffing.free`), `moveAppointment` (a new
+appointment with `movedFrom`), `cancelAppointment`, `cancelAppointmentByUs`, `markAppointment`,
+`excuseAppointment`, `reassignAppointment` (`personApproves`), `coachDay` (classes and
+appointments from Bookings' records, other shifts from `staffing.week`), under `bookings:desk` or
+the grantable `bookings:appointments`. Nothing of appointments is open to customers or the public
+yet (step 6).
 
 **Courses** (`packs/courses`, stage 42; [ADR 0478](adr/0478-the-courses-pack.md)): themes,
 courses and bundles (publishable, sellable with a tax code, granting an enrolment), enrolments and
@@ -2270,8 +2384,54 @@ over it the call waits in Approvals (the operation's `reviewWhen`, judged again 
 read), an AI's always waits (and so does its `order.unadjust`), only a human admin approves, and
 the order's checkout cannot open while a person's waits. The database refuses a new total once a
 checkout is recorded, and a checkout for a price that changed meanwhile (migration 0951). A discount cannot take an
-order to nothing yet. Codes and members' prices (the `discount` behaviour) join the seam in a
-later step.
+order to nothing yet.
+
+**Codes and members' prices: the order's deal** (stage 34 step 4,
+[ADR 0693](adr/0693-the-discount-behaviour-codes-automatic-prices-one-deal-limits-held-by-the-database.md),
+`discounts/deal.ts`, `discounts/uses.ts`, `orders/codes.ts`). A pack declares discounts with the
+`discount` behaviour (below); the host works out the order's one **deal** inside `priceOrder`,
+after `priceLines` and before the goods rules: every live automatic discount the buyer qualifies
+for and the code given (the buyer's only input: a word), the one taking most off (a tie goes to
+the automatic one). A guest gets only what anyone gets; a signed-in customer and staff buying for
+a Person get members', new customers', organisation and tag prices (folded addresses as one
+person). The deal never touches a delivery, never makes an order free and never leaves less to
+pay than the order setting `minCharge` (50 minor units by default); free postage is then
+decided on the goods' net. It is written as one `code` or `automatic` adjustment per line, staff
+discounts going on top (`liveAdjustments` orders the deal first), and a **use** in
+`core_discount_use` (migration 0953): held in the order's batch, used when paid, released when it
+ends unpaid or its code changes, kept after a refund. A trigger refuses a use past the
+discount's total, a code's own, or a Person's limit (copied onto the use as the host read them),
+so of two orders at once at the last use one exists; the refusal reads as the one answer a code
+that does not apply gets ("not valid here", `rule: "code_not_valid"`, the reason for staff only).
+`order.start`, `order.startHeld` and `order.quote` take `code` (the quote holds nothing);
+`order.applyCode` / `order.removeCode` change a pending order's code before its checkout opens
+(the buyer, staff, or a guest with the token); `discount.check` checks a code against a basket,
+read-only, not for an assistant. Public operations have no rate limit yet (a platform gap);
+customers' calls are limited per account and operation.
+
+**Goods, delivery and the quote** (stage 37 step 3, ADRs
+[0682](adr/0682-goods-on-an-order-where-sold-the-channel-and-the-delivery.md),
+[0683](adr/0683-order-quote-a-public-dry-run-of-the-host-s-prices.md) and
+[0685](adr/0685-postage-priced-by-the-host.md), `orders/goods.ts`). A sellable object may declare
+`goods: { soldIn? }` (where its records are sold: a select of `online`, `in_person`, `both`, read
+through its item) or `delivery: { kind, freeOver?, countries?, active? }` (an option of kind
+`post`, `collect` or `here`). Every order is priced by `priceOrder`: `priceLines` over the lines
+and the delivery the caller chose in `delivery` (added as the last line, quantity 1), then the
+order's deal (above; free over then counts the goods' net after it), then
+`applyGoodsRules`, which refuses goods without a delivery, a delivery without goods or among the
+lines, works out the **channel** (`online` for post and collect, `in_person` for here; written on
+`core_order.channel` once, never the caller's), refuses a goods line not sold there
+(`not_sold_here`), a post delivery without an address or outside the option's countries (`*`:
+every country no other post option names), and prices postage: the option's price, or nothing
+when the goods reach its free over. `createOrder` writes the delivery and a post delivery's address
+to `core_order_delivery` (migration 0932: in no view, fixed but for the erase, which blanks the
+address); `order.delivery.get` reads it one order at a time (staff audited, the buyer, a guest's
+token). At checkout with tax on, the address is the place of the goods and delivery lines, and the
+host's copy of what it sent leaves it out. A paid `here` delivery grants nothing; post and collect
+grant what the option's object declares (a shipment). `order.quote` (staff, customers, the public;
+read, holds nothing) runs `priceOrder` in quote mode: the same refusals, with what the buyer still
+has to do (delivery, address) and what is sold out or short reported in `problems`, and each stock
+line's availability as `show` allows.
 
 **Paid another way** (stage 34, [ADR 0694](adr/0694-an-order-paid-another-way.md),
 `orders/payments.ts`, `orders/refunds.ts`). The second door into paid: `applyOtherPayment`, a
@@ -2433,6 +2593,20 @@ added, changed or restored, and guards in both batches (the line's on its parent
 apply's on its lines) refuse a line written while its count is applied. A runtime extension cannot
 declare it.
 
+**`discount`** (stage 34 step 4,
+[ADR 0693](adr/0693-the-discount-behaviour-codes-automatic-prices-one-deal-limits-held-by-the-database.md),
+`packages/sdk/src/discount.ts`, `packages/core/src/discounts/`). Records that are discounts:
+`discount: { kind, percent?, amount?, live, automatic?, code?, codes?, who?, plans?,
+organisations?, tag?, objects?, records?, from?, until?, totalUses?, perPerson?, minSpend? }`, each
+a field of the object (`codes` names another object of the pack whose records are promo codes,
+with an optional use limit per code). The host reads the record when it prices an order (the
+deal, above) and enforces every rule; the pack never touches an order. A live state is entered
+only by a person: by `["host"]` through a person's tool, or by staff writing a state field that is
+`personApproves`; nothing is created live; and a non-person's change to a live discount, its
+restore from the Trash, and any write of a promo code record wait for a person
+(`records/person-approves.ts`). Not on a sellable, stocked or capacity
+object. A runtime extension may declare it.
+
 **Low stock** (stage 37 step 2, ADR 0681, `packages/core/src/stock/low.ts`). When a write takes a
 stock record's on hand to or below its reorder level (`stock.reorderAt`), the staff who hold the
 pack's `stock.notify` permission (else the admins) get an in-app notice, once until it rises above
@@ -2459,7 +2633,11 @@ spend is three statements with no read of the count: a counter per holder per pe
 not live or not valid at the spender's time, so the whole batch fails (`invalid_input`, `rule:
 "allowance"`). Periods are named by their local start in the holder's zone (`time/local.ts`).
 Holders carry read-only `used` and `left`; `allowance.get` reads a period; `rec_allowance`,
-`rec_allowance_period` and `rec_allowance_use` are queryable.
+`rec_allowance_period` and `rec_allowance_use` are queryable. Since stage 49 step 5
+([ADR 0764](adr/0764-appointments-in-the-bookings-pack.md)) a condition may compare a fixed word
+(`value`: what every record of the spender is, "sessions") instead of a spender field, `empty:
+"none"` makes an empty holder field allow nothing, and a spender may copy a related record's own
+id (`copy: { serviceId: "service.id" }`).
 
 **Agreements** (stage 44, ADRs [0640](adr/0640-agreement-documents-versions-nobody-changes-published-by-a-person.md)
 and [0641](adr/0641-agreement-points-a-pack-declares-documents-a-person-attaches.md),
@@ -2733,14 +2911,15 @@ writes it again; the shell renders it through `usePackSections` and shows what `
 each. Step 4 is
 built: **Needs your attention** is `me.attention`, one customer read worked out in core
 (`packages/core/src/customers/attention.ts`, [ADR 0711](adr/0711-needs-your-attention.md)) from
-agreements, orders, subscriptions and the `allowance` behaviour, never from a pack's code. Eight
-kinds: `agree`, `card_failing`, `confirm_payment`, `balance_due`, `finish_paying`,
-`pass_expiring`, `pass_used_up` and `trial_ending`, for the caller and, for agreements and passes
-on objects that open to guardians, their live dependants; soonest first, each with the record, the
-moment, the money in minor units and a pass's uses left. A pass expiring and a trial ending are
+agreements, orders, subscriptions, the `allowance` behaviour and personal links, never from a
+pack's code. Nine kinds: `agree`, `card_failing`, `confirm_payment`, `balance_due`,
+`finish_paying`, `pass_expiring`, `pass_used_up`, `trial_ending` and `form_to_fill` (a live
+personal link, stage 29 step 5, ADR 0723, with its id to answer it by), for the caller and, for
+agreements, passes on objects that open to guardians and personal links, their live dependants;
+soonest first, each with the record, the moment, the money in minor units and a pass's uses left. A pass expiring and a trial ending are
 listed within `account.attentionDays` (`customer.settings` `attentionDays`, default 7, 1 to 30,
 human admins). It reads a fixed number of statements whatever the packs installed, the family's size or the
-number of documents, and lists a pass only where its customer reads its uses and end; its block is a
+number of documents (plus two for each personal link listed, at most ten), and lists a pass only where its customer reads its uses and end; its block is a
 later step. In the app, money opens the website ([ADR 0714](adr/0714-the-app-shows-money-and-opens-the-website.md)):
 the native shell shows orders and subscriptions, and "Manage on the website" opens the business's
 website account page; no native block calls a billing operation. The template's `/account` route
@@ -2754,11 +2933,12 @@ and the mobile Account tab are plain pages over the same entry.
 | Programs | `document`, `publishable` (no public half), `states`, `customer`, `signedIn`, `unique` | stage 41: steps 1 to 6 built (the spine, the dashboard, views and Person tab, hooks and blocks, draft and import), and a repeatable import (`cos programs import`); Ghetto's app is step 7 |
 | Content | `publishable`, rich text, slugs, media | stage 28: steps 1 to 6 built (rich text, `publishable` completed, public reads, media, the editor, the pack: posts and categories, hooks, web and native renderers); the first client's import and blog routes are its own repository's |
 | Courses | `publishable`, `sellable` (grants and a tax code), `access` and holders' parts, `states`, `customer` with `requireAccess`, `requires: ["programs", "content"]`, video media and `media.play` | stage 42: steps 1 to 4, 6, 7 and the draft built ([ADR 0478](adr/0478-the-courses-pack.md)); the import and the first client to come |
-| Bookings | `recurring`, `capacity` and `claims` with a waitlist, `unique`, `staffed` (a class is its coach's shift, stage 45), `occupies` (a class takes a room marked "one booking at a time", stage 49 step 2, [ADR 0765](adr/0765-occupies-the-claim-on-a-thing.md)), `states` with windows, staff-only rules and a requested cancel, `allowance` (spender, `waived`), `public`, `customer` with `guardians`, `customerVia`, `requires: ["programs"]` | stage 31a: steps 1 to 6 built (the behaviours, the pack's spine, [ADR 0504](adr/0504-the-bookings-pack.md); spending with the Memberships pack's memberships and passes, and the waitlist with promotion, [ADR 0520](adr/0520-a-waitlist-on-a-claimant.md); parents booking for their children, [ADR 0540](adr/0540-the-family-link.md)); step 7, attendance, moves and cancelling a class; step 8, drop-ins with `sellable.moves`, [ADR 0560](adr/0560-a-paid-line-moves-a-record-that-exists.md)); step 9, messages, the reminder, the dashboard and the coach's app screen, [ADR 0572](adr/0572-bookings-messages-the-dashboard-and-the-coachs-app-screen.md); step 10 to come |
+| Bookings | `recurring`, `capacity` and `claims` with a waitlist, `unique`, `staffed` (a class is its coach's shift, stage 45), `occupies` (a class takes a room marked "one booking at a time", stage 49 step 2, [ADR 0765](adr/0765-occupies-the-claim-on-a-thing.md)), `states` with windows, staff-only rules and a requested cancel, `allowance` (spender, `waived`), `public`, `customer` with `guardians`, `customerVia`, `requires: ["programs"]` | stage 31a: steps 1 to 6 built (the behaviours, the pack's spine, [ADR 0504](adr/0504-the-bookings-pack.md); spending with the Memberships pack's memberships and passes, and the waitlist with promotion, [ADR 0520](adr/0520-a-waitlist-on-a-claimant.md); parents booking for their children, [ADR 0540](adr/0540-the-family-link.md)); step 7, attendance, moves and cancelling a class; step 8, drop-ins with `sellable.moves`, [ADR 0560](adr/0560-a-paid-line-moves-a-record-that-exists.md)); step 9, messages, the reminder, the dashboard and the coach's app screen, [ADR 0572](adr/0572-bookings-messages-the-dashboard-and-the-coachs-app-screen.md); step 10 to come. Stage 29 step 5: feedback after a class (`bookings.feedback`, a personal link to a Forms form, [ADR 0724](adr/0724-the-receipt-and-the-form-link-slot.md)) |
 | Rostering | `recurring` (duty series, a horizon from its setting), `staffed` (a duty shift is its person's shift), `states`, a pack role (`rostering.team`), grantable and restricted permissions, the roster's rules (`staffing`), the host's tool-only `staffing.*` operations | stage 45: step 4 built (duties, duty series and shifts, the team role, the roster's tools, settings, [ADR 0626](adr/0626-the-rostering-pack-and-bookings-additions.md)); step 6 built (pay periods: `rostering:pay`, restricted and a person's only, who is counted, totals, the not-worked mark, lock, reopen and export, [ADR 0627](adr/0627-pay-periods-the-basis-the-totals-the-lock-and-the-export.md)); step 5 built (each person's private calendar feed: `feed`, `feedRotate`, `feedRevoke`, [ADR 0628](adr/0628-the-staff-calendar-feed-and-the-shared-calendar-writer.md)); step 7 built (the screens as blocks over `@composable-os/pack-rostering/client`, my calendar among them, role clients with grants, `cos rostering import`, [ADR 0629](adr/0629-the-rosters-screens-role-clients-with-grants-and-the-roster-import.md)); checklists (4b) built (a duty's checklist, [ADR 0650](adr/0650-checklists-templates-runs-ticks-and-a-done-run-kept-unchanged.md)) |
 | Daily checklists | no objects: screens and tools over the host's tool-only day-run operations (`checklist.today`, `.day`, `.dayTick`, `.dayDone`, `.days`), tools open to every staff account (`anyStaff`) or held to `checklists:write` (`corePermission`) | built (checklists on their own, [ADR 0651](adr/0651-checklists-on-their-own-a-schedule-a-run-a-day-and-who-may-do-it.md), [ADR 0652](adr/0652-a-tool-for-every-staff-account-and-a-tool-held-to-a-core-permission.md)): Today's checklists (web and the app) and Checklist history; requires nothing |
-| Forms | `publishable` with a slug and no public half, `intake` (form and submission), `states` (moves into and out of spam only by `personApproves` tools), a status, dates, cap and address a person approves, an old address that redirects, a setting a person approves, a low-rating automation | stage 29: step 3 built (forms and submissions, the inbox's tools, views among them "Asked to hear from us", the hourly cap setting, the low-rating notice, the staff form kind, [ADR 0726](adr/0726-the-forms-pack-forms-submissions-and-who-reads-them.md)); the hosted page and blocks, personal links and receipts, Leads as a destination, erase, and the screens and dashboard to come |
-| Memberships | `allowance` (holders), recurring billing with `recurring.grants` and `recurring.pause`, `sellable.onePerPerson`, `humanOnly` tools, `requires: ["programs"]` | stage 32b: steps 5 to 7 built (the behaviour, the pack, plan changes and pauses, the dashboard, views and blocks); the import (step 8) to come |
+| Forms | `publishable` with a slug and no public half, `intake` (form and submission), `states` (moves into and out of spam only by `personApproves` tools), a status, dates, cap and address a person approves, an old address that redirects, a setting a person approves, a low-rating automation, routine mail (the receipt) | stage 29: step 3 built (forms and submissions, the inbox's tools, views among them "Asked to hear from us", the hourly cap setting, the low-rating notice, the staff form kind, [ADR 0726](adr/0726-the-forms-pack-forms-submissions-and-who-reads-them.md)); step 5 built (personal links, answered with `link` or `linkId`, and the receipt, ADRs 0723 and 0724); the hosted page and blocks, Leads as a destination, erase, and the screens and dashboard to come |
+| Shop | `sellable.goods` (sold where its item says) with `stock` and a reorder level told to `shop:stock`, `sellable.delivery` with seeded options and a shipment `grants`, `publishable` items, `public` with a list of conditions and `via` alone, a buyer's `customer` read of their shipments, prices a person approves, supplier fields on Organisation, a pack role (`shop.stockroom`), grantable permissions | stage 37: step 5 built (items, variants, delivery options, shipments, supplier fields, the stockroom role, the country setting, views, the Shop dashboard, the stock and shipment tools, [ADR 0689](adr/0689-the-shop-pack-and-public-reads-through-a-public-record.md)); purchase orders, receipts, counts and write-offs, recorded returns and routine mail, blocks and screens, and the import to come |
+| Memberships | `allowance` (holders, paying for Bookings' classes and, when they say they pay for sessions, its appointments by service: stage 49, [ADR 0764](adr/0764-appointments-in-the-bookings-pack.md)), recurring billing with `recurring.grants` and `recurring.pause`, `sellable.onePerPerson`, `humanOnly` tools, `requires: ["programs", "bookings"]` | stage 32b: steps 5 to 7 built (the behaviour, the pack, plan changes and pauses, the dashboard, views and blocks); the import (step 8) to come |
 
 ### Client repos
 

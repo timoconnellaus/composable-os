@@ -141,3 +141,11 @@ queue for it and settles it. An idle minute reads one partial index (`core_routi
   count use a salt the `TextEvents` object makes once for the deployment, never a bare SHA-256.
 - **Events are never lost for want of a hook**: a STOP (or any event) that arrives while no host
   hook is bound is kept (at most 1,000) and delivered once one is.
+
+## Amendment, 2026-11-25 (stage 30 step 5, ADR 0675)
+
+The numbers that replied STOP moved to the consent register's suppression list: migration 0913 copies
+`core_text_stop` into `core_contact_suppression` (channel `text`, the same salted hashes) and drops
+it, and STOP and START write there (`packages/core/src/contact/suppression.ts`). Nothing else about
+STOP, START or HELP changed. A text is also stopped, when it is prepared and again when it is
+claimed, by the member's own choice in their account (`contactDecision`, ADR 0675).

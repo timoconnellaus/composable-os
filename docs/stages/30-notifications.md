@@ -32,14 +32,20 @@ Specs this one must fit: [`47-pack-screens.md`](47-pack-screens.md), `48-my-acco
 Status: **spec agreed** (owner interviewed 2026-11-24: decision 1; decisions 2 to 11 by the
 coordinator as best practice the same day). Build may start.
 
-- Step 1, routine messages (PR #339, `feat/stage-30-routine-messages`): built. Text and push
+## Status
+
+- **Step 1** — built — PR #339 — Routine messages (`feat/stage-30-routine-messages`). Text and push
   words in a kind's declaration, checked to fit; a row per recipient and channel, held for what
   its own words show (`held`); quiet hours and urgent kinds, released by the minute cron; the
   host kinds' send path; Bookings' and Ticketing's text and push words. Migration 0910, ADRs 0670
   and 0676 (ADR 0590 amended). The name a text begins with and the zone of quiet hours are human
   admins' routine settings (`senderName`, `quietZone`). Left: nothing reaches a phone until steps
   3 to 5; step 2 takes migration 0915 for the subscription's card expiry and sent markers.
-- Step 3, texts (`feat/stage-30-text`): built. `packages/gatekeeper-text`: one provider interface,
+
+- **Step 2** — not built — needs: step 1 — Subscriptions' host kinds and the card's expiry (#215),
+  email first.
+
+- **Step 3** — built — PR #435 — Texts (`feat/stage-30-text`). `packages/gatekeeper-text`: one provider interface,
   the fake (refused in a live environment), the business's sender number; only the host's queues
   (`routine-mail`, `phone-check`, `text-events`), every caller's refused; `text.routine` or a held
   text reviewed with the number masked; one pool of 500; verified receipts, STOP, START and HELP.
@@ -49,6 +55,47 @@ coordinator as best practice the same day). Build may start.
   Migration 0911 (`core_text_spend`, `core_phone_check`, `core_text_stop`), ADRs 0672 and 0673.
   Not built: a real provider module (with the first business's account, step 8); STOP is kept in
   `core_text_stop`, which step 5's suppression list reads for texts.
+
+- **Step 4** — not built — needs: step 1 — Push gatekeeper (prove the Worker reaches both push
+  services first), devices, the template's app, staff push.
+
+- **Step 5** — built — PR #451 — The consent register,
+  `contactDecision`, `stopLink`, `contact.stop`, the List-Unsubscribe headers, contact preferences
+  blocks. Merged 2026-11-25 after an independent review and a fix round (the stop link is a random
+  token whose hash is stored, no key; ADR 0675):
+  `packages/core/src/contact/`: the register (`core_contact_choice`, append-only, the latest row
+  per Person, channel and scope in force), the suppression list (`core_contact_suppression`, which
+  took in `core_text_stop`: STOP and START write it now), `contactDecision` with its nine reasons
+  (and `choicesInForce` for a batch of recipients in one statement), `stopLink` (an opaque random
+  token, only its hash kept in `core_contact_stop_token`; no key anywhere) and the public
+  `contact.stop` (open-operations.json), `recordFromForm` for host code. Routine messages ask
+  `contactDecision` per recipient and channel when a row is prepared (`stopped`, never held) and
+  ask the register again when an email or a text is claimed and when a held one is approved; a
+  stoppable email (an optional
+  kind's, a follow-up's) ends with its stop link and, when routine, carries `List-Unsubscribe`
+  with one-click, which the email gatekeeper takes from the host's routine mail only.
+  `me.contact.choices` / `me.contact.setChoices` (the member and their live dependants; an
+  essential kind's email fixed; a yes with its words, never for a child), `person.contact.record`
+  (a person only, with a reason, never lifting a stop), `contact.forPerson`; erase deletes the
+  choices and tokens (the cascade), merge moves them (a stop stays a stop only the member lifts;
+  an old link of the duplicate stops the survivor). The Contact preferences section of My account
+  (`web-account-contact`, `native-account-contact`, `useContactChoices` / `useSetContactChoices`),
+  the template web app's `/stop` route (a page with one button on GET; the button or a mail app's
+  one-click on POST, through the typed client). Migration 0913, ADR 0675 (ADR 0672 amended).
+  Left: `contact.stop` is not rate limited (queued separately); consent for sends that are not
+  routine messages (queued separately); the e2e journey (criterion 22, step 7, with the screens); `recordFromForm` is not yet
+  called by Forms or checkouts; the push claim (step 4) must ask the register as the text claim
+  does; a staff screen for a Person's choices (step 7 reads `contact.forPerson`). Not tried for
+  real: a mail app's one-click against a deployed stop route, and the native block on a phone.
+
+- **Step 6** — not built — needs: step 1 — The business's wording, versions, preview.
+
+- **Step 7** — not built — needs: step 1, step 2, step 3, step 4, step 5, step 6 — Delivery
+  status, the Person's Messages card, the log screen, the coach swap kind (#238), e2e, the site.
+
+- **Step 8** — not built — needs: step 3, step 4, the first client's provider accounts — The first
+  client: their own text provider account and sender number, push credentials, a real phone, the
+  limit, quiet hours, wording, the provider's failed-payment emails off.
 
 ## Goal
 

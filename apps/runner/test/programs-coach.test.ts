@@ -350,6 +350,10 @@ describe("the coach role (ADR 0889)", () => {
         "x.dailychecks.done",
         "x.dailychecks.tick",
         "x.dailychecks.today",
+        // Knowledge's own list and confirm (anyStaff, ADR 0706): the host's ack.mine and
+        // ack.confirm decide what is the account's.
+        "x.knowledge.confirm",
+        "x.knowledge.toRead",
         "x.programs.history",
         "x.programs.logAdd",
         "x.programs.logRemove",

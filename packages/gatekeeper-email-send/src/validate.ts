@@ -231,6 +231,8 @@ const messageSchema = z
     calendar: z.union([calendarSchema, z.array(calendarSchema).min(1).max(2)]).optional(),
     // A signed agreement (ADR 0645): only the host's agreements mail may carry it (worker.ts).
     agreement: agreementSchema.optional(),
+    // The one-tap stop (ADR 0675): only the host's routine mail may carry it (worker.ts).
+    listUnsubscribe: z.string().max(600).optional(),
   })
   .refine((message) => message.text !== undefined || message.html !== undefined, {
     message: "needs a text or html body",
@@ -245,7 +247,11 @@ const messageSchema = z
  * A checked message. `agreement` is the host's alone (ADR 0645): it is not in the session's types
  * agents read, and worker.ts refuses it from any queue but the host's agreements mail.
  */
-export type ParsedMessage = EmailSendMessage & { agreement?: EmailAgreement };
+export type ParsedMessage = EmailSendMessage & {
+  agreement?: EmailAgreement;
+  /** The one-tap stop's link (ADR 0675): the host's routine mail's alone, checked in worker.ts. */
+  listUnsubscribe?: string;
+};
 
 /** Validates a `send()` argument, throwing a readable error naming the first bad field. */
 export function parseMessage(input: unknown): ParsedMessage {
@@ -274,6 +280,7 @@ export function parseMessage(input: unknown): ParsedMessage {
         }
       : {}),
     ...(message.agreement ? { agreement: agreementOf(message.agreement) } : {}),
+    ...(message.listUnsubscribe !== undefined ? { listUnsubscribe: message.listUnsubscribe } : {}),
   };
 }
 

@@ -441,4 +441,44 @@ export const bookingsRoutineMail = {
       },
     },
   },
+  // Feedback after a class (stage 29 step 5, decision 4; ADR 0723): a follow-up, which a member
+  // may stop with one tap (ADR 0675), carrying a personal link to the form the gym chose
+  // (`feedbackForm`). The host makes the link for the booking's Person about this booking, good
+  // for a week, and sends it at most once a month to a member; a child's goes to their guardian,
+  // never to the child's own address. The same link is "Needs your attention" in the app.
+  feedback: {
+    label: "Feedback after a class",
+    description:
+      "A few hours after a member is ticked as come (3 by default), when a feedback form is " +
+      "chosen in the settings: a short email asking how the class was, with a link to the form " +
+      "that works once and for a week. At most once a month to a member; a child's goes to their " +
+      "parent or guardian. Members can stop these emails with one tap.",
+    about: "booking",
+    purpose: "follow_up",
+    slots: {
+      class: { field: "class.title" },
+      day: { field: "class.startsAt", format: "date", zone: "class.timezone" },
+      form: { formLink: { object: "forms.form", setting: "feedbackForm", days: 7, once: 30 } },
+    },
+    messages: {
+      ask: {
+        subject: "How was {class}?",
+        text: [
+          "Thank you for coming to {class} on {day}. How was it?",
+          "",
+          "Tell us here (it takes a minute; the link works once, for a week):",
+          "{form}",
+        ].join("\n"),
+        guardian: {
+          subject: "How was {class}? ({member})",
+          text: [
+            "Thank you for bringing {member} to {class} on {day}. How was it?",
+            "",
+            "Tell us here (it takes a minute; the link works once, for a week):",
+            "{form}",
+          ].join("\n"),
+        },
+      },
+    },
+  },
 } satisfies Record<string, RoutineMailSpec>;

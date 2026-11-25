@@ -6,6 +6,10 @@ editUrl: false
 
 My shifts in the app (stage 45 step 7), for every rostered person: a cleaner with the `rostering.team` role (its role client), a coach whose role client was generated with the grant `rostering:roster`, or anyone else on the roster. The next weeks' shifts day by day, each with its time in the business's zone and its place, and offering one for someone else to take or withdrawing my offer. The shared logic is the pack's headless entry, as on the web; only the screen differs. The host decides and this shows: an offered shift stays mine until taken; an offer nobody could take, one past the cut-off, or one already made is refused with its own words. Room is left for a duty shift's checklist (`shiftExtra`: rostering-native-checklist's ShiftChecklistNative) and my calendar's address (`calendar`, step 5). Under the list, My hours (my-hours-screen.tsx, the owner's decision of 2026-11-24): my own hours for a pay period, fetched only when I pick one.
 
+<img class="cos-screen cos-screen-native" src="/screens/rostering-native-my-shifts.png" alt="rostering-native-my-shifts, drawn with dummy data" width="390" height="844" loading="lazy" decoding="async" />
+
+Drawn with dummy data.
+
 |  |  |
 | --- | --- |
 | Skin | native |

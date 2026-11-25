@@ -27,6 +27,7 @@ export const BASE_PORTAL_SECTIONS = [
   { key: "family", label: "Family", order: 80 },
   { key: "payment", label: "Payment method", order: 85 },
   { key: "details", label: "Your details", order: 90 },
+  { key: "contact", label: "Contact preferences", order: 92 },
   { key: "devices", label: "Sign-in and devices", order: 95 },
 ] as const;
 

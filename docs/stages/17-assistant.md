@@ -567,3 +567,27 @@ marked:
   the first word, record only what was heard; short spoken version when the screen is visible,
   read out when it isn't; voice messages italic with a mic, not cleaned up; dictation with a
   cleanup pass and undo, shown as typed; voice picker and speed in settings.
+
+## Status
+
+One bullet per piece of the scope (W1 to W10), in the order of "Dependencies and order" above.
+
+- **Step W1** — built — PR #64 — Packages and the thread: agent packages, one assistant thread per user (wave 1).
+
+- **Step W2** — built — PRs #63, #67 — Context, compaction and cache learning: the pure planner (#63), then compaction in the live assistant (#67).
+
+- **Step W3** — built — PR #70 — Memory.
+
+- **Step W4** — built — PR #72 — Routines and proactive delivery.
+
+- **Step W5** — built — PR #73 — Orchestrator, agents and approvals.
+
+- **Step W6** — built — PR #69 — A2UI cards, saved producers and the two-step approval card.
+
+- **Step W7** — superseded — dropped by the owner on 2026-11-25: it predates the platform, where packs and extensions are how capability is shipped; the paused branch `origin/stage-17-w7-plugins` is kept as reference; if the need returns, packs contribute assistant skills, with no marketplace — Plugins and the marketplace.
+
+- **Step W8** — superseded — dropped for now by the owner on 2026-11-25; nothing depends on it — Connected assistants: no PR or code for it on main (no `agent.message` placement).
+
+- **Step W9** — built — PR #68 — Voice and dictation.
+
+- **Step W10** — built — PR #64 — Model roles (wave 1).

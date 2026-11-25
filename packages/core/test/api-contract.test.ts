@@ -11,6 +11,7 @@ import { toManifest } from "@composable-os/sdk";
 import { describe, expect, it } from "vitest";
 import { z } from "zod";
 import customer from "../api/v1/customer.json";
+import practitioner from "../api/v1/practitioner.json";
 import publicContract from "../api/v1/public.json";
 import roles from "../api/v1/roles.json";
 import staff from "../api/v1/staff.json";
@@ -40,6 +41,8 @@ const computed = {
   staff: withPacks(contractFor(contract, "staff"), releasePackIds),
   customer: withPacks(contractFor(contract, "customer"), releasePackIds),
   public: withPacks(contractFor(contract, "public"), releasePackIds),
+  // Stage 43 (ADR 0581): what a signed-in practitioner may call.
+  practitioner: withPacks(contractFor(contract, "practitioner"), releasePackIds),
 };
 // Each carried pack's roles (ADR 0436) and the operations a holder may call: the tools whose
 // permission the role holds, any pack's tools open to every staff account (ADR 0652), and the
@@ -173,6 +176,7 @@ const committed = {
   staff: staff as ApiContract,
   customer: customer as ApiContract,
   public: publicContract as ApiContract,
+  practitioner: practitioner as ApiContract,
 };
 
 describe("the committed roles file", () => {
@@ -228,6 +232,10 @@ describe("the committed roles file", () => {
       "x.dailychecks.done",
       "x.dailychecks.tick",
       "x.dailychecks.today",
+      // Knowledge's own list and confirm (ADR 0706): every staff account's, through the host's
+      // ack.mine and ack.confirm.
+      "x.knowledge.confirm",
+      "x.knowledge.toRead",
       "x.ticketing.checkIn",
       "x.ticketing.undoCheckIn",
     ]);

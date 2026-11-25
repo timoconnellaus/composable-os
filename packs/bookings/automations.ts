@@ -51,10 +51,12 @@ const PAGE = 200;
 
 /** The pack's settings (the booking rules), stored or default. */
 async function settings(ctx: ExtensionContext): Promise<Record<string, unknown>> {
+  // Each item names its extension as `extension` (extensionSettings.list's output): reading `id`
+  // found none, so every setting read here was its default (found building stage 29 step 5).
   const { items } = await ctx.ops.call<{
-    items: { id: string; values: Record<string, unknown> }[];
+    items: { extension: string; values: Record<string, unknown> }[];
   }>("extensionSettings.list", { extension: "bookings" });
-  return items.find((item) => item.id === "bookings")?.values ?? {};
+  return items.find((item) => item.extension === "bookings")?.values ?? {};
 }
 
 /** Which declared words say why the host passed a waiter over (ADR 0520's reasons). */
@@ -629,6 +631,47 @@ export const noAttendanceTaken = defineAutomation({
   },
 });
 
+// --- Feedback after a class (stage 29 step 5, decision 4) ---------------------------------------
+
+export const feedbackAfterClass = defineAutomation({
+  label: "Feedback after a class",
+  description:
+    "A few hours after a member is ticked as come (the feedback setting, 3 hours by default), " +
+    "when a feedback form is chosen, emails them (or a child's parents or guardians) a link to " +
+    "it that works once and for a week. The host makes the link, sends it at most once a month " +
+    "to a member, and never to someone who stopped these emails. Routine email: Feedback after " +
+    "a class.",
+  trigger: {
+    type: "dateRelative",
+    object: BOOKING,
+    field: "markedAt",
+    minutesAfter: { setting: "feedbackMinutes" },
+  },
+  conditions: { field: "state", op: "eq", value: "attended" },
+  connections: [MAIL],
+  steps: [
+    { name: "compose", label: "Check a feedback form is chosen and they came", reads: [BOOKING] },
+    { name: "send", label: "Email the member (or their guardians) the form's link" },
+  ],
+  async run(event, step, ctx) {
+    const bookingId = event.record?.id;
+    if (!bookingId) return { skipped: "no booking" };
+    const sends = await step.do("compose", async (): Promise<Send[]> => {
+      // No form chosen: nobody is asked. Which form, and whether the member may be asked, is the
+      // host's to read again when it makes the link.
+      if (!text((await settings(ctx)).feedbackForm)) return [];
+      const booking = await ctx.ops
+        .call<RecordShape>("record.get", { object: BOOKING, id: bookingId })
+        .catch(() => null);
+      // Unticked since: not asked.
+      if (text(booking?.values.state) !== "attended") return [];
+      return [{ record: bookingId, message: "ask" }];
+    });
+    if (!sends.length) return { sent: 0 };
+    return step.do("send", () => sendAll(ctx, "feedback", sends));
+  },
+});
+
 export const bookingsAutomations = {
   bookingConfirmed,
   waitlistPassedOver,
@@ -638,4 +681,5 @@ export const bookingsAutomations = {
   classReminder,
   dropInOrder,
   noAttendanceTaken,
+  feedbackAfterClass,
 };

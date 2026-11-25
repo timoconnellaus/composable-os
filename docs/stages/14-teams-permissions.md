@@ -37,9 +37,23 @@ owner decided on 2026-11-25 to re-spec it for what is on `main` now. This is tha
 built until the owner has answered the questions at the end and `docs/roadmap.md` says "spec
 agreed". Nothing is built yet.
 
-Numbers: block **CC** in [`parallel-work.md`](../parallel-work.md), migrations 1450 to 1469 and ADRs
-0940 to 0949. Block I (0300 to 0309), claimed by the first spec, is released: a migration numbered
+Numbers: block **CC** in [`parallel-work.md`](../parallel-work.md), migrations 1470 to 1489 and ADRs
+0950 to 0959. Block I (0300 to 0309), claimed by the first spec, is released: a migration numbered
 there would sort before the tables it changes (see Migrations and numbers).
+
+- **Step 1** — not built — needs: the owner's agreement on the spec — The staff scope type; the `part` and `later` reads onto the seam; the registry-wide staff test (alone in the seam)
+
+- **Step 2** — not built — needs: step 1 — Door 2: the SQL rewrite, the CTE name refusal, dashboards' cache key; the `sql` reads moved
+
+- **Step 3** — not built — needs: step 1 — Door 3 and stored output: over-fetch, `record.similar`'s source check, summaries' `scope_key`, duplicates' pairs
+
+- **Step 4** — not built — needs: the owner's agreement on the spec — Roles and teams: `staff_role`, Manager and Read-only, `teams:manage`, teams, invites with teams, the Settings screens
+
+- **Step 5** — not built — needs: step 1, step 2, step 3, step 4, a business that asks for it — Policies: `core_visibility_policy`, owner and inherited predicates in all three doors, Settings → Visibility
+
+- **Step 6** — not built — needs: step 5, stage 64 step 2, stage 64 step 5 — Locations for full roles in the seam
+
+- **Step 7** — not built — needs: step 4 — Docs: `CONTEXT.md`, `docs/architecture.md`, the docs site, `SITE.md` checked
 
 ## Goal
 
@@ -271,7 +285,7 @@ they already must. A pack role's reach declarations (`today`, `looksAfter`, `min
 Tasks declare their assignee as their owner (`ownerField: "assigneeId"`), so a task can be given a
 policy and assignment rules may name tasks.
 
-### The staff scope (in `visibility/`, ADR 0940)
+### The staff scope (in `visibility/`, ADR 0950)
 
 - `scopeOf(principal, object)` returns, for a staff principal, `all` or `{ kind: "staff", owner?,
   locations? }`. It stays pure: what it needs (the policies that are not Everyone, whether the
@@ -435,7 +449,7 @@ can see, with no count of the rest.
 
 ## Migrations and numbers
 
-Block **CC** (migrations 1450 to 1469, ADRs 0940 to 0949). A fresh database applies migrations in
+Block **CC** (migrations 1470 to 1489, ADRs 0950 to 0959). A fresh database applies migrations in
 number order, so a remake must sort after every earlier change to its table: `core_user` was last
 changed by 0471 and `core_user_invite` created by 0490 and changed by 0770; `core_ai_summary` by
 0255; stage 64's `core_user_location` is 1391. Numbers in block I (0300 to 0309) would sort before
@@ -443,19 +457,19 @@ changed by 0471 and `core_user_invite` created by 0490 and changed by 0770; `cor
 
 | Migration | What |
 | --- | --- |
-| 1450 | `core_user.staff_role`, filled from `role`; the mirror trigger; the first-admin trigger made to set both; `core_user_invite` remade with `manager` and `teams` |
-| 1451 | `core_team`, `core_team_member` |
-| 1452 | `core_visibility_policy` |
-| 1453 | `core_ai_summary` remade with `scope_key`, carrying 0255's columns |
+| 1470 | `core_user.staff_role`, filled from `role`; the mirror trigger; the first-admin trigger made to set both; `core_user_invite` remade with `manager` and `teams` |
+| 1471 | `core_team`, `core_team_member` |
+| 1472 | `core_visibility_policy` |
+| 1473 | `core_ai_summary` remade with `scope_key`, carrying 0255's columns |
 
 | ADR | What |
 | --- | --- |
-| 0940 | The staff scope in the seam and the one rule for how limits combine (amends 0244, 0410, 0600 with notes) |
-| 0941 | Door 2: user SQL rewritten at the seam, as built |
-| 0942 | Door 3 and stored output: hydration, over-fetch, summaries and caches keyed by scope |
-| 0943 | Manager and Read-only, `staff_role` beside `role`, teams (amends 0245, 0449, 0455) |
-| 0944 | Visibility policies, owners and inherited visibility |
-| 0945 | Location limits for full roles (amends stage 64's ADR 0914, if written) |
+| 0950 | The staff scope in the seam and the one rule for how limits combine (amends 0244, 0410, 0600 with notes) |
+| 0951 | Door 2: user SQL rewritten at the seam, as built |
+| 0952 | Door 3 and stored output: hydration, over-fetch, summaries and caches keyed by scope |
+| 0953 | Manager and Read-only, `staff_role` beside `role`, teams (amends 0245, 0449, 0455) |
+| 0954 | Visibility policies, owners and inherited visibility |
+| 0955 | Location limits for full roles (amends stage 64's ADR 0914, if written) |
 
 ## Suggested build order
 
@@ -463,9 +477,9 @@ changed by 0471 and `core_user_invite` created by 0490 and changed by 0770; `cor
 | --- | --- | --- | --- | --- |
 | 1 | The staff scope type (still `all` for everyone); the `part` and `later` reads onto the seam (record parts, summaries' reads, memory, duplicates); the registry-wide staff test with a fixture policy injected in the test | `visibility/`, `records/links.ts`, `records/tags.ts`, `operations/affiliation.ts`, `operations/activity.ts`, `ai/summaries.ts`, `assistant/memory.ts`, `operations/duplicate.ts`, the one-seam test | **Yes** | **Alone in the seam.** Not beside stage 43 step 5 |
 | 2 | Door 2: the SQL rewrite in `runReadOnlySql`, the CTE name refusal, dashboards' cache key; the `sql` reads moved | `operations/query.ts`, `dashboards/`, `assistant/routines.ts`, `assistant/producers.ts`, `assistant/routine-backtest.ts` | **Yes** | After 1. Beside 4 |
-| 3 | Door 3 and stored output: over-fetch, `record.similar`'s source check, summaries' `scope_key` (1453), duplicates' pairs | `visibility/`, search, `ai/`, `duplicates/`, `packages/db` | **Yes** | After 1. Beside 4; not beside 2 (both touch `visibility/`) unless one session does both |
-| 4 | Roles and teams: `staff_role` (1450), Manager and Read-only, `teams:manage`, teams (1451), invites with teams, Settings → Users and Teams | `packages/db`, `principals.ts`, `pack-roles.ts` (`staffAuthority` reads `staff_role`), `users.ts`, `invites.ts`, `operations/team.ts`, `apps/app` | Yes (the migration: run it on a seeded copy first) | Beside 2 or 3. Not beside stage 64 step 5 (`pack-roles.ts`) |
-| 5 | Policies: `core_visibility_policy` (1452), tasks' owner, the owner and inherited predicates in all three doors, writes, the owner-change warning, uniqueness messages, approvals, notifications, Settings → Visibility, cost budgets, e2e | `visibility/`, `operations/`, `notifications/`, `approvals`, `apps/app` | **Yes** | After 1 to 4. **Alone in its window**: it changes every read path |
+| 3 | Door 3 and stored output: over-fetch, `record.similar`'s source check, summaries' `scope_key` (1473), duplicates' pairs | `visibility/`, search, `ai/`, `duplicates/`, `packages/db` | **Yes** | After 1. Beside 4; not beside 2 (both touch `visibility/`) unless one session does both |
+| 4 | Roles and teams: `staff_role` (1470), Manager and Read-only, `teams:manage`, teams (1471), invites with teams, Settings → Users and Teams | `packages/db`, `principals.ts`, `pack-roles.ts` (`staffAuthority` reads `staff_role`), `users.ts`, `invites.ts`, `operations/team.ts`, `apps/app` | Yes (the migration: run it on a seeded copy first) | Beside 2 or 3. Not beside stage 64 step 5 (`pack-roles.ts`) |
+| 5 | Policies: `core_visibility_policy` (1472), tasks' owner, the owner and inherited predicates in all three doors, writes, the owner-change warning, uniqueness messages, approvals, notifications, Settings → Visibility, cost budgets, e2e | `visibility/`, `operations/`, `notifications/`, `approvals`, `apps/app` | **Yes** | After 1 to 4. **Alone in its window**: it changes every read path |
 | 6 | Locations for full roles: the predicate in the seam for Managers, Members and Read-only, through every door | `visibility/locations.ts`, the registry-wide test | **Yes** | After 5 and after stage 64 steps 2 and 5 |
 | 7 | Docs: `CONTEXT.md`, `docs/architecture.md`, the docs site, `SITE.md` checked | docs | No | Last |
 

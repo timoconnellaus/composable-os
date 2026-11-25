@@ -843,9 +843,11 @@ never loses an event.
 ### Principal
 
 The authenticated caller of a request: `{ userId, email, name, roles }`, resolved by the identity
-adapter for every route and server function. In the operation layer the principal is one of three
-kinds, one per audience: `staff` (a user and their role), `customer` (a customer account and its
-Person) or `public` (no account). A handler reads it as `ctx.principal` (stage 22, ADR 0412).
+adapter for every route and server function. In the operation layer the principal is one of
+these kinds, one per audience: `staff` (a user and their role), `customer` (a customer account and
+its Person), `public` (no account), `device` (an enrolled device, ADR 0781) or `practitioner` (a
+practitioner account and its own Person, stage 43, ADR 0581). A handler reads it as
+`ctx.principal` (stage 22, ADR 0412).
 _Avoid_: user (when you mean the caller of a request), session
 
 ### Identity adapter
@@ -1167,23 +1169,29 @@ prefixes its Worker and resource names and never appears in the deployment's dat
 sees it only as a deploy var (`COS_TENANT_ID`), for the **tenant tag** on Platform AI calls and
 for signing its calls back to the control plane.
 
-### Hosted client
+### Client
 
-(stage 46, proposed; ADR 0610)
+(stage 66, spec agreed; ADRs 0610, 0611)
 
-A client product's deployment in our Cloudflare account, in the Workers for Platforms namespace,
-deployed by `cos deploy` from the client's repository. It keeps the names its `product.ts` gives
-it and has no tenant id. Its **tier** is **standard** (settings only, on a standard product's
-release, behind a shared web app), **bespoke** (its own repository, web app and extensions) or
-**own account** (the same, in the client's Cloudflare account).
-_Avoid_: tenant (for a client), multi-tenant
+One business on a host that serves many: an id, hostnames, settings, secrets and a database of
+its own. Nothing in its data holds its id. Its **tier** is **standard** (settings only, behind a
+shared web app), **bespoke** (its own repository, web app and extensions, on the shared host) or
+**own account** (a deployment of its own in its Cloudflare account).
+_Avoid_: tenant, multi-tenant (in prose and UI copy)
 
-### Fleet
+### Client's database
 
-(stage 46, proposed)
+(stage 66, spec agreed)
 
-Every hosted client's hosts together. We set its platform version; a **hold** keeps one client
-on its version through a fleet update.
+A Durable Object with SQLite storage, one per client, that the host opens by client and uses
+through the same interface as D1. A deployment with one client uses D1 itself.
+
+### Registry
+
+(stage 66, spec agreed)
+
+The host's own database of its clients: their hostnames, per-client settings and secrets. Only
+the operator writes it; no operation, extension or assistant reaches it.
 
 ### Control plane
 
@@ -1365,15 +1373,16 @@ never staff (stage 24, ADR 0421).
 
 ### Audience
 
-Who may call an operation: `staff`, `customer` or `public` (stage 22, ADR 0402), or `device`, an
-**enrolled device** holding a **device role**, alone (stage 51, ADR 0781). An operation lists its
+Who may call an operation: `staff`, `customer` or `public` (stage 22, ADR 0402), `practitioner`
+(stage 43, ADR 0581), or `device`, an **enrolled device** holding a **device role**, alone (stage
+51, ADR 0781). An operation lists its
 audiences, staff only when it lists none. A caller outside them gets the answer an unknown
 operation gets (ADR 0411).
 
 ### Open operation
 
-An operation that lists `customer`, `public` or `device`. It is a `read` or a `write`, never more, and is
-named in the generated `packages/core/open-operations.json` (ADR 0411).
+An operation that lists `customer`, `public`, `practitioner` or `device`. It is a `read` or a
+`write`, never more, and is named in the generated `packages/core/open-operations.json` (ADR 0411).
 
 ### Visibility seam
 
@@ -1405,6 +1414,25 @@ repo a client is the company a product is built for)
 ### Public
 
 A caller with no account: a visitor reading a published page or starting a checkout (stage 22).
+
+### Practitioner
+
+An outside person the business invites to work with its clients (a physiotherapist, a dietitian;
+stage 43, ADR 0581), with a **discipline** (a label) and optionally a **practice** (the outside
+business they work for, an Organisation). A caller of its own kind, audience `practitioner`: never
+staff, never a customer, and it reaches nothing about anyone until a client agrees (stage 43's
+care link, a later step). Invited and ended only by a person on the staff with
+`practitioners:manage`.
+_Avoid_: external staff, contractor, partner
+
+### Practitioner account
+
+What a practitioner signs in to: a row of `core_practitioner` linked to exactly one Person (their
+own), `invited` until the first sign-in, then `active`, then `ended`, with sessions and a cookie of
+its own. One human may hold a staff account, a customer account and a practitioner account on one
+address (**three hats**): each signed in alone, and a request carrying two kinds of session is
+refused (ADR 0581).
+_Avoid_: user, login
 
 ### Customer account
 
@@ -1588,14 +1616,33 @@ text past it is `over_limit` and its email goes; admins are told once that day, 
 month. 0 sends no texts. The business pays its own text provider account (ADR 0672).
 _Avoid_: SMS budget, credits
 
+### Purpose
+
+What a message is for, as far as consent goes: `account` (about something the person has or did:
+a booking, a ticket, a payment), `follow_up` (automatic, neither that nor an offer: a welcome, a
+review's ask; always stoppable) or `news_and_offers` (promotional: only with a recorded yes, per
+channel, and never to or about a child) (ADR 0675).
+_Avoid_: category, marketing flag
+
+### Consent register
+
+The record of a Person's contact choices (`core_contact_choice`): per channel and scope (a purpose,
+or a routine message kind), on or off (news and offers: yes or no), with when, how and by whom, and
+the words shown for a yes. Never rewritten: the latest choice is in force, the earlier ones its
+history. Every sender asks it through one question at the moment of sending
+(`contactDecision`); a refusal is final, never held for a person. Beside it the **suppression
+list**: salted hashes of addresses and numbers that asked to stop, kept after erase (ADR 0675).
+_Avoid_: preferences table, opt-out list
+
 ### Stop
 
-(by text)
-
-A reply of STOP (or a usual synonym) to the business's texts: every text to that number stops,
-whoever it is on, until a START from it. Kept as a salted hash, past an erase. HELP gets a fixed
-answer with the business's name (ADR 0672).
-_Avoid_: opt-out, unsubscribe (by text)
+A person's own "no more of these": the one-tap stop link a stoppable email carries (and its
+List-Unsubscribe header), which turns that one kind off on that channel without signing in; a
+reply of STOP to the business's texts, which stops every text to that number, whoever it is on,
+until a START from it (kept as a salted hash, past an erase; HELP gets a fixed answer with the
+business's name); or turning it off in their account. Only the person lifts a stop (their account,
+or START), never staff or an AI (ADRs 0672, 0675).
+_Avoid_: opt-out, unsubscribe
 
 ### Routine mail kind
 
@@ -1700,6 +1747,55 @@ The number at or below which a stock record is low (the field `stock.reorderAt` 
 write takes it there, the staff who keep stock (the pack's `stock.notify` permission, else the
 admins) are told once; again only after it has risen above and fallen again (one **crossing**)
 (ADR 0681).
+
+### Item
+
+and **variant** (the Shop)
+
+An **item** is a thing in the shop (a club hoodie), with its pictures, its category and where it is
+sold (online, in person or both); only a published item is public. A **variant** is one version of
+it that is bought and counted (the large black one), with its price, stock, reorder level and usual
+supplier. An item with one version still has one variant. "Product" is not used for these: it is
+the platform's word for a composition (ADR 0400) (stage 37, ADR 0689).
+
+### Shipment
+
+What a paid post or collect order gives staff to do, granted by the host when the order is paid:
+packed, then sent (with a tracking reference) or ready to collect, then collected. The buyer reads
+their own; a take-it-now order has none (stage 37, ADR 0689).
+
+### Goods
+
+Records handed over or sent (a variant of an item in a shop), declared `sellable.goods` by their
+object, with where each is sold (`soldIn`: online, in person or both, often read through the item).
+An order with goods needs exactly one **delivery** and has a **channel** (stage 37, ADR 0682).
+
+### Delivery option
+
+and **delivery**
+
+A record of an object declaring `sellable.delivery`: one way of getting an order's goods to the
+buyer, of a kind: **post** (to an address in the option's countries, or "everywhere else"),
+**collect** (at a place) or **here** ("take it now", in person). The buyer chooses one in
+`order.start`'s `delivery`; the host adds it as the order's last line and prices it (**postage**:
+the option's price, or nothing over its "free over", ADR 0685). A post delivery's address is kept
+by the host (`core_order_delivery`), read one order at a time and blanked by the buyer's erase.
+
+### Channel
+
+(of an order)
+
+Where an order with goods is sold, worked out by the host from its delivery and never taken from a
+caller: **online** (post or collect) or **in person** (here). A goods line not sold in the order's
+channel is refused on every path (ADR 0682). The till's desk orders will be in person too.
+
+### Quote
+
+(`order.quote`)
+
+The host's prices for a basket, holding nothing: each line, the delivery, the total, and what is
+available or sold out, exactly as `order.start` would charge. A device's basket shows it (stage 37,
+ADR 0683).
 
 ### Series
 
@@ -2271,6 +2367,24 @@ may book outside open hours or over the client's own, warned (`outside_hours`, `
 never over a clash.
 _Avoid_: slot, availability, opening
 
+### Service
+
+, **Appointment** and **Provider** (Bookings; stage 49, built in step 5: ADR 0764)
+
+A **service** is a kind of one-to-one session the business offers (Personal training, 60 minutes):
+its length, its buffer, the rooms it may use (in order), its step and its booking rules where they
+differ from the organisation's. Who gives it is a qualification, never a list on the service. An
+**appointment** is one booked session: a client (a Person), a **provider** (the coach profile
+of whoever gives it, holding a staff account), a service, a start and an end, and the room it
+takes (the first of the service's rooms free then, chosen by the host when staff name none). It is
+its provider's shift, so the one claim keeps a coach off a class, a duty and another appointment at
+once. Booked, it spends a session of a pass or membership that **pays for sessions** and covers
+the service (a class pass never does), or it is **paid at the desk**; a cancel before **late from**
+(24 hours by default) gives the session back; a **late cancel** and a **no-show** keep it, with no
+fee, until a person **excuses** it. The business cancelling it (**cancelled by us**) gives it back.
+Staff book, move, mark and reassign appointments today; members booking their own is step 6.
+_Avoid_: slot, reservation, class (a group's), a bare "session" where Programs' is meant
+
 ### Offer
 
 and **Take** (stage 45, built in step 3: ADR 0623)
@@ -2457,7 +2571,7 @@ _Avoid_: purchase, sale, booking (a booking is a place in a class), invoice (sta
 ### Adjustment
 
 An amount taken off an order, on one line or spread over its lines in proportion, with its kind
-(`staff` today; `code`, `automatic` and `referral` with later steps of stage 34), its source (a
+(`staff`, `code`, `automatic`; `referral` with a later step of stage 34), its source (a
 discount, or the person who gave it) and why (`core_order_adjustment`, ADR 0690). Each line keeps
 its price and its share of the adjustments; the order's total is what is owed after them, and
 the checkout, the tax shares, the deposit rule and refunds all read that net. Never changed once
@@ -2471,6 +2585,34 @@ reason (`order.adjust`). Within the limit a human admin sets it applies at once;
 always when an AI asks, it waits in Approvals for a human admin, and the order cannot be paid
 until it is decided (ADR 0691).
 _Avoid_: comp, override, markdown
+
+### Discount
+
+A record of an object declaring the `discount` behaviour (a pack's): what is off (a percentage,
+an amount, or a set price), on what, for whom (anyone, signed in, members, new customers, an
+organisation, a tag), when, and how often (uses in all, per person, a minimum spend). It applies
+by a **promo code** the buyer types, or **automatically** (a **member's price**, a customer
+rate), only while in a live state a person moved it to. The host works it out when it prices an
+order (ADR 0693); a caller sends at most a code, never an amount.
+_Avoid_: coupon, offer (taken: a continuation offer, a shift offer)
+
+### Promo code
+
+A word a buyer types (`JANUARY`), compared without case: a discount's own word, or a code record
+of the pack belonging to a discount (one with one use is a single-use code). A code that does not
+apply gets one answer, "not valid here", whatever the reason (ADR 0693).
+_Avoid_: voucher (a gift voucher is something bought), coupon
+
+### Deal
+
+(an order's)
+
+The one discount an order gets: the code or an automatic discount, whichever takes more off for
+the buyer (decision 9 of stage 34). It is written as `code` or `automatic` adjustments, and its
+**use** is held while the order is unpaid, used when it is paid, given back when it ends unpaid; a
+refund keeps it used (`core_discount_use`, limits kept by the database, ADR 0693). A staff discount
+is not a deal and goes on top. Not a **Deal** of the Deals extension.
+_Avoid_: offer
 
 ### Paid another way
 
@@ -2808,7 +2950,9 @@ condition on a state of the record or of the record it points to (an event while
 ticket type while its event is). Nothing is public by default, and a record that does not meet
 the condition is not found. A signed-in customer reads it too. The public reaches it only through
 a pack's tool (`public.list`, `public.get`), and buys only what it may read. Stage 28's
-`publishable` adds being published as another condition.
+`publishable` adds being published as another condition. Several conditions may be declared, all
+holding, and one may be that the record it points to is itself public (a variant while it is
+active and its item is published; ADR 0689).
 _Avoid_: published (stage 28's word for a version), visible (the seam's word for any scope)
 
 ### Pack role
@@ -3038,6 +3182,27 @@ slug, through `content.staffGet`, `content.staffList` and `content.search`. Neve
 being edited, never a draft or an unpublished record, never the public or a customer.
 _Avoid_: staff view (a saved view of records), internal (a note's level)
 
+### Procedure
+
+(stage 38, ADR 0706)
+
+How the business does something, for staff (`knowledge.procedure`, the Knowledge pack): "how we
+open up", "what we do when someone is hurt". Read by every staff account, pack roles included, in
+the wording a person last published, never the draft; never public. Its **must read** is asked to
+confirm each version that asks again. It has an owner, who keeps it right, and a review period
+(12 months unless set, 0 for never): on its **next review** date (its last publish plus the period)
+the owner is told to check it. Grouped in **sections**.
+_Avoid_: policy (an agreement's word), SOP, article, guide
+
+### Help page
+
+(stage 38, ADR 0706)
+
+An answer to a customer's common question on the business's website (`knowledge.helppage`):
+"where do I park", "how do I pause my membership". Read by anyone, signed in or not, in its
+published wording, found by address, in its **help topic**, or by searching its published words.
+_Avoid_: FAQ entry, article, knowledge base article, support doc
+
 ### Confirmation
 
 (read and understood; stage 38, ADR 0702)
@@ -3095,6 +3260,27 @@ Who sent a submission, with how sure the host is of it, its **certainty**: `acco
 unconfirmed, shown to staff as such). The host fills only a Person's empty fields from the answers.
 An anonymous form's submission has no submitter at all.
 _Avoid_: sender, respondent, lead (only for `leads.lead`)
+
+### Personal link
+
+(stage 29, ADR 0723)
+
+A one-time link for one Person to answer one form without signing in, optionally about one record
+(the class they came to), made only by the host (routine mail's **form-link slot**) and good for a
+set number of days. Each email carries its own token, of which only the hash is kept; the member's
+"Needs your attention" item (`form_to_fill`) is the same link. Spent by its first answer, by the
+database; a used, expired or unknown link is one refusal, and opening one uses nothing.
+_Avoid_: magic link (sign-in's), invitation, signed link, stop link (contact's, ADR 0675)
+
+### Receipt
+
+(stage 29, ADR 0724)
+
+The short routine email whoever sent answers gets: the business's name and the form's title and
+nothing they typed, to their own sign-in address, whoever answered their personal link (never a
+child's own address), or the address they typed; at most three a day to one mailbox and a daily
+number of its own for the organisation, never for answers staff entered, spam or an anonymous form.
+_Avoid_: confirmation (a booking's), acknowledgement
 
 ### Form
 

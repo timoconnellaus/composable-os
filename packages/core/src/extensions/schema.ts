@@ -2,12 +2,14 @@
 // built from it, and the rec_* view SQL generated from it (ADR 0023, ADR 0024).
 import type { CoreDatabase } from "@composable-os/db";
 import {
+  type AcknowledgeNotices,
   type AgreementsManifest,
   type AllowanceManifest,
   type CalendarEntryManifest,
   type CapacityManifest,
   type ChecklistsManifest,
   type ClaimsManifest,
+  type DiscountManifest,
   type DocumentSchema,
   documentJsonPath,
   documentMaxBytesOf,
@@ -73,6 +75,13 @@ export type AccessSourceJson =
     }
   | { kind: string; options?: Record<string, unknown> | undefined };
 
+/** One condition of a read declaration's `when` (ADRs 0438 and 0689), as declared. */
+export interface ReadConditionJson {
+  via?: string | undefined;
+  field?: string | undefined;
+  in?: string[] | undefined;
+}
+
 export interface ObjectDefinitionJson {
   label: string;
   plural: string;
@@ -91,6 +100,7 @@ export interface ObjectDefinitionJson {
   stock?: StockManifest;
   stockMoves?: StockMovesManifest;
   allowance?: AllowanceManifest;
+  discount?: DiscountManifest;
   /** An agreement point (stage 44, ADR 0641), as declared. */
   agreements?: AgreementsManifest;
   /** A health-note list (stage 44, ADR 0643), as declared. */
@@ -127,12 +137,12 @@ export interface ObjectDefinitionJson {
   /** What the public may read (ADR 0438), as declared. */
   public?: {
     read: string[];
-    when?: { via?: string | undefined; field: string; in: string[] } | undefined;
+    when?: ReadConditionJson | ReadConditionJson[] | undefined;
   };
   /** What every signed-in customer may read (ADR 0447), as declared. */
   signedIn?: {
     read: string[];
-    when?: { via?: string | undefined; field: string; in: string[] } | undefined;
+    when?: ReadConditionJson | ReadConditionJson[] | undefined;
   };
   /** What a customer reads of a record their own record points to (ADR 0439), as declared. */
   customerVia?: { from: string; field: string; read: string[] };
@@ -144,7 +154,15 @@ export interface ObjectDefinitionJson {
     slug?: string | undefined;
     date?: string | undefined;
     publishIn?: string[] | undefined;
-    acknowledge?: { who: string; manage: string } | undefined;
+    acknowledge?:
+      | {
+          who: string;
+          manage: string;
+          managed?: string[] | undefined;
+          owner?: string | undefined;
+          notices?: AcknowledgeNotices | undefined;
+        }
+      | undefined;
     staffRead?: boolean | undefined;
   };
   navigationOrder?: number;
@@ -300,6 +318,13 @@ export function formulaEnvironment(
     env.createdAt = { type: "datetime", sql: "t.created_at" };
     env.updatedAt = { type: "datetime", sql: "t.updated_at" };
     const owner = splitObjectName(object)?.extension;
+    // When the current version went live, and its number (ADR 0706): the rec_* view's join of the
+    // current version (publishedView), for a formula of the publishable object's own fields.
+    const own = state.objects.find((o) => o.name === object);
+    if (own?.definition.publishable && owner === extension) {
+      env.publishedAt = { type: "datetime", sql: "pub.published_at" };
+      env.publishedVersion = { type: "number", sql: "pub.version" };
+    }
     addFields(
       env,
       active.filter((f) => f.extensionId === owner),
@@ -1250,6 +1275,28 @@ function sellableDefinition(object: ObjectState, own: FieldState[]): ObjectDefin
           },
         }
       : {}),
+    // A path (`item.whereSold`) stays as declared, as moves' do; a field of the object is named.
+    ...(declared.goods
+      ? {
+          goods: declared.goods.soldIn
+            ? {
+                soldIn: declared.goods.soldIn.includes(".")
+                  ? declared.goods.soldIn
+                  : nameOf(declared.goods.soldIn),
+              }
+            : {},
+        }
+      : {}),
+    ...(declared.delivery
+      ? {
+          delivery: {
+            kind: nameOf(declared.delivery.kind),
+            freeOver: opt(declared.delivery.freeOver),
+            countries: opt(declared.delivery.countries),
+            active: opt(declared.delivery.active),
+          },
+        }
+      : {}),
   };
 }
 
@@ -1395,6 +1442,19 @@ export function buildRegistry(state: SchemaState): Map<string, ObjectDefinition>
     const stock = stockDefinition(object, own);
     const stockMoves = stockMovesDefinition(object, own);
     const allowance = allowanceDefinition(object);
+    const discount = object.definition.discount
+      ? {
+          ...object.definition.discount,
+          ...(object.definition.discount.codes
+            ? {
+                codes: {
+                  ...object.definition.discount.codes,
+                  object: `${object.extensionId}.${object.definition.discount.codes.object}`,
+                },
+              }
+            : {}),
+        }
+      : undefined;
     const publishable = object.definition.publishable;
     const restricted = restrictedOf(object);
     const fields = [
@@ -1428,6 +1488,7 @@ export function buildRegistry(state: SchemaState): Map<string, ObjectDefinition>
       ...(stock ? { stock } : {}),
       ...(stockMoves ? { stockMoves } : {}),
       ...(allowance ? { allowance } : {}),
+      ...(discount ? { discount } : {}),
       ...(object.definition.agreements ? { agreements: object.definition.agreements } : {}),
       ...(object.definition.healthNotes ? { healthNotes: object.definition.healthNotes } : {}),
       ...(restricted.length ? { restricted } : {}),
@@ -1467,6 +1528,15 @@ export function buildRegistry(state: SchemaState): Map<string, ObjectDefinition>
                     acknowledge: {
                       who: publishable.acknowledge.who,
                       manage: publishable.acknowledge.manage,
+                      ...(publishable.acknowledge.managed
+                        ? { managed: [...publishable.acknowledge.managed] }
+                        : {}),
+                      ...(publishable.acknowledge.owner
+                        ? { owner: publishable.acknowledge.owner }
+                        : {}),
+                      ...(publishable.acknowledge.notices
+                        ? { notices: publishable.acknowledge.notices }
+                        : {}),
                     },
                   }
                 : {}),

@@ -37,7 +37,7 @@ questions at the end refine later steps and block none of the first ones.
 
 ## Status
 
-- **Step 1, the `stock` behaviour** (`feat/stage-37-shop-step-1`; migration 0930, ADR 0680, which
+- **Step 1** — built — PR #370 — The `stock` behaviour (`feat/stage-37-shop-step-1`; migration 0930, ADR 0680, which
   amends ADRs 0431 and 0433): the SDK declaration `stock: { reorderAt?, reorderQty?, show?, lowAt? }`
   and its checks (not beside a capacity; no `sellable.deposit`, `recurring` or `moves`; refused in a
   runtime extension); the ledger `core_stock_movement` with a place on every row (`default`),
@@ -55,7 +55,8 @@ questions at the end refine later steps and block none of the first ones.
   used by `stockMoves`" is checked when steps 2 and 3 add those. After review: the reconciler
   refuses adding `stock` to an object with records, or taking it off one (`stock_change`), and
   `stock.get` gives staff the last five movements.
-- **Step 2, `stockMoves` and low stock** (`feat/stage-37-stock-moves`; migration 0931, ADR 0681,
+
+- **Step 2** — built — PR #422 — `stockMoves` and low stock (`feat/stage-37-stock-moves`; migration 0931, ADR 0681,
   which amends ADR 0680): the SDK declaration `stockMoves: { move: add | remove | set, on,
   quantity, when, through?, kind?, unitCost?, note? }` and its checks (a target with stock in the
   same extension, a state no move leaves, `through` a relation to an object with states; refused
@@ -77,6 +78,80 @@ questions at the end refine later steps and block none of the first ones.
   of a count's apply with its lines both ways; a line cannot be restored under an applied count; a
   crossing is marked told (it outlives the notices' purge); a fixed role is told only of objects
   it reads. Left: steps 3 to 14.
+
+- **Step 3** — built — PR #450 — Goods and delivery, and
+  `order.quote` (migration 0932,
+  ADRs 0682, 0683 and 0685, which amend ADRs 0428, 0435 and 0479): the SDK declarations
+  `sellable.goods: { soldIn? }` (a select of `online`, `in_person`, `both`, through the item's
+  relation; empty is both) and `sellable.delivery: { kind, freeOver?, countries?, active? }` and
+  their checks (a sold object with `stock` must be goods; no deposit, recurring or moves; a delivery
+  has no stock, `maxPerOrder` or `onePerPerson`; refused in a runtime extension, as `sellable` is);
+  `priceOrder` and the goods rules (`orders/goods.ts`) on every path: one delivery per goods order,
+  chosen in `order.start`'s new `delivery` and added by the host as the last line, never a line of
+  `lines`; the channel worked out by the host (`core_order.channel`, written once) and a goods line
+  not sold there refused (`not_sold_here`); post needs an address in the option's countries (`*`:
+  every country no other post option names), collect and here take none; postage the option's
+  price or nothing at or over its free over; `core_order_delivery` with the address (in no view,
+  never in the audit log, fixed by triggers, blanked by the buyer's erase); `order.delivery.get`
+  (staff audited, the buyer, a guest's token); a paid `here` delivery grants nothing; at checkout
+  with tax on, the address is the goods' and the postage's place and the host's copy leaves it
+  out; `order.quote` (staff, customer, public; holds and writes nothing; the same refusals, with
+  `delivery_needed`, `address_needed`, `sold_out` and `not_enough` reported; availability by
+  `show`). Opened to customers and the public: `order.quote` and `order.delivery.get`. Deviations:
+  the delivery is `order.start`'s `delivery: { object, id, address? }`, not a line the caller puts
+  in `lines`; the business's own country is not a host setting, so an option with no countries
+  posts nowhere (the pack seeds its country, step 5); `soldIn` is not built as the till's
+  `placedAs: "desk"` channel (the till's step 1 adds desk orders, in person by this rule);
+  `orders:read` is `records:read` (no such core permission, as step 1); `channel` is not in
+  `rec_order` (a view remade below 0950 would be dropped by 0950 on a fresh database);
+  `order.quote`'s statements are bounded by `priceLines`' per-line reads (at most three a line,
+  under 250 at 50 lines), not constant. Not tried for real: the provider's tax by the delivery
+  address (only the gatekeeper's test double), a basket block. Left: steps 4 to 14.
+
+- **Step 4** — not built — needs: step 1, step 3 — Returns and line refunds (`order.return`)
+
+- **Step 5** — built — PR #455 — The Shop pack's spine: items, variants,
+  delivery options, shipments, supplier fields, the stockroom role (`feat/stage-37-shop-pack`; ADR
+  0689, which amends ADR 0438; no migration): `packs/shop` with items (publishable with a slug,
+  where sold required and not content), variants (goods sold where their item is, stock with a
+  reorder level and quantity told to `shop:stock`, active or retired, the point `shop.buy`, a price
+  a person approves), delivery options (collect and take it now seeded at 0, Standard and
+  International post seeded off with no price; price, free over, countries and active a person
+  approves; all public, take it now included), shipments granted by a paid post or collect line
+  (to pack, packed, sent, ready, collected; void the host's; the buyer reads their own; erase
+  clears the buyer), supplier fields on Organisation, the stockroom role, `shop:read` and
+  `shop:fulfil` grantable, the `country` setting (new post options start with it), views, tabs,
+  the Shop dashboard, and the tools `stockLevels`, `shipmentsToSend`, `markPacked`, `markSent`,
+  `markReady`, `markCollected`. Platform: a read declaration's `when` may list conditions and use
+  `via` alone, so a variant is public only while active and its item is published. Deviations:
+  the variant's name is the whole name (the order line's title); `shop.buy` is on the variant;
+  `shop:manage` and `shop:purchase` wait for the tools that need them (step 6); `shop:stock` is
+  not grantable (the role holds it); a shipment's moves do not know its kind; the cost price is
+  written by nothing yet (step 6).
+
+- **Step 6** — not built — needs: step 5 — Purchase orders, receipts, quick stock-in, counts,
+  write-offs, `draftReorder`, `sendPo`
+
+- **Step 7** — not built — needs: step 4, step 5 — Returns recorded by staff (`recordReturn`),
+  routine mail kinds, notices' wording
+
+- **Step 8** — not built — needs: step 5, stage 47 — Blocks: customer web and native, staff
+  screens for stage 47, e2e (the Deliveries section's `portal` declaration after stage 48 step 5)
+
+- **Step 9** — not built — needs: step 5 — `cos shop import`, the site and `SITE.md`
+
+- **Step 10** — not built — needs: step 9, the first client — The first client: the gym's drinks
+  and clothing, a test-mode sale online and at the gym
+
+- **Step 11** — not built — needs: step 3, a later decision to build it — Later: postage by weight
+
+- **Step 12** — not built — needs: step 3, a later decision to build it — Later: a tax setting per
+  record (#198)
+
+- **Step 13** — not built — needs: step 3, a later decision to build it — Later: the shipping
+  gatekeeper, live rates, labels, tracking
+
+- **Step 14** — not built — needs: a trades client who needs it — Later: stock in several places
 
 Vocabulary: "product" is the platform's word for a composition (ADR 0400) and is avoided for what
 a business sells. This spec says **item** (a thing in the shop: "Club hoodie") and **variant** (one

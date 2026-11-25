@@ -965,7 +965,39 @@ export async function queueEraseCustomers(ctx: HandlerContext, s: StoreSubject):
     ),
     ctx.db.deleteFrom("core_customer_invite").where("email", "in", emails),
   );
+  await queueErasePractitionerCodes(ctx, s, ids);
   return open.length;
+}
+
+/**
+ * A practitioner account of the erased Person (stage 43 step 3, ADR 0581). The account and its
+ * sessions go with the Person (the cascade). Two things name the account or its address and not
+ * the Person, so they are deleted here: its one-time sign-in codes (`<type>-otp-<address>`, as
+ * for customers) and the HTTP surface's stored replies of the account.
+ */
+async function queueErasePractitionerCodes(
+  ctx: HandlerContext,
+  s: StoreSubject,
+  ids: ReturnType<typeof jsonList>,
+): Promise<void> {
+  const accounts = await ctx.db
+    .selectFrom("core_practitioner")
+    .select(["id", "email"])
+    .where(sql<SqlBool>`person_id IN ${ids}`)
+    .execute();
+  const emails = jsonList([...new Set([...s.addresses, ...accounts.map((a) => a.email)])]);
+  ctx.write(
+    ctx.db.deleteFrom("core_practitioner_verification").where(
+      sql<SqlBool>`instr(identifier, '-otp-') > 0
+          AND lower(substr(identifier, instr(identifier, '-otp-') + 5)) IN ${emails}`,
+    ),
+  );
+  for (const part of chunk(accounts.map((a) => `practitioner:${a.id}`))) {
+    ctx.write(
+      ctx.db.deleteFrom("core_idempotency_key").where("scope", "in", part),
+      ctx.db.deleteFrom("core_idempotency_claim").where("scope", "in", part),
+    );
+  }
 }
 
 // --- Orders and lifecycle history (stage 25, ADR 0426) -------------------------------------------
@@ -1034,7 +1066,9 @@ export async function queueEraseOrders(ctx: HandlerContext, s: StoreSubject): Pr
       ),
   );
   // The codes sent to their numbers (stage 30, ADR 0673): deleted. A number that replied STOP
-  // stays a salted hash in core_text_stop, tied to nobody, so it is not texted if entered again.
+  // stays a salted hash on the suppression list (core_contact_suppression, ADR 0675), tied to
+  // nobody, so it is not texted if entered again. Their contact choices and stop links go with
+  // the Person (the cascade: the register refuses any other delete).
   ctx.write(ctx.db.deleteFrom("core_phone_check").where("person_id", "in", ids));
   // Their continuation offers (stage 32a, ADR 0491): an address and a date, nothing the books
   // need. Deleted, by Person or by address.
@@ -1160,6 +1194,29 @@ export async function queueEraseOrders(ctx: HandlerContext, s: StoreSubject): Pr
           updated_at: ctx.now,
         })
         .where("id", "in", part),
+      // Their discount uses (ADR 0693) keep the discount, the order and the amount (the order is
+      // a financial record) and lose whose they were, as the order does.
+      ctx.db
+        .updateTable("core_discount_use")
+        .set({ person_id: null, updated_at: ctx.now })
+        .where("order_id", "in", part),
+      // Where their goods were posted (stage 37, ADR 0682): the address is blanked at once; the
+      // delivery's kind and line stay with the order.
+      ctx.db
+        .updateTable("core_order_delivery")
+        .set({
+          name: null,
+          line1: null,
+          line2: null,
+          city: null,
+          region: null,
+          postcode: null,
+          country: null,
+          erased_at: ctx.now,
+        })
+        .where("order_id", "in", part)
+        .where("kind", "=", "post")
+        .where("erased_at", "is", null),
       // Staff's words about a refund may name the person (migration 0422), and so may a
       // reference given with a payment or a refund taken another way (migration 0952).
       ctx.db

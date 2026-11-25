@@ -2,6 +2,7 @@
 // they may see, is the host's (`useMyTickets` reads through the seam).
 import type { TicketingHooks } from "@composable-os/pack-ticketing/client";
 import { eventTime, ticketStateLabel } from "@composable-os/pack-ticketing/client";
+import { Button } from "../ui-button/button.tsx";
 
 export function MyTickets({
   ticketing,
@@ -16,19 +17,32 @@ export function MyTickets({
   if (error) return <p role="alert">We could not load your tickets.</p>;
   if (!data?.items.length) return <p>You have no tickets yet.</p>;
   return (
-    <ul className="grid gap-2">
+    <ul className="grid gap-2" aria-label="Your tickets">
       {data.items.map((ticket) => (
-        <li key={ticket.id} className="flex justify-between gap-4">
-          <span>
-            {ticket.eventName ?? "Ticket"}
-            {ticket.ticketTypeName ? ` · ${ticket.ticketTypeName}` : ""}
-            {ticket.startsAt ? ` · ${eventTime(ticket)}` : ""}
-          </span>
-          <span>{ticketStateLabel(ticket.state)}</span>
+        <li
+          key={ticket.id}
+          className="flex flex-wrap items-center justify-between gap-3 rounded-md border p-3"
+        >
+          <div className="grid gap-1">
+            <strong>{ticket.eventName ?? "Ticket"}</strong>
+            <span className="text-muted-foreground text-sm">
+              {[
+                ticket.ticketTypeName,
+                ticket.startsAt ? eventTime(ticket) : null,
+                ticketStateLabel(ticket.state),
+              ]
+                .filter(Boolean)
+                .join(" · ")}
+            </span>
+          </div>
           {onShow && ticket.state === "valid" ? (
-            <button type="button" onClick={() => onShow({ id: ticket.id, code: ticket.code })}>
+            <Button
+              type="button"
+              variant="outline"
+              onClick={() => onShow({ id: ticket.id, code: ticket.code })}
+            >
               Show code
-            </button>
+            </Button>
           ) : null}
         </li>
       ))}

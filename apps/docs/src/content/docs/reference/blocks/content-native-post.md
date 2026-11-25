@@ -6,6 +6,10 @@ editUrl: false
 
 One post, for the mobile app (stage 28): its title, date, cover and body as the public reads it (`usePost`: the published version only). An old address goes to the post's address now.
 
+<img class="cos-screen cos-screen-native" src="/screens/content-native-post.png" alt="content-native-post, drawn with dummy data" width="390" height="844" loading="lazy" decoding="async" />
+
+Drawn with dummy data.
+
 |  |  |
 | --- | --- |
 | Skin | native |
