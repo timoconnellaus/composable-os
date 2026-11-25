@@ -219,9 +219,20 @@ describe("the daily digest's content", () => {
       ),
     ).rejects.toBeInstanceOf(PendingApprovalError);
     await setPreset("balanced");
+    // A notice for the person only (ADR 0643, 0706: who has not confirmed a procedure): never in
+    // the digest, which an AI acting for them may list and whose overview a model writes.
+    await env.DB.prepare(
+      "INSERT INTO core_notifications (id, user_id, type, title, body, source, dedupe_key, human_only, created_at) VALUES (?, ?, 'system.message', 'Not yet confirmed: Injuries', 'Not yet confirmed: Sam.', '{}', ?, 1, ?)",
+    )
+      .bind(newId("notification"), owner.id, unique("ack.outstanding:"), now().toISOString())
+      .run();
     moveTo(0, 8, 1);
     await tick();
     body = (await digestNotice(owner.id))?.body ?? "";
+  });
+
+  it("never lists a notice for the person only", () => {
+    expect(body).not.toContain("Not yet confirmed");
   });
 
   it("lists changes others made to my records, not my own, and never activities", async () => {

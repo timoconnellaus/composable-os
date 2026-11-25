@@ -622,10 +622,17 @@
       "pack": "forms"
     },
     {
+<<<<<<< HEAD
       "name": "x.forms.submitLinked",
       "audiences": ["customer"],
       "risk": "write",
       "pack": "forms"
+=======
+      "name": "x.knowledge.helpTopics",
+      "audiences": ["staff", "customer", "public"],
+      "risk": "read",
+      "pack": "knowledge"
+>>>>>>> origin/main
     },
     {
       "name": "x.memberships.buy",

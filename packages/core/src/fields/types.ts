@@ -4,6 +4,7 @@
 // Registry entries are trusted code: `column`, `related.from`, `related.link` and
 // `related.column` are spliced into SQL as identifiers. They never come from user input, and
 // stage-3 extension fields must be generated from validated identifiers.
+import type { AcknowledgeNotices } from "@composable-os/sdk";
 
 export type FieldType =
   | "text"
@@ -276,7 +277,16 @@ export interface PublishableDefinition {
    * Read and understood (ADR 0702): `who`, the object's "must read" document field; `manage`, the
    * restricted, grantable permission whose holders (and admins) read who has confirmed.
    */
-  readonly acknowledge?: { readonly who: string; readonly manage: string };
+  readonly acknowledge?: {
+    readonly who: string;
+    readonly manage: string;
+    /** More fields guarded as `who` is (ADR 0706). */
+    readonly managed?: readonly string[];
+    /** A user field: who is told each week who has not confirmed (ADR 0706). */
+    readonly owner?: string;
+    /** The pack's words for the notices the host sends (ADR 0706). */
+    readonly notices?: AcknowledgeNotices;
+  };
   /**
    * Staff read (ADR 0701): every staff account, pack roles included, reads the current published
    * version's content and slug through `content.staffGet`, `content.staffList` and `content.search`.

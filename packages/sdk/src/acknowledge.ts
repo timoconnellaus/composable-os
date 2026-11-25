@@ -43,3 +43,58 @@ export const MUST_READ_SCHEMA: DocumentSchema = {
     },
   },
 };
+
+// --- The pack's words and what else the host guards (stage 38 step 5, ADR 0706) -----------------
+//
+//   acknowledge: {
+//     who: "mustRead",
+//     manage: "knowledge:manage",
+//     managed: ["reviewEvery"],
+//     owner: "owner",
+//     notices: {
+//       asked: { title: "Please read: {record}" },
+//       reminder: { title: "Still to read: {record}", afterDays: 7 },
+//       outstanding: { title: "Not yet confirmed: {record}" },
+//       welcome: { title: "Procedures to read" },
+//     },
+//   }
+//
+// `managed` names more fields of the object's own, outside the content, that the host guards as
+// it guards who must read: a person's to change, never an AI actor's, and once the record has
+// been published, only an admin's or a holder of `manage`. `owner` names a `user` field: who
+// looks after the record, told each week who has not confirmed it. `notices` are the pack's
+// words; the host sends them, to the people only it can work out (who must read, who has not), and
+// `{record}` stands for the record's published title. Each notice is optional: left out, none.
+
+/** One notice's words: `{record}` in either stands for the record's title. */
+export interface AcknowledgeNotice {
+  title: string;
+  body?: string;
+}
+
+/** The notices the host sends for an acknowledged object (ADR 0706). */
+export interface AcknowledgeNotices {
+  /** A version that asks everyone goes live: to everyone who must read it, once per version. */
+  asked?: AcknowledgeNotice;
+  /** Still to read `afterDays` after it became theirs to read: to that person, once per version. */
+  reminder?: AcknowledgeNotice & { afterDays: number };
+  /** Each week while anyone has not confirmed: to the record's `owner`. */
+  outstanding?: AcknowledgeNotice;
+  /** A new staff account with records to read: to that person, once, listing them. */
+  welcome?: AcknowledgeNotice;
+}
+
+/** `publishable.acknowledge`: see the comment above and ADRs 0702 and 0706. */
+export interface AcknowledgeSpec {
+  who: string;
+  manage: string;
+  managed?: readonly string[];
+  owner?: string;
+  notices?: AcknowledgeNotices;
+}
+
+/** The longest a notice's title and body may be. */
+export const ACKNOWLEDGE_NOTICE_TITLE_MAX = 120;
+export const ACKNOWLEDGE_NOTICE_BODY_MAX = 600;
+/** The longest a reminder may wait, in days. */
+export const ACKNOWLEDGE_REMINDER_MAX_DAYS = 60;

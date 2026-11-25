@@ -35,6 +35,32 @@ Confirm that I have read and understood the current version of a record staff mu
 | `object` | string | yes |   |   |
 | `id` | string | yes |   |   |
 
+## ack.due
+
+Platform use only (the minute cron, as the host, once a local day): the reminders to people who still have a record to read, the weekly notice to each record's owner of who has not confirmed it, and the welcome of new staff accounts with what they have to read, in the words each acknowledged object declares, at most a few hundred a run (the next tick carries on). Returns how many it wrote.
+
+|  |  |
+| --- | --- |
+| Permission | `records:write` |
+| Risk | `write` |
+| Audiences | `staff` |
+| Actors | `automation` |
+| Also | a host step: never queued for review when the host itself calls it (`hostStep`); not offered to MCP clients (`mcp.expose: false`) |
+
+### Input
+
+No fields.
+
+### Output
+
+| Field | Type | Required | Limits | Description |
+| --- | --- | --- | --- | --- |
+| `asked` | integer | yes | ≥ -9007199254740991, ≤ 9007199254740991 | Asked of someone never told of the version (new in must read) |
+| `reminders` | integer | yes | ≥ -9007199254740991, ≤ 9007199254740991 |   |
+| `outstanding` | integer | yes | ≥ -9007199254740991, ≤ 9007199254740991 |   |
+| `welcomes` | integer | yes | ≥ -9007199254740991, ≤ 9007199254740991 |   |
+| `more` | boolean | yes |   | More is left for the day: the next tick carries on |
+
 ## ack.mine
 
 What I must read and have not confirmed (each published record that asks me, with its current version), and what I have confirmed and when. For the person themselves; not for an AI actor. Read-only.
@@ -72,14 +98,14 @@ No fields.
 
 ## ack.overview
 
-Every published record staff must read, of the objects the caller manages: its current version, how many must read it and how many have confirmed what counts. For admins and people granted an object's manage permission; never for an AI actor. Read-only.
+Every published record staff must read, of the objects the caller manages: its current version, how many must read it and how many have confirmed what counts. For admins and people granted an object's manage permission, themselves or through a person-only tool of the pack that owns them (its own objects only); never for an AI actor. Read-only.
 
 |  |  |
 | --- | --- |
 | Permission | `records:read` |
 | Risk | `read` |
 | Audiences | `staff` |
-| Actors | `human` |
+| Actors | `human`, `extension` |
 | Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input
@@ -101,14 +127,14 @@ No fields.
 
 ## ack.status
 
-For one published record staff must read (a procedure), its current version: everyone who must read it, who has confirmed it (and when), and who has not (and since when). For admins and people granted the object's manage permission; never for an AI actor. Read-only.
+For one published record staff must read (a procedure), its current version: everyone who must read it, who has confirmed it (and when), and who has not (and since when). For admins and people granted the object's manage permission, themselves or through a person-only tool of the pack that owns it; never for an AI actor. Read-only.
 
 |  |  |
 | --- | --- |
 | Permission | `records:read` |
 | Risk | `read` |
 | Audiences | `staff` |
-| Actors | `human` |
+| Actors | `human`, `extension` |
 | Also | not offered to MCP clients (`mcp.expose: false`) |
 
 ### Input

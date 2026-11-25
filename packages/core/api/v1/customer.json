@@ -9805,6 +9805,59 @@
       "pack": "forms"
     },
     {
+      "name": "x.knowledge.helpTopics",
+      "description": "Every help topic, in their order: its id, name, address (slug) and icon, for a help centre's menu. Open to anyone. Read-only. (Extension tool from Knowledge 0.1.0.)",
+      "risk": "read",
+      "audiences": ["customer"],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "limit": {
+            "default": 100,
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 200
+          }
+        },
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "topics": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": ["string", "null"]
+                },
+                "slug": {
+                  "type": ["string", "null"]
+                },
+                "order": {
+                  "type": ["number", "null"]
+                },
+                "icon": {
+                  "type": ["string", "null"]
+                }
+              },
+              "required": ["id", "name", "slug", "order", "icon"],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": ["topics"],
+        "additionalProperties": false
+      },
+      "invalidates": [],
+      "pack": "knowledge"
+    },
+    {
       "name": "x.memberships.buy",
       "description": "Start an order for one pass (a class pack, a drop-in or an intro offer). A signed-in customer buys as themselves; a guest gives their email address, and may not buy an intro offer (the host refuses it: one per person, signed in). The host prices it from the pass type, refuses one not on sale, and refuses a second intro offer for the same person. Nothing is paid here: the buyer then calls order.checkout with the order's id (and a guest's token) to pay on the provider's page; the pass is granted when the provider confirms the payment. Amounts in the minor unit. (Extension tool from Memberships 0.1.0.)",
       "risk": "write",

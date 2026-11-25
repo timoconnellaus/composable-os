@@ -210,6 +210,36 @@
         ]
       },
       {
+        "label": "Knowledge",
+        "collapsed": true,
+        "items": [
+          {
+            "slug": "packs/knowledge"
+          },
+          {
+            "slug": "packs/knowledge/data-model"
+          },
+          {
+            "slug": "packs/knowledge/tools"
+          },
+          {
+            "slug": "packs/knowledge/permissions"
+          },
+          {
+            "slug": "packs/knowledge/screens"
+          },
+          {
+            "slug": "packs/knowledge/messages"
+          },
+          {
+            "slug": "packs/knowledge/settings"
+          },
+          {
+            "slug": "packs/knowledge/decisions"
+          }
+        ]
+      },
+      {
         "label": "Leads",
         "collapsed": true,
         "items": [
