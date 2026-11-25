@@ -6,6 +6,10 @@ editUrl: false
 
 A course in the studio's app (stage 42): its summary and outline with lesson titles and minutes; "open" for a holder and for a free preview. No price and no buy button: buying is on the web only (`noPurchase`). Whether the student holds the course is the host's (`useCourse`).
 
+<img class="cos-screen cos-screen-native" src="/screens/courses-native-course.png" alt="courses-native-course, drawn with dummy data" width="390" height="844" loading="lazy" decoding="async" />
+
+Drawn with dummy data.
+
 |  |  |
 | --- | --- |
 | Skin | native |

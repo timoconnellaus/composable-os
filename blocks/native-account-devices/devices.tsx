@@ -53,20 +53,22 @@ export function SignInAndDevices({
       <List>
         {items.map((session) => {
           const words = sessionWords(session);
-          return <Row key={session.id} title={words.title} detail={words.detail} />;
+          // Each other session's button sits under it, as on the web: its title is in the row.
+          return (
+            <View key={session.id}>
+              <Row title={words.title} detail={words.detail} />
+              {session.current ? null : (
+                <Button
+                  quiet
+                  label="Sign it out"
+                  disabled={revoke.isPending}
+                  onPress={() => void signOutOne(session.id)}
+                />
+              )}
+            </View>
+          );
         })}
       </List>
-      {items
-        .filter((session) => !session.current)
-        .map((session) => (
-          <Button
-            key={session.id}
-            quiet
-            label={`Sign out ${sessionWords(session).title}`}
-            disabled={revoke.isPending}
-            onPress={() => void signOutOne(session.id)}
-          />
-        ))}
       <Button label="Sign out of this device" onPress={onSignOut} />
       {error ? (
         <Text style={styles.body} accessibilityRole="alert">

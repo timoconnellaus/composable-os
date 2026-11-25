@@ -29,6 +29,7 @@ pnpm --filter @composable-os/docs test       # the generator's tests (node --tes
 | Core operations | the registry (`coreRegistry` in `packages/core`) |
 | Behaviours | `ObjectSpec` in `packages/sdk/src/contract.ts` |
 | Blocks | each `block.json` and its first file's header comment |
+| Screen pictures | `public/screens/`, drawn with dummy data by [`apps/screens`](../screens/README.md) |
 | Gatekeepers | each `packages/gatekeeper-*` package and its `src/types.d.ts` |
 | The cos command | `HELP` in `packages/create-composable-os/src/main.ts` |
 | Solutions | `products/*/product.ts` and the client template |
@@ -55,6 +56,10 @@ the pages; `scripts/generate.mjs` writes or checks them.
   inside identifiers, fails the check, except on the glossary and Planned, whose sources
   (`CONTEXT.md`, the roadmap) name a client: there it becomes "the first client". A price in
   hand-written text (a currency sign or code, or "dollars") fails the check.
+- **Every block has a picture**, current: the check fails on a block with no preview in
+  `apps/screens/previews/` or a picture drawn before its block or preview last changed. Draw them
+  with `pnpm --filter @composable-os/screens shoot` and commit what it writes; `public/screens/` is
+  never edited by hand either.
 - **No repository-wide counts** on generated pages: two pull requests that each add an operation
   would both write the same new number, which merges cleanly and leaves the page stale.
 - **The look** follows the marketing site (ADR 0465) where Starlight allows: Poppins, navy and

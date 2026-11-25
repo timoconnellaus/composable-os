@@ -6,6 +6,10 @@ editUrl: false
 
 Pay (stage 45 step 7), for someone who handles pay, a person only: the pay periods, who is counted and how, a period's hours and shifts per person and kind of work with each shift's evidence (its class list taken, by whom, flagged when not by its person), locking a period that has ended, reopening one with why, and its CSV for payroll. No rates and no money: the host holds none. Everything is the host's answer: which periods exist, what each counts (a locked period's locked lines, an open one's preview), whether it may be locked, and each refusal (the period not set, not ended, already locked or overlapping one, the roster changed while locking, a shift inside a locked period). Shown only when the host says the reader handles pay (`me.pays`), so no one else's screen asks for any of it. Figures are kept in the app's cache no longer than they are shown, hidden when the page is left, and the CSV is handed to the person and not kept; why a period was reopened is forgotten once the call is over.
 
+<img class="cos-screen" src="/screens/rostering-pay.png" alt="rostering-pay, drawn with dummy data" width="900" height="1210" loading="lazy" decoding="async" />
+
+Drawn with dummy data.
+
 |  |  |
 | --- | --- |
 | Skin | web |

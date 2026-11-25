@@ -6,6 +6,10 @@ editUrl: false
 
 For staff (stage 32b): one person's memberships and passes, with what each allows and what is left, as the host counts it; giving a pass by hand or voiding one given by hand, with a reason; and pausing their membership for a set time or ending a pause (stage 32b, decision 10: the host holds the plan's shortest and longest pause and asks the provider; the membership shows paused once the provider confirms). Both are a person's own act: the host refuses the assistant, an MCP client and an automation (the tools are human only), and staff without the memberships:passes permission.
 
+<img class="cos-screen" src="/screens/memberships-staff-holdings.png" alt="memberships-staff-holdings, drawn with dummy data" width="720" height="1202" loading="lazy" decoding="async" />
+
+Drawn with dummy data.
+
 |  |  |
 | --- | --- |
 | Skin | web |

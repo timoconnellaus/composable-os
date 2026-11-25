@@ -6,6 +6,10 @@ editUrl: false
 
 My agreements (stage 44 step 5), for the mobile app: what the signed-in member and each child linked to them has agreed to (the document, the version, when, how and by whom), what is due (with a notice when a document changed), the signed PDF, and a health form's answers to update. With `personId`, one child's only. What it shows is the host's: a name typed and a signature appear only to whoever agreed, and a child sees no guardian's name or signature. The PDF needs the app's own way to open a file fetched with the session (`onDownload`): the host's route is `agreementPdfPath(id)` on the host's address, with the access token.
 
+<img class="cos-screen cos-screen-native" src="/screens/native-my-agreements.png" alt="native-my-agreements, drawn with dummy data" width="390" height="844" loading="lazy" decoding="async" />
+
+Drawn with dummy data.
+
 |  |  |
 | --- | --- |
 | Skin | native |
