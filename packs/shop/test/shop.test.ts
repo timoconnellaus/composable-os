@@ -170,7 +170,10 @@ describe("the Shop pack (test host)", () => {
         },
       ],
     }));
-    const out = await host.runTool("stockLevels", {});
+    const out = (await host.runTool("stockLevels", {})) as {
+      truncated: boolean;
+      variants: { variantId: string; low: boolean }[];
+    };
     expect(out.truncated).toBe(false);
     expect(
       out.variants.map((v: { variantId: string; low: boolean }) => [v.variantId, v.low]),
@@ -194,10 +197,11 @@ describe("the Shop pack (test host)", () => {
         { id: "s3", name: "Gone", state: "sent", kind: "post" },
       ],
     });
-    const out = await host.runTool("shipmentsToSend", {});
+    type Listed = { shipments: { id: string; buyer: string | null }[] };
+    const out = (await host.runTool("shipmentsToSend", {})) as Listed;
     expect(out.shipments.map((s: { id: string }) => s.id).sort()).toEqual(["s1", "s2"]);
     expect(out.shipments.find((s: { id: string }) => s.id === "s1")?.buyer).toBe("Alice Buyer");
-    const ready = await host.runTool("shipmentsToSend", { state: "ready" });
+    const ready = (await host.runTool("shipmentsToSend", { state: "ready" })) as Listed;
     expect(ready.shipments.map((s: { id: string }) => s.id)).toEqual(["s2"]);
   });
 
