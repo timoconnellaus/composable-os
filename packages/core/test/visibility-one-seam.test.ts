@@ -109,6 +109,14 @@ const WHY = {
    */
   invoices: "invoices: host code for a document it is numbering, or the rate keys lines use",
   /**
+   * Quotes, invoices and credit notes (stage 35, review of PR #460), staff only: a document is
+   * first read through the seam (its `rec_*` view), then its table for the columns that view
+   * leaves out by design (the bill-to as printed, notes, the business's snapshot, its version)
+   * and its lines, the document's own parts; and a bill-to's affiliation with its organisation.
+   */
+  documents:
+    "documents: what a document's rec_ view leaves out, and its lines, after the seam read it",
+  /**
    * The shared inbox (stage 36, ADR 0740): a conversation's own messages and notes, its Person's
    * name, and what an erase or a sender's link moves, each read after the conversation itself
    * passed the inbox's rule (private: admins and whoever has it). Staff only.
@@ -210,7 +218,12 @@ const REMAINING: Record<string, [reads: number, why: Why]> = {
   "integrations/outbound-check.ts": [2, WHY.org],
   // Stage 35 (the review of PR #386): whether a bill-to's contact is at the organisation, both
   // already read through the seam.
-  "invoices/drafts.ts": [1, WHY.part],
+  // A credit note's row and its lines, and the lines of an invoice's issued credit notes (their
+  // notes read through the seam first). Listed in the review of PR #460, for the coordinator.
+  "invoices/credit.ts": [3, WHY.documents],
+  // Each kind's document row (2: quote, invoice), its lines (2) and a line's document (2), and
+  // the bill-to's affiliation (1). Step 2 read these through a table map the test did not see.
+  "invoices/drafts.ts": [7, WHY.documents],
   "invoices/numbering.ts": [1, WHY.invoices],
   "notifications/delivery.ts": [1, WHY.org],
   "notifications/digest-content.ts": [4, WHY.org],

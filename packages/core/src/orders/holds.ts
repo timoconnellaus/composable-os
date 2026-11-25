@@ -139,9 +139,14 @@ const orderHolds: MoveHook = async (ctx, move) => {
     return;
   }
   if (to === "cancelled" || to === "expired") {
-    if (from !== "part_paid") {
+    if (from !== "part_paid" && !(from === "pending" && move.after.invoiceId)) {
       ctx.write(...releaseStatements(target, ctx.now));
       return;
+    }
+    if (from === "pending") {
+      // An invoice's order unpaid again after its payments were reversed (ADR 0733) may hold
+      // confirmed places as well as held ones: both go back, sold stock does not.
+      ctx.write(...releaseStatements(target, ctx.now));
     }
     // After a deposit the claims were confirmed: places go back, sold stock does not.
     await releaseConfirmedExcept(ctx, move.id, await linesWithCapacity(ctx, move.id), isStock);

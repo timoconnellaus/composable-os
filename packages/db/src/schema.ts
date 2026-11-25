@@ -3223,6 +3223,16 @@ export interface CoreOrderTable {
    * delivery when it starts, never changed. Null: no goods.
    */
   channel: Defaulted<"online" | "in_person" | null>;
+  /**
+   * Migration 1031 (stage 35, ADR 0731): the invoice that started the order, fixed once written.
+   * Null for every other order.
+   */
+  invoice_id: Defaulted<string | null>;
+  /**
+   * Migration 1031 (ADR 0735): what credit notes took off what was still owed. The balance is
+   * `total - paid - credited`; only an invoice's order has one, and it never goes down.
+   */
+  credited: Generated<number>;
 }
 
 /**
@@ -3276,7 +3286,8 @@ export interface CoreOrderAdjustmentTable {
   order_id: string;
   /** Null: the whole order, spread over its lines in proportion. */
   line_id: string | null;
-  kind: "code" | "automatic" | "staff" | "referral";
+  /** Migration 1031: `prepaid` and `rounding` are the host's, on an invoice's order (ADR 0731). */
+  kind: "code" | "automatic" | "staff" | "referral" | "prepaid";
   source_object: Defaulted<string | null>;
   source_id: Defaulted<string | null>;
   /** A staff adjustment: the user who gave it. */
@@ -3291,6 +3302,28 @@ export interface CoreOrderAdjustmentTable {
   created_at: Timestamp;
   removed_at: Defaulted<Timestamp | null>;
   removed_by: Defaulted<string | null>;
+}
+
+/**
+ * Migration 1031 (stage 35 step 5, ADR 0735): what an issued credit note gives back on one payment
+ * of its invoice's order. A provider's payment names the refund asked for in the credit note's
+ * batch; a recorded one is owed until a person records it paid back (`refund_id`, `paid_back_at`).
+ */
+export interface CoreCreditNoteRefundTable {
+  id: string;
+  credit_note_id: string;
+  order_id: string;
+  provider: string;
+  payment_ref: string;
+  method: "provider" | "recorded";
+  amount: number;
+  refund_id: Defaulted<string | null>;
+  paid_back_at: Defaulted<Timestamp | null>;
+  /** A provider's refund asked again after one rejected, expired or failed: 2, 3, … */
+  attempt: Defaulted<number>;
+  /** A provider's: when the provider confirmed its refund. */
+  confirmed_at: Defaulted<Timestamp | null>;
+  created_at: Timestamp;
 }
 
 /**
@@ -3690,6 +3723,10 @@ export interface CrmOrderView {
   net: number;
   /** Migration 0950: the sum of the order's adjustments (ADR 0690). */
   discount: number;
+  /** Migration 1031 (ADR 0731): the invoice that started it. */
+  invoice_id: string | null;
+  /** Migration 1031 (ADR 0735): what credit notes took off what was owed. */
+  credited: number;
 }
 
 export interface CrmOrderLineView {
@@ -3717,7 +3754,7 @@ export interface CrmOrderAdjustmentView {
   order_id: string;
   person_id: string | null;
   line_id: string | null;
-  kind: "code" | "automatic" | "staff" | "referral";
+  kind: "code" | "automatic" | "staff" | "referral" | "prepaid";
   source_object: string | null;
   source_id: string | null;
   given_by: string | null;
@@ -4512,6 +4549,7 @@ export interface CoreDatabase {
   core_order: CoreOrderTable;
   core_order_line: CoreOrderLineTable;
   core_order_adjustment: CoreOrderAdjustmentTable;
+  core_credit_note_refund: CoreCreditNoteRefundTable;
   core_discount_use: CoreDiscountUseTable;
   core_order_grant: CoreOrderGrantTable;
   core_order_payment: CoreOrderPaymentTable;

@@ -23,6 +23,7 @@ import {
   dealShares,
   loadOrderRow,
   type OrderRow,
+  refuseInvoiceOrder,
   requireState,
   writeDeal,
 } from "./orders.ts";
@@ -108,6 +109,7 @@ export async function changeOrderCode(
   code: string | null,
 ): Promise<CodeChanged> {
   const row = await loadOrderRow(ctx.db, orderId);
+  refuseInvoiceOrder(row, "its price is the invoice's and takes no code");
   requireState(row, ["pending"], code === null ? "changed" : "given a code");
   await refuseOpenCheckout(ctx, row);
   const [live, delivery] = await Promise.all([

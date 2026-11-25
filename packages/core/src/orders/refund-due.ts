@@ -27,6 +27,7 @@ import { OperationError } from "../errors.ts";
 import { refreshSchemaRegistry } from "../extensions/schema.ts";
 import type { GateFloor } from "../gate.ts";
 import type { IntegrationRuntime } from "../integrations/runtime.ts";
+import { CREDIT_REFUND_CONFIRM_DAYS } from "../invoices/credit.ts";
 import { invokeByName } from "../invoke.ts";
 import { errorForLog } from "../log.ts";
 import { notifyStatements } from "../notifications/send.ts";
@@ -323,7 +324,52 @@ export async function runRefundsDue(
     }
   }
   result.lapsed = (await settleAsked(crm, now())).lapsed;
+  await tellUnconfirmedCreditRefunds(crm, now());
   return result;
+}
+
+/**
+ * A credit note's refund a person approved that the provider has not confirmed within
+ * CREDIT_REFUND_CONFIRM_DAYS (review of PR #460): it reads as owed again (invoices/credit.ts), and
+ * the admins are told once per attempt, to look at the provider and ask again
+ * (`creditNote.askRefundAgain`, under the same refund id, so a refund that did happen is not made
+ * twice). One indexed read with nothing to tell.
+ */
+export async function tellUnconfirmedCreditRefunds(crm: CrmDb, now: string): Promise<number> {
+  const before = new Date(Date.parse(now) - CREDIT_REFUND_CONFIRM_DAYS * 86_400_000).toISOString();
+  const rows = await crm.query
+    .selectFrom("core_credit_note_refund as c")
+    .innerJoin("core_order_refund as r", "r.id", "c.refund_id")
+    .innerJoin("core_pending_action as p", "p.id", "r.pending_action_id")
+    .select(["c.id", "c.attempt", "c.order_id", "c.credit_note_id", "c.amount"])
+    .where("c.method", "=", "provider")
+    .where("c.confirmed_at", "is", null)
+    .where("r.status", "!=", "confirmed")
+    .where("p.status", "=", "applied")
+    .where("p.decided_at", "<", before)
+    .limit(REFUND_DUE_BATCH)
+    .execute();
+  for (const row of rows) {
+    const plan = await notifyStatements(
+      crm.query,
+      {
+        to: [{ role: "admin" }],
+        type: "system.message",
+        title: "A credit note's refund was never confirmed",
+        body:
+          `A refund of ${row.amount} in minor units that credit note ${row.credit_note_id} gives back ` +
+          `was approved ${CREDIT_REFUND_CONFIRM_DAYS} days ago, and the payment provider has not ` +
+          "confirmed it. It shows as owed back on the credit note: check it at the provider, then ask " +
+          "for it again (it is asked under the same refund, so one already made is not made twice).",
+        link: { kind: "record", object: "order", id: row.order_id },
+        dedupeKey: `credit_note.refund_unconfirmed:${row.id}:${row.attempt}`,
+        source: { actor: "system" },
+      },
+      now,
+    );
+    if (plan.statements.length) await crm.batch(plan.statements as never);
+  }
+  return rows.length;
 }
 
 /**

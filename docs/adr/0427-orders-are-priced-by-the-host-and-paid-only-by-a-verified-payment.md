@@ -145,3 +145,11 @@ host holds (vouchers, stored value). Every payment row has a `method`; the host'
 `host`, and a database guard refuses the ones that do not name what they must. A reversal of a
 recorded payment is a new host move, `paid → part_paid`. No operation passes its input through,
 and nothing a caller sends makes an order paid without a person's recorded payment. See ADR 0694.
+
+## Amendment, 2026-11-25 (stage 35 steps 3 and 4, ADRs 0731 and 0733): an invoice's order
+An issued invoice starts its own order in the issuing batch, through `createOrder` with lines the
+host built from the invoice (`priced`): still priced by the host, now from a document staff wrote
+(typed lines and their discounts) rather than only from records. Its order is due, not expiring,
+takes no deal, and is moved only through the invoice: a payment taken another way on it is
+`invoice.recordPayment` (`invoices:payments`, human only) on the same shared step. See ADRs 0731
+and 0733.

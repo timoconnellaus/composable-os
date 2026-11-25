@@ -57,6 +57,7 @@ import { intakeOperations } from "./intake.ts";
 import { integrationOperations } from "./integration.ts";
 import { inviteOperations } from "./invite.ts";
 import { invoiceOperations } from "./invoice.ts";
+import { invoiceOrderOperations } from "./invoice-orders.ts";
 import { journeyOperations } from "./journey.ts";
 import { judgeOperations } from "./judge.ts";
 import { locationOperations } from "./location.ts";
@@ -247,6 +248,7 @@ export const coreOperations = [
   ...agreementDeskOperations,
   ...agreementRetentionOperations,
   ...invoiceOperations,
+  ...invoiceOrderOperations,
   ...accountingOperations,
   ...journeyOperations,
 ] as const;

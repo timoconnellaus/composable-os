@@ -530,6 +530,30 @@
         ]
       },
       {
+        "label": "Invoices",
+        "collapsed": true,
+        "items": [
+          {
+            "slug": "capabilities/invoices"
+          },
+          {
+            "slug": "capabilities/invoices/operations"
+          },
+          {
+            "slug": "capabilities/invoices/permissions"
+          },
+          {
+            "slug": "capabilities/invoices/behaviours"
+          },
+          {
+            "slug": "capabilities/invoices/screens"
+          },
+          {
+            "slug": "capabilities/invoices/decisions"
+          }
+        ]
+      },
+      {
         "label": "Client notes",
         "collapsed": true,
         "items": [
@@ -676,6 +700,9 @@
           },
           {
             "slug": "reference/operations/conversation"
+          },
+          {
+            "slug": "reference/operations/creditnote"
           },
           {
             "slug": "reference/operations/customer"

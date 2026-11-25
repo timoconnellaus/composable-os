@@ -19,6 +19,7 @@ import { ConflictError, NotFoundError } from "../errors.ts";
 import type { GateFloor } from "../gate.ts";
 import { newId } from "../ids.ts";
 import type { IntegrationRuntime } from "../integrations/runtime.ts";
+import { eventStatement } from "../invoices/events.ts";
 import { invokeByName } from "../invoke.ts";
 import { errorForLog } from "../log.ts";
 import { resolveChannelTarget } from "../notifications/channels.ts";
@@ -32,6 +33,7 @@ import { type PaymentsEvent, sendHostEmail } from "./gateway.ts";
 import { hashOrderToken, newOrderToken } from "./guests.ts";
 import { changeOrder, formatMoney, loadOrderRow, type OrderRow } from "./orders.ts";
 import { applyVerifiedPayment, type SentTaxLine } from "./payments.ts";
+import { invoiceRefundTax } from "./refunds.ts";
 
 const id = z.string().min(1).max(200);
 const amount = z.number().int().positive().max(Number.MAX_SAFE_INTEGER);
@@ -445,11 +447,18 @@ async function confirmRefund(
   }
   // A credit note's tax that arrived first (ADR 0486) stands for the provider's word on this one.
   const reported = requested?.reported_tax ?? null;
-  const refundTax = await refundTaxOf(
-    ctx,
-    row.id,
-    event.tax === undefined && reported !== null ? { ...event, tax: { amount: reported } } : event,
-  );
+  // An invoice's order (ADR 0731): the refunded payment's share of the document's tax, which its
+  // checkout never asked the provider for.
+  const refundTax =
+    row.invoice_id && event.paymentRef
+      ? await invoiceRefundTax(ctx, row, event.provider, event.paymentRef, event.amount)
+      : await refundTaxOf(
+          ctx,
+          row.id,
+          event.tax === undefined && reported !== null
+            ? { ...event, tax: { amount: reported } }
+            : event,
+        );
   const confirmed = {
     status: "confirmed" as const,
     amount: event.amount,
@@ -489,6 +498,40 @@ async function confirmRefund(
     // The host's move: the provider confirmed the money went back.
     "host",
   );
+  if (row.invoice_id) {
+    // An invoice's order (ADR 0735): in the document event log, under the credit note that asked
+    // for it (or the invoice, for a late payment given back).
+    const credit = requested
+      ? await ctx.db
+          .selectFrom("core_credit_note_refund")
+          .select(["id", "credit_note_id"])
+          .where("refund_id", "=", requested.id)
+          .executeTakeFirst()
+      : undefined;
+    if (credit) {
+      // The credit note's refund is confirmed: the minute cron stops watching it.
+      ctx.write(
+        ctx.db
+          .updateTable("core_credit_note_refund")
+          .set({ confirmed_at: ctx.now })
+          .where("id", "=", credit.id)
+          .where("confirmed_at", "is", null),
+      );
+    }
+    ctx.write(
+      eventStatement(ctx.db, {
+        documentKind: credit ? "credit_note" : "invoice",
+        documentId: credit ? credit.credit_note_id : row.invoice_id,
+        invoiceId: row.invoice_id,
+        event: "refund_confirmed",
+        paymentId: requested?.id ?? null,
+        method: "provider",
+        amount: event.amount,
+        currency: row.currency,
+        at: ctx.now,
+      }),
+    );
+  }
   if (!whole && row.person_id) {
     ctx.postActivity({
       subject: `Order refund: ${formatMoney(event.amount, row.currency)}`,

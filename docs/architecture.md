@@ -2853,8 +2853,36 @@ write it in their own batch. The **invoice settings** (`invoice.settings.*`, a h
 the business's details and bank details (a change tells every admin), the tax rates (a rate never
 changes, it is retired), terms, validity, reminders, the threshold for recorded payments, the footer
 and retention. `rec_quote`, `rec_invoice` and `rec_credit_note` carry numbers, states, dates,
-amounts and the bill-to's ids, never addresses, notes or bank details. Issuing as an order, recorded
-payments, credit notes, quotes' acceptance, sending and reminders, the customer's side and the
+amounts and the bill-to's ids, never addresses, notes or bank details.
+**An invoice is an order** (step 3, [ADR 0731](adr/0731-an-invoice-is-an-order.md),
+`invoices/issue.ts`): `invoice.issue` (`invoices:send`; an AI asks, a person approves) gives the
+number and starts the order in one batch through `createOrder` with lines the host built from the
+invoice (`priced`; a record's line its record and quantity, read again; a typed one a line of the
+invoice), its line discounts as `staff` adjustments (with `orders:discount`, within the limit or
+approved) and the host's `prepaid`; a record's line split in two when its amount with tax does not
+divide by its quantity, so nothing is rounded; no deal; the goods rules (goods need a delivery, so
+are refused); the document's tax on its lines, each payment carrying its share of it and each
+refund the refunded payment's share (so stage 52's book counts it), and its checkout asks the
+provider for none. An act that may wait for a person names the version read, so what is approved
+is what was asked. The order (`core_order.invoice_id`) never expires, is due on the invoice's due
+date and is listed overdue after it; `order.*` refuses to move it (`rule: "invoice_order"`),
+triggers hold its price, currency, tax and lines for any writer and refuse deleting it, and
+deleting the customer's account or erasing the bill-to never cancels it. Reversals that leave
+nothing paid put it back to pending. The invoice moves with every change to its order (its version, and its state following;
+`invoiceFollows` in `orders/orders.ts`), and part payments online are only what the invoice allows
+(`invoice.allowPartPayments`). **Recorded payments** (step 4,
+[ADR 0733](adr/0733-recording-a-payment-on-an-invoice.md)): `invoice.recordPayment` and
+`invoice.reversePayment` (`invoices:payments`, restricted, human only) on stage 34's shared step;
+its settle path writes `payment_applied` and `payment_reversed` to the event log for any invoice's
+order. **Credit notes and void** (step 5, [ADR 0735](adr/0735-credit-notes-and-void.md),
+`invoices/credit.ts`): drafted (`creditNote.create`) against lines or an amount at a rate, bounded
+by what is left of each line, rate and the invoice; issued by a person (`creditNote.issue`,
+`invoices:credit`), they take off what is owed (`core_order.credited`) then give back what was paid,
+newest payment first: a provider's through the refund approval, a recorded one owed until a person
+records it paid back (`order.recordRefund`), each a `core_credit_note_refund` row given back,
+asked or owed; a provider's refund rejected, expired or failed is owed and asked for again
+(`creditNote.askRefundAgain`); never more than was paid, and `order.refund` refuses an invoice's
+applied payments. `invoice.void` is a full credit note on an unpaid invoice. Quotes' acceptance, sending and reminders, the customer's side and the
 Invoicing pack are the later steps (`docs/stages/35-invoices-quotes.md`).
 
 **Accounting sync** (stage 61, [spec](stages/61-accounting-sync.md)) sends the host's own money

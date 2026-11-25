@@ -65,12 +65,26 @@ merge; step 4 builds on, or builds, stage 34's shared step "an order paid anothe
   step 11 an erase leaves a draft's text and a merge leaves documents on the merged-away Person
   (step 11 amends the update triggers for the re-point; ADR 0730).
 
-- **Step 3** — not built — needs: step 2, stage 34 step 1 — Issue as an order
+- **Step 3** — built — PR #460 — Issue as an order: `invoice.issue` numbers the draft and starts its
+  order in one batch through `createOrder` (priced lines, line discounts as `staff` adjustments,
+  the host's `prepaid` kind, no deal, the goods rules: goods refused, the document's
+  tax, no expiry, its due date), `invoice.allowPartPayments`; `order.*` refuses to move it;
+  migration 1031, ADR 0731
 
-- **Step 4** — not built — needs: step 3, stage 34 step 3 — Recorded payments and reversal, on
-  stage 34's shared step (built there by PR #426)
+- **Step 4** — built — PR #460 — Recorded payments and reversal, on stage 34's shared step (built
+  there by PR #426): `invoice.recordPayment` and `invoice.reversePayment` (`invoices:payments`,
+  human only), the settle path writing the event log; ADR 0733 (0734 stays free)
 
-- **Step 5** — not built — needs: step 3, step 4 — Credit notes and void
+- **Step 5** — built — PR #460 — Credit notes and void: `creditNote.create/get/list/delete/issue`
+  and `invoice.void`, `core_order.credited`, refunds by method per payment
+  (`core_credit_note_refund`), never more than was paid; ADR 0735. After review: every act that may
+  wait for a person names the version read; a refund rejected or expired is owed and asked again
+  (`creditNote.askRefundAgain`); reversals to nothing put the invoice back to unpaid; account
+  deletion and erase never cancel an invoice's order; each payment and refund carries its share of
+  the document's tax (stage 52's book); an open payment page holds credits and recorded payments.
+  After the second review: tax worked from the documents on mixed rates with credit notes; the
+  invoice's version moves with every money act; REPLACE guarded; a refund that may have reached the
+  provider asked again as the same refund; one unconfirmed in five days owed and staff told
 
 - **Step 6** — not built — needs: step 2 — Quotes and acceptance (the deposit invoice needs step 3)
 

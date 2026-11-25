@@ -72,7 +72,7 @@ import { queueRepointRelations } from "../records/relations.ts";
 import { loadTags, queueSetTags, tagsInputSchema } from "../records/tags.ts";
 import { endErasedSubscriptions } from "../subscriptions/erase.ts";
 import { queueMergeSubscriptions } from "../subscriptions/merge.ts";
-import { type Reader, visibleTable } from "../visibility/index.ts";
+import { type Reader, visibleSource, visibleTable } from "../visibility/index.ts";
 import { setCoreWriter } from "../visibility/writes.ts";
 import {
   type Affiliation,
@@ -1508,6 +1508,11 @@ export const personErase = defineOperation({
       .describe(
         "Their subscriptions, as payer or holder (issue #293, ADR 0533): nothing is refunded",
       ),
+    invoicesKept: z
+      .number()
+      .describe(
+        "Issued invoices billed to them (stage 35): kept, no longer theirs, with their number, amounts and the bill-to as printed (the name, address and email they were sent to), for the books until the retention period decides (stage 35 step 11); staff credit or void one still owed",
+      ),
   }),
   permission: "records:erase",
   risk: "destructive",
@@ -1525,6 +1530,18 @@ export const personErase = defineOperation({
     }
     // Their family links go with them; a child left with no guardian stays, and staff are told.
     const leftAlone = await dependantsLeftAlone(ctx, ids);
+    // Issued invoices billed to them stay, detached, with the bill-to as printed (stage 35).
+    // biome-ignore lint/suspicious/noExplicitAny: the source is a registry-driven view, not a key of the typed schema.
+    const kept = (await (ctx.db as any)
+      .selectFrom(
+        visibleSource(ctx, getObject("invoice") as NonNullable<ReturnType<typeof getObject>>),
+      )
+      .select((eb: { fn: { countAll: () => { as: (n: string) => unknown } } }) =>
+        eb.fn.countAll().as("n"),
+      )
+      .where("person_id", "in", ids)
+      .where("state", "!=", "draft")
+      .executeTakeFirst()) as { n: number } | undefined;
     queueEraseLinks(ctx, ids, leftAlone);
     const counts = await queueErase(ctx, {
       object: "person",
@@ -1552,6 +1569,7 @@ export const personErase = defineOperation({
         ...(await afterErase(ctx, counts)),
         dependantsWithoutGuardian: leftAlone,
         subscriptionsEnding: subscriptions.counts,
+        invoicesKept: Number(kept?.n ?? 0),
       };
     });
   },

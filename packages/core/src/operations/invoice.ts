@@ -20,6 +20,7 @@ import { ConflictError, ValidationError } from "../errors.ts";
 import { INVOICE_KINDS, TAX_MODES } from "../fields/invoice.ts";
 import { filterSchema } from "../filter.ts";
 import { newId } from "../ids.ts";
+import { creditRefunds } from "../invoices/credit.ts";
 import {
   aboutSchema,
   auditSnapshot,
@@ -59,6 +60,7 @@ import {
   eventsAfter,
   INVOICE_EVENTS,
 } from "../invoices/events.ts";
+import { requireOrderRoom } from "../invoices/issue.ts";
 import {
   formatNumber,
   loadSeries,
@@ -81,6 +83,7 @@ import {
 import { LIST_MAX_LIMIT, sortSchema } from "../list.ts";
 import { notifyStatements } from "../notifications/send.ts";
 import { defineOperation, type HandlerContext } from "../operation.ts";
+import { loadOrderRow, owedOn } from "../orders/orders.ts";
 import { loadOrderCurrency } from "../orders/settings.ts";
 
 const quoteId = z.string().min(1).max(64).describe("The quote's id (qt_…)");
@@ -202,6 +205,13 @@ function writeDraft(
   before: readonly LineRow[],
   after: readonly LineRow[],
 ) {
+  // An invoice's lines fit the one order it becomes, counting the splits (review of PR #460).
+  if (kind === "invoice") {
+    requireOrderRoom(
+      { tax_mode: (set.tax_mode as DocumentRow["tax_mode"]) ?? doc.tax_mode },
+      after,
+    );
+  }
   const { statement, next } = updateDocument(ctx, kind, doc, set, after);
   // Lines first: their triggers read the document while it is still the draft they were read on.
   ctx.write(...lineWrites(ctx.db, kind, before, after), statement);
@@ -289,6 +299,7 @@ async function createDraft(
     lines.push(await newLine(ctx, kind, draft as unknown as DocumentRow, settings, line, index));
   }
   await checkRecordLines(ctx, currency, lines);
+  if (kind === "invoice") requireOrderRoom(draft as unknown as DocumentRow, lines);
   const row = { ...base, ...totalsOf(lines) };
   const t = KIND_TABLES[kind];
   ctx.write(
@@ -365,7 +376,7 @@ async function updateDraft(
   own: Record<string, unknown>,
   version: number | undefined,
 ) {
-  const doc = await loadDocument(ctx.db, kind, id);
+  const doc = await loadDocument(ctx.db, kind, id, ctx);
   requireDraft(kind, doc);
   checkVersion(doc, version);
   const set = { ...(await draftColumns(ctx, input)), ...own };
@@ -460,7 +471,7 @@ function addLineOperation<K extends DraftKind>(kind: K) {
     permission: "invoices:write",
     risk: "write",
     async handler(input, ctx) {
-      const doc = await loadDocument(ctx.db, kind, input.id);
+      const doc = await loadDocument(ctx.db, kind, input.id, ctx);
       requireDraft(kind, doc);
       checkVersion(doc, input.version);
       const before = await linesOf(ctx.db, kind, doc.id);
@@ -487,7 +498,7 @@ function updateLineOperation<K extends DraftKind>(kind: K) {
     permission: "invoices:write",
     risk: "write",
     async handler(input, ctx) {
-      const { doc, lines, line } = await loadLine(ctx.db, kind, input.lineId);
+      const { doc, lines, line } = await loadLine(ctx.db, kind, input.lineId, ctx);
       requireDraft(kind, doc);
       checkVersion(doc, input.version);
       if (!Object.values(input.change).some((v) => v !== undefined)) {
@@ -522,7 +533,7 @@ function removeLineOperation<K extends DraftKind>(kind: K) {
     permission: "invoices:write",
     risk: "write",
     async handler(input, ctx) {
-      const { doc, lines, line } = await loadLine(ctx.db, kind, input.lineId);
+      const { doc, lines, line } = await loadLine(ctx.db, kind, input.lineId, ctx);
       requireDraft(kind, doc);
       checkVersion(doc, input.version);
       return writeDraft(
@@ -548,7 +559,7 @@ function deleteOperation<K extends DraftKind>(kind: K) {
     permission: "invoices:write",
     risk: "write",
     async handler(input, ctx) {
-      const doc = await loadDocument(ctx.db, kind, input.id);
+      const doc = await loadDocument(ctx.db, kind, input.id, ctx);
       requireDraft(kind, doc);
       checkVersion(doc, input.version);
       const lines = await linesOf(ctx.db, kind, doc.id);
@@ -592,8 +603,24 @@ function getOperation<K extends DraftKind>(kind: K) {
     risk: "read",
     mcp: { idempotent: true },
     async handler(input, ctx) {
-      const doc = await loadDocument(ctx.db, kind, input.id);
-      return presentOf(kind, doc, await linesOf(ctx.db, kind, doc.id));
+      const doc = await loadDocument(ctx.db, kind, input.id, ctx);
+      const out = presentOf(kind, doc, await linesOf(ctx.db, kind, doc.id));
+      // An issued invoice's money is its order's (stage 35 step 3, ADR 0731).
+      if (kind !== "invoice" || !(doc as InvoiceRow).order_id) return out;
+      const order = await loadOrderRow(ctx.db, (doc as InvoiceRow).order_id as string);
+      return {
+        ...out,
+        money: {
+          paid: order.paid,
+          credited: order.credited,
+          refunded: order.refunded,
+          balance: owedOn(order),
+          owedBack: (await creditRefunds(ctx, order.id))
+            .filter((r) => r.state === "owed")
+            .reduce((sum, r) => sum + r.amount, 0),
+          orderState: order.state,
+        },
+      };
     },
   });
 }

@@ -471,6 +471,9 @@ const deletePreviewSchema = z.object({
       records: z.array(z.object({ object: z.string(), label: z.string(), count: z.number() })),
       partPaidOrders: z.number(),
       moreUnpaidOrders: z.number(),
+      invoicesOwed: z
+        .number()
+        .describe("Invoices still owed: deleting the account never cancels one, it stays owed"),
       subscriptions: z
         .array(
           z.object({

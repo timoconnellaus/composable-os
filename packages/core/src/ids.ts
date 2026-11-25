@@ -154,6 +154,8 @@ export const ID_PREFIXES = {
   invoiceLine: "inl",
   creditNote: "cn",
   creditNoteLine: "cnl",
+  /** What an issued credit note gives back on one payment (stage 35 step 5, ADR 0735). */
+  creditNoteRefund: "cnr",
   /** An entry in the accounting outbox, to send to the books once (stage 61). */
   accountingPost: "acp",
   /** A bill-to waiting for a person to choose its contact in the books (stage 61). */
