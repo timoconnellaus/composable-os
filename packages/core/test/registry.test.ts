@@ -60,8 +60,10 @@ describe("core registry", () => {
         // The shared inbox is read with inbox:read (ADR 0740).
         // Whom a checklist done on its own can be for (checklist.whoChoices, ADR 0651: the
         // grantable permissions among them) is read by whoever writes checklists.
+        // Outside practitioners' accounts are listed with practitioners:manage (stage 43, ADR 0581).
         if (op.risk === "read") {
           expect([
+            "practitioners:manage",
             "accounting:manage",
             "bookingSystem:manage",
             "invoices:payments",
