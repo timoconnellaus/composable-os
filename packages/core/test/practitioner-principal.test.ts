@@ -485,5 +485,51 @@ describe("practitioner accounts (criterion 2)", () => {
       invoke("person.merge", { survivorId: a.id, mergedId: c.id }, context(admin)),
     );
     expect(refused).toMatchObject({ code: "conflict", details: { rule: "practitioner_accounts" } });
+
+    // Ended, c's account no longer stands in the way: the merge deletes it and keeps a's.
+    const cAccount = await env.DB.prepare("SELECT id FROM core_practitioner WHERE person_id = ?")
+      .bind(c.id)
+      .first<{ id: string }>();
+    await invoke("practitioner.end", { id: cAccount?.id ?? "", reason: "left" }, context(admin));
+    await invoke("person.merge", { survivorId: a.id, mergedId: c.id }, context(admin));
+    const left = await env.DB.prepare(
+      "SELECT id, person_id FROM core_practitioner WHERE person_id IN (?, ?)",
+    )
+      .bind(a.id, c.id)
+      .all<{ id: string; person_id: string }>();
+    expect(left.results).toEqual([{ id: account.id, person_id: a.id }]);
+  });
+
+  it("erasing the Person removes the account, its sessions and the codes sent to its address", async () => {
+    const tag = unique("gone");
+    const email = `${tag}@practice.example`;
+    const account = await invoke(
+      "practitioner.invite",
+      { email, name: tag, discipline: "Physio" },
+      context(admin),
+    );
+    const now = new Date().toISOString();
+    // A code as Better Auth's email plugin stores it, and a stored reply of the account.
+    await env.DB.prepare(
+      "INSERT INTO core_practitioner_verification (id, identifier, value, expires_at, created_at, updated_at) VALUES (?, ?, 'hash', ?, ?, ?)",
+    )
+      .bind(unique("ver"), `sign-in-otp-${email}`, now, now, now)
+      .run();
+    const count = async (sqlText: string, ...binds: string[]) =>
+      (
+        await env.DB.prepare(sqlText)
+          .bind(...binds)
+          .first<{ n: number }>()
+      )?.n;
+    await invoke("person.erase", { id: account.personId }, context(admin));
+    expect(
+      await count("SELECT count(*) AS n FROM core_practitioner WHERE id = ?", account.id),
+    ).toBe(0);
+    expect(
+      await count(
+        "SELECT count(*) AS n FROM core_practitioner_verification WHERE identifier LIKE ?",
+        `%${email}`,
+      ),
+    ).toBe(0);
   });
 });

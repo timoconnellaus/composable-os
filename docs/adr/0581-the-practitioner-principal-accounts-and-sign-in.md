@@ -132,3 +132,19 @@ nothing about anyone.
   names that one alone).
 - Steps 4 and 5 open operations to the audience one by one, each a line in
   `open-operations.json`, and give the scope in `visibility/` only.
+
+## Amended at review (2026-11-25, PR #453)
+
+- **Erase reaches the practitioner's codes and stored replies.** The account and its sessions go
+  with the Person by the cascade; the one-time sign-in codes name the address and the HTTP
+  surface's stored replies name the account, so `queueEraseCustomers` deletes both
+  (`queueErasePractitionerCodes`, ADR 0320: erase reaches every store).
+- **An ended account does not block a merge.** When both People have an account, the merge is
+  refused only while both can sign in. An ended one is deleted by the merge and the other kept:
+  it could never sign in again and cannot be re-invited.
+- **Known and left for later steps:** a code request for an invited or active address waits for
+  the email and so answers more slowly than one for an unknown address (customers the same); a
+  practitioner whose Person is in the Trash can still sign in and read their own account;
+  "two kinds of session are refused" holds on `/api/v1/*` and the client-app binding, while the
+  admin's server functions and the assistant ignore the other cookies; step 5 must check each
+  place that treats "not staff" as a customer or the public.
