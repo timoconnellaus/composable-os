@@ -13,7 +13,10 @@ vocabulary in [`CONTEXT.md`](CONTEXT.md), and respect the decisions in [`docs/ad
 - You will be pointed at a stage spec in `docs/stages/`. Build what it says. Its acceptance criteria
   are the definition of done.
 - Record what a build step built in the spec's Status section, not in `docs/roadmap.md` or
-  `docs/parallel-work.md` (CONTRIBUTING.md, Working in parallel).
+  `docs/parallel-work.md` (CONTRIBUTING.md, Working in parallel), changing your step's own line
+  to the format given there.
+- Read current progress with `pnpm stage:status` (every stage's steps built, what can be built
+  next, and what each waits on; `--next` lists the steps ready to build), not from the roadmap.
 - If the spec turns out to be wrong or ambiguous, don't silently diverge. Stop and ask, or record the
   deviation and why in the PR description.
 - A new significant decision gets an ADR (`docs/adr/NNNN-title.md`, next free number). If a decision

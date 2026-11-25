@@ -130,3 +130,7 @@ No migrations. ADR 0405.
 3. `add-automations-tools-dashboards`.
 4. The version guard.
 5. The one trial extension, and the fixes it leads to.
+
+## Status
+
+- **All steps** — built — PR #78 — Extension skills, cos ext check and cos ext test.

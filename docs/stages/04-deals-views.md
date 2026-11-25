@@ -132,3 +132,7 @@ extension), saved per user or shared:
 10. `pnpm lint typecheck test` and e2e pass in CI. ADRs, `CONTEXT.md` (Pipeline, Stage, Stage history,
     Dashboard, Widget, Click-through), `docs/architecture.md` and the extension's README are
     updated.
+
+## Status
+
+- **All steps** — built — PRs #27, #28 — Deals and views: 4b Deals (#27); 4a view types and dashboards (#28).

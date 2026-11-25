@@ -146,3 +146,7 @@ runaways.
    by a rubric). A report is committed, with a target of at least 8/10.
 10. `pnpm lint typecheck test` and e2e pass in CI. ADRs, `CONTEXT.md` (Automation, Trigger, Run,
     Cascade, Kill switch, Notification), `docs/architecture.md` and the SDK README are updated.
+
+## Status
+
+- **All steps** — built — PR #30 — Automations.

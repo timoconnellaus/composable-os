@@ -33,6 +33,37 @@ builder.", stage 24 and stage 28 list a page builder as out of scope, and `CONTE
 "_Avoid_: page (pages are code)". The owner decided to change that (decision 1). The ADRs this
 stage amends are listed under [Migrations and numbers](#migrations-and-numbers).
 
+## Status
+
+Not to be built yet (decision 3): every step waits for the first gym to be live on bookings and
+memberships.
+
+- **Step 1** — not built — needs: the first gym live (decision 3) — `sections` in the manifest and contract, layout choices,
+  the composed document schema and its checks
+
+- **Step 2** — not built — needs: the first gym live (decision 3) — Publishing together; an AI's request for it; the inbox's
+  preview and section summaries
+
+- **Step 3** — not built — needs: the first gym live (decision 3) — The site-wide preview link (migration 1210) and the `path`
+  variant
+
+- **Step 4** — not built — needs: step 1 — The Site pack's spine: page, settings, generic sections,
+  `site.resolve`, `site.sitemap`, views, starter sites
+
+- **Step 5** — not built — needs: step 4 — Pack sections: Bookings, Memberships, Content,
+  Ticketing, Courses
+
+- **Step 6** — not built — needs: step 4 — The renderer blocks; the template's catch-all route;
+  `start-client-app` and `add-block`
+
+- **Step 7** — not built — needs: step 6, stage 47 — The Website editor screen; e2e
+
+- **Step 8** — not built — needs: step 6, stage 46 — The hosted site app for standard clients, with
+  sign-in and My account
+
+- **Step 9** — not built — needs: step 1, step 2, step 3, step 4, step 5, step 6, step 7, step 8 — The site
+  and `SITE.md`; ADR amendments; `CONTEXT.md`, `docs/architecture.md`
+
 ## Goal
 
 A business edits its own website from the admin its staff already use: its pages, its menus, the

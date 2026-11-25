@@ -279,3 +279,7 @@ Migrations 0290–0299 (block H in `docs/parallel-work.md`). ADRs 0242 and 0243.
 - **Who approves:** anyone who may approve outbound actions, including the author. An admin setting requires an Admin or Manager instead.
 - **Default send limits:** Gmail 400 a day, Google Workspace 1,500 a day, Microsoft 365 2,000 a day, at most 20 a minute. Admins can change them.
 - **Shared inboxes** (org connections) may compose and reply but may not send sequences.
+
+## Status
+
+- **All steps** — not built — needs: the owner's agreement on the spec — Email from the CRM (spec proposed, PR #49).
