@@ -134,8 +134,8 @@ module (the till): whichever is built first builds it once, to this design.
   match), at least 6 characters, unique per object and looked up by index; `randomCodes` makes
   single-use codes.
 
-- **Step 5** — not built — needs: step 1 — The Offers pack's spine: discount, promo code, member
-  price and customer rate, tools, views, settings, permissions.
+- **Step 5** — in progress — branch `feat/stage-34-offers-pack` — The Offers pack's spine:
+  discount, promo code, member price and customer rate, tools, views, settings, permissions.
 
 - **Step 6** — not built — needs: step 4 — Subscriptions: a discount for 1 or N periods, plan
   changes, a one-period discount on a running subscription.
