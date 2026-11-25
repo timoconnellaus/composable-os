@@ -8,6 +8,8 @@
 //                                             call through invoke()
 //   /api/customer-auth/*                      customer sign-in (stage 22's routes): send a code,
 //                                             sign in, get the session, sign out
+//   /api/practitioner-auth/*                  practitioner sign-in (stage 43, ADR 0581): the
+//                                             same four routes, a session of its own
 //   GET /api/media/<id>                       a picture published content shows (stage 28, ADR
 //                                             0444), as media.serve decides; never an upload
 //   GET /api/v1/agreements/acceptances/<id>.pdf
@@ -22,11 +24,14 @@
 //   it: the signature is CUSTOMER_AUTH_SECRET's, which the bound Worker never holds, and the
 //   session must be a live row of an active account linked to its Person. A missing, forged,
 //   tampered, signed-out or deleted session is the public.
+// - Or a practitioner's (`cos-practitioner.session_token`, ADR 0581), verified the same way with
+//   its own key and table, for an active account. Never both: one call is one hat, and a request
+//   carrying both kinds is refused.
 // - It is never staff. This entrypoint does not read a staff session at all: no Better Auth staff
 //   cookie, no Cloudflare Access JWT, no support access. A request with an Authorization header
 //   (a native app's bearer token, staff or customer) is refused: a bound Worker forwards the
 //   cookie its own hostname holds, never a token.
-// - It is never a customer who has not signed in: no header, claim or body field names the
+// - It is never a customer (or practitioner) who has not signed in: no header, claim or body field names the
 //   caller. The customer is whoever the verified cookie says, and the visibility seam gives them
 //   their own rows only.
 // - `cf-connecting-ip` is the bound Worker's word (it should forward its visitor's). It is used
@@ -35,7 +40,7 @@
 // - `Origin` on the sign-in routes is forwarded for Better Auth's cross-site check, which
 //   protects the customer's browser; nothing about the caller is decided from it.
 import { WorkerEntrypoint } from "cloudflare:workers";
-import { CUSTOMER_COOKIE_PREFIX } from "@composable-os/auth";
+import { CUSTOMER_COOKIE_PREFIX, PRACTITIONER_COOKIE_PREFIX } from "@composable-os/auth";
 import {
   coreInvoker,
   createHttpSurface,
@@ -53,27 +58,30 @@ import {
   type ApiEnv,
   customers,
   handleCustomerAuth,
+  handlePractitionerAuth,
   isCustomerAuthPath,
+  isPractitionerAuthPath,
   outsideContext,
+  practitioners,
 } from "./api.ts";
 
 const PUBLIC: PublicPrincipal = Object.freeze({ kind: "public" });
 
-/** A customer's session cookie by name, with or without Better Auth's `__Secure-` prefix. */
-function isCustomerCookie(part: string): boolean {
-  return part.replace(/^__(Secure|Host)-/, "").startsWith(`${CUSTOMER_COOKIE_PREFIX}.`);
+/** A session cookie of `prefix` by name, with or without Better Auth's `__Secure-` prefix. */
+function isCookieOf(part: string, prefix: string): boolean {
+  return part.replace(/^__(Secure|Host)-/, "").startsWith(`${prefix}.`);
 }
 
 /**
- * The request as the customer session check sees it: its customer cookies and no other header.
+ * The request as one kind of session check sees it: that kind's cookies and no other header.
  * Nothing else the bound Worker sends can reach the code that decides who the caller is.
  */
-function customerCookiesOnly(request: Request): Request {
+function cookiesOnly(request: Request, prefix: string): Request | null {
   const cookie = (request.headers.get("cookie") ?? "")
     .split(/;\s*/)
-    .filter((part) => part && isCustomerCookie(part))
+    .filter((part) => part && isCookieOf(part, prefix))
     .join("; ");
-  return new Request(request.url, { headers: cookie ? { cookie } : {} });
+  return cookie ? new Request(request.url, { headers: { cookie } }) : null;
 }
 
 /**
@@ -90,11 +98,29 @@ export async function boundContext(
       { reason: "binding_takes_cookies_only", httpStatus: 401 },
     );
   }
+  const asCustomer = cookiesOnly(request, CUSTOMER_COOKIE_PREFIX);
+  const asPractitioner = cookiesOnly(request, PRACTITIONER_COOKIE_PREFIX);
+  if (asCustomer && asPractitioner) {
+    throw new ForbiddenError(
+      "This request carries a customer session and a practitioner session. Sign out of one.",
+      { reason: "one_hat" },
+    );
+  }
+  const db = createCrmDb(env.DB);
+  if (asPractitioner) {
+    const resolved = (await practitioners(env)?.resolveSession(asPractitioner)) ?? null;
+    return outsideContext(
+      env,
+      db,
+      resolved?.principal ?? PUBLIC,
+      resolved?.principal ? resolved.sessionId : null,
+    );
+  }
   const identity = customers(env);
   const { principal, sessionId } = identity
-    ? await identity.resolveSession(customerCookiesOnly(request))
+    ? await identity.resolveSession(asCustomer ?? new Request(request.url))
     : { principal: PUBLIC, sessionId: null };
-  return outsideContext(env, createCrmDb(env.DB), principal, sessionId);
+  return outsideContext(env, db, principal, sessionId);
 }
 
 const surfaces = new WeakMap<object, ReturnType<typeof createHttpSurface>>();
@@ -109,6 +135,7 @@ const notServed = () =>
 export async function handleBound(request: Request, env: ApiEnv): Promise<Response> {
   const { pathname } = new URL(request.url);
   if (isCustomerAuthPath(pathname)) return handleCustomerAuth(request, env);
+  if (isPractitionerAuthPath(pathname)) return handlePractitionerAuth(request, env);
   // A customer's own signed PDF: the caller is never staff here, so only me.agreements.pdf.
   if (isAgreementPdfPath(pathname)) {
     return handleAgreementPdf(request, { context: (req) => boundContext(req, env) });

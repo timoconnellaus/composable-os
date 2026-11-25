@@ -51,7 +51,9 @@ import {
   apiContext,
   handleApi,
   handleCustomerAuth,
+  handlePractitionerAuth,
   isCustomerAuthPath,
+  isPractitionerAuthPath,
 } from "./server/http/api.ts";
 import {
   type CustomerFeedEnv,
@@ -150,6 +152,10 @@ export default {
     if (isApiPath(pathname)) return apiResponse(request, env as unknown as ApiEnv);
     // Customer sign-in (stage 22's routes, mounted by stage 23): a code by email, then a session.
     if (isCustomerAuthPath(pathname)) return handleCustomerAuth(request, env as unknown as ApiEnv);
+    // Practitioner sign-in (stage 43, ADR 0581): the same shape, its own session.
+    if (isPractitionerAuthPath(pathname)) {
+      return handlePractitionerAuth(request, env as unknown as ApiEnv);
+    }
     // A native app's staff sign-in through the system browser (ADR 0455): a staff page.
     if (pathname === NATIVE_STAFF_SIGN_IN_PATH) {
       return handleNativeStaffSignIn(request, env as unknown as ApiEnv);
