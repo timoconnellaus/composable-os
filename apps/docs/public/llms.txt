@@ -68,6 +68,14 @@
 - [Forms: settings](https://docs.composableos.dev/packs/forms/settings/)
 - [Forms: operations and tools](https://docs.composableos.dev/packs/forms/tools/)
 - [Packs](https://docs.composableos.dev/packs/)
+- [Knowledge: data model](https://docs.composableos.dev/packs/knowledge/data-model/)
+- [Knowledge: decisions](https://docs.composableos.dev/packs/knowledge/decisions/)
+- [Knowledge](https://docs.composableos.dev/packs/knowledge/): Staff procedures read in their published wording and confirmed as read and understood, with a review reminder, and help pages for customers on the business's website.
+- [Knowledge: messages](https://docs.composableos.dev/packs/knowledge/messages/)
+- [Knowledge: permissions and roles](https://docs.composableos.dev/packs/knowledge/permissions/)
+- [Knowledge: screens](https://docs.composableos.dev/packs/knowledge/screens/)
+- [Knowledge: settings](https://docs.composableos.dev/packs/knowledge/settings/)
+- [Knowledge: operations and tools](https://docs.composableos.dev/packs/knowledge/tools/)
 - [Leads: data model](https://docs.composableos.dev/packs/leads/data-model/)
 - [Leads: decisions](https://docs.composableos.dev/packs/leads/decisions/)
 - [Leads](https://docs.composableos.dev/packs/leads/): Inbound interest linked to a person and an organisation, worked from a leads inbox, qualified or disqualified, and converted into deals. Requires Deals.

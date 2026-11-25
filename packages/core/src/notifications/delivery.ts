@@ -597,13 +597,16 @@ async function unreadNotices(
     .where("created_at", ">=", since)
     .where("read_at", "is", null)
     .where("type", "<>", "digest")
+    // A notice for the person only (ADR 0643, 0706) is never in the digest: the digest is a
+    // notification an AI acting for them may list, and its overview is written by a model.
+    .where("human_only", "=", 0)
     .orderBy("created_at", "desc")
     .limit(DIGEST_ITEMS * 2)
     .execute();
   const unread = await sql<{ n: number }>`SELECT count(*) AS n FROM (
       SELECT 1 FROM core_notifications INDEXED BY core_notifications_user_idx
       WHERE user_id = ${userId} AND created_at >= ${since} AND read_at IS NULL
-        AND type <> 'digest'
+        AND type <> 'digest' AND human_only = 0
       LIMIT 1000)`.execute(deps.db);
   const items: DigestItem[] = [];
   let hidden = 0;

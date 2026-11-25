@@ -2,6 +2,7 @@
 // built from it, and the rec_* view SQL generated from it (ADR 0023, ADR 0024).
 import type { CoreDatabase } from "@composable-os/db";
 import {
+  type AcknowledgeNotices,
   type AgreementsManifest,
   type AllowanceManifest,
   type CalendarEntryManifest,
@@ -153,7 +154,15 @@ export interface ObjectDefinitionJson {
     slug?: string | undefined;
     date?: string | undefined;
     publishIn?: string[] | undefined;
-    acknowledge?: { who: string; manage: string } | undefined;
+    acknowledge?:
+      | {
+          who: string;
+          manage: string;
+          managed?: string[] | undefined;
+          owner?: string | undefined;
+          notices?: AcknowledgeNotices | undefined;
+        }
+      | undefined;
     staffRead?: boolean | undefined;
   };
   navigationOrder?: number;
@@ -309,6 +318,13 @@ export function formulaEnvironment(
     env.createdAt = { type: "datetime", sql: "t.created_at" };
     env.updatedAt = { type: "datetime", sql: "t.updated_at" };
     const owner = splitObjectName(object)?.extension;
+    // When the current version went live, and its number (ADR 0706): the rec_* view's join of the
+    // current version (publishedView), for a formula of the publishable object's own fields.
+    const own = state.objects.find((o) => o.name === object);
+    if (own?.definition.publishable && owner === extension) {
+      env.publishedAt = { type: "datetime", sql: "pub.published_at" };
+      env.publishedVersion = { type: "number", sql: "pub.version" };
+    }
     addFields(
       env,
       active.filter((f) => f.extensionId === owner),
@@ -1512,6 +1528,15 @@ export function buildRegistry(state: SchemaState): Map<string, ObjectDefinition>
                     acknowledge: {
                       who: publishable.acknowledge.who,
                       manage: publishable.acknowledge.manage,
+                      ...(publishable.acknowledge.managed
+                        ? { managed: [...publishable.acknowledge.managed] }
+                        : {}),
+                      ...(publishable.acknowledge.owner
+                        ? { owner: publishable.acknowledge.owner }
+                        : {}),
+                      ...(publishable.acknowledge.notices
+                        ? { notices: publishable.acknowledge.notices }
+                        : {}),
                     },
                   }
                 : {}),

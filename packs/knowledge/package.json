@@ -1,0 +1,32 @@
+{
+  "name": "@composable-os/pack-knowledge",
+  "version": "0.1.0",
+  "license": "FSL-1.1-ALv2",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./index.ts",
+    "./client": "./client/index.ts"
+  },
+  "description": "Knowledge: staff procedures read in their published wording and confirmed as read and understood, with a review reminder, and public help pages (stage 38, ADR 0706). Installed in every deployment of a product that lists it. Bundled as source into cos-runner.",
+  "composableOs": {
+    "optional": true,
+    "label": "Knowledge",
+    "description": "Staff procedures everyone reads in their published wording and confirms with one tap, and help pages for your customers on your website."
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@composable-os/client": "workspace:*",
+    "@composable-os/sdk": "workspace:*"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-plugin": "1.5.1",
+    "@cloudflare/workers-types": "5.20261104.1",
+    "@composable-os/config": "workspace:*",
+    "typescript": "6.0.3",
+    "vitest": "5.1.0"
+  }
+}

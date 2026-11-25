@@ -124,3 +124,22 @@ Each check was removed, its tests seen to fail, and restored (`packages/core/tes
   AI's request shows its suggestion and the approver's choice is what goes live.
 - `apps/app/test/approvals-describe.test.ts`: the suggestion is read from the diff and not shown
   as a field line.
+
+## Amended 2026-11-25: managed fields, the notices, and read status from the owning pack (ADR 0706)
+
+- `acknowledge` gains `managed` (more fields of the object's own, outside the content, guarded as
+  who must read is: a person's, once published only a manager's), `owner` (a user field) and
+  `notices` (the pack's words). The host sends them: `asked` in the publish batch, to exactly who
+  must read a version that asks; `reminder`, `outstanding` and `welcome` from `ack.due`, the minute
+  cron's host step, once a local day.
+- `ack.status` and `ack.overview` are now `actors: ["human", "extension"]`. From an extension the
+  host checks, as `record.readRestricted` does: a person-only tool of the shipped, active pack that
+  owns the objects; called by a person (its verified caller); not started by a person approving
+  another actor's call (`startedByApproval`); naming the object's `manage` permission and no other.
+  It then reads that pack's objects only, as that person would. This reverses the line above that
+  no extension reads who has confirmed (the review of PR #340, finding 2): Knowledge's
+  `readStatus` is that tool. Any other extension, an automation and every AI actor still read
+  nothing of it, and the rows are still in no `rec_*` view; once read, what the tool does with the
+  answer is the pack's shipped, reviewed code.
+- The notices are the person's only (`human_only`), so no AI actor lists, counts or reads them in
+  the digest (ADR 0706).
