@@ -80,8 +80,18 @@ on screen and in the file.
   it, refunds looked up by their order's payments, `finance:read` in the MCP `read` and `write`
   scopes, a closed file byte for byte the same after a reopen (names read at download excepted).
 
-- **Step 4** — in progress — branch `feat/stage-52-payouts` — Payout reads, payout entries, the
-  Payouts report (migration 1151)
+- **Step 4** — built — PR #474 — Payout reads, payout entries, the Payouts report (migration 1151):
+  migration 1151, ADR 0793 (0429 and 0791 amended)
+  (`feat/stage-52-payouts`): `listPayouts` and `payoutLines` on the payments gatekeeper (Stripe
+  and the fake; read only, the host's call only, the bank destination never read, a key that may
+  not read payouts answered `unavailable`), `core_payout`, `core_payout_line`,
+  `core_payout_failure` and `core_payout_sync`, the daily `finance.payouts.sync` in the minute cron
+  (at most 20 provider calls a run, a backlog carried on by marker, a quiet minute one keyed read),
+  lines matched to payments and refunds by the provider's reference, one `payout` entry per payout
+  (a failure after arrival its own), late payouts in the next month's late entry, the Payouts
+  report and file with what is not yet paid out, and a mismatch told once. Left: nothing checked on
+  a real Stripe account (runbook section 10); "not yet paid out" looks back 92 days; failures are
+  noticed within the 14 days each pass re-reads.
 
 - **Step 5** — not built — needs: step 2 — Money owed (with `amount_due` kept), Unearned
   (migration 1152)
