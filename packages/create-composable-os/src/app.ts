@@ -283,6 +283,27 @@ function appCode(root: string, product: ClientProductDefinition): string[] {
 
 /** The operation stage 48's "Delete my account" section calls. */
 const DELETE_ACCOUNT = /["'`]me\.deleteAccount["'`]/;
+/** The native block that deletes the account through the account hooks, copied with the shell. */
+const DELETE_BLOCK = "native-account-delete";
+
+/**
+ * Whether the mobile app holds My account's delete block, as `cos add` copied it (the hooks call
+ * me.deleteAccount, so the operation's name is not in the app's own code): its lock entry and its
+ * file, still exporting the section.
+ */
+function hasDeleteBlock(root: string, product: ClientProductDefinition): boolean {
+  const mobile = product.mobile as NonNullable<ClientProductDefinition["mobile"]>;
+  const lockPath = join(root, "blocks.lock.json");
+  if (!existsSync(lockPath)) return false;
+  const entry = (JSON.parse(readFileSync(lockPath, "utf8")) as Record<string, { app?: string }>)[
+    DELETE_BLOCK
+  ];
+  if (entry?.app !== mobile.dir) return false;
+  const file = join(root, mobile.dir, "src", "blocks", DELETE_BLOCK, "delete.tsx");
+  return (
+    existsSync(file) && /\bexport\s+function\s+DeleteAccount\b/.test(readFileSync(file, "utf8"))
+  );
+}
 
 // ---- The host's records -------------------------------------------------------------------------
 
@@ -436,7 +457,7 @@ async function check(flags: Flags, deps: Deps): Promise<number> {
   // Nothing is bought in the app (decision 8, ADR 0905), and a person can delete their account in
   // it, as the stores require of an app accounts are made in (stage 48's account shell).
   const code = appCode(root, product);
-  let deletes = false;
+  let deletes = hasDeleteBlock(root, product);
   for (const file of code) {
     const text = readFileSync(join(root, file), "utf8");
     for (const p of scanPurchases(text)) {

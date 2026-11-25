@@ -415,6 +415,10 @@ function appPackage(text: string, name: string, version: string): string {
   const pkg = JSON.parse(text) as Record<string, unknown>;
   pkg.name = name;
   delete pkg.description;
+  // The template mobile app is type-checked here with the platform's own blocks
+  // (tsconfig.platform.json, not in the kit); a client repo has them copied, and its own config.
+  const scripts = pkg.scripts as Record<string, string> | undefined;
+  if (scripts?.typecheck?.includes("tsconfig.platform.json")) scripts.typecheck = "tsc --noEmit";
   for (const key of ["dependencies", "devDependencies"]) {
     const deps = pkg[key] as Record<string, string> | undefined;
     for (const [dep, range] of Object.entries(deps ?? {})) {
@@ -531,6 +535,14 @@ export async function create(argv: string[], flags: Flags, deps: Deps): Promise<
   }
   const skills = writeSkills(root, kit);
   const product = await loadClientProduct(root);
+  // The mobile app's Account tab is My account's native shell (stage 48 criterion 12): copied
+  // with its sections as `cos add native-account` copies it, so it is the client's from the start.
+  if (mobile && product.mobile && kit.has("blocks/native-account/block.json")) {
+    const { copyBlocks, saveLock } = await import("./blocks.ts");
+    const lock = {};
+    copyBlocks(root, product, kit, version, ["native-account"], lock);
+    saveLock(root, lock);
+  }
   await generateClients(root, product, kit, io);
   // What cos wrote of the host modules, so cos upgrade can tell an edited one (ADR 0451).
   recordHostModules(root, product, kit, version);
