@@ -18,7 +18,13 @@ import { getObject } from "../fields/index.ts";
 import type { InvoiceKind, TaxMode } from "../fields/invoice.ts";
 import { type IdKind, newId } from "../ids.ts";
 import type { HandlerContext } from "../operation.ts";
-import { ORDER_MAX_LINES, ORDER_MAX_QUANTITY, priceLines } from "../orders/orders.ts";
+import { applyGoodsRules } from "../orders/goods.ts";
+import {
+  ORDER_MAX_LINES,
+  ORDER_MAX_QUANTITY,
+  type PricedLine,
+  priceLines,
+} from "../orders/orders.ts";
 import { type InvoiceSettings, rateFor, type TaxRate } from "./settings.ts";
 import { type Discount, documentTotals, lineAmounts, unitPriceFromRecord } from "./tax.ts";
 
@@ -259,6 +265,17 @@ export const invoiceOutput = documentBase.extend({
   dueOn: z.string().nullable().describe("Set on a draft, or worked out at issue from the terms"),
   allowPartPayments: z.boolean(),
   remindersPaused: z.boolean(),
+  money: z
+    .object({
+      paid: z.number(),
+      credited: z.number().describe("What credit notes took off what was owed"),
+      refunded: z.number().describe("What has gone back, confirmed or recorded"),
+      balance: z.number().describe("What is still owed: total less paid less credited"),
+      orderState: z.string(),
+    })
+    .nullable()
+    .optional()
+    .describe("Once issued (invoice.get): its order's money"),
 });
 
 const parseRates = (json: string) => {
@@ -557,14 +574,17 @@ function recordQuantity(quantity: number): void {
 /**
  * The document's record lines, checked together as the one order an invoice becomes (stage 35
  * step 3): the same item on two lines, more than a record's most per order, more grants than an
- * order holds, a record no longer for sale. The same rules, by the same code, as `order.start`,
- * so a draft that passes can be issued. Every write that adds or changes a record's line asks.
+ * order holds, a record no longer for sale, and the goods rules (ADR 0682): goods are sold on an
+ * order with a delivery, which a document does not choose, so a goods record is refused on one
+ * (a typed line describes goods handed over another way). The same rules, by the same code, as
+ * `order.start`, so a draft that passes can be issued; `invoice.issue` runs them again, through
+ * `createOrder`. Every write that adds or changes a record's line asks. Returns the lines priced.
  */
 export async function checkRecordLines(
   ctx: HandlerContext,
   currency: string,
   lines: readonly LineRow[],
-): Promise<void> {
+): Promise<PricedLine[]> {
   const requests = lines
     .filter((l) => l.source === "record" && l.source_object && l.source_id)
     .map((l) => ({
@@ -572,7 +592,22 @@ export async function checkRecordLines(
       id: l.source_id as string,
       quantity: l.quantity_milli / 1000,
     }));
-  if (requests.length) await priceLines(ctx.db, requests, currency, ctx.now);
+  if (!requests.length) return [];
+  const priced = await priceLines(ctx.db, requests, currency, ctx.now);
+  try {
+    await applyGoodsRules(ctx.db, priced, undefined, "start");
+  } catch (error) {
+    const rule = (error as { details?: { rule?: unknown } } | undefined)?.details?.rule;
+    if (error instanceof ValidationError && rule === "delivery_needed") {
+      const goods = priced.find((line) => line.goods);
+      throw new ValidationError(
+        `${goods?.title ?? "This"} is goods, sold on an order with a delivery, which a ${KIND_TABLES.invoice.label} does not choose: sell it with an order, or type the line`,
+        { field: "lines", rule: "goods_need_delivery", line: goods?.position ?? null },
+      );
+    }
+    throw error;
+  }
+  return priced;
 }
 
 /**
@@ -730,17 +765,24 @@ export function renumbered(lines: readonly LineRow[]): LineRow[] {
     .map((line, position) => ({ ...line, position }));
 }
 
-/** The totals columns for `lines`. */
+/**
+ * The totals columns for `lines`. A deduction line ("less deposit paid", the host's, stage 35
+ * step 6) takes its amounts off, by its rate (ADR 0732); on the order it is a `prepaid`
+ * adjustment (ADR 0731).
+ */
 export function totalsOf(lines: readonly LineRow[]) {
   const totals = documentTotals(
-    lines.map((l) => ({
-      taxKey: l.tax_key,
-      taxLabel: l.tax_label,
-      taxRate: l.tax_rate,
-      net: l.line_net,
-      tax: l.line_tax,
-      total: l.line_total,
-    })),
+    lines.map((l) => {
+      const sign = l.source === "deduction" ? -1 : 1;
+      return {
+        taxKey: l.tax_key,
+        taxLabel: l.tax_label,
+        taxRate: l.tax_rate,
+        net: sign * l.line_net,
+        tax: sign * l.line_tax,
+        total: sign * l.line_total,
+      };
+    }),
   );
   return {
     net_total: totals.net,

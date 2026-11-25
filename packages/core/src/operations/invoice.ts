@@ -81,6 +81,7 @@ import {
 import { LIST_MAX_LIMIT, sortSchema } from "../list.ts";
 import { notifyStatements } from "../notifications/send.ts";
 import { defineOperation, type HandlerContext } from "../operation.ts";
+import { loadOrderRow, owedOn } from "../orders/orders.ts";
 import { loadOrderCurrency } from "../orders/settings.ts";
 
 const quoteId = z.string().min(1).max(64).describe("The quote's id (qt_…)");
@@ -593,7 +594,20 @@ function getOperation<K extends DraftKind>(kind: K) {
     mcp: { idempotent: true },
     async handler(input, ctx) {
       const doc = await loadDocument(ctx.db, kind, input.id);
-      return presentOf(kind, doc, await linesOf(ctx.db, kind, doc.id));
+      const out = presentOf(kind, doc, await linesOf(ctx.db, kind, doc.id));
+      // An issued invoice's money is its order's (stage 35 step 3, ADR 0731).
+      if (kind !== "invoice" || !(doc as InvoiceRow).order_id) return out;
+      const order = await loadOrderRow(ctx.db, (doc as InvoiceRow).order_id as string);
+      return {
+        ...out,
+        money: {
+          paid: order.paid,
+          credited: order.credited,
+          refunded: order.refunded,
+          balance: owedOn(order),
+          orderState: order.state,
+        },
+      };
     },
   });
 }
