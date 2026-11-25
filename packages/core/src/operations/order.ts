@@ -40,14 +40,17 @@ import { z } from "zod";
 import { isMinor, personFacts } from "../agreements/due.ts";
 import { enforcePurchase, guestAcceptancesSchema, pointsOfObjects } from "../agreements/enforce.ts";
 import { sameEmailPeople } from "../customers/accounts.ts";
-import { ConflictError, NotFoundError, ValidationError } from "../errors.ts";
+import { ConfigError, ConflictError, NotFoundError, ValidationError } from "../errors.ts";
 import { getObject, listObjects } from "../fields/index.ts";
 import { ORDER_STATES } from "../fields/order.ts";
+import type { ObjectDefinition, StockDefinition } from "../fields/types.ts";
 import { filterSchema } from "../filter.ts";
 import { LIST_MAX_LIMIT, sortSchema } from "../list.ts";
 import { defineOperation, type HandlerContext } from "../operation.ts";
+import { applyAdjustments } from "../orders/adjustments.ts";
 import { openCheckout } from "../orders/checkout.ts";
 import { applyPaymentEvent } from "../orders/events.ts";
+import { deliveryRequestSchema } from "../orders/goods.ts";
 import { grantsFollowPerson } from "../orders/grants.ts";
 import {
   hashOrderToken,
@@ -68,6 +71,7 @@ import {
   OVERDUE_LIMIT,
   overdueOrders,
   type PricedLine,
+  priceOrder,
   requireState,
 } from "../orders/orders.ts";
 import { applyOtherPayment, RECORDED_KINDS, reverseOtherPayment } from "../orders/payments.ts";
@@ -109,7 +113,20 @@ import {
 import { taxCodeOf } from "../orders/tax.ts";
 import { placedAs } from "../principals.ts";
 import { callerMover } from "../records/lifecycle.ts";
+import { callerOf } from "../records/transitions.ts";
 import type { VisibleRecord } from "../visibility/records.ts";
+import { outsideStockView, stockStatus } from "../visibility/stock.ts";
+
+/** A post delivery's address, as its buyer and staff read it. */
+const deliveryAddressOutput = z.object({
+  name: z.string(),
+  line1: z.string(),
+  line2: z.string().nullable(),
+  city: z.string().nullable(),
+  region: z.string().nullable(),
+  postcode: z.string().nullable(),
+  country: z.string(),
+});
 
 const orderId = z.string().min(1).max(64).describe("Order id (ord_…)");
 const when = z.string().nullable();
@@ -365,6 +382,15 @@ export const orderStartInput = z.object({
         "signed-in customer's order uses their account's address and must not pass one.",
     ),
   agreements: guestAcceptancesSchema.optional(),
+  delivery: deliveryRequestSchema
+    .optional()
+    .describe(
+      "How the goods get to the buyer, when the order has goods (records sold as goods): one " +
+        "delivery option (posted, collected, or taken now in person) and, to post, the address. " +
+        "Required with goods, refused without. The host prices it (free over an amount when " +
+        "the option says so) and works out from it whether the order is online or in person; " +
+        "each goods line must be sold there.",
+    ),
 });
 
 export const orderStart = defineOperation({
@@ -377,9 +403,13 @@ export const orderStart = defineOperation({
     "paid. An unpaid order expires after a few minutes. Nobody buys without the agreements the " +
     "business needs for what is bought: refused with rule agreements_due and the documents " +
     "while any is due (a guest passes their acceptances in `agreements`; a signed-in customer " +
-    "agrees first; staff send a link, sign at the desk or record paper). Returns the order with " +
-    "its lines and amounts in the currency's minor unit; a guest also gets `token`, shown once, " +
-    "which is the only way back to the order (order.view).",
+    "agrees first; staff send a link, sign at the desk or record paper). Goods (things posted, " +
+    "collected or taken now) need a `delivery`: the host adds it as the last line, priced by " +
+    "the host, and refuses goods not sold that way (rule not_sold_here), a post delivery with " +
+    "no address or one outside the option's countries, and what is sold out. order.quote gives " +
+    "the same prices without starting anything. Returns the order with its lines and amounts " +
+    "in the currency's minor unit; a guest also gets `token`, shown once, which is the only way " +
+    "back to the order (order.view).",
   input: orderStartInput,
   output: orderSchema.extend({
     token: z.string().nullable().describe("A guest's key to this order. Null for everyone else."),
@@ -390,7 +420,7 @@ export const orderStart = defineOperation({
   hostInternal: true,
   mcp: { expose: false },
   // What a visitor typed, drew and answered never reaches the audit log.
-  redact: ["agreements"],
+  redact: ["agreements", "address"],
   // Never the token: it is the guest's, and the audit log is read by staff.
   auditSummary: (output) => ({ id: output.id }),
   async handler(input, ctx) {
@@ -429,8 +459,281 @@ export const orderStart = defineOperation({
       pay: input.pay,
       accessHash: token ? await hashOrderToken(token) : null,
       agreements: input.agreements,
+      delivery: input.delivery,
     });
     return { ...fromRow(started.row, started.lines.map(toLine), isStaff(ctx)), token };
+  },
+});
+
+// --- A quote: the host's prices, holding nothing (ADR 0683) ------------------------------------
+
+const availabilitySchema = z
+  .object({
+    status: z.enum(["in_stock", "low", "sold_out"]),
+    available: z
+      .number()
+      .optional()
+      .describe("How many can be bought now: for staff, and for others when the item shows it"),
+    onHand: z.number().optional().describe("Staff only"),
+    held: z.number().optional().describe("Staff only"),
+  })
+  .describe("Stock, for a line of something counted on a shelf; null for anything else");
+
+const quoteProblemSchema = z.object({
+  rule: z.enum(["delivery_needed", "address_needed", "sold_out", "not_enough"]),
+  message: z.string(),
+  line: z.number().optional().describe("The position of the line it is about"),
+});
+
+export const orderQuote = defineOperation({
+  name: "order.quote",
+  description:
+    "Price a basket without starting an order: the host's price of each line, the delivery " +
+    "(its postage, nothing when the goods reach the option's free-over amount), the total and " +
+    "what is available, exactly as order.start would charge. Holds nothing and writes nothing: " +
+    "stock is held only once an order is started. Refuses what order.start refuses (not for " +
+    "sale, not sold that way, an address outside the option's countries) and reports, in " +
+    "`problems`, what the buyer still has to do (choose a delivery, give an address) and what " +
+    "is sold out or short; `ready` is true when none is left. Amounts are in the currency's " +
+    "minor unit. Read-only.",
+  input: z.object({
+    lines: orderStartInput.shape.lines.describe(
+      "What is in the basket. There is no price here: the host reads it from each record.",
+    ),
+    delivery: deliveryRequestSchema
+      .optional()
+      .describe(
+        "The delivery option chosen, and to post, the address (its country decides whether " +
+          "the option posts there). Left out, the quote says one is needed when there are goods.",
+      ),
+  }),
+  output: z.object({
+    currency: z.string(),
+    channel: z
+      .enum(["online", "in_person"])
+      .nullable()
+      .describe(
+        "online (posted or collected) or in_person (taken now); null without goods or delivery",
+      ),
+    lines: z.array(
+      z.object({
+        position: z.number(),
+        object: z.string(),
+        recordId: z.string(),
+        title: z.string(),
+        quantity: z.number(),
+        unitPrice: z.number(),
+        total: z.number(),
+        goods: z.boolean().describe("Goods: posted, collected or taken now"),
+        availability: availabilitySchema.nullable(),
+      }),
+    ),
+    delivery: z
+      .object({
+        object: z.string(),
+        recordId: z.string(),
+        title: z.string(),
+        kind: z.enum(["post", "collect", "here"]),
+        price: z.number().describe("The option's own price"),
+        freeOver: z.number().nullable().describe("Goods at or above this post free"),
+        free: z.boolean(),
+        charged: z.number().describe("What the delivery costs on this order: 0 when free"),
+      })
+      .nullable(),
+    goodsTotal: z.number().describe("What the goods cost, before the delivery"),
+    total: z.number().describe("What order.start would charge for this basket"),
+    ready: z.boolean().describe("Nothing in `problems`: the order can be started as it is"),
+    problems: z.array(quoteProblemSchema),
+  }),
+  permission: "records:read",
+  risk: "read",
+  audiences: ["staff", "customer", "public"],
+  hostInternal: true,
+  mcp: { idempotent: true },
+  redact: ["address"],
+  async handler(input, ctx) {
+    const currency = await loadOrderCurrency(ctx.db);
+    if (!currency) {
+      throw new ConfigError("No currency is set for orders yet, so nothing can be sold");
+    }
+    const outcome = await priceOrder(
+      ctx.db,
+      input.lines,
+      input.delivery,
+      currency,
+      ctx.now,
+      callerOf(ctx),
+      "quote",
+    );
+    const deliveryLine = outcome.delivery?.line;
+    const things = outcome.lines.filter((line) => line !== deliveryLine && !line.delivery);
+    // Stock, read once for every counted line: what an order would hold now. Nothing is held.
+    const counted = things.filter((line) => getObject(line.object)?.stock);
+    const counters = counted.length
+      ? await ctx.db
+          .selectFrom("core_capacity")
+          .select(["object_type", "record_id", "places", "held", "taken"])
+          .where(
+            "record_id",
+            "in",
+            counted.map((line) => line.recordId),
+          )
+          .execute()
+      : [];
+    const problems: z.infer<typeof quoteProblemSchema>[] = [...outcome.problems];
+    const staff = isStaff(ctx);
+    const lines = things.map((line) => {
+      const object = getObject(line.object);
+      let availability: z.infer<typeof availabilitySchema> | null = null;
+      if (object?.stock) {
+        const row = counters.find(
+          (c) => c.object_type === line.object && c.record_id === line.recordId,
+        );
+        const onHand = Number(row?.places ?? 0) - Number(row?.taken ?? 0);
+        const held = Number(row?.held ?? 0);
+        const available = Math.max(onHand - held, 0);
+        const withStock = object as ObjectDefinition & { stock: StockDefinition };
+        const view = staff
+          ? { status: stockStatus(withStock.stock, available), available, onHand, held }
+          : outsideStockView(withStock, line.recordId, available);
+        availability = {
+          status: view.status,
+          ...(view.available !== undefined ? { available: view.available } : {}),
+          ...(staff ? { onHand, held } : {}),
+        };
+        if (available <= 0) {
+          problems.push({
+            rule: "sold_out",
+            message: `${line.title} is sold out`,
+            line: line.position,
+          });
+        } else if (line.quantity > available) {
+          problems.push({
+            rule: "not_enough",
+            message:
+              view.available !== undefined
+                ? `Only ${available} of ${line.title} left`
+                : `Not that many of ${line.title} left`,
+            line: line.position,
+          });
+        }
+      }
+      return {
+        position: line.position,
+        object: line.object,
+        recordId: line.recordId,
+        title: line.title,
+        quantity: line.quantity,
+        unitPrice: line.unitPrice,
+        total: line.total,
+        goods: Boolean(line.goods),
+        availability,
+      };
+    });
+    // The same seam as order.start: nothing is taken off a new order yet (ADR 0690).
+    const adjusted = applyAdjustments(outcome.lines, []);
+    const delivery = outcome.delivery;
+    return {
+      currency,
+      channel: outcome.channel,
+      lines,
+      delivery: delivery
+        ? {
+            object: delivery.line.object,
+            recordId: delivery.line.recordId,
+            title: delivery.line.title,
+            kind: delivery.kind,
+            price: delivery.price,
+            freeOver: delivery.freeOver,
+            free: delivery.free,
+            charged: delivery.line.total,
+          }
+        : null,
+      goodsTotal: outcome.goodsTotal,
+      total: adjusted.total,
+      ready: problems.length === 0 && adjusted.total > 0,
+      problems,
+    };
+  },
+});
+
+// --- An order's delivery and its address (ADR 0682) --------------------------------------------
+
+export const orderDeliveryGet = defineOperation({
+  name: "order.delivery.get",
+  description:
+    "How one order's goods get to the buyer: the delivery option chosen, its kind (post, " +
+    "collect, or here: taken now in person), whether the order is online or in person, and " +
+    "for a post delivery the address. One order at a time: addresses are in no list, view, " +
+    "export or search. Staff read any order's (each read is on record in the audit log); a " +
+    "signed-in customer their own; a guest with the order's token. An order without goods " +
+    "has none (not found). Read-only.",
+  input: z.object({
+    id: orderId,
+    token: z.string().min(1).max(128).optional().describe("A guest's token for the order"),
+  }),
+  output: z.object({
+    orderId: z.string(),
+    channel: z.enum(["online", "in_person"]).nullable(),
+    kind: z.enum(["post", "collect", "here"]),
+    lineId: z.string().describe("The order's delivery line"),
+    option: z.object({ object: z.string(), recordId: z.string(), title: z.string() }),
+    address: deliveryAddressOutput.nullable().describe("A post delivery's; null otherwise"),
+    erased: z.boolean().describe("The buyer's erase removed the address"),
+  }),
+  permission: "records:read",
+  risk: "read",
+  audiences: ["staff", "customer", "public"],
+  hostInternal: true,
+  // An address is a person's, read one order at a time by a person or the buyer.
+  mcp: { expose: false },
+  auditReads: true,
+  redact: ["token"],
+  auditSummary: (output) => ({ id: output.orderId, kind: output.kind }),
+  redactResult: ["address"],
+  async handler(input, ctx) {
+    const row = await orderForPaying(ctx, input.id, input.token);
+    const delivery = await ctx.db
+      .selectFrom("core_order_delivery as d")
+      .innerJoin("core_order_line as l", "l.id", "d.line_id")
+      .select([
+        "d.kind",
+        "d.line_id",
+        "d.name",
+        "d.line1",
+        "d.line2",
+        "d.city",
+        "d.region",
+        "d.postcode",
+        "d.country",
+        "d.erased_at",
+        "l.object_type",
+        "l.record_id",
+        "l.title",
+      ])
+      .where("d.order_id", "=", row.id)
+      .executeTakeFirst();
+    if (!delivery) throw new NotFoundError("order delivery", row.id);
+    return {
+      orderId: row.id,
+      channel: row.channel ?? null,
+      kind: delivery.kind,
+      lineId: delivery.line_id,
+      option: { object: delivery.object_type, recordId: delivery.record_id, title: delivery.title },
+      address:
+        delivery.kind === "post" && delivery.erased_at === null && delivery.country
+          ? {
+              name: delivery.name ?? "",
+              line1: delivery.line1 ?? "",
+              line2: delivery.line2,
+              city: delivery.city,
+              region: delivery.region,
+              postcode: delivery.postcode,
+              country: delivery.country,
+            }
+          : null,
+      erased: delivery.erased_at !== null,
+    };
   },
 });
 
@@ -1593,6 +1896,8 @@ export const orderRefundDue = defineOperation({
 
 export const orderOperations = [
   orderStart,
+  orderQuote,
+  orderDeliveryGet,
   orderStartHeld,
   orderRefundDue,
   orderReleaseUnsettled,

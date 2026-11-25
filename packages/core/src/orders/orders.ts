@@ -37,6 +37,14 @@ import {
   visibleSource,
 } from "../visibility/index.ts";
 import { applyAdjustments } from "./adjustments.ts";
+import {
+  applyGoodsRules,
+  type DeliveryFacts,
+  type DeliveryRequest,
+  type GoodsFacts,
+  type GoodsOutcome,
+  goodsFactsOf,
+} from "./goods.ts";
 import { claimOrderPlaces } from "./holds.ts";
 import { holdOncePerPerson } from "./once.ts";
 import {
@@ -130,6 +138,10 @@ export interface PricedLine {
   recurring?: { interval: "week" | "month" | "year"; trialDays: number | null };
   /** Sold once per Person (ADR 0512): the record's `onePerPerson` field is on. */
   once?: boolean;
+  /** Goods (ADR 0682): where the record is sold. */
+  goods?: GoodsFacts;
+  /** A delivery option (ADR 0682): its kind, free over, countries and whether it is offered. */
+  delivery?: DeliveryFacts;
 }
 
 /** Why a line cannot be bought. A caller outside the org sees the rule, not the record. */
@@ -299,7 +311,13 @@ export async function priceLines(
     const title = object.titleField ? read(object.titleField) : null;
     const trial = sellable.recurring?.trialDays ? read(sellable.recurring.trialDays) : null;
     const onceFlag = sellable.onePerPerson ? read(sellable.onePerPerson) : null;
+    // Goods and delivery (ADR 0682): what the record says, for the goods rules (orders/goods.ts).
+    const facts =
+      sellable.goods || sellable.delivery
+        ? await goodsFactsOf(db, object, sellable, row, currency)
+        : {};
     priced.push({
+      ...facts,
       ...(onceFlag === 1 || onceFlag === true ? { once: true } : {}),
       ...(sellable.recurring
         ? {
@@ -323,6 +341,28 @@ export async function priceLines(
     });
   }
   return priced;
+}
+
+/**
+ * Prices an order as the host (ADRs 0682 and 0685): the lines, then the delivery chosen (a line
+ * of quantity 1, last), then the goods rules, which work out the channel, refuse what is not sold
+ * there or cannot be delivered so, and price the postage. `order.start` and `order.quote` both
+ * price through it, so a quote and the order it becomes agree.
+ */
+export async function priceOrder(
+  db: Kysely<CoreDatabase>,
+  lines: readonly LineRequest[],
+  delivery: DeliveryRequest | undefined,
+  currency: string,
+  now: string,
+  buyer: Principal | undefined,
+  mode: "start" | "quote",
+): Promise<GoodsOutcome> {
+  const all = delivery
+    ? [...lines, { object: delivery.object, id: delivery.id, quantity: 1 }]
+    : [...lines];
+  const priced = await priceLines(db, all, currency, now, buyer);
+  return applyGoodsRules(db, priced, delivery, mode);
 }
 
 // --- Starting an order -------------------------------------------------------------------------
@@ -351,6 +391,11 @@ export interface NewOrder {
   participantId?: string | null;
   /** A visitor's acceptances, carried in the buying call (only `placedAs: "public"`). */
   agreements?: readonly GuestAcceptance[] | undefined;
+  /**
+   * How an order with goods gets to the buyer (ADR 0682): a delivery option and, for post, the
+   * address. Priced by the host; the channel follows from it.
+   */
+  delivery?: DeliveryRequest | undefined;
 }
 
 export interface StartedOrder {
@@ -381,9 +426,20 @@ export async function createOrder(ctx: HandlerContext, input: NewOrder): Promise
   if (!currency) {
     throw new ConfigError("No currency is set for orders yet, so nothing can be sold");
   }
-  const priced = input.priced
-    ? [...input.priced]
-    : await priceLines(ctx.db, input.lines, currency, ctx.now, callerOf(ctx));
+  // The goods rules hold for lines the host priced itself too (order.startHeld): goods there
+  // would need a delivery.
+  const goods = input.priced
+    ? await applyGoodsRules(ctx.db, input.priced, undefined, "start")
+    : await priceOrder(
+        ctx.db,
+        input.lines,
+        input.delivery,
+        currency,
+        ctx.now,
+        callerOf(ctx),
+        "start",
+      );
+  const priced = goods.lines;
   // The seam's adjustment stage (ADR 0690): nothing is taken off an order as it starts yet (a
   // code or a member's price joins here with the discount behaviour); staff take money off a
   // pending order afterwards (orders/staff-discounts.ts), through the same function.
@@ -470,6 +526,7 @@ export async function createOrder(ctx: HandlerContext, input: NewOrder): Promise
     updated_at: ctx.now,
     version: 0,
     discount: adjusted.discount,
+    channel: goods.channel,
   };
   // The host creates the order: its first history row is the host's, whoever is buying.
   const outcome = await applyTransition(
@@ -508,6 +565,25 @@ export async function createOrder(ctx: HandlerContext, input: NewOrder): Promise
     // After the order: a guest's acceptance names an order that must exist (migration 0851).
     ...guestRows,
   );
+  // The order's delivery and, for post, its address (ADR 0682), after its line.
+  if (goods.delivery) {
+    const address = goods.delivery.address;
+    ctx.write(
+      ctx.db.insertInto("core_order_delivery").values({
+        order_id: id,
+        line_id: goods.delivery.line.id,
+        kind: goods.delivery.kind,
+        name: address?.name ?? null,
+        line1: address?.line1 ?? null,
+        line2: address?.line2 || null,
+        city: address?.city || null,
+        region: address?.region || null,
+        postcode: address?.postcode || null,
+        country: address?.country ?? null,
+        created_at: ctx.now,
+      }),
+    );
+  }
   // One per Person (ADR 0512): refused, or held in this batch, after the order it names.
   await holdOncePerPerson(
     ctx,

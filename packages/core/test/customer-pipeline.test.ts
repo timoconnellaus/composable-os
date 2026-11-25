@@ -135,7 +135,10 @@ describe("default closed (criterion 1)", () => {
       // Stage 25 (ADR 0428): a customer starts, reads and cancels their own orders.
       "order.cancel",
       "order.checkout",
+      // Stage 37 step 3 (ADRs 0682, 0683): a buyer's own delivery address, and a basket's quote.
+      "order.delivery.get",
       "order.get",
+      "order.quote",
       "order.start",
       "order.view",
       // Stage 37 step 1 (ADR 0680): whether a thing in stock can be bought, by its `show`.
@@ -173,6 +176,10 @@ describe("default closed (criterion 1)", () => {
       "media.play",
       "media.serve",
       "order.checkout",
+      // Stage 37 step 3: a guest's delivery by the order's token (ADR 0682), a basket's quote
+      // (ADR 0683).
+      "order.delivery.get",
+      "order.quote",
       "order.start",
       "order.view",
       "stock.get",
@@ -515,6 +522,10 @@ describe("the closed handler context (ADR 0413)", () => {
       // Stage 25 (ADR 0428): the host itself starts and changes an order for the caller.
       "order.cancel",
       "order.checkout",
+      // Stage 37 step 3 (ADRs 0682, 0683): the delivery's core table, and a quote priced as the
+      // host prices an order (records read org-wide, the stock counters).
+      "order.delivery.get",
+      "order.quote",
       "order.start",
       // Stage 31a step 8 (ADR 0560): the host makes a drop-in booking held with its order.
       "order.startHeld",
