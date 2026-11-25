@@ -103,6 +103,9 @@ describe("bookings pack (test host)", () => {
       "class",
       "closure",
       "booking",
+      // Stage 49 step 5 (ADR 0764): one-to-one sessions (test/appointments.test.ts).
+      "service",
+      "appointment",
     ]);
     // Bookings' rules sit on Programs' class type; empty means the organisation's setting.
     expect(Object.keys(h.manifest.fields["programs.classtype"] ?? {})).toEqual([
@@ -249,6 +252,8 @@ describe("bookings pack (test host)", () => {
       "notification.send",
       // A class list's "health note" mark (stage 44, decision 18).
       "agreement.listHealthNotes",
+      "staffing.free",
+      "staffing.week",
     ]);
     const rules = m.fields["programs.classtype"] ?? {};
     for (const name of [
@@ -1000,7 +1005,7 @@ describe("bookings pack (test host)", () => {
     for (const tool of ["classList", "bookFor", "cancelFor", "move", "findPeople", "returnUse"]) {
       expect(m.tools[tool]?.permission).toBe("bookings:desk");
     }
-    expect(m.grantable).toEqual(["bookings:desk"]);
+    expect(m.grantable).toEqual(["bookings:desk", "bookings:appointments"]);
     expect(m.grantableLabels?.["bookings:desk"]).toContain("Front desk");
     // Cancelling a class keeps its own permission, and stays a person's.
     expect(m.tools.cancelClass?.permission).toBe("bookings:cancelClasses");

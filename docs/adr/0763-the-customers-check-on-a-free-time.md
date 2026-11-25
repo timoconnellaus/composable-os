@@ -64,3 +64,8 @@ and must be told rather than refused.
   public) has no Person when it is judged, so the client rule cannot be read then; the Person is
   set when the order is paid (`settle`, as the host). A visitor who already has a session then
   could pay for a second one. Stage 49 step 8 (visitors pay per session) closes it, at settle.
+
+## Amended 2026-11-25 (stage 49 step 5, ADR 0764)
+A new booked shift that names no room takes the first of its kind's rooms free then, chosen by the
+host before the check (refused `room_taken` when none is); staff naming a provider is not
+rostering. See [ADR 0764](0764-appointments-in-the-bookings-pack.md).

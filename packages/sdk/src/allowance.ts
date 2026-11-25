@@ -30,12 +30,19 @@ export const ALLOWANCE_VALUES = ["used", "left"] as const;
  *   16:00, `below: 960`). An empty holder field sets no bound.
  *
  * A spender with no value for `field` meets no condition that sets a limit.
+ *
+ * - `value` (stage 49, ADR 0764), in place of `field`: what every record of the spender is, a fixed
+ *   word compared with `in` ("sessions": an appointment, never a class). No caller sets it.
+ * - `empty` (stage 49, ADR 0764): `"none"` makes an empty holder field for `in` allow nothing
+ *   instead of anything: a pass that names no services covers no appointment. Left out, `"any"`.
  */
 export interface AllowanceCondition {
-  field: string;
+  field?: string;
+  value?: string;
   in?: string | readonly string[];
   atLeast?: string | number;
   below?: string | number;
+  empty?: "any" | "none";
 }
 
 /** What a holder may be spent on: an object that declares `allowance.spends`, and conditions. */
@@ -93,7 +100,8 @@ export interface AllowanceHolderSpec {
  *   be live then. Left out: the time of the spend.
  * - `copy`: read-only fields of its own the host fills, at create and at each spend, from one
  *   relation away (`{ classType: "class.classType" }`), so a holder's `when` can read them and no
- *   caller can set them.
+ *   caller can set them. `<relation>.id` is the related record's own id (`{ serviceId:
+ *   "service.id" }`, ADR 0764): an appointment's service, which its kind and length follow.
  * - `local`: read-only number fields of its own the host fills from `at` in `zone` (a timezone
  *   field of its own or one relation away; the organisation's when left out or empty):
  *   `weekday` (1 Monday to 7 Sunday) and `minute` (minutes since local midnight).
@@ -101,6 +109,12 @@ export interface AllowanceHolderSpec {
  *   A record created into a spend state with it set takes the use of the record it names: in the
  *   same batch the host moves that record to `state` (a return state) and spends from the same
  *   holder, so a move never fails for want of a use the member already had.
+ *   - `fixed` (ADR 0764): fields of its own that change only by such a move, never by an update,
+ *     for every caller but the host (an appointment's times and service): a session a late cancel
+ *     used never comes back by moving its time first.
+ *   - `anchor` (ADR 0764): `{ field, from }`, a read-only datetime field the host sets at create:
+ *     the moved record's, or else its own `from` (its start). A window may count from it, so a
+ *     moved record keeps the late point of the one it replaced. It is fixed too.
  * - `paidBy`: holders of other extensions that may pay for it, by object (`memberships.pass`) or
  *   by extension (`memberships`). Left out, only this extension's holders. A holder naming a
  *   spender of another extension that does not list it is refused at install.
@@ -126,7 +140,12 @@ export interface AllowanceSpenderSpec {
   at?: string;
   copy?: Readonly<Record<string, string>>;
   local?: { weekday?: string; minute?: string; zone?: string };
-  movedFrom?: { field: string; state: string };
+  movedFrom?: {
+    field: string;
+    state: string;
+    fixed?: readonly string[];
+    anchor?: { field: string; from: string };
+  };
   paidBy?: readonly string[];
   waived?: string;
   released?: string;
@@ -141,10 +160,12 @@ const stateValue = z.string().min(1).max(100);
 
 const conditionSchema = z
   .object({
-    field: fieldName,
+    field: fieldName.optional(),
+    value: z.string().min(1).max(100).optional(),
     in: z.union([fieldName, z.array(z.string().max(200)).min(1).max(100)]).optional(),
     atLeast: z.union([fieldName, z.number()]).optional(),
     below: z.union([fieldName, z.number()]).optional(),
+    empty: z.enum(["any", "none"]).optional(),
   })
   .strict();
 
@@ -188,7 +209,15 @@ export const allowanceManifestSchema = z.union([
             })
             .strict()
             .optional(),
-          movedFrom: z.object({ field: fieldName, state: stateValue }).strict().optional(),
+          movedFrom: z
+            .object({
+              field: fieldName,
+              state: stateValue,
+              fixed: z.array(fieldName).min(1).max(10).optional(),
+              anchor: z.object({ field: fieldName, from: fieldName }).strict().optional(),
+            })
+            .strict()
+            .optional(),
           paidBy: z.array(path).min(1).max(20).optional(),
           waived: fieldName.optional(),
           released: stateValue.optional(),
@@ -373,10 +402,22 @@ export function checkObjectAllowance(
         if (ops.length !== 1) {
           contract(cp, "A condition compares with exactly one of in, atLeast and below");
         }
-        const field = fieldOf(spender, clause.field);
-        if (!field || field.type === "formula") {
+        if ((clause.field === undefined) === (clause.value === undefined)) {
+          contract(cp, "A condition reads exactly one of field and value");
+        }
+        if (clause.value !== undefined && clause.in === undefined) {
+          contract(`${cp}.value`, "A fixed value is compared with in");
+        }
+        if (clause.empty !== undefined && clause.in === undefined) {
+          contract(`${cp}.empty`, "empty says what an empty in allows: it needs in");
+        }
+        // A fixed word (`value`) is what every record of the spender is: only the holder's is read.
+        const field = clause.field === undefined ? null : fieldOf(spender, clause.field);
+        if (clause.field === undefined) {
+          // Nothing of the spender to check.
+        } else if (!field || field.type === "formula") {
           contract(`${cp}.field`, `"${clause.field}" must be a field of ${spenderName}`);
-        } else if (!filledBy.has(clause.field)) {
+        } else if (!filledBy.has(clause.field as string)) {
           contract(
             `${cp}.field`,
             `"${clause.field}" must be a field ${spenderName}'s host fills (its copy or local), so no caller sets what pays for it`,
@@ -441,6 +482,8 @@ export function checkObjectAllowance(
     }
     const other = ownObject(relation.to);
     if (!other) return null; // Another extension's object or a core one: the host checks.
+    // The related record's own id (ADR 0764): what it is, which only the relation sets.
+    if (target === "id") return { type: "text" } as FieldManifest;
     const field = fieldOf(other[1], target);
     if (!field) contract(p, `"${target}" is not a field of ${other[0]}`);
     return field;
@@ -532,6 +575,23 @@ export function checkObjectAllowance(
         `${sp}.movedFrom.field`,
         `"${s.movedFrom.field}" must be a relation field (one record) to ${m.id}.${name}`,
       );
+    }
+    for (const f of s.movedFrom.fixed ?? []) {
+      if (!fieldOf(object, f))
+        contract(`${sp}.movedFrom.fixed`, `"${f}" is not a field of ${name}`);
+    }
+    if (s.movedFrom.anchor) {
+      const { field, from } = s.movedFrom.anchor;
+      const a = fieldOf(object, field);
+      if (a?.type !== "datetime" || a.many || !a.readOnly) {
+        contract(
+          `${sp}.movedFrom.anchor.field`,
+          `"${field}" must be a read-only datetime field of ${name}: the host sets it`,
+        );
+      }
+      if (fieldOf(object, from)?.type !== "datetime") {
+        contract(`${sp}.movedFrom.anchor.from`, `"${from}" must be a datetime field of ${name}`);
+      }
     }
     if (!s.returnIn.includes(s.movedFrom.state)) {
       contract(

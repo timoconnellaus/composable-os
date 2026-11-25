@@ -98925,6 +98925,221 @@
       "invalidates": []
     },
     {
+      "name": "x.bookings.bookAppointment",
+      "description": "Staff book a one-to-one session (an appointment) for a client: a service, a start time, a coach (or none: the first qualified coach free then), and the client (personId; look them up with findPeople). It ends after the service's length. The host refuses it when the coach is on anything else then (a class, a duty or another session, the service's buffer included), when no room the service needs is free, when the coach has no staff account, or when nothing the client holds pays for the service; staff may book any time, outside the booking windows and the coach's open hours, and are told what it was made with (warnings: the coach away, not qualified, outside open hours, the client busy). It spends one session of a pass or membership covering the service, unless paidAtDesk. The room is the first of the service's rooms free then unless roomId names one. Audited. (Extension tool from Bookings 0.1.0.)",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "serviceId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "startsAt": {
+            "type": "string",
+            "allOf": [
+              {
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+              },
+              {
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+              }
+            ],
+            "description": "When it starts (ISO 8601)"
+          },
+          "personId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "The client"
+          },
+          "coachId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "Left out: any coach free then"
+          },
+          "roomId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "holderId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "A pass or membership to spend"
+          },
+          "paidAtDesk": {
+            "default": false,
+            "description": "Paid at the desk: it spends no session",
+            "type": "boolean"
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 2000,
+            "description": "A staff note, never shown to the client"
+          }
+        },
+        "required": [
+          "serviceId",
+          "startsAt",
+          "personId"
+        ],
+        "additionalProperties": {}
+      },
+      "output": {
+        "anyOf": [
+          {
+            "type": "object",
+            "properties": {
+              "result": {
+                "type": "string",
+                "const": "booked"
+              },
+              "appointmentId": {
+                "type": "string"
+              },
+              "coachId": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "roomId": {
+                "description": "The room it takes: the first of the service's free",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "startsAt": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "endsAt": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "holderId": {
+                "description": "The pass or membership a session was spent from; null when paid at the desk",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "paidAtDesk": {
+                "type": "boolean"
+              },
+              "warnings": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "code": {
+                      "type": "string",
+                      "description": "unavailable, not_qualified, outside_hours, client_busy, uncovered"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "code",
+                    "message"
+                  ],
+                  "additionalProperties": false
+                },
+                "description": "Made anyway: the coach away, not qualified, outside their open hours, client busy"
+              }
+            },
+            "required": [
+              "result",
+              "appointmentId",
+              "coachId",
+              "roomId",
+              "startsAt",
+              "endsAt",
+              "holderId",
+              "paidAtDesk",
+              "warnings"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "result": {
+                "type": "string",
+                "const": "refused"
+              },
+              "reason": {
+                "type": "string",
+                "enum": [
+                  "not_found",
+                  "double_booked",
+                  "room_taken",
+                  "no_account",
+                  "no_coach_free",
+                  "no_use",
+                  "not_offered",
+                  "not_booked",
+                  "too_late",
+                  "started",
+                  "not_started",
+                  "same_time",
+                  "changed"
+                ],
+                "description": "double_booked: the coach is on something else then (a class, a duty or another session, buffers included; see message). room_taken: no room the service may use is free then. no_account: the coach has no staff account, so cannot be booked. no_coach_free: nobody qualified is free at that time (any coach). no_use: nothing the client holds pays for this service (see detail): book it paid at the desk. not_offered: the service is no longer offered. not_booked: it is not booked (see state). too_late: it has started. started: it has started, so it cannot be moved. not_started: it can be marked once it has started. same_time: it is already at that time with that coach. changed: it changed meanwhile."
+              },
+              "message": {
+                "type": "string"
+              },
+              "detail": {
+                "description": "The host's reason for an allowance refusal (no_uses_left, not_covered…)",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "state": {
+                "description": "What the appointment is now, when that is the reason",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "result",
+              "reason",
+              "message",
+              "detail",
+              "state"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "invalidates": [
+        "x.bookings.classList",
+        "x.bookings.coachDay",
+        "x.bookings.day",
+        "x.bookings.findPeople",
+        "x.bookings.roster"
+      ],
+      "pack": "bookings"
+    },
+    {
       "name": "x.bookings.bookFor",
       "description": "Staff book a person into a class: someone on file (`personId`; look them up with findPeople first), or a walk-in not on file yet (`newPerson`). A walk-in and their booking are made in one batch, so a refused booking leaves nobody behind; the platform's duplicate check runs first, and a match is answered (person_exists or possible_duplicates, with who) rather than made twice: book them, or pass confirmNew when you checked it is someone else. Staff are not bound by the booking windows or by 'booked by staff only'; a class that was cancelled or is over, the places, one booking per person per class and the use it spends still hold. With `paidAtDesk` it spends no use (they paid at the desk). With `waitlist`, a person on file is put on a full class's waitlist instead of being refused (it spends nothing until the host moves them in). Audited. (Extension tool from Bookings 0.1.0.)",
       "risk": "write",
@@ -99178,6 +99393,195 @@
       },
       "invalidates": [
         "x.bookings.classList",
+        "x.bookings.coachDay",
+        "x.bookings.day",
+        "x.bookings.findPeople",
+        "x.bookings.roster"
+      ],
+      "pack": "bookings"
+    },
+    {
+      "name": "x.bookings.cancelAppointment",
+      "description": "Staff cancel a booked appointment, in time or late by the host's clock: before the service's late-cancel point (24 hours before unless the service sets its own) it is cancelled and its session given back; from then until it starts it is cancelled late and the session is used, with no fee. With keepUse it is cancelled late whatever the time. After it starts it cannot be cancelled. To give a session back after the late point a person excuses it (excuseAppointment); the business cancelling its own appointment is cancelAppointmentByUs. Without confirm it only says which it would be. (Extension tool from Bookings 0.1.0.)",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "appointmentId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "confirm": {
+            "default": false,
+            "type": "boolean"
+          },
+          "keepUse": {
+            "default": false,
+            "type": "boolean"
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 2000
+          }
+        },
+        "required": [
+          "appointmentId"
+        ],
+        "additionalProperties": {}
+      },
+      "output": {
+        "anyOf": [
+          {
+            "type": "object",
+            "properties": {
+              "result": {
+                "type": "string",
+                "enum": [
+                  "preview",
+                  "cancelled",
+                  "late_cancelled"
+                ]
+              },
+              "appointmentId": {
+                "type": "string"
+              },
+              "state": {
+                "type": "string",
+                "enum": [
+                  "cancelled",
+                  "late_cancelled"
+                ]
+              },
+              "late": {
+                "type": "boolean",
+                "description": "A late cancel keeps the session it spent"
+              }
+            },
+            "required": [
+              "result",
+              "appointmentId",
+              "state",
+              "late"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "result": {
+                "type": "string",
+                "const": "refused"
+              },
+              "reason": {
+                "type": "string",
+                "enum": [
+                  "not_found",
+                  "double_booked",
+                  "room_taken",
+                  "no_account",
+                  "no_coach_free",
+                  "no_use",
+                  "not_offered",
+                  "not_booked",
+                  "too_late",
+                  "started",
+                  "not_started",
+                  "same_time",
+                  "changed"
+                ],
+                "description": "double_booked: the coach is on something else then (a class, a duty or another session, buffers included; see message). room_taken: no room the service may use is free then. no_account: the coach has no staff account, so cannot be booked. no_coach_free: nobody qualified is free at that time (any coach). no_use: nothing the client holds pays for this service (see detail): book it paid at the desk. not_offered: the service is no longer offered. not_booked: it is not booked (see state). too_late: it has started. started: it has started, so it cannot be moved. not_started: it can be marked once it has started. same_time: it is already at that time with that coach. changed: it changed meanwhile."
+              },
+              "message": {
+                "type": "string"
+              },
+              "detail": {
+                "description": "The host's reason for an allowance refusal (no_uses_left, not_covered…)",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "state": {
+                "description": "What the appointment is now, when that is the reason",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "result",
+              "reason",
+              "message",
+              "detail",
+              "state"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "invalidates": [
+        "x.bookings.classList",
+        "x.bookings.coachDay",
+        "x.bookings.day",
+        "x.bookings.findPeople",
+        "x.bookings.roster"
+      ],
+      "pack": "bookings"
+    },
+    {
+      "name": "x.bookings.cancelAppointmentByUs",
+      "description": "The business cancels an appointment that is booked, held while paying or not paid yet (the coach is ill, the room is closed): it is cancelled by the business and the session it spent is given back, whatever the time, with the reason kept. A person's act: the assistant, MCP clients and automations may ask, and it waits for a person to approve it. Fails with the reason when it cannot be done, so an approved request shows it did not apply. (The client's email comes in a later release.) (Extension tool from Bookings 0.1.0.)",
+      "risk": "destructive",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "appointmentId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 2000
+          }
+        },
+        "required": [
+          "appointmentId",
+          "reason"
+        ],
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "result": {
+            "type": "string",
+            "const": "cancelled_by_us"
+          },
+          "appointmentId": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "result",
+          "appointmentId"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "x.bookings.classList",
+        "x.bookings.coachDay",
         "x.bookings.day",
         "x.bookings.findPeople",
         "x.bookings.roster"
@@ -99236,6 +99640,7 @@
       },
       "invalidates": [
         "x.bookings.classList",
+        "x.bookings.coachDay",
         "x.bookings.day",
         "x.bookings.findPeople",
         "x.bookings.roster"
@@ -99392,6 +99797,7 @@
       },
       "invalidates": [
         "x.bookings.classList",
+        "x.bookings.coachDay",
         "x.bookings.day",
         "x.bookings.findPeople",
         "x.bookings.roster"
@@ -99642,6 +100048,175 @@
       "pack": "bookings"
     },
     {
+      "name": "x.bookings.coachDay",
+      "description": "The coaches' day for staff: for each coach (or one, with coachId), their classes, appointments (service, client, room, state) and other shifts (duties) on one local date of the organisation, in start order. Classes and appointments cancelled, moved or done are left out but for attended and no-show sessions. Read-only. (Extension tool from Bookings 0.1.0.)",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "date": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+            "description": "The local date, YYYY-MM-DD"
+          },
+          "coachId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          }
+        },
+        "required": [
+          "date"
+        ],
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "date": {
+            "type": "string"
+          },
+          "timeZone": {
+            "type": "string"
+          },
+          "coaches": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "coachId": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "items": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "kind": {
+                        "type": "string",
+                        "enum": [
+                          "class",
+                          "appointment",
+                          "shift"
+                        ]
+                      },
+                      "object": {
+                        "type": "string"
+                      },
+                      "id": {
+                        "type": "string"
+                      },
+                      "title": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "startsAt": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "endsAt": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "room": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "state": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "service": {
+                        "description": "An appointment's service",
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "client": {
+                        "anyOf": [
+                          {
+                            "type": "object",
+                            "properties": {
+                              "id": {
+                                "type": "string"
+                              },
+                              "name": {
+                                "type": [
+                                  "string",
+                                  "null"
+                                ]
+                              }
+                            },
+                            "required": [
+                              "id",
+                              "name"
+                            ],
+                            "additionalProperties": false
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ],
+                        "description": "An appointment's client"
+                      }
+                    },
+                    "required": [
+                      "kind",
+                      "object",
+                      "id",
+                      "title",
+                      "startsAt",
+                      "endsAt",
+                      "room",
+                      "state",
+                      "service",
+                      "client"
+                    ],
+                    "additionalProperties": false
+                  }
+                }
+              },
+              "required": [
+                "coachId",
+                "name",
+                "items"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "date",
+          "timeZone",
+          "coaches"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [],
+      "pack": "bookings"
+    },
+    {
       "name": "x.bookings.day",
       "description": "Staff's day view: every class on one local date (scheduled, cancelled or done), in start order, with its class type, coach, room, places, how many are booked and held, and whether its class type is booked by staff only. For the front desk and coaches. Read-only. (Extension tool from Bookings 0.1.0.)",
       "risk": "read",
@@ -99804,6 +100379,117 @@
         "additionalProperties": false
       },
       "invalidates": [],
+      "pack": "bookings"
+    },
+    {
+      "name": "x.bookings.excuseAppointment",
+      "description": "A person on the staff gives the session back for a late cancel or a no-show (a client who was ill): it becomes excused and the pass or membership gets its session back. A person's own act: the assistant, MCP clients, automations and other code cannot call it. The reason is kept on the appointment and in the audit log. (Extension tool from Bookings 0.1.0.)",
+      "risk": "destructive",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "appointmentId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 2000
+          }
+        },
+        "required": [
+          "appointmentId",
+          "reason"
+        ],
+        "additionalProperties": {}
+      },
+      "output": {
+        "anyOf": [
+          {
+            "type": "object",
+            "properties": {
+              "result": {
+                "type": "string",
+                "const": "excused"
+              },
+              "appointmentId": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "result",
+              "appointmentId"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "result": {
+                "type": "string",
+                "const": "refused"
+              },
+              "reason": {
+                "type": "string",
+                "enum": [
+                  "not_found",
+                  "double_booked",
+                  "room_taken",
+                  "no_account",
+                  "no_coach_free",
+                  "no_use",
+                  "not_offered",
+                  "not_booked",
+                  "too_late",
+                  "started",
+                  "not_started",
+                  "same_time",
+                  "changed"
+                ],
+                "description": "double_booked: the coach is on something else then (a class, a duty or another session, buffers included; see message). room_taken: no room the service may use is free then. no_account: the coach has no staff account, so cannot be booked. no_coach_free: nobody qualified is free at that time (any coach). no_use: nothing the client holds pays for this service (see detail): book it paid at the desk. not_offered: the service is no longer offered. not_booked: it is not booked (see state). too_late: it has started. started: it has started, so it cannot be moved. not_started: it can be marked once it has started. same_time: it is already at that time with that coach. changed: it changed meanwhile."
+              },
+              "message": {
+                "type": "string"
+              },
+              "detail": {
+                "description": "The host's reason for an allowance refusal (no_uses_left, not_covered…)",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "state": {
+                "description": "What the appointment is now, when that is the reason",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "result",
+              "reason",
+              "message",
+              "detail",
+              "state"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "invalidates": [
+        "x.bookings.classList",
+        "x.bookings.coachDay",
+        "x.bookings.day",
+        "x.bookings.findPeople",
+        "x.bookings.roster"
+      ],
       "pack": "bookings"
     },
     {
@@ -99971,6 +100657,127 @@
       },
       "invalidates": [
         "x.bookings.classList",
+        "x.bookings.coachDay",
+        "x.bookings.day",
+        "x.bookings.findPeople",
+        "x.bookings.roster"
+      ],
+      "pack": "bookings"
+    },
+    {
+      "name": "x.bookings.markAppointment",
+      "description": "Mark an appointment once it has started: attended (they came) or no_show (they did not; the session is used, with no fee). Either may be corrected into the other for 7 days after it ends. The host marks one nobody marked as attended 30 minutes after it ends. Who marked it and when are kept. To give a no-show's session back a person excuses it. (Extension tool from Bookings 0.1.0.)",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "appointmentId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "mark": {
+            "type": "string",
+            "enum": [
+              "attended",
+              "no_show"
+            ]
+          }
+        },
+        "required": [
+          "appointmentId",
+          "mark"
+        ],
+        "additionalProperties": {}
+      },
+      "output": {
+        "anyOf": [
+          {
+            "type": "object",
+            "properties": {
+              "result": {
+                "type": "string",
+                "enum": [
+                  "attended",
+                  "no_show"
+                ]
+              },
+              "appointmentId": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "result",
+              "appointmentId",
+              "message"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "result": {
+                "type": "string",
+                "const": "refused"
+              },
+              "reason": {
+                "type": "string",
+                "enum": [
+                  "not_found",
+                  "double_booked",
+                  "room_taken",
+                  "no_account",
+                  "no_coach_free",
+                  "no_use",
+                  "not_offered",
+                  "not_booked",
+                  "too_late",
+                  "started",
+                  "not_started",
+                  "same_time",
+                  "changed"
+                ],
+                "description": "double_booked: the coach is on something else then (a class, a duty or another session, buffers included; see message). room_taken: no room the service may use is free then. no_account: the coach has no staff account, so cannot be booked. no_coach_free: nobody qualified is free at that time (any coach). no_use: nothing the client holds pays for this service (see detail): book it paid at the desk. not_offered: the service is no longer offered. not_booked: it is not booked (see state). too_late: it has started. started: it has started, so it cannot be moved. not_started: it can be marked once it has started. same_time: it is already at that time with that coach. changed: it changed meanwhile."
+              },
+              "message": {
+                "type": "string"
+              },
+              "detail": {
+                "description": "The host's reason for an allowance refusal (no_uses_left, not_covered…)",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "state": {
+                "description": "What the appointment is now, when that is the reason",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "result",
+              "reason",
+              "message",
+              "detail",
+              "state"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "invalidates": [
+        "x.bookings.classList",
+        "x.bookings.coachDay",
         "x.bookings.day",
         "x.bookings.findPeople",
         "x.bookings.roster"
@@ -100116,6 +100923,7 @@
       },
       "invalidates": [
         "x.bookings.classList",
+        "x.bookings.coachDay",
         "x.bookings.day",
         "x.bookings.findPeople",
         "x.bookings.roster"
@@ -100261,6 +101069,7 @@
       },
       "invalidates": [
         "x.bookings.classList",
+        "x.bookings.coachDay",
         "x.bookings.day",
         "x.bookings.findPeople",
         "x.bookings.roster"
@@ -100504,6 +101313,376 @@
       },
       "invalidates": [
         "x.bookings.classList",
+        "x.bookings.coachDay",
+        "x.bookings.day",
+        "x.bookings.findPeople",
+        "x.bookings.roster"
+      ],
+      "pack": "bookings"
+    },
+    {
+      "name": "x.bookings.moveAppointment",
+      "description": "Staff move a booked appointment to another start time, or another coach, or both, in one batch: a new appointment is made at the new time and the old one is moved, the session it spent moving with it (a session paid at the desk stays paid). The host refuses it whole, nothing changed, when the coach is on anything else then, no room is free, or it has started. Same warnings as booking. Only a booked appointment, before it starts. (Extension tool from Bookings 0.1.0.)",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "appointmentId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "startsAt": {
+            "type": "string",
+            "allOf": [
+              {
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+              },
+              {
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z))$"
+              }
+            ],
+            "description": "The new start (ISO 8601)"
+          },
+          "coachId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "Left out: the same coach"
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 2000
+          }
+        },
+        "required": [
+          "appointmentId",
+          "startsAt"
+        ],
+        "additionalProperties": {}
+      },
+      "output": {
+        "anyOf": [
+          {
+            "type": "object",
+            "properties": {
+              "result": {
+                "type": "string",
+                "const": "booked"
+              },
+              "appointmentId": {
+                "type": "string"
+              },
+              "coachId": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "roomId": {
+                "description": "The room it takes: the first of the service's free",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "startsAt": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "endsAt": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "holderId": {
+                "description": "The pass or membership a session was spent from; null when paid at the desk",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "paidAtDesk": {
+                "type": "boolean"
+              },
+              "warnings": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "code": {
+                      "type": "string",
+                      "description": "unavailable, not_qualified, outside_hours, client_busy, uncovered"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "code",
+                    "message"
+                  ],
+                  "additionalProperties": false
+                },
+                "description": "Made anyway: the coach away, not qualified, outside their open hours, client busy"
+              },
+              "fromAppointmentId": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "result",
+              "appointmentId",
+              "coachId",
+              "roomId",
+              "startsAt",
+              "endsAt",
+              "holderId",
+              "paidAtDesk",
+              "warnings",
+              "fromAppointmentId"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "result": {
+                "type": "string",
+                "const": "refused"
+              },
+              "reason": {
+                "type": "string",
+                "enum": [
+                  "not_found",
+                  "double_booked",
+                  "room_taken",
+                  "no_account",
+                  "no_coach_free",
+                  "no_use",
+                  "not_offered",
+                  "not_booked",
+                  "too_late",
+                  "started",
+                  "not_started",
+                  "same_time",
+                  "changed"
+                ],
+                "description": "double_booked: the coach is on something else then (a class, a duty or another session, buffers included; see message). room_taken: no room the service may use is free then. no_account: the coach has no staff account, so cannot be booked. no_coach_free: nobody qualified is free at that time (any coach). no_use: nothing the client holds pays for this service (see detail): book it paid at the desk. not_offered: the service is no longer offered. not_booked: it is not booked (see state). too_late: it has started. started: it has started, so it cannot be moved. not_started: it can be marked once it has started. same_time: it is already at that time with that coach. changed: it changed meanwhile."
+              },
+              "message": {
+                "type": "string"
+              },
+              "detail": {
+                "description": "The host's reason for an allowance refusal (no_uses_left, not_covered…)",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "state": {
+                "description": "What the appointment is now, when that is the reason",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "result",
+              "reason",
+              "message",
+              "detail",
+              "state"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "invalidates": [
+        "x.bookings.classList",
+        "x.bookings.coachDay",
+        "x.bookings.day",
+        "x.bookings.findPeople",
+        "x.bookings.roster"
+      ],
+      "pack": "bookings"
+    },
+    {
+      "name": "x.bookings.reassignAppointment",
+      "description": "Give an appointment still to come to another coach (decision 7: the coach is off or away), keeping its time, room and how it was paid. The host refuses it when that coach is on anything else then (buffers included) or has no staff account, and says what it was made with (warnings: not qualified for the service, away, outside their open hours). (The client's email comes in a later release.) (Extension tool from Bookings 0.1.0.)",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "appointmentId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "coachId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          }
+        },
+        "required": [
+          "appointmentId",
+          "coachId"
+        ],
+        "additionalProperties": {}
+      },
+      "output": {
+        "anyOf": [
+          {
+            "type": "object",
+            "properties": {
+              "result": {
+                "type": "string",
+                "const": "booked"
+              },
+              "appointmentId": {
+                "type": "string"
+              },
+              "coachId": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "roomId": {
+                "description": "The room it takes: the first of the service's free",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "startsAt": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "endsAt": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "holderId": {
+                "description": "The pass or membership a session was spent from; null when paid at the desk",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "paidAtDesk": {
+                "type": "boolean"
+              },
+              "warnings": {
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "code": {
+                      "type": "string",
+                      "description": "unavailable, not_qualified, outside_hours, client_busy, uncovered"
+                    },
+                    "message": {
+                      "type": "string"
+                    }
+                  },
+                  "required": [
+                    "code",
+                    "message"
+                  ],
+                  "additionalProperties": false
+                },
+                "description": "Made anyway: the coach away, not qualified, outside their open hours, client busy"
+              }
+            },
+            "required": [
+              "result",
+              "appointmentId",
+              "coachId",
+              "roomId",
+              "startsAt",
+              "endsAt",
+              "holderId",
+              "paidAtDesk",
+              "warnings"
+            ],
+            "additionalProperties": false
+          },
+          {
+            "type": "object",
+            "properties": {
+              "result": {
+                "type": "string",
+                "const": "refused"
+              },
+              "reason": {
+                "type": "string",
+                "enum": [
+                  "not_found",
+                  "double_booked",
+                  "room_taken",
+                  "no_account",
+                  "no_coach_free",
+                  "no_use",
+                  "not_offered",
+                  "not_booked",
+                  "too_late",
+                  "started",
+                  "not_started",
+                  "same_time",
+                  "changed"
+                ],
+                "description": "double_booked: the coach is on something else then (a class, a duty or another session, buffers included; see message). room_taken: no room the service may use is free then. no_account: the coach has no staff account, so cannot be booked. no_coach_free: nobody qualified is free at that time (any coach). no_use: nothing the client holds pays for this service (see detail): book it paid at the desk. not_offered: the service is no longer offered. not_booked: it is not booked (see state). too_late: it has started. started: it has started, so it cannot be moved. not_started: it can be marked once it has started. same_time: it is already at that time with that coach. changed: it changed meanwhile."
+              },
+              "message": {
+                "type": "string"
+              },
+              "detail": {
+                "description": "The host's reason for an allowance refusal (no_uses_left, not_covered…)",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "state": {
+                "description": "What the appointment is now, when that is the reason",
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "result",
+              "reason",
+              "message",
+              "detail",
+              "state"
+            ],
+            "additionalProperties": false
+          }
+        ]
+      },
+      "invalidates": [
+        "x.bookings.classList",
+        "x.bookings.coachDay",
         "x.bookings.day",
         "x.bookings.findPeople",
         "x.bookings.roster"
@@ -100655,6 +101834,7 @@
       },
       "invalidates": [
         "x.bookings.classList",
+        "x.bookings.coachDay",
         "x.bookings.day",
         "x.bookings.findPeople",
         "x.bookings.roster"
@@ -101032,6 +102212,7 @@
       },
       "invalidates": [
         "x.bookings.classList",
+        "x.bookings.coachDay",
         "x.bookings.day",
         "x.bookings.findPeople",
         "x.bookings.roster"

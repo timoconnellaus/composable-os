@@ -124,6 +124,16 @@ function dueQuery(
     sql += ` AND EXISTS (SELECT 1 FROM ${r} s WHERE s.${rel} = r.${rel} AND s.id != r.id AND s.${ident(plan.stateColumn)} IN (${plan.rule.ifAnyIn.map(() => "?").join(", ")}))`;
     params.push(...plan.rule.ifAnyIn);
   }
+  // Only while each `ifSet` field has a value (ADR 0764): no coach, no attended.
+  for (const name of plan.rule.ifSet ?? []) {
+    const field = plan.object.fields.find((f) => f.name === name);
+    const column = field ? viewColumnOf(field) : null;
+    if (!column) {
+      sql += " AND 0";
+      continue;
+    }
+    sql += ` AND r.${ident(column)} IS NOT NULL AND r.${ident(column)} != ''`;
+  }
   if (id !== undefined) {
     sql += " AND r.id = ?";
     params.push(id);

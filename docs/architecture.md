@@ -1417,8 +1417,8 @@ the database can read (the contract requires both; an unreadable time is refused
 overlap check reads one claim (claims on one thing never overlap, indexed by thing and start). Marking a room exclusive over a clash to come is refused; a
 reconcile over records that clash and have not ended is refused (`occupies_conflict`, past ones
 skipped and reported); a series' date whose room is taken is made with no room (a field exception)
-and the rosterers are told. Bookings' class declares it; appointments (stage 49 step 5) and stage
-57's venues reuse it.
+and the rosterers are told. Bookings' class and appointment declare it (the appointment since
+stage 49 step 5), and stage 57's venues reuse it.
 
 **The room calendar** ([ADR 0844](adr/0844-the-room-calendar-and-provisional-and-title-on-occupies.md),
 `packages/core/src/occupancy/`, `operations/rooms.ts`; stage 57 step 1). Two display-only keys on
@@ -2101,7 +2101,32 @@ a class the host cancels moves its live bookings to `cancelled_by_us` in its bat
 class and holder are create-only (`customer.createOnly`), the booking rules are a person's
 (`personApproves`: other actors' writes wait for a person's approval), walk-ins are made with their booking in one
 batch (`person.createWith`), an extension tool is not run by the approval queue's dry run, and
-the runner carries the packs' sources as a Text module.
+the runner carries the packs' sources as a Text module. Appointments (stage 49 step 5,
+[ADR 0764](adr/0764-appointments-in-the-bookings-pack.md)): `bookings.service` (length, buffers,
+rooms in order, step, its own booking rules over the organisation's `appointment*` settings, who
+books it, offered) is the kind of `bookings.appointment`, which declares `staffed` (its coach
+profile's account, required; the service's buffer as claim margins; `private`; `open` with the
+service's length, step and rooms, the client and the closures), `occupies` (its room when
+exclusive, with the buffer), `states` (booked, a cancel in time or late by "late from", moved,
+attended and no-show from the start and corrected for 7 days, `excused` only through the
+`humanOnly` `excuseAppointment`, `cancelled_by_us` only through the `personApproves`
+`cancelAppointmentByUs` or the host; attended by the host 30 minutes after the end), `allowance`
+(spender: the service's own id copied as `serviceId`, its local weekday and minute; `waived` for
+paid at the desk; `released`), and the agreement point `appointment`. The host gives a new
+appointment that names no room the first of its service's rooms free then (`hostRoomFor`,
+`staffing/free.ts`), and naming an appointment's provider is a booking, not rostering, where
+Rostering is installed, while it is still to come (`staffed.open` objects leave `who` out of the
+roster's fields until the shift starts; an AI's change of it waits for a person unless a person's
+own tool makes it). Its start, end and service change only by a move (`allowance.spends.movedFrom.fixed`),
+a moved one keeps the late point of the one it replaced (`movedFrom.anchor`, the window counting
+from `lateAnchor`), a client is required at create only (`states.create.requires`, so erase keeps
+the appointment), and the host's attended mark skips one with no coach (`states.after[].ifSet`). Staff
+tools: `bookAppointment` (any coach through `staffing.free`), `moveAppointment` (a new
+appointment with `movedFrom`), `cancelAppointment`, `cancelAppointmentByUs`, `markAppointment`,
+`excuseAppointment`, `reassignAppointment` (`personApproves`), `coachDay` (classes and
+appointments from Bookings' records, other shifts from `staffing.week`), under `bookings:desk` or
+the grantable `bookings:appointments`. Nothing of appointments is open to customers or the public
+yet (step 6).
 
 **Courses** (`packs/courses`, stage 42; [ADR 0478](adr/0478-the-courses-pack.md)): themes,
 courses and bundles (publishable, sellable with a tax code, granting an enrolment), enrolments and
@@ -2504,7 +2529,11 @@ spend is three statements with no read of the count: a counter per holder per pe
 not live or not valid at the spender's time, so the whole batch fails (`invalid_input`, `rule:
 "allowance"`). Periods are named by their local start in the holder's zone (`time/local.ts`).
 Holders carry read-only `used` and `left`; `allowance.get` reads a period; `rec_allowance`,
-`rec_allowance_period` and `rec_allowance_use` are queryable.
+`rec_allowance_period` and `rec_allowance_use` are queryable. Since stage 49 step 5
+([ADR 0764](adr/0764-appointments-in-the-bookings-pack.md)) a condition may compare a fixed word
+(`value`: what every record of the spender is, "sessions") instead of a spender field, `empty:
+"none"` makes an empty holder field allow nothing, and a spender may copy a related record's own
+id (`copy: { serviceId: "service.id" }`).
 
 **Agreements** (stage 44, ADRs [0640](adr/0640-agreement-documents-versions-nobody-changes-published-by-a-person.md)
 and [0641](adr/0641-agreement-points-a-pack-declares-documents-a-person-attaches.md),
@@ -2804,7 +2833,7 @@ and the mobile Account tab are plain pages over the same entry.
 | Daily checklists | no objects: screens and tools over the host's tool-only day-run operations (`checklist.today`, `.day`, `.dayTick`, `.dayDone`, `.days`), tools open to every staff account (`anyStaff`) or held to `checklists:write` (`corePermission`) | built (checklists on their own, [ADR 0651](adr/0651-checklists-on-their-own-a-schedule-a-run-a-day-and-who-may-do-it.md), [ADR 0652](adr/0652-a-tool-for-every-staff-account-and-a-tool-held-to-a-core-permission.md)): Today's checklists (web and the app) and Checklist history; requires nothing |
 | Forms | `publishable` with a slug and no public half, `intake` (form and submission), `states` (moves into and out of spam only by `personApproves` tools), a status, dates, cap and address a person approves, an old address that redirects, a setting a person approves, a low-rating automation | stage 29: step 3 built (forms and submissions, the inbox's tools, views among them "Asked to hear from us", the hourly cap setting, the low-rating notice, the staff form kind, [ADR 0726](adr/0726-the-forms-pack-forms-submissions-and-who-reads-them.md)); the hosted page and blocks, personal links and receipts, Leads as a destination, erase, and the screens and dashboard to come |
 | Shop | `sellable.goods` (sold where its item says) with `stock` and a reorder level told to `shop:stock`, `sellable.delivery` with seeded options and a shipment `grants`, `publishable` items, `public` with a list of conditions and `via` alone, a buyer's `customer` read of their shipments, prices a person approves, supplier fields on Organisation, a pack role (`shop.stockroom`), grantable permissions | stage 37: step 5 built (items, variants, delivery options, shipments, supplier fields, the stockroom role, the country setting, views, the Shop dashboard, the stock and shipment tools, [ADR 0689](adr/0689-the-shop-pack-and-public-reads-through-a-public-record.md)); purchase orders, receipts, counts and write-offs, recorded returns and routine mail, blocks and screens, and the import to come |
-| Memberships | `allowance` (holders), recurring billing with `recurring.grants` and `recurring.pause`, `sellable.onePerPerson`, `humanOnly` tools, `requires: ["programs"]` | stage 32b: steps 5 to 7 built (the behaviour, the pack, plan changes and pauses, the dashboard, views and blocks); the import (step 8) to come |
+| Memberships | `allowance` (holders, paying for Bookings' classes and, when they say they pay for sessions, its appointments by service: stage 49, [ADR 0764](adr/0764-appointments-in-the-bookings-pack.md)), recurring billing with `recurring.grants` and `recurring.pause`, `sellable.onePerPerson`, `humanOnly` tools, `requires: ["programs", "bookings"]` | stage 32b: steps 5 to 7 built (the behaviour, the pack, plan changes and pauses, the dashboard, views and blocks); the import (step 8) to come |
 
 ### Client repos
 

@@ -75,6 +75,11 @@ export interface TimedMove {
    * relation) is in one of these states: a class whose attendance was taken has someone ticked.
    */
   ifAnyIn?: readonly string[];
+  /**
+   * Only while each of these fields of the record has a value (stage 49, ADR 0764): an appointment
+   * whose coach left is never marked attended for a session nobody gave.
+   */
+  ifSet?: readonly string[];
 }
 
 /**
@@ -144,6 +149,12 @@ export interface StatesSpec {
      * one, staff included (no booking into a class that was cancelled or is over).
      */
     closed?: string | readonly string[];
+    /**
+     * Fields every create must give a value (stage 49, ADR 0764), whoever makes it, the host
+     * included: an appointment is made for a client. Unlike `required`, the field may be emptied
+     * later (erasing the Person keeps the record for the business's books, ADR 0320).
+     */
+    requires?: readonly string[];
   };
   /**
    * Moves a caller asks for by name, resolved by the host (ADR 0503): writing the name (`cancel`)
@@ -228,6 +239,7 @@ export const statesManifestSchema = z.object({
       window: moveWindow.optional(),
       staffOnly: staffOnlyPaths.optional(),
       closed: staffOnlyPaths.optional(),
+      requires: z.array(fieldName).min(1).max(20).optional(),
     })
     .strict()
     .optional(),
@@ -254,6 +266,7 @@ export const statesManifestSchema = z.object({
           at: fieldPath,
           minutesAfter: z.number().int().min(0).max(10_080).optional(),
           ifAnyIn: z.array(stateValue).min(1).max(20).optional(),
+          ifSet: z.array(fieldName).min(1).max(5).optional(),
         })
         .strict(),
     )
@@ -412,6 +425,11 @@ export function checkObjectStates(
     for (const p of staffOnlyPathsOf(states.create.closed)) {
       checkPath(p, `${sp}.create.closed`, "boolean");
     }
+    for (const required of states.create.requires ?? []) {
+      if (!fieldOf(required)) {
+        contract(`${sp}.create.requires`, `"${required}" is not a field of ${name}`);
+      }
+    }
   }
   if (states.follows) {
     const fp = `${sp}.follows`;
@@ -505,6 +523,9 @@ export function checkObjectStates(
         `${tp}.at`,
         `"${rule.at}" must be a datetime field of ${name}, or <relation>.<field> on another of this extension's objects`,
       );
+    }
+    for (const f of rule.ifSet ?? []) {
+      if (!fieldOf(f)) contract(`${tp}.ifSet`, `"${f}" is not a field of ${name}`);
     }
     if (rule.ifAnyIn) {
       if (parts.length !== 2) {

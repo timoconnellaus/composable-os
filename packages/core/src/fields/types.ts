@@ -345,10 +345,14 @@ export interface GuardiansDeclaration {
 
 /** One condition of a holder's `spendsOn` (the SDK's AllowanceCondition), validated. */
 export interface AllowanceConditionDefinition {
-  readonly field: string;
+  /** The spender's field compared, or `value`, a fixed word every record of it is (ADR 0764). */
+  readonly field?: string | undefined;
+  readonly value?: string | undefined;
   readonly in?: string | readonly string[] | undefined;
   readonly atLeast?: string | number | undefined;
   readonly below?: string | number | undefined;
+  /** `"none"`: an empty holder field for `in` allows nothing (ADR 0764). */
+  readonly empty?: "any" | "none" | undefined;
 }
 
 /**
@@ -387,7 +391,16 @@ export type AllowanceDefinition =
         readonly minute?: string | undefined;
         readonly zone?: string | undefined;
       };
-      readonly movedFrom?: { readonly field: string; readonly state: string } | undefined;
+      readonly movedFrom?:
+        | {
+            readonly field: string;
+            readonly state: string;
+            /** Fields changed only by a move, never by an update (ADR 0764). */
+            readonly fixed?: readonly string[] | undefined;
+            /** The moment its windows count from, kept from the record it moved (ADR 0764). */
+            readonly anchor?: { readonly field: string; readonly from: string } | undefined;
+          }
+        | undefined;
       /** Holders of other extensions that may pay for it (objects or extension ids). */
       readonly paidBy: readonly string[];
       /** A boolean field: while true, entering a spend state spends nothing (ADR 0506). */
@@ -600,6 +613,8 @@ export interface StatesDefinition {
         staffOnly?: string | readonly string[] | undefined;
         /** While any is true nobody but the host creates one (ADR 0507). */
         closed?: string | readonly string[] | undefined;
+        /** Fields every create gives a value, emptied later only by erase (ADR 0764). */
+        requires?: readonly string[] | undefined;
       }
     | undefined;
   /** Moves asked for by name, resolved by the host (ADR 0503). */
@@ -620,6 +635,8 @@ export interface StatesDefinition {
         at: string;
         minutesAfter?: number | undefined;
         ifAnyIn?: readonly string[] | undefined;
+        /** Only while each of these fields has a value (ADR 0764). */
+        ifSet?: readonly string[] | undefined;
       }[]
     | undefined;
 }

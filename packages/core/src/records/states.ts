@@ -256,14 +256,16 @@ export function statesLifecycle(object: ObjectDefinition, states: StatesDefiniti
       // A state a record may be created in is not a move from the initial state (ADR 0503).
       const createdIn =
         before === null && toId !== states.initial ? states.create?.in?.[toId] : undefined;
+      // What every create must give (ADR 0764), on top of what the state it is made in holds.
+      const made = before === null ? [...(states.create?.requires ?? [])] : [];
       if (createdIn) {
-        return { ...base, by: createdIn, requires: held(toId) };
+        return { ...base, by: createdIn, requires: [...held(toId), ...made] };
       }
       // Staying where it is: nothing to allow, and what the state holds stays filled.
       if (toId === fromId) return { ...base, by: ALL_MOVERS, requires: held(toId) };
       // A record with no state yet (a new one) stands in the initial state.
       const origin = fromId ?? states.initial;
-      if (toId === origin) return { ...base, by: ALL_MOVERS, requires: [] };
+      if (toId === origin) return { ...base, by: ALL_MOVERS, requires: made };
       const originPosition = position(origin);
       if (finals.has(origin)) {
         throw refuse(
@@ -319,7 +321,7 @@ export function statesLifecycle(object: ObjectDefinition, states: StatesDefiniti
         ...base,
         from: originPosition,
         by: byTool ? [...move.by, "staff"] : move.by,
-        requires: move.requires ?? [],
+        requires: [...(move.requires ?? []), ...made],
       };
     },
     refusal(write, refusal, placement) {

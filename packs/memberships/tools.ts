@@ -385,6 +385,9 @@ export const givePass = defineTool({
         passtype: input.passTypeId,
         uses: input.uses ?? most,
         ...limitsOf(v),
+        // What it pays for: classes, one-to-one sessions and which services (stage 49).
+        covers: list(v.covers),
+        services: list(v.services),
         source: "staff",
         reason: signed(input.reason, ctx),
       },
