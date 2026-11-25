@@ -6,7 +6,7 @@
   "operations": [
     "x.bookings.timetable",
     "x.bookings.mine",
-    "x.bookings.family",
+    "me.family",
     "x.bookings.book",
     "x.bookings.cancel",
     "me.agreements.due",

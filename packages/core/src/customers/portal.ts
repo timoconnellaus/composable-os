@@ -29,6 +29,8 @@ export const BASE_PORTAL_SECTIONS = [
   { key: "details", label: "Your details", order: 90 },
   { key: "contact", label: "Contact preferences", order: 92 },
   { key: "devices", label: "Sign-in and devices", order: 95 },
+  // Last, for every customer: deleting the account from their own side (stage 48 step 7).
+  { key: "delete", label: "Delete my account", order: 99 },
 ] as const;
 
 export interface PortalSection {

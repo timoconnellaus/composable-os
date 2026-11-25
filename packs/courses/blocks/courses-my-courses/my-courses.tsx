@@ -1,6 +1,9 @@
 // What a signed-in student holds (stage 42), with how far they are and where to carry on. Which
-// courses they hold, and why, is the host's (`useMyCourses`).
+// courses they hold, and why, is the host's (`useMyCourses`). As the Courses section of My account
+// (stage 48, `MyCoursesSection`), their course subscription follows, through My account's one
+// subscriptions part; its card is My account's Payment method section.
 import type { CoursesHooks } from "@composable-os/pack-courses/client";
+import { MySubscription } from "../courses-subscription/my-subscription.tsx";
 import { Button } from "../ui-button/button.tsx";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "../ui-card/card.tsx";
 
@@ -55,5 +58,27 @@ export function MyCourses({
         </li>
       ))}
     </ul>
+  );
+}
+
+/**
+ * The Courses section of My account (ADR 0710): what they hold, then their course subscription,
+ * when they have one, with what they can do to it (`courses-subscription`).
+ */
+export function MyCoursesSection({
+  courses,
+}: {
+  courses: Pick<
+    CoursesHooks,
+    "useMyCourses" | "useMySubscriptions" | "useCancelSubscription" | "useResumeSubscription"
+  >;
+  /** Given by the account shell; the card is My account's Payment method section. */
+  returnUrl?: string;
+}) {
+  return (
+    <div className="grid gap-6">
+      <MyCourses courses={courses} />
+      <MySubscription courses={courses} empty={null} />
+    </div>
   );
 }

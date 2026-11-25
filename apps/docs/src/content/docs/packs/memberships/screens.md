@@ -20,13 +20,13 @@ Each drawn with dummy data.
 
 ### memberships-mine
 
-Web. A member's memberships and passes on the gym's site (stage 32b): what each allows, when it stops or expires, and what is left this week, this month or in all, from the host's count (`x.memberships.mine`, `allowance.get`); and their membership subscriptions, with what they can do: cancel at the period's end, keep it going, change plan (the host decides: an upgrade now, its prorated charge on the card, or a downgrade from the next period), confirm a payment that waits on them, or open the payment provider's portal for their card and invoices. [The block](/reference/blocks/memberships-mine/).
+Web. A member's memberships and passes on the gym's site (stage 32b), and their section of My account (stage 48): what each allows, when it stops or expires, and what is left this week, this month or in all, from the host's count (`x.memberships.mine`, `allowance.get`); a child's the gym linked to them too (decision 8: a parent sees a child's memberships and passes), each under the child's name; and their membership subscriptions, through My account's one subscriptions part (`web-account-subscriptions`): cancel at the period's end, keep it going, confirm a payment that waits on them, and here a change of plan (the host decides: an upgrade now, its prorated charge on the card, or a downgrade from the next period). [The block](/reference/blocks/memberships-mine/).
 
-<img class="cos-screen" src="/screens/memberships-mine.png" alt="memberships-mine, drawn with dummy data" width="720" height="658" loading="lazy" decoding="async" />
+<img class="cos-screen" src="/screens/memberships-mine.png" alt="memberships-mine, drawn with dummy data" width="720" height="832" loading="lazy" decoding="async" />
 
 ### memberships-native-mine
 
-Native. A member's memberships and passes in the gym's app (stage 32b), read only: what each allows, what is left this week, this month or in all (the host's count), when it stops or expires, and their membership's billing state in words, with a plan change or a pause waiting. [The block](/reference/blocks/memberships-native-mine/).
+Native. A member's memberships and passes in the gym's app (stage 32b), and their section of the app's My account (stage 48), read only: what each allows, what is left this week, this month or in all (the host's count), when it stops or expires, a child's the gym linked to them under the child's name (decision 8), and their membership's billing state in words through My account's one subscriptions part (`native-account-subscriptions`), with a plan change or a pause waiting and "Manage on the website" (`onManage`, which the account shell gives). [The block](/reference/blocks/memberships-native-mine/).
 
 <img class="cos-screen cos-screen-native" src="/screens/memberships-native-mine.png" alt="memberships-native-mine, drawn with dummy data" width="390" height="844" loading="lazy" decoding="async" />
 

@@ -1281,7 +1281,9 @@ describe("blocks (criterion 10)", () => {
     const again = await cos("add", "web-account");
     expect(again.code, again.output).toBe(0);
     expect(existsSync(join(blocks, "courses-my-courses", "my-courses.tsx"))).toBe(true);
-    expect(wiring()).toContain('import { MyCourses } from "./courses-my-courses/my-courses.tsx";');
+    expect(wiring()).toContain(
+      'import { MyCoursesSection } from "./courses-my-courses/my-courses.tsx";',
+    );
     expect(wiring()).toContain('key: "courses.courses"');
 
     // cos upgrade writes it again.

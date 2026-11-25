@@ -7,22 +7,33 @@ import {
   type AccountOrder,
   type AccountSession,
   type AccountSubscription,
+  type AttentionItem,
   accountClient,
   accountDay,
   accountErrorWords,
   accountSections,
+  attentionWords,
+  DELETE_WORD,
+  type DeletePreview,
   type DetailsForm,
+  deleteConfirmInput,
+  deletePreviewWords,
   detailsForm,
   detailsInput,
   detailsProblems,
+  emailChangeErrorWords,
+  emailChangeProblem,
   formatMinor,
   hiddenSections,
+  isDeletePreview,
+  isSignInAgain,
   loadOrders,
   MANAGE_ON_WEBSITE_WORDS,
   orderedSessions,
   orderMoney,
   orderStateWords,
   RECEIPT_EMAILED_WORDS,
+  SIGN_IN_AGAIN_WORDS,
   sessionWords,
   showsReceiptNote,
 } from "@composable-os/client";
@@ -96,6 +107,7 @@ interface Loaded {
   orders: AccountOrder[];
   subscriptions: AccountSubscription[];
   due: string[];
+  attention: AttentionItem[];
 }
 
 /**
@@ -111,7 +123,7 @@ function Account({ session, onSignedOut }: { session: Session; onSignedOut: () =
   const load = useCallback(async () => {
     const api = session.api;
     try {
-      const [me, sessions, family, orders, subscriptions, due] = await Promise.all([
+      const [me, sessions, family, orders, subscriptions, due, attention] = await Promise.all([
         api.call("me.get", {}),
         api.call("me.sessions.list", {}),
         api.call("me.family", {}),
@@ -120,6 +132,9 @@ function Account({ session, onSignedOut }: { session: Session; onSignedOut: () =
         // What the host says is still to be agreed to (stage 44). Copy the
         // native-agreements-due block to read and agree to each in the app.
         api.call("me.agreements.due", {}).catch(() => ({ people: [] })),
+        // What needs their attention, or a child's (ADR 0711). Copy native-account for the
+        // styled list that opens each item's section.
+        api.call("me.attention", {}).catch(() => ({ days: 7, items: [] })),
       ]);
       setData({
         me,
@@ -134,6 +149,7 @@ function Account({ session, onSignedOut }: { session: Session; onSignedOut: () =
               ? p.due.map((d) => d.title).join(", ")
               : `for ${p.name.split(" ")[0]}: ${p.due.map((d) => d.title).join(", ")}`,
           ),
+        attention: attention.items,
       });
     } catch {
       setFailed(true);
@@ -198,6 +214,7 @@ function Account({ session, onSignedOut }: { session: Session; onSignedOut: () =
       </>
     ),
     details: () => <Details session={session} me={data.me} onSaved={load} />,
+    delete: () => <Delete session={session} me={data.me} onDeleted={onSignedOut} />,
     devices: () =>
       orderedSessions(data.sessions).map((s) => {
         const words = sessionWords(s);
@@ -222,6 +239,19 @@ function Account({ session, onSignedOut }: { session: Session; onSignedOut: () =
     <ScrollView contentContainerStyle={styles.sections}>
       <Text style={styles.title}>My account</Text>
       <Text>{data.me.displayName}</Text>
+      <Text style={styles.heading}>Needs your attention</Text>
+      {data.attention.length ? (
+        data.attention.map((item) => {
+          const words = attentionWords(item);
+          return (
+            <Text key={item.key}>
+              {[words.whose, words.title, words.detail].filter(Boolean).join(": ")}
+            </Text>
+          );
+        })
+      ) : (
+        <Text>Nothing needs your attention.</Text>
+      )}
       {accountSections([], hiddenSections(data.subscriptions)).map((section) => (
         <View key={section.key} accessibilityLabel={section.label}>
           <Text style={styles.heading}>{section.label}</Text>
@@ -270,6 +300,195 @@ function Details({
       />
       <Text>{`You sign in with ${me.signInEmail}`}</Text>
       <NativeButton title="Save" onPress={() => void save()} />
+      {said ? <Text>{said}</Text> : null}
+      <ChangeAddress session={session} me={me} onChanged={onSaved} />
+    </View>
+  );
+}
+
+/**
+ * Signing in again in place when the host asks for a recent sign-in (`sign_in_again`, ADR 0712):
+ * a code to their own sign-in address, then `onDone`, which runs what they were doing again.
+ */
+function SignInAgain({
+  session,
+  email,
+  onDone,
+}: {
+  session: Session;
+  email: string;
+  onDone: () => void;
+}) {
+  const [code, setCode] = useState("");
+  const [sent, setSent] = useState(false);
+  return (
+    <View style={styles.form}>
+      <Text>{SIGN_IN_AGAIN_WORDS}</Text>
+      {sent ? <SimpleInput label="Code" value={code} onChange={setCode} /> : null}
+      <NativeButton
+        title={sent ? "Sign in and carry on" : "Email me a code"}
+        onPress={async () => {
+          if (!sent) setSent(await session.requestCode(email));
+          else if (await session.signIn(email, code.trim())) onDone();
+        }}
+      />
+    </View>
+  );
+}
+
+/** Changing the sign-in address: a code to the new address, entered here (ADR 0712). */
+function ChangeAddress({
+  session,
+  me,
+  onChanged,
+}: {
+  session: Session;
+  me: AccountMe;
+  onChanged: () => Promise<void>;
+}) {
+  const [email, setEmail] = useState("");
+  const [code, setCode] = useState("");
+  const [sent, setSent] = useState<string | null>(null);
+  const [again, setAgain] = useState<(() => void) | null>(null);
+  const [said, setSaid] = useState<string | null>(null);
+  async function run(act: () => Promise<void>) {
+    setSaid(null);
+    try {
+      await act();
+    } catch (error) {
+      if (isSignInAgain(error)) setAgain(() => () => void run(act));
+      else setSaid(emailChangeErrorWords(error));
+    }
+  }
+  if (again) {
+    return (
+      <SignInAgain
+        session={session}
+        email={me.signInEmail}
+        onDone={() => {
+          setAgain(null);
+          again();
+        }}
+      />
+    );
+  }
+  return (
+    <View style={styles.form}>
+      {sent ? (
+        <>
+          <Text>{`We emailed a code to ${sent}. Enter it within 15 minutes.`}</Text>
+          <SimpleInput label="Code" value={code} onChange={setCode} />
+          <NativeButton
+            title="Change my sign-in address"
+            onPress={() =>
+              void run(async () => {
+                const done = await session.api.call("me.email.confirm", { code: code.trim() });
+                setSent(null);
+                setSaid(`You now sign in with ${done.signInEmail}.`);
+                await onChanged();
+              })
+            }
+          />
+        </>
+      ) : (
+        <>
+          <SimpleInput label="New sign-in address" value={email} onChange={setEmail} />
+          <NativeButton
+            title="Email me a code"
+            onPress={() => {
+              const problem = emailChangeProblem(email, me.signInEmail);
+              if (problem) return setSaid(problem);
+              void run(async () => {
+                setSent(
+                  (await session.api.call("me.email.change", { email: email.trim() })).newEmail,
+                );
+              });
+            }}
+          />
+        </>
+      )}
+      {said ? <Text>{said}</Text> : null}
+    </View>
+  );
+}
+
+/**
+ * Deleting the account: the host's preview shown in full, then DELETE typed to confirm exactly
+ * that (ADR 0713). Nothing is deleted without the preview (`deleteConfirmInput`).
+ */
+function Delete({
+  session,
+  me,
+  onDeleted,
+}: {
+  session: Session;
+  me: AccountMe;
+  onDeleted: () => void;
+}) {
+  const [preview, setPreview] = useState<DeletePreview | null>(null);
+  const [typed, setTyped] = useState("");
+  const [again, setAgain] = useState(false);
+  const [said, setSaid] = useState<string | null>(null);
+  async function look() {
+    setSaid(null);
+    try {
+      const answer = await session.api.call("me.deleteAccount", {});
+      if (isDeletePreview(answer)) setPreview(answer);
+    } catch (error) {
+      if (isSignInAgain(error)) setAgain(true);
+      else setSaid(accountErrorWords(error));
+    }
+  }
+  async function confirm() {
+    const input = deleteConfirmInput(preview, typed);
+    if (!input) return setSaid(`Type ${DELETE_WORD} to confirm`);
+    try {
+      await session.api.call("me.deleteAccount", input);
+      // The host ended every session: forget this one on the device too.
+      await session.signOut().catch(() => undefined);
+      onDeleted();
+    } catch (error) {
+      if (isSignInAgain(error)) setAgain(true);
+      else {
+        setPreview(null);
+        setSaid(accountErrorWords(error));
+      }
+    }
+  }
+  if (again) {
+    return (
+      <SignInAgain
+        session={session}
+        email={me.signInEmail}
+        onDone={() => {
+          setAgain(false);
+          void look();
+        }}
+      />
+    );
+  }
+  if (!preview) {
+    return (
+      <View style={styles.form}>
+        <NativeButton title="See what deleting my account does" onPress={() => void look()} />
+        {said ? <Text>{said}</Text> : null}
+      </View>
+    );
+  }
+  const words = deletePreviewWords(preview);
+  return (
+    <View style={styles.form}>
+      {[...words.ends, ...words.cancelled].map((line) => (
+        <Text key={line}>{line}</Text>
+      ))}
+      {words.left.length ? <Text>{`Left for the business: ${words.left.join("; ")}`}</Text> : null}
+      <Text>{words.erase}</Text>
+      <SimpleInput label={`Type ${DELETE_WORD}`} value={typed} onChange={setTyped} />
+      <NativeButton
+        title="Delete my account"
+        disabled={!deleteConfirmInput(preview, typed)}
+        onPress={() => void confirm()}
+      />
       {said ? <Text>{said}</Text> : null}
     </View>
   );

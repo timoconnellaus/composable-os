@@ -5,17 +5,18 @@
   "operations": [
     "x.memberships.mine",
     "x.memberships.plans",
+    "me.family",
     "subscription.list",
     "subscription.cancel",
     "subscription.resume",
     "subscription.change",
-    "subscription.portal",
     "subscription.coolingOff",
     "subscription.coolOff"
   ],
   "files": ["mine.tsx", "LICENSE"],
-  "dependsOn": ["ui-button", "ui-card"],
+  "dependsOn": ["ui-button", "ui-card", "web-account-subscriptions"],
   "packages": {
+    "@composable-os/client": "*",
     "@composable-os/pack-memberships": "*"
   }
 }

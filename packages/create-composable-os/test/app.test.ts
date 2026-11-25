@@ -185,11 +185,7 @@ async function gym() {
   write("apps/mobile/assets/splash.png", png(200, 200, true));
   for (const [file, text] of Object.entries(LISTING))
     write(`apps/mobile/store/en-AU/${file}`, text);
-  // Stage 48's account shell's "Delete my account" section, as a stand-in until it is merged.
-  write(
-    "apps/mobile/src/delete-account.ts",
-    'export const deleteAccount = (api: { call(name: string, input: object): Promise<unknown> }) =>\n  api.call("me.deleteAccount", { confirm: true });\n',
-  );
+  // The template's Account tab has "Delete my account" (stage 48 step 7): nothing to add.
   const generated = await cos(["client", "generate"]);
   expect(generated.code, generated.output).toBe(0);
   return platform;
@@ -403,9 +399,16 @@ describe("cos app check (criterion 2)", () => {
       /buy.ts:2 names useBuy/,
       () => rmSync(join(dir, buys)),
     );
-    undo = keep("apps/mobile/src/delete-account.ts");
+    undo = keep("apps/mobile/App.tsx");
     await refused(
-      () => rmSync(join(dir, "apps/mobile/src/delete-account.ts")),
+      () =>
+        write(
+          "apps/mobile/App.tsx",
+          readFileSync(join(dir, "apps/mobile/App.tsx"), "utf8").replaceAll(
+            '"me.deleteAccount"',
+            '"me.get"',
+          ),
+        ),
       /has no "Delete my account"/,
       undo,
     );
