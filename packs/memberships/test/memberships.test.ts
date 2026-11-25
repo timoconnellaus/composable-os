@@ -29,7 +29,14 @@ import memberships from "../index.ts";
 const STAFF = { kind: "staff", userId: "usr_admin", name: "Sam" } as const;
 const MEMBER = { kind: "customer", customerId: "cus_1", personId: "per_member" } as const;
 const PUBLIC = { kind: "public" } as const;
-const KNOWN = { knownObjects: ["programs.classtype", "bookings.booking"] };
+const KNOWN = {
+  knownObjects: [
+    "programs.classtype",
+    "bookings.booking",
+    "bookings.service",
+    "bookings.appointment",
+  ],
+};
 
 function hostWith(): TestHost {
   const host: TestHost = createTestHost(memberships, {
@@ -166,10 +173,10 @@ function hostWith(): TestHost {
 }
 
 describe("the manifest", () => {
-  it("passes the contract, requires Programs, and declares what the host enforces", () => {
+  it("passes the contract, requires Programs and Bookings, and declares what the host enforces", () => {
     const host = createTestHost(memberships, { validate: KNOWN });
     expect(host.issues).toEqual([]);
-    expect(host.manifest.requires).toEqual(["programs"]);
+    expect(host.manifest.requires).toEqual(["programs", "bookings"]);
     const { plan, membership, passtype, pass } = host.manifest.objects as Record<
       string,
       // biome-ignore lint/suspicious/noExplicitAny: reading the declaration's shape in a test.
@@ -191,15 +198,31 @@ describe("the manifest", () => {
       days: "item.validDays",
     });
     expect(passtype.sellable.onePerPerson).toBe("onePerPerson");
-    // Stage 31's booking spends them, by class type and the local weekday and minute.
+    // Stage 31's booking spends them, by class type and the local weekday and minute, unless the
+    // holder pays for sessions only; stage 49's appointment only when it pays for sessions (an
+    // empty "pays for" allows none: ADR 0764), by the service and the local weekday and minute.
     for (const holder of [membership, pass]) {
-      expect(holder.allowance.holds.spendsOn.object).toBe("bookings.booking");
-      expect(holder.allowance.holds.spendsOn.when.map((c: { field: string }) => c.field)).toEqual([
-        "classType",
-        "weekday",
-        "minute",
-        "minute",
+      const [classes, sessions] = holder.allowance.holds.spendsOn;
+      expect(classes.object).toBe("bookings.booking");
+      expect(classes.when).toEqual([
+        { value: "classes", in: "covers" },
+        { field: "classType", in: "classTypes" },
+        { field: "weekday", in: "weekdays" },
+        { field: "minute", atLeast: "fromMinute" },
+        { field: "minute", below: "untilMinute" },
       ]);
+      expect(sessions.object).toBe("bookings.appointment");
+      expect(sessions.when).toEqual([
+        { value: "sessions", in: "covers", empty: "none" },
+        { field: "serviceId", in: "services" },
+        { field: "weekday", in: "weekdays" },
+        { field: "minute", atLeast: "fromMinute" },
+        { field: "minute", below: "untilMinute" },
+      ]);
+    }
+    // What they pay for is copied from the plan or the pass type when it is granted.
+    for (const set of [plan.sellable.recurring.grants.set, passtype.sellable.grants.set]) {
+      expect(set).toMatchObject({ covers: "item.covers", services: "item.services" });
     }
     // No term of what a member holds is writable by anyone but the host and this pack's tools.
     for (const holder of [membership, pass]) {

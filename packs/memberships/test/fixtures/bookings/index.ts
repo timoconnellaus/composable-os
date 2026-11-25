@@ -14,6 +14,13 @@ export default defineExtension({
   description: "A class and a booking that spends a membership or a pass: a test fixture.",
   requires: ["programs"],
   objects: {
+    // A service (stage 49): what a plan's or a pass's `services` relate to. No appointments here.
+    service: {
+      label: "Service",
+      plural: "Services",
+      titleField: "name",
+      fields: { name: { type: "text", label: "Name", required: true } },
+    },
     class: {
       label: "Class",
       plural: "Classes",
