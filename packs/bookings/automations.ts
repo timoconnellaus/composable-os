@@ -51,10 +51,12 @@ const PAGE = 200;
 
 /** The pack's settings (the booking rules), stored or default. */
 async function settings(ctx: ExtensionContext): Promise<Record<string, unknown>> {
+  // Each item names its extension as `extension` (extensionSettings.list's output): reading `id`
+  // found none, so every setting read here was its default (found building stage 29 step 5).
   const { items } = await ctx.ops.call<{
-    items: { id: string; values: Record<string, unknown> }[];
+    items: { extension: string; values: Record<string, unknown> }[];
   }>("extensionSettings.list", { extension: "bookings" });
-  return items.find((item) => item.id === "bookings")?.values ?? {};
+  return items.find((item) => item.extension === "bookings")?.values ?? {};
 }
 
 /** Which declared words say why the host passed a waiter over (ADR 0520's reasons). */

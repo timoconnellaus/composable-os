@@ -1311,10 +1311,10 @@ async function prepareRows(db: Db, p: Prepare): Promise<PreparedRoutineMail> {
     }
   }
   if (!recipients.length) return none();
-  // The link itself, once for the send (each email gets its own token below). A Person asked
-  // about this record already, or asked within the slot's `once` days, is not sent it again.
-  const plan = linkSlot && on && aboutPersonId ? await planLink(db, p, linkSlot, aboutPersonId) : null;
-  if (plan && "skip" in plan) return none();
+  // The link itself is made once for the send, when the first email that may go asks for it
+  // (each email gets its own token below): one stopped or suppressed makes none. A Person asked
+  // about this record already, or within the slot's `once` days, is not sent it again.
+  let plan: Awaited<ReturnType<typeof planLink>> | null = null;
 
   // The slots the host fills, once for the record; the pack's values per audience.
   const fill: Fill = { values: {}, problems: [] };
@@ -1723,8 +1723,12 @@ async function prepareRows(db: Db, p: Prepare): Promise<PreparedRoutineMail> {
     let linkProblem: string | null = null;
     let shownValues = values;
     if (linkSlot && on && !stopped && !overReceipts && !recipient.invalid) {
-      if (!plan || "failed" in plan) {
-        linkProblem = plan && "failed" in plan ? plan.failed : "no personal link could be made";
+      plan ??= aboutPersonId
+        ? await planLink(db, p, linkSlot, aboutPersonId)
+        : { failed: "no personal link could be made" };
+      if ("skip" in plan) return none();
+      if ("failed" in plan) {
+        linkProblem = plan.failed;
       } else {
         const url = personalLinkUrl(plan.site, await linkToken(db, plan.linkId, now));
         shownValues = { ...values, [linkSlot[0]]: url };
