@@ -158,7 +158,7 @@ export function publishDiff(
 
 /** The record's current version and its content, or null when it is not published. */
 export async function liveContent(
-  ctx: HandlerContext,
+  ctx: Pick<HandlerContext, "db">,
   object: string,
   id: string,
 ): Promise<{ version: number; content: Record<string, unknown> } | null> {

@@ -1697,6 +1697,26 @@ export default defineExtension({
       // The link every member email carries: a person's to change, as the booking rules are.
       personApproves: true,
     },
+    // Feedback after a class (stage 29 step 5, decision 4; ADR 0723): which Forms form members
+    // are asked to answer, and when. Who is asked and what they are sent is a person's choice.
+    feedbackForm: {
+      type: "text",
+      label: "Feedback form (its address)",
+      description:
+        "The address of a Forms form (open, published, not anonymous) that members are asked to " +
+        "answer after a class they came to, with a link that works once and for a week; at most " +
+        "once a month each, a child's to their parent or guardian. Empty: nobody is asked.",
+      personApproves: true,
+    },
+    feedbackMinutes: {
+      type: "number",
+      label: "Feedback asked (minutes after the tick)",
+      description: "How long after a member is ticked as come the feedback email goes.",
+      default: 180,
+      min: 0,
+      max: 2_880,
+      personApproves: true,
+    },
   },
   // The coach role (spec 31, decision 10; ADR 0436): the day's classes and their lists, and ticking
   // names. Nothing else: no money (no holders, no desk payments, no orders), no people beyond the

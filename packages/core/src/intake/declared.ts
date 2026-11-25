@@ -46,7 +46,17 @@ export function intakeHostFields(object: ObjectDefinition): Set<string> {
   if (object.intake?.role !== "submission") return new Set();
   const i = object.intake;
   return new Set(
-    [i.form, i.version, i.answers, i.certainty, i.via, i.rating, i.marketing].filter(
+    [
+      i.form,
+      i.version,
+      i.answers,
+      i.certainty,
+      i.via,
+      i.rating,
+      i.marketing,
+      i.about,
+      i.aboutObject,
+    ].filter(
       (f): f is string => typeof f === "string",
     ),
   );

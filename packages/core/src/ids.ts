@@ -105,6 +105,8 @@ export const ID_PREFIXES = {
   refundDue: "rdu",
   /** A routine email the host was asked to send (ADR 0590). */
   routineMail: "rml",
+  /** A personal link: one Person's one use of one form (stage 29, ADR 0723). */
+  intakeLink: "ilk",
   /** A code sent to a Person's number to check it (stage 30, ADR 0673). */
   phoneCheck: "phk",
   /** One contact choice on the consent register (stage 30, ADR 0675). */

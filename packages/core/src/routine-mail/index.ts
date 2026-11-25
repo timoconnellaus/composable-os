@@ -30,11 +30,15 @@ import {
   calendarsOf,
   channelsOf,
   essentialOf,
+  type FormLinkSlotSpec,
   formatMoment,
   formatMoney,
+  formLinkSlotsOf,
+  PERSONAL_LINK_DAYS,
   PUSH_BODY_MAX,
   PUSH_TITLE_MAX,
   parseTemplate,
+  RECEIPT_DAILY_CAP,
   ROUTINE_ABOUT_ORDER,
   ROUTINE_DAILY_CAP,
   ROUTINE_MEMBER_SLOT,
@@ -56,16 +60,20 @@ import { type ContactDecision, contactDecision, registerRefusal } from "../conta
 import { type ChoicesInForce, choicesInForce } from "../contact/register.ts";
 import { readStopToken, type StopScope, stopLink, tokenOfLink } from "../contact/stop.ts";
 import { addressHash, suppressed } from "../contact/suppression.ts";
+import { sameEmailPeople } from "../customers/accounts.ts";
 import { mailboxKey } from "../customers/limits.ts";
 import { ForbiddenError, NotFoundError, ValidationError } from "../errors.ts";
 import { getObject } from "../fields/index.ts";
 import { newId } from "../ids.ts";
+import { formIdBySlug, openForm } from "../intake/forms.ts";
+import { ensureLink, linkedSince, linkToken, personalLinkUrl } from "../intake/links.ts";
 import { notifyStatements } from "../notifications/send.ts";
 import { loadRecord } from "../operations/record.ts";
 import { staffPrincipal } from "../principals.ts";
 import { viewColumnOf } from "../records/columns.ts";
 import { extensionSettingValues } from "../records/windows.ts";
 import { isTimezone } from "../settings.ts";
+import { hasLiveGuardian } from "../visibility/guardians.ts";
 import { visibleSource } from "../visibility/index.ts";
 import { HOST_KINDS_EXTENSION, hostRoutineKind, hostRoutineKinds } from "./host-kinds.ts";
 import { addressField, CREATED, PRIMARY_ADDRESS, type Standing, valueHash } from "./marks.ts";
@@ -714,6 +722,141 @@ async function recipientsOf(
 }
 
 /**
+ * Who a receipt goes to (ADR 0724): whoever sent the submission, once. Signed in, their own
+ * verified sign-in address; by a personal link, the link's Person's primary address (where the
+ * host sent the link); a visitor, the address they typed, when it is one of the submission's
+ * Person's by the same-email rule. Nobody for an anonymous submission (no Person), one entered by
+ * staff, one kept as spam, or a Person erased, merged away or in the Trash.
+ */
+async function receiptRecipientsOf(
+  db: Db,
+  object: string,
+  record: Values,
+): Promise<{ recipients: Recipient[]; memberName: string | null; personId: string | null }> {
+  const nobody = { recipients: [], memberName: null, personId: null };
+  const definition = getObject(object);
+  const intake = definition?.intake?.role === "submission" ? definition.intake : null;
+  if (!definition || !intake) return nobody;
+  const personId = text(record[intake.person]);
+  if (!personId) return nobody;
+  if (definition.states && record[definition.states.field] === intake.spam) return nobody;
+  const certainty = text(record[intake.certainty]);
+  const person = await livePerson(db, personId);
+  if (!person) return nobody;
+  let address: string | null = null;
+  if (certainty === "account") {
+    const customer = await db
+      .selectFrom("core_customer")
+      .select("email")
+      .where("person_id", "=", personId)
+      .where("email_verified", "=", 1)
+      .executeTakeFirst();
+    address = text(customer?.email);
+  } else if (certainty === "link") {
+    address = person.email;
+  } else if (certainty === "address") {
+    for (const typed of typedAddresses(record[intake.answers]).slice(0, 3)) {
+      if ((await sameEmailPeople(db, typed)).includes(personId)) {
+        address = typed;
+        break;
+      }
+    }
+  }
+  const a = address?.trim().toLowerCase();
+  if (!a) return { ...nobody, personId };
+  const recipient: Recipient = { address: a, rule: "person", personId, self: true };
+  if (!ADDRESS.test(a) || a.length > 254) {
+    recipient.held = "the address is not one the host sends to on its own (check it is right)";
+    recipient.invalid = true;
+  }
+  return { recipients: [recipient], memberName: null, personId };
+}
+
+/** The email answers of an answers document, as typed. */
+function typedAddresses(document: unknown): string[] {
+  let parsed = document;
+  if (typeof parsed === "string") {
+    try {
+      parsed = JSON.parse(parsed);
+    } catch {
+      return [];
+    }
+  }
+  const answers = (parsed as { answers?: unknown } | null)?.answers;
+  if (!Array.isArray(answers)) return [];
+  return answers.flatMap((a) =>
+    a && typeof a === "object" && (a as { kind?: unknown }).kind === "email"
+      ? typeof (a as { value?: unknown }).value === "string"
+        ? [((a as { value: string }).value as string).trim()]
+        : []
+      : [],
+  );
+}
+
+/** Whether `address`'s mailbox had this receipt kind's limit in the last day (ADR 0724). */
+async function receiptsToday(db: Db, kind: string, address: string, now: string) {
+  const since = new Date(Date.parse(now) - 86_400_000).toISOString();
+  const row = await db
+    .selectFrom("core_routine_mail")
+    .select((eb) => eb.fn.countAll<number>().as("n"))
+    .where("kind", "=", kind)
+    .where("channel", "=", "email")
+    .where("recipient_key", "=", mailboxKey(address))
+    .where("created_at", ">", since)
+    .where("status", "not in", ["off", "over_limit", "stopped", "failed"])
+    .executeTakeFirst();
+  return Number(row?.n ?? 0) >= RECEIPT_DAILY_CAP;
+}
+
+/**
+ * The personal link a send's form-link slot carries (ADR 0723): the form the pack's setting names,
+ * open to answers by link now, and the link for the record's Person about this record, made now
+ * or found again by a retried step. `skip`: not sent at all (asked about this record already, or
+ * within the slot's `once` days). `failed`: the email cannot carry a link (no site, no form).
+ */
+async function planLink(
+  db: Db,
+  p: Prepare,
+  [, slot]: [string, FormLinkSlotSpec],
+  personId: string,
+): Promise<{ linkId: string; site: string } | { skip: true } | { failed: string }> {
+  const site = siteOriginOf(p.settings.siteOrigin);
+  if (!site) {
+    return { failed: "a personal link is on the business's site: set it in Settings → Routine email" };
+  }
+  const slug = text(p.packSettings[slot.setting]);
+  if (!slug) return { failed: `no form is chosen (the ${slot.setting} setting)` };
+  const ctx = { db, now: p.now };
+  let formId: string;
+  try {
+    formId = await formIdBySlug(ctx, slot.object, slug);
+    await openForm(ctx, slot.object, formId, "public", { byLink: true });
+  } catch (error) {
+    if (!(error instanceof NotFoundError)) throw error;
+    return { failed: "the form chosen does not take answers by personal link now" };
+  }
+  const about = {
+    personId,
+    formObject: slot.object,
+    formId,
+    recordObject: p.object,
+    recordId: p.record,
+  };
+  if (slot.once) {
+    const since = new Date(Date.parse(p.now) - slot.once * 86_400_000).toISOString();
+    if (await linkedSince(db, about, since)) return { skip: true };
+  }
+  const link = await ensureLink(db, {
+    ...about,
+    madeFor: `${p.kindId}:${p.keyPrefix}`.slice(0, 200),
+    days: slot.days ?? PERSONAL_LINK_DAYS,
+    now: p.now,
+  });
+  if (!link?.live) return { skip: true };
+  return { linkId: link.id, site };
+}
+
+/**
  * The address an order's routine email may go to (D2): the order's own address once a payment
  * was applied (ADR 0560); for a signed-in customer's free order, their own verified sign-in
  * address; otherwise the address a visitor typed, which is not routine (held for a person).
@@ -888,7 +1031,7 @@ function checkSendValues(
   for (const key of Object.keys(values ?? {})) {
     const slot = spec.slots[key];
     if (!slot) throw new ValidationError(`${kindId} has no slot "${key}"`);
-    if ("field" in slot || "link" in slot || "each" in slot) {
+    if ("field" in slot || "link" in slot || "each" in slot || "formLink" in slot) {
       throw new ValidationError(`${kindId}'s slot "${key}" is filled by the host`, { slot: key });
     }
   }
@@ -1142,14 +1285,36 @@ type Version = RoutineMessageManifest | NonNullable<RoutineMessageManifest["guar
 async function prepareRows(db: Db, p: Prepare): Promise<PreparedRoutineMail> {
   const { now, records, spec, message, object, settings, on, packOn, held, by } = p;
   const record = p.recordValues;
-  const {
-    recipients,
-    memberName,
-    personId: aboutPersonId,
-  } = await recipientsOf(db, records, object, record);
-  if (!recipients.length) {
-    return { kind: p.kindId, off: !on, toSend: [], done: [], phone: [], none: true };
+  const none = (): PreparedRoutineMail => ({
+    kind: p.kindId,
+    off: !on,
+    toSend: [],
+    done: [],
+    phone: [],
+    none: true,
+  });
+  // A receipt (ADR 0724) goes to whoever sent the submission; every other kind to the record's
+  // own Person and their live guardians, or a paid order's address.
+  const receipt = spec.receipt === true;
+  const found = receipt
+    ? await receiptRecipientsOf(db, object, record)
+    : await recipientsOf(db, records, object, record);
+  const { memberName, personId: aboutPersonId } = found;
+  let recipients = found.recipients;
+  // A personal link (ADR 0723) is for the record's own Person: never an order's address, and
+  // never a child's own address when they have a live guardian (the guardian answers for them).
+  const [linkSlot] = formLinkSlotsOf(spec);
+  if (linkSlot) {
+    recipients = recipients.filter((r) => r.rule !== "order" && r.personId);
+    if (aboutPersonId && (await hasLiveGuardian(db, aboutPersonId))) {
+      recipients = recipients.filter((r) => !r.self);
+    }
   }
+  if (!recipients.length) return none();
+  // The link itself, once for the send (each email gets its own token below). A Person asked
+  // about this record already, or asked within the slot's `once` days, is not sent it again.
+  const plan = linkSlot && on && aboutPersonId ? await planLink(db, p, linkSlot, aboutPersonId) : null;
+  if (plan && "skip" in plan) return none();
 
   // The slots the host fills, once for the record; the pack's values per audience.
   const fill: Fill = { values: {}, problems: [] };
@@ -1176,7 +1341,7 @@ async function prepareRows(db: Db, p: Prepare): Promise<PreparedRoutineMail> {
   const packValues = async (guardian: boolean) => {
     const out: Record<string, string | null> = {};
     for (const [name, slot] of Object.entries(spec.slots)) {
-      if ("field" in slot || "link" in slot || "each" in slot) continue;
+      if ("field" in slot || "link" in slot || "each" in slot || "formLink" in slot) continue;
       records.context = name;
       out[name] = packValue(name, slot, p.values?.[name], await zoneFor(slot), guardian);
     }
@@ -1274,6 +1439,25 @@ async function prepareRows(db: Db, p: Prepare): Promise<PreparedRoutineMail> {
         ),
       );
     }
+    // A receipt's submission was made by the door for whoever sent it (the public included): its
+    // link to its Person and its state are the door's own, anything but an AI's (ADR 0724).
+    const sender: readonly Standing[] = receipt
+      ? ["person", "customer", "public", "default", "host"]
+      : ["person", "customer", "default", "host"];
+    const intakePerson =
+      receipt && definition?.intake?.role === "submission" ? definition.intake.person : null;
+    if (intakePerson) {
+      base.add(
+        await check(
+          object,
+          p.record,
+          intakePerson,
+          record[intakePerson],
+          sender,
+          `whose ${spec.about} it is`,
+        ),
+      );
+    }
     const stateField = definition?.states?.field;
     if (stateField) {
       base.add(
@@ -1282,7 +1466,7 @@ async function prepareRows(db: Db, p: Prepare): Promise<PreparedRoutineMail> {
           p.record,
           stateField,
           record[stateField],
-          ["person", "customer", "default", "host"],
+          sender,
           `the ${spec.about}'s state`,
         ),
       );
@@ -1309,12 +1493,19 @@ async function prepareRows(db: Db, p: Prepare): Promise<PreparedRoutineMail> {
         // Nothing shown (an optional slot left empty): nothing to stand behind.
         if (shownValue === null || shownValue === undefined || shownValue === "") continue;
         if (source.object === object && source.id === p.record && field === personField) continue;
+        // Which form a receipt's submission answers is the door's (the sender's) link; what the
+        // receipt shows of the form is still a person's or a default.
+        const own = source.object === object && source.id === p.record;
         await check(
           source.object,
           source.id,
           field,
           shownValue,
-          kind === "link" ? ["person", "customer", "default", "host"] : ["person", "default"],
+          kind === "link"
+            ? own
+              ? sender
+              : ["person", "customer", "default", "host"]
+            : ["person", "default"],
           `${source.object} ${source.id}'s ${field}`,
         );
       }
@@ -1353,7 +1544,9 @@ async function prepareRows(db: Db, p: Prepare): Promise<PreparedRoutineMail> {
       }
       if (!recipient.personId) continue;
       keys.add(await addressCheck(recipient.personId, recipient.address));
-      keys.add(await primaryCheck(recipient.personId, recipient.address));
+      // A receipt goes to the address the sender gave or signed in with, which one is primary
+      // aside; every other email to the Person's primary address, which no AI chose.
+      if (!receipt) keys.add(await primaryCheck(recipient.personId, recipient.address));
     }
     // The member's name: a person's write, or the member's own (signed in, or typed at checkout
     // when paying from the address the email goes to: a visitor's name, to themselves).
@@ -1392,6 +1585,9 @@ async function prepareRows(db: Db, p: Prepare): Promise<PreparedRoutineMail> {
     let problem: string | null = null;
     if (!mark || mark.value_hash !== h) problem = `${address} (no one)`;
     else if (mark.standing === "person" || mark.standing === "default") problem = null;
+    // A receipt (ADR 0724, amending ADR 0590) may go to an address only the sender stands behind
+    // (one a visitor typed): it shows nothing they typed, and the address is the one they gave.
+    else if (receipt && mark.standing !== "ai") problem = null;
     else if (mark.standing === "customer") {
       problem = (await verifiedAddress(db, personId, address)) ? null : `${address} (customer)`;
     } else if (mark.standing === "host" || mark.standing === "public") {
@@ -1498,7 +1694,6 @@ async function prepareRows(db: Db, p: Prepare): Promise<PreparedRoutineMail> {
     if (!template) continue;
     const values = guardian ? guardianValues : selfValues;
     const subject = renderTemplate(parseTemplate(template.subject), values).slice(0, 300);
-    let body = renderTemplate(parseTemplate(template.text), values);
     // May it go to them by email at all (their choices, the suppression list)?
     const consent: ContactDecision | null = !on
       ? null
@@ -1520,8 +1715,28 @@ async function prepareRows(db: Db, p: Prepare): Promise<PreparedRoutineMail> {
           ? { send: false, reason: "suppressed", detail: "the address asked not to be sent to" }
           : null;
     const stopped = consent !== null && !consent.send;
+    // A receipt: at most three a day to one mailbox (decision 3); the fourth is not sent at all.
+    const overReceipts =
+      receipt && on && !stopped && (await receiptsToday(db, p.kindId, recipient.address, now));
+    // The personal link (ADR 0723): a token of its own for this one email, only for one that may
+    // go. Without a link the email is not sent: it is what the email is for.
+    let linkProblem: string | null = null;
+    let shownValues = values;
+    if (linkSlot && on && !stopped && !overReceipts && !recipient.invalid) {
+      if (!plan || "failed" in plan) {
+        linkProblem = plan && "failed" in plan ? plan.failed : "no personal link could be made";
+      } else {
+        const url = personalLinkUrl(plan.site, await linkToken(db, plan.linkId, now));
+        shownValues = { ...values, [linkSlot[0]]: url };
+      }
+    }
+    let body = renderTemplate(parseTemplate(template.text), shownValues);
+    // Not sent at all, and nothing kept of its words: a fourth receipt today, or a personal
+    // link that could not be made.
+    const notSent = Boolean(overReceipts) || linkProblem !== null;
+    const live = on && !stopped && !notSent;
     const link =
-      on && !stopped && stopScope && recipient.personId
+      live && stopScope && recipient.personId
         ? await stopLink(db, site, {
             person: recipient.personId,
             channel: "email",
@@ -1556,10 +1771,10 @@ async function prepareRows(db: Db, p: Prepare): Promise<PreparedRoutineMail> {
       recipient: recipient.address,
       recipient_key: mailboxKey(recipient.address),
       idempotency_key: key,
-      routine: on && packOn && !reasons.length && !stopped ? 1 : 0,
-      ordinary: on && !packOn && !stopped ? 1 : 0,
+      routine: live && packOn && !reasons.length ? 1 : 0,
+      ordinary: live && !packOn ? 1 : 0,
       held_reason:
-        !on || stopped
+        !live
           ? null
           : !packOn
             ? "routine email is not turned on for this pack: decided by the approval policy"
@@ -1574,22 +1789,28 @@ async function prepareRows(db: Db, p: Prepare): Promise<PreparedRoutineMail> {
         ? "off"
         : stopped
           ? "stopped"
-          : recipient.invalid || noConnection
-            ? "failed"
-            : "ready",
-      connection_id: on && !stopped ? p.connectionId : null,
-      subject: on && !stopped ? subject.slice(0, 200) : null,
-      body: on && !stopped ? body : null,
-      calendar: on && !stopped && calendar.length ? JSON.stringify(calendar) : null,
+          : overReceipts
+            ? "over_limit"
+            : recipient.invalid || noConnection || linkProblem
+              ? "failed"
+              : "ready",
+      connection_id: live ? p.connectionId : null,
+      subject: live ? subject.slice(0, 200) : null,
+      body: live ? body : null,
+      calendar: live && calendar.length ? JSON.stringify(calendar) : null,
       sources: JSON.stringify(unreadable ? [] : shown),
       error:
         consent && !consent.send
           ? consent.detail
-          : on && recipient.invalid
-            ? (recipient.held ?? null)
-            : noConnection
-              ? NO_EMAIL_CHANNEL
-              : null,
+          : overReceipts
+            ? `${RECEIPT_DAILY_CAP} receipts went to this address in the last day`
+            : linkProblem
+              ? linkProblem
+              : on && recipient.invalid
+                ? (recipient.held ?? null)
+                : noConnection
+                  ? NO_EMAIL_CHANNEL
+                  : null,
     });
   }
 

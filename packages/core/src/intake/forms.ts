@@ -46,7 +46,7 @@ export type Asker = "public" | "customer" | "staff";
  * caller nothing a closed or unpublished form would not. Whether it takes answers is `openForm`'s.
  */
 export async function formIdBySlug(
-  ctx: HandlerContext,
+  ctx: Pick<HandlerContext, "db">,
   objectName: string,
   slug: string,
 ): Promise<string> {
@@ -76,13 +76,16 @@ export async function formIdBySlug(
  * The form `id` of `objectName`, published and taking answers from `asker` now; otherwise not
  * found, the same answer whatever the reason (a draft, closed, unpublished, out of its dates, not
  * open to this caller, or no such form). Staff enter any published form (a phone call, paper, a
- * staff form). A `links` form takes answers only by a personal link (step 5 builds them).
+ * staff form). A `links` form takes answers only by a personal link (ADR 0723): `byLink` opens a
+ * form to the holder of a live link whoever it is open to, but never a staff form or an anonymous
+ * one (an anonymous form keeps no Person, so a link to one would be a lie).
  */
 export async function openForm(
-  ctx: HandlerContext,
+  ctx: Pick<HandlerContext, "db" | "now">,
   objectName: string,
   id: string,
   asker: Asker,
+  options: { byLink?: boolean } = {},
 ): Promise<OpenForm> {
   const object = formObjectOf(getObject(objectName));
   const notFound = () => new NotFoundError(objectName, id);
@@ -110,12 +113,15 @@ export async function openForm(
     const now = Date.parse(ctx.now);
     if (typeof opens === "string" && Date.parse(opens) > now) throw notFound();
     if (typeof closes === "string" && Date.parse(closes) <= now) throw notFound();
-    const open = answeredBy === "public" || (answeredBy === "customers" && asker === "customer");
+    const open = options.byLink
+      ? answeredBy === "public" || answeredBy === "customers" || answeredBy === "links"
+      : answeredBy === "public" || (answeredBy === "customers" && asker === "customer");
     if (!open) throw notFound();
   }
   const questions = published[intake.questions] as Questions | null | undefined;
   if (!questions || !Array.isArray(questions.items)) throw notFound();
   const anonymous = intake.anonymous ? isTrue(published[intake.anonymous]) : false;
+  if (options.byLink && anonymous) throw notFound();
   const destination =
     !anonymous && intake.destination ? destinationObjectOf(published[intake.destination]) : null;
   // What a client draws: the published content without the host's own settings.
