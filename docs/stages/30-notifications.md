@@ -32,14 +32,20 @@ Specs this one must fit: [`47-pack-screens.md`](47-pack-screens.md), `48-my-acco
 Status: **spec agreed** (owner interviewed 2026-11-24: decision 1; decisions 2 to 11 by the
 coordinator as best practice the same day). Build may start.
 
-- Step 1, routine messages (PR #339, `feat/stage-30-routine-messages`): built. Text and push
+## Status
+
+- **Step 1** — built — PR #339 — Routine messages (`feat/stage-30-routine-messages`). Text and push
   words in a kind's declaration, checked to fit; a row per recipient and channel, held for what
   its own words show (`held`); quiet hours and urgent kinds, released by the minute cron; the
   host kinds' send path; Bookings' and Ticketing's text and push words. Migration 0910, ADRs 0670
   and 0676 (ADR 0590 amended). The name a text begins with and the zone of quiet hours are human
   admins' routine settings (`senderName`, `quietZone`). Left: nothing reaches a phone until steps
   3 to 5; step 2 takes migration 0915 for the subscription's card expiry and sent markers.
-- Step 3, texts (`feat/stage-30-text`): built. `packages/gatekeeper-text`: one provider interface,
+
+- **Step 2** — not built — needs: step 1 — Subscriptions' host kinds and the card's expiry (#215),
+  email first.
+
+- **Step 3** — built — PR #435 — Texts (`feat/stage-30-text`). `packages/gatekeeper-text`: one provider interface,
   the fake (refused in a live environment), the business's sender number; only the host's queues
   (`routine-mail`, `phone-check`, `text-events`), every caller's refused; `text.routine` or a held
   text reviewed with the number masked; one pool of 500; verified receipts, STOP, START and HELP.
@@ -49,6 +55,22 @@ coordinator as best practice the same day). Build may start.
   Migration 0911 (`core_text_spend`, `core_phone_check`, `core_text_stop`), ADRs 0672 and 0673.
   Not built: a real provider module (with the first business's account, step 8); STOP is kept in
   `core_text_stop`, which step 5's suppression list reads for texts.
+
+- **Step 4** — not built — needs: step 1 — Push gatekeeper (prove the Worker reaches both push
+  services first), devices, the template's app, staff push.
+
+- **Step 5** — in progress — branch `feat/stage-30-consent` — The consent register,
+  `contactDecision`, `stopLink`, `contact.stop`, the List-Unsubscribe headers, contact preferences
+  blocks.
+
+- **Step 6** — not built — needs: step 1 — The business's wording, versions, preview.
+
+- **Step 7** — not built — needs: step 1, step 2, step 3, step 4, step 5, step 6 — Delivery
+  status, the Person's Messages card, the log screen, the coach swap kind (#238), e2e, the site.
+
+- **Step 8** — not built — needs: step 3, step 4, the first client's provider accounts — The first
+  client: their own text provider account and sender number, push credentials, a real phone, the
+  limit, quiet hours, wording, the provider's failed-payment emails off.
 
 ## Goal
 

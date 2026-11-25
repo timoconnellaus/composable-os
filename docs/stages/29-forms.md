@@ -21,9 +21,14 @@ standing rule that best-practice answers are decided, not asked; the owner may o
 them). Roadmap stage 29, issue #97. Every step may start in the order below; nothing waits for an
 interview.
 
-- Step 1, built: the question schema and answer checking (`packages/sdk/src/questions.ts`:
-  `QUESTIONS_SCHEMA`, `ANSWERS_SCHEMA`, `checkQuestions`, `checkAnswers`). No ADR, no migration.
-- Step 2, built (`feat/stage-29-intake`): the `intake` behaviour in three roles (form, submission,
+## Status
+
+- **Step 1** — built — PR #332 — The question schema and answer checking
+  (`packages/sdk/src/questions.ts`: `QUESTIONS_SCHEMA`, `ANSWERS_SCHEMA`, `checkQuestions`,
+  `checkAnswers`). No ADR, no migration.
+
+- **Step 2** — built — PR #376 — `intake` and `intake.submit` (`feat/stage-29-intake`): the
+  `intake` behaviour in three roles (form, submission,
   destination; `packages/sdk/src/intake.ts`), refused in a runtime extension; `checkQuestions` on
   every write of a form; `intake.open` and `intake.submit` (`toolOnly`, `hostInternal`, open to
   staff, customers and the public, reached only from the form's own pack's tool), in
@@ -43,7 +48,8 @@ interview.
   destination fields are filtered by what the intake lists; an anonymous form forgets the caller
   before any check; counts use `deleted_at IS NULL`; a raced first answer is told to send again.
   Not yet tried on a live host.
-- Step 3, built (`feat/stage-29-forms-spine`): the Forms pack (`packs/forms`, ADR 0726): `forms.form`
+
+- **Step 3** — built — PR #429 — Forms pack spine (`feat/stage-29-forms-spine`): the Forms pack (`packs/forms`, ADR 0726): `forms.form`
   (publishable, slug as its address, kinds enquiry, sign-up, survey, feedback and staff, receipt
   on by default, a low-rating level) and `forms.submission` (the inbox: new, in hand, done, spam;
   owner by assignment rules; titled after its form); tools `form`, `submit` (customers and the
@@ -58,6 +64,22 @@ interview.
   else the admins; the destination is a text no object answers to until step 6; the retention
   settings wait for step 7 and `x.forms.ask` and `forms:manage` for step 5; the pack is not added
   to the CRM's packs. Not yet tried on a live host.
+
+- **Step 4** — not built — needs: step 2 — Hosted page, web and native blocks, headless entry.
+
+- **Step 5** — not built — needs: step 2 — Personal links, the receipt and the form-link slot,
+  Bookings' feedback, the `form_to_fill` attention kind.
+
+- **Step 6** — not built — needs: step 2 — Leads as a destination.
+
+- **Step 7** — not built — needs: step 3, step 4, step 5 — Erase, merge, retention (the reserved
+  erase-completeness area).
+
+- **Step 8** — not built — needs: step 3, stage 47 — Screens declared, the dashboard, e2e, the
+  site and `SITE.md`.
+
+- Later, not a numbered step: submission files with the trades work (issue #117), then framing by
+  listed sites.
 
 ## Goal
 

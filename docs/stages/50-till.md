@@ -583,8 +583,18 @@ business during setup.
 
 ## Status
 
-- **Step 4a** (the gatekeeper's in-person payments and fake readers; branch
-  `feat/stage-50-in-person-payments`; ADR 0774, no migration). Built in
+- **Step 1** — not built — needs: stage 37 step 3, stage 34 step 1 — Desk orders (P1) and the
+  desk catalogue (P2); or it takes `soldIn` with it instead of waiting for Shop step 3, by agreement
+
+- **Step 2** — not built — needs: step 1 — Tills, sessions and cash (P3, P4); the shared step
+  (stage 34 step 3) if nobody has built it
+
+- **Step 3** — not built — needs: step 1, step 2, stage 47 — The Till pack spine: tools,
+  permissions, the Till and Sessions screens, cash sales end to end
+
+- **Step 4a** — built — PR #348 — The gatekeeper's in-person payments and fake readers (P5,
+  gatekeeper half): ADR 0774, no migration
+  (branch `feat/stage-50-in-person-payments`). Built in
   `packages/gatekeeper-payments/src/`: `registerReader`, `removeReader` and `listReaders` on
   `PaymentProvider` and the session (register and remove are the actions
   `payments.reader.register` and `.remove`, never auto-approvable); `presentPayment` and
@@ -597,3 +607,26 @@ business during setup.
   facet and routes), `__tests__/stripe.test.ts` (Stripe, by injected fetch) and core's
   `test/reader-approval.test.ts`. Left: the host's
   half (step 4b), and the real provider in test mode (step 10).
+
+- **Step 4b** — not built — needs: step 4a, step 1 — The host's reader path:
+  `order.presentOnReader`, reader events, readers in Settings → Integrations
+
+- **Step 5** — not built — needs: step 2, step 4b, stage 34 step 3 — Refunds at the desk (P6)
+
+- **Step 6** — not built — needs: step 1 — Receipts (P7) and tax on a desk sale (P8)
+
+- **Step 7** — not built — needs: step 2 — Cash-up, Today, notices, dashboard
+
+- **Step 8** — not built — needs: step 3 — Bookings and Memberships at the desk (T2, T3)
+
+- **Step 9** — not built — needs: step 2, stage 48 step 4 — The tab (P9): ledger, limit, `account`
+  method, tab payment order, reminders, the Tab screen
+
+- **Step 10** — not built — needs: step 4b, a real reader at the first client — The real provider:
+  test-mode readers, then a real device at the first client; the runbook
+
+- **Step 11** — not built — needs: step 4b, stage 51 step 1, a client asking for it — Later: the
+  self-serve tablet (P10) on stage 51's enrolled device
+
+- **Step 12** — not built — needs: a client needing them — Later: several readers and desks; a
+  till per person and the technician's phone screen

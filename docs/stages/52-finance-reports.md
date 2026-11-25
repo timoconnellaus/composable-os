@@ -34,21 +34,37 @@ best-practice answers are decided, not asked (decisions 1 to 10 below). The owne
 any of them. Every step may start in the order below; step 8 waits for stage 34's shared step and
 gift cards to be built.
 
-- **Step 1 built** (PR #337, `feat/stage-52-periods-entries`): the business's day, finance months,
+**This is not accounting or tax advice, and the platform gives none.** The host reports what the
+payment provider confirmed and what the host recorded. How a figure is treated in the business's
+books (when a sale is earned, what tax is owed, what a refund or a gift card does to it) is for the
+business to confirm with its accountant. Every figure below that depends on such a choice says so
+on screen and in the file.
+
+## Status
+
+- **Step 1** — built — PR #337 — The business's day helpers, periods, entries tables, the close:
+  migration 1150, ADRs 0790, 0791, 0794
+  (PR #337, `feat/stage-52-periods-entries`): the business's day, finance months,
   the close as one guarded batch, versions and reopening, the entries tables and their triggers
   (months closed and reopened in order for every writer, the first month fixed by the first close),
   `finance:read` and `finance:close`, the finance settings, `csvText` in `packages/core/src/csv.ts`,
   and the erase of a reopen's reason and of closed rows' names. Migration 1150; ADRs 0790, 0791 and
   0794 (0449 amended). Left: until step 3 fills `periodBook` a close writes no entries; inserts are
   500 rows or 1 MB to a statement (not ADR 0627's hundred), so the biggest close fits D1's 1,000.
-- **Step 2 built** (`feat/stage-52-sellable-finance`): `sellable.finance` (a category's key and
+
+- **Step 2** — built — PR #362 — `sellable.finance` and the declarations in packs: no migration,
+  ADR 0792
+  (`feat/stage-52-sellable-finance`): `sellable.finance` (a category's key and
   label, and `earned`: `at_sale`, `over_period`, `per_use` or `at_date` with `at`), its contract
   checks, the field registry's copy with the defaults filled (`other`, `at_sale`), and the
   declarations in Memberships (plan `over_period`, pass type `per_use`), Ticketing (ticket type
   `at_date` on `event.startsAt`), Bookings (drop-in `at_date` on `class.startsAt`) and Courses
   (course and bundle `at_sale`; the course plan `over_period`, as a plan). No migration; ADR 0792
   (0435 amended). The ADR numbers of 0792 and 0793 in the table below are swapped from the draft.
-- **Step 3 built** (`feat/stage-52-day-summaries`): the day summaries (one `day` entry per business
+
+- **Step 3** — built — PR #423 — Day summaries, Sales, Tax, Refunds, `finance.entries`, their
+  files: migration 1153, ADR 0796
+  (`feat/stage-52-day-summaries`): the day summaries (one `day` entry per business
   day money moved, filling `periodBook`), Sales, Tax and Refunds (`finance/book.ts`, each payment
   and refund shared over its order's lines by net, its tax by the lines' tax; a one-off refund's tax
   estimated in proportion and marked), late sources from closed months in `late` entries,
@@ -64,11 +80,20 @@ gift cards to be built.
   it, refunds looked up by their order's payments, `finance:read` in the MCP `read` and `write`
   scopes, a closed file byte for byte the same after a reopen (names read at download excepted).
 
-**This is not accounting or tax advice, and the platform gives none.** The host reports what the
-payment provider confirmed and what the host recorded. How a figure is treated in the business's
-books (when a sale is earned, what tax is owed, what a refund or a gift card does to it) is for the
-business to confirm with its accountant. Every figure below that depends on such a choice says so
-on screen and in the file.
+- **Step 4** — not built — needs: step 1 — Payout reads, payout entries, the Payouts report
+  (migration 1151)
+
+- **Step 5** — not built — needs: step 2 — Money owed (with `amount_due` kept), Unearned
+  (migration 1152)
+
+- **Step 6** — not built — needs: step 5 — Members (with the state history)
+
+- **Step 7** — not built — needs: step 1 — Admin screens, notifications, the "period closed"
+  event, e2e
+
+- **Step 8** — not built — needs: stage 34 step 3, stage 34 step 8 — Payment methods and Held for
+  customers: headings by method, stored value and vouchers in day summaries
+
 
 ## Goal
 

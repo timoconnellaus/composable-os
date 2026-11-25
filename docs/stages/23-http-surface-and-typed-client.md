@@ -158,3 +158,7 @@ amended as built.
 
 Steps 1 and 2 are the spine: they are the door customers and the public come through, and the
 guard against a repeated purchase.
+
+## Status
+
+- **All steps** — built — PR #150 — The HTTP surface and the typed client.

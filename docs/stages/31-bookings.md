@@ -22,6 +22,37 @@ stage; the two are built side by side, and 32b takes on what this spec lists for
 in stage 32's spec). Where this spec still guesses, it says **(guess)**; the build confirms or
 corrects each one.
 
+## Status
+
+- **Step 1** — built — PR #242 — The shared wall-clock helper; the `recurring` behaviour with a
+  fixture series and the clock-change tests.
+
+- **Step 2** — built — PR #242 — Capacity claimants, declared uniqueness, and time windows and
+  staff-only creates in the transition engine.
+
+- **Step 3** — built — PR #247 — The Bookings pack's spine (details in "Built", step 3, below).
+
+- **Step 4** — built — PR #248 — Spending with 32b's `allowance`.
+
+- **Step 5** — built — PR #248 — The waitlist and promotion, the cut-off, with the race tests.
+
+- **Step 6** — built — PR #252 — The family link: `core_person_link`, the guardian scope, booking
+  for a dependant.
+
+- **Step 7** — built — PR #253 — Attendance, the coach role, no-shows, moving people, cancelling a
+  class, closures.
+
+- **Step 8** — built — PR #255 — Drop-ins (`sellable.moves`) and their refunds through approval.
+
+- **Step 9** — built — PRs #256, #267 — Messages and the reminder, the calendar file, the
+  dashboard, views, the Person tab, hooks and blocks (#267: routine mail sent without approval,
+  ADR 0590).
+
+- **Step 10** — not built — `cos bookings import` for stage 33.
+
+- **Step 11** — superseded — by stage 49 — 31b: services, time-range claims, appointments booked
+  by staff.
+
 ## Goal
 
 A gym or studio runs its classes from the host. Staff set a weekly timetable once; the host makes

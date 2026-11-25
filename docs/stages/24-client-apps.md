@@ -290,3 +290,7 @@ Status: built, in review. ADRs [0420](../adr/0420-packs-as-packages-as-built.md)
   (not switched on, too many tries, offline) and lets the person try again, as do the other
   native blocks' calls that failed silently; the Courses players bring Content's rich text block,
   and Courses requires Content (ADR 0478 amended).
+
+## Status
+
+- **All steps** — built — PR #154 — Client apps (as built, above).
