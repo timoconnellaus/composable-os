@@ -1479,7 +1479,8 @@ subscriptions, allowances and personal links: a document to agree to, a card pay
 a payment to confirm with the bank, a deposit's balance, an unfinished held order, a pass expiring
 or used up, a free trial ending, a form to fill in. How far ahead it looks is
 `account.attentionDays` (default 7). The blocks (`*-account-attention`) say whose each item is and
-lead to the section that deals with it.
+lead to the section that deals with it (money owed on an order: that order in Orders, paid there
+on the web and on the website from the app).
 _Avoid_: notifications, alerts, to-do
 
 ### Erase request
