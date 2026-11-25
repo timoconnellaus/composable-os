@@ -8,9 +8,11 @@
 // subscription.*): this reads them and puts them in words. Amounts are shown as the host gave
 // them, in the currency's minor unit; nothing here adds, subtracts or works out a price.
 //
-// Which sections a customer has is the host's (`me.portal`, `portalSections`). Later steps add to
-// it: what needs the customer's attention (`me.attention`), changing the sign-in address and
-// deleting the account.
+// Which sections a customer has is the host's (`me.portal`, `portalSections`). Step 7 adds what
+// needs the customer's attention (`me.attention`: `attentionWords`, `attentionTarget`), changing
+// the sign-in address (`emailChangeProblem`) and deleting the account (`deleteConfirmInput`,
+// `deletePreviewWords`), and `sensitive`, which makes the host's `sign_in_again` its own outcome
+// so a block signs the customer in again in place and carries on (ADR 0715).
 import type { QueryName } from "./client.ts";
 import type { ClientHolding, PackClient, UseMutation, UseQuery } from "./hooks.ts";
 import { packHooks } from "./hooks.ts";
