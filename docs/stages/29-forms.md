@@ -67,13 +67,34 @@ interview.
 
 - **Step 4** — not built — needs: step 2 — Hosted page, web and native blocks, headless entry.
 
-- **Step 5** — not built — needs: step 2 — Personal links, the receipt and the form-link slot,
-  Bookings' feedback, the `form_to_fill` attention kind.
+- **Step 5** — built — PR #458 — Personal links, the receipt and the form-link slot, Bookings'
+  feedback, the `form_to_fill` attention kind (`feat/stage-29-personal-links`): migration 1010
+  (`core_intake_link`, one SHA-256 per email's token in `core_intake_link_token`, used once by a
+  trigger in the answers' batch, never replaced, `once` kept at the insert), ADRs 0723 and 0724
+  (amending ADR 0590). Routine mail's form-link slot is the only maker: the link and the email's
+  token (32 random bytes, no signing key) are made when the email is claimed and goes on its own,
+  never written to a row or an approval; an email with a link that would wait for a person is
+  kept failed. `intake.open` and `intake.submit` take `link`, or signed in `linkId` (Forms'
+  customer-only `linkedForm` and `submitLinked`); `form_to_fill` carries the link's id. The
+  receipt (`receipt: true`, `forms.receipt`) names the business (a host slot from Settings →
+  Routine email) and goes to the sign-in or typed address, or whoever answered a link (never a
+  child's own address), three a day per mailbox and 200 a day for the organisation at most.
+  Bookings' `feedback` and `feedbackAfterClass` (`feedbackForm`, a `links` form, and
+  `feedbackMinutes`), once a month, a child's to the guardian. Erase deletes links (the cascade);
+  merge moves them. Decided: what a link was about is the submission's host-only `about` and
+  `aboutObject`; no receipt for answers staff entered; a link opens `public` and `customers`
+  forms too; a signed-in child may answer their own `form_to_fill`; feedback counts from the tick
+  (`markedAt`). Not yet tried on a live host; the client's `/form` page is step 4's.
+
+- Remaining of step 5, not a numbered step: staff asking one person to fill a form by personal
+  link (`intake.link`, `x.forms.ask`, `forms:manage`), queued as its own slice now that the token
+  is made only when its email goes (ADR 0723).
 
 - **Step 6** — not built — needs: step 2 — Leads as a destination.
 
 - **Step 7** — not built — needs: step 3, step 4, step 5 — Erase, merge, retention (the reserved
-  erase-completeness area).
+  erase-completeness area). It must re-point a submission made by a personal link on merge and
+  remove it on erase (the links themselves already go with their Person, ADR 0723).
 
 - **Step 8** — not built — needs: step 3, stage 47 — Screens declared, the dashboard, e2e, the
   site and `SITE.md`.
@@ -570,7 +591,7 @@ ADRs the build writes:
 | 1 | The question schema and answer checking | `packages/sdk` (a new file, the document schema) | Anything |
 | 2 | `intake`, `intake.submit`, the submitter's Person, anonymous submissions, abuse checks, Turnstile, caps | `packages/sdk` manifest and contract, `packages/core/src/intake/` (new), `orders/guests.ts` (sharing the matcher), `open-operations.json`, the API golden files, `wrangler.jsonc`, `worker-configuration.d.ts`, `docs/deploying.md` | **Collides** with any work in `orders/` (Shop, Offers, Invoices, the till, stage 48 step 6), the visibility seam and the contract golden files. Not beside another new behaviour or another manifest key in the SDK (stage 47's `screens`, stage 48's `portal`: coordinate the files) |
 | 3 | Forms pack spine: form, submission, states, tools, views ("Asked to hear from us" among them), settings, notices, the low-rating notice, the staff form kind | `packs/forms` (new), the product's `packs` list | Steps 4, 5, 7; any other pack |
-| 4 | Hosted page, web and native blocks, headless entry | `apps/app` routes, `access-layout.ts`, `packs/forms/blocks`, `client/` | Steps 3, 5, 7; collides with other public-route work in `access-layout.ts` |
+| 4 | Hosted page, web and native blocks, headless entry; the client web app's personal-link page at `/form?t=<token>` (`x.forms.form { link }` on GET, which uses nothing; `x.forms.submit { link }` on send), which sends `Referrer-Policy: no-referrer`, loads no third-party script and drops the token from the address bar once read (`history.replaceState`); the app's attention item opens a form with `linkedForm { linkId }` | `apps/app` routes, `access-layout.ts`, `packs/forms/blocks`, `client/`, the client template's routes | Steps 3, 5, 7; collides with other public-route work in `access-layout.ts` |
 | 5 | Personal links, the receipt and the form-link slot, Bookings' feedback, the `form_to_fill` attention kind | `packages/core/src/intake/`, `routine-mail/`, the email gatekeeper, migration 1010, `packs/bookings`, `me.attention` (stage 48's) | **Collides** with the email gatekeeper, routine mail, Bookings work and stage 48's `me.attention` |
 | 6 | Leads as a destination | `packs/leads` | Anything but other Leads work. Not needed by the first gym client |
 | 7 | Erase, merge, retention | `person.erase`, `records/erase.ts`, `retention.ts`, `purge.ts` | **Reserved area** (erase completeness): alone, or after whoever holds it |

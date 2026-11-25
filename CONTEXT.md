@@ -2677,6 +2677,21 @@ unconfirmed, shown to staff as such). The host fills only a Person's empty field
 An anonymous form's submission has no submitter at all.
 _Avoid_: sender, respondent, lead (only for `leads.lead`)
 
+**Personal link** (stage 29, ADR 0723)
+A one-time link for one Person to answer one form without signing in, optionally about one record
+(the class they came to), made only by the host (routine mail's **form-link slot**) and good for a
+set number of days. Each email carries its own token, of which only the hash is kept; the member's
+"Needs your attention" item (`form_to_fill`) is the same link. Spent by its first answer, by the
+database; a used, expired or unknown link is one refusal, and opening one uses nothing.
+_Avoid_: magic link (sign-in's), invitation, signed link, stop link (contact's, ADR 0675)
+
+**Receipt** (stage 29, ADR 0724)
+The short routine email whoever sent answers gets: the business's name and the form's title and
+nothing they typed, to their own sign-in address, whoever answered their personal link (never a
+child's own address), or the address they typed; at most three a day to one mailbox and a daily
+number of its own for the organisation, never for answers staff entered, spam or an anonymous form.
+_Avoid_: confirmation (a booking's), acknowledgement
+
 **Form** (stage 29, the Forms pack)
 Questions a business asks (`forms.form`), published as versions a person publishes: an enquiry, a
 sign-up, a survey, feedback or a **staff form** (answered by staff only, an incident report). Found

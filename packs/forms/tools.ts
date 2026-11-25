@@ -44,6 +44,19 @@ const received = z.object({
 
 // --- Answering (the public and customers) --------------------------------------------------------
 
+const openOutput = z.object({
+  id: z.string(),
+  version: z.number().describe("The version shown: send it with the answers"),
+  title: z.string().nullable(),
+  questions: z
+    .object({ items: z.array(z.record(z.string(), z.unknown())) })
+    .describe("The questions, in the platform's question schema, in order"),
+  thanks: z.string().nullable().describe("The words to show once the answers are sent"),
+  anonymous: z.boolean().describe("Nothing kept says who answered"),
+  turnstile: z.boolean().describe("A Turnstile token must be sent with the answers"),
+  shown: z.string().nullable().describe("Send back as `shown` with the answers"),
+});
+
 export const form = defineTool({
   description:
     "A form by its address, as the caller may answer it now: its version, title, questions and " +
@@ -51,37 +64,66 @@ export const form = defineTool({
     "host's token of when it was shown (send it back with the answers). A form that is not " +
     "open to the caller now (a draft, closed, not published, out of its dates, for signed-in " +
     "customers only, or no such address) is not found, the same answer whatever the reason. " +
-    "Read-only.",
+    "Or open the form a personal link is for: `link`, the token from its email (no sign-in " +
+    "needed; a signed-in member's own link from Needs your attention is `linkedForm`). A link " +
+    "that cannot be used (used, expired, unknown) is one answer whatever is wrong, and opening " +
+    "it uses nothing. Read-only.",
   input: z.object({
-    slug: z.string().trim().min(1).max(200).describe("The form's address, e.g. ask-about-a-trial"),
+    slug: z
+      .string()
+      .trim()
+      .min(1)
+      .max(200)
+      .optional()
+      .describe("The form's address, e.g. ask-about-a-trial"),
+    link: z.string().min(1).max(200).optional().describe("A personal link's token"),
   }),
-  output: z.object({
-    id: z.string(),
-    version: z.number().describe("The version shown: send it with the answers"),
-    title: z.string().nullable(),
-    questions: z
-      .object({ items: z.array(z.record(z.string(), z.unknown())) })
-      .describe("The questions, in the platform's question schema, in order"),
-    thanks: z.string().nullable().describe("The words to show once the answers are sent"),
-    anonymous: z.boolean().describe("Nothing kept says who answered"),
-    turnstile: z.boolean().describe("A Turnstile token must be sent with the answers"),
-    shown: z.string().nullable().describe("Send back as `shown` with the answers"),
-  }),
+  output: openOutput,
   risk: "read",
   audiences: ["customer", "public"],
+  // A personal link's token never reaches the audit log.
+  redact: ["link"],
   async handler(input, ctx) {
-    const open = await ctx.ops.call<OpenForm>("intake.open", { object: FORM, slug: input.slug });
-    const questions = open.content.questions as { items: Record<string, unknown>[] } | undefined;
-    return {
-      id: open.id,
-      version: open.version,
-      title: text(open.content.title),
-      questions: { items: Array.isArray(questions?.items) ? questions.items : [] },
-      thanks: text(open.content.thanks),
-      anonymous: open.anonymous,
-      turnstile: open.turnstile,
-      shown: open.shown,
-    };
+    return drawn(
+      await ctx.ops.call<OpenForm>("intake.open", {
+        object: FORM,
+        ...(input.slug !== undefined ? { slug: input.slug } : {}),
+        ...(input.link !== undefined ? { link: input.link } : {}),
+      }),
+    );
+  },
+});
+
+/** What `form` and `linkedForm` give a client to draw. */
+function drawn(open: OpenForm) {
+  const questions = open.content.questions as { items: Record<string, unknown>[] } | undefined;
+  return {
+    id: open.id,
+    version: open.version,
+    title: text(open.content.title),
+    questions: { items: Array.isArray(questions?.items) ? questions.items : [] },
+    thanks: text(open.content.thanks),
+    anonymous: open.anonymous,
+    turnstile: open.turnstile,
+    shown: open.shown,
+  };
+}
+
+export const linkedForm = defineTool({
+  description:
+    "The form a signed-in member's own personal link is for (or a child's they are a guardian " +
+    "of): `linkId` is the id Needs your attention gives (me.attention, kind form_to_fill). As " +
+    "`form` gives it; a link that cannot be used is one answer. Read-only.",
+  input: z.object({
+    linkId: z.string().min(1).max(64).describe("The personal link's id, from Needs your attention"),
+  }),
+  output: openOutput,
+  risk: "read",
+  audiences: ["customer"],
+  async handler(input, ctx) {
+    return drawn(
+      await ctx.ops.call<OpenForm>("intake.open", { object: FORM, linkId: input.linkId }),
+    );
   },
 });
 
@@ -93,7 +135,9 @@ export const submit = defineTool({
     "the sender's person by the email answered. Answers that break the form are refused naming " +
     "the question's key; a form published again since it was shown is refused with 'load it " +
     "again'; too many answers just now is 'try again later'. Kept, kept as spam or dropped, the " +
-    "answer is the same.",
+    "answer is the same. By a personal link (`link`, as `form` opened it; signed in, " +
+    "`submitLinked`), the answers are the link's person's, once: no Turnstile token or shown " +
+    "time is needed, and a link that cannot be used is one answer.",
   input: z.object({
     id: formId,
     version: z.number().int().positive().describe("The version `form` showed"),
@@ -105,12 +149,14 @@ export const submit = defineTool({
     turnstileToken: z.string().max(4096).optional().describe("A visitor's Turnstile token"),
     shown: z.string().max(200).optional().describe("`form`'s shown token"),
     honeypot: z.string().max(1000).optional().describe("The hidden field a person leaves empty"),
+    link: z.string().min(1).max(200).optional().describe("A personal link's token"),
   }),
   output: received,
   risk: "write",
   audiences: ["customer", "public"],
-  // What a person answered never reaches the audit row (the door keeps only the question keys).
-  redact: ["answers", "turnstileToken", "shown", "honeypot"],
+  // What a person answered never reaches the audit row (the door keeps only the question keys),
+  // nor does a personal link's token.
+  redact: ["answers", "turnstileToken", "shown", "honeypot", "link"],
   async handler(input, ctx) {
     return ctx.ops.call<{ received: true }>("intake.submit", {
       object: FORM,
@@ -120,6 +166,36 @@ export const submit = defineTool({
       ...(input.via ? { via: input.via } : {}),
       ...(input.turnstileToken ? { turnstileToken: input.turnstileToken } : {}),
       ...(input.shown ? { shown: input.shown } : {}),
+      ...(input.honeypot !== undefined ? { honeypot: input.honeypot } : {}),
+      ...(input.link !== undefined ? { link: input.link } : {}),
+    });
+  },
+});
+
+export const submitLinked = defineTool({
+  description:
+    "Send answers by a signed-in member's own personal link (or a child's they are a guardian " +
+    "of), from Needs your attention: `linkId` as `linkedForm` opened it. The answers are the " +
+    "link's person's, once; a link that cannot be used is one answer, the same as for a token.",
+  input: z.object({
+    linkId: z.string().min(1).max(64).describe("The personal link's id, from Needs your attention"),
+    id: formId,
+    version: z.number().int().positive().describe("The version `linkedForm` showed"),
+    answers,
+    honeypot: z.string().max(1000).optional().describe("The hidden field a person leaves empty"),
+  }),
+  output: received,
+  risk: "write",
+  audiences: ["customer"],
+  redact: ["answers", "honeypot"],
+  async handler(input, ctx) {
+    return ctx.ops.call<{ received: true }>("intake.submit", {
+      object: FORM,
+      id: input.id,
+      version: input.version,
+      answers: input.answers,
+      via: "app",
+      linkId: input.linkId,
       ...(input.honeypot !== undefined ? { honeypot: input.honeypot } : {}),
     });
   },

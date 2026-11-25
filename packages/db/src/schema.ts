@@ -1782,6 +1782,11 @@ export interface CoreRoutineMailTable {
   wait_until: Defaulted<string | null>;
   /** The kind's moment for the record: a text or push not sent by then is `expired`. */
   until_at: Defaulted<string | null>;
+  /**
+   * Migration 1010 (ADR 0723): what a form-link slot's personal link is made for when the email
+   * is sent (JSON), never the token.
+   */
+  form_link: Defaulted<string | null>;
   created_at: string;
   updated_at: string;
 }
@@ -1844,6 +1849,35 @@ export interface CoreContactStopTokenTable {
   person_id: string;
   channel: "email" | "text" | "push";
   scope: string;
+  created_at: string;
+}
+
+/**
+ * Migration 1010 (ADR 0723): a personal link, one Person's one use of one form (optionally about
+ * one record), made by the host; used once and before it expires (a trigger refuses the rest).
+ */
+export interface CoreIntakeLinkTable {
+  id: string;
+  person_id: string;
+  form_object: string;
+  form_id: string | null;
+  record_object: string | null;
+  record_id: string | null;
+  made_for: string;
+  once_days: number | null;
+  expires_at: string;
+  used_at: string | null;
+  submission_id: string | null;
+  used_by: string | null;
+  used_with: "email" | "account" | null;
+  created_at: string;
+}
+
+/** Migration 1010 (ADR 0723): the SHA-256 of one email's token for a personal link. */
+export interface CoreIntakeLinkTokenTable {
+  token_hash: string;
+  link_id: string;
+  sent_to: string;
   created_at: string;
 }
 
@@ -4589,6 +4623,8 @@ export interface CoreDatabase {
   core_contact_choice: CoreContactChoiceTable;
   core_contact_suppression: CoreContactSuppressionTable;
   core_contact_stop_token: CoreContactStopTokenTable;
+  core_intake_link: CoreIntakeLinkTable;
+  core_intake_link_token: CoreIntakeLinkTokenTable;
   core_value_mark: CoreValueMarkTable;
   core_person_signal: CorePersonSignalTable;
   core_birthday_guard: CoreBirthdayGuardTable;

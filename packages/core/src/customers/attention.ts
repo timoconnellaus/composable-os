@@ -14,6 +14,8 @@
 //                    with uses left: theirs, or a dependant's where the object opens to guardians
 //   pass_used_up     the same kind of holder with no uses left while still valid
 //   trial_ending     a subscription they pay whose free trial ends within the days
+//   form_to_fill     a live personal link (ADR 0723) for them or a live dependant: a form to
+//                    answer, about a class they came to, until it is answered or expires
 //
 // A subscription is the payer's (ADR 0487); a pass is its holder's and their live guardians'. A
 // membership's per-period limit used up renews by itself and is never `pass_used_up`. A
@@ -25,7 +27,8 @@
 // intact), one for subscriptions, three for orders through the seam (the open ones, their held
 // places, their first lines), one for allowance holders and one through the seam for the passes
 // listed, every holder object in the same statement. No statement binds a list of the family or
-// of the documents; the orders and passes read at most 50 ids each.
+// of the documents; the orders and passes read at most 50 ids each. Personal links: one statement
+// for the family's live links (soonest to expire, at most ten), then their forms together.
 import { sql } from "kysely";
 import { versionIntact } from "../agreements/documents.ts";
 import {
@@ -42,6 +45,7 @@ import { holderOf } from "../allowance/records.ts";
 import { OperationError } from "../errors.ts";
 import { getObject } from "../fields/index.ts";
 import type { ObjectDefinition } from "../fields/types.ts";
+import { type OpenForm, openForms } from "../intake/forms.ts";
 import type { HandlerContext } from "../operation.ts";
 import { ORDER_CLAIM_TYPE } from "../orders/holds.ts";
 import { viewColumnOf } from "../records/columns.ts";
@@ -58,6 +62,7 @@ export const ATTENTION_KINDS = [
   "pass_expiring",
   "pass_used_up",
   "trial_ending",
+  "form_to_fill",
 ] as const;
 export type AttentionKind = (typeof ATTENTION_KINDS)[number];
 
@@ -80,6 +85,12 @@ export interface AttentionItem {
   currency: string | null;
   /** A pass's uses left (pass_expiring and pass_used_up). */
   usesLeft: number | null;
+  /**
+   * The personal link to answer it by (form_to_fill): its id, which the app sends back as
+   * `linkId` with the answers. Not a token: it works only for the signed-in customer it is shown
+   * to. Null for other kinds.
+   */
+  link: string | null;
 }
 
 const DAY_MS = 86_400_000;
@@ -89,6 +100,9 @@ const PASSES_READ = 50;
 
 /** The most open orders read (soonest made first): each id is a bound variable later. */
 const ORDERS_READ = 50;
+
+/** The most personal links listed: each reads its form. */
+const LINKS_READ = 10;
 
 /**
  * A live dependant from the seam's family (ADR 0540): in no Trash, and a minor by the link, so a
@@ -145,11 +159,18 @@ export async function attentionOf(
   const self = people.get(me) as { id: string; name: string; self: boolean };
 
   const items: AttentionItem[] = [];
-  const add = (item: Omit<AttentionItem, "key" | "usesLeft"> & { usesLeft?: number | null }) =>
+  const add = (
+    item: Omit<AttentionItem, "key" | "usesLeft" | "link"> & {
+      usesLeft?: number | null;
+      link?: string | null;
+    },
+  ) =>
     items.push({
       ...item,
       usesLeft: item.usesLeft ?? null,
-      key: `${item.kind}:${item.record.object}:${item.record.id}:${item.person.id}`,
+      link: item.link ?? null,
+      // One item per link: a member may have two classes' feedback waiting on one form.
+      key: `${item.kind}:${item.record.object}:${item.record.id}:${item.person.id}${item.link ? `:${item.link}` : ""}`,
     });
 
   // --- agree: what me.agreements.due answers, for the caller and each live dependant ----------
@@ -400,6 +421,48 @@ export async function attentionOf(
       amount: null,
       currency: null,
       usesLeft: pass.left,
+    });
+  }
+
+  // --- form_to_fill: live personal links of the caller's and their live dependants' (ADR 0723) --
+  // A link is the member's (a child's is their guardian's to answer); it goes once answered by
+  // either way, or once it expires, or once its form no longer takes answers by link.
+  const links = await sql<{
+    id: string;
+    person_id: string;
+    form_object: string;
+    form_id: string;
+    expires_at: string;
+  }>`SELECT id, person_id, form_object, form_id, expires_at FROM core_intake_link
+    WHERE (person_id = ${me} OR person_id IN (${dependantsSql(me)}))
+      AND used_at IS NULL AND expires_at > ${now} AND form_id IS NOT NULL
+    ORDER BY expires_at, id LIMIT ${LINKS_READ}`.execute(ctx.db);
+  // Their forms, read together: two statements for each form object the links name (in practice
+  // one, Forms'), whatever the number of links.
+  const forms = new Map<string, Map<string, OpenForm>>();
+  for (const object of [...new Set(links.rows.map((l) => l.form_object))]) {
+    if (!getObject(object)) continue;
+    const ids = links.rows.filter((l) => l.form_object === object).map((l) => l.form_id);
+    forms.set(object, await openForms(ctx, object, ids, "customer", { byLink: true }));
+  }
+  for (const link of links.rows) {
+    const person = people.get(link.person_id);
+    const form = forms.get(link.form_object)?.get(link.form_id);
+    if (!person || !form) continue;
+    const titleField = form.object.titleField;
+    const title = titleField ? form.content[titleField] : null;
+    add({
+      kind: "form_to_fill",
+      person,
+      record: {
+        object: link.form_object,
+        id: link.form_id,
+        title: typeof title === "string" && title ? title : form.object.label,
+      },
+      at: link.expires_at,
+      amount: null,
+      currency: null,
+      link: link.id,
     });
   }
 
