@@ -610,7 +610,11 @@ export interface PaymentsPayout {
 export interface PaymentsPayoutLine {
   /** The provider's id of the movement (a balance transaction): in one payout only. */
   ref: string;
-  kind: "payment" | "refund" | "dispute" | "adjustment" | "fee";
+  /**
+   * `payout_reversal`: an earlier payout came back from the bank (it failed or was cancelled), its
+   * money back in the balance; `reversalOf` names that payout.
+   */
+  kind: "payment" | "refund" | "dispute" | "adjustment" | "fee" | "payout_reversal";
   /** Into the balance (positive) or out of it (negative), before the fee, minor units. */
   amount: number;
   /** The provider's fee on it (positive: charged; negative: given back), minor units. */
@@ -620,6 +624,8 @@ export interface PaymentsPayoutLine {
   paymentRef: string | null;
   /** A refund's own reference, as the host stores it. */
   refundRef: string | null;
+  /** A `payout_reversal`'s payout: the provider's id of the payout that came back. */
+  reversalOf?: string | null;
   occurredAt: string;
 }
 
@@ -630,6 +636,15 @@ export interface PaymentsPayoutsUnavailable {
   reason: string;
 }
 
+/**
+ * What the session answers when the provider could not be read (a 5xx, a refused key, a cursor it
+ * does not know): an answer, not a thrown error, so a failing read leaves no rejection behind on
+ * the RPC hops. The host treats it as a failure and tries again later.
+ */
+export interface PaymentsPayoutsFailed {
+  failed: string;
+}
+
 /** A page of payouts, arriving on or after `since`. */
 export type PaymentsPayoutPage =
   | { unavailable?: undefined; payouts: PaymentsPayout[]; next: string | null }
@@ -637,7 +652,13 @@ export type PaymentsPayoutPage =
 
 /** A page of one payout's lines. */
 export type PaymentsPayoutLinePage =
-  | { unavailable?: undefined; lines: PaymentsPayoutLine[]; next: string | null }
+  | {
+      unavailable?: undefined;
+      lines: PaymentsPayoutLine[];
+      next: string | null;
+      /** Lines on this page the gatekeeper could not read: left out, and counted here. */
+      unreadable?: number;
+    }
   | PaymentsPayoutsUnavailable;
 
 export interface PaymentsListPayoutsInput {
@@ -742,9 +763,11 @@ export interface PaymentsSession {
    * an observation first. Read only: nothing moves, and the bank destination is never read. The
    * host's own call only (stage 52 step 4).
    */
-  listPayouts(input: PaymentsListPayoutsInput): Promise<PaymentsPayoutPage>;
+  listPayouts(input: PaymentsListPayoutsInput): Promise<PaymentsPayoutPage | PaymentsPayoutsFailed>;
   /** One payout's lines, a page at a time (at most 100). As `listPayouts`. */
-  payoutLines(input: PaymentsPayoutLinesInput): Promise<PaymentsPayoutLinePage>;
+  payoutLines(
+    input: PaymentsPayoutLinesInput,
+  ): Promise<PaymentsPayoutLinePage | PaymentsPayoutsFailed>;
   /**
    * Puts a payment of the order's amount on a reader. Records an observation first. No approval:
    * no money moves until the buyer's card does. Refused while the reader has another payment on it.

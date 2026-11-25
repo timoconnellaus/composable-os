@@ -23,7 +23,11 @@ let y: DoublePayout;
 const at = (day: string, hour = 8) => `${day}T${String(hour).padStart(2, "0")}:00:00.000Z`;
 const sync = (iso: string) => runPayoutsDue(db, { integrations, clock: () => new Date(iso) });
 const call = <T>(name: string, input: unknown, now: string) =>
-  invokeByName(name, input, context(admin, { clock: () => new Date(now), integrations })) as Promise<T>;
+  invokeByName(
+    name,
+    input,
+    context(admin, { clock: () => new Date(now), integrations }),
+  ) as Promise<T>;
 
 async function order(total: number): Promise<string> {
   const id = newId("order");
@@ -95,11 +99,32 @@ describe("a payout that fails, whenever it fails", () => {
     y = double.pay(
       "2026-05-25",
       [
-        { kind: "payout_reversal", amount: 25_000, fee: 0, paymentRef: null, refundRef: null, reversalOf: p.ref },
-        { kind: "payout_reversal", amount: 6000, fee: 0, paymentRef: null, refundRef: null, reversalOf: x.ref },
+        {
+          kind: "payout_reversal",
+          amount: 25_000,
+          fee: 0,
+          paymentRef: null,
+          refundRef: null,
+          reversalOf: p.ref,
+        },
+        {
+          kind: "payout_reversal",
+          amount: 6000,
+          fee: 0,
+          paymentRef: null,
+          refundRef: null,
+          reversalOf: x.ref,
+        },
         { kind: "payment", amount: 8500, fee: 0, paymentRef: "fpi_b2", refundRef: null },
         { kind: "refund", amount: -500, fee: 0, paymentRef: "fpi_b2", refundRef: "fre_req" },
-        { kind: "adjustment", amount: 100, fee: 0, paymentRef: null, refundRef: null, currency: "NZD" },
+        {
+          kind: "adjustment",
+          amount: 100,
+          fee: 0,
+          paymentRef: null,
+          refundRef: null,
+          currency: "NZD",
+        },
       ],
       { unreadable: 2 },
     );
@@ -116,7 +141,9 @@ describe("a payout that fails, whenever it fails", () => {
       { ref: x.ref, status: "failed", amount: 6000, line_count: 1, unreadable_lines: 0 },
     ]);
     const failures = (
-      await env.DB.prepare("SELECT payout_ref, date FROM core_payout_failure ORDER BY payout_ref").all()
+      await env.DB.prepare(
+        "SELECT payout_ref, date FROM core_payout_failure ORDER BY payout_ref",
+      ).all()
     ).results;
     expect(failures).toEqual(
       [

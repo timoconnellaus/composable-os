@@ -1437,7 +1437,9 @@ export class FakePaymentsLedger extends DurableObject<Cloudflare.Env> {
     const mode = this.#payoutReads();
     if (mode.reads === "error") return { failed: "The fake provider could not be read (a 5xx)." };
     if (mode.reads === "revoked") {
-      return { failed: "The fake provider refused the key (HTTP 401): the connection needs attention." };
+      return {
+        failed: "The fake provider refused the key (HTTP 401): the connection needs attention.",
+      };
     }
     if (mode.reads === "unavailable") {
       return { unavailable: true, reason: "this account's key may not read payouts" };

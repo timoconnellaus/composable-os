@@ -335,7 +335,14 @@ describe("Stripe's payouts", () => {
     const { provider } = stripe(() =>
       ok({
         data: [
-          { ...base, id: "txn_1", amount: 100, fee: 0, reporting_category: "charge", source: { payment_intent: "pi_1" } },
+          {
+            ...base,
+            id: "txn_1",
+            amount: 100,
+            fee: 0,
+            reporting_category: "charge",
+            source: { payment_intent: "pi_1" },
+          },
           { ...base, id: "txn_payout", amount: -100, fee: 0, reporting_category: "payout" },
           { id: "txn_bad", reporting_category: "charge" },
         ],
@@ -370,8 +377,8 @@ describe("the fake provider's failures and cursors", () => {
 
   it("an unknown cursor is refused, never answered with the first page again", async () => {
     const h = await host();
-    expect(await h.call("listPayouts", [{ since: "2026-01-01", after: "fpo_unknown" }])).toMatchObject(
-      { failed: expect.stringMatching(/cursor/) },
-    );
+    expect(
+      await h.call("listPayouts", [{ since: "2026-01-01", after: "fpo_unknown" }]),
+    ).toMatchObject({ failed: expect.stringMatching(/cursor/) });
   });
 });

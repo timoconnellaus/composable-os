@@ -125,9 +125,7 @@ describe("an outage longer than the lookback loses no payout", () => {
     double.mode.linesUnavailable = true;
     await daily(65, 84);
     expect(await count("core_payout")).toBe(60);
-    const marker = await env.DB.prepare(
-      "SELECT state FROM core_payout_sync WHERE next_at != ?",
-    )
+    const marker = await env.DB.prepare("SELECT state FROM core_payout_sync WHERE next_at != ?")
       .bind(RETIRED_AT)
       .first<{ state: string }>();
     expect(marker?.state).toBe("unavailable");
@@ -146,9 +144,7 @@ describe("the read never calls without end", () => {
     const result = await sync(morning(86));
     expect(result?.state).toBe("failing");
     expect(double.calls.listPayouts + double.calls.payoutLines - before).toBeLessThanOrEqual(3);
-    const marker = await env.DB.prepare(
-      "SELECT reason FROM core_payout_sync WHERE next_at != ?",
-    )
+    const marker = await env.DB.prepare("SELECT reason FROM core_payout_sync WHERE next_at != ?")
       .bind(RETIRED_AT)
       .first<{ reason: string }>();
     expect(marker?.reason).toMatch(/cursor/);
@@ -161,7 +157,9 @@ describe("the read never calls without end", () => {
 
 describe("one history per account", () => {
   it("another account starts its own; the old marker is retired, not due every minute", async () => {
-    await env.DB.prepare("UPDATE core_integration_connection SET status = 'disconnected' WHERE id = ?")
+    await env.DB.prepare(
+      "UPDATE core_integration_connection SET status = 'disconnected' WHERE id = ?",
+    )
       .bind(connection)
       .run();
     const other = await double.connect(admin.id);

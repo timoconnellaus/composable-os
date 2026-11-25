@@ -78,7 +78,10 @@ beforeAll(async () => {
   ticket = (
     (await invokeByName(
       "record.create",
-      { object: `${BOX}.tickettype`, values: { name: "General", price: 45, places: 50, event: event.id } },
+      {
+        object: `${BOX}.tickettype`,
+        values: { name: "General", price: 45, places: 50, event: event.id },
+      },
       staff(admin),
     )) as { id: string }
   ).id;
@@ -145,9 +148,12 @@ describe("a payout of what the fake provider was really paid", () => {
       env.DB.prepare("SELECT id FROM core_order WHERE subscription_id = ?")
         .bind(started.subscriptionId)
         .first<{ id: string }>();
-    await vi.waitFor(async () => expect(await paidOf((await periodOrder())?.id ?? "")).not.toBeNull(), {
-      timeout: 15_000,
-    });
+    await vi.waitFor(
+      async () => expect(await paidOf((await periodOrder())?.id ?? "")).not.toBeNull(),
+      {
+        timeout: 15_000,
+      },
+    );
     const period = (await periodOrder())?.id as string;
 
     // The box office order refunded: asked, approved by a person, confirmed by the provider.

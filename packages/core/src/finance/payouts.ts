@@ -636,7 +636,12 @@ async function matchedLinesOf(
     const made = payoutFigures(p, lines.get(`${p.provider}:${p.ref}`) ?? [], claimed);
     out.set(
       `${p.provider}:${p.ref}`,
-      made.rows.map((r) => ({ currency: p.currency, ...r, date: p.arrival_date, belongsTo: p.belongsTo })),
+      made.rows.map((r) => ({
+        currency: p.currency,
+        ...r,
+        date: p.arrival_date,
+        belongsTo: p.belongsTo,
+      })),
     );
   }
   return out;

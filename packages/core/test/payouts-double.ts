@@ -140,8 +140,7 @@ export function payoutsDouble(currency: string): PayoutsDouble {
         if (!payout) throw new Error("no such payout");
         const from = at(payout.lines);
         const page = payout.lines.slice(from, from + mode.pageSize);
-        const next =
-          from + mode.pageSize < payout.lines.length ? (page.at(-1)?.ref ?? null) : null;
+        const next = from + mode.pageSize < payout.lines.length ? (page.at(-1)?.ref ?? null) : null;
         return {
           value: {
             lines: page,
