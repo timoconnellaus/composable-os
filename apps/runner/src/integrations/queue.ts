@@ -16,8 +16,10 @@ import {
   auditOutboundApplied,
   checkSend,
   contactAtSubmit,
+  contactRefusedAudit,
   type IntegrationCaller,
   isSendPurpose,
+  type OutboundContact,
   type OutboundDescription,
   type OutboundSubmission,
   type PendingApproval,
@@ -29,8 +31,10 @@ import {
   type SenderStanding,
   type SendPurpose,
   type SignInMailOrigin,
+  STOP_LINK_NEEDS_SITE_MESSAGE,
+  type Stoppable,
+  stopLinksPossible,
   submitOutbound,
-  withStopLinks,
 } from "@composable-os/core";
 import { createCrmDb } from "@composable-os/db";
 import { runnerJudge } from "../extensions/ai.ts";
@@ -109,7 +113,7 @@ export interface QueueHost {
   ownerUserId: string;
   facetKey: string;
   resourceTitle: string;
-  apply(facetKey: string, action: number): Promise<void>;
+  apply(facetKey: string, action: number, stoppable?: Stoppable): Promise<void>;
   reject(facetKey: string, action: number): Promise<void>;
   /** Keeps a hook controller stub in the host's storage; returns its hook id. */
   stashController(controller: unknown): Promise<string>;
@@ -285,59 +289,118 @@ export class HostQueue extends RpcTarget {
   }
 
   /**
+   * Records a send refused for consent (ADR 0678): who sent it and through what, the channel and
+   * how many cannot be contacted, never who or why. For people only (`audit.list`).
+   */
+  async #auditRefusal(input: {
+    channel: "email" | "text";
+    actionKind: string | null;
+    refused: number;
+    sent: boolean;
+  }): Promise<void> {
+    if (this.#caller.kind !== "actor") return;
+    const db = createCrmDb(this.#host.env.DB);
+    try {
+      await db.batch([
+        contactRefusedAudit(db.query, {
+          actor: this.#caller.caller.actor,
+          user: this.#caller.user,
+          origin: this.#caller.caller.origin,
+          vendor: this.#host.vendor,
+          connectionId: this.#host.connectionId,
+          at: new Date().toISOString(),
+          ...input,
+        }),
+      ]);
+    } catch (error) {
+      console.error("failed to record a refused send", error);
+    }
+  }
+
+  /**
    * Consent to be contacted (stage 30, ADR 0678): a gatekeeper asks before it queues a caller's
    * email, with the addresses it would go to and the purpose the caller declared. The host drops
-   * who may not be contacted (only how many is said), refuses when nobody is left, and gives a
-   * stoppable message each Person's own stop link for the gatekeeper to end their copy with. The
-   * host's own queues (routine mail, sign-in codes, an agreement's copy, an order's mail) are
-   * asked on their own paths or are essential: everyone passes. What it allowed is remembered, so
-   * the send the gatekeeper then submits is known to have asked.
+   * who may not be contacted (only how many is said), refuses when nobody is left, and says which
+   * recipients a stoppable message's copies get a stop link for: the links themselves are made
+   * when it goes. The host's own queues (routine mail, sign-in codes, an agreement's copy, an
+   * order's mail) are asked on their own paths or are essential: everyone passes. What it allowed
+   * is remembered, so the send the gatekeeper then submits is known to have asked.
    */
   async contactCheck(input: { channel?: unknown; to?: unknown; purpose?: unknown }): Promise<{
-    allowed: { to: string; stop: string | null }[];
+    allowed: { to: string; stop: boolean }[];
     dropped: number;
   }> {
     const to = Array.isArray(input?.to) ? input.to.map(String).slice(0, 500) : [];
     const channel = input?.channel === "text" ? "text" : "email";
     const sender = this.#standing();
-    if (!sender) return { allowed: to.map((t) => ({ to: t, stop: null })), dropped: 0 };
+    if (!sender) return { allowed: to.map((t) => ({ to: t, stop: false })), dropped: 0 };
     if (input?.purpose !== undefined && input.purpose !== null && !isSendPurpose(input.purpose)) {
       throw new Error('Invalid email: purpose is "follow_up" or "news_and_offers".');
     }
     const purpose = isSendPurpose(input?.purpose) ? input.purpose : null;
     const db = createCrmDb(this.#host.env.DB).query;
     const at = new Date().toISOString();
-    const answer = await checkSend(db, { channel, recipients: to, sender, purpose, at });
+    const answer = await checkSend(db, {
+      channel,
+      recipients: to,
+      sender,
+      purpose,
+      oneToOne: to.length === 1,
+      at,
+    });
     if (answer.purposeRequired) throw new Error(PURPOSE_REQUIRED_MESSAGE);
-    if (!answer.allowed.length) throw new Error(RECIPIENT_STOPPED_MESSAGE);
-    let allowed: { to: string; stop: string | null }[];
-    try {
-      allowed = await withStopLinks(db, answer.allowed, purpose, at);
-    } catch (error) {
-      throw new Error(error instanceof Error ? error.message : String(error));
+    if (!answer.allowed.length) {
+      await this.#auditRefusal({ channel, actionKind: null, refused: answer.dropped, sent: false });
+      throw new Error(RECIPIENT_STOPPED_MESSAGE);
     }
-    for (const r of allowed) this.#vouched.set(r.to.toLowerCase(), purpose);
-    return { allowed, dropped: answer.dropped };
+    // A stop link needs the business's site: refused now, not when it would go.
+    const stops = purpose !== null && answer.allowed.some((r) => r.person);
+    if (stops && !(await stopLinksPossible(db))) throw new Error(STOP_LINK_NEEDS_SITE_MESSAGE);
+    if (answer.dropped) {
+      await this.#auditRefusal({ channel, actionKind: null, refused: answer.dropped, sent: true });
+    }
+    for (const r of answer.allowed) {
+      this.#vouched.set(r.to.toLowerCase(), { purpose, person: r.person });
+    }
+    return {
+      allowed: answer.allowed.map((r) => ({
+        to: r.to,
+        stop: purpose !== null && r.person !== null,
+      })),
+      dropped: answer.dropped,
+    };
   }
 
-  /** What `contactCheck` allowed in this session (ADR 0678): each address, with its purpose. */
-  readonly #vouched = new Map<string, SendPurpose | null>();
+  /** What `contactCheck` allowed in this session (ADR 0678): each address's purpose and Person. */
+  readonly #vouched = new Map<string, { purpose: SendPurpose | null; person: string | null }>();
 
   async submitAction(action: number, description: OutboundDescription): Promise<void> {
     const host = this.#host;
-    // Consent to be contacted (ADR 0678), at the one place every caller's send passes, whatever
-    // the gatekeeper: refused here, it is never queued, applied or retried.
+    // Consent to be contacted (ADR 0678), at the one place every caller's send passes, for every
+    // kind that sends to people (integrations/sends.ts): refused here, it is never queued,
+    // applied or retried.
     const standing = this.#standing();
-    const contact = standing
-      ? await contactAtSubmit(createCrmDb(host.env.DB), {
+    let contact: OutboundContact | null = null;
+    if (standing && this.#caller.kind === "actor") {
+      try {
+        contact = await contactAtSubmit(createCrmDb(host.env.DB), {
+          vendor: host.vendor,
           description,
           sender: standing,
+          actor: this.#caller.caller.actor,
           vouched: this.#vouched,
           at: new Date().toISOString(),
-        }).catch((error: unknown) => {
-          throw new Error(error instanceof Error ? error.message : String(error));
-        })
-      : null;
+        });
+      } catch (error) {
+        await this.#auditRefusal({
+          channel: "email",
+          actionKind: description.actionKind?.tag ?? null,
+          refused: 1,
+          sent: false,
+        });
+        throw new Error(error instanceof Error ? error.message : String(error));
+      }
+    }
     // An agreement's copy submitted again (ADR 0645: a retry of one whose first submission was cut
     // off): if a person's approval already waits for it, that is the answer, never a second one.
     if (this.#caller.kind === "system" && this.#caller.purpose === "agreements") {
@@ -474,7 +537,7 @@ export class HostQueue extends RpcTarget {
         return;
       }
       try {
-        await host.apply(host.facetKey, action);
+        await host.apply(host.facetKey, action, contact?.stoppable);
         this.applied.push({
           action,
           actionKind: description.actionKind?.tag ?? null,

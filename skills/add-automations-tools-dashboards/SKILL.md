@@ -143,7 +143,10 @@ Each kind has its own file, wired into `defineExtension` (Deals: the last keys o
    `recipient_stopped` (nothing was sent: do not retry it, and never try another way to reach
    them). Each recipient gets their own copy ending with their own stop link, which the host adds:
    never write a link or a "to stop" line yourself. Without a `purpose` an email to anyone the CRM
-   knows is refused (`purpose_required`); a person's own one-to-one email needs none. A person
+   knows is refused (`purpose_required`); a person's own one-to-one email needs none. Only
+   email-send takes a purpose: an automation's email through a mailbox connection (Gmail,
+   Outlook), its calendar invitation, or a connected server's tool call naming a person's address
+   or number is refused, whatever the preset. Each refusal is recorded for staff. A person
    binds the connection, and each send is an outbound action the approval policy decides. Use `to`
    only (no `cc` or `bcc`), and read an address from `person.get`'s `emails` (the one marked
    `primary`). For "add to calendar", pass `calendar: { uid, start, end, title, location?, url?,

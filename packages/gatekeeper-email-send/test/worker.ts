@@ -101,7 +101,7 @@ class FakeQueue extends RpcTarget {
    * host's one plain refusal, or undefined for a host older than it (the method is missing).
    */
   contactAnswer:
-    | ((to: string[]) => { allowed: { to: string; stop: string | null }[]; dropped: number })
+    | ((to: string[]) => { allowed: { to: string; stop: boolean }[]; dropped: number })
     | "refuse"
     | undefined = undefined;
   contactAsked: { to: string[]; purpose: unknown }[] = [];
@@ -187,7 +187,7 @@ export class TestHost extends DurableObject<Cloudflare.Env> {
       queue.contactAnswer = (to) => {
         const allowed = to.filter((a) => !drop.includes(a));
         return {
-          allowed: allowed.map((a) => ({ to: a, stop: stops[a] ?? null })),
+          allowed: allowed.map((a) => ({ to: a, stop: stops[a] !== undefined })),
           dropped: to.length - allowed.length,
         };
       };
@@ -219,6 +219,15 @@ export class TestHost extends DurableObject<Cloudflare.Env> {
 
   async apply(id: number): Promise<void> {
     await this.#requireFacet().applyAction(id);
+  }
+
+  /** Applies a stoppable send with the host's stop links (ADR 0678). */
+  async applyStoppable(id: number, links: unknown): Promise<void> {
+    await (
+      this.#requireFacet() as unknown as {
+        applyStoppable(id: number, links: unknown): Promise<void>;
+      }
+    ).applyStoppable(id, links);
   }
 
   async reject(id: number): Promise<void> {

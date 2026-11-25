@@ -478,6 +478,10 @@ export const contactForPerson = defineOperation({
   output: z.object({ child: z.boolean(), lines: z.array(line), history: z.array(historyRow) }),
   permission: "records:read",
   risk: "read",
+  // A person's choices are for people (ADR 0678): no AI actor reads them, so a refusal's one
+  // plain answer is all an AI learns of them.
+  actors: ["human"],
+  mcp: { expose: false },
   async handler(input, ctx) {
     const found = await ctx.db
       .selectFrom(visibleSource(ctx, "person"))

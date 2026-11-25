@@ -267,38 +267,86 @@ export interface AddressHolder {
 }
 
 /**
- * Who an address a message is sent to belongs to, for consent to be contacted (ADR 0678): by
- * each address's folded form (ADR 0692: the `+tag` dropped, `foldAddress`), the live People with
- * a live address of that form, and whether each has a live guardian. One statement per 90
+ * The mailbox an address column reaches, in SQL: migration 0916's indexed expression, which must
+ * stay exactly this one (`mailboxKey` in customers/limits.ts is the same rule in code, and the
+ * suppression list hashes addresses by it): the `+tag` dropped on every domain, and on gmail.com
+ * and googlemail.com the dots too, the domain gmail.com.
+ */
+export function mailboxSql(column: string) {
+  const e = sql.ref(column);
+  const local = sql`CASE WHEN instr(${e}, '+') > 1 AND instr(${e}, '+') < instr(${e}, '@') THEN substr(${e}, 1, instr(${e}, '+') - 1) ELSE substr(${e}, 1, instr(${e}, '@') - 1) END`;
+  const tagless = sql`CASE WHEN instr(${e}, '+') > 1 AND instr(${e}, '+') < instr(${e}, '@') THEN substr(${e}, 1, instr(${e}, '+') - 1) || substr(${e}, instr(${e}, '@')) ELSE ${e} END`;
+  return sql<string>`(CASE WHEN substr(${e}, instr(${e}, '@') + 1) IN ('gmail.com', 'googlemail.com') THEN replace(${local}, '.', '') || '@gmail.com' ELSE ${tagless} END)`;
+}
+
+/**
+ * Who an address a message is sent to belongs to, for consent to be contacted (ADR 0678): by the
+ * mailbox each reaches (`mailboxKey`, the key the suppression list uses), the live People with a
+ * live address reaching it, and whether each has a live guardian. One statement per 90
  * addresses, whatever the batch: the host asks it once for every recipient of a send.
  */
 export async function peopleAtAddresses(
   db: Kysely<CoreDatabase>,
-  folded: readonly string[],
+  mailboxes: readonly string[],
 ): Promise<Map<string, AddressHolder[]>> {
   const out = new Map<string, AddressHolder[]>();
-  const all = [...new Set(folded)];
-  const e = sql.ref("e.email");
-  // The same expression as migration 0955's index (`foldedSql` in customers/accounts.ts).
-  const form = sql<string>`(CASE WHEN instr(${e}, '+') > 1 AND instr(${e}, '+') < instr(${e}, '@') THEN substr(${e}, 1, instr(${e}, '+') - 1) || substr(${e}, instr(${e}, '@')) ELSE ${e} END)`;
+  const all = [...new Set(mailboxes)];
+  const form = mailboxSql("e.email");
   for (let i = 0; i < all.length; i += ADDRESSES_PER_STATEMENT) {
     const chunk = all.slice(i, i + ADDRESSES_PER_STATEMENT);
     const { rows } = await sql<{
       folded: string;
       id: string;
       child: number;
-    }>`SELECT ${form} AS folded, p.id AS id, EXISTS (SELECT 1 FROM core_person_link l JOIN core_person g ON g.id = l.guardian_id AND g.deleted_at IS NULL WHERE l.dependant_id = p.id AND l.kind = ${GUARDIAN_LINK} AND l.ended_at IS NULL) AS child FROM core_person_emails e JOIN core_person p ON p.id = e.person_id AND p.deleted_at IS NULL WHERE e.live = 1 AND ${form} IN (${sql.join(chunk)})`.execute(
+    }>`SELECT ${form} AS folded, p.id AS id, ${childSql()} AS child FROM core_person_emails e JOIN core_person p ON p.id = e.person_id AND p.deleted_at IS NULL WHERE e.live = 1 AND ${form} IN (${sql.join(chunk)})`.execute(
       db,
     );
-    for (const row of rows) {
-      const holders = out.get(row.folded) ?? [];
-      if (!holders.some((h) => h.id === row.id)) {
-        holders.push({ id: row.id, child: Number(row.child) === 1 });
-      }
-      out.set(row.folded, holders);
-    }
+    collectHolders(out, rows);
   }
   return out;
+}
+
+/**
+ * Who a number a message is sent to belongs to (ADR 0678): the live People holding it (as
+ * `normalisePhoneNumber` keeps it: digits, with a leading +), and whether each is a child. One
+ * statement per 90 numbers.
+ */
+export async function peopleAtNumbers(
+  db: Kysely<CoreDatabase>,
+  numbers: readonly string[],
+): Promise<Map<string, AddressHolder[]>> {
+  const out = new Map<string, AddressHolder[]>();
+  const all = [...new Set(numbers)];
+  for (let i = 0; i < all.length; i += ADDRESSES_PER_STATEMENT) {
+    const chunk = all.slice(i, i + ADDRESSES_PER_STATEMENT);
+    const { rows } = await sql<{
+      folded: string;
+      id: string;
+      child: number;
+    }>`SELECT n.number_normalised AS folded, p.id AS id, ${childSql()} AS child FROM core_person_phones n JOIN core_person p ON p.id = n.person_id AND p.deleted_at IS NULL WHERE n.number_normalised IN (${sql.join(chunk)})`.execute(
+      db,
+    );
+    collectHolders(out, rows);
+  }
+  return out;
+}
+
+/** Whether the row's Person `p` has a live guardian. */
+function childSql() {
+  return sql`EXISTS (SELECT 1 FROM core_person_link l JOIN core_person g ON g.id = l.guardian_id AND g.deleted_at IS NULL WHERE l.dependant_id = p.id AND l.kind = ${GUARDIAN_LINK} AND l.ended_at IS NULL)`;
+}
+
+function collectHolders(
+  out: Map<string, AddressHolder[]>,
+  rows: readonly { folded: string; id: string; child: number }[],
+): void {
+  for (const row of rows) {
+    const holders = out.get(row.folded) ?? [];
+    if (!holders.some((h) => h.id === row.id)) {
+      holders.push({ id: row.id, child: Number(row.child) === 1 });
+    }
+    out.set(row.folded, holders);
+  }
 }
 
 /**

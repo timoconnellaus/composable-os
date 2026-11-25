@@ -44,12 +44,14 @@ export {
 } from "./register.ts";
 export {
   checkSend,
+  checkSends,
   isSendPurpose,
+  mintStopLinks,
   PURPOSE_REQUIRED,
   PURPOSE_REQUIRED_MESSAGE,
   RECIPIENT_STOPPED,
   RECIPIENT_STOPPED_MESSAGE,
-  recipientsOfFields,
+  recipientKey,
   SEND_PURPOSES,
   type SendAnswer,
   type SenderStanding,
@@ -57,10 +59,11 @@ export {
   type SendQuestion,
   type SendRecipient,
   STOP_LINK_NEEDS_SITE_MESSAGE,
-  type StoppableRecipient,
-  withStopLinks,
+  type Stoppable,
+  stopLinksPossible,
 } from "./senders.ts";
 export {
+  dropStopTokens,
   readStopToken,
   STOP_PARAM,
   STOP_PATH,

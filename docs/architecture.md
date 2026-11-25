@@ -443,18 +443,25 @@ Stage 6a ([ADR 0110](adr/0110-integration-host-per-connection.md) to
   scope off; the client web app's `/stop` route shows one button and posts it. Members change
   their choices in My account's Contact preferences (`me.contact.*`); staff record a member's on
   request or from paper (`person.contact.record`, a person only), never lifting a stop.
-  **Every other email and text asks too** ([ADR 0678](adr/0678-every-sender-asks-the-consent-register.md)),
-  at the integration host's approval queue, the one place every caller's send passes, whatever
-  the preset: a gatekeeper asks the queue (`contactCheck`, `checkSend` in `contact/senders.ts`)
-  before it queues a caller's email, the queue checks the submitted action's `To`, `Cc` and `Bcc`
-  again (`contactAtSubmit`, for gatekeepers that do not ask), and approving one that waited asks
-  again (`contactBlocked`). A person's own email asks only the suppression list and a child's
-  address; anyone else's (an automation, a tool, the assistant, MCP, extension code) declares
-  `purpose: "follow_up"` or `"news_and_offers"`, is asked in full for each Person (matched by the
-  folded address, `peopleAtAddresses`), and each copy ends with that Person's own stop link, made
-  by the host. Who cannot be contacted is dropped (only the count is said); nobody left is the one
-  plain refusal `recipient_stopped`. The host's own essential mail (sign-in codes, an agreement's
-  copy, an order's confirmation, a phone check, staff notices) is exempt.
+  **Every other message to people asks too** ([ADR 0678](adr/0678-every-sender-asks-the-consent-register.md)),
+  at the integration host's approval queue, whatever the preset. Which actions send to people,
+  and to whom, the host decides by vendor and kind from the description the approver sees
+  (`peopleSendOf` in `integrations/sends.ts`): email-send's and the fake outbox's sends, Gmail's
+  and Outlook's sends, Google's and Outlook's calendar invitations, and every email address and
+  international number in a connected MCP server's tool call; a machine's send whose recipients
+  the host cannot all see is refused. email-send asks first (`contactCheck`), every send is
+  checked as it is submitted (`contactAtSubmit`), and approving one that waited asks again
+  (`contactBlockedMany`, the inbox's page at once). A person's own message asks only the
+  suppression list (and reaches a child's own address one to one only); anyone else's declares
+  `purpose: "follow_up"` or `"news_and_offers"` through email-send, is asked in full for each
+  Person (matched by the mailbox an address reaches, `peopleAtAddresses`, migration 0916; a number
+  by `peopleAtNumbers`), and each copy ends with that Person's own stop link, made by the host when
+  it goes. An AI's one email to one person from a person's own mailbox always waits for that
+  person, and is theirs once they approve it. Who cannot be contacted is dropped (only the count is
+  said); nobody left is the one plain refusal `recipient_stopped`; each refusal is audited
+  (`contact.refused`, for people only). The host's own essential mail (sign-in codes, an
+  agreement's copy, an order's confirmation, the cooling-off summary, a phone check, staff notices)
+  is exempt. A connected server that addresses people by its own ids cannot be checked.
 - **Gatekeepers we wrote**: `gatekeeper-email-send`, `gatekeeper-slack-post`, `gatekeeper-webhook`,
   `gatekeeper-text` (texts, above).
   `gatekeeper-accounting` (stage 61, ADR 0880) is the **accounting contract** every accounting

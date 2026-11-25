@@ -23,12 +23,14 @@ import {
   stopToken,
   suppress,
 } from "@composable-os/core";
+import { createCrmDb } from "@composable-os/db";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { fakeProviderStub } from "../src/integrations/fake.ts";
 import { HostQueue } from "../src/integrations/queue.ts";
 import { blobStore, integrationRuntime } from "../src/integrations/runtime.ts";
 import { setPreset } from "./automation-fixture.ts";
 import { createAdmin, db, unique } from "./helpers.ts";
+import { meterStatements } from "./statement-meter.ts";
 
 const integrations = integrationRuntime(env);
 const SITE = "https://gym.example";
@@ -245,7 +247,7 @@ describe("(b) a staff member's own message", () => {
     );
     const other = `+614${String(Date.now() + 7).slice(-8)}`;
     await expect(queue.contactCheck({ channel: "text", to: [other] })).resolves.toEqual({
-      allowed: [{ to: other, stop: null }],
+      allowed: [{ to: other, stop: false }],
       dropped: 0,
     });
   });
@@ -379,5 +381,334 @@ describe("(e) the assistant's refusal reveals nothing but the one answer", () =>
     expect(await sent()).toEqual([]);
     // Nothing of it was written where an AI could read it back: no pending action, no audit row.
     expect(await pendingOnConnection()).toBe(0);
+  });
+});
+
+// --- The review of PR #469: every kind that sends to people, connected servers, the person's own
+// draft, refusals recorded, tokens made when a message goes, and sends queued before the check.
+
+type Description = Parameters<HostQueue["submitAction"]>[1];
+
+/** A queue as the integration host opens one for `actor` on the outbox's connection, as `vendor`. */
+function queueAs(vendor: string, actor: "human" | "assistant" | "mcp" | "automation") {
+  const origin =
+    actor === "human"
+      ? { surface: "ui" as const }
+      : actor === "automation"
+        ? { surface: "automation" as const, automationId: "aut_consent" }
+        : actor === "mcp"
+          ? { surface: "mcp" as const, sessionId: `cap_${unique("s")}` }
+          : { surface: "assistant" as const, sessionId: `ath_${unique("t")}` };
+  return new HostQueue(
+    {
+      env,
+      connectionId,
+      connectionTitle: "A connection",
+      vendor,
+      ownerUserId: admin.id,
+      facetKey: "k",
+      resourceTitle: "Resource",
+      apply: async () => {},
+      reject: async () => {},
+      stashController: async () => "h",
+      enableHook: async () => {},
+      recordAgentHook: async () => {},
+    },
+    {
+      kind: "actor",
+      caller: { actor, userId: admin.id, userName: admin.name, role: admin.role, origin },
+      user: admin,
+    },
+  );
+}
+
+const calendarInvite = (to: string): Description => ({
+  title: "Create calendar event: 20% off this week only",
+  description: "Create an event.",
+  fields: [
+    { label: "Calendar ID", value: "primary" },
+    { label: "Send updates", value: "all" },
+    { label: "Event", value: JSON.stringify({ title: "20% off", attendees: [{ email: to }] }) },
+  ],
+});
+const outlookInvite = (to: string): Description => ({
+  title: "Invite to a meeting",
+  description: "Sends invitations.",
+  fields: [{ label: "Invites", items: [`Member <${to}> (required)`] }] as never,
+  actionKind: { tag: "calendar.invitations", label: "Send meeting invitations" },
+});
+const gmailSend = (to: string[], cc: string[] = []): Description => ({
+  title: "Send email: Hello",
+  description: "Sends an email.",
+  fields: [
+    { label: "From", value: address },
+    { label: "To", items: to },
+    ...(cc.length ? [{ label: "Cc", items: cc }] : []),
+    { label: "Subject", value: "Hello" },
+  ] as never,
+});
+const mcpCall = (args: Record<string, unknown>): Description => ({
+  title: "Call send_message on Messenger",
+  description: "Tool send_message",
+  fields: [{ label: "Arguments", value: JSON.stringify(args), syntax: "json" }],
+  actionKind: { tag: "mcp:messenger:send_message", label: "Send messages" },
+});
+
+async function refusedRows(): Promise<number> {
+  const row = await env.DB.prepare(
+    "SELECT count(*) AS n FROM core_audit WHERE operation = 'contact.refused'",
+  ).first<{ n: number }>();
+  return row?.n ?? 0;
+}
+
+describe("B1: calendar invitations are messages", () => {
+  it("a machine's Google or Outlook invitation to a Person who stopped is refused; a person's own goes", async () => {
+    await setPreset("autonomous");
+    const stopped = await person("InviteStopped");
+    await stopFollowUps(stopped.id);
+    for (const description of [calendarInvite(stopped.email), outlookInvite(stopped.email)]) {
+      const vendor = description.actionKind ? "microsoft" : "google";
+      for (const actor of ["assistant", "automation", "mcp"] as const) {
+        await expect(
+          queueAs(vendor, actor).submitAction(1, description),
+          `${vendor} ${actor}`,
+        ).rejects.toThrow(/calendar invitation/);
+      }
+      // A person's own invitation follows the person's-own-message rule.
+      const q = queueAs(vendor, "human");
+      await q.submitAction(2, description);
+      await q.settle();
+    }
+    // An update that tells attendees the host cannot see: a machine's is refused.
+    await expect(
+      queueAs("google", "assistant").submitAction(3, {
+        title: "Update calendar event e1",
+        description: "Update an event.",
+        fields: [
+          { label: "Send updates", value: "all" },
+          { label: "Changes", value: JSON.stringify({ title: "Moved" }) },
+        ],
+      }),
+    ).rejects.toThrow(/calendar invitation/);
+  });
+});
+
+describe("B2: connected MCP servers' tool calls", () => {
+  it("are scanned for addresses and numbers: a machine's naming a Person, or a STOP'd number, is refused", async () => {
+    await setPreset("autonomous");
+    const p = await person("McpKnown");
+    const number = `+614${String(Date.now()).slice(-8)}`;
+    await env.DB.prepare(
+      "INSERT INTO core_person_phones (id, person_id, number, number_normalised, created_at) VALUES (?, ?, ?, ?, ?)",
+    )
+      .bind(`pph_${unique("p")}`, p.id, number, number, new Date().toISOString())
+      .run();
+    const stoppedNumber = `+614${String(Date.now() + 3).slice(-8)}`;
+    await suppress(
+      db.query,
+      "text",
+      await saltedHash(db.query, stoppedNumber),
+      "stop_reply",
+      new Date().toISOString(),
+    );
+    for (const args of [{ to: p.email }, { to: number }, { phone: stoppedNumber }]) {
+      await expect(
+        queueAs("mcp", "assistant").submitAction(1, mcpCall(args)),
+        JSON.stringify(args),
+      ).rejects.toThrow(/Refused/);
+    }
+    // A person's own call: the suppression list holds; otherwise it goes.
+    await expect(
+      queueAs("mcp", "human").submitAction(2, mcpCall({ phone: stoppedNumber })),
+    ).rejects.toThrow(/recipient_stopped/);
+    const q = queueAs("mcp", "human");
+    await q.submitAction(3, mcpCall({ to: p.email }));
+    await q.settle();
+    // A call naming nobody the host can read is not a send it can check.
+    const plain = queueAs("mcp", "assistant");
+    await plain.submitAction(4, mcpCall({ listId: "L1" }));
+    await plain.settle();
+  });
+});
+
+describe("a person's own draft: an AI's one-to-one email from their mailbox", () => {
+  it("always waits for the mailbox's owner, under Autonomous too, and is theirs once they approve it", async () => {
+    await setPreset("autonomous");
+    const p = await person("DraftFor");
+    await stopFollowUps(p.id);
+    const q = queueAs("google", "assistant");
+    await q.submitAction(11, gmailSend([p.email]));
+    await q.settle();
+    expect(q.pending).toHaveLength(1);
+    const calls: unknown[] = [];
+    const stub = {
+      ...integrations,
+      applyOutbound: async (i: unknown) => {
+        calls.push(i);
+      },
+      rejectOutbound: async () => ({}),
+    };
+    // Someone other than the mailbox's owner cannot make it theirs.
+    const other = await createAdmin();
+    const byOther = await invokeByName(
+      "approval.approve",
+      { changeSetId: q.pending[0]?.changeSetId },
+      { actor: "human", user: other, origin: { surface: "ui" }, db, integrations: stub } as never,
+    );
+    expect(JSON.stringify(byOther)).toMatch(/only the owner of the mailbox/);
+    expect(calls).toEqual([]);
+
+    const again = queueAs("google", "assistant");
+    await again.submitAction(12, gmailSend([p.email]));
+    await again.settle();
+    const owned = (await op(
+      "approval.approve",
+      { changeSetId: again.pending[0]?.changeSetId },
+      { integrations: stub },
+    )) as { results: { status: string }[] };
+    expect(owned.results[0]?.status).toBe("applied");
+    expect(calls).toHaveLength(1);
+  });
+
+  it("to two people, with a Cc, or from an automation, it stays refused, and says what works", async () => {
+    await setPreset("autonomous");
+    const a = await person("DraftA");
+    const b = await person("DraftB");
+    for (const [actor, description] of [
+      ["assistant", gmailSend([a.email, b.email])],
+      ["assistant", gmailSend([a.email], [b.email])],
+      ["automation", gmailSend([a.email])],
+    ] as const) {
+      const error = await queueAs("google", actor)
+        .submitAction(1, description)
+        .then(
+          () => "",
+          (e: unknown) => String(e),
+        );
+      expect(error).toMatch(/Save a draft/);
+      // Never "add a purpose" where the gatekeeper cannot take one.
+      expect(error).not.toMatch(/purpose: "follow_up"/);
+    }
+  });
+});
+
+describe("refusals are recorded, for people only", () => {
+  it("a refused send writes an audit row staff read and no AI actor can", async () => {
+    await setPreset("autonomous");
+    const p = await person("Audited");
+    await stopFollowUps(p.id);
+    const before = await refusedRows();
+    await expect(
+      send({ to: [p.email], subject: "Hi", text: "Hi", purpose: "follow_up" }, AUTOMATION),
+    ).rejects.toThrow(/recipient_stopped/);
+    expect(await refusedRows()).toBe(before + 1);
+    const asStaff = (await op("audit.list", { limit: 200 })) as {
+      items: { operation: string; actor: string }[];
+    };
+    const row = asStaff.items.find((i) => i.operation === "contact.refused");
+    expect(row).toMatchObject({ actor: "automation" });
+    expect(JSON.stringify(row)).not.toContain(p.id);
+    expect(JSON.stringify(row)).not.toContain(p.email);
+    const asMcp = (await op("audit.list", { limit: 200 }, MCP())) as {
+      items: { operation: string }[];
+    };
+    expect(asMcp.items.some((i) => i.operation === "contact.refused")).toBe(false);
+  });
+
+  it("an AI cannot read a person's choices", async () => {
+    const p = await person("Private");
+    await expect(op("contact.forPerson", { personId: p.id }, ASSISTANT())).rejects.toThrow();
+    await expect(op("contact.forPerson", { personId: p.id })).resolves.toBeTruthy();
+  });
+});
+
+describe("stop tokens are made when the message goes", () => {
+  async function tokensOf(personId: string): Promise<number> {
+    const row = await env.DB.prepare(
+      "SELECT count(*) AS n FROM core_contact_stop_token WHERE person_id = ?",
+    )
+      .bind(personId)
+      .first<{ n: number }>();
+    return row?.n ?? 0;
+  }
+
+  it("a waiting or rejected send leaves no token and no link; an applied one makes one per Person", async () => {
+    const p = await person("Tokens");
+    const queued = await send(
+      { to: [p.email], subject: "Waiting", text: "Hello", purpose: "follow_up" },
+      MCP(),
+    );
+    expect(await tokensOf(p.id)).toBe(0);
+    const pending = await env.DB.prepare("SELECT input FROM core_pending_action WHERE id = ?")
+      .bind(queued.pending[0]?.actionId)
+      .first<{ input: string }>();
+    expect(pending?.input).toBeTruthy();
+    expect(pending?.input).not.toContain(`?${STOP_PARAM}=`);
+    const card = await op("approval.get", { changeSetId: queued.pending[0]?.changeSetId });
+    expect(JSON.stringify(card)).not.toContain(`?${STOP_PARAM}=`);
+    await op("approval.reject", { actionIds: [queued.pending[0]?.actionId] });
+    expect(await tokensOf(p.id)).toBe(0);
+
+    await setPreset("autonomous");
+    await send({ to: [p.email], subject: "Now", text: "Hello", purpose: "follow_up" }, MCP());
+    expect(await tokensOf(p.id)).toBe(1);
+  });
+});
+
+describe("a send queued before the host kept its check", () => {
+  it("is checked at approval by who sent it", async () => {
+    const p = await person("Legacy");
+    const queued = await send(
+      { to: [p.email], subject: "Old", text: "Hi", purpose: "follow_up" },
+      MCP(),
+    );
+    // As a row written before ADR 0678: no consent record on it.
+    const row = await env.DB.prepare("SELECT id, input FROM core_pending_action WHERE id = ?")
+      .bind(queued.pending[0]?.actionId)
+      .first<{ id: string; input: string }>();
+    const input = JSON.parse(row?.input ?? "{}") as Record<string, unknown>;
+    delete input.contact;
+    await env.DB.prepare("UPDATE core_pending_action SET input = ? WHERE id = ?")
+      .bind(JSON.stringify(input), row?.id)
+      .run();
+    const decided = (await op("approval.approve", {
+      changeSetId: queued.pending[0]?.changeSetId,
+    })) as { results: { status: string }[] };
+    // An MCP client's email to a Person with no purpose on record: not sent.
+    expect(decided.results[0]?.status).toBe("skipped");
+    expect(await sent()).toEqual([]);
+  });
+});
+
+describe("the inbox asks consent for its whole page at once", () => {
+  it("a change set of five waiting emails reads what a change set of one does", async () => {
+    const consentStatements = async (count: number) => {
+      const mcp = MCP();
+      let changeSetId = "";
+      for (let i = 0; i < count; i += 1) {
+        const p = await person(`Page${count}x${i}`);
+        const queued = await send(
+          { to: [p.email], subject: `Page ${i}`, text: "Hi", purpose: "follow_up" },
+          mcp,
+        );
+        changeSetId = queued.pending[0]?.changeSetId ?? changeSetId;
+      }
+      const meter = meterStatements(env.DB);
+      meter.reset();
+      const card = (await op("approval.get", { changeSetId }, { db: createCrmDb(meter.db) })) as {
+        actions: unknown[];
+      };
+      expect(card.actions).toHaveLength(count);
+      return meter.statements.filter((s) =>
+        /core_contact_suppression|core_person_emails|core_person_phones|core_contact_choice|core_routine_mail/.test(
+          s.sql,
+        ),
+      ).length;
+    };
+    const one = await consentStatements(1);
+    const five = await consentStatements(5);
+    expect(five).toBe(one);
+    expect(one).toBeGreaterThan(0);
+    expect(one).toBeLessThanOrEqual(3);
   });
 });

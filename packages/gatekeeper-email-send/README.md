@@ -54,9 +54,11 @@ one of the host's own, and not mail only to colleagues), the gatekeeper asks the
 (`contactCheck` on the approval queue, `src/consent.ts`) with every recipient and the declared
 `purpose`. The host leaves out who may not be contacted (the receipt's `dropped` counts them, never
 who) and refuses with `recipient_stopped` when nobody is left. A send with a purpose takes `to`
-only; each recipient gets their own copy, ending with the stop link the host made for them, which
-is kept in the journal until it is sent and never shown in the approval's words, `listSent()` or
-the receipt. A queue that cannot answer (an older host) still has the host's own check at submit,
+only; each recipient gets their own copy, ending with their own stop link. The journal keeps only
+who gets one: the host makes the links when it applies the send (`applyStoppable(action, links)`,
+a facet method beside `applyAction`), they are held only while it is sent, and a stoppable send
+applied without them is refused. They are never in the approval's words, `listSent()` or the
+receipt. A queue that cannot answer (an older host) still has the host's own check at submit,
 but a send with a purpose is refused there, as its stop links cannot be made.
 
 One more session method is the host's alone and is not in the agent-facing types:

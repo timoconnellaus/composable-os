@@ -20,6 +20,7 @@ import {
 // The email-send gatekeeper's consent step (ADR 0678): the fake asks the host the same way.
 import {
   askContact,
+  parseStopLinks,
   textWithStop,
 } from "../../../../packages/gatekeeper-email-send/src/consent.ts";
 import {
@@ -605,8 +606,8 @@ interface Journal {
       queue?: QueueClass;
       /** The one-tap stop's headers of the host's routine mail (ADR 0675), as email-send sets them. */
       headers?: Record<string, string>;
-      /** A stoppable email's stop links by address (ADR 0678): one copy each, as email-send. */
-      stops?: Record<string, string>;
+      /** A stoppable email's recipients who get a stop link when it is applied (ADR 0678). */
+      stopFor?: string[];
     }
   >;
 }
@@ -847,7 +848,12 @@ export class FakeGatekeeper extends DurableObject<
     const subject = String(message?.subject ?? "").slice(0, 500);
     const text = String(message?.text ?? "").slice(0, 20_000);
     if (!to.length || !subject) throw new Error("send needs `to` and a `subject`");
-    const internal = message.internal === true;
+    // Internal only when every recipient is at the outbox's own domain, as email-send checks its
+    // internal domains: never on the caller's word alone.
+    const ownDomain = this.#props.address.slice(this.#props.address.lastIndexOf("@") + 1);
+    const internal =
+      message.internal === true &&
+      to.every((a) => a.slice(a.lastIndexOf("@") + 1).toLowerCase() === ownDomain);
     // A retried send with the same key answers the first one's receipt (ADR 0574), as email-send:
     // keys are remembered per class of queue (an ordinary caller's per caller, issue #286), and
     // the copy's keys are the agreements mail's alone.
@@ -932,7 +938,7 @@ export class FakeGatekeeper extends DurableObject<
     }
     // Consent to be contacted (ADR 0678), asked exactly as email-send asks it: a caller's email
     // asks the host, who drops who may not be contacted and gives each Person's stop link.
-    let stops: Record<string, string> | undefined;
+    let stopFor: string[] | undefined;
     let dropped = 0;
     if (queueClass === "caller" && !internal) {
       if (
@@ -955,9 +961,9 @@ export class FakeGatekeeper extends DurableObject<
           );
         }
         dropped = answer.dropped;
-        const links = answer.allowed.filter((a) => a.stop !== null);
+        const links = answer.allowed.filter((a) => a.stop);
         if (links.length) {
-          stops = Object.fromEntries(links.map((a) => [a.to.toLowerCase(), a.stop as string]));
+          stopFor = links.map((a) => a.to.toLowerCase());
         }
       }
     }
@@ -970,7 +976,7 @@ export class FakeGatekeeper extends DurableObject<
       ...(agreement ? { attachments: [AGREEMENT_FILENAME] } : {}),
       ...(queueClass !== "caller" ? { queue: queueClass } : {}),
       ...(headers ? { headers } : {}),
-      ...(stops ? { stops } : {}),
+      ...(stopFor ? { stopFor } : {}),
     });
     if (slot) this.ctx.storage.kv.put(slot, id);
     const related = Array.isArray(message.relatedRecords) ? message.relatedRecords.map(String) : [];
@@ -984,7 +990,7 @@ export class FakeGatekeeper extends DurableObject<
         internal,
         signIn,
         routine,
-        stops,
+        stopFor,
         dropped,
         purpose: typeof message.purpose === "string" ? message.purpose : undefined,
       });
@@ -1012,7 +1018,7 @@ export class FakeGatekeeper extends DurableObject<
       internal: boolean;
       signIn: boolean;
       routine: boolean;
-      stops: Record<string, string> | undefined;
+      stopFor: string[] | undefined;
       dropped: number;
       purpose: string | undefined;
     },
@@ -1029,7 +1035,7 @@ export class FakeGatekeeper extends DurableObject<
         ...(related.length ? [{ label: "Related records", value: related.join(", ") }] : []),
         ...(agreement ? [{ label: "Attachment", value: agreementSummary(agreement) }] : []),
         ...(m.purpose ? [{ label: "Purpose", value: m.purpose }] : []),
-        ...(m.stops
+        ...(m.stopFor
           ? [{ label: "Stop link", value: "Each recipient's own copy ends with their stop link" }]
           : []),
         ...(m.dropped
@@ -1145,7 +1151,13 @@ export class FakeGatekeeper extends DurableObject<
       }));
   }
 
-  async applyAction(action: number): Promise<void> {
+  /** A stoppable email applied with the stop links the host just made (ADR 0678), as email-send. */
+  async applyStoppable(action: number, links: unknown): Promise<void> {
+    const entry = this.#journal().actions[action];
+    await this.applyAction(action, parseStopLinks(links, entry?.stopFor ?? []));
+  }
+
+  async applyAction(action: number, links?: Record<string, string>): Promise<void> {
     const journal = this.#journal();
     const entry = journal.actions[action];
     if (!entry) throw new Error(`No action ${action}`);
@@ -1160,9 +1172,13 @@ export class FakeGatekeeper extends DurableObject<
         );
     if (earlier) throw new Error(`Action ${earlier[0]} must be decided first`);
     // A stoppable email (ADR 0678): one copy per recipient, each ending with its stop link.
-    if (entry.stops) {
+    if (entry.stopFor?.length) {
+      // Never sent without the links the host gives when it applies it.
+      if (!links || typeof links !== "object") {
+        throw new Error("Refused: this email's stop links were not given, and it is not sent.");
+      }
       for (const to of entry.to) {
-        const stop = entry.stops[to.toLowerCase()];
+        const stop = links[to.toLowerCase()];
         await this.#provider().recordSent({
           action,
           to: [to],

@@ -1,23 +1,30 @@
 // Every sender asks (stage 30, ADR 0678): `checkSend`, the host's one check on an email or a text
-// that is not a routine message, and `withStopLinks`, the stop links it makes for a stoppable one.
+// that is not a routine message, `mintStopLinks`, the stop links of a stoppable one as it goes, and
+// `peopleSendOf`, which actions send to people.
 // The runner's tests (apps/runner/test/consent-senders.test.ts) prove it at the integration host,
 // where every caller's send passes; these pin the rule for each kind of sender and message.
+import { sql } from "kysely";
 import { beforeAll, describe, expect, it } from "vitest";
 import {
   type ActingUser,
   addressHash,
   checkSend,
+  checkSends,
+  dropStopTokens,
   invokeByName,
+  mintStopLinks,
+  peopleSendOf,
   readStopToken,
-  recipientsOfFields,
+  recipientKey,
   recordFromForm,
   saltedHash,
   stopToken,
   suppress,
   tokenOfLink,
-  withStopLinks,
 } from "../src/index.ts";
+import { mailboxSql } from "../src/visibility/guardians.ts";
 import { context, createUser, db, unique } from "./helpers.ts";
+import { meterStatements } from "./statement-meter.ts";
 
 const SITE = "https://gym.example";
 let admin: ActingUser;
@@ -148,16 +155,63 @@ describe("anyone else's message (an automation, a tool, the assistant, MCP, an e
     });
   });
 
-  it("a child's own address gets nothing, whatever the purpose", async () => {
+  it("a child's own address: a machine's message never; a person's own one to one, yes", async () => {
     const guardian = await person("Mum");
     const kid = await person("Teen");
     await run("person.link.add", { guardianId: guardian.id, dependantId: kid.id });
     expect((await check([kid.email], "other", "follow_up")).dropped).toBe(1);
+    expect((await check([kid.email], "other")).purposeRequired).toBe(true);
+    // A coach's reply to the member's own email goes; news and offers never.
+    expect((await check([kid.email], "staff")).allowed).toEqual([
+      { to: kid.email, person: kid.id },
+    ]);
+    expect((await check([kid.email], "staff", "news_and_offers")).dropped).toBe(1);
+  });
+});
+
+describe("the mailbox an address reaches (B3)", () => {
+  it("a Person who stopped at john@gmail.com is not mailed at j.ohn+x@googlemail.com", async () => {
+    const local = unique("john").toLowerCase().replaceAll(".", "");
+    const p = await run<{ id: string }>("person.create", {
+      givenName: "John",
+      emails: [{ email: `${local}@gmail.com` }],
+    });
+    await stopFollowUps(p.id);
+    const dotted = `${local.slice(0, 1)}.${local.slice(1)}+gym@googlemail.com`;
+    const answer = await check([dotted], "other", "follow_up");
+    expect(answer).toMatchObject({ allowed: [], dropped: 1 });
+    // And with no purpose, it is a Person's: the machine must declare one.
+    expect((await check([dotted], "other")).purposeRequired).toBe(true);
+  });
+
+  it("migration 0916's index and `mailboxKey` fold an address alike, and the lookup uses the index", async () => {
+    const addresses = [
+      "a.b.c@gmail.com",
+      "a.b+c@googlemail.com",
+      "x+y@example.com",
+      "+x@example.com",
+      "plain@example.com",
+      "dots.kept@example.com",
+    ];
+    for (const address of addresses) {
+      const row = await sql<{
+        key: string;
+      }>`SELECT ${mailboxSql("t.email")} AS key FROM (SELECT ${address} AS email) t`.execute(
+        db.query,
+      );
+      expect(row.rows[0]?.key, address).toBe(recipientKey("email", address));
+    }
+    const plan = await sql<{
+      detail: string;
+    }>`EXPLAIN QUERY PLAN SELECT e.person_id FROM core_person_emails e WHERE ${mailboxSql("e.email")} IN ('a@gmail.com')`.execute(
+      db.query,
+    );
+    expect(plan.rows.map((r) => r.detail).join(" ")).toContain("core_person_emails_mailbox_idx");
   });
 });
 
 describe("texts", () => {
-  it("a person's text to a number that said STOP is refused; nobody else texts at all", async () => {
+  it("a person's text to a number that said STOP is refused; a machine's to a Person's number needs what it cannot have", async () => {
     const stopped = `+6140${Math.floor(Math.random() * 1e7)}`.slice(0, 12);
     const open = `+6141${Math.floor(Math.random() * 1e7)}`.slice(0, 12);
     await suppress(db.query, "text", await saltedHash(db.query, stopped), "stop_reply", at());
@@ -169,54 +223,130 @@ describe("texts", () => {
     });
     expect(staff.allowed.map((r) => r.to)).toEqual([open]);
     expect(staff.dropped).toBe(1);
-    const other = await checkSend(db.query, {
-      channel: "text",
-      recipients: [open],
-      sender: "other",
-      purpose: "follow_up",
-      at: at(),
+    // A machine: refused when a Person holds the number, or it said STOP; never with a purpose.
+    const holder = await run<{ id: string }>("person.create", {
+      givenName: "Texted",
+      phones: [{ number: open }],
     });
-    expect(other).toMatchObject({ allowed: [], dropped: 1 });
+    const machine = (recipients: string[], purpose?: "follow_up") =>
+      checkSend(db.query, { channel: "text", recipients, sender: "other", purpose, at: at() });
+    expect((await machine([open])).purposeRequired).toBe(true);
+    expect((await machine([stopped])).dropped).toBe(1);
+    expect((await machine([open], "follow_up")).dropped).toBe(1);
+    void holder;
   });
 });
 
-describe("stop links", () => {
-  it("each Person's own link, naming them, email and the purpose; none for an address nobody holds", async () => {
+describe("stop links, made when the message goes", () => {
+  it("each Person's own link, naming them, email and the purpose; taken back when it did not go", async () => {
     const p = await person("Linked");
-    const stranger = `${unique("stranger")}@elsewhere.test`;
-    const links = await withStopLinks(
-      db.query,
-      [
-        { to: p.email, person: p.id },
-        { to: stranger, person: null },
-      ],
-      "follow_up",
-      at(),
-    );
-    expect(links[1]).toEqual({ to: stranger, stop: null });
-    const token = tokenOfLink(links[0]?.stop ?? "", SITE);
+    const { links, tokens } = await mintStopLinks(db.query, {
+      purpose: "follow_up",
+      recipients: [{ to: p.email, person: p.id }],
+    });
+    const token = tokenOfLink(links[p.email] ?? "", SITE);
     expect(token).not.toBeNull();
     expect(await readStopToken(db.query, token as string)).toEqual({
       person: p.id,
       channel: "email",
       scope: "follow_up",
     });
-    // A person's own message (no purpose) needs none.
-    expect(await withStopLinks(db.query, [{ to: p.email, person: p.id }], null, at())).toEqual([
-      { to: p.email, stop: null },
-    ]);
+    await dropStopTokens(db.query, tokens);
+    expect(await readStopToken(db.query, token as string)).toBeNull();
   });
 });
 
-describe("recipientsOfFields", () => {
-  it("reads To, Cc and Bcc of any gatekeeper's description, a list or a line, names and notes too", () => {
+describe("which actions send to people (B1, B2)", () => {
+  const google = (fields: { label: string; value: string }[], tag?: string) =>
+    peopleSendOf("google", { fields, actionKind: tag ? { tag } : null });
+
+  it("a Google calendar event invites its attendees unless updates go to nobody", () => {
+    const event = JSON.stringify({ title: "20% off", attendees: [{ email: "Ada@X.test" }] });
     expect(
-      recipientsOfFields([
-        { label: "From", value: "crm@example.com" },
-        { label: "To", items: ["Ada <Ada@X.test>", "bo@x.test (outside your organisation)"] },
-        { label: "Cc", value: "cy@x.test, di@x.test" },
-        { label: "Body", value: "write to eve@x.test" },
+      google([
+        { label: "Send updates", value: "all" },
+        { label: "Event", value: event },
       ]),
-    ).toEqual(["ada@x.test", "bo@x.test", "cy@x.test", "di@x.test"]);
+    ).toMatchObject({ shape: "invitation", emails: ["ada@x.test"], complete: true });
+    expect(
+      google([
+        { label: "Send updates", value: "none" },
+        { label: "Event", value: event },
+      ]),
+    ).toBeNull();
+    // An event with nobody invited tells nobody.
+    expect(
+      google([
+        { label: "Send updates", value: "all" },
+        { label: "Event", value: JSON.stringify({ title: "Gym" }) },
+      ]),
+    ).toBeNull();
+    // An update tells attendees its description does not list: not complete.
+    expect(
+      google([
+        { label: "Send updates", value: "all" },
+        { label: "Changes", value: JSON.stringify({ title: "Moved" }) },
+      ]),
+    ).toMatchObject({ shape: "invitation", complete: false });
+  });
+
+  it("Outlook's invitations, Gmail's and Outlook's sends; drafts and colleagues' mail exempt by vendor", () => {
+    expect(
+      peopleSendOf("microsoft", {
+        fields: [{ label: "Invites", items: ["Ada Lovelace <ada@x.test> (required)"] }],
+        actionKind: { tag: "calendar.invitations" },
+      }),
+    ).toMatchObject({ shape: "invitation", emails: ["ada@x.test"] });
+    expect(
+      google([
+        { label: "From", value: "me@x.test" },
+        { label: "To", value: "ada@x.test" },
+      ]),
+    ).toMatchObject({ shape: "mailbox", to: ["ada@x.test"], copied: false });
+    expect(google([{ label: "To", value: "ada@x.test" }], "draftCreate")).toBeNull();
+    expect(
+      peopleSendOf("microsoft", {
+        fields: [{ label: "To", value: "ada@x.test" }],
+        actionKind: { tag: "outlook.drafts" },
+      }),
+    ).toBeNull();
+    // A tag exempt for one vendor is not exempt for another.
+    expect(
+      peopleSendOf("mcp", {
+        title: "Run draftCreate",
+        fields: [{ label: "Arguments", value: '{"to":"ada@x.test"}' }],
+        actionKind: { tag: "draftCreate" },
+      }),
+    ).toMatchObject({ shape: "scan", emails: ["ada@x.test"] });
+  });
+
+  it("an MCP tool call is scanned for addresses and numbers", () => {
+    expect(
+      peopleSendOf("mcp", {
+        title: "Call send_sms",
+        description: "Tool send_sms",
+        fields: [{ label: "Arguments", value: '{"to":"+61 400 123 456","cc":"bo@x.test"}' }],
+      }),
+    ).toMatchObject({ shape: "scan", emails: ["bo@x.test"], numbers: ["+61400123456"] });
+    expect(peopleSendOf("mcp", { fields: [{ label: "Arguments", value: '{"id":7}' }] })).toBeNull();
+  });
+});
+
+describe("cost", () => {
+  it("a send to many reads the same few statements as a send to one", async () => {
+    const many = await Promise.all(Array.from({ length: 30 }, (_, i) => person(`Many${i}`)));
+    const once = async (recipients: string[]) => {
+      // A fresh handle each time, so the salt is read in both runs alike.
+      const meter = meterStatements();
+      await checkSends(meter.db.query, [
+        { channel: "email", recipients, sender: "other", purpose: "follow_up", at: at() },
+        { channel: "text", recipients: ["+61499999999"], sender: "staff", at: at() },
+      ]);
+      return meter.bound.length;
+    };
+    const one = await once([many[0]?.email as string]);
+    const thirty = await once(many.map((p) => p.email));
+    expect(thirty).toBe(one);
+    expect(thirty).toBeLessThanOrEqual(7);
   });
 });

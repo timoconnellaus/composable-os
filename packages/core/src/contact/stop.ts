@@ -86,6 +86,20 @@ export async function stopTokens(
   return tokens;
 }
 
+/**
+ * Takes back tokens made for a message that then did not go (ADR 0678): their rows are deleted,
+ * so a refused, failed or retried send leaves none behind.
+ */
+export async function dropStopTokens(db: Db, tokens: readonly string[]): Promise<void> {
+  const hashes = await Promise.all(tokens.map((t) => sha256Hex(t)));
+  for (let i = 0; i < hashes.length; i += 90) {
+    await db
+      .deleteFrom("core_contact_stop_token")
+      .where("token_hash", "in", hashes.slice(i, i + 90))
+      .execute();
+  }
+}
+
 /** The stop link at a token on the business's site (`https://gym.example`). */
 export function stopUrl(siteOrigin: string, token: string): string {
   const url = new URL(STOP_PATH, siteOrigin);

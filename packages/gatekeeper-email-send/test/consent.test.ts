@@ -64,13 +64,41 @@ describe("a caller's email asks the host first", () => {
     const described = JSON.stringify(submissions[0]?.[1]);
     expect(described).not.toContain(LINK_A);
     expect(described).toContain("their own one-tap stop link");
-    await h.apply(receipt.id);
+    await h.applyStoppable(receipt.id, { "a@x.test": LINK_A, "b@x.test": LINK_B });
     expect(sentEmails.map((e) => [e.to, e.text])).toEqual([
       [["a@x.test"], `Come back soon.\n\nTo stop getting these emails: ${LINK_A}`],
       [["b@x.test"], `Come back soon.\n\nTo stop getting these emails: ${LINK_B}`],
     ]);
     // Never a header outside the host's routine mail.
     expect(sentEmails.every((e) => !e.headers)).toBe(true);
+  });
+
+  it("a stoppable email is never sent without the links the host gives as it applies it", async () => {
+    const h = await host({ contact: { drop: [], stops: { "a@x.test": LINK_A } } });
+    const receipt = await send(h, {
+      to: ["a@x.test"],
+      subject: "News",
+      text: "Hi",
+      purpose: "follow_up",
+    });
+    // The journal holds no link: only who gets one.
+    expect(JSON.stringify(submissions)).not.toContain("/stop?t=");
+    await expect(h.apply(receipt.id)).rejects.toThrow(/stop links were not given/);
+    expect(sentEmails).toEqual([]);
+  });
+
+  it("the stop paragraph goes inside an HTML body", async () => {
+    const h = await host({ contact: { drop: [], stops: { "a@x.test": LINK_A } } });
+    const receipt = await send(h, {
+      to: ["a@x.test"],
+      subject: "News",
+      html: "<html><body><p>Hello</p></body></html>",
+      purpose: "follow_up",
+    });
+    await h.applyStoppable(receipt.id, { "a@x.test": LINK_A });
+    expect(sentEmails[0]?.html).toMatch(
+      /<p>Hello<\/p><p>To stop getting these emails: <a href="https:[^"]+">[^<]+<\/a><\/p>\n<\/body><\/html>$/,
+    );
   });
 
   it("a purpose with cc or bcc is refused before the host is asked", async () => {

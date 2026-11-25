@@ -89,14 +89,19 @@ coordinator as best practice the same day). Build may start.
   does; a staff screen for a Person's choices (step 7 reads `contact.forPerson`). Not tried for
   real: a mail app's one-click against a deployed stop route, and the native block on a phone.
   Note, every sender asks (branch `feat/stage-30-consent-every-sender`, the review of PR #451's
-  F1, ADR 0678, no migration): every email and text that is not a routine message is checked at
-  the integration host's approval queue, whoever sends it and under every preset (`checkSend`,
-  `contactCheck` before a gatekeeper queues it, `contactAtSubmit` as it is submitted,
-  `contactBlocked` when a person approves one that waited and in the inbox's card). A person's own
-  email asks the suppression list and a child's address; an automation's, a tool's, the
-  assistant's, MCP's or extension code's declares `purpose` and is asked in full, each copy with
-  its own stop link from the host; refused ones are dropped (the count said) or refused with the
-  one plain `recipient_stopped`.
+  F1 and of PR #469, ADR 0678, migration 0916): every message to people that is not a routine
+  message is checked at the integration host's approval queue, whoever sends it and under every
+  preset. The host reads who it goes to by vendor and kind (`peopleSendOf`: email-send, the fake
+  outbox, Gmail and Outlook sends, Google and Outlook calendar invitations, a connected MCP
+  server's tool call scanned for addresses and numbers); a machine's send whose recipients it
+  cannot all see is refused. A person's own message asks the suppression list (a child's address
+  one to one only); anyone else's declares `purpose` through email-send and is asked in full, each
+  copy with its own stop link, made when it goes; an AI's one email to one person from a person's
+  mailbox always waits for that person. Refused recipients are dropped (the count said) or the
+  send refused with the one plain `recipient_stopped`, audited for people only; the inbox's card
+  says how many cannot be contacted. People are matched by the mailbox an address reaches (Gmail's
+  dots folded, migration 0916). `contact.forPerson` is for people only. Not checked: a connected
+  server that reaches people by its own ids, webhooks, Slack and Google Chat.
 
 - **Step 6** — not built — needs: step 1 — The business's wording, versions, preview.
 
@@ -452,9 +457,10 @@ moment of sending, not only when the message is prepared:
 - Journeys' engine, for each step's message (`follow_up` or `news_and_offers`);
 - the inbox's campaigns (`news_and_offers`); a reply a person writes in a conversation is not a
   purpose, and asks only `stopped` and `suppressed` (a STOP'd number is never texted);
-- every other email or text (an automation's or a tool's own gatekeeper call, the assistant, MCP,
-  extension code, a person's own email), at the integration host's approval queue, whatever the
-  approval preset ([ADR 0678](../adr/0678-every-sender-asks-the-consent-register.md)).
+- every other message to people (an automation's or a tool's own gatekeeper call, the assistant,
+  MCP, extension code, a person's own email, a calendar invitation, a connected server's tool call
+  naming an address or a number), at the integration host's approval queue, whatever the approval
+  preset ([ADR 0678](../adr/0678-every-sender-asks-the-consent-register.md)).
 
 A `false` is final for that message: it is skipped and logged, never held for a person, because
 nobody may approve around a missing consent or a stop.

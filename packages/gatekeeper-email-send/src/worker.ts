@@ -56,7 +56,7 @@ function calendarsOf(message: ParsedMessage): EmailCalendarEvent[] {
 }
 
 import type { SenderConfiguratorRpc } from "./configurator/sender-configurator-types";
-import { askContact, htmlWithStop, STOP_WORDS, textWithStop } from "./consent";
+import { askContact, htmlWithStop, parseStopLinks, STOP_WORDS, textWithStop } from "./consent";
 import {
   AGREEMENT_KEY_PREFIX,
   HOST_PRIVATE_CLASSES,
@@ -201,10 +201,11 @@ type StoredEmail = {
    */
   copy?: string;
   /**
-   * A stoppable email (ADR 0678): each recipient's own stop link, by address, from the host. The
-   * email then goes to each recipient on their own, ending with theirs. Never shown or listed.
+   * A stoppable email (ADR 0678): the recipients whose copy ends with their own stop link, which
+   * the host makes and gives only when the send is applied (`applyStoppable`). The email goes to
+   * each recipient on their own. No link is ever stored.
    */
-  stops?: Record<string, string>;
+  stopFor?: string[];
   /** How many recipients the host left out (they cannot be contacted this way). */
   dropped?: number;
 };
@@ -265,7 +266,7 @@ function describeSend(email: StoredEmail, internal: boolean) {
       message.purpose === "news_and_offers" ? "News and offers" : "Follow-up",
     );
   }
-  if (email.stops && Object.keys(email.stops).length) {
+  if (email.stopFor?.length) {
     builder.inline(
       "Stop link",
       `Each recipient gets their own copy, ending with "${STOP_WORDS}" and their own one-tap stop link.`,
@@ -450,7 +451,7 @@ class EmailSendSessionImpl extends RpcTarget implements EmailSendSession {
     // to and, for a stoppable one, each Person's own stop link. The host's own mail is asked on
     // its own paths (routine mail at claim) or is essential (a sign-in code, a copy, an order's).
     let outgoing = parsed;
-    let stops: Record<string, string> | undefined;
+    let stopFor: string[] | undefined;
     let dropped = 0;
     if (queueClass === "caller" && kind !== "sendInternal") {
       if (parsed.purpose !== undefined && (parsed.cc || parsed.bcc)) {
@@ -474,10 +475,8 @@ class EmailSendSessionImpl extends RpcTarget implements EmailSendSession {
         const { cc: _cc, bcc: _bcc, ...rest } = parsed;
         outgoing = { ...rest, to, ...(cc?.length ? { cc } : {}), ...(bcc?.length ? { bcc } : {}) };
         dropped = answer.dropped;
-        const links = answer.allowed.filter((a) => a.stop !== null);
-        if (links.length) {
-          stops = Object.fromEntries(links.map((a) => [a.to.toLowerCase(), a.stop as string]));
-        }
+        const stoppable = answer.allowed.filter((a) => a.stop).map((a) => a.to.toLowerCase());
+        if (stoppable.length) stopFor = stoppable;
       }
     }
     // Each pool's own limit: callers' sends never crowd out the host's independent mail.
@@ -498,7 +497,7 @@ class EmailSendSessionImpl extends RpcTarget implements EmailSendSession {
           message: outgoing,
           queue: queueClass,
           ...(copy ? { copy } : {}),
-          ...(stops ? { stops } : {}),
+          ...(stopFor ? { stopFor } : {}),
           ...(dropped ? { dropped } : {}),
         },
         kind,
@@ -624,8 +623,14 @@ export class EmailSendGatekeeper
     }
     const { message } = email;
     // A stoppable email (ADR 0678): one copy per recipient, each ending with its own stop link.
-    if (email.stops && Object.keys(email.stops).length) {
-      await this.#deliverEach(id, email, email.stops);
+    if (email.stopFor?.length) {
+      const links = this.#stopLinks.get(id);
+      if (!links) {
+        throw new ActionApplyError(
+          "Refused: this email's stop links were not given, and it is not sent.",
+        );
+      }
+      await this.#deliverEach(id, email, links);
       return;
     }
     let messageId: string;
@@ -961,6 +966,24 @@ export class EmailSendGatekeeper
   async applyAction(action: number): Promise<void> {
     await this.#actions().apply(requireActionId(action));
   }
+
+  /**
+   * Sends an approved stoppable email (ADR 0678) with the stop links the host made for it just
+   * now, one per recipient whose copy ends with one. The links are held only while it is sent.
+   */
+  async applyStoppable(action: number, links: unknown): Promise<void> {
+    const id = requireActionId(action);
+    const email = this.#journal.get(id)?.action.payload;
+    this.#stopLinks.set(id, parseStopLinks(links, email?.stopFor ?? []));
+    try {
+      await this.#actions().apply(id);
+    } finally {
+      this.#stopLinks.delete(id);
+    }
+  }
+
+  /** The stop links of a stoppable email being applied, by action (never stored). */
+  readonly #stopLinks = new Map<number, Record<string, string>>();
 
   /** Drops a rejected email; it is never sent. */
   async rejectAction(action: number): Promise<void> {

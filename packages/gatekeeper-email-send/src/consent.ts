@@ -1,14 +1,18 @@
 // Consent to be contacted (stage 30, ADR 0678): before a caller's email is queued, the gatekeeper
 // asks the integration host (`contactCheck` on the approval queue) with the addresses and the
 // purpose the caller declared. The host drops who may not be contacted, refuses when nobody is
-// left, and gives a stoppable message each Person's own stop link. The links come from the host
-// and go only into the email itself: never into a receipt, `listSent()` or the approval's words.
+// left, and says which recipients of a stoppable message get their own stop link. The host makes
+// the links only when the send is applied (`applyStoppable`), and they go only into the email
+// itself: never into the journal, a receipt, `listSent()` or the approval's words.
 //
 // No imports: cos-runner's fake outbox uses this same module.
 
-/** What the host answered: who may be sent to (each with their stop link, or none), how many not. */
+/**
+ * What the host answered: who may be sent to (each with whether their copy ends with a stop link,
+ * which the host gives when the send is applied), and how many not.
+ */
 export interface ContactAnswer {
-  allowed: { to: string; stop: string | null }[];
+  allowed: { to: string; stop: boolean }[];
   dropped: number;
 }
 
@@ -54,7 +58,7 @@ function parseAnswer(answer: unknown): ContactAnswer | null {
     allowed: allowed.flatMap((a) => {
       if (!a || typeof a !== "object") return [];
       const { to, stop } = a as { to?: unknown; stop?: unknown };
-      return typeof to === "string" ? [{ to, stop: typeof stop === "string" ? stop : null }] : [];
+      return typeof to === "string" ? [{ to, stop: stop === true }] : [];
     }),
     dropped: Math.max(0, Math.trunc(dropped)),
   };
@@ -73,8 +77,31 @@ function escapeHtml(value: string): string {
     .replaceAll('"', "&quot;");
 }
 
-/** A copy's HTML body with its stop link at the end. */
+/** A copy's HTML body with its stop link at the end, inside the body when it has one. */
 export function htmlWithStop(html: string, stop: string): string {
   const link = escapeHtml(stop);
-  return `${html}\n<p>${escapeHtml(STOP_WORDS)} <a href="${link}">${link}</a></p>`;
+  const line = `<p>${escapeHtml(STOP_WORDS)} <a href="${link}">${link}</a></p>`;
+  const close = html.toLowerCase().lastIndexOf("</body>");
+  return close >= 0 ? `${html.slice(0, close)}${line}\n${html.slice(close)}` : `${html}\n${line}`;
+}
+
+/**
+ * The stop links a host gave a stoppable send as it is applied (ADR 0678), checked: every
+ * recipient that needs one has one, each a link on https.
+ */
+export function parseStopLinks(value: unknown, needed: readonly string[]): Record<string, string> {
+  const links: Record<string, string> = {};
+  if (value && typeof value === "object") {
+    for (const [to, link] of Object.entries(value as Record<string, unknown>)) {
+      if (typeof link === "string" && /^https:\/\/[^\s<>"]+$/.test(link) && link.length <= 600) {
+        links[to.toLowerCase()] = link;
+      }
+    }
+  }
+  for (const to of needed) {
+    if (!links[to.toLowerCase()]) {
+      throw new Error("Refused: this email's stop links were not given, and it is not sent.");
+    }
+  }
+  return links;
 }
