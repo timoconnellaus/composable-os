@@ -90,6 +90,9 @@ describe("every route of cos-app is accounted for behind Access", () => {
       // Stage 44 step 6 (ADR 0649): the desk's paths, not found on the staff hostname; the desk
       // origin is a hostname of its own, outside this Access application.
       isDeskPath: "/desk",
+      // Stage 29 step 4 (ADR 0728): a form's own page and a personal link's, public, drawn as
+      // HTML; the page's calls go through the client-app binding's door.
+      isFormPagePath: "/f/ask-about-a-trial",
     };
 
     expect([...dispatched].sort()).toEqual(Object.keys(known).sort());
@@ -105,7 +108,12 @@ describe("every route of cos-app is accounted for behind Access", () => {
       isStaffFeedPath: "bypass",
       isCustomerFeedPath: "bypass",
       isDeskPath: "staff",
+      isFormPagePath: "bypass",
     });
+    // A personal link's page is the other path of the form page; the staff app has neither.
+    expect(bypassFor("/form")?.path).toBe("/form");
+    expect(bypassFor("/f/ask-about-a-trial")?.path).toBe("/f/*");
+    expect(bypassFor("/forms")).toBeNull();
     // The feed's bypass is its own entry (it says how the feed authenticates), and nothing of the
     // staff app is under it.
     expect(bypassFor("/api/v1/staffing/feed/x.ics")?.path).toBe("/api/v1/staffing/feed/*");

@@ -343,7 +343,8 @@ export function refusalOf(error: unknown, questions?: Questions): Refusal {
   if (code === "rate_limited" || rule === "intake_cap" || rule === "turnstile_unavailable") {
     return { kind: "later", message: said ?? "Too many answers just now: try again later" };
   }
-  if (code === "not_found") {
+  // No such form for the caller, or no Forms on the host at all: the same answer.
+  if (code === "not_found" || code === "unknown_operation") {
     return { kind: "gone", message: "This form is not open just now" };
   }
   return { kind: "other", message: "We could not send your answers. Try again in a moment." };

@@ -53,6 +53,9 @@ importers:
       '@composable-os/pack-dailychecks':
         specifier: workspace:*
         version: link:../../packs/dailychecks
+      '@composable-os/pack-forms':
+        specifier: workspace:*
+        version: link:../../packs/forms
       '@composable-os/pack-memberships':
         specifier: workspace:*
         version: link:../../packs/memberships

@@ -15,6 +15,8 @@
 //   GET /api/v1/agreements/acceptances/<id>.pdf
 //                                             a customer's signed PDF (stage 44, ADR 0645), as
 //                                             me.agreements.pdf decides; never staff's routes
+//   GET, POST /f/<slug>, /form                the form page (stage 29, ADR 0728): a form drawn
+//                                             as HTML, its calls this same door's surface
 // Not the staff UI, /mcp, the assistant, support access, or the native token routes
 // (/api/v1/auth/*): a web app signs customers in with a cookie and has no use for device tokens.
 //
@@ -64,6 +66,7 @@ import {
   outsideContext,
   practitioners,
 } from "./api.ts";
+import { type FormPageEnv, handleFormPage, isFormPagePath } from "./form-page.ts";
 
 const PUBLIC: PublicPrincipal = Object.freeze({ kind: "public" });
 
@@ -150,6 +153,11 @@ export async function handleBound(request: Request, env: ApiEnv): Promise<Respon
       resizer: mediaResizerFor(withMedia),
       uploads: false,
     });
+  }
+  // The form page, which a web app serves on its own site by forwarding its two paths here; its
+  // calls go through this same door, as the bound Worker's own would.
+  if (isFormPagePath(pathname)) {
+    return handleFormPage(request, env as FormPageEnv, (call) => handleBound(call, env));
   }
   if (!isApiPath(pathname)) return notServed();
   let surface = surfaces.get(env);

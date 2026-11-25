@@ -134,6 +134,26 @@ export const ACCESS_BYPASS: readonly BypassedPath[] = [
     authenticates: "A guest's order page, opened only by the order's token.",
   },
   {
+    // Stage 29 step 4 (ADR 0728): what a link or a QR code to a form opens.
+    path: "/f/*",
+    when: "customers-on-host",
+    authenticates:
+      "A form's own page, drawn as HTML by the server: public by nature, as a form is answered " +
+      "with no account. Its calls are the HTTP surface's through the client-app binding's door, " +
+      "which decides the caller from a customer's verified session cookie or makes it the " +
+      "public, never staff; the intake door checks the form is open to them, Turnstile, the fill " +
+      "time and the caps. Never framed, never cached, no cookie set.",
+  },
+  {
+    path: "/form",
+    when: "customers-on-host",
+    authenticates:
+      "A personal link's page (ADR 0723): the 32-byte random token in its address (looked up by " +
+      "its SHA-256) is the only credential, for one Person and one form, used once, and only by " +
+      "the send: opening the page uses nothing. Sent with no referrer and no script from " +
+      "elsewhere; the token is taken out of the address bar once the page has loaded.",
+  },
+  {
     path: "/_serverFn/*",
     when: "customers-on-host",
     authenticates:

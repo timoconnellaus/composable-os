@@ -176,3 +176,44 @@ describe("a customer signs in on the company's own hostname", () => {
     expect(asStaffToken.status).toBe(401);
   });
 });
+
+describe("the form page on the company's own hostname (stage 29, ADR 0728)", () => {
+  const TOKEN = "A".repeat(43);
+
+  it("forwards /form and /f/<slug> to the host's page, with no referrer and the page's own policy", async () => {
+    // No Forms on this host: both pages are the plain not-found answer, drawn by the host.
+    const link = await env.COMPANY_WEB.fetch(`${WEB_ORIGIN}/form?t=${TOKEN}`);
+    expect(link.status).toBe(404);
+    expect(link.headers.get("referrer-policy")).toBe("no-referrer");
+    expect(link.headers.get("cache-control")).toBe("no-store");
+    expect(link.headers.get("content-security-policy")).toContain("frame-ancestors 'none'");
+    expect(link.headers.get("set-cookie")).toBeNull();
+    const html = await link.text();
+    expect(html).toContain("This link cannot be used");
+    expect(html).not.toMatch(/<script[^>]*\ssrc=/);
+    const form = await env.COMPANY_WEB.fetch(`${WEB_ORIGIN}/f/ask-about-a-trial`);
+    expect(form.status).toBe(404);
+    expect(await form.text()).toContain("This form is not open");
+    // Not the page's: the site's own.
+    expect((await env.COMPANY_WEB.fetch(`${WEB_ORIGIN}/forms`)).status).toBe(404);
+  });
+
+  it("refuses a send posted from another site before it reaches the host", async () => {
+    const sent = await env.COMPANY_WEB.fetch(`${WEB_ORIGIN}/form`, {
+      method: "POST",
+      headers: {
+        "content-type": "application/x-www-form-urlencoded",
+        origin: "https://elsewhere.example",
+      },
+      body: `_link=${TOKEN}`,
+    });
+    expect(sent.status).toBe(403);
+    // The host's page itself refuses the same, on the host's own address.
+    const direct = await env.COMPANY_WEB_HOST.fetch("https://host/form", {
+      method: "POST",
+      headers: { "content-type": "text/plain" },
+      body: "x",
+    });
+    expect(direct.status).toBe(415);
+  });
+});

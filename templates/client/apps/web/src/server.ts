@@ -1,10 +1,12 @@
-// This web app's Worker: the sign-in routes, the one-tap stop, the browser's operation route, the
-// media route and the signed agreements' PDFs (src/host.ts) first, then TanStack Start for pages.
+// This web app's Worker: the sign-in routes, the one-tap stop, the form page, the browser's
+// operation route, the media route and the signed agreements' PDFs (src/host.ts) first, then
+// TanStack Start for pages.
 import { env } from "cloudflare:workers";
 import handler from "@tanstack/react-start/server-entry";
 import {
   agreementPdfRoute,
   authRoute,
+  formPageRoute,
   type HostEnv,
   mediaRoute,
   operationRoute,
@@ -49,6 +51,9 @@ export default {
     // The one-tap stop a stoppable email links to (/stop?t=…, stage 30).
     const stop = await stopRoute(request, host);
     if (stop) return stop;
+    // A form's own page and a personal link's (/f/<slug>, /form?t=…, stage 29): the host's page.
+    const form = await formPageRoute(request, host);
+    if (form) return form;
     const call = await operationRoute(request, host, { allow: BROWSER_OPERATIONS });
     if (call) return call;
     // The pictures published content shows (a post's cover, a rich text picture): /api/media/<id>.

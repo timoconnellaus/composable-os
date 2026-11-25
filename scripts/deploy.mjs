@@ -108,6 +108,8 @@ const APP_SECRETS = [
   "CF_ACCESS_TEAM_DOMAIN",
   "CF_ACCESS_AUD",
   "COS_UPDATE_TOKEN",
+  // The host's form page draws Turnstile's widget with it (stage 29, ADR 0728); not secret.
+  "TURNSTILE_SITE_KEY",
 ];
 // Both Workers call models: cos-runner for automations, summaries, the judge and embeddings.
 const SHARED_SECRETS = [

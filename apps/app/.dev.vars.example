@@ -46,3 +46,6 @@ DESK_HOSTNAME=desk.localhost
 # Local only, never in production: "true" sends videos to the fake Stream (stage 42, ADR 0475).
 # `pnpm dev` adds it. A deployment sets STREAM_* vars and secrets instead (docs/stream-runbook.md).
 # STREAM_FAKE=
+# Stage 29 (ADR 0728): the Turnstile site key the form page draws on a public form. `pnpm dev`
+# adds Cloudflare's always-passing test key, beside the runner's test secret.
+# TURNSTILE_SITE_KEY=

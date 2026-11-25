@@ -114,6 +114,24 @@ if (
   console.log("added INTEGRATIONS_FAKE_PROVIDER to apps/runner/.dev.vars");
 }
 
+// Stage 29 (ADRs 0722, 0728): forms' spam check locally, with Cloudflare's documented test keys
+// (a site key whose widget always passes and a secret that always passes; never a deployment's),
+// so a visitor can send a public form in local dev and the e2e suite. Added once to each
+// .dev.vars that has neither; a real key set by hand is kept.
+for (const [file, name, value] of [
+  [runnerVars, "TURNSTILE_SECRET_KEY", "1x0000000000000000000000000000000AA"],
+  [join(root, "apps/app/.dev.vars"), "TURNSTILE_SITE_KEY", "1x00000000000000000000AA"],
+]) {
+  if (!existsSync(file)) continue;
+  const vars = readFileSync(file, "utf8");
+  if (new RegExp(`^${name}=.`, "m").test(vars)) continue;
+  writeFileSync(
+    file,
+    `${vars.replace(new RegExp(`^${name}=$`, "m"), "").trimEnd()}\n# Local only: Cloudflare's Turnstile test key, which always passes.\n${name}=${value}\n`,
+  );
+  console.log(`added ${name} (Cloudflare's test key) to ${file.slice(root.length + 1)}`);
+}
+
 // The vendored gatekeeper Workers import configurator frames that are generated, not committed.
 execFileSync("node", [join(root, "scripts/gatekeeper-configurator-frames.mjs")], {
   stdio: "inherit",
@@ -230,6 +248,13 @@ execFileSync("pnpm", ["exec", "wrangler", "d1", "migrations", "apply", "DB", "--
       readFileSync(join(root, "packs/content", file), "utf8"),
     ]),
   );
+  // And Forms (stage 29), which requires nothing, the same way, for its e2e spec.
+  const forms = Object.fromEntries(
+    ["index.ts", "tools.ts", "automations.ts", "routine-mail.ts"].map((file) => [
+      file,
+      readFileSync(join(root, "packs/forms", file), "utf8"),
+    ]),
+  );
   // Two ways to have a pack locally, which do not mix (a pack and an org extension may not share
   // an id, shipped-list.ts):
   // - The default, the CRM's local dev: the runner's COS_PACKS is "*" (the CRM's packs), and
@@ -265,6 +290,7 @@ execFileSync("pnpm", ["exec", "wrangler", "d1", "migrations", "apply", "DB", "--
       { id: "memberships", version: "0.1.0", optional: true, files: memberships },
       { id: "rostering", version: "0.1.0", optional: true, files: rostering },
       { id: "dailychecks", version: "0.1.0", optional: true, files: dailychecks },
+      { id: "forms", version: "0.1.0", optional: true, files: forms },
     ].filter((extension) => asOrgExtension(extension.id)),
   });
   const hash = createHash("sha256").update(text).digest("hex");

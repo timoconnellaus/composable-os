@@ -5,5 +5,6 @@
 # production). Settings → Integrations then lists "Fake provider (development)".
 INTEGRATIONS_FAKE_PROVIDER=true
 # Stage 29 (ADR 0722): forms' spam check. Unset, forms take no answers from the public. For local
-# development, Cloudflare's documented always-passing test secret works with its test site key.
+# development, `pnpm dev` adds Cloudflare's documented always-passing test secret, which works
+# with its test site key (apps/app's TURNSTILE_SITE_KEY).
 # TURNSTILE_SECRET_KEY=
