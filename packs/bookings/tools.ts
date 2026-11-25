@@ -1869,3 +1869,798 @@ export const cancelClass = defineTool({
     };
   },
 });
+
+// --- Appointments, booked by staff (stage 49 step 5, ADR 0764) -------------------------------------
+//
+// One-to-one sessions. Every rule is the host's (index.ts): one coach never on two things at once
+// (classes, duties, appointments) with the service's buffer, a private room taken once, a coach
+// with an account, the session a pass or membership pays for and when it is given back, when a
+// cancel is late, who may give a session back or cancel for the business. These tools ask, and say
+// what the host answered.
+
+const APPOINTMENT = "bookings.appointment";
+const SERVICE = "bookings.service";
+const MINUTE = 60_000;
+
+const appointmentRefusal = z
+  .enum([
+    "not_found",
+    "double_booked",
+    "room_taken",
+    "no_account",
+    "no_coach_free",
+    "no_use",
+    "not_offered",
+    "not_booked",
+    "too_late",
+    "started",
+    "not_started",
+    "same_time",
+    "changed",
+  ])
+  .describe(
+    "double_booked: the coach is on something else then (a class, a duty or another session, " +
+      "buffers included; see message). room_taken: no room the service may use is free then. " +
+      "no_account: the coach has no staff account, so cannot be booked. no_coach_free: nobody " +
+      "qualified is free at that time (any coach). no_use: nothing the client holds pays for this " +
+      "service (see detail): book it paid at the desk. not_offered: the service is no longer " +
+      "offered. not_booked: it is not booked (see state). too_late: it has started. started: it " +
+      "has started, so it cannot be moved. not_started: it can be marked once it has started. " +
+      "same_time: it is already at that time with that coach. changed: it changed meanwhile.",
+  );
+
+const appointmentRefused = z.object({
+  result: z.literal("refused"),
+  reason: appointmentRefusal,
+  message: z.string(),
+  detail: z
+    .string()
+    .nullable()
+    .describe("The host's reason for an allowance refusal (no_uses_left, not_covered…)"),
+  state: z.string().nullable().describe("What the appointment is now, when that is the reason"),
+});
+type AppointmentRefused = z.infer<typeof appointmentRefused>;
+
+const noAppointment = (
+  reason: AppointmentRefused["reason"],
+  message: string,
+  detail: string | null = null,
+  state: string | null = null,
+): AppointmentRefused => ({ result: "refused", reason, message, detail, state });
+
+/** A host refusal of an appointment write, as staff can be told it; any other error is thrown. */
+function appointmentRefusalOf(
+  error: unknown,
+  what: "book" | "cancel" | "mark",
+): AppointmentRefused {
+  if (!(error instanceof OpsCallError)) throw error;
+  const details = detailsOf(error);
+  const rule = typeof details.rule === "string" ? details.rule : "";
+  // What must be agreed first goes back as it is (stage 44, ADR 0644), as for a class.
+  if (rule === "agreements_due" || rule === "agreements_changed") throw error;
+  if (error.code === "not_found")
+    return noAppointment("not_found", "No such appointment, service or coach.");
+  if (rule === "double_booked") return noAppointment("double_booked", error.message);
+  if (rule === "room_taken") return noAppointment("room_taken", error.message);
+  if (rule === "staffed_account") return noAppointment("no_account", error.message);
+  if (rule === "state_closed") {
+    return noAppointment("not_offered", "This service is no longer offered: it cannot be booked.");
+  }
+  if (rule === "allowance") {
+    const reason = text(details.reason);
+    return noAppointment(
+      "no_use",
+      reason === "no_uses_left"
+        ? "There are no sessions left on their pass or membership for that period."
+        : "Nothing they hold pays for this service. Book it paid at the desk instead.",
+      reason,
+    );
+  }
+  if (rule === "state_window_not_open" && what === "mark") {
+    return noAppointment("not_started", "It can be marked once it has started.");
+  }
+  if (rule === "state_window_closed" || rule === "state_window_unknown") {
+    return what === "mark"
+      ? noAppointment(
+          "too_late",
+          "It is more than 7 days since it ended: it can no longer be changed.",
+        )
+      : noAppointment("too_late", "It has started: it can no longer be cancelled or moved.");
+  }
+  if (rule === "state_request_refused") {
+    return noAppointment("too_late", "It can no longer be cancelled.");
+  }
+  if (rule === "state_final" || rule === "state_move_not_declared" || error.code === "conflict") {
+    return noAppointment("changed", "It changed meanwhile. Look again.");
+  }
+  throw error;
+}
+
+const appointmentWarning = z.object({
+  code: z.string().describe("unavailable, not_qualified, outside_hours, client_busy, uncovered"),
+  message: z.string(),
+});
+
+/** The warnings the host made a staff write with (ADRs 0622, 0763): made anyway, and said so. */
+function warningsIn(record: RecordShape & { warnings?: unknown }) {
+  return Array.isArray(record.warnings)
+    ? (record.warnings as { code?: unknown; message?: unknown }[]).map((w) => ({
+        code: String(w.code ?? ""),
+        message: String(w.message ?? ""),
+      }))
+    : [];
+}
+
+const appointmentBooked = z.object({
+  result: z.literal("booked"),
+  appointmentId: z.string(),
+  coachId: z.string().nullable(),
+  roomId: z.string().nullable().describe("The room it takes: the first of the service's free"),
+  startsAt: z.string().nullable(),
+  endsAt: z.string().nullable(),
+  holderId: z
+    .string()
+    .nullable()
+    .describe("The pass or membership a session was spent from; null when paid at the desk"),
+  paidAtDesk: z.boolean(),
+  warnings: z
+    .array(appointmentWarning)
+    .describe("Made anyway: the coach away, not qualified, outside their open hours, client busy"),
+});
+
+/** How an appointment's write is answered: its time, coach, room, how it was paid, warnings. */
+function bookedAnswer(made: RecordShape & { warnings?: unknown }) {
+  const v = made.values;
+  return {
+    result: "booked" as const,
+    appointmentId: made.id,
+    coachId: text(v.coach),
+    roomId: text(v.room),
+    startsAt: text(v.startsAt),
+    endsAt: text(v.endsAt),
+    holderId: text(v.holder),
+    paidAtDesk: flag(v.paidOtherwise),
+    warnings: warningsIn(made),
+  };
+}
+
+/** A service, as staff may read it, with its length in minutes (or a refusal). */
+async function serviceOf(ctx: Ctx, id: string) {
+  const service = await ctx.ops.call<RecordShape>("record.get", { object: SERVICE, id });
+  return { service, length: num(service.values.length) ?? 0 };
+}
+
+/**
+ * "Any coach": the first qualified coach the host says is free for the service at exactly that
+ * start (open hours, time off, their other shifts with buffers, a room), or null.
+ */
+async function firstFreeCoach(
+  ctx: Ctx,
+  serviceId: string,
+  startsAt: number,
+  personId: string,
+): Promise<string | null> {
+  const free = await ctx.ops.call<{ times: { startsAt: string; providers: string[] }[] }>(
+    "staffing.free",
+    {
+      object: APPOINTMENT,
+      kind: serviceId,
+      from: new Date(startsAt).toISOString(),
+      to: new Date(startsAt + MINUTE).toISOString(),
+      client: personId,
+    },
+  );
+  const at = free.times.find((t) => Date.parse(t.startsAt) === startsAt);
+  return at?.providers[0] ?? null;
+}
+
+/** The staff member calling (never from the input). */
+const staffCaller = (ctx: Ctx) => (ctx.caller?.kind === "staff" ? ctx.caller : null);
+
+export const bookAppointment = defineTool({
+  description:
+    "Staff book a one-to-one session (an appointment) for a client: a service, a start time, " +
+    "a coach (or none: the first qualified coach free then), and the client (personId; look " +
+    "them up with findPeople). It ends after the service's length. The host refuses it when the " +
+    "coach is on anything else then (a class, a duty or another session, the service's buffer " +
+    "included), when no room the service needs is free, when the coach has no staff account, " +
+    "or when nothing the client holds pays for the service; staff may book any time, outside " +
+    "the booking windows and the coach's open hours, and are told what it was made with " +
+    "(warnings: the coach away, not qualified, outside open hours, the client busy). It spends " +
+    "one session of a pass or membership covering the service, unless paidAtDesk. The room is " +
+    "the first of the service's rooms free then unless roomId names one. Audited.",
+  input: z.object({
+    serviceId: z.string().min(1).max(64),
+    startsAt: z.string().datetime().describe("When it starts (ISO 8601)"),
+    personId: z.string().min(1).max(64).describe("The client"),
+    coachId: z.string().min(1).max(64).optional().describe("Left out: any coach free then"),
+    roomId: z.string().min(1).max(64).optional(),
+    holderId: z.string().min(1).max(64).optional().describe("A pass or membership to spend"),
+    paidAtDesk: z.boolean().default(false).describe("Paid at the desk: it spends no session"),
+    note: z.string().max(2000).optional().describe("A staff note, never shown to the client"),
+  }),
+  output: z.union([appointmentBooked, appointmentRefused]),
+  risk: "write",
+  // The desk books them (ADR 0600), as a manager of the coaches does (ADR 0764).
+  permission: ["bookings:desk", "bookings:appointments"],
+  async handler(input, ctx) {
+    try {
+      const { length } = await serviceOf(ctx, input.serviceId);
+      const starts = Date.parse(input.startsAt);
+      const coach =
+        input.coachId ?? (await firstFreeCoach(ctx, input.serviceId, starts, input.personId));
+      if (!coach) {
+        return noAppointment(
+          "no_coach_free",
+          "No qualified coach is free for this service at that time. Pick a coach to book them anyway.",
+        );
+      }
+      const staff = staffCaller(ctx);
+      const made = await ctx.ops.call<RecordShape>("record.create", {
+        object: APPOINTMENT,
+        values: {
+          service: input.serviceId,
+          person: input.personId,
+          coach,
+          startsAt: new Date(starts).toISOString(),
+          endsAt: new Date(starts + length * MINUTE).toISOString(),
+          ...(input.roomId ? { room: input.roomId } : {}),
+          ...(input.holderId ? { holder: input.holderId } : {}),
+          ...(input.paidAtDesk ? { paidOtherwise: true } : {}),
+          ...(staff?.userId ? { bookedBy: staff.userId } : {}),
+          ...(input.note ? { note: input.note } : {}),
+        },
+      });
+      return bookedAnswer(made);
+    } catch (error) {
+      return appointmentRefusalOf(error, "book");
+    }
+  },
+});
+
+/** An appointment as staff read it, or a refusal when there is none. */
+async function appointmentOf(ctx: Ctx, id: string): Promise<RecordShape | AppointmentRefused> {
+  try {
+    return await ctx.ops.call<RecordShape>("record.get", { object: APPOINTMENT, id });
+  } catch (error) {
+    if (error instanceof OpsCallError && error.code === "not_found") {
+      return noAppointment("not_found", "No such appointment.");
+    }
+    throw error;
+  }
+}
+const isRefusal = (v: RecordShape | AppointmentRefused): v is AppointmentRefused =>
+  (v as AppointmentRefused).result === "refused";
+
+const APPOINTMENT_WORDS: Record<string, string> = {
+  booked: "booked",
+  pending: "held while paying",
+  unpaid: "not paid yet",
+  cancelled: "cancelled",
+  late_cancelled: "cancelled late",
+  excused: "cancelled with the session given back",
+  attended: "attended",
+  no_show: "a no-show",
+  cancelled_by_us: "cancelled by the business",
+  moved: "moved",
+  expired: "expired",
+};
+const appointmentWords = (state: string | null) =>
+  APPOINTMENT_WORDS[state ?? ""] ?? state ?? "unknown";
+
+export const moveAppointment = defineTool({
+  description:
+    "Staff move a booked appointment to another start time, or another coach, or both, in one " +
+    "batch: a new appointment is made at the new time and the old one is moved, the session it " +
+    "spent moving with it (a session paid at the desk stays paid). The host refuses it whole, " +
+    "nothing changed, when the coach is on anything else then, no room is free, or it has " +
+    "started. Same warnings as booking. Only a booked appointment, before it starts.",
+  input: z.object({
+    appointmentId: z.string().min(1).max(64),
+    startsAt: z.string().datetime().describe("The new start (ISO 8601)"),
+    coachId: z.string().min(1).max(64).optional().describe("Left out: the same coach"),
+    note: z.string().max(2000).optional(),
+  }),
+  output: z.union([
+    appointmentBooked.extend({ fromAppointmentId: z.string() }),
+    appointmentRefused,
+  ]),
+  risk: "write",
+  permission: ["bookings:desk", "bookings:appointments"],
+  async handler(input, ctx) {
+    const old = await appointmentOf(ctx, input.appointmentId);
+    if (isRefusal(old)) return old;
+    const state = text(old.values.state);
+    if (state !== "booked") {
+      return noAppointment(
+        "not_booked",
+        `This appointment is ${appointmentWords(state)}: only a booked one moves.`,
+        null,
+        state,
+      );
+    }
+    const serviceId = text(old.values.service) as string;
+    const coach = input.coachId ?? text(old.values.coach);
+    const starts = Date.parse(input.startsAt);
+    if (
+      starts === Date.parse(text(old.values.startsAt) ?? "") &&
+      coach === text(old.values.coach)
+    ) {
+      return noAppointment("same_time", "It is already at that time with that coach.");
+    }
+    const staff = staffCaller(ctx);
+    try {
+      const { length } = await serviceOf(ctx, serviceId);
+      const values = {
+        service: serviceId,
+        person: text(old.values.person),
+        coach,
+        startsAt: new Date(starts).toISOString(),
+        endsAt: new Date(starts + length * MINUTE).toISOString(),
+        movedFrom: old.id,
+        ...(staff?.userId ? { bookedBy: staff.userId } : {}),
+        ...(input.note ? { note: input.note } : {}),
+      };
+      const room = text(old.values.room);
+      let made: RecordShape;
+      try {
+        // Its own room first (the old claim goes in the same batch); if that is taken then, the
+        // host gives it the first of the service's rooms that is free.
+        made = await ctx.ops.call<RecordShape>("record.create", {
+          object: APPOINTMENT,
+          values: { ...values, ...(room ? { room } : {}) },
+        });
+      } catch (error) {
+        if (!room || detailsOf(error).rule !== "room_taken") throw error;
+        made = await ctx.ops.call<RecordShape>("record.create", { object: APPOINTMENT, values });
+      }
+      return { ...bookedAnswer(made), fromAppointmentId: old.id };
+    } catch (error) {
+      const refusal = appointmentRefusalOf(error, "book");
+      if (refusal.reason === "too_late") {
+        return noAppointment("started", "It has started: it can no longer be moved.");
+      }
+      return refusal;
+    }
+  },
+});
+
+export const cancelAppointment = defineTool({
+  description:
+    "Staff cancel a booked appointment, in time or late by the host's clock: before the " +
+    "service's late-cancel point (24 hours before unless the service sets its own) it is " +
+    "cancelled and its session given back; from then until it starts it is cancelled late and " +
+    "the session is used, with no fee. With keepUse it is cancelled late whatever the time. " +
+    "After it starts it cannot be cancelled. To give a session back after the late point a " +
+    "person excuses it (excuseAppointment); the business cancelling its own appointment is " +
+    "cancelAppointmentByUs. Without confirm it only says which it would be.",
+  input: z.object({
+    appointmentId: z.string().min(1).max(64),
+    confirm: z.boolean().default(false),
+    keepUse: z.boolean().default(false),
+    note: z.string().max(2000).optional(),
+  }),
+  output: z.union([
+    z.object({
+      result: z.enum(["preview", "cancelled", "late_cancelled"]),
+      appointmentId: z.string(),
+      state: z.enum(["cancelled", "late_cancelled"]),
+      late: z.boolean().describe("A late cancel keeps the session it spent"),
+    }),
+    appointmentRefused,
+  ]),
+  risk: "write",
+  permission: ["bookings:desk", "bookings:appointments"],
+  async handler(input, ctx) {
+    const say = (state: "cancelled" | "late_cancelled", done: boolean) => ({
+      result: done ? state : ("preview" as const),
+      appointmentId: input.appointmentId,
+      state,
+      late: state === "late_cancelled",
+    });
+    try {
+      if (!input.confirm) {
+        if (input.keepUse) return say("late_cancelled", false);
+        // The host's dry run: the state "cancel" would enter now (ADR 0503).
+        const resolved = await ctx.ops.call<{ state: string }>("state.resolve", {
+          object: APPOINTMENT,
+          id: input.appointmentId,
+          request: "cancel",
+        });
+        return say(resolved.state === "late_cancelled" ? "late_cancelled" : "cancelled", false);
+      }
+      const after = await ctx.ops.call<RecordShape>("record.update", {
+        object: APPOINTMENT,
+        id: input.appointmentId,
+        from: "booked",
+        values: {
+          state: input.keepUse ? "late_cancelled" : "cancel",
+          ...(input.note ? { note: input.note } : {}),
+        },
+      });
+      return say(after.values.state === "late_cancelled" ? "late_cancelled" : "cancelled", true);
+    } catch (error) {
+      return appointmentRefusalOf(error, "cancel");
+    }
+  },
+});
+
+export const cancelAppointmentByUs = defineTool({
+  description:
+    "The business cancels an appointment that is booked, held while paying or not paid yet " +
+    "(the coach is ill, the room is closed): it is cancelled by the business and the session " +
+    "it spent is given back, whatever the time, with the reason kept. A person's act: the " +
+    "assistant, MCP clients and automations may ask, and it waits for a person to approve it. " +
+    "Fails with the reason when it cannot be done, so an approved request shows it did not " +
+    "apply. (The client's email comes in a later release.)",
+  input: z.object({
+    appointmentId: z.string().min(1).max(64),
+    reason: z.string().trim().min(3).max(2000),
+  }),
+  output: z.object({ result: z.literal("cancelled_by_us"), appointmentId: z.string() }),
+  risk: "destructive",
+  personApproves: true,
+  permission: "bookings:appointments",
+  async handler(input, ctx) {
+    const old = await appointmentOf(ctx, input.appointmentId);
+    if (isRefusal(old)) throw new OpsCallError("not_found", old.message, { reason: "not_found" });
+    const state = text(old.values.state) ?? "";
+    if (!["booked", "pending", "unpaid"].includes(state)) {
+      throw new OpsCallError(
+        "conflict",
+        `This appointment is ${appointmentWords(state)}: only one still to come is cancelled by the business.`,
+        { reason: "not_live", state },
+      );
+    }
+    await ctx.ops.call("record.update", {
+      object: APPOINTMENT,
+      id: input.appointmentId,
+      from: state,
+      values: { state: "cancelled_by_us", cancelledReason: input.reason },
+    });
+    return { result: "cancelled_by_us" as const, appointmentId: input.appointmentId };
+  },
+});
+
+export const markAppointment = defineTool({
+  description:
+    "Mark an appointment once it has started: attended (they came) or no_show (they did not; " +
+    "the session is used, with no fee). Either may be corrected into the other for 7 days " +
+    "after it ends. The host marks one nobody marked as attended 30 minutes after it ends. " +
+    "Who marked it and when are kept. To give a no-show's session back a person excuses it.",
+  input: z.object({
+    appointmentId: z.string().min(1).max(64),
+    mark: z.enum(["attended", "no_show"]),
+  }),
+  output: z.union([
+    z.object({
+      result: z.enum(["attended", "no_show"]),
+      appointmentId: z.string(),
+      message: z.string(),
+    }),
+    appointmentRefused,
+  ]),
+  risk: "write",
+  permission: ["bookings:desk", "bookings:appointments"],
+  async handler(input, ctx) {
+    const record = await appointmentOf(ctx, input.appointmentId);
+    if (isRefusal(record)) return record;
+    const state = text(record.values.state) ?? "";
+    const from = input.mark === "attended" ? ["booked", "no_show"] : ["booked", "attended"];
+    if (state === input.mark) {
+      return {
+        result: input.mark,
+        appointmentId: record.id,
+        message: `Already marked ${appointmentWords(state)}.`,
+      };
+    }
+    if (!from.includes(state)) {
+      return noAppointment(
+        "not_booked",
+        `This appointment is ${appointmentWords(state)}: it cannot be marked.`,
+        null,
+        state,
+      );
+    }
+    const staff = staffCaller(ctx);
+    try {
+      await ctx.ops.call("record.update", {
+        object: APPOINTMENT,
+        id: record.id,
+        from: state,
+        values: {
+          state: input.mark,
+          markedAt: new Date().toISOString(),
+          markedBy: staff?.userId ?? null,
+          markedByName: staff?.name || null,
+        },
+      });
+    } catch (error) {
+      return appointmentRefusalOf(error, "mark");
+    }
+    return {
+      result: input.mark,
+      appointmentId: record.id,
+      message:
+        input.mark === "attended"
+          ? "Marked: they came."
+          : "Marked: they did not come. The session stays used, with no fee.",
+    };
+  },
+});
+
+export const excuseAppointment = defineTool({
+  description:
+    "A person on the staff gives the session back for a late cancel or a no-show (a client " +
+    "who was ill): it becomes excused and the pass or membership gets its session back. A " +
+    "person's own act: the assistant, MCP clients, automations and other code cannot call it. " +
+    "The reason is kept on the appointment and in the audit log.",
+  input: z.object({
+    appointmentId: z.string().min(1).max(64),
+    reason: z.string().trim().min(3).max(2000),
+  }),
+  output: z.union([
+    z.object({ result: z.literal("excused"), appointmentId: z.string() }),
+    appointmentRefused,
+  ]),
+  risk: "destructive",
+  humanOnly: true,
+  permission: ["bookings:desk", "bookings:appointments"],
+  async handler(input, ctx) {
+    const record = await appointmentOf(ctx, input.appointmentId);
+    if (isRefusal(record)) return record;
+    const state = text(record.values.state) ?? "";
+    if (state !== "late_cancelled" && state !== "no_show") {
+      return noAppointment(
+        "not_booked",
+        `This appointment is ${appointmentWords(state)}: only a late cancel or a no-show is excused.`,
+        null,
+        state,
+      );
+    }
+    try {
+      await ctx.ops.call("record.update", {
+        object: APPOINTMENT,
+        id: record.id,
+        from: state,
+        values: { state: "excused", cancelledReason: `Session given back: ${input.reason}` },
+      });
+      return { result: "excused" as const, appointmentId: record.id };
+    } catch (error) {
+      return appointmentRefusalOf(error, "cancel");
+    }
+  },
+});
+
+export const reassignAppointment = defineTool({
+  description:
+    "Give an appointment still to come to another coach (decision 7: the coach is off or " +
+    "away), keeping its time, room and how it was paid. The host refuses it when that coach is " +
+    "on anything else then (buffers included) or has no staff account, and says what it was " +
+    "made with (warnings: not qualified for the service, away, outside their open hours). " +
+    "(The client's email comes in a later release.)",
+  input: z.object({
+    appointmentId: z.string().min(1).max(64),
+    coachId: z.string().min(1).max(64),
+  }),
+  output: z.union([appointmentBooked, appointmentRefused]),
+  risk: "write",
+  // Who works a session is a person's to change (ADR 0626): an AI's call waits for a person.
+  personApproves: true,
+  permission: "bookings:appointments",
+  async handler(input, ctx) {
+    const record = await appointmentOf(ctx, input.appointmentId);
+    if (isRefusal(record)) return record;
+    const state = text(record.values.state) ?? "";
+    if (!["booked", "pending", "unpaid"].includes(state)) {
+      return noAppointment(
+        "not_booked",
+        `This appointment is ${appointmentWords(state)}: only one still to come is reassigned.`,
+        null,
+        state,
+      );
+    }
+    if (Date.parse(text(record.values.startsAt) ?? "") <= Date.now()) {
+      return noAppointment("started", "It has started: it can no longer be reassigned.");
+    }
+    if (text(record.values.coach) === input.coachId) {
+      return noAppointment("same_time", "It is already with that coach.");
+    }
+    try {
+      const after = await ctx.ops.call<RecordShape>("record.update", {
+        object: APPOINTMENT,
+        id: record.id,
+        values: { coach: input.coachId },
+      });
+      return bookedAnswer(after);
+    } catch (error) {
+      return appointmentRefusalOf(error, "book");
+    }
+  },
+});
+
+// --- The coach's day ------------------------------------------------------------------------------
+
+const dayItem = z.object({
+  kind: z.enum(["class", "appointment", "shift"]),
+  object: z.string(),
+  id: z.string(),
+  title: z.string().nullable(),
+  startsAt: z.string().nullable(),
+  endsAt: z.string().nullable(),
+  room: z.string().nullable(),
+  state: z.string().nullable(),
+  service: z.string().nullable().describe("An appointment's service"),
+  client: named.describe("An appointment's client"),
+});
+
+interface RosterShift {
+  object: string;
+  id: string;
+  title: string;
+  startsAt: string;
+  endsAt: string | null;
+  place: string | null;
+  account: string | null;
+}
+
+export const coachDay = defineTool({
+  description:
+    "The coaches' day for staff: for each coach (or one, with coachId), their classes, " +
+    "appointments (service, client, room, state) and other shifts (duties) on one local date " +
+    "of the organisation, in start order. Classes and appointments cancelled, moved or done " +
+    "are left out but for attended and no-show sessions. Read-only.",
+  input: z.object({
+    date: z
+      .string()
+      .regex(/^\d{4}-\d{2}-\d{2}$/)
+      .describe("The local date, YYYY-MM-DD"),
+    coachId: z.string().min(1).max(64).optional(),
+  }),
+  output: z.object({
+    date: z.string(),
+    timeZone: z.string(),
+    coaches: z.array(
+      z.object({
+        coachId: z.string(),
+        name: z.string().nullable(),
+        items: z.array(dayItem),
+      }),
+    ),
+  }),
+  risk: "read",
+  permission: ["bookings:desk", "bookings:appointments"],
+  async handler(input, ctx) {
+    const coachFilter = input.coachId ? [{ field: "id", op: "eq", value: input.coachId }] : [];
+    const coaches = await ctx.ops.call<ListShape>("record.list", {
+      object: COACH,
+      filter: input.coachId ? { and: coachFilter } : { field: "active", op: "eq", value: true },
+      sort: { field: "name", direction: "asc" },
+      limit: 100,
+    });
+    const account = input.coachId ? text(coaches.items[0]?.values.user) : null;
+    // The roster (ADR 0626): every live shift of the day, whatever object, in the org's zone. A
+    // coach's duties come from it; its appointments show their service, never the client.
+    const roster = await ctx.ops.call<{ shifts: RosterShift[]; zone: string }>("staffing.week", {
+      from: input.date,
+      to: input.date,
+      ...(account ? { account } : {}),
+    });
+    const zone = roster.zone;
+    const next = new Date(Date.parse(`${input.date}T00:00:00Z`) + DAY).toISOString().slice(0, 10);
+    const range = [
+      {
+        field: "startsAt",
+        op: "gte",
+        value: new Date(localMidnight(input.date, zone)).toISOString(),
+      },
+      { field: "startsAt", op: "lt", value: new Date(localMidnight(next, zone)).toISOString() },
+    ];
+    const ids = coaches.items.map((c) => c.id);
+    const byCoach = ids.length ? [{ field: "coach", op: "in", value: ids }] : [];
+    const [classes, appointments] = ids.length
+      ? await Promise.all(
+          [CLASS, APPOINTMENT].map((object) =>
+            ctx.ops.call<ListShape>("record.list", {
+              object,
+              filter: { and: [...range, ...byCoach] },
+              sort: { field: "startsAt", direction: "asc" },
+              limit: 200,
+            }),
+          ),
+        )
+      : [{ items: [] }, { items: [] }];
+    const rooms = await byIds(
+      ctx,
+      "record.list",
+      ROOM,
+      [...(classes?.items ?? []), ...(appointments?.items ?? [])].map((r) => text(r.values.room)),
+    );
+    const services = await byIds(
+      ctx,
+      "record.list",
+      SERVICE,
+      (appointments?.items ?? []).map((a) => text(a.values.service)),
+    );
+    const names = new Map<string, string | null>();
+    for (const id of new Set((appointments?.items ?? []).map((a) => text(a.values.person)))) {
+      if (!id) continue;
+      try {
+        const person = await ctx.ops.call<{ displayName?: string | null } | null>("person.get", {
+          id,
+        });
+        names.set(id, person?.displayName ?? null);
+      } catch (error) {
+        if (!(error instanceof OpsCallError) || error.code !== "not_found") throw error;
+        names.set(id, null);
+      }
+    }
+    const roomName = (id: unknown) => text(rooms.get(text(id) ?? "")?.name);
+    const shown = (object: string, state: string | null) =>
+      object === CLASS
+        ? state !== "cancelled"
+        : ["booked", "pending", "unpaid", "attended", "no_show"].includes(state ?? "");
+    const items = new Map<string, z.infer<typeof dayItem>[]>(ids.map((id) => [id, []]));
+    for (const [object, page] of [
+      [CLASS, classes],
+      [APPOINTMENT, appointments],
+    ] as const) {
+      for (const r of page?.items ?? []) {
+        const v = r.values;
+        const coachId = text(v.coach);
+        const state = text(v.state);
+        if (!coachId || !shown(object, state)) continue;
+        const personId = text(v.person);
+        items.get(coachId)?.push({
+          kind: object === CLASS ? "class" : "appointment",
+          object,
+          id: r.id,
+          title: text(v.title) ?? text(r.title),
+          startsAt: text(v.startsAt),
+          endsAt: text(v.endsAt),
+          room: roomName(v.room),
+          state,
+          service: object === APPOINTMENT ? text(services.get(text(v.service) ?? "")?.title) : null,
+          client:
+            object === APPOINTMENT && personId
+              ? { id: personId, name: names.get(personId) ?? null }
+              : null,
+        });
+      }
+    }
+    // Other packs' shifts (a duty), by the coach profile's staff account.
+    const byAccount = new Map(
+      coaches.items
+        .map((c) => [text(c.values.user), c.id] as const)
+        .filter((pair): pair is readonly [string, string] => pair[0] !== null),
+    );
+    for (const s of roster.shifts) {
+      if (s.object.startsWith("bookings.") || !s.account) continue;
+      const coachId = byAccount.get(s.account);
+      if (!coachId) continue;
+      items.get(coachId)?.push({
+        kind: "shift",
+        object: s.object,
+        id: s.id,
+        title: s.title,
+        startsAt: s.startsAt,
+        endsAt: s.endsAt,
+        room: s.place,
+        state: null,
+        service: null,
+        client: null,
+      });
+    }
+    return {
+      date: input.date,
+      timeZone: zone,
+      coaches: coaches.items.map((c) => ({
+        coachId: c.id,
+        name: text(c.values.name),
+        items: (items.get(c.id) ?? []).sort((a, b) =>
+          (a.startsAt ?? "").localeCompare(b.startsAt ?? ""),
+        ),
+      })),
+    };
+  },
+});

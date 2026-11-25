@@ -71,13 +71,37 @@ const ON_SALE = [
   { value: "retired", label: "No longer sold" },
 ];
 
+/** What a plan or a pass type pays for: classes, one-to-one sessions (stage 49), or both. */
+const COVERS = [
+  { value: "classes", label: "Classes" },
+  { value: "sessions", label: "One-to-one sessions" },
+];
+
 /**
- * What a plan or a pass type allows, copied onto the membership or the pass it grants: class
- * types (empty: every one), weekdays (empty: every day) and a time of day, in minutes after local
- * midnight (empty: no bound).
+ * What a plan or a pass type allows, copied onto the membership or the pass it grants: what it
+ * pays for (empty: classes only, as before sessions existed), the class types (empty: every one)
+ * and the services (empty: every one) it pays for, weekdays (empty: every day) and a time of day,
+ * in minutes after local midnight (empty: no bound).
  */
 const limits = (readOnly: boolean) =>
   ({
+    covers: {
+      type: "multiSelect",
+      label: "Pays for",
+      options: COVERS,
+      description:
+        "Classes, one-to-one sessions (Bookings' appointments), or both. Empty: classes only.",
+      ...(readOnly ? { readOnly: true } : {}),
+    },
+    services: {
+      type: "relation",
+      label: "Services",
+      to: "bookings.service",
+      many: true,
+      description:
+        "The one-to-one sessions it pays for, when it pays for sessions. Empty: every one.",
+      ...(readOnly ? { readOnly: true } : {}),
+    },
     classTypes: {
       type: "relation",
       label: "Class types",
@@ -117,15 +141,35 @@ const limits = (readOnly: boolean) =>
  * What a holder pays for: stage 31's bookings (`bookings.booking`, whose `paidBy` lists this pack),
  * by the class type, the local weekday and the local minute the host copies onto the booking.
  */
-const SPENDS_ON = {
+const SPENDS_ON_CLASSES = {
   object: "bookings.booking",
   when: [
+    // A booking is a class: paid for unless the holder pays for sessions only (empty: classes).
+    { value: "classes", in: "covers" },
     { field: "classType", in: "classTypes" },
     { field: "weekday", in: "weekdays" },
     { field: "minute", atLeast: "fromMinute" },
     { field: "minute", below: "untilMinute" },
   ],
 };
+
+/**
+ * Stage 49's appointments (`bookings.appointment`, whose `paidBy` lists this pack), by the service
+ * the host copies onto the appointment and its local weekday and minute. Only a holder that says
+ * it pays for sessions does (`empty: "none"`): a class pass never pays for a session (ADR 0764).
+ */
+const SPENDS_ON_SESSIONS = {
+  object: "bookings.appointment",
+  when: [
+    { value: "sessions", in: "covers", empty: "none" as const },
+    { field: "serviceId", in: "services" },
+    { field: "weekday", in: "weekdays" },
+    { field: "minute", atLeast: "fromMinute" },
+    { field: "minute", below: "untilMinute" },
+  ],
+};
+
+const SPENDS_ON = [SPENDS_ON_CLASSES, SPENDS_ON_SESSIONS];
 
 const RUNNING = ["trialing", "active", "past_due", "unpaid", "paused"] as const;
 
@@ -147,8 +191,10 @@ export default defineExtension({
   description:
     "Membership plans paid every month and class passes bought once, with what each allows " +
     "and what a member has left.",
-  // A plan and a pass name the class types they pay for: Programs' (stage 31 extends them).
-  requires: ["programs"],
+  // A plan and a pass name the class types they pay for: Programs' (stage 31 extends them); and
+  // the services (Bookings' one-to-one sessions, stage 49), so Bookings is installed first. What
+  // they pay for, classes and sessions, is Bookings' anyway.
+  requires: ["programs", "bookings"],
   permissions: {
     read: ["person", "programs.classtype"],
     // record.* and my.* are not listed: they are granted by object (Memberships' own, and the
@@ -265,6 +311,8 @@ export default defineExtension({
               title: "item.title",
               uses: "item.uses",
               per: "item.per",
+              covers: "item.covers",
+              services: "item.services",
               classTypes: "item.classTypes",
               weekdays: "item.weekdays",
               fromMinute: "item.fromMinute",
@@ -444,6 +492,8 @@ export default defineExtension({
             title: "line.title",
             order: "order",
             uses: "item.uses",
+            covers: "item.covers",
+            services: "item.services",
             classTypes: "item.classTypes",
             weekdays: "item.weekdays",
             fromMinute: "item.fromMinute",

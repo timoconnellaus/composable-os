@@ -21,7 +21,7 @@
 
 - [Bookings: data model](https://docs.composableos.dev/packs/bookings/data-model/)
 - [Bookings: decisions](https://docs.composableos.dev/packs/bookings/decisions/)
-- [Bookings](https://docs.composableos.dev/packs/bookings/): A gym's or studio's timetable and the bookings members make on it, with places, waitlists, spending a membership's uses, attendance and drop-ins.
+- [Bookings](https://docs.composableos.dev/packs/bookings/): A gym's or studio's timetable and the bookings members make on it, with places, waitlists, spending a membership's uses, attendance and drop-ins; and one-to-one appointments staff book.
 - [Bookings: messages](https://docs.composableos.dev/packs/bookings/messages/)
 - [Bookings: permissions and roles](https://docs.composableos.dev/packs/bookings/permissions/)
 - [Bookings: screens](https://docs.composableos.dev/packs/bookings/screens/)
@@ -86,7 +86,7 @@
 - [Lifecycle stage: operations and tools](https://docs.composableos.dev/packs/lifecycle/tools/)
 - [Memberships: data model](https://docs.composableos.dev/packs/memberships/data-model/)
 - [Memberships: decisions](https://docs.composableos.dev/packs/memberships/decisions/)
-- [Memberships](https://docs.composableos.dev/packs/memberships/): Membership plans paid every month and class passes bought once, with what each allows and what a member has left.
+- [Memberships](https://docs.composableos.dev/packs/memberships/): What a gym sells its members, membership plans paid every month and passes bought once, and the classes and one-to-one sessions each pays for.
 - [Memberships: messages](https://docs.composableos.dev/packs/memberships/messages/)
 - [Memberships: permissions and roles](https://docs.composableos.dev/packs/memberships/permissions/)
 - [Memberships: screens](https://docs.composableos.dev/packs/memberships/screens/)

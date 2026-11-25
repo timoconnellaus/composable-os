@@ -2329,6 +2329,24 @@ may book outside open hours or over the client's own, warned (`outside_hours`, `
 never over a clash.
 _Avoid_: slot, availability, opening
 
+### Service
+
+, **Appointment** and **Provider** (Bookings; stage 49, built in step 5: ADR 0764)
+
+A **service** is a kind of one-to-one session the business offers (Personal training, 60 minutes):
+its length, its buffer, the rooms it may use (in order), its step and its booking rules where they
+differ from the organisation's. Who gives it is a qualification, never a list on the service. An
+**appointment** is one booked session: a client (a Person), a **provider** (the coach profile
+of whoever gives it, holding a staff account), a service, a start and an end, and the room it
+takes (the first of the service's rooms free then, chosen by the host when staff name none). It is
+its provider's shift, so the one claim keeps a coach off a class, a duty and another appointment at
+once. Booked, it spends a session of a pass or membership that **pays for sessions** and covers
+the service (a class pass never does), or it is **paid at the desk**; a cancel before **late from**
+(24 hours by default) gives the session back; a **late cancel** and a **no-show** keep it, with no
+fee, until a person **excuses** it. The business cancelling it (**cancelled by us**) gives it back.
+Staff book, move, mark and reassign appointments today; members booking their own is step 6.
+_Avoid_: slot, reservation, class (a group's), a bare "session" where Programs' is meant
+
 ### Offer
 
 and **Take** (stage 45, built in step 3: ADR 0623)

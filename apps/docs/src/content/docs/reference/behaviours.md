@@ -40,7 +40,7 @@ Declared as `stockMoves: StockMovesSpec` on an object. Declared by: no shipped p
 
 Uses a record holds (a pass, a membership), or a record that spends one (a booking): see AllowanceSpec, ADRs 0493 and 0494. The host counts and refuses a spend past the limit.
 
-Declared as `allowance: AllowanceSpec` on an object. Declared by: [`bookings.booking`](/packs/bookings/data-model/), [`memberships.membership`](/packs/memberships/data-model/), [`memberships.pass`](/packs/memberships/data-model/).
+Declared as `allowance: AllowanceSpec` on an object. Declared by: [`bookings.booking`](/packs/bookings/data-model/), [`bookings.appointment`](/packs/bookings/data-model/), [`memberships.membership`](/packs/memberships/data-model/), [`memberships.pass`](/packs/memberships/data-model/).
 
 ## discount
 
@@ -52,7 +52,7 @@ Declared as `discount: DiscountSpec` on an object. Declared by: no shipped pack.
 
 An agreement point (see AgreementsSpec, ADR 0641): where a business may need a person to have agreed to its documents first. The business attaches the documents; the pack names the place.
 
-Declared as `agreements: AgreementsSpec` on an object. Declared by: [`bookings.booking`](/packs/bookings/data-model/), [`courses.course`](/packs/courses/data-model/), [`courses.bundle`](/packs/courses/data-model/), [`courses.plan`](/packs/courses/data-model/), [`courses.enrolment`](/packs/courses/data-model/), [`memberships.plan`](/packs/memberships/data-model/), [`memberships.passtype`](/packs/memberships/data-model/), [`memberships.pass`](/packs/memberships/data-model/), [`ticketing.tickettype`](/packs/ticketing/data-model/), [`ticketing.ticket`](/packs/ticketing/data-model/).
+Declared as `agreements: AgreementsSpec` on an object. Declared by: [`bookings.booking`](/packs/bookings/data-model/), [`bookings.appointment`](/packs/bookings/data-model/), [`courses.course`](/packs/courses/data-model/), [`courses.bundle`](/packs/courses/data-model/), [`courses.plan`](/packs/courses/data-model/), [`courses.enrolment`](/packs/courses/data-model/), [`memberships.plan`](/packs/memberships/data-model/), [`memberships.passtype`](/packs/memberships/data-model/), [`memberships.pass`](/packs/memberships/data-model/), [`ticketing.tickettype`](/packs/ticketing/data-model/), [`ticketing.ticket`](/packs/ticketing/data-model/).
 
 ## healthNotes
 
@@ -64,7 +64,7 @@ Declared as `healthNotes: HealthNotesSpec` on an object. Declared by: [`bookings
 
 A fixed state machine (see StatesSpec, ADR 0425). An object has stages or states, not both.
 
-Declared as `states: StatesSpec` on an object. Declared by: [`bookings.series`](/packs/bookings/data-model/), [`bookings.class`](/packs/bookings/data-model/), [`bookings.booking`](/packs/bookings/data-model/), [`courses.enrolment`](/packs/courses/data-model/), [`forms.form`](/packs/forms/data-model/), [`forms.submission`](/packs/forms/data-model/), [`memberships.membership`](/packs/memberships/data-model/), [`memberships.pass`](/packs/memberships/data-model/), [`programs.assignment`](/packs/programs/data-model/), [`programs.session`](/packs/programs/data-model/), [`rostering.dutyseries`](/packs/rostering/data-model/), [`rostering.shift`](/packs/rostering/data-model/), [`ticketing.event`](/packs/ticketing/data-model/), [`ticketing.ticket`](/packs/ticketing/data-model/).
+Declared as `states: StatesSpec` on an object. Declared by: [`bookings.series`](/packs/bookings/data-model/), [`bookings.class`](/packs/bookings/data-model/), [`bookings.booking`](/packs/bookings/data-model/), [`bookings.appointment`](/packs/bookings/data-model/), [`courses.enrolment`](/packs/courses/data-model/), [`forms.form`](/packs/forms/data-model/), [`forms.submission`](/packs/forms/data-model/), [`memberships.membership`](/packs/memberships/data-model/), [`memberships.pass`](/packs/memberships/data-model/), [`programs.assignment`](/packs/programs/data-model/), [`programs.session`](/packs/programs/data-model/), [`rostering.dutyseries`](/packs/rostering/data-model/), [`rostering.shift`](/packs/rostering/data-model/), [`ticketing.event`](/packs/ticketing/data-model/), [`ticketing.ticket`](/packs/ticketing/data-model/).
 
 ## claims
 
@@ -88,7 +88,7 @@ Declared as `recurring: RecurringScheduleSpec` on an object. Declared by: [`book
 
 A shift (see StaffedSpec, ADR 0621): who works the record, when, and on what kind of work. The host refuses, in the database, one account on two overlapping shifts, and answers each write with its warnings (away, not qualified, no one on it).
 
-Declared as `staffed: StaffedSpec` on an object. Declared by: [`bookings.class`](/packs/bookings/data-model/), [`rostering.shift`](/packs/rostering/data-model/).
+Declared as `staffed: StaffedSpec` on an object. Declared by: [`bookings.class`](/packs/bookings/data-model/), [`bookings.appointment`](/packs/bookings/data-model/), [`rostering.shift`](/packs/rostering/data-model/).
 
 ## workedOn
 
@@ -106,7 +106,7 @@ Declared as `team: TeamSpec` on an object. Declared by: [`programs.assignment`](
 
 A claim on a thing (see OccupiesSpec, ADR 0765): while live, the record takes the room (or chair, or hall) it names for its time. The host refuses, in the database, a second live record on the same thing at an overlapping time, whatever object it is.
 
-Declared as `occupies: OccupiesSpec` on an object. Declared by: [`bookings.class`](/packs/bookings/data-model/).
+Declared as `occupies: OccupiesSpec` on an object. Declared by: [`bookings.class`](/packs/bookings/data-model/), [`bookings.appointment`](/packs/bookings/data-model/).
 
 ## calendarEntry
 

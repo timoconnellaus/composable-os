@@ -120,17 +120,39 @@
   ],
   "grants": [
     {
-      "permission": "bookings:desk",
+      "permission": "bookings:appointments",
       "pack": "bookings",
-      "label": "Front desk: find people, book anyone (walk-ins too) into any class, cancel or move their bookings, give a use back, and see any day's classes and full lists. For a coach who also works the desk.",
+      "label": "Appointments: book one-to-one sessions for clients, move, cancel and mark them, give a session back, give a session to another coach, and see any coach's day. For a coach who manages the others' sessions.",
       "restricted": false,
       "operations": [
+        "x.bookings.bookAppointment",
+        "x.bookings.cancelAppointment",
+        "x.bookings.cancelAppointmentByUs",
+        "x.bookings.coachDay",
+        "x.bookings.excuseAppointment",
+        "x.bookings.markAppointment",
+        "x.bookings.moveAppointment",
+        "x.bookings.reassignAppointment"
+      ]
+    },
+    {
+      "permission": "bookings:desk",
+      "pack": "bookings",
+      "label": "Front desk: find people; book, cancel and move classes and one-to-one sessions for anyone; give a use back; mark sessions; see any day's classes and lists and every coach's day with its clients. For a coach who also works the desk.",
+      "restricted": false,
+      "operations": [
+        "x.bookings.bookAppointment",
         "x.bookings.bookFor",
+        "x.bookings.cancelAppointment",
         "x.bookings.cancelFor",
         "x.bookings.classList",
+        "x.bookings.coachDay",
         "x.bookings.day",
+        "x.bookings.excuseAppointment",
         "x.bookings.findPeople",
+        "x.bookings.markAppointment",
         "x.bookings.move",
+        "x.bookings.moveAppointment",
         "x.bookings.returnUse"
       ]
     },
@@ -217,7 +239,7 @@
   "requires": {
     "bookings": ["programs"],
     "courses": ["programs", "content"],
-    "memberships": ["programs"]
+    "memberships": ["programs", "bookings"]
   },
   "owner": {
     "operations": [

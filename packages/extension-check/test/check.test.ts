@@ -107,6 +107,15 @@ describe("cos ext check on the shipped extensions", () => {
     expect(result.issues).toEqual([]);
     expect(JSON.stringify(result.manifest)).toContain('"deals.deal"');
   });
+
+  it("leaves out one that requires the checked extension: it is installed after it (ADR 0764)", async () => {
+    // Bookings names Memberships' holders as payers; Memberships requires Bookings (its passes
+    // relate to bookings.service). Each passes, checked from either side.
+    for (const name of ["bookings", "memberships"]) {
+      const result = await checkExtensionDir(shipped(name));
+      expect(result.issues, name).toEqual([]);
+    }
+  });
 });
 
 describe("cos ext", () => {

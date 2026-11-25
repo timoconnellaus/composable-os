@@ -633,3 +633,72 @@ function clientGuard(
     [object.name, id ?? "", client, JSON.stringify(def.live), id ?? "", ends, starts],
   );
 }
+
+// --- The room the host chooses (stage 49 step 5, ADR 0764) ----------------------------------------
+
+/**
+ * The room a new booked shift (`staffed.open.rooms`, an appointment) takes when its writer named
+ * none: the first of its kind's rooms free for its time with the room's margins, in the kind's
+ * order (a room not marked one booking at a time is always free). Undefined when the host has
+ * nothing to choose: a room was named, the kind needs none, or the record is not live or has no
+ * time yet. When every room the kind may use is taken it is refused (`conflict`, `rule:
+ * "room_taken"`), as the claim's trigger would refuse it, naming no other record. The trigger
+ * still decides a race.
+ */
+export async function hostRoomFor(
+  ctx: HandlerContext,
+  object: ObjectDefinition,
+  values: Record<string, unknown>,
+): Promise<string | undefined> {
+  const def = object.staffed;
+  const open = def?.open;
+  const occupies = object.occupies;
+  if (!def || !open?.rooms || !occupies) return undefined;
+  if (ids(values[occupies.thing]).length) return undefined;
+  const stateField = object.states?.field;
+  // A create that names no state starts in the initial one.
+  const state = stateField ? (text(values[stateField]) ?? object.states?.initial) : null;
+  if (typeof state !== "string" || !occupies.live.includes(state)) return undefined;
+  const kind = text(values[def.kind]);
+  const starts = secondsOf(values[def.starts]);
+  const ends = secondsOf(values[def.ends]);
+  if (!kind || starts === null || ends === null || !(ends > starts)) return undefined;
+  const facts = await kindFacts(ctx, object, open, kind);
+  if (!facts?.rooms?.length) return undefined;
+  const thing = getObject(occupies.thingObject);
+  const onlyCol = columnOf(thing, occupies.only);
+  const found = thing
+    ? ((await (ctx.db as AnyDb)
+        .selectFrom(visibleSource(orgReader(ctx.db), thing))
+        .select(["id", ...(onlyCol ? [`${onlyCol} as only`] : [])])
+        .where(
+          "id",
+          "in",
+          sql<string>`(SELECT value FROM json_each(${JSON.stringify(facts.rooms)}))`,
+        )
+        .execute()) as { id: string; only?: unknown }[])
+    : [];
+  const there = new Set(found.map((r) => r.id));
+  const claimed = found
+    .filter((r) => !occupies.only || r.only === 1 || r.only === true)
+    .map((r) => r.id);
+  const from = starts - facts.roomBefore;
+  const to = ends + facts.roomAfter;
+  const held = new Set(
+    claimed.length
+      ? (
+          await sql<{ thing_record: string }>`
+            SELECT DISTINCT thing_record FROM core_thing_time
+            WHERE thing_object = ${occupies.thingObject}
+              AND thing_record IN (SELECT value FROM json_each(${JSON.stringify(claimed)}))
+              AND starts < ${to} AND ends > ${from}`.execute(ctx.db)
+        ).rows.map((r) => r.thing_record)
+      : [],
+  );
+  const free = facts.rooms.find((id) => there.has(id) && !held.has(id));
+  if (free) return free;
+  throw new ConflictError(
+    `No ${(thing?.label ?? "room").toLowerCase()} this ${object.label.toLowerCase()} may use is free then. Nothing was changed: choose another time.`,
+    { rule: "room_taken", field: occupies.thing },
+  );
+}
