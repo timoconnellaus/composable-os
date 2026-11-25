@@ -2,9 +2,16 @@
   "name": "native-account-details",
   "pack": null,
   "skin": "native",
-  "operations": ["me.get", "me.update", "me.birthday.get", "me.birthday.set"],
+  "operations": [
+    "me.get",
+    "me.update",
+    "me.birthday.get",
+    "me.birthday.set",
+    "me.email.change",
+    "me.email.confirm"
+  ],
   "files": ["details.tsx", "LICENSE"],
-  "dependsOn": ["native-base"],
+  "dependsOn": ["native-base", "native-account-email"],
   "packages": {
     "@composable-os/client": "*"
   }

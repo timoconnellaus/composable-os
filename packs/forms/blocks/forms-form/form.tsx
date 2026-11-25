@@ -11,7 +11,9 @@
 // token from opening it, and a visitor's Turnstile token comes from the widget the app passes as
 // `Turnstile` (the block loads no script of its own). A personal link skips Turnstile at the host,
 // so no widget is drawn for one. What a person types stays in this component's state and nowhere
-// else.
+// else. A page showing `FormBlock` for a personal link's token keeps the link page's three rules
+// itself (ADR 0728): `Referrer-Policy: no-referrer`, no third-party script (one could read the
+// address before the token is out), and the token taken out at once with `takeLinkToken`.
 import {
   type DraftValue,
   type Filler,

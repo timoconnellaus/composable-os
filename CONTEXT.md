@@ -1224,15 +1224,16 @@ _Avoid_: user (a user is staff), login
 
 **My account**
 The customer's own area on the business's website and in its app (stage 48): one shell copied
-into the client app (`web-account`, `native-account`) with base sections (orders, agreements,
-family, payment method, details, sign-in and devices) and each installed pack's section. What each
+into the client app (`web-account`, `native-account`) with Needs your attention at the top, base
+sections (orders, agreements, family, payment method, details with changing the sign-in address,
+contact preferences, sign-in and devices, delete my account) and each installed pack's section. What each
 shows is the host's answer; in the app, money opens the website (ADR 0714). "Portal" is only the
 name of the manifest key and the operation (`portal`, `me.portal`).
 _Avoid_: customer portal, dashboard
 
 **Account section**
-One part of My account: a base one (orders, agreements, family, payment method, details, sign-in
-and devices) or a shipped pack's, declared under `portal` in its manifest with its web and native
+One part of My account: a base one (orders, agreements, family, payment method, details, contact
+preferences, sign-in and devices, delete my account) or a shipped pack's, declared under `portal` in its manifest with its web and native
 blocks and `has`, the objects whose records mean the customer has something there (ADR 0710). The
 host lists the sections a customer has (`me.portal`): a pack's only when they, or a child linked
 to them where the object opens to guardians, hold one of those records. `cos add` writes a client
@@ -1241,10 +1242,12 @@ _Avoid_: portal section, widget, tab
 
 **Needs your attention**
 The top of My account: what a customer, or a child they act for, has to do now, answered by the
-host (`me.attention`, ADR 0711) as items of eight kinds worked out in core from agreements, orders,
-subscriptions and allowances: a document to agree to, a card payment that failed, a payment to
-confirm with the bank, a deposit's balance, an unfinished held order, a pass expiring or used up,
-a free trial ending. How far ahead it looks is `account.attentionDays` (default 7).
+host (`me.attention`, ADR 0711) as items of nine kinds worked out in core from agreements, orders,
+subscriptions, allowances and personal links: a document to agree to, a card payment that failed,
+a payment to confirm with the bank, a deposit's balance, an unfinished held order, a pass expiring
+or used up, a free trial ending, a form to fill in. How far ahead it looks is
+`account.attentionDays` (default 7). The blocks (`*-account-attention`) say whose each item is and
+lead to the section that deals with it.
 _Avoid_: notifications, alerts, to-do
 
 **Erase request**

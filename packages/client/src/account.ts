@@ -8,9 +8,11 @@
 // subscription.*): this reads them and puts them in words. Amounts are shown as the host gave
 // them, in the currency's minor unit; nothing here adds, subtracts or works out a price.
 //
-// Which sections a customer has is the host's (`me.portal`, `portalSections`). Later steps add to
-// it: what needs the customer's attention (`me.attention`), changing the sign-in address and
-// deleting the account.
+// Which sections a customer has is the host's (`me.portal`, `portalSections`). Step 7 adds what
+// needs the customer's attention (`me.attention`: `attentionWords`, `attentionTarget`), changing
+// the sign-in address (`emailChangeProblem`) and deleting the account (`deleteConfirmInput`,
+// `deletePreviewWords`), and `sensitive`, which makes the host's `sign_in_again` its own outcome
+// so a block signs the customer in again in place and carries on (ADR 0715).
 import type { QueryName } from "./client.ts";
 import type { ClientHolding, PackClient, UseMutation, UseQuery } from "./hooks.ts";
 import { packHooks } from "./hooks.ts";
@@ -139,7 +141,31 @@ export interface AccountSubscription {
   /** The provider's page to confirm a payment on (3D Secure), while one waits. */
   actionUrl: string | null;
   createdAt: string;
-  holderPersonId: string | null;
+  /** Whom it is for, where the host says (a pack's own subscription read may leave it out). */
+  holderPersonId?: string | null;
+}
+
+/**
+ * What the subscriptions part reads and does (`web-account-subscriptions`,
+ * `native-account-subscriptions`): the account's own hooks, or a pack's hooks over the same
+ * operations (`subscription.list`, `.cancel`, `.resume`) for its own plans, so Memberships and
+ * Courses show their subscriptions with the one part.
+ */
+export interface SubscriptionsPartHooks<S extends AccountSubscription = AccountSubscription> {
+  useSubscriptions(): {
+    data: { items: S[] } | undefined;
+    isPending: boolean;
+    error: unknown;
+    refetch?: () => unknown;
+  };
+  useCancelSubscription(): {
+    mutateAsync(input: { id: string; reason?: string }): Promise<unknown>;
+    isPending: boolean;
+  };
+  useResumeSubscription(): {
+    mutateAsync(input: { id: string }): Promise<unknown>;
+    isPending: boolean;
+  };
 }
 
 /** A section of My account as the host lists it (`me.portal`, ADR 0710). */
@@ -162,9 +188,115 @@ export interface AccountPortal {
   paysSubscription: boolean;
 }
 
+/**
+ * What can need a customer's attention (`me.attention`, ADR 0711): a fixed vocabulary in core.
+ * A newer host may answer a kind this entry does not know yet; it is shown by its record's title.
+ */
+export const ATTENTION_KINDS = [
+  "agree",
+  "card_failing",
+  "confirm_payment",
+  "balance_due",
+  "finish_paying",
+  "pass_expiring",
+  "pass_used_up",
+  "trial_ending",
+  "form_to_fill",
+] as const;
+export type AttentionKind = (typeof ATTENTION_KINDS)[number];
+
+/** One thing that needs the customer, or a child they act for (`me.attention`). */
+export interface AttentionItem {
+  /** Stable for the same cause. */
+  key: string;
+  kind: AttentionKind;
+  /** Whose it is: the customer themselves, or a child they act for, by name. */
+  person: { id: string; name: string; self: boolean };
+  /** The record it is about: `agreement`, `subscription`, `order`, or a pack's object. */
+  record: { object: string; id: string; title: string };
+  /** The moment it is about: when it is due, ends or expires (the host's). */
+  at: string | null;
+  /** Money in the currency's minor unit, where there is some. */
+  amount: number | null;
+  currency: string | null;
+  /** A pass's uses left. */
+  usesLeft: number | null;
+  /** The personal link to answer a form by (form_to_fill): its id, never a token. */
+  link: string | null;
+}
+
+/** What needs the customer's attention, soonest first, and how far ahead it looks. */
+export interface AccountAttention {
+  days: number;
+  items: AttentionItem[];
+}
+
+/** A subscription deleting the account ends, as the preview says (`me.deleteAccount`). */
+export interface DeleteEnding {
+  id: string;
+  title: string;
+  amount: number;
+  currency: string;
+  interval: string;
+  endsAt: string | null;
+  /** Asked to end at the period's end now, already set to end, or ending with a cooling off. */
+  ending: "period_end" | "already" | "cooling_off";
+}
+
+/** What deleting the account will do, before anything is done (`me.deleteAccount` with `{}`). */
+export interface DeletePreview {
+  deleted: false;
+  subscriptions: DeleteEnding[];
+  /** Their unpaid orders, cancelled. */
+  orders: { id: string; total: number; currency: string; createdAt: string; lines: string[] }[];
+  /** What stays for the business to decide when it erases their data. */
+  leftForStaff: {
+    records: { object: string; label: string; count: number }[];
+    partPaidOrders: number;
+    moreUnpaidOrders: number;
+    subscriptions: {
+      id: string;
+      title: string;
+      state: string;
+      why: "end_date_later" | "state" | "more";
+    }[];
+    dependantsWithoutGuardian: number;
+  };
+  /** By when the business erases their data, or says why some must be kept. */
+  eraseDueAt: string;
+  /** The preview's fingerprint, sent back to confirm exactly this. */
+  expect: string;
+}
+
+/** The account deleted (`me.deleteAccount` with `confirm`). */
+export interface DeleteDone {
+  deleted: true;
+  disabled: true;
+  sessionsEnded: number;
+  subscriptionsEnding: number;
+  ordersCancelled: number;
+  eraseRequest: { requestedAt: string; dueAt: string };
+}
+
 /** The operations this entry calls, as the generated client types them. */
 export type AccountOperations = {
   "me.portal": { kind: "query"; input: Record<string, never>; output: AccountPortal };
+  "me.attention": { kind: "query"; input: Record<string, never>; output: AccountAttention };
+  "me.email.change": {
+    kind: "mutation";
+    input: { email: string };
+    output: { newEmail: string; expiresAt: string };
+  };
+  "me.email.confirm": {
+    kind: "mutation";
+    input: { code: string };
+    output: { signInEmail: string; sessionsEnded: number };
+  };
+  "me.deleteAccount": {
+    kind: "mutation";
+    input: { confirm?: boolean; expect?: string };
+    output: DeletePreview | DeleteDone;
+  };
   "me.get": { kind: "query"; input: Record<string, never>; output: AccountMe };
   "me.update": {
     kind: "mutation";
@@ -376,6 +508,7 @@ export const BASE_SECTIONS = [
   { key: "details", label: "Your details", order: 90 },
   { key: "contact", label: "Contact preferences", order: 92 },
   { key: "devices", label: "Sign-in and devices", order: 95 },
+  { key: "delete", label: "Delete my account", order: 99 },
 ] as const satisfies readonly AccountSection[];
 
 export type BaseSectionKey = (typeof BASE_SECTIONS)[number]["key"];
@@ -834,6 +967,327 @@ export async function loadOrders(api: AccountClient, cursor?: string): Promise<O
   };
 }
 
+// --- A recent sign-in (ADR 0712) ---------------------------------------------------------------------
+
+/** Whether the host refused because the customer must sign in again first (`sign_in_again`). */
+export function isSignInAgain(error: unknown): boolean {
+  return (
+    error !== null &&
+    typeof error === "object" &&
+    (error as { code?: unknown }).code === "sign_in_again"
+  );
+}
+
+/** What a block says when the host asks for a fresh sign-in before going on. */
+export const SIGN_IN_AGAIN_WORDS =
+  "For your safety, sign in again first: we email a code to the address you sign in with. Then you carry on here.";
+
+/**
+ * How a block signs the customer in again in place, as the app's sign-in does it: ask the host
+ * for a code to their own sign-in address, then sign in with it (the web template's `/auth/code`
+ * and `/auth/sign-in`, the mobile app's session). `confirm` answers falsy for a code that did not
+ * work.
+ */
+export interface AccountSignIn {
+  requestCode(email: string): Promise<boolean>;
+  confirm(email: string, code: string): Promise<unknown>;
+}
+
+/** What a sensitive act came to: done, refused until a fresh sign-in, or failed. */
+export type SensitiveOutcome<T> =
+  | { kind: "done"; value: T }
+  | { kind: "sign_in_again" }
+  | { kind: "failed"; error: unknown };
+
+/**
+ * Runs an act the host keeps to a recent sign-in (changing the sign-in address, deleting the
+ * account). A `sign_in_again` refusal is its own outcome, never a failure and never done: the block
+ * shows the sign-in step, keeps what the customer was doing, and runs the act again after it.
+ */
+export async function sensitive<T>(act: () => Promise<T>): Promise<SensitiveOutcome<T>> {
+  try {
+    return { kind: "done", value: await act() };
+  } catch (error) {
+    return isSignInAgain(error) ? { kind: "sign_in_again" } : { kind: "failed", error };
+  }
+}
+
+/** The host's `details.rule` on a refusal, wherever the client put it. */
+function refusalRule(error: unknown): string | null {
+  const details = (error as { details?: unknown } | null)?.details as
+    | { rule?: unknown; details?: { rule?: unknown } }
+    | undefined;
+  const rule = details?.rule ?? details?.details?.rule;
+  return typeof rule === "string" ? rule : null;
+}
+
+// --- Changing the sign-in address (ADR 0712) -----------------------------------------------------------
+
+/** The longest address the host takes (it checks again). */
+export const EMAIL_MAX = 320;
+
+/**
+ * What is wrong with a new sign-in address before asking (the host checks again), or null. Whether
+ * the address can be used is never known here: the host says so only once its code is entered.
+ */
+export function emailChangeProblem(email: string, current: string): string | null {
+  const address = email.trim();
+  if (!address) return "Enter the new address";
+  if (address.length > EMAIL_MAX || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(address)) {
+    return "Enter an email address, like name@example.com";
+  }
+  if (address.toLowerCase() === current.trim().toLowerCase()) {
+    return "That is the address you sign in with now";
+  }
+  return null;
+}
+
+/** A six-digit code, as typed: spaces taken out (the host checks it). */
+export function codeInput(typed: string): string {
+  return typed.replace(/\s+/g, "");
+}
+
+/** What to tell a customer whose address change was refused: the host's own words where it gave some. */
+export function emailChangeErrorWords(error: unknown): string {
+  const e = error !== null && typeof error === "object" ? (error as Record<string, unknown>) : null;
+  if (e?.code === "rate_limited") {
+    return "Too many requests just now. Wait a few minutes and try again.";
+  }
+  if ((e?.code === "conflict" || e?.code === "invalid_input") && typeof e.message === "string") {
+    return e.message;
+  }
+  if (e?.code === "config") return "Changing your sign-in address is not available just now.";
+  return accountErrorWords(error);
+}
+
+// --- Deleting the account (ADR 0713) -----------------------------------------------------------------
+
+/** What a customer types to confirm deleting their account. */
+export const DELETE_WORD = "DELETE";
+
+/** Whether the host answered the preview (nothing deleted yet). */
+export function isDeletePreview(
+  answer: DeletePreview | DeleteDone | undefined,
+): answer is DeletePreview {
+  return answer?.deleted === false;
+}
+
+/**
+ * The confirming call's input: only from a preview the host gave (its `expect`), and only once the
+ * customer has typed the word. Null otherwise, and the block does not call: nothing is deleted
+ * without the customer having been shown, in full, what it will do.
+ */
+export function deleteConfirmInput(
+  preview: DeletePreview | null | undefined,
+  typed: string,
+): { confirm: true; expect: string } | null {
+  if (preview?.deleted !== false || !preview.expect) return null;
+  if (typed.trim().toUpperCase() !== DELETE_WORD) return null;
+  return { confirm: true, expect: preview.expect };
+}
+
+/** Whether a confirm was refused because what deleting does changed since the preview. */
+export function isPreviewChanged(error: unknown): boolean {
+  return (
+    (error as { code?: unknown } | null)?.code === "conflict" &&
+    refusalRule(error) === "preview_changed"
+  );
+}
+
+/** The preview in words, every part of it, as the host answered it. Display only. */
+export function deletePreviewWords(
+  preview: DeletePreview,
+  locale?: string,
+): { ends: string[]; cancelled: string[]; left: string[]; erase: string } {
+  const money = (minor: number, currency: string) => formatMinor(minor, currency, locale);
+  const ends = preview.subscriptions.map((sub) => {
+    const what = `${sub.title} (${money(sub.amount, sub.currency)} a ${sub.interval})`;
+    const when = sub.endsAt ? ` on ${accountDay(sub.endsAt, locale)}` : "";
+    switch (sub.ending) {
+      case "period_end":
+        return `${what} ends${when}, at the end of the period already paid for. Nothing is refunded and nothing more is charged.`;
+      case "already":
+        return `${what} is already set to end${when}. Nothing is refunded.`;
+      default:
+        return `${what} ends with the cooling off you asked for, and its refund.`;
+    }
+  });
+  const cancelled = preview.orders.map(
+    (order) =>
+      `Your unpaid order of ${accountDay(order.createdAt, locale)} (${order.lines.join(", ") || "an order"}, ${money(order.total, order.currency)}) is cancelled. You were not charged for it.`,
+  );
+  const left: string[] = [];
+  const staff = preview.leftForStaff;
+  for (const record of staff.records) left.push(`${record.label}: ${record.count}`);
+  if (staff.partPaidOrders) {
+    left.push(
+      `${staff.partPaidOrders} part-paid ${staff.partPaidOrders === 1 ? "order" : "orders"}`,
+    );
+  }
+  if (staff.moreUnpaidOrders) {
+    left.push(
+      `${staff.moreUnpaidOrders} more unpaid ${staff.moreUnpaidOrders === 1 ? "order" : "orders"}`,
+    );
+  }
+  for (const sub of staff.subscriptions) {
+    left.push(
+      sub.why === "end_date_later"
+        ? `${sub.title}: it has an end date set later, and may charge until the business ends it`
+        : sub.why === "state"
+          ? `${sub.title}: it cannot be ended this way now, and may charge until the business ends it`
+          : `${sub.title}: the business ends it, and it may charge until then`,
+    );
+  }
+  if (staff.dependantsWithoutGuardian) {
+    left.push(
+      `${staff.dependantsWithoutGuardian} ${staff.dependantsWithoutGuardian === 1 ? "child" : "children"} linked to you will have no other parent or guardian on the account`,
+    );
+  }
+  return {
+    ends,
+    cancelled,
+    left,
+    erase: `You are signed out everywhere at once and cannot sign in again. The business erases your personal data, or tells you by email why some of it must be kept, by ${accountDay(preview.eraseDueAt, locale)}.`,
+  };
+}
+
+/** What a customer is told once the account is deleted. */
+export function deletedWords(done: DeleteDone, locale?: string): string {
+  return `Your account is deleted and you are signed out. The business erases your data by ${accountDay(done.eraseRequest.dueAt, locale)}.`;
+}
+
+// --- Needs your attention (ADR 0711) -------------------------------------------------------------------
+
+/** An attention item in words: what it is, the detail, and what the button says. Display only. */
+export function attentionWords(
+  item: AttentionItem,
+  locale?: string,
+): { title: string; detail: string; action: string | null; whose: string | null } {
+  const day = accountDay(item.at, locale);
+  const money =
+    item.amount !== null && item.currency ? formatMinor(item.amount, item.currency, locale) : "";
+  const left =
+    item.usesLeft === null ? "" : item.usesLeft === 1 ? "1 left" : `${item.usesLeft} left`;
+  const title = item.record.title;
+  const whose = item.person.self ? null : `For ${item.person.name}`;
+  const words = (t: string, detail: string, action: string | null) => ({
+    title: t,
+    detail,
+    action,
+    whose,
+  });
+  switch (item.kind) {
+    case "agree":
+      return words(
+        `Agree to ${title}`,
+        "Read it and agree before the next booking.",
+        "Read and agree",
+      );
+    case "card_failing":
+      return words(
+        `A payment for ${title} failed`,
+        "Update your card so it keeps going.",
+        "Update your card",
+      );
+    case "confirm_payment":
+      return words(
+        `Confirm a payment for ${title}`,
+        "Your bank is waiting for you to confirm it.",
+        "Confirm with your bank",
+      );
+    case "balance_due":
+      return words(
+        `The rest to pay for ${title}`,
+        [money, day ? `due by ${day}` : ""].filter(Boolean).join(", "),
+        "See the order",
+      );
+    case "finish_paying":
+      return words(
+        `Finish paying for ${title}`,
+        item.at ? `Held for you until ${accountTime(item.at, locale)}` : "Held for you for now",
+        "See the order",
+      );
+    case "pass_expiring":
+      return words(
+        `${title} expires on ${day}`,
+        left ? `${left} on it` : "Use it before then",
+        "See your passes",
+      );
+    case "pass_used_up":
+      return words(
+        `${title} has none left`,
+        day ? `It would have lasted until ${day}` : "Buy another to keep booking",
+        "See your passes",
+      );
+    case "trial_ending":
+      return words(
+        `Your free trial of ${title} ends on ${day}`,
+        money ? `Then it is ${money} each time it renews, unless you cancel` : "Then it renews",
+        "See it",
+      );
+    case "form_to_fill":
+      return words(
+        `Fill in ${title}`,
+        day ? `Open until ${day}` : "The business asked you to fill it in",
+        "Fill it in",
+      );
+    default:
+      return words(title, "", null);
+  }
+}
+
+/** Where an attention item is dealt with: a section of My account, a page, or a form to open. */
+export type AttentionTarget =
+  | { kind: "section"; key: string }
+  | { kind: "page"; url: string }
+  | { kind: "form"; link: string };
+
+/** The pack an object belongs to (`memberships.pass` → `memberships`), or null for a core one. */
+const packOf = (object: string): string | null =>
+  object.includes(".") ? (object.split(".")[0] ?? null) : null;
+
+/**
+ * Where to send the customer for an item, among the sections shown (`shown`, the host's sections
+ * the app has): agreements for a document, Payment method for a failed card, Orders for an
+ * order, the pack's section for its pass or its plan's trial, the provider's page for a payment
+ * the bank waits on (from the subscription the host listed), the form by its link. Null where
+ * nothing shown deals with it: the item is still listed. A lookup, never a rule.
+ */
+export function attentionTarget(
+  item: AttentionItem,
+  shown: readonly { key: string }[],
+  subscriptions: readonly Pick<AccountSubscription, "id" | "planObject" | "actionUrl">[] = [],
+): AttentionTarget | null {
+  const has = (key: string) => shown.some((s) => s.key === key);
+  const section = (key: string): AttentionTarget | null =>
+    has(key) ? { kind: "section", key } : null;
+  const packSection = (pack: string | null): AttentionTarget | null => {
+    const found = pack ? shown.find((s) => s.key.startsWith(`${pack}.`)) : undefined;
+    return found ? { kind: "section", key: found.key } : null;
+  };
+  const sub = subscriptions.find((s) => s.id === item.record.id);
+  switch (item.kind) {
+    case "agree":
+      return section("agreements");
+    case "card_failing":
+      return section("payment");
+    case "confirm_payment":
+      return sub?.actionUrl ? { kind: "page", url: sub.actionUrl } : section("payment");
+    case "balance_due":
+    case "finish_paying":
+      return section("orders");
+    case "pass_expiring":
+    case "pass_used_up":
+      return packSection(packOf(item.record.object));
+    case "trial_ending":
+      return packSection(sub ? packOf(sub.planObject) : null) ?? section("payment");
+    case "form_to_fill":
+      return item.link ? { kind: "form", link: item.link } : null;
+    default:
+      return null;
+  }
+}
+
 // --- Hooks ---------------------------------------------------------------------------------------
 
 /** The app's `useQuery` and `useMutation`, as far as these hooks use them. */
@@ -843,6 +1297,10 @@ export type AccountUseMutation = UseMutation;
 /** The operations each hook calls (ADR 0453). */
 export const ACCOUNT_HOOKS_CALL = {
   usePortal: ["me.portal"],
+  useAttention: ["me.attention"],
+  useChangeEmail: ["me.email.change"],
+  useConfirmEmail: ["me.email.confirm"],
+  useDeleteAccount: ["me.deleteAccount"],
   useMe: ["me.get"],
   useUpdateMe: ["me.update"],
   useBirthday: ["me.birthday.get"],
@@ -880,6 +1338,28 @@ function allAccountHooks(
     /** Which sections of My account they have, in order, and whether they pay a subscription. */
     usePortal() {
       return useQuery(api.query("me.portal", {}));
+    },
+    /** What needs their attention, or a child's they act for, soonest first. */
+    useAttention() {
+      return useQuery(api.query("me.attention", {}));
+    },
+    /**
+     * Ask for a code at a new sign-in address (after a recent sign-in, else `sign_in_again`). The
+     * address is not kept in the app's cache once the call is over.
+     */
+    useChangeEmail() {
+      return useMutation({ ...api.mutation("me.email.change"), gcTime: 0 });
+    },
+    /** Finish the change with the code from the new address; the code is not kept either. */
+    useConfirmEmail() {
+      return useMutation({ ...api.mutation("me.email.confirm"), gcTime: 0 });
+    },
+    /**
+     * Delete the account: with `{}` the host says what it will do; with `deleteConfirmInput`
+     * (the preview's `expect`) it does that. After a recent sign-in, else `sign_in_again`.
+     */
+    useDeleteAccount() {
+      return useMutation({ ...api.mutation("me.deleteAccount"), gcTime: 0 });
     },
     /** The signed-in customer's own Person and sign-in address. */
     useMe() {

@@ -168,6 +168,18 @@ const guestPass: Holding = {
 
 export const mine: Out<"x.memberships.mine"> = { holdings: [membership, tenPack] };
 
+/** The member and the child the gym linked to them (`me.family`, stage 48). */
+export const family: Out<"me.family"> = {
+  self: { personId: "p_10", name: "Rachel Moore" },
+  dependants: [{ personId: "p_11", name: "Leo Moore" }],
+  guardians: [],
+};
+
+/** What the member holds, or (with the child's id) what the child holds: a pass. */
+export function mineFor(input: { personId?: string }): Out<"x.memberships.mine"> {
+  return input.personId === "p_11" ? { holdings: [{ ...tenPack, id: "pas_leo" }] } : mine;
+}
+
 export const staffHoldings: Out<"x.memberships.holdings"> = {
   holdings: [membership, guestPass, tenPack, introWeek],
 };

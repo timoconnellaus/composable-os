@@ -87,3 +87,10 @@ pack's read (a rule in the client, ADR 0401).
   `block.json` and the export's name); review and the e2e suite do.
 - Not yet tried in a client app with every pack: the generated file is type-checked here against
   one pack's block and the shell, and its text is tested; step 8's e2e drives the page.
+
+## Amended 2026-11-25: Delete my account is a base section (stage 48 step 7, [ADR 0715](0715-the-account-blocks-signing-in-again-in-place-and-one-subscriptions-part.md))
+
+`me.portal` lists a ninth base section, `delete` ("Delete my account", order 99, last), for every
+customer, so the shells take every section from the host's one list. Courses' declaration now
+names `MyCoursesSection` and `MyCoursesSectionScreen` (its courses, then its subscription through
+My account's one subscriptions part); a native shell gives each pack's screen `onManage`.

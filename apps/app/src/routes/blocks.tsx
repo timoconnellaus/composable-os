@@ -20,9 +20,16 @@
 // mount here too, and every block is also given the agreements hooks as `agreements`
 // (createAgreementsHooks from @composable-os/client), for the inline agreement step, and the notes
 // hooks as `notes` (createNotesHooks, stage 56), for the note composer a pack's screen opens.
+// My account's blocks (`web-account*`, stage 48) are given the account hooks as `account`, and
+// the shell (`web-account`) the packs' sections the host lists for the customer (`me.portal`),
+// each the pack's own block with its hooks, as `cos add web-account` wires them in a client app.
 import {
+  ACCOUNT_HOOKS_CALL,
+  type AccountClient,
+  type AccountHooks,
   AGREEMENTS_HOOKS_CALL,
   type AgreementsClient,
+  createAccountHooks,
   createAgreementsHooks,
   createNotesHooks,
   type HookCalls,
@@ -36,7 +43,7 @@ type FullClient<C> = C & { operations: Record<string, unknown> };
 import { PACK_HOOKS } from "virtual:cos-screens";
 import { useMutation, useQuery } from "@tanstack/react-query";
 import { createFileRoute } from "@tanstack/react-router";
-import { type ComponentType, useEffect, useState } from "react";
+import { type ComponentType, createElement, type ReactNode, useEffect, useState } from "react";
 import { staffClient } from "#/lib/staff-client";
 
 interface BlocksSearch {
@@ -139,6 +146,73 @@ function TestTurnstile({ onToken }: { onToken: (token: string | null) => void })
   return <p className="text-xs text-muted-foreground">Spam check: Cloudflare's test widget</p>;
 }
 
+/** A pack's section of My account, as the shell takes it (`PackSection` in web-account). */
+interface PackSection {
+  key: string;
+  label: string;
+  order: number;
+  render: () => ReactNode;
+}
+
+/**
+ * The packs' sections the host lists for this customer (`me.portal`), each the pack's declared web
+ * block and export, given the pack's hooks: what `account-sections.gen.ts` names in a client app.
+ */
+function usePortalSections(account: AccountHooks, returnUrl: string): PackSection[] {
+  const portal = account.usePortal();
+  const [sections, setSections] = useState<PackSection[]>([]);
+  const wanted = (portal?.data?.sections ?? []).filter((s) => s.pack && s.web);
+  const key = wanted.map((s) => s.key).join(",");
+  // biome-ignore lint/correctness/useExhaustiveDependencies: the listed sections' keys say when to load.
+  useEffect(() => {
+    let live = true;
+    void Promise.all(
+      wanted.map(async (section): Promise<PackSection | null> => {
+        const pack = section.pack ?? "";
+        const web = section.web;
+        const load = PACK_HOOKS[pack];
+        const path = Object.keys(files).find((p) =>
+          p.includes(`/packs/${pack}/blocks/${web?.block}/`),
+        );
+        if (!load || !path || !web) return null;
+        const [module, { createHooks, calls }] = await Promise.all([files[path]?.(), load()]);
+        const component = module?.[web.export] as
+          | ComponentType<Record<string, unknown>>
+          | undefined;
+        if (!component) return null;
+        const make = createHooks as (react: unknown, client: unknown) => AnyHooks;
+        const hooks = make(
+          { useQuery, useMutation, useState, useEffect },
+          browserClient(calls as Record<string, HookCalls>),
+        );
+        return {
+          key: section.key,
+          label: section.label,
+          order: section.order,
+          render: () => createElement(component, { [pack]: hooks, returnUrl }),
+        };
+      }),
+    ).then((found) => {
+      if (live) setSections(found.filter((s): s is PackSection => s !== null));
+    });
+    return () => {
+      live = false;
+    };
+  }, [key, returnUrl]);
+  return sections;
+}
+
+/** The account shell with the packs' sections the host lists for the signed-in customer. */
+function WithPackSections({
+  account,
+  children,
+}: {
+  account: AccountHooks;
+  children: (sections: PackSection[]) => ReactNode;
+}) {
+  return children(usePortalSections(account, `${window.location.origin}/blocks`));
+}
+
 function BlocksPage() {
   const { block, component, props } = Route.useSearch();
   const [Component, setComponent] = useState<ComponentType<Record<string, unknown>> | null>(null);
@@ -152,6 +226,13 @@ function BlocksPage() {
       { useQuery, useMutation } as never,
       browserClient<FullClient<AgreementsClient>>(AGREEMENTS_HOOKS_CALL),
     ),
+  );
+  const [account] = useState(
+    () =>
+      createAccountHooks(
+        { useQuery, useMutation } as never,
+        browserClient<FullClient<AccountClient>>(ACCOUNT_HOOKS_CALL),
+      ) as unknown as AccountHooks,
   );
   const [notes] = useState(() =>
     createNotesHooks(
@@ -185,9 +266,24 @@ function BlocksPage() {
   const extra = props ? (JSON.parse(props) as Record<string, unknown>) : {};
   if (extra.signIn === "customer") extra.signIn = customerSignIn;
   if (extra.Turnstile === "test") extra.Turnstile = TestTurnstile;
+  const given = {
+    ...(base ? { account } : { [pack]: hooks }),
+    agreements,
+    notes,
+    // What a client app gives My account: leaving after sign-out or deleting the account.
+    onSignOut: () => window.location.assign("/blocks"),
+    onDeleted: () => window.location.assign("/blocks"),
+    ...extra,
+  };
   return (
     <main className="mx-auto max-w-5xl p-6" data-block={block}>
-      <Component {...{ ...(base ? {} : { [pack]: hooks }), agreements, notes, ...extra }} />
+      {block === "web-account" ? (
+        <WithPackSections account={account}>
+          {(sections) => <Component {...given} sections={sections} />}
+        </WithPackSections>
+      ) : (
+        <Component {...given} />
+      )}
     </main>
   );
 }

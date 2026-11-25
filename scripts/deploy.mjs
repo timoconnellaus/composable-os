@@ -1,4 +1,11 @@
 #!/usr/bin/env node
+import { execFileSync } from "node:child_process";
+import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join } from "node:path";
+import { fileURLToPath } from "node:url";
+import { deployedName, deployedNameList } from "../packages/product/src/index.ts";
+import { loadProduct } from "../packages/product/src/node.ts";
 // Deploys a whole deployment to the Cloudflare account wrangler is logged in to (or that
 // CLOUDFLARE_API_TOKEN / CLOUDFLARE_ACCOUNT_ID point at):
 //
@@ -48,13 +55,6 @@
 //
 // Usage: pnpm run deploy [-- --dry-run]
 import { turnstileTestKeysIn } from "./turnstile-keys.mjs";
-import { execFileSync } from "node:child_process";
-import { existsSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from "node:fs";
-import { tmpdir } from "node:os";
-import { dirname, join } from "node:path";
-import { fileURLToPath } from "node:url";
-import { deployedName, deployedNameList } from "../packages/product/src/index.ts";
-import { loadProduct } from "../packages/product/src/node.ts";
 
 const root = join(dirname(fileURLToPath(import.meta.url)), "..");
 const dryRun = process.argv.includes("--dry-run");

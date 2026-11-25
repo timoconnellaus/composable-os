@@ -4,6 +4,10 @@
   "skin": "web",
   "operations": [
     "me.portal",
+    "me.attention",
+    "me.email.change",
+    "me.email.confirm",
+    "me.deleteAccount",
     "me.get",
     "me.update",
     "me.sessions.list",
@@ -21,6 +25,8 @@
   ],
   "files": ["account.tsx", "LICENSE"],
   "dependsOn": [
+    "web-account-attention",
+    "web-account-delete",
     "web-account-contact",
     "web-account-details",
     "web-account-devices",

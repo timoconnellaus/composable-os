@@ -14,16 +14,22 @@
 //   const sections = usePackSections(ACCOUNT_SECTIONS, react, api, returnUrl);
 //   <MyAccount account={account} agreements={agreements} sections={sections} … />
 //
-// so the page names no pack. A later step adds "Needs your attention" at the top (me.attention).
+// so the page names no pack. "Needs your attention" sits at the top (me.attention, ADR 0711), each
+// item leading to the section that deals with it. Changing the sign-in address (under Your
+// details) and Delete my account need a recent sign-in: when the host asks for one, they sign the
+// customer in again in place through `signIn` and carry on (ADR 0712).
 import {
   type AccountHooks,
   type AccountSection,
   type AccountSectionEntry,
+  type AccountSignIn,
   type AgreementsHooks,
   portalSections,
 } from "@composable-os/client";
 import { type ComponentType, createElement, type ReactNode, useMemo } from "react";
+import { NeedsAttention } from "../web-account-attention/attention.tsx";
 import { ContactPreferences } from "../web-account-contact/contact.tsx";
+import { DeleteAccount } from "../web-account-delete/delete.tsx";
 import { YourDetails } from "../web-account-details/details.tsx";
 import { SignInAndDevices } from "../web-account-devices/devices.tsx";
 import { YourFamily } from "../web-account-family/family.tsx";
@@ -81,6 +87,10 @@ type Hooks = Pick<
   | "useSubscriptions"
   | "useBillingPortal"
   | "usePortal"
+  | "useAttention"
+  | "useChangeEmail"
+  | "useConfirmEmail"
+  | "useDeleteAccount"
 >;
 
 export function MyAccount({
@@ -88,7 +98,10 @@ export function MyAccount({
   agreements,
   sections = [],
   returnUrl,
+  signIn,
   onSignOut,
+  onDeleted,
+  onFillForm,
 }: {
   account: Hooks;
   agreements: Pick<AgreementsHooks, "useDue" | "useMine" | "useAcceptance" | "useAccept">;
@@ -96,8 +109,14 @@ export function MyAccount({
   sections?: readonly PackSection[];
   /** Where the payment provider's page sends the customer back to: this page. */
   returnUrl: string;
+  /** The app's sign-in by code, for signing in again in place when the host asks for it. */
+  signIn: AccountSignIn;
   /** Signs this browser out (the web app's sign-out route) and leaves the page. */
   onSignOut: () => void;
+  /** The account is deleted and signed out: leave the page (to the home page). */
+  onDeleted: () => void;
+  /** Opens a form the customer was asked to fill in, by its personal link's id (the Forms page). */
+  onFillForm?: (linkId: string) => void;
 }) {
   const me = account.useMe();
   const portal = account.usePortal();
@@ -109,9 +128,10 @@ export function MyAccount({
     agreements: () => <MyAgreements agreements={agreements} />,
     family: () => <YourFamily account={account} />,
     payment: () => <PaymentMethod account={account} returnUrl={returnUrl} />,
-    details: () => <YourDetails account={account} />,
+    details: () => <YourDetails account={account} signIn={signIn} />,
     contact: () => <ContactPreferences account={account} />,
     devices: () => <SignInAndDevices account={account} onSignOut={onSignOut} />,
+    delete: () => <DeleteAccount account={account} signIn={signIn} onDeleted={onDeleted} />,
   };
 
   return (
@@ -120,6 +140,14 @@ export function MyAccount({
         <h1 className="text-2xl font-semibold">My account</h1>
         {me.data ? <p className="text-muted-foreground">{me.data.displayName}</p> : null}
       </header>
+      <NeedsAttention
+        account={account}
+        sections={shown}
+        onSection={(key) =>
+          document.getElementById(anchor(key))?.scrollIntoView({ behavior: "smooth" })
+        }
+        onFillForm={onFillForm}
+      />
       <nav aria-label="Sections">
         <ul className="flex flex-wrap gap-3 text-sm">
           {shown.map((section) => (

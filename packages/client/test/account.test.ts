@@ -88,6 +88,7 @@ describe("sections", () => {
       "details",
       "contact",
       "devices",
+      "delete",
     ]);
     expect(accountSections([], ["payment"]).map((s) => s.key)).not.toContain("payment");
   });

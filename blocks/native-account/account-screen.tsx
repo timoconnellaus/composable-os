@@ -11,18 +11,24 @@
 // Which sections this customer has, in what order, and whether Payment method shows is the host's
 // answer (me.portal, ADR 0710). `cos add native-account` copies the packs' section blocks and
 // writes `../account-sections.gen.ts`, which names them; the tab passes them through
-// `usePackSections(ACCOUNT_SECTIONS, react, api)`, so it names no pack. A later step adds "Needs
-// your attention" at the top (me.attention).
+// `usePackSections(ACCOUNT_SECTIONS, react, api)`, so it names no pack. A pack's screen is given
+// `onManage`, which opens the website account page. "Needs your attention" sits at the top
+// (me.attention, ADR 0711), each item opening the section that deals with it. Changing the sign-in
+// address (under Your details) and Delete my account work in the app; when the host asks for a
+// recent sign-in, they sign the customer in again in place through `signIn` (ADR 0712).
 import {
   type AccountHooks,
   type AccountSection,
   type AccountSectionEntry,
+  type AccountSignIn,
   type AgreementsHooks,
   portalSections,
 } from "@composable-os/client";
 import { type ComponentType, createElement, type ReactNode, useMemo, useState } from "react";
 import { Linking, SafeAreaView, StyleSheet, Text, View } from "react-native";
+import { NeedsAttention } from "../native-account-attention/attention.tsx";
 import { ContactPreferences } from "../native-account-contact/contact.tsx";
+import { DeleteAccount } from "../native-account-delete/delete.tsx";
 import { YourDetails } from "../native-account-details/details.tsx";
 import { SignInAndDevices } from "../native-account-devices/devices.tsx";
 import { YourFamily } from "../native-account-family/family.tsx";
@@ -35,9 +41,14 @@ import { Screen } from "../native-base/screen.tsx";
 import { theme } from "../native-base/theme.ts";
 import { MyAgreementsScreen } from "../native-my-agreements/my-agreements-screen.tsx";
 
+/** What the shell gives a pack's screen: "Manage on the website" opens the website account page. */
+export interface ShellProps {
+  onManage: () => void;
+}
+
 /** A pack's section: its key, label and order, and the screen it opens (the pack's block). */
 export interface PackSection extends AccountSection {
-  render: () => ReactNode;
+  render: (shell: ShellProps) => ReactNode;
 }
 
 /** A section `account-sections.gen.ts` lists: a pack's native block's component and its hooks. */
@@ -63,7 +74,7 @@ export function usePackSections(
           key: entry.key,
           label: entry.label,
           order: entry.order,
-          render: () => createElement(component, props),
+          render: (shell: ShellProps) => createElement(component, { ...props, ...shell }),
         };
       }),
     [entries, react, client],
@@ -82,6 +93,10 @@ type Hooks = Pick<
   | "useOrders"
   | "useSubscriptions"
   | "usePortal"
+  | "useAttention"
+  | "useChangeEmail"
+  | "useConfirmEmail"
+  | "useDeleteAccount"
 >;
 
 export function AccountScreen({
@@ -89,7 +104,10 @@ export function AccountScreen({
   agreements,
   sections = [],
   websiteUrl,
+  signIn,
   onSignOut,
+  onDeleted,
+  onFillForm,
   openUrl = (url) => void Linking.openURL(url),
   onDownload,
 }: {
@@ -99,8 +117,14 @@ export function AccountScreen({
   sections?: readonly PackSection[];
   /** The business's website account page, where money is managed. */
   websiteUrl: string;
+  /** The app's session sign-in by code, for signing in again in place when the host asks. */
+  signIn: AccountSignIn;
   /** Signs this device out and goes back to sign-in. */
   onSignOut: () => void;
+  /** The account is deleted and this device signed out: back to sign-in. */
+  onDeleted: () => void;
+  /** Opens a form the customer was asked to fill in, by its personal link's id. */
+  onFillForm?: (linkId: string) => void;
   /** Opens an address in the browser. Default: React Native's `Linking.openURL`. */
   openUrl?: (url: string) => void;
   /** Opens a signed agreement's PDF (the app fetches it with its session). */
@@ -118,9 +142,10 @@ export function AccountScreen({
     orders: () => <YourOrders account={account} openUrl={openUrl} />,
     family: () => <YourFamily account={account} />,
     payment: () => <PaymentMethod onManage={manage} />,
-    details: () => <YourDetails account={account} />,
+    details: () => <YourDetails account={account} signIn={signIn} />,
     contact: () => <ContactPreferences account={account} />,
     devices: () => <SignInAndDevices account={account} onSignOut={onSignOut} />,
+    delete: () => <DeleteAccount account={account} signIn={signIn} onDeleted={onDeleted} />,
   };
 
   const section = shown.find((s) => s.key === open);
@@ -138,7 +163,7 @@ export function AccountScreen({
         ) : section.key === "agreements" ? (
           <MyAgreementsScreen agreements={agreements} onDownload={onDownload} />
         ) : (
-          packs.get(section.key)?.render()
+          packs.get(section.key)?.render({ onManage: manage })
         )}
       </View>
     );
@@ -147,6 +172,13 @@ export function AccountScreen({
   return (
     <Screen title="My account">
       {me.data ? <Text style={styles.muted}>{me.data.displayName}</Text> : null}
+      <NeedsAttention
+        account={account}
+        sections={shown}
+        onSection={setOpen}
+        onManage={manage}
+        onFillForm={onFillForm}
+      />
       <List>
         {shown.map((s) => (
           <Row key={s.key} title={s.label} onPress={() => setOpen(s.key)} />

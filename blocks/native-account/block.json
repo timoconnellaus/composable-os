@@ -4,6 +4,10 @@
   "skin": "native",
   "operations": [
     "me.portal",
+    "me.attention",
+    "me.email.change",
+    "me.email.confirm",
+    "me.deleteAccount",
     "me.get",
     "me.update",
     "me.sessions.list",
@@ -20,6 +24,8 @@
   ],
   "files": ["account-screen.tsx", "LICENSE"],
   "dependsOn": [
+    "native-account-attention",
+    "native-account-delete",
     "native-account-contact",
     "native-account-details",
     "native-account-devices",

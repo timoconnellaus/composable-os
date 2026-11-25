@@ -501,8 +501,9 @@ export default defineExtension({
   portal: {
     courses: {
       label: "My courses",
-      web: { block: "courses-my-courses", export: "MyCourses" },
-      native: { block: "courses-native-my-courses", export: "MyCoursesScreen" },
+      // What they hold, then their course subscription (stage 48 step 7).
+      web: { block: "courses-my-courses", export: "MyCoursesSection" },
+      native: { block: "courses-native-my-courses", export: "MyCoursesSectionScreen" },
       order: 30,
       has: ["courses.enrolment"],
     },

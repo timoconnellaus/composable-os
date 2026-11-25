@@ -40,9 +40,28 @@ address. And the client template is generated per product: a client without Form
   of the client-app binding's door, in-process on the host: the caller is a customer by their
   verified session cookie or the public, never staff, and each send carries the page's
   Idempotency-Key, so a reload or a second press is one answer. Only the customer's session cookie
-  is passed on.
+  and the visitor's address (`cos-visitor-address`, ADR 0940) are passed on: on the host's own
+  address the address is Cloudflare's `cf-connecting-ip` (a header a browser sends naming itself is
+  never read), over the binding the bound Worker's word in the binding's order (a forwarded
+  `cf-connecting-ip` first), and the template builds it afresh with `forVisitor`.
+- **A redraw keeps the first shown time.** When the answers need another look, the page is drawn
+  again with the `_shown` the person was first given, not a new one, so a quick correction is not
+  taken for a bot and silently dropped (review of PR #461). Only after "this form changed" is it
+  shown afresh. The React hooks keep an opened form as first opened for the same reason
+  (`staleTime: Infinity`, no refetch on focus or reconnect).
+- **A send is taken from the page's own origin only**, an allow-list: with `Sec-Fetch-Site`, only
+  `same-origin` (or `none`); without it, an `Origin` of the page's own or `null` (the page's own
+  no-referrer policy makes a browser send `null`). A sibling subdomain (`same-site`), which a
+  customer's cookie still goes with, is refused. On the host the page checks it; over the binding
+  the template's route checks its browser's request and the page trusts its Worker.
+- **Bodies are capped as they are read** (the `content-length` first, then the stream, 128 KB).
+- **A link's reload answers from the host's store.** A link page carries the keys and kinds of its
+  questions (`_q`), so when the link cannot be opened again on a send (this page's send used it),
+  the page sends the same answers under the same key and the host's stored reply gives the thanks.
 - **Where**: cos-app serves `/f/<slug>` and `/form` on the host's own address (both in the Access
-  bypass list, `customers-on-host`), and the `ClientApp` binding serves the same two paths. The
+  bypass list whenever the Forms pack is installed, `forms`: personal links are emailed whatever
+  else the host serves, and behind Access a link's token would go into Access's login redirect),
+  and the `ClientApp` binding serves the same two paths. The
   client template's `formPageRoute` forwards them from the business's site to the binding with the
   customer's cookie and the form's fields only, refuses a post from another site before anything
   reaches the host, and passes back the page with its own headers (no referrer and no cache set
@@ -74,8 +93,25 @@ address. And the client template is generated per product: a client without Form
 - The edge rule that counts public calls per address names `/f/` and `/form` on the host's zone
   and, with Forms on, on the web app's (`cos create` and `cos init` print it).
 - A business's site shows the host's page, in the host's plain look, at its own address. A site
-  that wants the page in its own look uses the web block in a page of its own; it then sets the
-  referrer policy on that page itself, and takes the token from the address with `takeLinkToken`.
+  that wants the page in its own look uses the web block in a page of its own, and must then keep
+  the three rules itself on that page: `Referrer-Policy: no-referrer`, **no third-party script**
+  (an analytics script reads `location.href` before the token is taken out), and the token taken
+  from the address at once with `takeLinkToken`.
+- **Cloudflare's own logs.** Workers Logs record a request's address, so a personal link's first
+  request, token included, is in the host's (and the web app's) invocation logs when they are on:
+  an account member reading them could see an unused link. Our code keeps it nowhere (the audit
+  redacts it, the idempotency store keeps a hash of the input). Turn invocation logs off where
+  that matters (`docs/deploying.md`).
+- `scripts/deploy.mjs` refuses Cloudflare's Turnstile test keys as `TURNSTILE_SECRET_KEY` or
+  `TURNSTILE_SITE_KEY`: an always-passing secret on a real host would turn the spam check off.
+- **The one named exception to "the admin's source names no pack"** (stage 47's
+  `screens-plugin.test.ts`): `apps/app/src/server/http/form-page.ts` imports the Forms pack's page.
+  Decided at review: it stays; a generated registry of packs' server-drawn pages, as screens have,
+  is issue #462, for when a second pack needs one.
+- My account's attention list (`web-account`, `native-account`, stage 48) takes `onFillForm(linkId)`
+  for a `form_to_fill` item: a client app with Forms passes one that opens `LinkedFormBlock` or
+  `LinkedFormScreen` with that id. The client template's own plain account pages cannot (they hold
+  no Forms operation, as above), so they show the item without the action.
 - Local development and the e2e suite use Cloudflare's documented Turnstile test keys
   (`scripts/dev-setup.mjs`); a real site key on a real hostname is not yet tried.
 - Framing the page from listed sites (decision 9's later step) changes its `frame-ancestors`.

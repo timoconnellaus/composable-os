@@ -180,7 +180,8 @@ from signed-in customers and staff only; every public answer is turned away and 
 once a day. A testing host uses Cloudflare's documented test keys (a secret that always passes).
 The edge rule above counts the calls a form sends (`/api/v1/op/`) and the form page's own paths
 (`/f/`, `/form`); a web app with Forms on names them in its own rule too (`cos create` prints it).
-Without the site key, a public form's page says it cannot be sent there. Local development and the
+Without the site key, a public form's page says it cannot be sent there. `scripts/deploy.mjs`
+refuses Cloudflare's test keys for either name. Local development and the
 e2e suite use Cloudflare's test keys (`scripts/dev-setup.mjs`). Not yet tried with a real site key
 on a live host.
 

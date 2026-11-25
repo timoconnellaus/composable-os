@@ -26,10 +26,7 @@ function recordingDoor() {
     calls,
     door: async (call: Request) => {
       calls.push(call);
-      return Response.json(
-        { error: { code: "not_found", message: "Not found" } },
-        { status: 404 },
-      );
+      return Response.json({ error: { code: "not_found", message: "Not found" } }, { status: 404 });
     },
   };
 }

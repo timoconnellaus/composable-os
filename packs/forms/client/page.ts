@@ -562,7 +562,12 @@ function formPageOf(d: Drawn): Promise<Response> {
     // One key for this page's send: a second press, or the browser posting it again, is the
     // same send to the host, which answers it once.
     ["_key", crypto.randomUUID()],
-    ...(d.link ? [["_link", d.link], ["_q", JSON.stringify(skeletonOf(questions))]] : []),
+    ...(d.link
+      ? [
+          ["_link", d.link],
+          ["_q", JSON.stringify(skeletonOf(questions))],
+        ]
+      : []),
   ]
     .map(([name, value]) => `<input type="hidden" name="${name}" value="${esc(value ?? "")}">`)
     .join("\n");
@@ -730,7 +735,10 @@ async function replay(
   const version = Number(posted.get("_version"));
   const questions = questionsOfSkeleton(posted.get("_q"));
   if (!KEY.test(key) || !id || !Number.isInteger(version) || version < 1 || !questions) return null;
-  const answers = answersFrom(questions, draftFromFields(questions, (name) => posted.getAll(name)));
+  const answers = answersFrom(
+    questions,
+    draftFromFields(questions, (name) => posted.getAll(name)),
+  );
   const honeypot = posted.get(HONEYPOT_FIELD);
   try {
     await options.client.call(

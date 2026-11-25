@@ -225,15 +225,17 @@ export const week: Out<"x.bookings.timetable"> = {
   ],
 };
 
-export const family: Out<"x.bookings.family"> = {
-  people: [
-    { personId: "p_10", name: "Rachel Moore", self: true },
-    { personId: "p_11", name: "Leo Moore", self: false },
-  ],
+/** Whom the member acts for (`me.family`, which the Bookings blocks read). */
+export const family: Out<"me.family"> = {
+  self: { personId: "p_10", name: "Rachel Moore" },
+  dependants: [{ personId: "p_11", name: "Leo Moore" }],
+  guardians: [],
 };
 
-export const justMe: Out<"x.bookings.family"> = {
-  people: [{ personId: "p_10", name: "Rachel Moore", self: true }],
+export const justMe: Out<"me.family"> = {
+  self: { personId: "p_10", name: "Rachel Moore" },
+  dependants: [],
+  guardians: [],
 };
 
 type MyBooking = Out<"x.bookings.mine">["bookings"][number];

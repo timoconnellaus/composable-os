@@ -77,12 +77,7 @@ import {
   outsideContext,
   practitioners,
 } from "./api.ts";
-import {
-  boundVisitor,
-  type FormPageEnv,
-  handleFormPage,
-  isFormPagePath,
-} from "./form-page.ts";
+import { boundVisitor, type FormPageEnv, handleFormPage, isFormPagePath } from "./form-page.ts";
 
 const PUBLIC: PublicPrincipal = Object.freeze({ kind: "public" });
 

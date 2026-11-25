@@ -64,8 +64,7 @@ export function hostVisitor(request: Request): FormPageVisitor {
  */
 export function boundVisitor(request: Request): FormPageVisitor {
   return {
-    address:
-      request.headers.get("cf-connecting-ip") ?? request.headers.get(VISITOR_ADDRESS_HEADER),
+    address: request.headers.get("cf-connecting-ip") ?? request.headers.get(VISITOR_ADDRESS_HEADER),
     sameOrigin: "forwarded",
   };
 }

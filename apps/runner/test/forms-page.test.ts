@@ -210,7 +210,9 @@ describe("a form's own page (criterion 19)", { timeout: 60_000 }, () => {
   });
 });
 
-describe("a visitor's public form with the spam check on (review of PR #461)", { timeout: 60_000 }, () => {
+describe("a visitor's public form with the spam check on (review of PR #461)", {
+  timeout: 60_000,
+}, () => {
   // A Turnstile secret on this runner, and Cloudflare's siteverify stood in for: every token
   // passes. Then the fill time is the door's real one (3 seconds from the shown time).
   const runnerEnv = env as unknown as { TURNSTILE_SECRET_KEY?: string };

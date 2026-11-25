@@ -107,7 +107,7 @@ the host's operations and add no rules of their own.
    or passes them over when nothing they hold can pay.
 4. **Cancel.** A member's cancel (`cancel`) is resolved by the host's clock to cancelled (use given
    back) or cancelled late (use kept); the preview shows which before it is confirmed.
-5. **Book for a child.** A parent with a family link books their child (`family`, `book`).
+5. **Book for a child.** A parent with a family link books their child (`me.family`, `book`).
 6. **Drop in.** A visitor, or a member with nothing to spend, pays for one class on the web
    (`buy`); a paid drop-in cancelled in time, or by the business, owes the money back, which a
    person approves.
@@ -144,7 +144,9 @@ Stage 31a's steps 3 to 9, as the code has them:
   blocks; the front desk and class list as staff screens in the admin;
 - the class as its coach's shift (stage 45) and the room it occupies (stage 49);
 - a section of the member's My account (stage 48): the timetable with their bookings and a linked
-  child's, shown once they or the child have a booking;
+  child's, shown once they or the child have a booking, where a parent books and cancels for the
+  child; the blocks read who they act for from the host's `me.family` (the `family` tool stays
+  for the API);
 - appointments booked by staff (stage 49's step 5): services, appointments and their states,
   paying from a pass or at the desk, late cancels and no-shows with no fee, excusing, moving,
   reassigning and the coaches' day, under `bookings:desk` or the grantable

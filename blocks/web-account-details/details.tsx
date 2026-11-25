@@ -2,8 +2,10 @@
 // the address they sign in with. What is saved, and what the business sees, is the host's
 // (me.get, me.update): only what changed is sent, and the host checks it again. Their birthday,
 // day and month only (stage 53: me.birthday.get, me.birthday.set), where the client holds them.
+// Changing the address they sign in with is `web-account-email`'s, under the address (ADR 0712).
 import {
   type AccountHooks,
+  type AccountSignIn,
   accountErrorWords,
   type BirthdayForm,
   birthdayDays,
@@ -20,9 +22,12 @@ import { type FormEvent, useState } from "react";
 import { Button } from "../ui-button/button.tsx";
 import { Input } from "../ui-input/input.tsx";
 import { Label } from "../ui-label/label.tsx";
+import { ChangeSignInAddress } from "../web-account-email/email.tsx";
 
 type Hooks = Pick<AccountHooks, "useMe" | "useUpdateMe"> &
-  Partial<Pick<AccountHooks, "useBirthday" | "useSetBirthday">>;
+  Partial<
+    Pick<AccountHooks, "useBirthday" | "useSetBirthday" | "useChangeEmail" | "useConfirmEmail">
+  >;
 
 const FIELDS: { key: keyof DetailsForm; label: string; autoComplete: string }[] = [
   { key: "displayName", label: "Name", autoComplete: "name" },
@@ -31,7 +36,17 @@ const FIELDS: { key: keyof DetailsForm; label: string; autoComplete: string }[] 
   { key: "primaryPhone", label: "Phone", autoComplete: "tel" },
 ];
 
-export function YourDetails({ account }: { account: Hooks }) {
+export function YourDetails({
+  account,
+  signIn,
+}: {
+  account: Hooks;
+  /**
+   * The app's sign-in, for changing the sign-in address (`web-account-email`): with it and the
+   * hooks for it, "Change sign-in address" shows under the address.
+   */
+  signIn?: AccountSignIn;
+}) {
   const me = account.useMe();
   const update = account.useUpdateMe();
   const [form, setForm] = useState<DetailsForm | null>(null);
@@ -72,6 +87,18 @@ export function YourDetails({ account }: { account: Hooks }) {
       />
     ) : null;
 
+  const changeEmail =
+    signIn && account.useChangeEmail && account.useConfirmEmail ? (
+      <ChangeSignInAddress
+        account={{
+          useMe: account.useMe,
+          useChangeEmail: account.useChangeEmail,
+          useConfirmEmail: account.useConfirmEmail,
+        }}
+        signIn={signIn}
+      />
+    ) : null;
+
   return (
     <div className="grid gap-8">
       <form className="grid gap-4" onSubmit={submit} noValidate aria-label="Your details">
@@ -102,6 +129,7 @@ export function YourDetails({ account }: { account: Hooks }) {
           {error ? <span role="alert">{error}</span> : null}
         </div>
       </form>
+      {changeEmail}
       {birthday}
     </div>
   );

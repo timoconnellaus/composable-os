@@ -2,10 +2,11 @@
   "name": "memberships-native-mine",
   "pack": "memberships",
   "skin": "native",
-  "operations": ["x.memberships.mine", "subscription.list", "subscription.coolingOff"],
+  "operations": ["x.memberships.mine", "me.family", "subscription.list", "subscription.coolingOff"],
   "files": ["mine-screen.tsx", "LICENSE"],
-  "dependsOn": ["native-base"],
+  "dependsOn": ["native-base", "native-account-subscriptions"],
   "packages": {
+    "@composable-os/client": "*",
     "@composable-os/pack-memberships": "*"
   },
   "noPurchase": true

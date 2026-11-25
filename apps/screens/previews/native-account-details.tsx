@@ -1,6 +1,6 @@
 import { YourDetails } from "../../../blocks/native-account-details/details.tsx";
 import { Screen } from "../../../blocks/native-base/screen.tsx";
-import { accountHooks } from "./data/account.ts";
+import { accountHooks, signIn } from "./data/account.ts";
 
 const account = accountHooks("device");
 
@@ -8,7 +8,7 @@ const account = accountHooks("device");
 export default function Preview() {
   return (
     <Screen title="Your details">
-      <YourDetails account={account} />
+      <YourDetails account={account} signIn={signIn} />
     </Screen>
   );
 }

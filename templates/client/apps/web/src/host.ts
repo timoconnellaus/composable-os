@@ -319,7 +319,9 @@ export async function formPageRoute(request: Request, env: HostEnv): Promise<Res
     const site = request.headers.get("sec-fetch-site");
     const origin = request.headers.get("origin");
     const ours =
-      site !== null ? site === "same-origin" || site === "none" : origin === "null" || origin === url.origin;
+      site !== null
+        ? site === "same-origin" || site === "none"
+        : origin === "null" || origin === url.origin;
     if (!ours) return formRefusal(403, "forbidden", "Answers are sent from this site's page only");
     const type = request.headers.get("content-type") ?? "";
     if (!/^application\/x-www-form-urlencoded\b/i.test(type)) {

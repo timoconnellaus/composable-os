@@ -97,7 +97,10 @@ buttons, fields, lists, sheets, or a pack's screens. Blocks ship inside the plat
    `Turnstile` (for example `@marsidev/react-turnstile` with the site key of the app's hostname,
    its `onSuccess` calling the block's `onToken`): the block loads no script of its own. A
    member's form from Needs your attention (`form_to_fill`, whose `link` is the link's id) is
-   `LinkedFormBlock` (`LinkedFormScreen` in the app) with that `linkId`. The personal link an
+   `LinkedFormBlock` (`LinkedFormScreen` in the app) with that `linkId`: pass My account's shell
+   (`web-account`, `native-account`) an `onFillForm(linkId)` that opens it. A page that shows
+   `FormBlock` for a personal link's token must load no third-party script, send
+   `Referrer-Policy: no-referrer` and take the token with `takeLinkToken` at once. The personal link an
    email sends (`/form?t=…`) and a form's own page (`/f/<slug>`) need no block: the template's
    `formPageRoute`, which `src/server.ts` calls, serves the host's page on the site (in an adopted
    site, call it from the site's own Worker before its pages). The Courses

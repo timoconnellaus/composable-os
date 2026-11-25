@@ -8,8 +8,8 @@ import {
   cappedText,
   type FormPageClient,
   formPage,
-  MAX_BODY,
   isFormPagePath,
+  MAX_BODY,
   PAGE_SCRIPT,
   pageScriptSource,
   TURNSTILE_ORIGIN,
@@ -409,7 +409,9 @@ describe("the review of PR #461", () => {
     );
     expect(streamed.status).toBe(413);
     expect(calls).toEqual([]);
-    expect(await cappedText(new Request("https://x", { method: "POST", body: "abc" }), 3)).toBe("abc");
+    expect(await cappedText(new Request("https://x", { method: "POST", body: "abc" }), 3)).toBe(
+      "abc",
+    );
   });
 
   it("answers another method with 405 and Allow, and HEAD with the page's headers and no body", async () => {
@@ -471,7 +473,9 @@ describe("the review of PR #461", () => {
     );
     const html = await (await get("/f/ask-about-a-trial", api)).text();
     expect(html).not.toContain("javascript:");
-    expect(html).toContain('<a href="https://gym.example/terms" rel="noopener noreferrer nofollow">good</a>');
+    expect(html).toContain(
+      '<a href="https://gym.example/terms" rel="noopener noreferrer nofollow">good</a>',
+    );
   });
 
   it("a reload after a link's send shows the thanks: the host's stored reply answers", async () => {
@@ -495,7 +499,11 @@ describe("the review of PR #461", () => {
       },
     };
     const page = await (await get(`/form?t=${TOKEN}`, api)).text();
-    const fields: [string, string][] = [...hidden(page), ["a.name", "Ada"], ["a.email", "ada@example.com"]];
+    const fields: [string, string][] = [
+      ...hidden(page),
+      ["a.name", "Ada"],
+      ["a.email", "ada@example.com"],
+    ];
     expect((await post("/form", fields, api)).status).toBe(200);
     const again = await post("/form", fields, api);
     expect(again.status).toBe(200);
@@ -517,4 +525,3 @@ describe("the review of PR #461", () => {
     expect(await refused.text()).toContain("This link cannot be used");
   });
 });
-

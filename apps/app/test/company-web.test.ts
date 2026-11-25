@@ -206,7 +206,7 @@ describe("the form page on the company's own hostname (stage 29, ADR 0728)", () 
         headers: { "content-type": "application/x-www-form-urlencoded", ...headers },
         body: "a.news=yes",
       });
-    for (const headers of [
+    for (const headers of <Record<string, string>[]>[
       { origin: "https://elsewhere.example" },
       { "sec-fetch-site": "cross-site" },
       // A page on a sibling subdomain, with the signed-in customer's cookie going along.
@@ -290,10 +290,7 @@ describe("the template's form route, alone (review of PR #461)", () => {
 
   it("answers 405, 413 and 415 itself, and HEAD with no body", async () => {
     const { sent, env: hostEnv } = recordingHost();
-    const put = await formPageRoute(
-      new Request(`${WEB_ORIGIN}/form`, { method: "PUT" }),
-      hostEnv,
-    );
+    const put = await formPageRoute(new Request(`${WEB_ORIGIN}/form`, { method: "PUT" }), hostEnv);
     expect(put?.status).toBe(405);
     expect(put?.headers.get("allow")).toBe("GET, HEAD, POST");
     expect(put?.headers.get("referrer-policy")).toBe("no-referrer");
@@ -325,4 +322,3 @@ describe("the template's form route, alone (review of PR #461)", () => {
     expect(sent[0]?.url).toBe("https://host/form?t=x");
   });
 });
-
