@@ -1353,7 +1353,7 @@ describe("promo codes kept folded, looked up by index, and guessed no faster tha
       publicLimits: limits,
       clientAddress: { key, shared: false },
     });
-  const check = (code: string, ctx: ReturnType<typeof guest>) =>
+  const check = (code: string, ctx: ReturnType<typeof guest> | ReturnType<typeof staff>) =>
     run<{ valid: boolean; message: string | null }>(
       "discount.check",
       { code, lines: [{ object: CLASS, id: yoga }] },
