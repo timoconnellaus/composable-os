@@ -6,6 +6,10 @@ editUrl: false
 
 My availability (stage 45 step 7), for every rostered person: the times I said I cannot work (leave and other one-off times, and regular time off such as every Wednesday afternoon), to add and to end. Nobody approves it. Only I and whoever rosters ever see it: other staff see nothing, not even that I am away. When I add time off over shifts I am already on, they stay mine (the host lists them in its answer, and tells whoever rosters), and this offers them in one step. What I write about my time off (the note) is forgotten once the call is over and when I leave the page; it is read back only on this screen, and kept in the app's cache no longer than it is shown.
 
+<img class="cos-screen" src="/screens/rostering-my-availability.png" alt="rostering-my-availability, drawn with dummy data" width="800" height="777" loading="lazy" decoding="async" />
+
+Drawn with dummy data.
+
 |  |  |
 | --- | --- |
 | Skin | web |

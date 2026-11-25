@@ -74,3 +74,22 @@ from the code goes stale as soon as the code moves on.
   custom domain on its zone, which it already is for `composableos.dev`.
 - Which release last shipped each pack is not recorded per pack, so the versions page does not
   give it.
+
+## Amendment (2026-11-25): pictures of the screens
+
+Every block's reference page, and each pack's and capability's Screens page, shows a picture of the
+block drawn with dummy data. The pictures are drawn by `apps/screens`, not by hand:
+
+- A block is mounted as a client app mounts it, with its pack's real hooks factory, over a fake
+  client that answers each operation from the block's preview (`apps/screens/previews/<block>.tsx`).
+  The answers are typed by the operations' outputs, so a contract change the dummy data no longer
+  fits fails the typecheck. A query the preview does not answer fails the picture.
+- Web blocks are drawn in the client template's look; native blocks through react-native-web on a
+  phone's screen. The clock is fixed, so a picture changes only when its inputs do.
+- The pictures are committed (`apps/docs/public/screens/`) with a manifest of each one's
+  fingerprint: the block and the blocks it depends on, its pack's headless entry, the harness, its
+  preview and the dummy data it imports. The docs check fails when a block has no preview or its
+  picture is stale, so a pull request that changes a block runs
+  `pnpm --filter @composable-os/screens shoot` in the same pull request. Pixels are not compared:
+  fonts differ between machines, and a fingerprint says what a pixel comparison would, reliably.
+- The owner chose web and native blocks alike, all in one pull request.

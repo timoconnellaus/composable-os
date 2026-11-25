@@ -6,6 +6,10 @@ editUrl: false
 
 A member's day (stage 41): their own sessions on a date, each opened to do it. Built on the web base layer and the session block. Which sessions are theirs is the host's (`useToday`).
 
+<img class="cos-screen" src="/screens/programs-today.png" alt="programs-today, drawn with dummy data" width="880" height="1706" loading="lazy" decoding="async" />
+
+Drawn with dummy data.
+
 |  |  |
 | --- | --- |
 | Skin | web |

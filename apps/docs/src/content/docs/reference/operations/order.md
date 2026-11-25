@@ -197,6 +197,46 @@ Open the payment provider's own page to pay for an order, and get its address to
 | `kind` | `"full"`, `"deposit"`, `"balance"`, `"part"` | yes |   |   |
 | `expiresAt` | string or null | yes |   |   |
 
+## order.delivery.get
+
+How one order's goods get to the buyer: the delivery option chosen, its kind (post, collect, or here: taken now in person), whether the order is online or in person, and for a post delivery the address. One order at a time: addresses are in no list, view, export or search. Staff read any order's (each read is on record in the audit log); a signed-in customer their own; a guest with the order's token. An order without goods has none (not found). Read-only.
+
+|  |  |
+| --- | --- |
+| Permission | `records:read` |
+| Risk | `read` |
+| Audiences | `staff`, `customer`, `public` |
+| Also | host-internal (`hostInternal`); not offered to MCP clients (`mcp.expose: false`) |
+
+### Input
+
+| Field | Type | Required | Limits | Description |
+| --- | --- | --- | --- | --- |
+| `id` | string | yes | min length 1, max length 64 | Order id (ord_…) |
+| `token` | string |   | min length 1, max length 128 | A guest's token for the order |
+
+### Output
+
+| Field | Type | Required | Limits | Description |
+| --- | --- | --- | --- | --- |
+| `orderId` | string | yes |   |   |
+| `channel` | `"online"`, `"in_person"` or null | yes |   |   |
+| `kind` | `"post"`, `"collect"`, `"here"` | yes |   |   |
+| `lineId` | string | yes |   | The order's delivery line |
+| `option` | object | yes |   |   |
+| `option.object` | string | yes |   |   |
+| `option.recordId` | string | yes |   |   |
+| `option.title` | string | yes |   |   |
+| `address` | object or null | yes |   | A post delivery's; null otherwise |
+| `address.name` | string | yes |   |   |
+| `address.line1` | string | yes |   |   |
+| `address.line2` | string or null | yes |   |   |
+| `address.city` | string or null | yes |   |   |
+| `address.region` | string or null | yes |   |   |
+| `address.postcode` | string or null | yes |   |   |
+| `address.country` | string | yes |   |   |
+| `erased` | boolean | yes |   | The buyer's erase removed the address |
+
 ## order.expireDue
 
 Platform use only: expire pending orders whose time to pay has run out (the minute cron). Their held places go back. Part-paid orders never expire. Returns the orders expired.
@@ -612,6 +652,74 @@ An order's money in detail, for staff: each checkout opened, each payment (the p
 | `refundable[].method` | string | yes |   |   |
 | `refundable[].paid` | number | yes |   |   |
 | `refundable[].refundable` | number | yes |   |   |
+
+## order.quote
+
+Price a basket without starting an order: the host's price of each line, the delivery (its postage, nothing when the goods reach the option's free-over amount), the total and what is available, exactly as order.start would charge. Holds nothing and writes nothing: stock is held only once an order is started. Refuses what order.start refuses (not for sale, not sold that way, an address outside the option's countries) and reports, in `problems`, what the buyer still has to do (choose a delivery, give an address) and what is sold out or short; `ready` is true when none is left. Amounts are in the currency's minor unit. Read-only.
+
+|  |  |
+| --- | --- |
+| Permission | `records:read` |
+| Risk | `read` |
+| Audiences | `staff`, `customer`, `public` |
+| Also | host-internal (`hostInternal`) |
+
+### Input
+
+| Field | Type | Required | Limits | Description |
+| --- | --- | --- | --- | --- |
+| `lines` | array of object | yes | at least 1, at most 50 | What is in the basket. There is no price here: the host reads it from each record. |
+| `lines[].object` | string | yes | min length 1, max length 80 | The object of the record to buy |
+| `lines[].id` | string | yes | min length 1, max length 64 | The record to buy |
+| `lines[].quantity` | integer |   | ≥ 1, ≤ 1000, default `1` |   |
+| `delivery` | object |   |   | The delivery option chosen, and to post, the address (its country decides whether the option posts there). Left out, the quote says one is needed when there are goods. |
+| `delivery.object` | string | yes | min length 1, max length 80 | The delivery option's object |
+| `delivery.id` | string | yes | min length 1, max length 64 | The delivery option chosen |
+| `delivery.address` | object |   |   | Where to post the goods: needed for a post option, refused for any other |
+| `delivery.address.name` | string | yes | min length 1, max length 200 | Who it is for |
+| `delivery.address.line1` | string | yes | min length 1, max length 200 |   |
+| `delivery.address.line2` | string |   | max length 200 |   |
+| `delivery.address.city` | string |   | max length 100 |   |
+| `delivery.address.region` | string |   | max length 100 | State, county or province |
+| `delivery.address.postcode` | string |   | max length 20 |   |
+| `delivery.address.country` | string | yes | pattern `^[A-Za-z]{2}$` |   |
+
+### Output
+
+| Field | Type | Required | Limits | Description |
+| --- | --- | --- | --- | --- |
+| `currency` | string | yes |   |   |
+| `channel` | `"online"`, `"in_person"` or null | yes |   | online (posted or collected) or in_person (taken now); null without goods or delivery |
+| `lines` | array of object | yes |   |   |
+| `lines[].position` | number | yes |   |   |
+| `lines[].object` | string | yes |   |   |
+| `lines[].recordId` | string | yes |   |   |
+| `lines[].title` | string | yes |   |   |
+| `lines[].quantity` | number | yes |   |   |
+| `lines[].unitPrice` | number | yes |   |   |
+| `lines[].total` | number | yes |   |   |
+| `lines[].goods` | boolean | yes |   | Goods: posted, collected or taken now |
+| `lines[].availability` | object or null | yes |   |   |
+| `lines[].availability.status` | `"in_stock"`, `"low"`, `"sold_out"` | yes |   |   |
+| `lines[].availability.available` | number |   |   | How many can be bought now: for staff, and for others when the item shows it |
+| `lines[].availability.onHand` | number |   |   | Staff only |
+| `lines[].availability.held` | number |   |   | Staff only |
+| `delivery` | object or null | yes |   |   |
+| `delivery.object` | string | yes |   |   |
+| `delivery.recordId` | string | yes |   |   |
+| `delivery.title` | string | yes |   |   |
+| `delivery.kind` | `"post"`, `"collect"`, `"here"` | yes |   |   |
+| `delivery.price` | number | yes |   | The option's own price |
+| `delivery.freeOver` | number or null | yes |   | Goods at or above this post free |
+| `delivery.free` | boolean | yes |   |   |
+| `delivery.charged` | number | yes |   | What the delivery costs on this order: 0 when free |
+| `goodsTotal` | number | yes |   | What the goods cost, before the delivery |
+| `total` | number | yes |   | What order.start would charge for this basket |
+| `ready` | boolean | yes |   | Nothing in `problems`: the order can be started as it is |
+| `problems` | array of object | yes |   |   |
+| `problems[].rule` | `"delivery_needed"`, `"address_needed"`, `"sold_out"`, `"not_enough"` | yes |   |   |
+| `problems[].message` | string | yes |   |   |
+| `problems[].line` | number |   |   | The position of the line it is about |
 
 ## order.recordPayment
 
@@ -1060,7 +1168,7 @@ Change the order settings: the currency every order is in, the minutes an unpaid
 
 ## order.start
 
-Start an order for one or more records that are for sale, as a signed-in customer, a guest (with an email address) or staff. The host prices it from the records: a caller never sends a price or a total. The order starts pending and is not paid: paying happens on the payment provider's page (order.checkout), and only the provider's confirmation marks it paid. An unpaid order expires after a few minutes. Nobody buys without the agreements the business needs for what is bought: refused with rule agreements_due and the documents while any is due (a guest passes their acceptances in `agreements`; a signed-in customer agrees first; staff send a link, sign at the desk or record paper). Returns the order with its lines and amounts in the currency's minor unit; a guest also gets `token`, shown once, which is the only way back to the order (order.view).
+Start an order for one or more records that are for sale, as a signed-in customer, a guest (with an email address) or staff. The host prices it from the records: a caller never sends a price or a total. The order starts pending and is not paid: paying happens on the payment provider's page (order.checkout), and only the provider's confirmation marks it paid. An unpaid order expires after a few minutes. Nobody buys without the agreements the business needs for what is bought: refused with rule agreements_due and the documents while any is due (a guest passes their acceptances in `agreements`; a signed-in customer agrees first; staff send a link, sign at the desk or record paper). Goods (things posted, collected or taken now) need a `delivery`: the host adds it as the last line, priced by the host, and refuses goods not sold that way (rule not_sold_here), a post delivery with no address or one outside the option's countries, and what is sold out. order.quote gives the same prices without starting anything. Returns the order with its lines and amounts in the currency's minor unit; a guest also gets `token`, shown once, which is the only way back to the order (order.view).
 
 |  |  |
 | --- | --- |
@@ -1090,6 +1198,17 @@ Start an order for one or more records that are for sale, as a signed-in custome
 | `agreements[].answers[].key` | string | yes | min length 1, max length 40 |   |
 | `agreements[].answers[].yes` | boolean | yes |   |   |
 | `agreements[].answers[].note` | string |   | max length 1000 |   |
+| `delivery` | object |   |   | How the goods get to the buyer, when the order has goods (records sold as goods): one delivery option (posted, collected, or taken now in person) and, to post, the address. Required with goods, refused without. The host prices it (free over an amount when the option says so) and works out from it whether the order is online or in person; each goods line must be sold there. |
+| `delivery.object` | string | yes | min length 1, max length 80 | The delivery option's object |
+| `delivery.id` | string | yes | min length 1, max length 64 | The delivery option chosen |
+| `delivery.address` | object |   |   | Where to post the goods: needed for a post option, refused for any other |
+| `delivery.address.name` | string | yes | min length 1, max length 200 | Who it is for |
+| `delivery.address.line1` | string | yes | min length 1, max length 200 |   |
+| `delivery.address.line2` | string |   | max length 200 |   |
+| `delivery.address.city` | string |   | max length 100 |   |
+| `delivery.address.region` | string |   | max length 100 | State, county or province |
+| `delivery.address.postcode` | string |   | max length 20 |   |
+| `delivery.address.country` | string | yes | pattern `^[A-Za-z]{2}$` |   |
 
 ### Output
 

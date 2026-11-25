@@ -236,7 +236,8 @@ const REMAINING: Record<string, [reads: number, why: Why]> = {
   "operations/inbox.ts": [2, WHY.inbox],
   "inbox/index.ts": [2, WHY.inbox],
   // Stage 44 (the review of PR #280): order.setPerson reads the People an order's address is
-  // theirs (and merges of them) and the order's lines for their agreement points.
+  // theirs (and merges of them) and the order's lines for their agreement points. Stage 37
+  // step 3 (ADR 0682): order.delivery.get reads the delivery line's title with the delivery.
   "operations/order.ts": [4, WHY.host],
   // Stage 30 step 3 (ADR 0673): a member's check of a number reads their own Person's phones (the
   // principal's, never one from input), to send a code only to a number on their record.

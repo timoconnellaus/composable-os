@@ -6,6 +6,10 @@ editUrl: false
 
 A class's list, for its coach (stage 31a step 7): who is booked, ticked, not come and waiting, and a button to tick each name. When the list opens, whether a name can be ticked, and who ticked it first when two coaches tick at once are the host's; this shows its answers. Nothing here shows what anyone paid with. "Health note" marks a yes on someone's current health form (stage 44, decision 18): the host gives the mark only, never the form, and only to a person.
 
+<img class="cos-screen" src="/screens/bookings-class-list.png" alt="bookings-class-list, drawn with dummy data" width="720" height="476" loading="lazy" decoding="async" />
+
+Drawn with dummy data.
+
 |  |  |
 | --- | --- |
 | Skin | web |

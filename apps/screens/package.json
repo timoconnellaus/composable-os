@@ -1,0 +1,47 @@
+{
+  "name": "@composable-os/screens",
+  "version": "0.0.0",
+  "license": "FSL-1.1-ALv2",
+  "private": true,
+  "description": "Every block rendered with dummy data, for the docs site's screen pictures: a fake client answers each operation a block's hooks call from its preview file, and a script saves a picture of each.",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --port 4323",
+    "build": "vite build",
+    "shoot": "node scripts/shoot.mjs",
+    "check": "node scripts/shoot.mjs --check",
+    "typecheck": "tsc --noEmit -p tsconfig.json && tsc --noEmit -p tsconfig.native.json"
+  },
+  "dependencies": {
+    "@composable-os/client": "workspace:*",
+    "@composable-os/pack-bookings": "workspace:*",
+    "@composable-os/pack-content": "workspace:*",
+    "@composable-os/pack-courses": "workspace:*",
+    "@composable-os/pack-dailychecks": "workspace:*",
+    "@composable-os/pack-memberships": "workspace:*",
+    "@composable-os/pack-programs": "workspace:*",
+    "@composable-os/pack-rostering": "workspace:*",
+    "@composable-os/pack-ticketing": "workspace:*",
+    "@composable-os/sdk": "workspace:*",
+    "@tanstack/react-query": "5.105.3",
+    "class-variance-authority": "0.7.1",
+    "clsx": "2.1.1",
+    "radix-ui": "1.8.1",
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
+    "react-native-web": "0.21.4",
+    "tailwind-merge": "3.7.0"
+  },
+  "devDependencies": {
+    "@composable-os/config": "workspace:*",
+    "@playwright/test": "1.64.1",
+    "@tailwindcss/vite": "4.3.4",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "@vitejs/plugin-react": "6.2.1",
+    "react-native": "0.88.1",
+    "tailwindcss": "4.3.4",
+    "typescript": "6.0.3",
+    "vite": "8.3.5"
+  }
+}

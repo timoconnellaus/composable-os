@@ -6,6 +6,10 @@ editUrl: false
 
 The coach's program builder (stage 41): weeks, sessions, blocks and items, by drag and by keyboard; exercises picked from the bank; typed sets; levels; notes, for coaches or shown to members; copying a week or a session; the working copy saved as the coach goes, with the host's faults shown where they are; versions, restoring one, publishing, and assigning. Built on the web base layer. It holds no rules: what a layout may hold is the host's schema (a refused save shows the host's words at the part it names), who may publish is the host's (the button is offered from what `user.me` says, and the host decides), and assigning makes its dates in the host. Editing is `layoutEdits` from the pack's client.
 
+<img class="cos-screen" src="/screens/programs-builder.png" alt="programs-builder, drawn with dummy data" width="1024" height="2610" loading="lazy" decoding="async" />
+
+Drawn with dummy data.
+
 |  |  |
 | --- | --- |
 | Skin | web |

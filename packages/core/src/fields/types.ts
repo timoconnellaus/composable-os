@@ -479,6 +479,17 @@ export interface SellableDefinition {
     earned: "at_sale" | "over_period" | "per_use" | "at_date";
     at?: string | undefined;
   };
+  /** Goods (ADR 0682): `soldIn` a path to a select of online, in_person, both, as declared. */
+  goods?: { soldIn?: string | undefined } | undefined;
+  /** A delivery option (ADR 0682): its kind, free over, countries and active fields. */
+  delivery?:
+    | {
+        kind: string;
+        freeOver?: string | undefined;
+        countries?: string | undefined;
+        active?: string | undefined;
+      }
+    | undefined;
 }
 
 /** What an order does to the record it was started for (ADR 0560), with registry names. */

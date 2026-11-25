@@ -979,17 +979,20 @@ prefixes its Worker and resource names and never appears in the deployment's dat
 sees it only as a deploy var (`COS_TENANT_ID`), for the **tenant tag** on Platform AI calls and
 for signing its calls back to the control plane.
 
-**Hosted client** (stage 46, proposed; ADR 0610)
-A client product's deployment in our Cloudflare account, in the Workers for Platforms namespace,
-deployed by `cos deploy` from the client's repository. It keeps the names its `product.ts` gives
-it and has no tenant id. Its **tier** is **standard** (settings only, on a standard product's
-release, behind a shared web app), **bespoke** (its own repository, web app and extensions) or
-**own account** (the same, in the client's Cloudflare account).
-_Avoid_: tenant (for a client), multi-tenant
+**Client** (stage 66, spec agreed; ADRs 0610, 0611)
+One business on a host that serves many: an id, hostnames, settings, secrets and a database of
+its own. Nothing in its data holds its id. Its **tier** is **standard** (settings only, behind a
+shared web app), **bespoke** (its own repository, web app and extensions, on the shared host) or
+**own account** (a deployment of its own in its Cloudflare account).
+_Avoid_: tenant, multi-tenant (in prose and UI copy)
 
-**Fleet** (stage 46, proposed)
-Every hosted client's hosts together. We set its platform version; a **hold** keeps one client
-on its version through a fleet update.
+**Client's database** (stage 66, spec agreed)
+A Durable Object with SQLite storage, one per client, that the host opens by client and uses
+through the same interface as D1. A deployment with one client uses D1 itself.
+
+**Registry** (stage 66, spec agreed)
+The host's own database of its clients: their hostnames, per-client settings and secrets. Only
+the operator writes it; no operation, extension or assistant reaches it.
 
 **Control plane**
 `crm-control` on the hosted CRM's `app.` host (`products/crm/apps/control`): sign-up, plans,
@@ -1431,6 +1434,29 @@ The number at or below which a stock record is low (the field `stock.reorderAt` 
 write takes it there, the staff who keep stock (the pack's `stock.notify` permission, else the
 admins) are told once; again only after it has risen above and fallen again (one **crossing**)
 (ADR 0681).
+
+**Goods**
+Records handed over or sent (a variant of an item in a shop), declared `sellable.goods` by their
+object, with where each is sold (`soldIn`: online, in person or both, often read through the item).
+An order with goods needs exactly one **delivery** and has a **channel** (stage 37, ADR 0682).
+
+**Delivery option** and **delivery**
+A record of an object declaring `sellable.delivery`: one way of getting an order's goods to the
+buyer, of a kind: **post** (to an address in the option's countries, or "everywhere else"),
+**collect** (at a place) or **here** ("take it now", in person). The buyer chooses one in
+`order.start`'s `delivery`; the host adds it as the order's last line and prices it (**postage**:
+the option's price, or nothing over its "free over", ADR 0685). A post delivery's address is kept
+by the host (`core_order_delivery`), read one order at a time and blanked by the buyer's erase.
+
+**Channel** (of an order)
+Where an order with goods is sold, worked out by the host from its delivery and never taken from a
+caller: **online** (post or collect) or **in person** (here). A goods line not sold in the order's
+channel is refused on every path (ADR 0682). The till's desk orders will be in person too.
+
+**Quote** (`order.quote`)
+The host's prices for a basket, holding nothing: each line, the delivery, the total, and what is
+available or sold out, exactly as `order.start` would charge. A device's basket shows it (stage 37,
+ADR 0683).
 
 **Series** (of a recurring schedule)
 A record that declares `recurring`: a rule in local wall-clock time (weekdays, a time, a

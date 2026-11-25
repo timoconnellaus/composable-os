@@ -6,6 +6,10 @@ editUrl: false
 
 One ticket with its code, for the mobile app (stage 27): a QR carrying the code alone, large on a white card, with the screen at full brightness while it is shown and as it was afterwards. The app gives the QR drawing and the brightness control it uses (for example `react-native-qrcode-svg` and `expo-brightness`), so this block needs neither package.
 
+<img class="cos-screen cos-screen-native" src="/screens/ticketing-native-ticket.png" alt="ticketing-native-ticket, drawn with dummy data" width="390" height="844" loading="lazy" decoding="async" />
+
+Drawn with dummy data.
+
 |  |  |
 | --- | --- |
 | Skin | native |

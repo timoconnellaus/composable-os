@@ -6,6 +6,10 @@ editUrl: false
 
 Offered to me, in the app (stage 45 step 7): the shifts the host says I could take now, soonest first, and taking one. Nobody approves a take. When I said I am away then, the host asks me to confirm and this asks the same in a sheet; when someone else took it first the host names them; a withdrawn or lapsed offer, one past the cut-off, a clash, a shift that changed hands, or a kind I am not qualified for each shows the host's words, and the list is read again.
 
+<img class="cos-screen cos-screen-native" src="/screens/rostering-native-offers.png" alt="rostering-native-offers, drawn with dummy data" width="390" height="844" loading="lazy" decoding="async" />
+
+Drawn with dummy data.
+
 |  |  |
 | --- | --- |
 | Skin | native |

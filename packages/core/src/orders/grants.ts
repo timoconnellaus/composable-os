@@ -251,6 +251,16 @@ async function grant(
       continue;
     }
     const sources = Object.values(grants.set);
+    // A delivery taken now, in person, has nothing to pack (ADR 0682): only post and collect
+    // grant what staff send or hand over (a shipment). The kind is the order's, as it started.
+    if (item.sellable?.delivery) {
+      const delivery = await ctx.db
+        .selectFrom("core_order_delivery")
+        .select("kind")
+        .where("line_id", "=", line.id)
+        .executeTakeFirst();
+      if (!delivery || delivery.kind === "here") continue;
+    }
     const itemRow =
       sources.some((s) => s.startsWith("item.")) || grants.valid?.days
         ? await readGrantItem(ctx, item, line.record_id)

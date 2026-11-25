@@ -147,7 +147,7 @@ export async function checkoutTax(
   orderId: string,
   amount: number,
   prefix: string,
-): Promise<CheckoutTax | null> {
+): Promise<{ tax: CheckoutTax; stored: CheckoutTaxLine[] } | null> {
   if (!(await loadOrderTax(db))) return null;
   const overrides = await loadOrderTaxCodes(db);
   // The host's own read of the order's lines, org-wide, through the seam.
@@ -194,18 +194,22 @@ export async function checkoutTax(
   const net = (line: (typeof lines)[number]) => line.row.line_total - line.row.line_discount;
   const priced = lines.filter((line) => net(line) > 0);
   const shares = splitInProportion(amount, priced.map(net));
+  // Where posted goods go (ADR 0682): a post delivery's address is the place of its goods lines
+  // and of the delivery line, so the provider taxes the sale where the goods are sent.
+  const posted = await deliveryPlace(db, orderId);
   const out: CheckoutTaxLine[] = [];
+  /** The lines whose place is the buyer's address: kept without it (orders/checkout.ts). */
+  const atAddress = new Set<string>();
   for (const [index, line] of priced.entries()) {
     const share = shares[index] ?? 0;
     if (share <= 0) continue;
     const object = line.object as ObjectDefinition;
-    const place = await placeOf(
-      db,
-      object,
-      line.row.record_id,
-      object.sellable?.tax as TaxDefinition,
-      line.row.position,
-    );
+    const declared = object.sellable?.tax as TaxDefinition;
+    const goes = posted && !declared.place && (object.sellable?.goods || object.sellable?.delivery);
+    if (goes) atAddress.add(line.row.id);
+    const place = goes
+      ? posted
+      : await placeOf(db, object, line.row.record_id, declared, line.row.position);
     const item =
       line.row.quantity > 1 ? `${line.row.quantity} x ${line.row.title}` : line.row.title;
     out.push({
@@ -216,5 +220,31 @@ export async function checkoutTax(
       ...(place ? { place } : {}),
     });
   }
-  return { behavior: "inclusive", lines: out };
+  // The copy the host keeps of what it sent has no buyer's address in it (ADR 0682): only the
+  // provider is told where the goods go.
+  const stored = out.map((line) => {
+    if (!atAddress.has(line.ref)) return line;
+    const { place: _place, ...rest } = line;
+    return rest;
+  });
+  return { tax: { behavior: "inclusive", lines: out }, stored };
+}
+
+/** A post delivery's address as a tax place, or undefined (collect, here, none, erased). */
+async function deliveryPlace(
+  db: Kysely<CoreDatabase>,
+  orderId: string,
+): Promise<TaxPlace | undefined> {
+  const row = await db
+    .selectFrom("core_order_delivery")
+    .select(["kind", "line1", "city", "region", "postcode", "country"])
+    .where("order_id", "=", orderId)
+    .executeTakeFirst();
+  if (!row || row.kind !== "post" || !row.country) return undefined;
+  const place: TaxPlace = { country: row.country };
+  if (row.region) place.region = row.region.slice(0, 100);
+  if (row.postcode) place.postcode = row.postcode.slice(0, 20);
+  if (row.city) place.city = row.city.slice(0, 100);
+  if (row.line1) place.line1 = row.line1.slice(0, 200);
+  return place;
 }

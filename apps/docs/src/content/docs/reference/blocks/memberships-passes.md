@@ -6,6 +6,10 @@ editUrl: false
 
 Buying a pass on a gym's site (stage 32b): the pass types on sale (class packs, drop-ins, an intro offer) with the host's price, what each gives and how long it is valid, and a button that starts the order and opens the payment provider's page. The price, whether it is on sale, and the intro offer's one per person are the host's (`x.memberships.buy`, the host's order): a guest is refused an intro offer and told to sign in, and a second one is refused, whatever this shows. The pass is granted by the host once the provider confirms the payment. Web only. What must be agreed to first (stage 44: the terms, a waiver) is the host's answer too: when "Buy" is refused with it, the documents are shown inline (the web-agree block's step) and "Buy" is tried again. A visitor's agreements travel in the buying call, held in memory until then; a member's are recorded as they agree. A minor is told a parent or guardian buys it.
 
+<img class="cos-screen" src="/screens/memberships-passes.png" alt="memberships-passes, drawn with dummy data" width="720" height="610" loading="lazy" decoding="async" />
+
+Drawn with dummy data.
+
 |  |  |
 | --- | --- |
 | Skin | web |

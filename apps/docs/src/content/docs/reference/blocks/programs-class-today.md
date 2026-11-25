@@ -6,6 +6,10 @@ editUrl: false
 
 A class type's session for a day (stage 41): its plan with every level, for a member to choose the level they take and log their numbers, or for a coach running the class. Built on the web base layer and the session block. Which sessions a class has, and what a member reads of them (the coach's notes left out), are the host's (`useClassToday`).
 
+<img class="cos-screen" src="/screens/programs-class-today.png" alt="programs-class-today, drawn with dummy data" width="880" height="1230" loading="lazy" decoding="async" />
+
+Drawn with dummy data.
+
 |  |  |
 | --- | --- |
 | Skin | web |

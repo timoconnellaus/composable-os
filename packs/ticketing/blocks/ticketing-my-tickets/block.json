@@ -4,7 +4,7 @@
   "skin": "web",
   "operations": ["x.ticketing.myTickets"],
   "files": ["my-tickets.tsx", "LICENSE"],
-  "dependsOn": [],
+  "dependsOn": ["ui-button"],
   "packages": {
     "@composable-os/pack-ticketing": "*"
   }
