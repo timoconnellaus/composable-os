@@ -305,7 +305,9 @@ test("a coach signs in to the admin, opens today's list and ticks who came", asy
     const watch = watchRefusals(coach.page);
     await open(coach.page, "/");
     await expect(coach.page.locator('[data-shell="fixed-role"]')).toBeVisible();
-    const screens = coach.page.locator('[data-testid^="screens-nav-"] a');
+    // Its Bookings screens: another pack's for every staff account (Knowledge's Procedures and To
+    // read, when a spec has installed it) may sit beside them.
+    const screens = coach.page.getByTestId("screens-nav-Bookings").locator("a");
     await expect(screens).toHaveText(["Class list"]);
     // No search, assistant, notifications or records in its shell.
     await expect(coach.page.getByTestId("open-palette")).toHaveCount(0);
@@ -339,12 +341,16 @@ test("a coach signs in to the admin, opens today's list and ticks who came", asy
       `/people/${person.id}`,
       "/settings",
       "/dashboards",
-      `/x/bookings.class/${klass.id}`,
       "/s/bookings/desk",
     ]) {
       await coach.page.goto(path);
       await expect(coach.page.getByTestId("not-found"), path).toBeVisible();
     }
+    // The class's own page (a notice's link) opens the record screen the host lists for it on a
+    // class instead: its Class list, for that class (ADR 0708).
+    await coach.page.goto(`/x/bookings.class/${klass.id}`);
+    await expect(coach.page).toHaveURL(new RegExp(`/s/bookings/classList\\?record=${klass.id}$`));
+    await expect(coach.page.getByRole("region", { name: "Class list" })).toBeVisible();
     await watch.settled();
     expect(watch.refused).toEqual([]);
 

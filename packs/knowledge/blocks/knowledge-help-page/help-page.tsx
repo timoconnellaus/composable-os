@@ -10,7 +10,7 @@
 
 import { mediaPath, type RichText as RichTextValue } from "@composable-os/pack-content/client";
 import type { KnowledgeHooks, Published } from "@composable-os/pack-knowledge/client";
-import { helpPageHead, slugOf, titleOf } from "@composable-os/pack-knowledge/client";
+import { helpHref, helpPageHead, slugOf, titleOf } from "@composable-os/pack-knowledge/client";
 import { useId } from "react";
 import { RichText } from "../content-rich-text/rich-text.tsx";
 
@@ -20,11 +20,11 @@ export type HelpPageHooks = Pick<KnowledgeHooks, "useHelpPage" | "useHelpPages">
 function Related({
   knowledge,
   ids,
-  hrefOf,
+  hrefOf = helpHref,
 }: {
   knowledge: Pick<HelpPageHooks, "useHelpPages">;
   ids: string[];
-  hrefOf: (slug: string) => string;
+  hrefOf?: (slug: string) => string;
 }) {
   const pages = knowledge.useHelpPages({
     filter: { field: "id", op: "in", value: ids },
@@ -53,13 +53,13 @@ function Related({
 export function HelpArticle({
   knowledge,
   page,
-  hrefOf,
+  hrefOf = helpHref,
   mediaBase = "",
   mediaUrl = (id, width) => mediaPath(id, width, mediaBase),
 }: {
   knowledge: Pick<HelpPageHooks, "useHelpPages">;
   page: Published;
-  hrefOf: (slug: string) => string;
+  hrefOf?: (slug: string) => string;
   mediaBase?: string;
   mediaUrl?: (id: string, width: number) => string;
 }) {
@@ -89,7 +89,7 @@ export function HelpArticle({
 export function HelpPage({
   knowledge,
   slug,
-  hrefOf,
+  hrefOf = helpHref,
   onRedirect,
   mediaBase,
   mediaUrl,
@@ -97,9 +97,12 @@ export function HelpPage({
   knowledge: HelpPageHooks;
   slug: string;
   /** The page a help page is read on: `(slug) => "/help/" + slug`. */
-  hrefOf: (slug: string) => string;
-  /** The page's address now, for an old one: send a 301 there. */
-  onRedirect: (slug: string) => void;
+  hrefOf?: (slug: string) => string;
+  /**
+   * The page's address now, for an old one: send a 301 there (on the server). Without it, the
+   * page links to the new address.
+   */
+  onRedirect?: (slug: string) => void;
   mediaBase?: string;
   mediaUrl?: (id: string, width: number) => string;
 }) {
@@ -109,8 +112,12 @@ export function HelpPage({
     return <p role="alert">This help page is not here. It may have moved or been taken down.</p>;
   }
   if (data.kind === "redirect") {
-    onRedirect(data.slug);
-    return <p>This help page has moved.</p>;
+    onRedirect?.(data.slug);
+    return (
+      <p>
+        This help page has moved: <a href={hrefOf(data.slug)}>read it at its new address</a>.
+      </p>
+    );
   }
   return (
     <HelpArticle

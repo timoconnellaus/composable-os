@@ -15,7 +15,7 @@ import type {
   SearchHit,
   Segment,
 } from "@composable-os/pack-knowledge/client";
-import { slugOf, titleOf } from "@composable-os/pack-knowledge/client";
+import { helpHref, slugOf, titleOf } from "@composable-os/pack-knowledge/client";
 import { useEffect, useId, useState } from "react";
 import { Input } from "../ui-input/input.tsx";
 
@@ -59,12 +59,12 @@ const hitHref = (hit: SearchHit, hrefOf: (slug: string) => string) =>
 /** Help pages whose published words match, as the visitor types. */
 export function HelpSearch({
   knowledge,
-  hrefOf,
+  hrefOf = helpHref,
   label = "Search help",
 }: {
   knowledge: Pick<HelpCentreHooks, "useSearchHelp">;
   /** The page a help page is read on: `(slug) => "/help/" + slug`. */
-  hrefOf: (slug: string) => string;
+  hrefOf?: (slug: string) => string;
   label?: string;
 }) {
   const [q, setQ] = useState("");
@@ -131,11 +131,11 @@ export function HelpSearch({
 export function TopicPages({
   knowledge,
   topicId,
-  hrefOf,
+  hrefOf = helpHref,
 }: {
   knowledge: Pick<HelpCentreHooks, "useHelpPages">;
   topicId: string;
-  hrefOf: (slug: string) => string;
+  hrefOf?: (slug: string) => string;
 }) {
   const pages = knowledge.useHelpPages({
     filter: { field: "topic", op: "eq", value: topicId },
@@ -165,13 +165,13 @@ export function TopicPages({
 /** The help centre's home: search, then every topic with its pages. */
 export function HelpCentre({
   knowledge,
-  hrefOf,
+  hrefOf = helpHref,
   topicHref,
   title = "Help",
 }: {
   knowledge: HelpCentreHooks;
   /** The page a help page is read on: `(slug) => "/help/" + slug`. */
-  hrefOf: (slug: string) => string;
+  hrefOf?: (slug: string) => string;
   /** A topic's own page, when the site has one: `(slug) => "/help/topics/" + slug`. */
   topicHref?: (slug: string) => string;
   title?: string;
@@ -217,11 +217,11 @@ export function HelpCentre({
 export function HelpTopicPage({
   knowledge,
   slug,
-  hrefOf,
+  hrefOf = helpHref,
 }: {
   knowledge: Pick<HelpCentreHooks, "useHelpTopics" | "useHelpPages">;
   slug: string;
-  hrefOf: (slug: string) => string;
+  hrefOf?: (slug: string) => string;
 }) {
   const topics = knowledge.useHelpTopics();
   if (topics.isPending) return <p aria-busy="true">Loading…</p>;

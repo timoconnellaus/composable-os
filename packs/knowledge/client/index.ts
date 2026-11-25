@@ -258,6 +258,14 @@ export function slugOf(record: Pick<Published, "values">): string | null {
   return str(record.values.slug);
 }
 
+/**
+ * Where a help page is read on the business's site by default: `/help/<address>` (the help page's
+ * address field says so). A site with another layout passes its own `hrefOf` to the blocks.
+ */
+export function helpHref(slug: string): string {
+  return `/help/${encodeURIComponent(slug)}`;
+}
+
 /** A date as words in the locale: "3 March 2026". Empty for what is not a date. */
 export function dayWords(iso: string, locale = "en-AU"): string {
   const date = new Date(iso);

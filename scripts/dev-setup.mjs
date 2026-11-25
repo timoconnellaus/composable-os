@@ -248,6 +248,13 @@ execFileSync("pnpm", ["exec", "wrangler", "d1", "migrations", "apply", "DB", "--
       readFileSync(join(root, "packs/content", file), "utf8"),
     ]),
   );
+  // And Knowledge (stage 38), which requires nothing, the same way, for its e2e spec.
+  const knowledge = Object.fromEntries(
+    ["index.ts", "tools.ts", "automations.ts"].map((file) => [
+      file,
+      readFileSync(join(root, "packs/knowledge", file), "utf8"),
+    ]),
+  );
   // And Forms (stage 29), which requires nothing, the same way, for its e2e spec.
   const forms = Object.fromEntries(
     ["index.ts", "tools.ts", "automations.ts", "routine-mail.ts"].map((file) => [
@@ -291,6 +298,7 @@ execFileSync("pnpm", ["exec", "wrangler", "d1", "migrations", "apply", "DB", "--
       { id: "rostering", version: "0.1.0", optional: true, files: rostering },
       { id: "dailychecks", version: "0.1.0", optional: true, files: dailychecks },
       { id: "forms", version: "0.1.0", optional: true, files: forms },
+      { id: "knowledge", version: "0.1.0", optional: true, files: knowledge },
     ].filter((extension) => asOrgExtension(extension.id)),
   });
   const hash = createHash("sha256").update(text).digest("hex");
