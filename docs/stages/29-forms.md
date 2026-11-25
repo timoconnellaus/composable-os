@@ -65,7 +65,8 @@ interview.
   settings wait for step 7 and `x.forms.ask` and `forms:manage` for step 5; the pack is not added
   to the CRM's packs. Not yet tried on a live host.
 
-- **Step 4** — not built — needs: step 2 — Hosted page, web and native blocks, headless entry.
+- **Step 4** — in progress — branch `feat/stage-29-form-page` — Hosted page, web and native blocks,
+  headless entry.
 
 - **Step 5** — built — PR #458 — Personal links, the receipt and the form-link slot, Bookings'
   feedback, the `form_to_fill` attention kind (`feat/stage-29-personal-links`): migration 1010
