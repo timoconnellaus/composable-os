@@ -98,16 +98,28 @@ the pictures' build resolve such a sibling import (`../content-rich-text/…`) t
 **What a fixed-role account is given of a procedure's section and pictures** (amended in the
 PR's review round, see the amendment below; amends ADR 0701):
 
-- **Section names: given with the procedure.** `publishable.staffNames` (SDK, contract-checked)
-  names single relation content fields to another object of the same pack. `content.staffGet`
-  and `content.staffList` then give each record `names`: the related live record's title by field
-  (`names.section`, a procedure's section's name), read from that object's table, its title only,
-  nothing of a deleted one. The Knowledge pack declares `staffNames: ["section"]`, and its blocks
-  group and label by `names.section`; no block asks for sections at all (the `useSections` hook and
-  its `record.list` are gone). The reach this adds: a staff reader, a pack role's included, learns
-  the title of a section a published procedure names, which the procedure's own page already
-  showed it by id. The contract refuses a person, an organisation, another pack's object, a
-  relation to many and a field outside the content, and it needs `staffRead`.
+- **Sections: given with the procedure.** `publishable.staffNames` (SDK, contract-checked at
+  install, and held again when the host reads, `namedTarget` in `visibility/staff-read.ts`) names
+  single relation content fields to another object of the same pack, each as a field name or as
+  `{ field, order }`. `content.staffGet` and `content.staffList` then give each record `names`: by
+  field, the related live record's `id` (the field's own value), its `title`, and, with `order`,
+  its value of that number field (`order`, null when empty), read from that object's table, those
+  columns only, nothing of a deleted one. The Knowledge pack declares
+  `staffNames: [{ field: "section", order: "order" }]`; its blocks group by the section's id, in
+  the sections' `order` (those without one after, then by name), labelled by its name, so two
+  sections with the same name stay two and the admin's order holds; no block asks for sections at
+  all (the `useSections` hook and its `record.list` are gone).
+  - **What a staff reader now learns of the related record**, a pack role's included: its id
+    (already in the procedure's values), its title, and its declared order number. Nothing else.
+  - **The rule** (second review): the title is read as it is on the record, so the related object
+    must be one whose title every staff account may see: the contract refuses an object that is
+    `publishable` (its title could be an unpublished draft's), declares `customer` (guardians are
+    part of it), `customerVia` or `access` (row rules of its own), a title field that is not
+    plain `text` (never an email, a phone, a choice), an order field that is not a `number`, a
+    person, an organisation, another pack's object, a relation to many, a field outside the
+    content, and `staffNames` without `staffRead`. A runtime extension declaring such a target
+    is refused at install (`apps/runner/test/knowledge.test.ts`), and the read gives no name for
+    one should the registry ever hold it.
 - **Pictures: never asked for.** `media.serve` stays outside a pack-role account's reach (ADR
   0701), and a refused `media.serve` is audited (the media route calls it through the pipeline,
   whose pack-role refusal writes a `forbidden` row). So `content.staffGet` answers `pictures`:
@@ -144,8 +156,11 @@ PR's review round, see the amendment below; amends ADR 0701):
   native, with the list at version 3 and the reader at version 4: `{ version: 4 }` is sent; a
   refusal in the staff client's real `not_current` shape is shown as an alert and never as
   "Confirmed".
-- `packages/sdk/test/staff-names.test.ts`: what the contract checks of `staffNames`.
-- `apps/runner/test/knowledge.test.ts`: a coach and a member get the section's name with the
+- `packages/sdk/test/staff-names.test.ts`: what the contract checks of `staffNames`: each refusal
+  above (publishable, customer, customerVia, access, a title that is not text, an order that is
+  not a number), with an order allowed.
+- `apps/runner/test/knowledge.test.ts`: an install naming a publishable target is refused; a
+  coach and a member get the section's id, name and order with the
   procedure (by id and in a list) while the coach is still refused the section; a deleted section
   gives none; `pictures` is true for an admin and a member, false for a coach.
 - `packs/knowledge/test/client.test.ts`: `myStanding`, `knowledgeRefusal` (the tool's nested

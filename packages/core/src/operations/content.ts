@@ -407,11 +407,18 @@ const publishedOut = recordOut.extend({
   version: z.number().int().describe("The published version these values are"),
   publishedAt: z.string().describe("When that version was published"),
   names: z
-    .record(z.string(), z.string())
+    .record(
+      z.string(),
+      z.object({
+        id: z.string(),
+        title: z.string(),
+        order: z.number().nullable().optional(),
+      }),
+    )
     .optional()
     .describe(
-      "For an object that declares staffNames: the title of each related record those fields " +
-        "name, by field (a procedure's section's name)",
+      "For an object that declares staffNames: each related record those fields name, by field: " +
+        "its id, its title and, when declared, its order (a procedure's section)",
     ),
 });
 

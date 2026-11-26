@@ -101,21 +101,61 @@ describe("what the reader says", () => {
     );
   });
 
-  it("groups procedures by the section name the host gave with each, none last", () => {
-    const p = (id: string, section?: string): Published => ({
+  it("pins the refusal shapes it relies on: an unknown one is never read as not found", () => {
+    const surface = (details: unknown, message = "Refused by the host") =>
+      Object.assign(new Error(message), { code: "extension_error", details });
+    // ack.confirm's forbidden (packages/core/src/operations/ack.ts, `requirePerson`): `{ actor }`.
+    expect(
+      knowledgeRefusal(surface({ actor: "assistant" }, "Only the person themselves does this")),
+    ).toEqual({ kind: "other", message: "Only the person themselves does this" });
+    // Its conflicts: `{ reason, … }`.
+    expect(knowledgeRefusal(surface({ reason: "not_current", current: 2 })).kind).toBe(
+      "not_current",
+    );
+    // Its not found: exactly `{ object, id }`.
+    expect(knowledgeRefusal(surface({ object: "knowledge.procedure", id: "rec_1" })).kind).toBe(
+      "not_found",
+    );
+    // A shape no refusal has today, with object and id among others: not read as not found.
+    expect(
+      knowledgeRefusal(surface({ object: "knowledge.procedure", id: "rec_1", reason: "new_rule" }))
+        .kind,
+    ).toBe("other");
+    expect(
+      knowledgeRefusal(surface({ object: "knowledge.procedure", id: "rec_1", field: "x" })).kind,
+    ).toBe("other");
+  });
+
+  it("groups procedures by their section's id, in the sections' order, labelled by name", () => {
+    const p = (id: string, section?: [string, string, number | null]): Published => ({
       object: PROCEDURE,
       id,
-      values: { title: id },
-      ...(section ? { names: { section } } : {}),
+      values: { title: id, ...(section ? { section: section[0] } : {}) },
+      ...(section
+        ? { names: { section: { id: section[0], title: section[1], order: section[2] } } }
+        : {}),
     });
-    const groups = bySection([p("a", "Safety"), p("b"), p("c", "Front desk"), p("d", "Safety")]);
-    expect(groups.map((g) => [g.name, g.items.map((i) => i.id)])).toEqual([
-      ["Front desk", ["c"]],
-      ["Safety", ["a", "d"]],
-      ["Other", ["b"]],
+    const groups = bySection([
+      p("a", ["s_safety", "Safety", 1]),
+      p("b"),
+      p("c", ["s_desk", "Front desk", 2]),
+      p("d", ["s_safety", "Safety", 1]),
+      // Another section with the same name: its own group, after, by its order.
+      p("e", ["s_safety2", "Safety", 3]),
+      // A section with no order comes after those with one.
+      p("f", ["s_cleaning", "Cleaning", null]),
+    ]);
+    expect(groups.map((g) => [g.id, g.name, g.items.map((i) => i.id)])).toEqual([
+      ["s_safety", "Safety", ["a", "d"]],
+      ["s_desk", "Front desk", ["c"]],
+      ["s_safety2", "Safety", ["e"]],
+      ["s_cleaning", "Cleaning", ["f"]],
+      [null, "Other", ["b"]],
     ]);
     // With no section at all, one list with no heading.
-    expect(bySection([p("a"), p("b")])).toEqual([{ name: null, items: [p("a"), p("b")] }]);
+    expect(bySection([p("a"), p("b")])).toEqual([
+      { id: null, name: null, items: [p("a"), p("b")] },
+    ]);
   });
 });
 

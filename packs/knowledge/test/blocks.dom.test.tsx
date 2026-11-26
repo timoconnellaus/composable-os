@@ -22,7 +22,7 @@ const procedure: Published & { pictures: boolean } = {
     title: TITLE,
     body: { blocks: [{ type: "paragraph", content: [{ type: "text", text: "Stay calm." }] }] },
   },
-  names: { section: "Safety" },
+  names: { section: { id: "rec_safety", title: "Safety", order: 1 } },
   version: 4,
   publishedAt: "2026-03-03T09:00:00.000Z",
   pictures: true,

@@ -10,7 +10,7 @@
 // names; a refusal (a newer version published meanwhile, already confirmed) is shown, never taken
 // as done. Rich text is drawn by the Content pack's renderer only: nothing here is HTML.
 //
-// Each procedure's section is the name the host gives with it (`names.section`, ADR 0708), so no
+// Each procedure's section is what the host gives with it (`names.section`: its id, name and order, ADR 0708), so no
 // account, a coach's or a cleaner's included, asks for sections. A pack-role account is not
 // served a procedure's pictures (the host's media rule): the reader asks for none for it (the
 // procedure's `pictures` answer says so) and says in each one's place that it cannot be shown.
@@ -414,7 +414,7 @@ function ProcedureList({
     <div className="grid gap-6">
       {groups.map((group) => (
         <section
-          key={group.name ?? "none"}
+          key={group.id ?? "none"}
           aria-label={group.name ?? "Procedures"}
           className="grid gap-2"
         >

@@ -34,7 +34,7 @@ const procedure: Published = {
     section: "rec_safety",
   },
   // The section's name, as the host gives it with the procedure (staffNames, ADR 0708).
-  names: { section: "Safety" },
+  names: { section: { id: "rec_safety", title: "Safety", order: 2 } },
   version: 4,
   publishedAt: "2026-03-03T09:00:00.000Z",
 };
@@ -201,12 +201,25 @@ describe("the procedure reader, web and native, from one fixture", () => {
     );
   });
 
-  it("groups procedures under the section name the host gave with each, asking for no sections", () => {
+  it("groups procedures by their section, in its order, labelled by the name the host gave, asking for no sections", () => {
     const fire: Published = {
       ...procedure,
       id: "rec_fire",
       values: { ...procedure.values, title: "Fire alarm" },
-      names: { section: "Front desk" },
+      names: { section: { id: "rec_desk", title: "Front desk", order: 1 } },
+    };
+    // First by its order, though its name sorts last; and a second "Safety" stays its own group.
+    const yard: Published = {
+      ...procedure,
+      id: "rec_yard",
+      values: { ...procedure.values, title: "Yard gates" },
+      names: { section: { id: "rec_zone", title: "Zones outside", order: 0 } },
+    };
+    const twin: Published = {
+      ...procedure,
+      id: "rec_twin",
+      values: { ...procedure.values, title: "Pool safety" },
+      names: { section: { id: "rec_safety_2", title: "Safety", order: 5 } },
     };
     const loose: Published = {
       ...procedure,
@@ -217,15 +230,20 @@ describe("the procedure reader, web and native, from one fixture", () => {
     const list = web(
       <Procedures
         knowledge={hooks({
-          procedures: { data: { items: [procedure, fire, loose], nextCursor: null } },
+          procedures: {
+            data: { items: [procedure, fire, loose, yard, twin], nextCursor: null },
+          },
         })}
       />,
     );
     const order = [
+      "Zones outside",
+      "Yard gates",
       "Front desk",
       "Fire alarm",
       "Safety",
       "When someone is hurt",
+      "Pool safety",
       "Other",
       "Lost property",
     ];
@@ -233,6 +251,7 @@ describe("the procedure reader, web and native, from one fixture", () => {
     expect(at.every((i) => i >= 0)).toBe(true);
     expect([...at].sort((a, b) => a - b)).toEqual(at);
     expect(list).toContain('data-to-read=""');
+    expect(list.match(/<h2[^>]*>Safety<\/h2>/g)).toHaveLength(2);
     // The hooks the blocks are given hold no sections read: none can be asked for.
     expect(Object.keys(hooks({}))).not.toContain("useSections");
   });

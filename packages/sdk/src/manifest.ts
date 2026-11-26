@@ -364,7 +364,16 @@ const objectManifestSchema = z.object({
         .strict()
         .optional(),
       staffRead: z.boolean().optional(),
-      staffNames: z.array(z.string().max(40)).min(1).max(8).optional(),
+      staffNames: z
+        .array(
+          z.union([
+            z.string().max(40),
+            z.object({ field: z.string().max(40), order: z.string().max(40) }).strict(),
+          ]),
+        )
+        .min(1)
+        .max(8)
+        .optional(),
     })
     .strict()
     .optional(),
@@ -2029,7 +2038,9 @@ export function validateManifest(
       if (p.staffRead !== true) {
         contract(`${path}.staffNames`, "publishable.staffNames needs staffRead");
       }
-      for (const fieldName of p.staffNames) {
+      for (const entry of p.staffNames) {
+        const fieldName = typeof entry === "string" ? entry : entry.field;
+        const orderName = typeof entry === "string" ? undefined : entry.order;
         const field = object.fields[fieldName];
         const to = field?.type === "relation" ? field.to : undefined;
         const local = to?.startsWith(`${m.id}.`) ? to.slice(m.id.length + 1) : undefined;
@@ -2043,6 +2054,38 @@ export function validateManifest(
             `${path}.staffNames`,
             `"${fieldName}" must relate to another object of this pack (${m.id}.*)`,
           );
+        } else {
+          // Its title goes to every staff reader, pack roles included, read as it is on the
+          // record: so the target is a plain grouping object with no row rules of its own (no
+          // versions whose draft is not yet published, no customer, no access holders), and its
+          // title is plain text (never an email, a phone or a choice).
+          const target = m.objects[local] as (typeof m.objects)[string];
+          const rules = (
+            [
+              ["publishable", target.publishable],
+              ["customer", target.customer],
+              ["customerVia", target.customerVia],
+              ["access", target.access],
+            ] as const
+          )
+            .filter(([, declared]) => declared !== undefined)
+            .map(([key]) => key);
+          if (rules.length) {
+            contract(
+              `${path}.staffNames`,
+              `"${fieldName}" relates to ${m.id}.${local}, which declares ${rules.join(", ")}: staffNames names only an object with no row rules of its own`,
+            );
+          } else if (target.fields[target.titleField]?.type !== "text") {
+            contract(
+              `${path}.staffNames`,
+              `"${fieldName}" relates to ${m.id}.${local}, whose title field is not plain text`,
+            );
+          } else if (orderName !== undefined && target.fields[orderName]?.type !== "number") {
+            contract(
+              `${path}.staffNames`,
+              `"${fieldName}" orders by "${orderName}", which is not a number field of ${m.id}.${local}`,
+            );
+          }
         }
       }
     }

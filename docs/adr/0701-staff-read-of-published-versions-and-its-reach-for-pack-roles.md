@@ -99,7 +99,8 @@ looks-after limit. `packages/core/test/screens.test.ts` (the registry walk) and
 
 **Amended 2026-11-26** (stage 38 step 6, [ADR 0708](0708-the-knowledge-packs-blocks-and-screens.md)):
 an object may declare `publishable.staffNames`, single relation content fields to another object of
-the same pack; `content.staffGet` and `content.staffList` then give each record the related live
-record's title by field (`names`), so a pack-role account reads a procedure's section's name and
-nothing else of the section. `content.staffGet` also answers `pictures`, whether the caller reaches
+the same pack with no row rules of its own (not publishable, no customer, customerVia or access)
+and a plain text title; `content.staffGet` and `content.staffList` then give each record the
+related live record's id, title and (when declared) order by field (`names`), so a pack-role
+account reads a procedure's section's name and order and nothing else of the section. `content.staffGet` also answers `pictures`, whether the caller reaches
 `media.serve`; a pack-role account still does not.

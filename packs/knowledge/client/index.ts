@@ -40,7 +40,15 @@ export interface Published {
    * Staff read: the title of each related record the object names in `staffNames` (a procedure's
    * section's name), by field, from the host (ADR 0708).
    */
-  names?: Record<string, string>;
+  names?: Record<string, RelatedName>;
+}
+
+/** A related record a staff reader is given with a published one (`names`, ADR 0708). */
+export interface RelatedName {
+  id: string;
+  title: string;
+  /** Its order among its kind (a section's), when the object declares one. */
+  order?: number | null;
 }
 
 /** A part of a highlighted title, heading or snippet: plain, or a matching word. */
@@ -306,31 +314,49 @@ export function myStanding(
 
 /** Procedures under one section (or none). */
 export interface SectionGroup {
+  /** The section's id; null for the procedures with none. */
+  id: string | null;
   name: string | null;
   items: Published[];
 }
 
 /** A published procedure's section's name, as the host gave it (`names.section`), or null. */
 export function sectionOf(record: Pick<Published, "names">): string | null {
-  return str(record.names?.section);
+  return str(record.names?.section?.title);
 }
 
 /**
- * A page of procedures grouped by their section's name (the host's `names`, ADR 0708), the
- * sections in alphabetical order, those with none last ("Other" when there are sections).
+ * A page of procedures grouped by their section (the host's `names.section`, ADR 0708): one group
+ * per section id, so two sections with the same name stay two, in the sections' own `order` (none
+ * last, then by name), labelled by name; procedures with no section last ("Other" when there are
+ * sections).
  */
 export function bySection(procedures: readonly Published[], locale = "en-AU"): SectionGroup[] {
-  const groups = new Map<string, Published[]>();
+  const groups = new Map<string, { name: string; order: number | null; items: Published[] }>();
   const other: Published[] = [];
   for (const procedure of procedures) {
-    const name = sectionOf(procedure);
-    if (name === null) other.push(procedure);
-    else groups.set(name, [...(groups.get(name) ?? []), procedure]);
+    const section = procedure.names?.section;
+    const name = str(section?.title);
+    if (!section || name === null) {
+      other.push(procedure);
+      continue;
+    }
+    const group = groups.get(section.id) ?? {
+      name,
+      order: typeof section.order === "number" ? section.order : null,
+      items: [],
+    };
+    group.items.push(procedure);
+    groups.set(section.id, group);
   }
   const named: SectionGroup[] = [...groups.entries()]
-    .sort(([a], [b]) => a.localeCompare(b, locale))
-    .map(([name, items]) => ({ name, items }));
-  if (other.length) named.push({ name: named.length ? "Other" : null, items: other });
+    .sort(
+      ([, a], [, b]) =>
+        (a.order ?? Number.POSITIVE_INFINITY) - (b.order ?? Number.POSITIVE_INFINITY) ||
+        a.name.localeCompare(b.name, locale),
+    )
+    .map(([id, g]) => ({ id, name: g.name, items: g.items }));
+  if (other.length) named.push({ id: null, name: named.length ? "Other" : null, items: other });
   return named;
 }
 
@@ -387,10 +413,16 @@ export function knowledgeRefusal(error: unknown): KnowledgeRefusal {
     return { kind: "already_confirmed", message: "You have already confirmed this version." };
   }
   const code = [outer?.code, e?.code].find((c) => typeof c === "string");
-  // The admin's staff client keeps a tool's inner details only (`{ object, id }` for not found).
+  // The admin's staff client keeps a tool's inner details only, so the inner code is gone. The
+  // shapes `ack.confirm` refuses with there (packages/core/src/operations/ack.ts), pinned by
+  // client.test.ts: not found `{ object, id }` exactly; the conflicts `{ reason, … }` (read above);
+  // forbidden `{ actor }`. Only details of exactly `{ object, id }` read as not found: any other
+  // shape a future refusal brings reads as "other", with the host's own words, never as not found.
+  const keys = outer ? Object.keys(outer).sort().join(",") : "";
   const notFound =
     code === "not_found" ||
     (e?.code === "extension_error" &&
+      keys === "id,object" &&
       typeof outer?.object === "string" &&
       typeof outer?.id === "string");
   if (notFound) {

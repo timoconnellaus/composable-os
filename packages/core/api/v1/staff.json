@@ -26927,13 +26927,32 @@
             "description": "When that version was published"
           },
           "names": {
-            "description": "For an object that declares staffNames: the title of each related record those fields name, by field (a procedure's section's name)",
+            "description": "For an object that declares staffNames: each related record those fields name, by field: its id, its title and, when declared, its order (a procedure's section)",
             "type": "object",
             "propertyNames": {
               "type": "string"
             },
             "additionalProperties": {
-              "type": "string"
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "order": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "title"
+              ],
+              "additionalProperties": false
             }
           },
           "redirect": {
@@ -27123,13 +27142,32 @@
                   "description": "When that version was published"
                 },
                 "names": {
-                  "description": "For an object that declares staffNames: the title of each related record those fields name, by field (a procedure's section's name)",
+                  "description": "For an object that declares staffNames: each related record those fields name, by field: its id, its title and, when declared, its order (a procedure's section)",
                   "type": "object",
                   "propertyNames": {
                     "type": "string"
                   },
                   "additionalProperties": {
-                    "type": "string"
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string"
+                      },
+                      "title": {
+                        "type": "string"
+                      },
+                      "order": {
+                        "type": [
+                          "number",
+                          "null"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "title"
+                    ],
+                    "additionalProperties": false
                   }
                 }
               },

@@ -47,7 +47,8 @@ the assistant or by an MCP client, with a person publishing each. It requires no
 - **Staff read what was published.** A procedure declares staff read (ADR 0701): every staff
   account, pack roles included, reads its current published version with `content.staffGet`,
   `content.staffList` and `content.search` (each match with its section's anchor), and never the
-  working copy, each with its section's name (`staffNames`, ADR 0708). A pack-role account reads
+  working copy, each with its section's id, name and order (`staffNames`, ADR 0708), so its
+  screens list sections in their order. A pack-role account reads
   nothing else of the pack. Its pictures are served to staff with a full role; a pack-role account
   reads its words and not its pictures, and `content.staffGet` says so (`pictures`), so its reader
   asks for none.

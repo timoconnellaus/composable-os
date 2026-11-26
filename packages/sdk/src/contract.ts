@@ -1001,11 +1001,14 @@ export interface PublishableSpec {
   staffRead?: boolean;
   /**
    * Staff read names (stage 38 step 6, ADR 0708): content fields, each a single relation to
-   * another object of this pack (a procedure's section), whose related record's title a staff
-   * reader is given beside the values (`names` in `content.staffGet` and `content.staffList`), so
-   * a pack-role account shows a procedure's section without reading sections. Needs `staffRead`.
+   * another object of this pack (a procedure's section), whose related record's id and title (and,
+   * given `{ field, order }`, its value of that number field) a staff reader is given beside the
+   * values (`names` in `content.staffGet` and `content.staffList`), so a pack-role account shows
+   * a procedure's section without reading sections. Needs `staffRead`. The related object must
+   * declare no row rules of its own (not publishable, no customer, customerVia or access), and
+   * its title field must be plain text.
    */
-  staffNames?: readonly string[];
+  staffNames?: readonly (string | { field: string; order: string })[];
 }
 
 /** An object's customer: see `ObjectSpec.customer`. */

@@ -672,7 +672,7 @@ describe("a procedure's section and pictures, as each reader is given them (step
     const name = unique("Safety ");
     const section = await run<{ id: string }>(
       "record.create",
-      { object: "knowledge.section", values: { name } },
+      { object: "knowledge.section", values: { name, order: 3 } },
       staff(admin),
     );
     const id = await draftedProcedure(unique("Spills"), "# Straight away\nCone it off.");
@@ -687,28 +687,70 @@ describe("a procedure's section and pictures, as each reader is given them (step
       run("record.get", { object: "knowledge.section", id: section.id }, staff(coach)),
     );
     expect(refused.code).toBe("forbidden");
+    const given = { section: { id: section.id, title: name, order: 3 } };
     for (const who of [coach, member]) {
-      const one = await run<{ names?: Record<string, string> }>(
+      const one = await run<{ names?: Record<string, unknown> }>(
         "content.staffGet",
         { object: PROCEDURE, id },
         staff(who),
       );
-      expect(one.names).toEqual({ section: name });
-      const page = await run<{ items: { id: string; names?: Record<string, string> }[] }>(
+      expect(one.names).toEqual(given);
+      const page = await run<{ items: { id: string; names?: Record<string, unknown> }[] }>(
         "content.staffList",
         { object: PROCEDURE, filter: { field: "section", op: "eq", value: section.id } },
         staff(who),
       );
-      expect(page.items.find((p) => p.id === id)?.names).toEqual({ section: name });
+      expect(page.items.find((p) => p.id === id)?.names).toEqual(given);
     }
     // A deleted section: no name.
     await run("record.delete", { object: "knowledge.section", id: section.id }, staff(admin));
-    const after = await run<{ names?: Record<string, string> }>(
+    const after = await run<{ names?: Record<string, unknown> }>(
       "content.staffGet",
       { object: PROCEDURE, id },
       staff(coach),
     );
     expect(after.names).toEqual({});
+  });
+
+  it("refuses at install a staffNames field naming an object with rules of its own", async () => {
+    // A runtime extension whose page names a chapter that is itself publishable: its title could
+    // be an unpublished draft's, so no staff reader is given it, and the install is refused.
+    const source = (chapter: string) => `import { defineExtension } from "@composable-os/sdk";
+export default defineExtension({
+  id: "manualx",
+  version: "1.0.0",
+  contractVersion: 1,
+  objects: {
+    page: {
+      label: "Page",
+      plural: "Pages",
+      titleField: "title",
+      fields: {
+        title: { type: "text", label: "Title" },
+        chapter: { type: "relation", label: "Chapter", to: "manualx.chapter" },
+      },
+      publishable: { content: ["title", "chapter"], staffRead: true, staffNames: ["chapter"] },
+    },
+    chapter: {
+      label: "Chapter",
+      plural: "Chapters",
+      titleField: "name",
+      fields: { name: { type: "text", label: "Name" } },
+      ${chapter}
+    },
+  },
+});
+`;
+    const refused = await refusal(
+      run(
+        "extension.install",
+        { id: "manualx", files: { "index.ts": source('publishable: { content: ["name"] },') } },
+        staff(admin),
+      ),
+    );
+    expect(JSON.stringify(refused.details)).toContain(
+      "which declares publishable: staffNames names only an object with no row rules of its own",
+    );
   });
 
   it("says whether the reader is served the procedure's pictures: a pack role is not", async () => {
