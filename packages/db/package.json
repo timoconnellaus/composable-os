@@ -8,8 +8,10 @@
     ".": "./src/index.ts",
     "./seed": "./src/seed.ts",
     "./client-db": "./src/client-db.ts",
+    "./sql-export": "./src/sql-export.ts",
     "./testing/vitest": "./testing/vitest.ts",
-    "./testing/conformance": "./testing/conformance.ts"
+    "./testing/conformance": "./testing/conformance.ts",
+    "./testing/contents": "./testing/contents.ts"
   },
   "scripts": {
     "postinstall": "node scripts/schema-version.mjs",

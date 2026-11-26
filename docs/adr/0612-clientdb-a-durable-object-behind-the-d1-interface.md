@@ -91,19 +91,33 @@ reports there; until it has run, those rows are what the platform documents, not
 | `PRAGMA journal_mode`, `user_version`, `compile_options` | refused (not authorised) | same locally | to be seen | a probe; the host uses none |
 | `BEGIN`, `SAVEPOINT` | refused | refused (the object's message) | real D1's text may differ | nothing uses them |
 | FTS5 (migrations 0006, 0970), JSON functions, `->>`, `jsonb` | available | same | to be seen | probes |
-| Sessions and bookmarks (`withSession`, `getBookmark`) | read replicas, a bookmark per session | a session over the same object, `getBookmark()` always null | different | **deferred to step 2**; nothing in the host uses them |
-| `dump` | retired, refuses | refuses | same | export as SQL is step 2 |
-| `query()` (`d1_binding_jsrpc`) | behind a compatibility flag | absent | absent | nothing uses it |
+| Sessions and bookmarks (`withSession`, `getBookmark`) | read replicas, a bookmark per session | a session over the same object, `getBookmark()` always null | different | a read-replication token, which one object does not need; restore points are `ClientDb.bookmark()` (ADR 0614) |
+| `dump` | retired, refuses | refuses, naming the export | same | export as SQL (`@composable-os/db/sql-export`, ADR 0614) |
+| `query()` (`d1_binding_jsrpc`) | behind a compatibility flag | refused with `D1_ERROR`, clearly | same | nothing uses it |
 | One query at a time | one primary | one object | to be timed | the proof's checkout times it |
+| A result over 32 MiB (40 rows of 1 MB) | returned | **failed with the RPC limit in step 1** (review S1); since step 2 returned, fetched in parts of 8 MiB | `/step2/answers` | held by the object and fetched in parts; over 48 MiB refused, `read it in pages` (ADR 0614) |
+| A batch whose answer is over 32 MiB (about 137,000 statements) | returned | **committed but reported as failed in step 1** (review B1); since step 2 a compact answer, in parts | `/step2/answers` | answer bounded inside the transaction; every write set recorded under its id, `outcome(id)` (ADR 0614) |
+| Queries an invocation | 1,000 (D1's own) | not enforced | each call a subrequest: 10,000 an invocation on Paid by default, shared with fetches; to be measured | `clientDbCalls(db)` counts them; `/step2/calls` (ADR 0614) |
+| A value or row, corrected (step 2) | D1 documents 2 MB | not enforced | Durable Objects' limits page documents 8 MB (2026-11), not 2 MB as the row above says | a client's database may hold a row D1 refuses: an export of such a row fails on D1 |
+| A database's size | 10 GB | `databaseSize` | 10 GB a Durable Object on Paid, then `SQLITE_FULL` | `usage()`, a clear refusal past 9.5 GB (ADR 0614) |
 
 ## Deferred to step 2
+_Amended 2026-11-26 (stage 66 step 2, [ADR 0614](0614-clientdb-finished.md)): each item below is
+built, as that ADR says; the review of step 1 added the bounded answers (B1, S1), indexed parts
+(M1), the bound on what the object holds (M2), the runtime's error flags (M4), the call counter
+(S6), and `ClientDb` in a Worker of its own (S9)._
+
 - **Bookmarks and restore** with the object's point-in-time recovery (`getCurrentBookmark`,
-  `onNextSessionRestoreBookmark`), and a session's `getBookmark` returning one.
-- **Export and import** as SQL (`dump` refuses until then).
+  `onNextSessionRestoreBookmark`), and a session's `getBookmark` returning one. Built:
+  `bookmark`, `bookmarkAt`, `restore`, `restart`, `restoreClientDb`. A session's `getBookmark` stays
+  null: D1's is a read-replication token, not a restore point (ADR 0614).
+- **Export and import** as SQL (`dump` refuses until then). Built: `@composable-os/db/sql-export`.
 - **Size for usage reports:** `size()` and `meta.size_after` exist; the report and the 10 GB limit
-  do not.
+  do not. Built: `usage()`, and a clear refusal before the limit.
 - **The location hint from the registry:** `clientDatabase` takes one (the proof Worker passes
-  `oc`); where a client's comes from is step 3's registry.
+  `oc`); where a client's comes from is step 3's registry. Built: `place()` records the first hint;
+  the registry's is step 3's.
+- **Migrations with a report:** `migrateAndReport` and `level` (added by step 2).
 - Step 1 rewires no entry: every Worker still calls `createCrmDb(env.DB)` with its D1 binding, and
   a single-client deployment runs exactly as before. The registry and the client's environment are
   step 3, the entries steps 4 and 5.

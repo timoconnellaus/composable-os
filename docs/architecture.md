@@ -122,6 +122,17 @@ One **D1** database per deployment, with real tables ([ADR 0002](adr/0002-d1-rea
   `@composable-os/db/testing/conformance` probes it against D1. No entry uses it yet: every Worker
   still opens `createCrmDb(env.DB)` on D1. `apps/client-db-proof` is the Worker that times it
   against D1 on Cloudflare (docs/deploying.md).
+  Step 2 ([ADR 0614](adr/0614-clientdb-finished.md)) finished it: an answer larger than one call
+  is held by the object and fetched in parts, and one too large to hold rolls its set back, so
+  nothing is committed that cannot be reported; every write set is recorded under its id
+  (`outcome`), so a lost answer is never retried blind. Migrations report what they applied and
+  the schema version (`migrateAndReport`, `level`); bookmarks and restore use the object's
+  point-in-time recovery (30 days, Cloudflare only); `usage()` and a clear refusal before the
+  10 GB limit; `place()` records the first location hint. `@composable-os/db/sql-export` writes
+  any database (a client's or D1) out as parts of plain SQL and imports them into an empty one,
+  resumably, so a client moves to D1 and back with every value the same. `ClientDb` is deployed in
+  its own Worker, `cos-client-db` (`apps/client-db`), bound by script name, so a release of the
+  host does not restart every client's database; no single-client release ships it.
 
 - **Core schema** (`core_*` tables): our versioned migrations, applied on deploy or upgrade. It covers
   the minimal core objects (People, Organisations, Activities, Tasks), users, settings, the approval

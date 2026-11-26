@@ -1,17 +1,28 @@
-// A client's database (stage 66, ADR 0612): a Durable Object with SQLite storage, one object per
-// client, behind the `D1Database` interface the host's code already uses. `ClientDb` is the
-// object; `clientDatabase()` returns something that stands where a D1 binding stands and sends
+// A client's database (stage 66, ADRs 0612 and 0614): a Durable Object with SQLite storage, one
+// object per client, behind the `D1Database` interface the host's code already uses. `ClientDb` is
+// the object; `clientDatabase()` returns something that stands where a D1 binding stands and sends
 // each call to that client's object, with D1's result shape, error text and value conversions
 // (the binding's own code, `cloudflare-internal:d1-api`, and the local D1 object it talks to were
 // the reference). What differs from D1, and why, is the table in ADR 0612.
 //
 // Every query set a call sends (one statement, a batch, or `exec`'s lines) runs in one
-// transaction inside the object, as D1 runs it: all apply or none do.
+// transaction inside the object, as D1 runs it: all apply or none do. A set is never committed
+// unless its answer can be returned (ADR 0614): an answer too large for one Workers RPC call is
+// held by the object and fetched in parts, and one too large to hold rolls the set back. Every set
+// that wrote is recorded under its id, so a caller whose answer was lost can ask whether it
+// committed instead of sending it again.
 //
-// Not here yet (stage 66 step 2): bookmarks and restore, export and import, a location hint.
-// `withSession` gives a session that never has a bookmark, `dump` refuses, as D1's does today.
+// Step 2 also gave the object: migrations with a report (`migrateAndReport`, `level`), bookmarks
+// and restore (`bookmark`, `bookmarkAt`, `restore`, `restart`, `restoreClientDb`), its size against
+// the storage limit (`usage`, a clear refusal before the limit), and where it was first placed
+// (`place`). Export and import as SQL are in `sql-export.ts`, over any `D1Database`.
 import { DurableObject } from "cloudflare:workers";
-import { applyMigrations, type Migration } from "./migrate.ts";
+import {
+  applyMigrations,
+  getMigrationLevel,
+  type Migration,
+  type MigrationLevel,
+} from "./migrate.ts";
 
 /** A value on its way to or from the object: what D1's binding sends, with bytes as a buffer. */
 export type ClientDbValue = string | number | null | ArrayBuffer;
@@ -43,11 +54,131 @@ export interface ClientDbMeta {
   rows_written: number;
 }
 
-/** What the object answers a query set with: D1's answer, a failure as data (not thrown). */
-export type ClientDbAnswer = { ok: true; results: ClientDbResult[] } | { ok: false; error: string };
+/**
+ * A statement's meta as it crosses RPC: the numbers only, in this order. The constant parts
+ * (`served_by` and the rest) are filled in on the binding's side. A full meta object is about 244
+ * bytes on the wire; this is about 40, so a batch of many statements stays well inside a call.
+ */
+export type PackedMeta = [
+  duration: number,
+  changes: number,
+  lastRowId: number,
+  changedDb: 0 | 1,
+  sizeAfter: number,
+  rowsRead: number,
+  rowsWritten: number,
+];
+
+/**
+ * Part of one statement's result: the statement's index in the set, its columns and meta (on its
+ * first piece only, null on later ones), and some of its rows. A result too large for one part is
+ * cut between rows into several pieces.
+ */
+export type ClientDbPiece = [
+  statement: number,
+  columns: string[] | null,
+  meta: PackedMeta | null,
+  rows: ClientDbValue[][],
+];
+
+/**
+ * What the object answers a query set with: D1's answer, a failure as data (not thrown). When the
+ * answer is larger than one part, `pieces` is its first part and `held` names the rest, which the
+ * object holds for `HELD_TTL_MS` and gives out with `take`. A failure means nothing was applied.
+ */
+export type ClientDbAnswer =
+  | {
+      ok: true;
+      statements: number;
+      pieces: ClientDbPiece[];
+      held: { id: string; parts: number } | null;
+    }
+  | { ok: false; error: string };
+
+/** One part of a held answer, or why it is gone. */
+export type ClientDbAnswerPart =
+  | { ok: true; pieces: ClientDbPiece[] }
+  | { ok: false; error: string };
+
+/** Whether a query set sent with an id committed (`outcome`). */
+export interface ClientDbOutcome {
+  /** True when a set with this id wrote and committed. */
+  committed: boolean;
+  /** Its answer's parts, while the object still holds them. */
+  held: number | null;
+}
 
 /** What a client's database reports itself as, where D1 says `miniflare.db` or its region. */
 export const CLIENT_DB_SERVED_BY = "cos-client-db";
+
+/**
+ * The most a part of a request or an answer carries, by the estimate below: well inside Workers
+ * RPC's 32 MiB a call.
+ */
+export const PART_BYTES = 8 * 1024 * 1024;
+
+/**
+ * The largest answer a query set may have. Above it the set is refused and, if it wrote, rolled
+ * back: D1 returns larger results, but an object holding more than this for a caller to fetch
+ * risks its 128 MB of memory. A read that large is read in pages (`LIMIT`), as an export is.
+ */
+export const MAX_ANSWER_BYTES = 48 * 1024 * 1024;
+
+/** The most the object holds at once for callers: staged request parts and held answers. */
+export const MAX_HELD_BYTES = 64 * 1024 * 1024;
+
+/**
+ * How long the object keeps the parts of a batch sent in parts, or of an answer held for its
+ * caller, before forgetting them. They are sent or fetched one after another within one call of
+ * `batch`, so a minute is far more than enough; a batch whose commit never comes is dropped
+ * unapplied.
+ */
+export const HELD_TTL_MS = 60_000;
+
+/** How long a query set's outcome is kept, for a caller to ask whether it committed. */
+export const OUTCOME_TTL_MS = 60 * 60 * 1000;
+
+/**
+ * A Durable Object's SQLite storage limit on the Workers Paid plan: 10 GB (Cloudflare's Durable
+ * Objects limits, 2026-11). Writes past it fail with `SQLITE_FULL`; reads and deletes still work.
+ */
+export const STORAGE_LIMIT_BYTES = 10_000_000_000;
+
+/** Where the object refuses a write that grows it, before the platform's opaque failure. */
+export const DEFAULT_REFUSE_AT_BYTES = 9_500_000_000;
+
+/** Where usage reports a client's database as near its limit. */
+export const DEFAULT_WARN_AT_BYTES = 8_000_000_000;
+
+/** How full a client's database is (`ClientDb.usage`), for usage reports and the operator. */
+export interface ClientDbUsage {
+  bytes: number;
+  limitBytes: number;
+  warnAtBytes: number;
+  refuseAtBytes: number;
+  /** `ok`, `warning` past `warnAtBytes`, `refusing` past `refuseAtBytes` (writes that grow it). */
+  state: "ok" | "warning" | "refusing";
+}
+
+/** What `migrateAndReport` did: what it applied, the migration that failed, the level after. */
+export interface MigrationReport {
+  applied: string[];
+  /** The migration that failed, rolled back whole; the ones before it stay applied. */
+  failed: { name: string; error: string } | null;
+  level: MigrationLevel;
+}
+
+/** Where the object was first reached from, and what a later caller asked for (`place`). */
+export interface ClientDbPlace {
+  /** The hint passed the first time `place` was called, null when none was. */
+  locationHint: string | null;
+  /** When that was. */
+  at: number;
+  /** True when this call recorded it. */
+  first: boolean;
+  /** True when this call passed a different hint, which Cloudflare ignores. */
+  differs: boolean;
+}
 
 /** A statement that is only blank lines and comments, which D1 leaves out of a query set. */
 function isEmptyStatement(sql: string): boolean {
@@ -56,83 +187,27 @@ function isEmptyStatement(sql: string): boolean {
   return sql.replace(/^\s+--.*/gm, "").trim().length === 0;
 }
 
+/** A refusal raised inside a transaction, so that it rolls back, with its own message. */
+class Refusal extends Error {}
+
+/** A character past U+00FF: V8 then writes the string two bytes a character. */
+const NOT_ONE_BYTE = /[Ā-￿]/;
+
 /**
- * Runs `queries` against `storage` in one transaction, as D1's object does: each statement's
- * meta from the connection's `total_changes()` and `last_insert_rowid()` around it (so a
- * trigger's writes count in `changes`, as on D1), the database's size after it, and the cursor's
- * rows read and written.
+ * A value's size on the wire, as Workers RPC (V8's serializer) writes it: a string of one-byte
+ * characters one byte each, any other two; bytes as they are; a number nine.
  */
-export function runQueries(
-  storage: DurableObjectStorage,
-  queries: ClientDbQuery[],
-): ClientDbAnswer {
-  const set = queries.filter((query) => !isEmptyStatement(query.sql));
-  if (set.length === 0) return { ok: false, error: "No SQL statements detected." };
-  const sql = storage.sql;
-  const counters = () =>
-    sql
-      .exec<{ t: number; l: number }>("SELECT total_changes() AS t, last_insert_rowid() AS l")
-      .one();
-  try {
-    const results = storage.transactionSync(() =>
-      set.map((query): ClientDbResult => {
-        const sizeBefore = sql.databaseSize;
-        const before = counters();
-        const started = performance.now();
-        const cursor = sql.exec(query.sql, ...query.params);
-        const columns = cursor.columnNames;
-        const rows = Array.from(cursor.raw()) as ClientDbValue[][];
-        const duration = performance.now() - started;
-        const sizeAfter = sql.databaseSize;
-        const after = counters();
-        const changes = Number(after.t) - Number(before.t);
-        return {
-          columns,
-          rows,
-          meta: {
-            served_by: CLIENT_DB_SERVED_BY,
-            served_by_primary: true,
-            total_attempts: 1,
-            timings: { sql_duration_ms: duration },
-            duration,
-            changes,
-            last_row_id: Number(after.l),
-            changed_db: changes !== 0 || after.l !== before.l || sizeAfter !== sizeBefore,
-            size_after: sizeAfter,
-            rows_read: cursor.rowsRead,
-            rows_written: cursor.rowsWritten,
-          },
-        };
-      }),
-    );
-    return { ok: true, results };
-  } catch (error) {
-    return { ok: false, error: error instanceof Error ? error.message : String(error) };
+function valueBytes(value: ClientDbValue): number {
+  if (typeof value === "string") {
+    return (NOT_ONE_BYTE.test(value) ? 2 * value.length : value.length) + 8;
   }
+  if (value instanceof ArrayBuffer) return value.byteLength + 8;
+  return 9;
 }
 
-/** What runs a query set against one client's database: the object itself, or a stub of it. */
-export interface ClientDbTransport {
-  query(queries: ClientDbQuery[]): Promise<ClientDbAnswer>;
-  /** A remote object's: a query set too large for one call goes in parts (`ClientDb.stage`). */
-  stage?(batch: string, queries: ClientDbQuery[]): Promise<void>;
-  commit?(batch: string, partsBefore: number, queries: ClientDbQuery[]): Promise<ClientDbAnswer>;
-}
-
-/**
- * The most a part of a query set carries, by the estimate below: well inside Workers RPC's 32 MiB
- * a call, whatever the strings' encoding.
- */
-export const PART_BYTES = 8 * 1024 * 1024;
-
-/** A generous estimate of a query's size on the wire: two bytes a character. */
-function wireBytes(query: ClientDbQuery): number {
+function queryBytes(query: ClientDbQuery): number {
   let bytes = 2 * query.sql.length + 16;
-  for (const param of query.params) {
-    if (typeof param === "string") bytes += 2 * param.length + 8;
-    else if (param instanceof ArrayBuffer) bytes += param.byteLength + 8;
-    else bytes += 9;
-  }
+  for (const param of query.params) bytes += valueBytes(param);
   return bytes;
 }
 
@@ -142,7 +217,7 @@ export function splitParts(queries: ClientDbQuery[], limit = PART_BYTES): Client
   let part: ClientDbQuery[] = [];
   let size = 0;
   for (const query of queries) {
-    const bytes = wireBytes(query);
+    const bytes = queryBytes(query);
     if (part.length > 0 && size + bytes > limit) {
       parts.push(part);
       part = [];
@@ -155,68 +230,627 @@ export function splitParts(queries: ClientDbQuery[], limit = PART_BYTES): Client
   return parts;
 }
 
+function packMeta(meta: ClientDbMeta): PackedMeta {
+  return [
+    meta.duration,
+    meta.changes,
+    meta.last_row_id,
+    meta.changed_db ? 1 : 0,
+    meta.size_after,
+    meta.rows_read,
+    meta.rows_written,
+  ];
+}
+
+function unpackMeta(packed: PackedMeta): ClientDbMeta {
+  const [duration, changes, lastRowId, changedDb, sizeAfter, rowsRead, rowsWritten] = packed;
+  return {
+    served_by: CLIENT_DB_SERVED_BY,
+    served_by_primary: true,
+    total_attempts: 1,
+    timings: { sql_duration_ms: duration },
+    duration,
+    changes,
+    last_row_id: lastRowId,
+    changed_db: changedDb === 1,
+    size_after: sizeAfter,
+    rows_read: rowsRead,
+    rows_written: rowsWritten,
+  };
+}
+
 /**
- * How long the object keeps the parts of a batch sent in parts before forgetting them. The parts
- * of one batch arrive one after another within a call of `batch`, so a minute is far more than
- * enough; a batch whose commit never comes is dropped unapplied.
+ * `results` as parts of pieces, each part at most `limit` bytes by the estimate (a part holds one
+ * row at least), and the total.
  */
-const STAGED_BATCH_TTL_MS = 60_000;
+export function packAnswer(
+  results: ClientDbResult[],
+  limit = PART_BYTES,
+): { parts: ClientDbPiece[][]; bytes: number } {
+  const parts: ClientDbPiece[][] = [];
+  let part: ClientDbPiece[] = [];
+  let size = 0;
+  let total = 0;
+  const close = () => {
+    parts.push(part);
+    part = [];
+    size = 0;
+  };
+  results.forEach((result, statement) => {
+    let piece: ClientDbPiece = [statement, result.columns, packMeta(result.meta), []];
+    const head = 64 + result.columns.reduce((sum, column) => sum + 2 * column.length + 8, 0);
+    if (part.length > 0 && size + head > limit) close();
+    part.push(piece);
+    size += head;
+    total += head;
+    for (const row of result.rows) {
+      let bytes = 8;
+      for (const value of row) bytes += valueBytes(value);
+      if (piece[3].length > 0 && size + bytes > limit) {
+        close();
+        piece = [statement, null, null, []];
+        part.push(piece);
+        size += 32;
+        total += 32;
+      }
+      piece[3].push(row);
+      size += bytes;
+      total += bytes;
+    }
+  });
+  if (part.length > 0 || parts.length === 0) close();
+  return { parts, bytes: total };
+}
+
+/** The pieces of an answer, in order, put back together as one result per statement. */
+export function unpackAnswer(statements: number, pieces: ClientDbPiece[]): ClientDbResult[] {
+  const results: (ClientDbResult | undefined)[] = new Array(statements);
+  for (const [statement, columns, meta, rows] of pieces) {
+    let result = results[statement];
+    if (!result) {
+      if (!columns || !meta)
+        throw new Error(`a part of statement ${statement}'s result is missing`);
+      result = { columns, rows: [], meta: unpackMeta(meta) };
+      results[statement] = result;
+    }
+    for (const row of rows) result.rows.push(row);
+  }
+  for (let i = 0; i < statements; i += 1) {
+    if (!results[i]) throw new Error(`statement ${i}'s result is missing`);
+  }
+  return results as ClientDbResult[];
+}
+
+/** The message of a write refused because the database is at its limit. */
+export function fullMessage(bytes: number, refuseAt: number, original?: string): string {
+  const gb = (n: number) => `${(n / 1e9).toFixed(2)} GB`;
+  return (
+    `this client's database is full: it holds ${gb(bytes)}, and writes that grow it are refused ` +
+    `past ${gb(refuseAt)} (a Durable Object stores at most ${gb(STORAGE_LIMIT_BYTES)}); reads ` +
+    `and deletes still work${original ? ` (${original})` : ""}`
+  );
+}
+
+/**
+ * Runs `queries` against `storage`, as D1's object does: each statement's meta from the
+ * connection's `total_changes()` and `last_insert_rowid()` around it (so a trigger's writes count
+ * in `changes`, as on D1), the database's size after it, and the cursor's rows read and written.
+ * The caller holds the transaction.
+ */
+function execute(storage: DurableObjectStorage, set: ClientDbQuery[]): ClientDbResult[] {
+  const sql = storage.sql;
+  const counters = () =>
+    sql
+      .exec<{ t: number; l: number }>("SELECT total_changes() AS t, last_insert_rowid() AS l")
+      .one();
+  return set.map((query): ClientDbResult => {
+    const sizeBefore = sql.databaseSize;
+    const before = counters();
+    const started = performance.now();
+    const cursor = sql.exec(query.sql, ...query.params);
+    const columns = cursor.columnNames;
+    const rows = Array.from(cursor.raw()) as ClientDbValue[][];
+    const duration = performance.now() - started;
+    const sizeAfter = sql.databaseSize;
+    const after = counters();
+    const changes = Number(after.t) - Number(before.t);
+    return {
+      columns,
+      rows,
+      meta: {
+        served_by: CLIENT_DB_SERVED_BY,
+        served_by_primary: true,
+        total_attempts: 1,
+        timings: { sql_duration_ms: duration },
+        duration,
+        changes,
+        last_row_id: Number(after.l),
+        changed_db: changes !== 0 || after.l !== before.l || sizeAfter !== sizeBefore,
+        size_after: sizeAfter,
+        rows_read: cursor.rowsRead,
+        rows_written: cursor.rowsWritten,
+      },
+    };
+  });
+}
+
+/**
+ * Runs `queries` against `storage` in one transaction and returns D1's results, or the failure as
+ * data. For code inside an object that holds no caller's answer (tests, a proof); `ClientDb`
+ * itself runs a set through its own `#run`, which bounds the answer.
+ */
+export function runQueries(
+  storage: DurableObjectStorage,
+  queries: ClientDbQuery[],
+): { ok: true; results: ClientDbResult[] } | { ok: false; error: string } {
+  const set = queries.filter((query) => !isEmptyStatement(query.sql));
+  if (set.length === 0) return { ok: false, error: "No SQL statements detected." };
+  try {
+    return { ok: true, results: storage.transactionSync(() => execute(storage, set)) };
+  } catch (error) {
+    return { ok: false, error: error instanceof Error ? error.message : String(error) };
+  }
+}
+
+/** What runs a query set against one client's database: the object itself, or a stub of it. */
+export interface ClientDbTransport {
+  query(queries: ClientDbQuery[], id?: string): Promise<ClientDbAnswer>;
+  /** A remote object's: a query set too large for one call goes in parts (`ClientDb.stage`). */
+  stage?(batch: string, index: number, queries: ClientDbQuery[]): Promise<ClientDbStaged>;
+  commit?(batch: string, partsBefore: number, queries: ClientDbQuery[]): Promise<ClientDbAnswer>;
+  /** The later parts of an answer the object holds. */
+  take?(id: string, part: number): Promise<ClientDbAnswerPart>;
+  /** Whether a set sent with `id` committed; also fences it, so it can no longer run. */
+  outcome?(id: string): Promise<ClientDbOutcome>;
+}
+
+export type ClientDbStaged = { ok: true } | { ok: false; error: string };
+
+/** Keys in the object's own key-value storage (`_cf_KV`, never in the client's SQL schema). */
+const OUTCOME_KEY = "cos:outcome:";
+const LIMITS_KEY = "cos:limits";
+const PLACE_KEY = "cos:place";
+
+interface OutcomeRecord {
+  state: "committed" | "fenced";
+  at: number;
+}
+
+interface Staged {
+  parts: Map<number, ClientDbQuery[]>;
+  bytes: number;
+  at: number;
+  /** A part arrived twice: the batch is refused at its commit. */
+  broken: boolean;
+}
+
+interface Held {
+  parts: ClientDbPiece[][];
+  bytes: number;
+  at: number;
+  taken: Set<number>;
+}
+
+/** What a restore answers: the bookmark that undoes it, and the session it ends. */
+export type ClientDbRestore =
+  | { ok: true; undo: string; session: string }
+  | { ok: false; error: string };
+
+/** The message while a restore is waiting for the object to restart. */
+export const RESTORING_MESSAGE =
+  "this client's database is being restored to a bookmark; nothing was applied";
+
+/**
+ * How long a restore waits for its caller's `restart` before restarting the object itself, so an
+ * object whose caller died does not refuse queries until it is evicted.
+ */
+const RESTART_FALLBACK_MS = 5_000;
 
 /** A client's database: one per client and environment, named by the client's id. */
 export class ClientDb extends DurableObject {
-  readonly #staged = new Map<string, { queries: ClientDbQuery[]; parts: number; at: number }>();
+  readonly #staged = new Map<string, Staged>();
+  readonly #held = new Map<string, Held>();
+  #sweepTimer: ReturnType<typeof setTimeout> | undefined;
+  #outcomesSweptAt = 0;
+  /** A new value each time the object starts: how a restore's caller sees the restart. */
+  readonly #session = crypto.randomUUID();
+  #restoring = false;
 
   /** One query set, in one transaction. What every call of `clientDatabase()` sends. */
-  query(queries: ClientDbQuery[]): ClientDbAnswer {
-    return runQueries(this.ctx.storage, queries);
+  query(queries: ClientDbQuery[], id?: string): ClientDbAnswer {
+    return this.#run(queries, id);
   }
 
   /**
-   * Holds part of a batch too large for one call (Workers RPC carries at most 32 MiB a call; D1
-   * takes a batch of any size whose statements are each within its limits). Nothing runs until
-   * `commit`.
+   * Holds part `index` of a batch too large for one call (Workers RPC carries at most 32 MiB a
+   * call; D1 takes a batch of any size whose statements are each within its limits). Nothing runs
+   * until `commit`. A part sent twice breaks the batch, which its commit then refuses.
    */
-  stage(batch: string, queries: ClientDbQuery[]): void {
-    const now = Date.now();
-    for (const [id, staged] of this.#staged) {
-      if (now - staged.at > STAGED_BATCH_TTL_MS) this.#staged.delete(id);
-    }
-    const staged = this.#staged.get(batch) ?? { queries: [], parts: 0, at: now };
-    staged.queries.push(...queries);
-    staged.parts += 1;
+  stage(batch: string, index: number, queries: ClientDbQuery[]): ClientDbStaged {
+    if (this.#restoring) return { ok: false, error: RESTORING_MESSAGE };
+    this.#sweep();
+    const staged = this.#staged.get(batch) ?? {
+      parts: new Map(),
+      bytes: 0,
+      at: Date.now(),
+      broken: false,
+    };
     this.#staged.set(batch, staged);
+    if (staged.parts.has(index)) {
+      staged.broken = true;
+      return { ok: false, error: `part ${index} of a batch sent in parts arrived twice` };
+    }
+    const bytes = queries.reduce((sum, query) => sum + queryBytes(query), 0);
+    if (this.#heldBytes() + bytes > MAX_HELD_BYTES) {
+      this.#staged.delete(batch);
+      return {
+        ok: false,
+        error:
+          "this client's database is holding as much as it may for other callers; the batch was not applied",
+      };
+    }
+    staged.parts.set(index, queries);
+    staged.bytes += bytes;
+    this.#sweepLater();
+    return { ok: true };
   }
 
   /**
-   * Runs the staged parts of `batch` and the last part in one transaction, as one batch. Refused
-   * whole, with nothing applied, when any earlier part is missing (the object restarted between
-   * calls, or a part was forgotten).
+   * Runs the staged parts of `batch`, in order, and the last part in one transaction, as one
+   * batch. Refused whole, with nothing applied, unless parts 0 to `partsBefore - 1` each arrived
+   * exactly once (the object restarted between calls, a part was lost or repeated).
    */
   commit(batch: string, partsBefore: number, queries: ClientDbQuery[]): ClientDbAnswer {
     const staged = this.#staged.get(batch);
     this.#staged.delete(batch);
-    if ((staged?.parts ?? 0) !== partsBefore) {
+    const parts = staged?.parts ?? new Map<number, ClientDbQuery[]>();
+    const complete =
+      !staged?.broken &&
+      parts.size === partsBefore &&
+      Array.from({ length: partsBefore }, (_, i) => parts.has(i)).every(Boolean);
+    if (!complete) {
       return {
         ok: false,
-        error: "a batch sent in parts lost a part before it was committed; nothing was applied",
+        error:
+          "a batch sent in parts lost or repeated a part before it was committed; nothing was applied",
       };
     }
-    return runQueries(this.ctx.storage, [...(staged?.queries ?? []), ...queries]);
+    const all: ClientDbQuery[] = [];
+    for (let i = 0; i < partsBefore; i += 1) all.push(...(parts.get(i) ?? []));
+    all.push(...queries);
+    return this.#run(all, batch);
+  }
+
+  /**
+   * Part `part` of an answer the object holds (`ClientDbAnswer.held`). The answer is forgotten
+   * once every later part has been taken, or after `HELD_TTL_MS`; part 0 can be taken again until
+   * then, for a caller whose first answer was lost.
+   */
+  take(id: string, part: number): ClientDbAnswerPart {
+    this.#sweep();
+    const held = this.#held.get(id);
+    const pieces = held?.parts[part];
+    if (!held || !pieces) {
+      return {
+        ok: false,
+        error: "the rest of this answer is no longer held (the object restarted or it expired)",
+      };
+    }
+    held.taken.add(part);
+    if (held.taken.size >= held.parts.length) this.#held.delete(id);
+    return { ok: true, pieces };
+  }
+
+  /**
+   * Whether a query set sent with `id` wrote and committed. One that did not is fenced: if it
+   * is still on its way, it is refused when it arrives, so the answer stays true.
+   */
+  outcome(id: string): ClientDbOutcome {
+    const kv = this.ctx.storage.kv;
+    const record = kv.get<OutcomeRecord>(OUTCOME_KEY + id);
+    if (!record)
+      kv.put(OUTCOME_KEY + id, { state: "fenced", at: Date.now() } satisfies OutcomeRecord);
+    return {
+      committed: record?.state === "committed",
+      held: this.#held.get(id)?.parts.length ?? null,
+    };
+  }
+
+  /** One query set, bounded: committed only when its answer can be returned. */
+  #run(queries: ClientDbQuery[], id?: string): ClientDbAnswer {
+    if (this.#restoring) return { ok: false, error: RESTORING_MESSAGE };
+    const set = queries.filter((query) => !isEmptyStatement(query.sql));
+    if (set.length === 0) return { ok: false, error: "No SQL statements detected." };
+    const storage = this.ctx.storage;
+    const kv = storage.kv;
+    const answerId = id ?? crypto.randomUUID();
+    if (id !== undefined) {
+      const record = kv.get<OutcomeRecord>(OUTCOME_KEY + id);
+      if (record) {
+        return {
+          ok: false,
+          error:
+            record.state === "committed"
+              ? "this batch was already committed; it was not applied again"
+              : "this batch was given up by its caller; it was not applied",
+        };
+      }
+    }
+    const { refuseAtBytes } = this.#limits();
+    try {
+      const packed = storage.transactionSync(() => {
+        const sizeBefore = storage.sql.databaseSize;
+        const changesBefore = this.#totalChanges();
+        const results = execute(storage, set);
+        const answer = packAnswer(results);
+        if (answer.parts.length > 1) {
+          const mib = (n: number) => `${Math.ceil(n / 1024 / 1024)} MiB`;
+          if (answer.bytes > MAX_ANSWER_BYTES) {
+            throw new Refusal(
+              `the result is about ${mib(answer.bytes)}, more than the ${mib(MAX_ANSWER_BYTES)} a ` +
+                "client's database returns for one query set; read it in pages. Nothing was applied",
+            );
+          }
+          if (this.#heldBytes() + answer.bytes > MAX_HELD_BYTES) {
+            throw new Refusal(
+              "this client's database is holding as much as it may for other callers; nothing was applied",
+            );
+          }
+        }
+        const sizeAfter = storage.sql.databaseSize;
+        if (sizeAfter > refuseAtBytes && sizeAfter > sizeBefore) {
+          throw new Refusal(fullMessage(sizeAfter, refuseAtBytes));
+        }
+        // A set that wrote is recorded in the same transaction: it committed if and only if its
+        // record did.
+        if (id !== undefined && this.#totalChanges() !== changesBefore) {
+          kv.put(OUTCOME_KEY + id, { state: "committed", at: Date.now() } satisfies OutcomeRecord);
+        }
+        return answer;
+      });
+      const [first = []] = packed.parts;
+      let held: { id: string; parts: number } | null = null;
+      if (packed.parts.length > 1) {
+        this.#held.set(answerId, {
+          parts: packed.parts,
+          bytes: packed.bytes,
+          at: Date.now(),
+          taken: new Set([0]),
+        });
+        held = { id: answerId, parts: packed.parts.length };
+        this.#sweepLater();
+      }
+      this.#sweepOutcomes();
+      return { ok: true, statements: set.length, pieces: first, held };
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (!(error instanceof Refusal) && message.includes("SQLITE_FULL")) {
+        return { ok: false, error: fullMessage(storage.sql.databaseSize, refuseAtBytes, message) };
+      }
+      return { ok: false, error: message };
+    }
+  }
+
+  #totalChanges(): number {
+    return Number(this.ctx.storage.sql.exec<{ t: number }>("SELECT total_changes() AS t").one().t);
+  }
+
+  #heldBytes(): number {
+    let bytes = 0;
+    for (const staged of this.#staged.values()) bytes += staged.bytes;
+    for (const held of this.#held.values()) bytes += held.bytes;
+    return bytes;
+  }
+
+  /** Forgets staged batches and held answers older than `HELD_TTL_MS`. */
+  #sweep(): void {
+    const now = Date.now();
+    for (const [id, staged] of this.#staged) {
+      if (now - staged.at > HELD_TTL_MS) this.#staged.delete(id);
+    }
+    for (const [id, held] of this.#held) {
+      if (now - held.at > HELD_TTL_MS) this.#held.delete(id);
+    }
+  }
+
+  /** A timer that sweeps while anything is held, so an abandoned batch does not stay in memory. */
+  #sweepLater(): void {
+    if (this.#sweepTimer !== undefined) return;
+    this.#sweepTimer = setTimeout(() => {
+      this.#sweepTimer = undefined;
+      this.#sweep();
+      if (this.#staged.size > 0 || this.#held.size > 0) this.#sweepLater();
+    }, HELD_TTL_MS + 1_000);
+  }
+
+  /** Drops outcome records older than `OUTCOME_TTL_MS`, at most once a minute. */
+  #sweepOutcomes(): void {
+    const now = Date.now();
+    if (now - this.#outcomesSweptAt < 60_000) return;
+    this.#outcomesSweptAt = now;
+    const kv = this.ctx.storage.kv;
+    for (const [key, record] of kv.list<OutcomeRecord>({ prefix: OUTCOME_KEY })) {
+      if (now - record.at > OUTCOME_TTL_MS) kv.delete(key);
+    }
   }
 
   /**
    * Applies every migration this database does not have yet, inside the object, from the list
-   * the host's code carries: the same `applyMigrations` a D1 database is migrated with, one
-   * transaction per migration. Returns the names it applied.
+   * the host's code carries: the same `applyMigrations` a D1 database is migrated with, in the
+   * same order and with the same bookkeeping (`core_migrations`, `core_meta.schema_version`), one
+   * transaction per migration. Returns the names it applied; throws on a failure, as on D1.
    */
   async migrate(migrations: Migration[]): Promise<string[]> {
-    const local = databaseOver({ query: async (queries) => runQueries(this.ctx.storage, queries) });
-    return applyMigrations(local, migrations);
+    return applyMigrations(this.#local(), migrations);
   }
 
-  /** The database's size in bytes (usage reports and the 10 GB limit, stage 66 step 2). */
+  /**
+   * `migrate` with a report instead of a throw: what it applied, the migration that failed (rolled
+   * back whole, with the ones before it kept, so a second call resumes from it), and the level
+   * after, whose `schemaVersion` is what the host compares with the code's. What the update and
+   * `cos client add` call (stage 66 step 7).
+   */
+  async migrateAndReport(migrations: Migration[]): Promise<MigrationReport> {
+    const local = this.#local();
+    const before = new Set(await this.#appliedNames());
+    const pending = [...migrations]
+      .sort((a, b) => a.name.localeCompare(b.name))
+      .filter((migration) => !before.has(migration.name))
+      .map((migration) => migration.name);
+    let failed: MigrationReport["failed"] = null;
+    try {
+      await applyMigrations(local, migrations);
+    } catch (error) {
+      const after = new Set(await this.#appliedNames());
+      const name = pending.find((n) => !after.has(n)) ?? "(unknown)";
+      failed = { name, error: error instanceof Error ? error.message : String(error) };
+    }
+    const after = new Set(await this.#appliedNames());
+    return {
+      applied: pending.filter((name) => after.has(name)),
+      failed,
+      level: await getMigrationLevel(local),
+    };
+  }
+
+  /** Which core migrations this database has, as `getMigrationLevel` reads it on D1. */
+  async level(): Promise<MigrationLevel> {
+    return getMigrationLevel(this.#local());
+  }
+
+  async #appliedNames(): Promise<string[]> {
+    const exists = this.ctx.storage.sql
+      .exec("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'core_migrations'")
+      .toArray();
+    if (exists.length === 0) return [];
+    return this.ctx.storage.sql
+      .exec<{ name: string }>("SELECT name FROM core_migrations")
+      .toArray()
+      .map((row) => row.name);
+  }
+
+  /** This database as a `D1Database`, from inside the object. */
+  #local(): D1Database {
+    return databaseOver({
+      query: async (queries, id) => this.#run(queries, id),
+      take: async (id, part) => this.take(id, part),
+    });
+  }
+
+  /** The database's size in bytes (`meta.size_after` reports the same). */
   size(): number {
     return this.ctx.storage.sql.databaseSize;
+  }
+
+  /** How full the database is, against the Durable Object's storage limit. */
+  usage(): ClientDbUsage {
+    const bytes = this.ctx.storage.sql.databaseSize;
+    const { warnAtBytes, refuseAtBytes } = this.#limits();
+    return {
+      bytes,
+      limitBytes: STORAGE_LIMIT_BYTES,
+      warnAtBytes,
+      refuseAtBytes,
+      state: bytes > refuseAtBytes ? "refusing" : bytes > warnAtBytes ? "warning" : "ok",
+    };
+  }
+
+  /**
+   * Sets where usage warns and where writes that grow the database are refused, below the
+   * platform's limit (the defaults otherwise). For the operator, and for tests of the refusal.
+   */
+  setSizeLimits(limits: { warnAtBytes: number; refuseAtBytes: number }): ClientDbUsage {
+    if (
+      !(limits.warnAtBytes > 0) ||
+      !(limits.refuseAtBytes >= limits.warnAtBytes) ||
+      limits.refuseAtBytes > STORAGE_LIMIT_BYTES
+    ) {
+      throw new Error("size limits: 0 < warnAtBytes <= refuseAtBytes <= the storage limit");
+    }
+    this.ctx.storage.kv.put(LIMITS_KEY, limits);
+    return this.usage();
+  }
+
+  #limits(): { warnAtBytes: number; refuseAtBytes: number } {
+    return (
+      this.ctx.storage.kv.get<{ warnAtBytes: number; refuseAtBytes: number }>(LIMITS_KEY) ?? {
+        warnAtBytes: DEFAULT_WARN_AT_BYTES,
+        refuseAtBytes: DEFAULT_REFUSE_AT_BYTES,
+      }
+    );
+  }
+
+  /**
+   * Records the location hint the object was first reached with, and answers with it. Cloudflare
+   * places a Durable Object where its first `get()` asks and ignores the hint on every later one,
+   * so a later different hint changes nothing; `differs` says so.
+   */
+  place(locationHint?: string): ClientDbPlace {
+    const kv = this.ctx.storage.kv;
+    const recorded = kv.get<{ locationHint: string | null; at: number }>(PLACE_KEY);
+    if (!recorded) {
+      const record = { locationHint: locationHint ?? null, at: Date.now() };
+      kv.put(PLACE_KEY, record);
+      return { ...record, first: true, differs: false };
+    }
+    return {
+      ...recorded,
+      first: false,
+      differs: locationHint !== undefined && locationHint !== recorded.locationHint,
+    };
+  }
+
+  // --- Bookmarks and restore (point-in-time recovery) ---------------------------------------------
+
+  /**
+   * A bookmark of the database as it is now: Cloudflare's `getCurrentBookmark()`, kept for 30
+   * days. Locally the runtime answers a bookmark of zeros it cannot restore.
+   */
+  async bookmark(): Promise<string> {
+    return this.ctx.storage.getCurrentBookmark();
+  }
+
+  /** A bookmark of the database at about `time` (ms), within the last 30 days. */
+  async bookmarkAt(time: number): Promise<string> {
+    return this.ctx.storage.getBookmarkForTime(time);
+  }
+
+  /**
+   * Arranges for the database to be restored to `bookmark` when the object next starts, and from
+   * now until then refuses every query, so nothing is written that the restore would discard
+   * unseen. The caller then calls `restart` (or the object restarts itself after
+   * `RESTART_FALLBACK_MS`). Everything written after the bookmark is discarded, the object's own
+   * records included (outcomes, limits, its place); the answer's `undo` bookmark puts it all back.
+   */
+  async restore(bookmark: string): Promise<ClientDbRestore> {
+    if (this.#restoring) return { ok: false, error: RESTORING_MESSAGE };
+    this.#restoring = true;
+    try {
+      const undo = await this.ctx.storage.onNextSessionRestoreBookmark(bookmark);
+      this.#staged.clear();
+      this.#held.clear();
+      setTimeout(() => {
+        try {
+          this.restart();
+        } catch {
+          // abort throws as the object goes.
+        }
+      }, RESTART_FALLBACK_MS);
+      return { ok: true, undo, session: this.#session };
+    } catch (error) {
+      this.#restoring = false;
+      return { ok: false, error: error instanceof Error ? error.message : String(error) };
+    }
+  }
+
+  /** Restarts the object (`ctx.abort`); the call itself fails as the object goes. */
+  restart(): void {
+    this.ctx.abort("restarting a client's database");
+  }
+
+  /** The object's current session, and whether it is waiting to be restored. */
+  session(): { id: string; restoring: boolean } {
+    return { id: this.#session, restoring: this.#restoring };
   }
 }
 
@@ -281,33 +915,121 @@ function toObjects(result: ClientDbResult): D1Shaped {
   };
 }
 
-function d1Error(message: string, prefix = "D1_ERROR"): Error {
-  return new Error(`${prefix}: ${message}`, { cause: new Error(message) });
+/** The flags the runtime sets on an error it raises, which callers decide retries on. */
+const ERROR_FLAGS = ["retryable", "overloaded", "remote", "durableObjectReset"] as const;
+
+/** A failure of a client's database, with what D1's errors carry and what the runtime said. */
+export interface ClientDbError extends Error {
+  retryable?: boolean;
+  overloaded?: boolean;
+  /** True when the set committed but its answer was lost: it must not be sent again. */
+  committed?: boolean;
+}
+
+function d1Error(message: string, prefix = "D1_ERROR", from?: unknown): ClientDbError {
+  const error: ClientDbError = new Error(`${prefix}: ${message}`, { cause: new Error(message) });
+  if (from && typeof from === "object") {
+    for (const flag of ERROR_FLAGS) {
+      const value = (from as Record<string, unknown>)[flag];
+      if (value !== undefined) (error as unknown as Record<string, unknown>)[flag] = value;
+    }
+  }
+  return error;
+}
+
+function messageOf(error: unknown): string {
+  return error instanceof Error ? error.message : String(error);
+}
+
+/** The rest of a held answer, fetched part by part, put together with its first part. */
+async function collect(
+  transport: ClientDbTransport,
+  statements: number,
+  pieces: ClientDbPiece[],
+  held: { id: string; parts: number } | null,
+  from = 1,
+): Promise<ClientDbResult[]> {
+  const all = [...pieces];
+  if (held) {
+    if (!transport.take) throw new Error("this transport cannot fetch a held answer");
+    for (let part = from; part < held.parts; part += 1) {
+      const answer = await transport.take(held.id, part);
+      if (!answer.ok) throw new Error(answer.error);
+      all.push(...answer.pieces);
+    }
+  }
+  return unpackAnswer(statements, all);
+}
+
+/**
+ * After a call's answer was lost (the call threw, or a held part is gone): asks the object whether
+ * the set committed. If it did and the object still holds its answer, the answer is fetched
+ * again; if it did and the answer is gone, the error says it committed, so it is not sent again.
+ * If it did not, it is fenced and can no longer run, and the original error stands.
+ */
+async function recover(
+  transport: ClientDbTransport,
+  id: string,
+  statements: number,
+  original: unknown,
+): Promise<ClientDbResult[]> {
+  let outcome: ClientDbOutcome;
+  try {
+    if (!transport.outcome) throw original;
+    outcome = await transport.outcome(id);
+  } catch {
+    throw d1Error(messageOf(original), "D1_ERROR", original);
+  }
+  if (outcome.committed && outcome.held !== null) {
+    try {
+      return await collect(transport, statements, [], { id, parts: outcome.held }, 0);
+    } catch {
+      // Gone between the two calls: reported as committed below.
+    }
+  }
+  if (outcome.committed) {
+    const error = d1Error(
+      `the batch committed, but its answer was lost before it was read (${messageOf(original)}); it must not be sent again`,
+    );
+    error.committed = true;
+    error.retryable = false;
+    throw error;
+  }
+  throw d1Error(messageOf(original), "D1_ERROR", original);
 }
 
 async function send(transport: ClientDbTransport, queries: ClientDbQuery[]) {
+  const id = crypto.randomUUID();
+  const set = queries.filter((query) => !isEmptyStatement(query.sql)).length;
   let answer: ClientDbAnswer;
   try {
     const parts = transport.stage && transport.commit ? splitParts(queries) : [queries];
     if (parts.length === 1) {
-      answer = await transport.query(queries);
+      answer = await transport.query(queries, id);
     } else {
       // Too large for one call: the earlier parts are held by the object, and the last commits
       // them all in one transaction, so the batch is still all or nothing.
-      const batch = crypto.randomUUID();
-      for (const part of parts.slice(0, -1)) await transport.stage?.(batch, part);
+      for (const [index, part] of parts.slice(0, -1).entries()) {
+        const staged = await transport.stage?.(id, index, part);
+        if (staged && !staged.ok) throw d1Error(staged.error);
+      }
       answer = (await transport.commit?.(
-        batch,
+        id,
         parts.length - 1,
         parts.at(-1) ?? [],
       )) as ClientDbAnswer;
     }
   } catch (error) {
-    // The object could not be reached or was reset: D1's binding reports its own failures so.
-    throw d1Error(error instanceof Error ? error.message : String(error));
+    if ((error as Error).message?.startsWith("D1_ERROR: ")) throw error;
+    // The object could not be reached, was reset, or the answer was lost on the way back.
+    return recover(transport, id, set, error);
   }
   if (!answer.ok) throw d1Error(answer.error);
-  return answer.results;
+  try {
+    return await collect(transport, answer.statements, answer.pieces, answer.held);
+  } catch (error) {
+    return recover(transport, id, answer.statements, error);
+  }
 }
 
 class ClientDbStatement {
@@ -359,7 +1081,12 @@ class ClientDbStatement {
   }
 }
 
-/** A session that never has a bookmark: one object is always consistent with itself. */
+/**
+ * A session over the same object. D1's session bookmark is a read-replication token (which
+ * replica has seen which writes), not a restore point; one object has no replicas and is always
+ * consistent with itself, so there is no such token to give and `getBookmark` answers null, as a
+ * D1 session does before its first query. A restore point is `ClientDb.bookmark()`.
+ */
 function session(transport: ClientDbTransport, database: D1Database) {
   return {
     prepare: (sql: string) => database.prepare(sql),
@@ -367,6 +1094,21 @@ function session(transport: ClientDbTransport, database: D1Database) {
     getBookmark: () => null,
     transport,
   };
+}
+
+/** The calls each database made to its object (`clientDbCalls`). */
+const CALLS = Symbol("cos.clientDbCalls");
+
+/**
+ * How many calls a database from `clientDatabase` has made to its object, since it was made: one
+ * a query, a batch or an `exec`, plus one for each further part of a batch or an answer sent in
+ * parts. Each is a Durable Object call, which Cloudflare counts against the invocation's
+ * subrequests (ADR 0614), where D1 counted queries on their own. Null for any other database. A
+ * meter takes the difference before and after a path.
+ */
+export function clientDbCalls(db: D1Database): number | null {
+  const counter = (db as unknown as { [CALLS]?: { calls: number } })[CALLS];
+  return counter ? counter.calls : null;
 }
 
 /** A `D1Database` over any transport: a client's object from outside, or itself from inside. */
@@ -406,8 +1148,16 @@ export function databaseOver(transport: ClientDbTransport): D1Database {
       return session(transport, database as unknown as D1Database);
     },
     async dump(): Promise<ArrayBuffer> {
-      // D1's own dump is retired; a client's database is exported as SQL in step 2.
-      throw new Error("D1_DUMP_ERROR: dump is not supported by a client's database");
+      // D1's own dump is retired; a client's database is exported as SQL (sql-export.ts).
+      throw new Error(
+        "D1_DUMP_ERROR: dump is not supported by a client's database; export it as SQL (exportPart in @composable-os/db/sql-export)",
+      );
+    },
+    /** D1's `query()` behind the `d1_binding_jsrpc` flag: not offered; nothing in the host uses it. */
+    async query(): Promise<never> {
+      throw new Error(
+        "D1_ERROR: query() (d1_binding_jsrpc) is not supported by a client's database; use prepare()",
+      );
     },
   };
   return database as unknown as D1Database;
@@ -418,19 +1168,68 @@ export function databaseOver(transport: ClientDbTransport): D1Database {
  * Durable Object stub belongs to the request (or object) that made it and cannot be used from
  * another, where a D1 binding can, so holding one would break the first time the database is
  * reached from a second request, a queue message or another Durable Object (ADR 0612).
+ *
+ * `options.locationHint` is where the object is created the first time it is reached (stage 43:
+ * Oceania for new clients). Cloudflare honours only the first `get()`'s hint; every later call
+ * may pass the same hint (the registry's) and a different one changes nothing (`ClientDb.place`).
  */
 export function clientDatabase(
   namespace: DurableObjectNamespace<ClientDb>,
   client: string,
-  /** Where the object is created, the first time it is reached (step 2 takes it from the registry). */
   options?: DurableObjectNamespaceGetDurableObjectOptions,
 ): D1Database {
   const id = namespace.idFromName(client);
-  const stub = () => namespace.get(id, options);
-  return databaseOver({
-    query: (queries) => stub().query(queries) as Promise<ClientDbAnswer>,
-    stage: (batch, queries) => stub().stage(batch, queries) as Promise<void>,
+  const counter = { calls: 0 };
+  const stub = () => {
+    counter.calls += 1;
+    return namespace.get(id, options);
+  };
+  const database = databaseOver({
+    query: (queries, call) => stub().query(queries, call) as Promise<ClientDbAnswer>,
+    stage: (batch, index, queries) =>
+      stub().stage(batch, index, queries) as Promise<ClientDbStaged>,
     commit: (batch, partsBefore, queries) =>
       stub().commit(batch, partsBefore, queries) as Promise<ClientDbAnswer>,
+    take: (call, part) => stub().take(call, part) as Promise<ClientDbAnswerPart>,
+    outcome: (call) => stub().outcome(call) as Promise<ClientDbOutcome>,
   });
+  Object.defineProperty(database, CALLS, { value: counter });
+  return database;
+}
+
+/**
+ * Restores a client's database to `bookmark` and waits for the object to come back restored:
+ * what the update calls for a client whose migration or smoke check failed (stage 66 step 7).
+ * Returns the bookmark that undoes the restore. Everything written after `bookmark` is gone, and
+ * any call in flight at the restart fails; calls made while the restore waits are refused with
+ * nothing applied. Point-in-time recovery exists only on Cloudflare: the local runtime refuses it.
+ */
+export async function restoreClientDb(
+  namespace: DurableObjectNamespace<ClientDb>,
+  client: string,
+  bookmark: string,
+  options?: DurableObjectNamespaceGetDurableObjectOptions & { waitMs?: number },
+): Promise<{ undo: string }> {
+  const id = namespace.idFromName(client);
+  const stub = () => namespace.get(id, options);
+  const restore = (await stub().restore(bookmark)) as ClientDbRestore;
+  if (!restore.ok) throw new Error(`could not restore ${client}'s database: ${restore.error}`);
+  try {
+    await stub().restart();
+  } catch {
+    // Expected: the object goes as it restarts.
+  }
+  const deadline = Date.now() + (options?.waitMs ?? 30_000);
+  for (let attempt = 1; Date.now() < deadline; attempt += 1) {
+    try {
+      const now = (await stub().session()) as { id: string; restoring: boolean };
+      if (now.id !== restore.session && !now.restoring) return { undo: restore.undo };
+    } catch {
+      // Still restarting.
+    }
+    await new Promise((resolve) => setTimeout(resolve, Math.min(1_000, 50 * attempt)));
+  }
+  throw new Error(
+    `${client}'s database was set to restore, but it did not come back within the wait; it restores when it next starts`,
+  );
 }

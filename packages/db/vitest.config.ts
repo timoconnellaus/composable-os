@@ -11,7 +11,8 @@ export default defineWorkersTestConfig({
     miniflare: await addClientDb({
       compatibilityDate: "2026-10-01",
       compatibilityFlags: ["nodejs_compat"],
-      d1Databases: ["DB"],
+      // DB2: a second D1 database, the target of an import (test/sql-export.test.ts).
+      d1Databases: ["DB", "DB2"],
       bindings: {
         TEST_MIGRATIONS: await readD1Migrations(migrationsDir),
         PRINT_CONFORMANCE: process.env.PRINT_CONFORMANCE ?? "",

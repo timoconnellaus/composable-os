@@ -87,6 +87,14 @@ jobs:
           --runs "${{ inputs.runs }}" --rounds "${{ inputs.rounds }}"
           --out "$RUNNER_TEMP/client-db-proof.json"
           | tee "$RUNNER_TEMP/client-db-proof.txt"
+      # Stage 66 step 2 (ADR 0614): bookmarks and restore, export and import, calls a request may make.
+      - name: Step 2 probes
+        env:
+          PROOF_KEY: ${{ steps.key.outputs.key }}
+          PROOF_URL: ${{ steps.deploy.outputs.url }}
+        run: >-
+          pnpm --filter @composable-os/client-db-proof exec node scripts/step2.mjs --url "$PROOF_URL"
+          | tee -a "$RUNNER_TEMP/client-db-proof.txt"
       - name: Summary
         if: always()
         run: |

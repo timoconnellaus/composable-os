@@ -14,6 +14,7 @@ import { clientDatabase } from "@composable-os/db/client-db";
 import { compareDatabases } from "@composable-os/db/testing/conformance";
 import migrations from "./generated/migrations.json";
 import { SCENARIOS, type Scenario, seed, seeded, summarise, timeScenario } from "./scenarios.ts";
+import { step2 } from "./step2.ts";
 
 export { ClientDb } from "@composable-os/db/client-db";
 
@@ -131,6 +132,11 @@ export default {
               runs,
             );
       return json({ db: which, scenario, from, colo: request.cf?.colo ?? null, ...result });
+    }
+    // Stage 66 step 2: bookmarks and restore, export and import, calls a request may make.
+    if (url.pathname.startsWith("/step2/")) {
+      const answer = await step2(url, env);
+      if (answer !== null) return json(answer);
     }
     if (url.pathname === "/conformance") {
       const compared = await compareDatabases(env.DB, database(env, "client-db", "conformance"));

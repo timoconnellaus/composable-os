@@ -1229,6 +1229,14 @@ secret missing it passes with a notice and deploys nothing):
    two class passes, a payments connection), the probes on Cloudflare, then each scenario timed
    inside the Worker, alternating databases. The table of medians and p95s is in the run's
    summary, and the JSON in its `client-db-proof` artifact.
+5. `scripts/step2.mjs` (stage 66 step 2, ADR 0614), each on a fresh client of its own:
+   `/step2/pitr` takes a bookmark, writes, restores to the bookmark and then undoes the restore,
+   on a real object (point-in-time recovery does not exist locally); `/step2/export` moves the D1
+   database into a client's database and out into another, comparing every table with D1's;
+   `/step2/answers` sends a 200,000-statement batch and reads 40 MB; `/step2/calls` makes up to
+   12,000 calls to a client's database in one request and reports where Cloudflare's subrequest
+   limit stops them. The run fails if restore, the export or the answers do not do what they
+   should; the calls are reported, not judged.
 
 The runner is a GitHub machine, usually in North America, so the time inside the Worker is the
 measure to read: the Worker runs where the request lands, and a request from far from the
