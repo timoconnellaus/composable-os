@@ -1330,6 +1330,20 @@ async function invokeOnce<O extends AnyOperation>(
     }
   }
 
+  // An operation whose input is never stored (ADR 0923) is never queued: where it would wait for
+  // approval, it is refused, saying why, and its input is kept nowhere (a pending action would
+  // hold it whole). The audit row takes the operation's redactions.
+  if (op.neverQueued && decision === "review" && !ctx.approval) {
+    const error = new GateDeniedError(
+      `${op.name} would have to wait for approval here, and it cannot: a waiting call keeps its ` +
+        "input, and this one's input (a file of people) is never kept. Ask an admin to let a " +
+        "person run it without approval, or run it as a person whose calls do not wait.",
+      { rule: "never_queued", operation: op.name, source: reviewSource },
+    );
+    await auditAlone({ ...base, gate: "review", outcome: "denied", error });
+    throw error;
+  }
+
   if (ctx.simulate && op.risk !== "read") {
     return simulateWrite(op, rawInput, input, ctx, dryRunCtx, {
       now,

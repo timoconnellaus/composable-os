@@ -627,6 +627,14 @@ export interface OperationDefinition<
    */
   hostStep?: boolean;
   /**
+   * Never queued for approval (stage 65 step 4, ADR 0923): its input may not be stored anywhere,
+   * as a pending action would store it whole (a list exported from a booking system, every
+   * person in it, the erased included, where an erase does not reach). Where the policy or the
+   * deploy floor would make a call wait, it is refused instead, saying why; a `deny` still
+   * applies, and nothing of the input is kept (the audit row takes its redactions).
+   */
+  neverQueued?: true;
+  /**
    * Always queue for human review, whatever the actor, preset or floor says (a `deny` still
    * applies). Used where a change must never auto-apply: extension.apply (an extension install
    * or upgrade, including any widening of its permissions, ADR 0041). `true` for every actor,
@@ -764,6 +772,11 @@ export function operationProblems(op: AnyOperation): string[] {
     problems.push("actors must list known actor types");
   }
   if (typeof op.handler !== "function") problems.push("handler missing");
+  if (op.neverQueued !== undefined) {
+    if (op.neverQueued !== true) problems.push("neverQueued is true or left out");
+    if (op.alwaysReview) problems.push("neverQueued and alwaysReview do not go together");
+    if (!op.redact?.length) problems.push("neverQueued needs redact: the input it never stores");
+  }
   if (op.auditReads !== undefined) {
     if (op.auditReads !== true) problems.push("auditReads is true or left out");
     if (op.risk !== "read") problems.push("auditReads is for reads (every write is audited)");

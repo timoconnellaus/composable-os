@@ -292,6 +292,7 @@ export {
   type WaitlistDueResult,
 } from "./operations/waitlist.ts";
 export * from "./orders/index.ts";
+export { runOutsideListsDue } from "./outside/notices.ts";
 export { finishOutsideRemoval } from "./outside/remove.ts";
 export {
   holdRoleLooksAfter,

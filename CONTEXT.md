@@ -680,7 +680,22 @@ read only. _Avoid_: provider (that is payments'), source
 One loaded file of one kind from the booking system: `members` (people with their memberships and
 passes) or `timetable` (classes, their bookings and their coaches), with the date it was exported.
 A load **replaces** the list of its kind. A list is as old as its file: a `members` list past the
-**largest age** (31 days by default) is "too old to count". _Avoid_: import, sync
+**largest age** (31 days by default) is "too old to count", and the holders of
+`bookingSystem:manage` are told once 3 days before and once when it happens. _Avoid_: import, sync
+
+**Loading a list**
+A person with `bookingSystem:manage`, never an AI, uploads a file exported from the booking system:
+`outside.file.preview` (the **dry run**) maps its columns (the saved **mapping** for a file of the
+same shape, else a suggestion from the headers; **value maps** turn the export's own words for a
+status, a kind or a plan into the contract's) and says, writing nothing, what the load would do
+against the current list and which rows are refused and why; `outside.file.load` does exactly that
+or, if anything changed since (the file, the copy, an erase), refuses (the dry run's
+**fingerprint**). The file is read by its content and never kept: the browser sends it again for
+the load (ADR 0923). It is never queued for approval (`neverQueued`: refused where approval would
+apply), and an erase, link or other load between its plan and its write fails it. A mapping holds
+no person: a value-map word that is a name, an address or an
+id in the file is refused. _Avoid_: import (an import makes records that stay), upload (nothing is
+stored)
 
 **Outside person**, **outside membership**, **outside class**, **outside booking**, **outside staff**
 The host's copies of what the booking system's current lists say (`core_outside_*`, ADR 0922), read
