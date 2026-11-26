@@ -55,6 +55,7 @@ import {
   intakeHostFields,
 } from "../intake/declared.ts";
 import { listInputSchema, pageSchema, runListQuery } from "../list.ts";
+import { assertLocationRules, defaultZoneOf, withLocationDefault } from "../locations/index.ts";
 import type { RecordRef } from "../operation.ts";
 import { defineOperation, type HandlerContext, personsTool } from "../operation.ts";
 import { looksAfterWhere } from "../pack-role-looks-after.ts";
@@ -96,7 +97,6 @@ import {
   setRecurringWriter,
 } from "../recurring/index.ts";
 import { type ChangeMarks, CREATED, type MarkSource } from "../routine-mail/marks.ts";
-import { loadGeneralSettings } from "../settings.ts";
 import { hostRoomFor } from "../staffing/free.ts";
 import {
   assertFollowerRoom,
@@ -857,6 +857,9 @@ export async function createRecord(
   prepared = withHostValues(prepared, withValues(outcome, spent.values), object);
   // One live record per declared key (ADR 0502); the database's index refuses a race.
   await assertUnique(ctx, object, id, valuesOf(prepared));
+  // Not at a closed location; two paths that agree name one location (ADR 0911). The database's
+  // triggers refuse a race.
+  await assertLocationRules(ctx, object, id, null, valuesOf(prepared));
   // Who works a shift, or a pattern's person: a rosterer's to say (ADR 0626).
   await assertRosterWrite(ctx, object, null, valuesOf(prepared), by);
   // A shift: never one person on two at once, refused naming the other; its warnings (ADR 0621).
@@ -1024,7 +1027,13 @@ async function applyDefaults(
   object: ObjectDefinition,
   values: Record<string, unknown>,
 ): Promise<Record<string, unknown>> {
-  const named = await withZoneDefaults(ctx, object, await withDefaultTitle(ctx, object, values));
+  // A located record given no location is at the only open one; its empty zone is its
+  // location's (ADR 0911).
+  const named = await withZoneDefaults(
+    ctx,
+    object,
+    await withLocationDefault(ctx, object, await withDefaultTitle(ctx, object, values)),
+  );
   const fields = object.fields.filter(
     (f) =>
       f.extension === object.extension &&
@@ -1053,7 +1062,7 @@ async function applyDefaults(
 /**
  * A `timezone` field left empty on a new record, with no default of its own, is the deployment's
  * zone (Settings → General, `timezone`; ADR 0460): an event created in Sydney is in Sydney until
- * someone says it is in Bangkok.
+ * someone says it is in Bangkok. A located record's is its location's zone (ADR 0911).
  */
 async function withZoneDefaults(
   ctx: HandlerContext,
@@ -1068,7 +1077,7 @@ async function withZoneDefaults(
       (values[f.name] === undefined || values[f.name] === null || values[f.name] === ""),
   );
   if (!empty.length) return values;
-  const { timezone } = await loadGeneralSettings(ctx.db);
+  const timezone = await defaultZoneOf(ctx, object, values);
   return { ...values, ...Object.fromEntries(empty.map((f) => [f.name, timezone])) };
 }
 
@@ -1294,6 +1303,12 @@ export async function updateRecord(
   // One live record per declared key (ADR 0502); the database's index refuses a race.
   if (object.unique)
     await assertUnique(ctx, object, id, { ...before.values, ...valuesOf(prepared) });
+  // Not moved to a closed location; paths that agree still name one location; a room a live
+  // record agrees with keeps its location (ADR 0911). The database's triggers refuse a race.
+  await assertLocationRules(ctx, object, id, before.values, {
+    ...before.values,
+    ...valuesOf(prepared),
+  });
   // Who works a shift, a pattern's person or a profile's account: a rosterer's to say (ADR 0626).
   await assertRosterWrite(
     ctx,

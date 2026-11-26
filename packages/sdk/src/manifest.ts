@@ -50,6 +50,12 @@ import { FIELD_TYPES, type FieldTypeName, formulaTypeOf } from "./field-types.ts
 import { checkFormula, type FormulaFieldRef, PUBLISHED_FORMULA_FIELDS } from "./formula/compile.ts";
 import { checkObjectIntake, intakeManifestSchema } from "./intake.ts";
 import { journeySignalIssues, journeySignalsManifestSchema } from "./journey-signals.ts";
+import {
+  agreeManifestSchema,
+  checkObjectLocated,
+  LOCATION_OBJECT,
+  locatedManifestSchema,
+} from "./located.ts";
 import { checkRoleMine, mineManifestSchema } from "./mine.ts";
 import { checkObjectOccupies, occupiesManifestSchema } from "./occupies.ts";
 import { checkObjectRecurring, recurringManifestSchema } from "./recurring.ts";
@@ -113,7 +119,7 @@ export const RESERVED_FIELD_NAMES = new Set([
 export const FORBIDDEN_OPERATION_PREFIXES = ["extension.", "policy.", "user.", "audit."] as const;
 const TEXT_LIKE: FieldTypeName[] = ["text", "email", "phone", "url", "select"];
 /** Objects relations may point at. */
-export const RELATION_CORE_TARGETS = ["person", "organisation", "task"] as const;
+export const RELATION_CORE_TARGETS = ["person", "organisation", "task", LOCATION_OBJECT] as const;
 
 const optionSchema = z.object({
   value: z.string().min(1).max(100),
@@ -267,6 +273,8 @@ const objectManifestSchema = z.object({
   workedOn: workedOnManifestSchema.optional(),
   team: teamManifestSchema.optional(),
   occupies: occupiesManifestSchema.optional(),
+  located: locatedManifestSchema.optional(),
+  agree: agreeManifestSchema.optional(),
   calendarEntry: calendarEntryManifestSchema.optional(),
   intake: intakeManifestSchema.optional(),
   checklists: checklistsManifestSchema.optional(),
@@ -1685,7 +1693,7 @@ export function validateManifest(
         ) {
           contract(
             `${path}.to`,
-            `Unknown relation target "${field.to}". Use person, organisation, task or <extension>.<object>`,
+            `Unknown relation target "${field.to}". Use person, organisation, task, location or <extension>.<object>`,
           );
         }
       } else if (field.to !== undefined || field.many !== undefined) {
@@ -1785,6 +1793,7 @@ export function validateManifest(
     checkObjectWorkedOn(m, name, object, contract);
     checkObjectTeam(m, name, object, contract);
     checkObjectOccupies(m, name, object, contract);
+    checkObjectLocated(m, name, object, contract);
     checkObjectCalendarEntry(m, name, object, contract);
     checkObjectIntake(m, name, object, contract);
     checkObjectChecklists(m, name, object, contract);

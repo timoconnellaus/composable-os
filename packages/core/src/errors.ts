@@ -705,6 +705,15 @@ export function toOperationError(error: unknown): OperationError {
       rule: "last_open_location",
     });
   }
+  // Two paths of a live record that must name one location (ADR 0911), refused by the triggers
+  // the reconciler builds for every writer: a write the host read first names the fields itself;
+  // this is a race it could not see (a room moved meanwhile), or a path that does not read first.
+  if (message.includes("core_location_mismatch")) {
+    return new ValidationError(
+      "These name two different locations (a room is at one location, and what uses it must be there too), so nothing was changed.",
+      { rule: "location_mismatch" },
+    );
+  }
   if (message.includes("core_location_main_kept")) {
     return new ConflictError("The main location stays the main location.", {
       rule: "main_location",

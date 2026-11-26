@@ -2122,8 +2122,22 @@ never a tenant. The migration makes the main location (`main = 1`) from `org_nam
 `location.reopen` are a person's only, and a trigger refuses closing the last open location. The
 public reads a public open location's name, short name, address and zone through `public.list` and
 `public.get` from a pack's tool: the `rec_location` view's `listed` column is the public
-declaration's condition ([ADR 0916](adr/0916-public-reads-of-locations.md)). Located records, the
-location's zone as their default, coverage and staff limits are the stage's later steps.
+declaration's condition ([ADR 0916](adr/0916-public-reads-of-locations.md)).
+
+**Located records** ([ADR 0911](adr/0911-located-and-agree-and-the-located-zone-default.md),
+`packages/sdk/src/located.ts`, `packages/core/src/locations/`). `location` is a relation target for
+extension fields. An object declares `located: { field }` (a required relation to one location) or
+`{ path: "relation.field" }` (one relation away, through the extension's own objects). The record
+write path fills a new record's located field with the only open location, gives a located record's
+empty `timezone` its location's zone (so does `recurring` for a series' rule, and the reconciler for
+a zone added to records that exist), and refuses a new record at a closed location
+(`location_closed`); a series at a closed location makes nothing. The reconciler fills a new located
+column with the main location in its batch (one `UPDATE … WHERE … IS NULL` per field). `agree: [{ a,
+b }]` names two paths that must reach the same location: the reconciler builds triggers on the
+declaring table and on the table a path passes through (`locations/sql.ts`), so a live record that
+disagrees, or a used room moved, is refused for every writer (`location_mismatch`), after a read in
+the write path that gives the message; installing over records that already disagree is refused
+(`agree_conflict`). Coverage, the zone readers and staff limits are the stage's later steps.
 
 **Video and files** (stage 42, [ADR 0475](adr/0475-video-and-file-media-in-stream.md),
 `packages/core/src/operations/media-video.ts`, `packages/core/src/records/stream.ts`). A media

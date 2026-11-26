@@ -108,6 +108,18 @@ A claim on a thing (see OccupiesSpec, ADR 0765): while live, the record takes th
 
 Declared as `occupies: OccupiesSpec` on an object. Declared by: [`bookings.class`](/packs/bookings/data-model/), [`bookings.appointment`](/packs/bookings/data-model/).
 
+## located
+
+Which location each record is at (see LocatedSpec, ADR 0911): a required relation to one location, or `relation.field` reaching one. The host fills it while there is one open location, gives an empty zone the location's, and refuses a new record at a closed one.
+
+Declared as `located: LocatedSpec` on an object. Declared by: no shipped pack.
+
+## agree
+
+Relations that must name the same location (see AgreeSpec, ADR 0911): a class's location and its room's. Refused in the database for every writer (`location_mismatch`).
+
+Declared as `agree: readonly AgreeSpec[]` on an object. Declared by: no shipped pack.
+
 ## calendarEntry
 
 Events in the customer's private calendar feed (see CalendarEntrySpec, ADR 0891): the record's start, end, public title and place as paths the customer may read, and the states in which it shows. The host reads them as the customer, through the visibility seam, and shows a live dependant's to their guardian. Only shipped extensions may declare it.
