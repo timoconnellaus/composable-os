@@ -3,13 +3,13 @@
 import { env } from "cloudflare:workers";
 import { createCrmDb } from "@composable-os/db";
 import { beforeAll, describe, expect, it } from "vitest";
-import { toOperationError } from "../src/errors.ts";
+import { PendingApprovalError, toOperationError } from "../src/errors.ts";
 import { checkManifest } from "../src/extensions/install.ts";
 import { messageStatements, newConversationStatement } from "../src/inbox/index.ts";
 import { type ActingUser, invoke } from "../src/index.ts";
 import { extId, manifest } from "./extension-helpers.ts";
 import { createPerson } from "./fixtures.ts";
-import { context, createUser, db, refusal, unique } from "./helpers.ts";
+import { context, createUser, db, refusal, setPreset, unique } from "./helpers.ts";
 
 let admin: ActingUser;
 let member: ActingUser;
@@ -473,5 +473,111 @@ describe("the saved replies' cost", () => {
     );
     expect(rest.items).toHaveLength(50);
     expect(rest.nextCursor).toBeNull();
+  });
+});
+
+describe("an AI files a conversation only through a person (review of PR #494, M7)", () => {
+  it("an assistant's or MCP's category waits for review, under balanced and autonomous", async () => {
+    await invoke("inbox.settings.update", { categories: ["Payments"] }, context(admin));
+    const person = await createPerson(member);
+    const c = await conversation(person.id);
+    try {
+      for (const preset of ["balanced", "autonomous"] as const) {
+        await setPreset(preset);
+        for (const [actor, origin] of [
+          ["assistant", { surface: "assistant", sessionId: "ath_x" }],
+          ["mcp", { surface: "mcp", clientId: "cap_x" }],
+        ] as const) {
+          await expect(
+            invoke(
+              "conversation.setCategory",
+              { id: c, category: "Payments" },
+              context(member, { actor, origin } as never),
+            ),
+          ).rejects.toBeInstanceOf(PendingApprovalError);
+        }
+        const now = await invoke("conversation.get", { id: c }, context(member));
+        expect(now.conversation.category).toBeNull();
+      }
+    } finally {
+      await setPreset("balanced");
+    }
+    // A person files it at once.
+    const filed = await invoke(
+      "conversation.setCategory",
+      { id: c, category: "Payments" },
+      context(member),
+    );
+    expect(filed.category).toBe("Payments");
+  });
+});
+
+describe("making a Person from an unknown sender is one write (review of PR #494, M1)", () => {
+  it("makes the Person with the sender's address and links them, in one batch", async () => {
+    const c = await conversation(null);
+    const before = await invoke("conversation.get", { id: c }, context(member));
+    const sender = before.conversation.unknownSender as string;
+    const linked = await invoke(
+      "conversation.linkPerson",
+      { id: c, newPerson: { givenName: "Grace", familyName: "Hopper" } },
+      context(member),
+    );
+    expect(linked.person?.name).toBe("Grace Hopper");
+    expect(linked.unknownSender).toBeNull();
+    const person = await invoke("person.get", { id: linked.person?.id as string }, context(member));
+    expect(person.emails.map((e) => e.email)).toEqual([sender.toLowerCase()]);
+    // Pressed again: refused, and no second Person.
+    const again = await refusal(
+      invoke(
+        "conversation.linkPerson",
+        { id: c, newPerson: { givenName: "Grace", familyName: "Hopper" } },
+        context(member),
+      ),
+    );
+    expect(again.code).toBe("conflict");
+    const named = await env.DB.prepare(
+      "SELECT count(*) AS n FROM core_person_emails WHERE email = ?",
+    )
+      .bind(sender.toLowerCase())
+      .first<{ n: number }>();
+    expect(named?.n).toBe(1);
+  });
+
+  it("a refused link leaves no Person behind", async () => {
+    const c = await conversation(null);
+    const read = await invoke("conversation.get", { id: c }, context(member));
+    const sender = read.conversation.unknownSender as string;
+    // Someone else changed the conversation since this read: the write is refused whole.
+    await invoke("conversation.take", { id: c }, context(other));
+    expect(
+      (
+        await refusal(
+          invoke(
+            "conversation.linkPerson",
+            { id: c, newPerson: { givenName: "Ada" }, version: read.conversation.version },
+            context(member),
+          ),
+        )
+      ).code,
+    ).toBe("conflict");
+    const left = await env.DB.prepare(
+      "SELECT count(*) AS n FROM core_person_emails WHERE email = ?",
+    )
+      .bind(sender.toLowerCase())
+      .first<{ n: number }>();
+    expect(left?.n).toBe(0);
+  });
+
+  it("takes personId or newPerson, not both and not neither", async () => {
+    const c = await conversation(null);
+    const person = await createPerson(member);
+    for (const input of [
+      { id: c },
+      { id: c, personId: person.id, newPerson: { givenName: "Ada" } },
+    ]) {
+      expect((await refusal(invoke("conversation.linkPerson", input, context(member)))).code).toBe(
+        "invalid_input",
+      );
+    }
   });
 });
