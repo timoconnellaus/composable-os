@@ -136,8 +136,12 @@ One **D1** database per deployment, with real tables ([ADR 0002](adr/0002-d1-rea
   limits have one), and everything else, the host's own names and the secrets and addresses step 6
   fills in included, is left out (`ENV_NAMES`, checked against every name the app and the runner
   declare or read). `ClientDirectory` holds the registry per isolate, reads its stamp at most every
-  10 seconds, matches a hostname exactly in memory and keeps one environment object per client
-  until the registry changes. With no `REGISTRY` bound, the client's environment is the real
+  10 seconds, matches a hostname exactly in memory and keeps one frozen environment object per
+  client until the registry changes. It hands an environment out only for a client that is served
+  (active, of the deployment's `COS_HOST_ENVIRONMENT`, its schema not behind); any other answer is
+  a refusal with its reason (`unknown`, `unverified`, `paused`, `moving`, `schema-behind`) and no
+  environment, and a failed registry read fails the call. The account's Stream credentials are
+  kept apart (left out until step 4's video-host wrapper). With no `REGISTRY` bound, the client's environment is the real
   `env`: a single-client deployment is unchanged. No entry calls it yet (step 4).
 
 - **Core schema** (`core_*` tables): our versioned migrations, applied on deploy or upgrade. It covers

@@ -16,6 +16,21 @@ describe("the names of the host's environment", () => {
       expect(declared.has(name), name).toBe(true);
     }
     expect(declared.has("DEV")).toBe(true);
+    // Set at deploy time by `cos deploy` and read through a constant, not in any wrangler.jsonc.
+    expect(declared.has("COS_PRODUCT_LABEL")).toBe(true);
+  });
+
+  it("each shared name says why it reaches no client's part", () => {
+    for (const [name, use] of Object.entries(ENV_NAMES)) {
+      if (use.use === "shared") expect(use.why.length, name).toBeGreaterThan(5);
+    }
+  });
+
+  it("keep the account-wide Stream credentials and the Settings → AI token out", () => {
+    for (const name of ["STREAM_API_TOKEN", "STREAM_SIGNING_JWK", "STREAM_SIGNING_KEY_ID"]) {
+      expect(envNameUse(name), name).toMatchObject({ use: "kept-apart" });
+    }
+    expect(envNameUse("CLOUDFLARE_API_TOKEN")).toMatchObject({ use: "host" });
   });
 
   it("each say what they become in a client's environment", () => {
@@ -24,7 +39,7 @@ describe("the names of the host's environment", () => {
   });
 
   it("list nothing no Worker declares or reads (except the host's own bindings to come)", () => {
-    const toCome = new Set(["REGISTRY", "CLIENT_DB"]);
+    const toCome = new Set(["REGISTRY", "CLIENT_DB", "COS_HOST_ENVIRONMENT"]);
     const stale = [...Object.keys(ENV_NAMES), ...Object.keys(CLIENT_SETTINGS)].filter(
       (name) => !declared.has(name) && !toCome.has(name),
     );

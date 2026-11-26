@@ -10,6 +10,7 @@ import {
   isClientId,
   isSchemaBehind,
   readRegistry,
+  readRegistryStamp,
   readRegistryVersion,
   validateClientId,
 } from "../src/registry.ts";
@@ -121,6 +122,12 @@ describe("what the registry refuses", () => {
       "gym-a.example.com:443",
       "gym a.example.com",
       "",
+      "-gym.example.com",
+      "gym.example.com-",
+      "gym.-example.com",
+      "gym-.example.com",
+      "127.0.0.1",
+      "10.0.0.12",
     ]) {
       await refused(insertHostname(registry, hostname, "gym-a"));
     }
@@ -177,7 +184,27 @@ describe("client ids", () => {
   });
 
   it("are never a reserved word, a platform prefix or a surface's ending", () => {
-    for (const id of ["admin", "www", "registry", "staging", "api", "mcp", "cos", "undefined"]) {
+    for (const id of [
+      "admin",
+      "www",
+      "registry",
+      "staging",
+      "api",
+      "mcp",
+      "cos",
+      "undefined",
+      "callback",
+      "webhook",
+      "mail",
+      "status",
+      "docs",
+      "app",
+      "fleet",
+      "login",
+      "billing",
+      "media",
+      "files",
+    ]) {
       expect(clientIdProblem(id), id).toMatch(/reserved/);
     }
     for (const id of ["cos-app", "xn-gym"]) expect(clientIdProblem(id), id).toMatch(/start/);
@@ -194,11 +221,29 @@ describe("client ids", () => {
 });
 
 describe("canonicalHostname", () => {
-  it("is the Host header lowercased, without its port or one trailing dot", () => {
+  it("is the hostname lowercased, without one trailing dot", () => {
     expect(canonicalHostname("Gym-A.ComposableOS.app")).toBe("gym-a.composableos.app");
-    expect(canonicalHostname("gym-a.composableos.app:8443")).toBe("gym-a.composableos.app");
     expect(canonicalHostname("gym-a.composableos.app.")).toBe("gym-a.composableos.app");
-    expect(canonicalHostname("localhost:5173")).toBe("localhost");
+    expect(canonicalHostname("localhost")).toBe("localhost");
+    expect(canonicalHostname("0x7f.com")).toBe("0x7f.com");
+    expect(canonicalHostname("gym1.app2")).toBe("gym1.app2");
+  });
+
+  it("refuses any port and anything numeric-looking", () => {
+    for (const host of [
+      "gym-a.composableos.app:8443",
+      "gym-a.composableos.app:0",
+      "gym-a.composableos.app:",
+      "localhost:5173",
+      "127.1",
+      "0x7f.1",
+      "127.0.0.1",
+      "2130706433",
+      "0x7f000001",
+      "gym.123",
+    ]) {
+      expect(canonicalHostname(host), host).toBeNull();
+    }
   });
 
   it("is null for anything that is not a plain DNS name", () => {
@@ -258,6 +303,38 @@ describe("readRegistry", () => {
     });
     expect(snapshot.settings.get("gym-a" as never)).toEqual({ APPROVAL_FLOOR: "high" });
     expect([...snapshot.hostnames.keys()]).toEqual(["gym-a.example.com"]);
+    expect([...snapshot.unverified]).toEqual(["gym-a-shop.example.com"]);
+  });
+
+  it("names every row it leaves out, for the operator", async () => {
+    await registry.batch([
+      insertClient(registry, { id: "gym-a" }),
+      insertClient(registry, { id: "admin" }),
+      insertSetting(registry, "gym-a", "BETTER_AUTH_SECRET", "never-a-setting"),
+      // A label over 63 characters: the table's check cannot say so, the code can.
+      insertHostname(registry, `${"a".repeat(64)}.example.com`, "gym-a"),
+    ]);
+    const { problems, hostnames } = await readRegistry(registry);
+    expect(hostnames.size).toBe(0);
+    expect(problems).toHaveLength(3);
+    expect(problems.join("\n")).toMatch(/client "admin" left out: "admin" is reserved/);
+    expect(problems.join("\n")).toMatch(/setting BETTER_AUTH_SECRET of gym-a left out/);
+    expect(problems.join("\n")).toMatch(/hostname "a{64}\.example\.com" of gym-a left out/);
+  });
+
+  it("has a stamp that never recurs, even when a restore brings its counter back", async () => {
+    await insertClient(registry, { id: "gym-a" }).run();
+    const before = await readRegistry(registry);
+    // As a restore would: the counter back to what it was, with other rows.
+    await insertClient(registry, { id: "gym-b" }).run();
+    await registry
+      .prepare("UPDATE registry_meta SET value = ? WHERE key = 'version'")
+      .bind(before.version)
+      .run();
+    const after = await readRegistry(registry);
+    expect(after.version).toBe(before.version);
+    expect(after.stamp).not.toBe(before.stamp);
+    expect(await readRegistryStamp(registry)).toBe(after.stamp);
   });
 
   it("stays within D1's limits with hundreds of clients: four statements, no bound parameter", async () => {
@@ -293,7 +370,9 @@ describe("readRegistry", () => {
       await expect(readRegistry(registry)).rejects.toThrow(/version stamp/);
       await expect(readRegistryVersion(registry)).rejects.toThrow(/version stamp/);
     } finally {
-      await registry.prepare("INSERT INTO registry_meta (key, value) VALUES ('version', 1)").run();
+      await registry
+        .prepare("INSERT INTO registry_meta (key, value, nonce) VALUES ('version', 1, 'restored')")
+        .run();
     }
   });
 });

@@ -1,9 +1,10 @@
 // What each name in the host's environment becomes in a client's environment, on a host that
-// serves many clients (stage 66 step 3, ADR 0613). `clientEnvironment()` reads this table; a name
-// it does not list is left out of every client's environment, so a binding or a secret added to a
-// Worker without a line here cannot reach one client with what belongs to another, or to the host.
-// packages/db/test/client-env-names.test.ts fails when a name the app or the runner declares or
-// reads is not here, and when a name listed here is no longer declared or read anywhere.
+// serves many clients (stage 66 step 3, ADR 0613). `buildClientEnvironment()` reads this table; a
+// name it does not list is left out of every client's environment, so a binding or a secret added
+// to a Worker without a line here cannot reach one client with what belongs to another, or to the
+// host. packages/db/test/client-env-names.test.ts fails when a name the app or the runner
+// declares, reads, or is given at deploy time is not here, and when a name listed here is no
+// longer declared, read or set anywhere.
 //
 // A single-client deployment never reads this table: there, the client's environment is the
 // real `env`.
@@ -18,34 +19,39 @@ export type EnvNameUse =
   | { use: "setting" }
   /** The client's own, filled in by a later step; left out until then. */
   | { use: "per-client"; step: 6; what: "secret" | "address"; why: string }
-  /** A shared binding with a part per client: in only once its wrapper exists (step 4). */
+  /** A shared binding or credential with a part per client: in only once its wrapper exists. */
   | { use: "kept-apart"; by: string }
-  /** The same for every client: the operator's own, or code with no client's data in it. */
-  | { use: "shared" };
+  /**
+   * The same for every client, and nothing in it reaches one client's part: the operator's own
+   * names and ids, flags, or a service that keeps nothing of a client between calls. `why` says
+   * which. A cache keyed by a shared object is one cache for every client (step 5).
+   */
+  | { use: "shared"; why: string };
 
 const SECRET = (why: string): EnvNameUse => ({ use: "per-client", step: 6, what: "secret", why });
 const ADDRESS = (why: string): EnvNameUse => ({ use: "per-client", step: 6, what: "address", why });
 const APART = (by: string): EnvNameUse => ({ use: "kept-apart", by });
-const SHARED: EnvNameUse = { use: "shared" };
+const SHARED = (why: string): EnvNameUse => ({ use: "shared", why });
+const HOST = (why: string): EnvNameUse => ({ use: "host", why });
 
 /** Every name of the app's and the runner's environments, by name. */
 export const ENV_NAMES: Readonly<Record<string, EnvNameUse>> = {
   // --- The host's own -----------------------------------------------------------------------
-  REGISTRY: { use: "host", why: "the registry: the operator's only (stage 66)" },
+  REGISTRY: HOST("the registry: the operator's only (stage 66)"),
   // A namespace of `ClientDb` in its own Worker (`cos-client-db`), bound by script name.
-  CLIENT_DB: { use: "host", why: "every client's database: a client's is its DB alone" },
-  CLOUDFLARE_API_TOKEN: {
-    use: "host",
-    why: "Settings → AI writes the deployment's Worker secrets with it: every client's at once (ADR 0151)",
-  },
-  AI_SECRET_SCRIPTS: { use: "host", why: "the Workers CLOUDFLARE_API_TOKEN writes to" },
-  COS_UPDATE_TOKEN: {
-    use: "host",
-    why: "the operator's update of the deployment; per client it runs through the registry (step 7)",
-  },
-  COS_TENANT_ID: { use: "host", why: "stage 10's hosted tenant: one per deployment, no client's" },
-  COS_CONTROL_URL: { use: "host", why: "stage 10's control plane, one per deployment" },
-  COS_CONTROL_KEY: { use: "host", why: "stage 10's control plane, one per deployment" },
+  CLIENT_DB: HOST("every client's database: a client's is its DB alone"),
+  COS_HOST_ENVIRONMENT: HOST("which environment the deployment holds; read by the directory"),
+  CLOUDFLARE_API_TOKEN: HOST(
+    "Settings → AI writes the deployment's Worker secrets with it, every client's at once (ADR 0151), and it can read AI Gateway's logs",
+  ),
+  AI_SECRET_SCRIPTS: HOST("the Workers CLOUDFLARE_API_TOKEN writes to"),
+  COS_UPDATE_TOKEN: HOST(
+    "the operator's update of the deployment; per client it runs through the registry (step 7)",
+  ),
+  COS_TENANT_ID: HOST("stage 10's hosted tenant: one per deployment, no client's"),
+  COS_CONTROL_URL: HOST("stage 10's control plane, one per deployment"),
+  COS_CONTROL_KEY: HOST("stage 10's control plane, one per deployment"),
+  AI_CUSTOMER_GATEWAY: HOST("stage 10's customer gateway: one tenant's logs, not a client's"),
 
   // --- The client's database ----------------------------------------------------------------
   DB: { use: "database" },
@@ -71,7 +77,7 @@ export const ENV_NAMES: Readonly<Record<string, EnvNameUse>> = {
   NATIVE_REDIRECT_URIS: ADDRESS("the client's own native app"),
   STREAM_ALLOWED_ORIGINS: ADDRESS("the client's own addresses play its videos"),
 
-  // --- Shared bindings with a part per client (step 4's wrappers) ----------------------------
+  // --- Shared bindings and credentials with a part per client (step 4's wrappers) ------------
   BLOBS: APART("a key prefix per client, added on write and removed on list"),
   OAUTH_KV: APART("a key prefix per client"),
   VECTORIZE: APART("a namespace per client"),
@@ -87,45 +93,61 @@ export const ENV_NAMES: Readonly<Record<string, EnvNameUse>> = {
   FAKE_ACCOUNT: APART("the client in every object's name"),
   FAKE_PROVIDER: APART("the client in every object's name"),
   RUNNER: APART("the app passes the client; the runner trusts only the app"),
+  // The account's Stream token lists, deletes and uploads every video of the account, and the
+  // signing key signs playback for any of them: in only through the video host's wrapper, which
+  // stamps the client as `creator` and refuses another creator's video (stage 66, "Stream").
+  STREAM_API_TOKEN: APART("the client as creator; another creator's video refused"),
+  STREAM_SIGNING_JWK: APART("the client as creator; another creator's video refused"),
+  STREAM_SIGNING_KEY_ID: APART("goes with STREAM_SIGNING_JWK"),
 
   // --- The same for every client ------------------------------------------------------------
-  LOADER: SHARED, // Worker Loader ids are not per client (stage 66, "Decided by this spec")
-  AI: SHARED,
-  IMAGES: SHARED,
-  AI_GATEWAY_ID: SHARED,
-  AI_GATEWAY_TOKEN: SHARED,
-  AI_GATEWAY_REST: SHARED,
-  AI_GATEWAY_BYOK: SHARED,
-  AI_CUSTOMER_GATEWAY: SHARED,
-  AI_PLATFORM_TOKEN: SHARED,
-  AI_PLATFORM_GATEWAY_ID: SHARED,
-  AI_PLATFORM_ACCOUNT_ID: SHARED,
-  AI_FAKE_MODEL: SHARED,
-  AI_FAKE_VOICE: SHARED,
-  JUDGE_BYOK: SHARED,
-  JUDGE_PLACEMENTS: SHARED,
-  VECTORIZE_DIMENSIONS: SHARED,
-  CLOUDFLARE_ACCOUNT_ID: SHARED,
-  STREAM_ACCOUNT_ID: SHARED,
-  STREAM_CUSTOMER_CODE: SHARED,
-  STREAM_SIGNING_KEY_ID: SHARED,
-  STREAM_SIGNING_JWK: SHARED,
-  STREAM_API_TOKEN: SHARED, // one holder of the token, the host (stage 66, "Stream")
-  STREAM_FAKE: SHARED,
-  COS_RELEASE_VERSION: SHARED,
-  COS_RELEASE_REPO: SHARED,
-  COS_ACCOUNT_ID: SHARED,
-  COS_SUPPORT_PUBLIC_KEY: SHARED,
-  COS_DEV_ORG_PACKS: SHARED,
-  MCP_ACCESS_TOKEN_TTL: SHARED,
-  INTEGRATIONS_FAKE_PROVIDER: SHARED,
+  LOADER: SHARED(
+    "Worker Loader itself; the client is part of every tool worker id it is asked for (ADR 0613, step 4)",
+  ),
+  AI: SHARED("Workers AI inference: answers each call, keeps nothing of a client between calls"),
+  IMAGES: SHARED("transforms the bytes it is given, keeps nothing"),
+  AI_GATEWAY_ID: SHARED("the operator's gateway's name, not a credential"),
+  AI_GATEWAY_TOKEN: SHARED(
+    "generated with AI Gateway Run and Workers AI Read only (release/gateway.ts): it sends requests and cannot read the gateway's logs",
+  ),
+  AI_GATEWAY_REST: SHARED("a flag: Workers AI over REST through the gateway"),
+  AI_GATEWAY_BYOK: SHARED("a flag: the gateway adds the operator's stored provider keys"),
+  AI_PLATFORM_TOKEN: SHARED('the Platform AI token, the operator\'s own (stage 66, "Secrets")'),
+  AI_PLATFORM_GATEWAY_ID: SHARED("the platform gateway's name"),
+  AI_PLATFORM_ACCOUNT_ID: SHARED("the platform gateway's account id"),
+  AI_FAKE_MODEL: SHARED("a test flag"),
+  AI_FAKE_VOICE: SHARED("a test flag"),
+  JUDGE_BYOK: SHARED("a flag: the judge's key is in the gateway"),
+  JUDGE_PLACEMENTS: SHARED("where the product uses the judge"),
+  VECTORIZE_DIMENSIONS: SHARED("the index's dimensions"),
+  CLOUDFLARE_ACCOUNT_ID: SHARED("the account's id, not a credential"),
+  STREAM_ACCOUNT_ID: SHARED("the account's id, not a credential"),
+  STREAM_CUSTOMER_CODE: SHARED("the playback hostname's code, public in every video URL"),
+  STREAM_FAKE: SHARED("a test flag"),
+  COS_RELEASE_VERSION: SHARED("the release every client runs (no client is held back)"),
+  COS_RELEASE_REPO: SHARED("where releases come from"),
+  COS_ACCOUNT_ID: SHARED("the account's id, not a credential"),
+  COS_SUPPORT_PUBLIC_KEY: SHARED(
+    "verifies support grants, whose audience is the request's hostname, so one client's grant fails at another's",
+  ),
+  COS_PRODUCT_LABEL: SHARED(
+    "the product's name; read once into a module-level label today, which step 5 makes per client",
+  ),
+  COS_DEV_ORG_PACKS: SHARED("a development flag"),
+  MCP_ACCESS_TOKEN_TTL: SHARED("a duration"),
+  INTEGRATIONS_FAKE_PROVIDER: SHARED("a test flag"),
   // Vite's development flag, read off `import.meta.env`, never a Worker's binding.
-  DEV: SHARED,
+  DEV: SHARED("Vite's build flag"),
 };
 
 /** Names matched by their shape, after `ENV_NAMES` and the settings. */
 export const ENV_NAME_PATTERNS: ReadonlyArray<{ pattern: RegExp; use: EnvNameUse }> = [
   { pattern: /^AI_KEY_[A-Z0-9_]+$/, use: SECRET("the client's own AI provider keys") },
-  { pattern: /^GATEKEEPER_[A-Z0-9_]+$/, use: SHARED }, // the connection says whose (stage 66)
+  {
+    pattern: /^GATEKEEPER_[A-Z0-9_]+$/,
+    use: SHARED(
+      "a gatekeeper Worker: called with a connection minted for one client, whose object is that client's (stage 66)",
+    ),
+  },
   { pattern: /^[A-Z0-9_]+_RATE_LIMIT$/, use: APART("the client in every key") },
 ];

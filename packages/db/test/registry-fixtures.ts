@@ -1,7 +1,7 @@
 // The operator's writes to a registry, as the tests make them. In a deployment only `cos` writes
 // the registry (stage 66 step 7); these stand in for it.
 import { env } from "cloudflare:workers";
-import { applyMigrations } from "../src/migrate.ts";
+import { applyMigrations, CORE_SCHEMA_VERSION } from "../src/migrate.ts";
 import { REGISTRY_MIGRATIONS_TABLE } from "../src/registry.ts";
 
 export async function migrateRegistry(registry: D1Database = env.REGISTRY): Promise<string[]> {
@@ -35,7 +35,7 @@ export function insertClient(registry: D1Database, client: ClientFixture): D1Pre
       client.tier ?? "standard",
       client.repository ?? null,
       client.locationHint ?? null,
-      client.schemaVersion === undefined ? 1 : client.schemaVersion,
+      client.schemaVersion === undefined ? CORE_SCHEMA_VERSION : client.schemaVersion,
     );
 }
 

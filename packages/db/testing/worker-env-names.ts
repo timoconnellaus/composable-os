@@ -15,9 +15,27 @@ export const ENV_NAME_SOURCES = {
   devVars: ["apps/app/.dev.vars.example", "apps/runner/.dev.vars.example"],
   /** The bindings and secrets the deploy adds (AI, Vectorize, Stream's token, ...). */
   deployInputs: ["apps/app/deploy-inputs.json", "apps/runner/deploy-inputs.json"],
-  /** Code that reads `env.NAME`. */
-  code: ["apps/app/src", "apps/runner/src", "packages/auth/src", "packages/core/src"],
+  /** Code that reads `env.NAME`, or `env[X_VAR]` through a constant `X_VAR = "NAME"`. */
+  code: [
+    "apps/app/src",
+    "apps/runner/src",
+    "packages/auth/src",
+    "packages/core/src",
+    "packages/product/src",
+  ],
+  /** The deploy engine: the vars `cos deploy`, the installer and a release set on a Worker. */
+  deployTime: ["packages/create-composable-os/src", "packages/release/src", "scripts"],
 };
+
+/**
+ * Vars the deploy engine sets on a gatekeeper's Worker, never on the app or the runner: they never
+ * reach a client's environment, which is built from the app's and the runner's `env` only.
+ */
+export const GATEKEEPER_ONLY_VARS: ReadonlySet<string> = new Set([
+  "BASE_URL",
+  "PAYMENTS_FAKE_PROVIDER",
+  "TEXT_PROVIDER",
+]);
 
 function generatedNames(text: string): string[] {
   const block = /interface __BaseEnv_Env \{([\s\S]*?)\n\}/.exec(text)?.[1] ?? "";
@@ -58,10 +76,36 @@ function codeFiles(dir: string): string[] {
 }
 
 function codeNames(text: string): string[] {
-  // `env.NAME` and `this.env.NAME`, not `import.meta.env.NAME` (Vite's, not a Worker's).
-  return [...text.matchAll(/(?<!import\.meta\.)\benv\??\.([A-Z][A-Z0-9_]+)\b/g)].map(
-    (m) => m[1] as string,
-  );
+  // `env.NAME` and `this.env.NAME`, not `import.meta.env.NAME` (Vite's, not a Worker's), and a
+  // name held in a `*_VAR` constant (`PRODUCT_LABEL_VAR = "COS_PRODUCT_LABEL"`).
+  return [
+    ...[...text.matchAll(/(?<!import\.meta\.)\benv\??\.([A-Z][A-Z0-9_]+)\b/g)],
+    ...[...text.matchAll(/\b[A-Z][A-Z0-9_]*_VAR\s*=\s*"([A-Z][A-Z0-9_]+)"/g)],
+  ].map((m) => m[1] as string);
+}
+
+function deployTimeNames(text: string): string[] {
+  return [
+    // vars.NAME, vars[worker.name]?.NAME
+    ...[...text.matchAll(/\bvars(?:\[[^\]\n]+\])?\??\.([A-Z][A-Z0-9_]+)\b/g)],
+    // { ...vars[worker], NAME: value }
+    ...[...text.matchAll(/\.\.\.vars\[[^\]\n]+\],\s*([A-Z][A-Z0-9_]+)\s*:/g)],
+  ]
+    .map((m) => m[1] as string)
+    .filter((name) => !GATEKEEPER_ONLY_VARS.has(name));
+}
+
+function scriptFiles(dir: string): string[] {
+  const files: string[] = [];
+  for (const entry of readdirSync(dir, { withFileTypes: true })) {
+    if (entry.name === "node_modules" || entry.name === "dist") continue;
+    const path = join(dir, entry.name);
+    if (entry.isDirectory()) files.push(...scriptFiles(path));
+    else if (/\.(?:m?[jt]s|tsx)$/.test(entry.name) && !/\.test\./.test(entry.name)) {
+      files.push(path);
+    }
+  }
+  return files;
 }
 
 /** Every name, sorted, once. */
@@ -80,6 +124,11 @@ export function workerEnvNames(): string[] {
   for (const dir of ENV_NAME_SOURCES.code) {
     for (const file of codeFiles(join(ROOT, dir))) {
       for (const name of codeNames(readFileSync(file, "utf8"))) names.add(name);
+    }
+  }
+  for (const dir of ENV_NAME_SOURCES.deployTime) {
+    for (const file of scriptFiles(join(ROOT, dir))) {
+      for (const name of deployTimeNames(readFileSync(file, "utf8"))) names.add(name);
     }
   }
   return [...names].sort();
