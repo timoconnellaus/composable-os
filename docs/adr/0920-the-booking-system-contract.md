@@ -142,3 +142,19 @@ resource, `booking-system-fake://site/<name>`, is its own site in its own Durabl
   active booking-system connection per deployment, are not built in this step: the spec's build
   order gives step 1 only the catalogue's `implements`, so they come with the host path (step 3)
   or the admin screens (step 6).
+
+## Amendment, 2026-11-27 (stage 65 step 4, ADR 0923)
+
+The file source took on what loading a list from a file needs. Its limits are now the admin's CSV
+import's (10 MB, 20,000 rows of either file, 100 columns, 10,000 characters a cell), enforced while
+the file is read; a file naming more than 500 membership types, class types, coaches or locations
+is refused (a column mapped wrongly). Either file may be loaded on its own. A timetable file may be
+one row per booking (who is booked by id or address, its state, a value map for the export's own
+words), and gives the coach's address; `FileBookingSystem.listBookings` answers those bookings.
+A membership type's kind may be set by its name (the value map `membershipType`). Refs are kept
+within the contract's shape whatever the file's ids are (`fitRef`), and every text kept has its
+hidden and direction-changing characters dropped and its white space folded. Revised after the
+review of PR #519: an address too (`cleanAddress`, then the host's own check through
+`normaliseAddress`); a row whose address the host does not take is left out, never read without
+it; a booking's address given beside its id is passed on (`bookingAddresses`); cells are sliced,
+not built a character at a time, and `readHeader` reads the first row alone.

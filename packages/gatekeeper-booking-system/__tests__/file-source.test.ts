@@ -7,11 +7,14 @@ import { describe, expect, it } from "vitest";
 import { CONFORMANCE_CHECKS, runConformance } from "../src/conformance.js";
 import { directSession } from "../src/direct.js";
 import {
+  cleanAddress,
   dryRunFiles,
   FileBookingSystem,
   type FileSourceInput,
+  fitRef,
   loadFiles,
   parseCsv,
+  readHeader,
 } from "../src/file-source.js";
 import { type MatchContext, matchPeople } from "../src/match.js";
 import { refusalCode } from "../src/refusal.js";
@@ -112,7 +115,6 @@ describe("loading a people file", () => {
       ["103", "member"],
       ["104", "not_member"],
       ["105", "not_member"],
-      ["106", "member"],
     ]);
     const avery = load.memberships.filter((m) => m.person === "101");
     expect(
@@ -153,12 +155,12 @@ describe("loading a people file", () => {
         file: "people",
         row: 8,
         column: "E-mail",
-        problem: '"not-an-address" is not an address; read without one',
+        problem: "not an address: the row is left out",
       },
       { file: "timetable", row: 3, problem: '"sometime" is not a time: the row is left out' },
       { file: "timetable", row: 4, column: "Booked", problem: "not a whole number" },
     ]);
-    expect(load.people.find((p) => p.ref === "106")?.email).toBeNull();
+    expect(load.people.find((p) => p.ref === "106")).toBeUndefined();
   });
 
   it("takes the file's own words, and the address as the ref when there is no id", () => {
@@ -176,7 +178,7 @@ describe("loading a people file", () => {
     expect(own.people).toEqual([
       expect.objectContaining({
         ref: "email:robin@example.com",
-        email: "Robin@Example.com",
+        email: "robin@example.com",
         memberStatus: "suspended",
       }),
     ]);
@@ -333,8 +335,8 @@ describe("the dry run", () => {
     );
     expect(run.rows).toEqual({ people: 8, timetable: 4 });
     expect(run.counts).toEqual({
-      people: 6,
-      members: 3,
+      people: 5,
+      members: 2,
       memberships: 3,
       passes: 2,
       membershipTypes: 4,
@@ -346,7 +348,7 @@ describe("the dry run", () => {
     expect(run.matching).toMatchObject({
       linked: 1,
       kept: 0,
-      waiting: { several_people: 1, shared_address: 2, no_address: 1 },
+      waiting: { several_people: 1, shared_address: 2, no_address: 0 },
       unlinked: 1,
       dropped: 0,
     });
@@ -383,5 +385,185 @@ describe("the contract over loaded files", () => {
     await session.listStaff();
     expect((await session.describeSite()).calls.used).toBe(0);
     expect(await session.listBookings({ classes: ["x"] })).toEqual([]);
+  });
+});
+
+describe("a timetable of bookings, and a file read as hostile input (stage 65 step 4)", () => {
+  const BOOKINGS = [
+    "Class ID,Class,Starts,Coach,Coach email,Client ID,Email,Status",
+    "c1,Strength,2026-11-20 07:00,Riley Coach,riley@example.com,101,,Booked",
+    "c1,Strength,2026-11-20 07:00,Riley Coach,riley@example.com,,robin@example.com,Checked in",
+    "c1,Strength,2026-11-20 07:00,Riley Coach,riley@example.com,103,,Mystery",
+    "c2,Mobility,2026-11-21 18:00,Sky Coach,,,,",
+  ].join("\n");
+  const timetable = {
+    text: BOOKINGS,
+    mapping: {
+      columns: {
+        ref: "Class ID",
+        title: "Class",
+        startsAt: "Starts",
+        staff: "Coach",
+        staffEmail: "Coach email",
+        person: "Client ID",
+        personEmail: "Email",
+        bookingState: "Status",
+      },
+    },
+  };
+
+  it("reads one row per booking, a class once, its counts from its bookings, and the coach's address", async () => {
+    const load = loadFiles({ site: INPUT.site, now: NOW, timetable });
+    expect(load.people).toEqual([]);
+    expect(load.classes.map((c) => [c.ref, c.booked, c.waiting])).toEqual([
+      ["c1", 2, 0],
+      ["c2", 0, 0],
+    ]);
+    expect(load.bookings.map((b) => [b.class, b.person, b.state])).toEqual([
+      ["c1", "101", "booked"],
+      ["c1", "email:robin@example.com", "attended"],
+    ]);
+    expect(load.issues).toEqual([
+      expect.objectContaining({
+        row: 3,
+        column: "Status",
+        problem: expect.stringMatching(/left out/),
+      }),
+    ]);
+    expect(load.staff.find((s) => s.ref === "staff:riley-coach")?.email).toBe("riley@example.com");
+    const session = directSession(new FileBookingSystem(loadFiles({ ...INPUT, timetable })));
+    expect(await session.listBookings({ classes: ["c1"] })).toHaveLength(2);
+    const results = await runConformance(
+      { session, declaredActions: async () => [] },
+      { now: NOW },
+    );
+    expect(results.filter((r) => r.status === "failed")).toEqual([]);
+  });
+
+  it("keeps refs the contract takes, text without hidden characters, and a formula as text", () => {
+    expect(fitRef("abc-1")).toBe("abc-1");
+    expect(fitRef("Ö 12")).toMatch(/^-12~[0-9a-f]{16}$/);
+    expect(fitRef("x".repeat(300))).toHaveLength(217);
+    expect(fitRef("Ö 12")).toBe(fitRef("Ö 12"));
+    const load = loadFiles({
+      site: INPUT.site,
+      now: NOW,
+      people: {
+        text: 'id,mail,first\nÖ1,a@example.com,"=1+1"\n2,b@example.com,"Al‮ice\r\nB"\n',
+        mapping: { columns: { ref: "id", email: "mail", givenName: "first" } },
+      },
+    });
+    expect(load.people.map((p) => [p.ref, p.givenName])).toEqual([
+      [expect.stringMatching(/^1~[0-9a-f]{16}$/), "=1+1"],
+      ["2", "Alice B"],
+    ]);
+    expect(load.formulaLike).toBe(1);
+  });
+
+  it("reads the largest legal file once, slicing its cells, and the header alone without the rest", () => {
+    const rows = ["Client ID,First,Last,E-mail,Plan,Notes"];
+    for (let i = 0; i < 20_000; i++) {
+      rows.push(
+        `id${i},Given${i},Family${i},p${i}@example.com,Plan ${i % 50},"${"n".repeat(440)}"`,
+      );
+    }
+    const text = rows.join("\n");
+    expect(text.length).toBeGreaterThan(9_500_000);
+    expect(text.length).toBeLessThan(10_000_000);
+    const started = Date.now();
+    expect(readHeader(text)).toEqual(["Client ID", "First", "Last", "E-mail", "Plan", "Notes"]);
+    const load = loadFiles({
+      site: INPUT.site,
+      now: NOW,
+      people: {
+        text,
+        mapping: {
+          columns: {
+            ref: "Client ID",
+            givenName: "First",
+            familyName: "Last",
+            email: "E-mail",
+            membershipType: "Plan",
+          },
+        },
+      },
+    });
+    expect(load.people).toHaveLength(20_000);
+    // Measured (f519-mem.mjs, Node 24's V8 under --max-old-space-size=64): a 10 MB file and the
+    // request's copies of it stay about 20 MB over the base; reading it a character at a time
+    // held over 200 MB. Here, time only: the runtime has no heap reading.
+    expect(Date.now() - started).toBeLessThan(10_000);
+    // Doubled quotes and text after a closing quote are the cell's, as RFC 4180 reads them.
+    expect(parseCsv('a,b\n"x ""y"" z"tail,2\n')).toEqual([
+      ["a", "b"],
+      ['x "y" ztail', "2"],
+    ]);
+  });
+
+  it("cleans an address before the host checks it: hidden marks, compatibility forms, quotes and brackets", () => {
+    const zw = String.fromCharCode(0x200b);
+    const fullAt = String.fromCharCode(0xff20);
+    expect(cleanAddress(`gone${zw}@example.com`)).toBe("gone@example.com");
+    expect(cleanAddress(`gone${fullAt}example.com`)).toBe("gone@example.com");
+    expect(cleanAddress(' "gone@example.com" ')).toBe("gone@example.com");
+    expect(cleanAddress("Gone Person <gone@example.com>")).toBe("gone@example.com");
+    const load = loadFiles({
+      site: INPUT.site,
+      now: NOW,
+      normaliseAddress: (a) => (a === "gone@example.com" ? a : null),
+      people: {
+        text: `id,mail\n1,GONE${zw}@example.com\n2,"bad address"\n`,
+        mapping: { columns: { ref: "id", email: "mail" } },
+      },
+    });
+    // The host's check decides, after cleaning: an address it does not take leaves the row out,
+    // even beside an id.
+    expect(load.people).toEqual([]);
+    expect(load.issues.map((i) => i.problem)).toEqual([
+      "not an address: the row is left out",
+      "not an address: the row is left out",
+    ]);
+    const lower = loadFiles({
+      site: INPUT.site,
+      now: NOW,
+      normaliseAddress: (a) => a.toLowerCase(),
+      people: {
+        text: `mail\nGONE${zw}@Example.com\n`,
+        mapping: { columns: { email: "mail" } },
+      },
+    });
+    expect(lower.people.map((p) => [p.ref, p.email])).toEqual([
+      ["email:gone@example.com", "gone@example.com"],
+    ]);
+  });
+
+  it("refuses a file past its limits while reading it, naming no value", () => {
+    expect(code(() => parseCsv(`a\n${"b\n".repeat(11)}`, { maxRows: 10 }))).toBe("invalid");
+    expect(code(() => parseCsv(`${"a,".repeat(5)}a\n`, { maxColumns: 5 }))).toBe("invalid");
+    expect(code(() => parseCsv(`a\n"${"s".repeat(20)}"\n`, { maxCell: 10 }))).toBe("invalid");
+    expect(code(() => parseCsv("a,b\n1,\u00002\n"))).toBe("invalid");
+    expect(
+      code(() =>
+        loadFiles({
+          site: INPUT.site,
+          people: { text: "mail,Mail\na@example.com,b\n", mapping: { columns: { email: "mail" } } },
+        }),
+      ),
+    ).toBe("invalid");
+    const types = [
+      "mail,plan",
+      ...Array.from({ length: 501 }, (_, i) => `p${i}@example.com,Plan ${i}`),
+    ];
+    expect(
+      code(() =>
+        loadFiles({
+          site: INPUT.site,
+          people: {
+            text: types.join("\n"),
+            mapping: { columns: { email: "mail", membershipType: "plan" } },
+          },
+        }),
+      ),
+    ).toBe("invalid");
   });
 });

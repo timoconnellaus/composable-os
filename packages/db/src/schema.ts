@@ -1339,6 +1339,9 @@ export interface CoreOutsideListTable {
   mapping: Defaulted<string>;
   state: Defaulted<"current" | "replaced" | "removed">;
   ended_at: Defaulted<string | null>;
+  /** Migration 1413: when the admins were told it is 3 days from the largest age, and past it. */
+  told_soon_at: Defaulted<string | null>;
+  told_old_at: Defaulted<string | null>;
 }
 
 /** Migration 1410: an outside person kept from the current members list, and their link. */
@@ -4814,6 +4817,9 @@ export interface CoreDatabase {
   core_journey_step_log: CoreJourneyStepLogTable;
   core_outside_settings: CoreOutsideSettingsTable;
   core_outside_list: CoreOutsideListTable;
+  /** Migration 1413: the load's guard (a trigger fails the batch; nothing is stored) and the version it checks. */
+  core_load_guard: { expected: string };
+  core_outside_version: { version: string };
   core_outside_person: CoreOutsidePersonTable;
   core_outside_membership_type: CoreOutsideMembershipTypeTable;
   core_outside_membership: CoreOutsideMembershipTable;

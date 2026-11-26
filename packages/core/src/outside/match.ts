@@ -19,6 +19,7 @@ import { ConfigError } from "../errors.ts";
 import { newId } from "../ids.ts";
 import type { HandlerContext } from "../operation.ts";
 import { chunk, jsonList } from "../records/common.ts";
+import { erasedAddressHash } from "../records/erase-subject.ts";
 import { erasedAddresses } from "../sync/ingest.ts";
 import { SYSTEM_USER } from "../users.ts";
 import { onCurrentList } from "./settings.ts";
@@ -28,19 +29,62 @@ type Db = Kysely<CoreDatabase>;
 /** The subject of the one timeline activity a link adds to a Person. It names no address. */
 export const LINK_SUBJECT = "Linked to the booking system's list";
 
-/** The Persons with a live address of each folded form (one query, however many addresses). */
+/**
+ * The most a list of values bound as one JSON text may hold, in bytes: well under D1's 100 KB
+ * statement and 2 MB string (stage 65 step 4's review, M2), so a large list is read in a few
+ * statements, never one too big for D1.
+ */
+export const MAX_JSON_PARAM = 90_000;
+
+/**
+ * More reads than this for one lookup of a small table of erased people (suppressions, the
+ * erased-address list, staff's unlink decisions): read the table whole instead, in one.
+ */
+const WHOLE_TABLE_AFTER = 4;
+
+/** `items` in parts whose JSON is at most `max` bytes (and at most `count` items). */
+export function boundedChunks<T>(
+  items: readonly T[],
+  max = MAX_JSON_PARAM,
+  count = Number.POSITIVE_INFINITY,
+): T[][] {
+  const out: T[][] = [];
+  let part: T[] = [];
+  let bytes = 2;
+  const encoder = new TextEncoder();
+  for (const item of items) {
+    const size = encoder.encode(JSON.stringify(item)).length + 1;
+    if (part.length && (bytes + size > max || part.length >= count)) {
+      out.push(part);
+      part = [];
+      bytes = 2;
+    }
+    part.push(item);
+    bytes += size;
+  }
+  if (part.length) out.push(part);
+  return out;
+}
+
+/** The Persons with a live address of each folded form (a read per 90 KB of addresses). */
 export async function personsByFolded(
   db: Db,
   folded: readonly string[],
 ): Promise<Map<string, string[]>> {
   const out = new Map<string, string[]>();
   if (!folded.length) return out;
-  const rows = await db
-    .selectFrom("core_person_emails as e")
-    .select([foldedSql("e.email").as("folded"), "e.person_id"])
-    .where("e.live", "=", 1)
-    .where(foldedSql("e.email"), "in", jsonList([...new Set(folded)]))
-    .execute();
+  const rows = (
+    await Promise.all(
+      boundedChunks([...new Set(folded)]).map((part) =>
+        db
+          .selectFrom("core_person_emails as e")
+          .select([foldedSql("e.email").as("folded"), "e.person_id"])
+          .where("e.live", "=", 1)
+          .where(foldedSql("e.email"), "in", jsonList(part))
+          .execute(),
+      ),
+    )
+  ).flat();
   for (const r of rows) {
     const list = out.get(r.folded) ?? [];
     if (!list.includes(r.person_id)) list.push(r.person_id);
@@ -138,19 +182,46 @@ export async function droppedOf(
     })),
   );
   const hashes = [...refHashes.map((h) => h.hash), ...addressHashes.map((h) => h.hash)];
-  // One JSON parameter (D1 binds at most 100), however many a list holds.
-  const suppressed = hashes.length
-    ? new Set(
-        (
-          await db
-            .selectFrom("core_outside_suppressed")
-            .select("hash")
-            .where("hash", "in", jsonList(hashes))
-            .execute()
-        ).map((r) => r.hash),
-      )
-    : new Set<string>();
-  const erased = await erasedAddresses(db, [...new Set(addresses)]);
+  // One JSON parameter a read (D1 binds at most 100), each at most 90 KB. A list too long for a few
+  // such reads reads the suppressions whole instead, in one statement: the table holds erased
+  // people only (the review, M2: no parameter past D1's limits, and few statements).
+  const parts = boundedChunks(hashes);
+  const suppressed = new Set(
+    (parts.length > WHOLE_TABLE_AFTER
+      ? await db.selectFrom("core_outside_suppressed").select("hash").execute()
+      : (
+          await Promise.all(
+            parts.map((part) =>
+              db
+                .selectFrom("core_outside_suppressed")
+                .select("hash")
+                .where("hash", "in", jsonList(part))
+                .execute(),
+            ),
+          )
+        ).flat()
+    ).map((r) => r.hash),
+  );
+  const unique = [...new Set(addresses)];
+  // Each address is looked up by its hash (about 75 bytes of JSON): 1,000 a read, or the
+  // erased-address list whole (erased people's only) when that would be more than a few.
+  const addressParts = boundedChunks(unique, MAX_JSON_PARAM, 1_000);
+  let erased: Set<string>;
+  if (addressParts.length > WHOLE_TABLE_AFTER) {
+    const all = new Set(
+      (await db.selectFrom("core_erased_address").select("hash").execute()).map((r) => r.hash),
+    );
+    const keyed = await Promise.all(
+      unique.map(async (a) => ({ a, hash: await erasedAddressHash(a) })),
+    );
+    erased = new Set(keyed.filter((k) => all.has(k.hash)).map((k) => k.a));
+  } else {
+    erased = new Set(
+      (await Promise.all(addressParts.map((part) => erasedAddresses(db, part)))).flatMap((s) => [
+        ...s,
+      ]),
+    );
+  }
   const suppressedAddresses = addressHashes
     .filter((h) => suppressed.has(h.hash))
     .map((h) => h.address);
@@ -265,12 +336,26 @@ export async function unlinkedOf(
   const hashes = await Promise.all(
     [...new Set(refs)].map(async (ref) => ({ ref, hash: await outsideRefHash(db, kind, ref) })),
   );
-  const rows = await db
-    .selectFrom("core_outside_unlinked")
-    .select(["hash", "unlinked_by", "unlinked_at"])
-    .where("kind", "=", kind)
-    .where("hash", "in", jsonList(hashes.map((h) => h.hash)))
-    .execute();
+  const parts = boundedChunks(hashes.map((h) => h.hash));
+  const rows =
+    parts.length > WHOLE_TABLE_AFTER
+      ? await db
+          .selectFrom("core_outside_unlinked")
+          .select(["hash", "unlinked_by", "unlinked_at"])
+          .where("kind", "=", kind)
+          .execute()
+      : (
+          await Promise.all(
+            parts.map((part) =>
+              db
+                .selectFrom("core_outside_unlinked")
+                .select(["hash", "unlinked_by", "unlinked_at"])
+                .where("kind", "=", kind)
+                .where("hash", "in", jsonList(part))
+                .execute(),
+            ),
+          )
+        ).flat();
   const byHash = new Map(rows.map((r) => [r.hash, r]));
   for (const h of hashes) {
     const row = byHash.get(h.hash);

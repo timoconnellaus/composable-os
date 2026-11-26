@@ -9,23 +9,37 @@
 //   outside.link             staff (bookingSystem:manage, a person) link an outside person or coach
 //   outside.unlink           staff (bookingSystem:manage, a person) unlink one, with why
 //   outside.lists.remove     staff (bookingSystem:manage, a person) remove a list, or both
+//   outside.file.preview     staff (bookingSystem:manage, a person) the dry run of an exported list
+//   outside.file.load        staff (bookingSystem:manage, a person) load it, as the dry run showed
 //
-// Loading a list (`outside.file.preview`, `outside.file.load`) is step 4's; it plans through
-// `outside/ingest.ts`. Removing one (step 10) plans through `outside/remove.ts`. None of these writes to the booking system, a Person's fields,
+// Loading a list (`outside.file.preview`, `outside.file.load`, step 4, ADR 0923) plans through
+// `outside/file.ts` and `outside/ingest.ts`. Removing one (step 10) plans through `outside/remove.ts`. None of these writes to the booking system, a Person's fields,
 // an order, a membership or booking here, or an allowance. Linking and the settings are a person's
 // at the screen (`actors: ["human"]`, never MCP, Code Mode, an extension or an automation): who is
 // a member decides prices and what a customer may open. An AI may read the lists' state and To
 // match for an account that holds bookingSystem:manage, to explain them.
 import { type SqlBool, sql } from "kysely";
 import { z } from "zod";
-import { ForbiddenError, ValidationError } from "../errors.ts";
+import { ConflictError, ForbiddenError, ValidationError } from "../errors.ts";
 import { defineOperation, type HandlerContext } from "../operation.ts";
+import {
+  clearMappingStatement,
+  DATE_FORMATS,
+  type FileMapping,
+  fileBytes,
+  MAX_FILE_BASE64,
+  MAX_VALUE_WORD,
+  planFile,
+  savedMappings,
+  saveMappingStatement,
+} from "../outside/file.ts";
 import { droppedOf, LINK_SUBJECT, outsideRefHash } from "../outside/match.ts";
 import { planRemoval, REMOVE_MAX_STATEMENTS, REMOVE_PASS_ROWS } from "../outside/remove.ts";
 import {
   businessToday,
   currentLists,
   LIST_KINDS,
+  type ListKind,
   listAge,
   loadOutsideSettings,
   MAX_LARGEST_AGE_DAYS,
@@ -68,6 +82,12 @@ const typeSchema = z.object({
   counts: z.boolean().describe("It makes a Person a member"),
 });
 
+const savedMappingOut = z.object({
+  columns: z.record(z.string(), z.string()),
+  values: z.record(z.string(), z.record(z.string(), z.string())).optional(),
+  dateFormat: z.enum(DATE_FORMATS).optional(),
+});
+
 export const outsideSettingsGet = defineOperation({
   name: "outside.settings.get",
   description:
@@ -77,7 +97,14 @@ export const outsideSettingsGet = defineOperation({
     "members list counts for; and the membership types the current members list holds, each " +
     "marked whether it counts. Needs bookingSystem:manage.",
   input: z.object({}),
-  output: settingsSchema.extend({ types: z.array(typeSchema) }),
+  output: settingsSchema.extend({
+    types: z.array(typeSchema),
+    mappings: z
+      .object({ members: savedMappingOut.optional(), timetable: savedMappingOut.optional() })
+      .describe(
+        "The column mapping, value maps and date format saved by the last load of each kind (the export's own column names and words, never a person's)",
+      ),
+  }),
   permission: "bookingSystem:manage",
   risk: "read",
   mcp: { title: "Booking system settings" },
@@ -93,6 +120,22 @@ export const outsideSettingsGet = defineOperation({
     const { updatedBy: _by, ...rest } = settings;
     return {
       ...rest,
+      mappings: Object.fromEntries(
+        Object.entries(await savedMappings(ctx.db)).flatMap(([kind, m]) =>
+          m && LIST_KINDS.includes(kind as ListKind)
+            ? [
+                [
+                  kind,
+                  {
+                    columns: m.columns ?? {},
+                    ...(m.values ? { values: m.values } : {}),
+                    ...(m.dateFormat ? { dateFormat: m.dateFormat } : {}),
+                  },
+                ],
+              ]
+            : [],
+        ),
+      ),
       types: types.map((t) => ({
         ref: t.ref,
         name: t.name,
@@ -113,13 +156,19 @@ export const outsideSettingsUpdate = defineOperation({
     "Change the booking-system settings: on or off, the outside types that make a Person a " +
     "member (null for the default: every membership type, no pass), the two links (each an https " +
     "address, or null), and the largest age a members list counts for (1 to 90 days). Leave a " +
-    "setting out to keep it. A human admin in the app only.",
+    "setting out to keep it; clearMappings forgets the saved column mapping of a kind. A human " +
+    "admin in the app only.",
   input: z.object({
     enabled: z.boolean().optional(),
     memberTypes: z.array(z.string().min(1).max(600)).max(200).nullable().optional(),
     manageUrl: httpsLink.optional(),
     bookUrl: httpsLink.optional(),
     largestAgeDays: z.number().int().min(1).max(MAX_LARGEST_AGE_DAYS).optional(),
+    clearMappings: z
+      .array(z.enum(LIST_KINDS))
+      .max(2)
+      .optional()
+      .describe("Forget the saved column mapping of these kinds: the next file is mapped afresh"),
   }),
   output: settingsSchema,
   permission: "settings:manage",
@@ -155,6 +204,7 @@ export const outsideSettingsUpdate = defineOperation({
         .values({ id: 1, ...row })
         .onConflict((oc) => oc.column("id").doUpdateSet(row)),
     );
+    for (const kind of new Set(input.clearMappings ?? [])) ctx.write(clearMappingStatement(kind));
     return { source: "file" as const, ...next, updatedAt: ctx.now };
   },
 });
@@ -725,6 +775,208 @@ export const outsideSuppressionLift = defineOperation({
   },
 });
 
+// --- The file source (stage 65 step 4, ADR 0923). ----------------------------------------------
+
+const valueWords = z.record(z.string().min(1).max(MAX_VALUE_WORD), z.string().min(1).max(40));
+
+const fileMappingSchema = z.object({
+  columns: z
+    .record(z.string().min(1).max(40), z.string().min(1).max(200))
+    .describe('Field → the column header that holds it, e.g. { email: "E-mail" }'),
+  values: z
+    .record(z.string().min(1).max(40), valueWords)
+    .optional()
+    .describe(
+      "The export's own words for values, per value map: members' memberStatus, membershipStatus, membershipKind, membershipType (a plan's name → membership or pass); timetable's bookingState",
+    ),
+  dateFormat: z.enum(DATE_FORMATS).optional(),
+});
+
+const fileInput = z.object({
+  kind: z
+    .enum(LIST_KINDS)
+    .describe("members (people and their memberships and passes) or timetable"),
+  file: z
+    .string()
+    .min(1)
+    .max(MAX_FILE_BASE64 + 4)
+    .describe(
+      "The exported file's bytes, base64 (at most 10 MB): CSV, semicolon or tab separated, in UTF-8, UTF-16 or Windows-1252, read by its content",
+    ),
+  mapping: fileMappingSchema
+    .optional()
+    .describe("Omit to use the saved mapping (when the file has its columns) or the suggestion"),
+  exportedOn: z
+    .string()
+    .regex(/^\d{4}-\d{2}-\d{2}$/)
+    .optional()
+    .describe("The date the file was exported (what the list's age counts from); default today"),
+});
+
+const changesSchema = z.object({
+  new: z.number().int(),
+  changed: z.number().int(),
+  unchanged: z.number().int(),
+  removed: z.number().int().describe("In the current list and not in this file: they go"),
+});
+
+const outcomeSchema = z.object({
+  changes: changesSchema.describe(
+    "People (members) or classes (timetable) against the current list",
+  ),
+  kept: z.number().int(),
+  notKept: z.number().int().describe("Not a member, no live pass, not booked, not staff-linked"),
+  dropped: z.number().int().describe("Of an erased person: nothing of them is kept"),
+  previouslyErased: z.number().int().describe("Of those, dropped by a ref an erase suppressed"),
+  linked: z.number().int(),
+  links: z.number().int(),
+  toMatch: z.number().int(),
+  unlinked: z.number().int(),
+  items: z.record(z.string(), z.number().int()),
+});
+
+const mappingOut = z.object({
+  columns: z.record(z.string(), z.string()),
+  values: z.record(z.string(), z.record(z.string(), z.string())).optional(),
+  dateFormat: z.enum(DATE_FORMATS).optional(),
+});
+
+function fileOf(input: {
+  kind: ListKind;
+  file: string;
+  mapping?: FileMapping;
+  exportedOn?: string;
+}) {
+  return {
+    kind: input.kind,
+    bytes: fileBytes(input.file),
+    ...(input.mapping ? { mapping: input.mapping } : {}),
+    ...(input.exportedOn ? { exportedOn: input.exportedOn } : {}),
+  };
+}
+
+export const outsideFilePreview = defineOperation({
+  name: "outside.file.preview",
+  description:
+    "The dry run of a list exported from the booking system: decodes the file by its content, " +
+    "maps its columns (the given mapping, else the saved one, else a suggestion from the headers), " +
+    "and says what the load would do against the current list (new, changed, unchanged, removed; " +
+    "not kept; dropped because the person was erased; who would link by address and who would " +
+    "wait in To match) and every refused row with why. Writes nothing and keeps nothing of the " +
+    "file. Pass its fingerprint, with the same file, mapping and export date, to outside.file.load. " +
+    "A person with bookingSystem:manage only, never an AI; never queued for approval (where it " +
+    "would wait, it is refused: a waiting call would keep the file).",
+  input: fileInput,
+  output: z.object({
+    kind: z.enum(LIST_KINDS),
+    ready: z.boolean().describe("False when a required field has no column: map it and ask again"),
+    missing: z.array(z.string()),
+    headers: z.array(z.string()),
+    mapping: mappingOut,
+    mappingFrom: z.enum(["given", "saved", "suggested"]),
+    suggested: mappingOut,
+    encoding: z.enum(["utf-8", "utf-16le", "utf-16be", "windows-1252"]),
+    exportedOn: z.string(),
+    rows: z.object({ read: z.number().int(), refused: z.number().int() }),
+    issueCount: z.number().int(),
+    issues: z.array(
+      z.object({
+        file: z.enum(["people", "timetable"]),
+        row: z.number().int(),
+        column: z.string().optional(),
+        problem: z.string(),
+      }),
+    ),
+    formulaLike: z.number().int().describe("Cells kept as text that start as a formula would"),
+    outcome: outcomeSchema,
+    linking: z.array(z.object({ ref: z.string(), name: z.string(), to: z.string() })),
+    waiting: z.array(z.object({ ref: z.string(), name: z.string(), why: z.string() })),
+    statements: z.number().int(),
+    fingerprint: z.string(),
+  }),
+  permission: "bookingSystem:manage",
+  risk: "read",
+  actors: ["human"],
+  mcp: { expose: false },
+  redact: ["file"],
+  neverQueued: true,
+  auditSummary: (output) => ({ kind: output.kind, rows: output.rows, ready: output.ready }),
+  async handler(input, ctx) {
+    const { preview } = await planFile(ctx.db, fileOf(input), {
+      userId: ctx.user.id,
+      now: ctx.now,
+    });
+    return preview;
+  },
+});
+
+const STALE =
+  "The file, its mapping or the booking system's copy changed since the dry run (another list was loaded, someone was erased, linked or unlinked, a Person's address changed): nothing was loaded. Run the dry run again.";
+
+export const outsideFileLoad = defineOperation({
+  name: "outside.file.load",
+  description:
+    "Load a list exported from the booking system, as its dry run showed: the same file, mapping " +
+    "and export date, and the dry run's fingerprint. The host plans again and refuses, writing " +
+    "nothing, unless the plan is the one the dry run showed (the file, the copy, an erase or a " +
+    "Person's address changed since). The list replaces the current one of its kind in one " +
+    "batch: rows not in the new file go, with their links and matches; nothing of an erased " +
+    "person is kept. The mapping is saved for the next export of the same shape. The file itself " +
+    "is not kept; the audit records counts only. A person with bookingSystem:manage only, never an " +
+    "AI, an MCP client, Code Mode, an extension or an automation; never queued for approval " +
+    "(where it would wait, it is refused). An erase, link or other load landing between its plan " +
+    "and its write fails the whole write (conflict), so nothing an erase removed comes back.",
+  input: fileInput.extend({
+    fingerprint: z.string().min(1).max(200).describe("The dry run's fingerprint"),
+    saveMapping: z.boolean().optional().describe("Default true: save the mapping for next time"),
+  }),
+  output: z.object({
+    kind: z.enum(LIST_KINDS),
+    exportedOn: z.string(),
+    rows: z.object({ read: z.number().int(), refused: z.number().int() }),
+    issueCount: z.number().int(),
+    outcome: outcomeSchema,
+  }),
+  permission: "bookingSystem:manage",
+  risk: "write",
+  actors: ["human"],
+  mcp: { expose: false },
+  redact: ["file"],
+  neverQueued: true,
+  auditSummary: (output) => output,
+  // The load's guard failed its batch: the copy moved between its plan and its write (an erase,
+  // a link, another load): nothing was written (the review, S3).
+  explainFailure: async (error) =>
+    /core_outside_stale/.test(`${error.message} ${JSON.stringify(error.details ?? null)}`)
+      ? new ConflictError(STALE, { rule: "outside_preview_stale" })
+      : null,
+  async handler(input, ctx) {
+    const { plan, preview } = await planFile(ctx.db, fileOf(input), {
+      userId: ctx.user.id,
+      now: ctx.now,
+    });
+    if (!plan || !preview.ready) {
+      throw new ValidationError(`No column is mapped to: ${preview.missing.join(", ")}.`, {
+        field: "mapping",
+        rule: "outside_mapping",
+      });
+    }
+    if (preview.fingerprint !== input.fingerprint) {
+      throw new ConflictError(STALE, { rule: "outside_preview_stale" });
+    }
+    ctx.write(...plan.statements);
+    if (input.saveMapping !== false)
+      ctx.write(await saveMappingStatement(ctx.db, input.kind, preview.mapping, preview.headers));
+    return {
+      kind: input.kind,
+      exportedOn: preview.exportedOn,
+      rows: preview.rows,
+      issueCount: preview.issueCount,
+      outcome: preview.outcome,
+    };
+  },
+});
+
 export const outsideOperations = [
   outsideSettingsGet,
   outsideSettingsUpdate,
@@ -734,4 +986,6 @@ export const outsideOperations = [
   outsideUnlink,
   outsideListsRemove,
   outsideSuppressionLift,
+  outsideFilePreview,
+  outsideFileLoad,
 ];
