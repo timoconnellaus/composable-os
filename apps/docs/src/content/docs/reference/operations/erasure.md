@@ -33,7 +33,7 @@ Whether an email address is on the erased-address list: the addresses of erased 
 
 ## erasure.allowAddress
 
-Take an email address off the erased-address list, so mail and calendar sync can match and suggest it again: for a person who was erased and has come back by consent. Admins only, and only a person in the app. Records the decision in the erase log, so a re-apply after a restore keeps it.
+Take an email address off the erased-address list, so mail and calendar sync can match and suggest it again: for a person who was erased and has come back by consent. The booking system's copy matches them again too: the address's suppression goes, with the outside refs the same erase suppressed (theirs). Admins only, and only a person in the app. Records the decision in the erase log, so a re-apply after a restore keeps it.
 
 |  |  |
 | --- | --- |
@@ -54,6 +54,9 @@ Take an email address off the erased-address list, so mail and calendar sync can
 | Field | Type | Required | Limits | Description |
 | --- | --- | --- | --- | --- |
 | `removed` | boolean | yes |   |   |
+| `bookingSystem` | object | yes |   | The booking system's copy (stage 65): the address and the refs the same erase suppressed are matched again from the next list |
+| `bookingSystem.addresses` | number | yes |   | The address's suppression in the booking system's copy, lifted |
+| `bookingSystem.refs` | number | yes |   | Outside refs the same erase suppressed (the Person's own), lifted with it |
 
 ## erasure.reapply
 

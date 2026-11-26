@@ -832,17 +832,21 @@ that stay)
 ### Outside suppression
 
 `core_outside_suppressed`: keyed hashes (the deployment's salt, as the consent register's
-suppression list) of an erased Person's outside refs and addresses, never the values. Every load
-keeps nothing they name, a link by hand refuses them, and the erase log carries them so a restore
-gets them back (ADR 0926). Not the erased-address list (that is the Person's own addresses, for
-mail too) and not the contact suppression list (that is sending).
+suppression list) of the refs and addresses of an erased Person's own outside rows (linked to
+them, or on their address where it can only be theirs; never a row linked to someone else), never
+the values. Every load keeps nothing they name, a link by hand refuses them, the erase log carries
+them so a restore gets them back, `erasure.allowAddress` lifts an address with that erase's refs,
+and a person with `bookingSystem:manage` lifts a reused ref (`outside.suppression.lift`). A lost
+salt is refused, loudly (ADR 0926). Not the erased-address list (that is the Person's own
+addresses, for mail too) and not the contact suppression list (that is sending).
 
 ### Removing a list
 
 `outside.lists.remove` (a person with `bookingSystem:manage`, never an AI): the current list of a
 kind, or both (what disconnecting the booking system means for a list), stops counting at once and
-its rows are deleted in bounded passes, resumed by calling again when a copy is bigger than one
-call's. The settings, the lists' log, suppressions, unlink decisions and the timeline stay (ADR 0926).
+its rows are deleted in bounded passes, only ever rows of no current list; a copy bigger than one
+call's is finished by the daily maintenance (or `finish: true`). The settings, the lists' log,
+suppressions, unlink decisions and the timeline stay (ADR 0926).
 _Avoid_: disconnect (there is no connection), purge
 
 ### Linked (by address)

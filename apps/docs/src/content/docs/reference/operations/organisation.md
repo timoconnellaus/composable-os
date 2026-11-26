@@ -167,7 +167,9 @@ Permanently delete an organisation now (admins only), live or in Trash, together
 | `bodiesDeleted` | number | yes |   | Synced email bodies deleted from blob storage now (the rest are retried) |
 | `bookingSystem` | object |   |   | A person's copy from the booking system's lists (stage 65): their memberships, passes, bookings, links and matches are deleted and their outside refs and addresses suppressed, so no later list brings them back. A copy remains in the booking system, for staff to deal with there |
 | `bookingSystem.people` | number | yes |   | Outside people of theirs removed from the booking system's copy |
-| `bookingSystem.coaches` | number | yes |   | Coaches with their address removed from the copy |
+| `bookingSystem.coaches` | number | yes |   | Coaches with their address and no staff account removed from the copy |
+| `bookingSystem.coachesOfStaff` | number | yes |   | Coaches with their address linked to a staff account: kept, as that account's (the staff account is not erased) |
+| `bookingSystem.textScrubbed` | number | yes |   | Classes and class types whose text (a title naming them) was scrubbed; a later list brings back what the booking system still says |
 | `bookingSystem.copyRemains` | `true` | yes |   | The booking system itself still holds them: the host cannot remove it there |
 | `bookingSystem.note` | string | yes |   |   |
 
