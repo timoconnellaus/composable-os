@@ -52,17 +52,31 @@ linked and what a customer may see are rules of the host.
   rules themselves are the contract package's `matchPeople`.
 - `outside/erase.ts` is how an erase, a merge and a purge reach the copy; `outside/remove.ts`
   plans a list's removal in bounded passes.
+- `outside/file.ts` is the file source in the host: it decodes an exported file by its content
+  (UTF-8, UTF-16 or Windows-1252; a workbook, PDF, web page or JSON is refused), maps its columns,
+  reads it through the contract's file session and plans it with the ingest, so a file's rows
+  enter the copy only the way every source's do. `outside/notices.ts` tells the members list's
+  age.
 - `operations/outside.ts` is how anything reads or changes the copy.
 
 ## Main flows
 
-1. A list is read through the contract and planned: who is kept and why, who links, who waits.
-   The batch replaces the copy of that kind and adds one timeline line per Person linked.
+1. A person with `bookingSystem:manage` uploads a list exported from the booking system
+   (`outside.file.preview`): its columns are mapped (the saved mapping for a file of the same
+   shape, else a suggestion from the headers), and the dry run says, writing nothing, which rows
+   are refused and why, who is new, changed, unchanged or removed, who is not kept, how many are
+   dropped because they were erased, who would link and who would wait in To match. They load it
+   with the dry run's fingerprint (`outside.file.load`): the host plans again and refuses unless
+   nothing changed since. The batch replaces the copy of that kind, adds one timeline line per
+   Person linked, and saves the mapping. The file is never kept: the browser sends it again for
+   the load, and the audit records counts only.
 2. A Person is created, given an address, restored or imported: an unlinked outside person with
    that address is linked then, or waits if another Person holds it too.
 3. Staff open To match (`outside.matches`) and link (`outside.link`) or say "nobody here"
    (`outside.unlink`), with why.
-4. `outside.status` shows each list's date, its age, and whether it still counts.
+4. `outside.status` shows each list's date, its age, and whether it still counts. The
+   holders of `bookingSystem:manage` are told, once each, 3 days before a members list stops
+   counting and when it does; the lists' log rows go after 30 days.
 5. A Person is erased (`person.erase`): rows linked to them go, and rows linked to nobody on an
    address only they hold (a household's unmatched copies), and coaches on their address with no
    staff account, with their memberships, passes, bookings and To match. Their addresses are
@@ -80,17 +94,17 @@ linked and what a customer may see are rules of the host.
 ## Who may do what
 
 - `bookingSystem:manage` (admins, grantable one by one, never to a pack's fixed role) reads the
-  lists' state, To match and the settings. Linking, unlinking and removing a list are a person's
-  only, never an AI's, an MCP client's, an extension's or an automation's.
+  lists' state, To match and the settings. Loading a list (its dry run too), linking, unlinking and removing
+  a list are a person's only, never an AI's, an MCP client's, an extension's or an automation's.
 - The settings (on or off, which types make a member, the two links, the largest age) are a human
   admin's (`settings:manage`).
 - The copy is in no `rec_*` view: no SQL, export, search, dashboard or AI record read reaches it.
 
 ## What is built
 
-The tables, the settings, the lists' ages, the ingest plan, matching and linking by hand, erase,
-merge, purge and removal, and the operations above. Loading a list from a file and the screens are
-not built yet.
+The tables, the settings, the lists' ages and their notices, loading a list from a file (the
+dry run and the load), the ingest plan, matching and linking by hand, erase, merge, purge and
+removal, and the operations above. The screens are not built yet.
 
 
 ## Reference

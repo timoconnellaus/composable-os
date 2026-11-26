@@ -70961,6 +70961,732 @@
       ]
     },
     {
+      "name": "outside.file.load",
+      "description": "Load a list exported from the booking system, as its dry run showed: the same file, mapping and export date, and the dry run's fingerprint. The host plans again and refuses, writing nothing, unless the plan is the one the dry run showed (the file, the copy, an erase or a Person's address changed since). The list replaces the current one of its kind in one batch: rows not in the new file go, with their links and matches; nothing of an erased person is kept. The mapping is saved for the next export of the same shape. The file itself is not kept; the audit records counts only. A person with bookingSystem:manage only, never an AI, an MCP client, Code Mode, an extension or an automation.",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "members",
+              "timetable"
+            ],
+            "description": "members (people and their memberships and passes) or timetable"
+          },
+          "file": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 13333340,
+            "description": "The exported file's bytes, base64 (at most 10 MB): CSV, semicolon or tab separated, in UTF-8, UTF-16 or Windows-1252, read by its content"
+          },
+          "mapping": {
+            "description": "Omit to use the saved mapping (when the file has its columns) or the suggestion",
+            "type": "object",
+            "properties": {
+              "columns": {
+                "type": "object",
+                "propertyNames": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 40
+                },
+                "additionalProperties": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200
+                },
+                "description": "Field → the column header that holds it, e.g. { email: \"E-mail\" }"
+              },
+              "values": {
+                "description": "The export's own words for values, per value map: members' memberStatus, membershipStatus, membershipKind, membershipType (a plan's name → membership or pass); timetable's bookingState",
+                "type": "object",
+                "propertyNames": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 40
+                },
+                "additionalProperties": {
+                  "type": "object",
+                  "propertyNames": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 100
+                  },
+                  "additionalProperties": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 40
+                  }
+                }
+              },
+              "dateFormat": {
+                "type": "string",
+                "enum": [
+                  "YYYY-MM-DD",
+                  "DD/MM/YYYY",
+                  "MM/DD/YYYY"
+                ]
+              }
+            },
+            "required": [
+              "columns"
+            ]
+          },
+          "exportedOn": {
+            "description": "The date the file was exported (what the list's age counts from); default today",
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+          },
+          "fingerprint": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "description": "The dry run's fingerprint"
+          },
+          "saveMapping": {
+            "description": "Default true: save the mapping for next time",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "kind",
+          "file",
+          "fingerprint"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "members",
+              "timetable"
+            ]
+          },
+          "exportedOn": {
+            "type": "string"
+          },
+          "rows": {
+            "type": "object",
+            "properties": {
+              "read": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "refused": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              }
+            },
+            "required": [
+              "read",
+              "refused"
+            ],
+            "additionalProperties": false
+          },
+          "issueCount": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "outcome": {
+            "type": "object",
+            "properties": {
+              "changes": {
+                "type": "object",
+                "properties": {
+                  "new": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  "changed": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  "unchanged": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  "removed": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991,
+                    "description": "In the current list and not in this file: they go"
+                  }
+                },
+                "required": [
+                  "new",
+                  "changed",
+                  "unchanged",
+                  "removed"
+                ],
+                "additionalProperties": false,
+                "description": "People (members) or classes (timetable) against the current list"
+              },
+              "kept": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "notKept": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991,
+                "description": "Not a member, no live pass, not booked, not staff-linked"
+              },
+              "dropped": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991,
+                "description": "Of an erased person: nothing of them is kept"
+              },
+              "previouslyErased": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991,
+                "description": "Of those, dropped by a ref an erase suppressed"
+              },
+              "linked": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "links": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "toMatch": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "unlinked": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "items": {
+                "type": "object",
+                "propertyNames": {
+                  "type": "string"
+                },
+                "additionalProperties": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                }
+              }
+            },
+            "required": [
+              "changes",
+              "kept",
+              "notKept",
+              "dropped",
+              "previouslyErased",
+              "linked",
+              "links",
+              "toMatch",
+              "unlinked",
+              "items"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "kind",
+          "exportedOn",
+          "rows",
+          "issueCount",
+          "outcome"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "outside.file.preview",
+        "outside.matches",
+        "outside.settings.get",
+        "outside.status"
+      ]
+    },
+    {
+      "name": "outside.file.preview",
+      "description": "The dry run of a list exported from the booking system: decodes the file by its content, maps its columns (the given mapping, else the saved one, else a suggestion from the headers), and says what the load would do against the current list (new, changed, unchanged, removed; not kept; dropped because the person was erased; who would link by address and who would wait in To match) and every refused row with why. Writes nothing and keeps nothing of the file. Pass its fingerprint, with the same file, mapping and export date, to outside.file.load. A person with bookingSystem:manage only, never an AI.",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "members",
+              "timetable"
+            ],
+            "description": "members (people and their memberships and passes) or timetable"
+          },
+          "file": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 13333340,
+            "description": "The exported file's bytes, base64 (at most 10 MB): CSV, semicolon or tab separated, in UTF-8, UTF-16 or Windows-1252, read by its content"
+          },
+          "mapping": {
+            "description": "Omit to use the saved mapping (when the file has its columns) or the suggestion",
+            "type": "object",
+            "properties": {
+              "columns": {
+                "type": "object",
+                "propertyNames": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 40
+                },
+                "additionalProperties": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200
+                },
+                "description": "Field → the column header that holds it, e.g. { email: \"E-mail\" }"
+              },
+              "values": {
+                "description": "The export's own words for values, per value map: members' memberStatus, membershipStatus, membershipKind, membershipType (a plan's name → membership or pass); timetable's bookingState",
+                "type": "object",
+                "propertyNames": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 40
+                },
+                "additionalProperties": {
+                  "type": "object",
+                  "propertyNames": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 100
+                  },
+                  "additionalProperties": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 40
+                  }
+                }
+              },
+              "dateFormat": {
+                "type": "string",
+                "enum": [
+                  "YYYY-MM-DD",
+                  "DD/MM/YYYY",
+                  "MM/DD/YYYY"
+                ]
+              }
+            },
+            "required": [
+              "columns"
+            ]
+          },
+          "exportedOn": {
+            "description": "The date the file was exported (what the list's age counts from); default today",
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$"
+          }
+        },
+        "required": [
+          "kind",
+          "file"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "members",
+              "timetable"
+            ]
+          },
+          "ready": {
+            "type": "boolean",
+            "description": "False when a required field has no column: map it and ask again"
+          },
+          "missing": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "headers": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "mapping": {
+            "type": "object",
+            "properties": {
+              "columns": {
+                "type": "object",
+                "propertyNames": {
+                  "type": "string"
+                },
+                "additionalProperties": {
+                  "type": "string"
+                }
+              },
+              "values": {
+                "type": "object",
+                "propertyNames": {
+                  "type": "string"
+                },
+                "additionalProperties": {
+                  "type": "object",
+                  "propertyNames": {
+                    "type": "string"
+                  },
+                  "additionalProperties": {
+                    "type": "string"
+                  }
+                }
+              },
+              "dateFormat": {
+                "type": "string",
+                "enum": [
+                  "YYYY-MM-DD",
+                  "DD/MM/YYYY",
+                  "MM/DD/YYYY"
+                ]
+              }
+            },
+            "required": [
+              "columns"
+            ],
+            "additionalProperties": false
+          },
+          "mappingFrom": {
+            "type": "string",
+            "enum": [
+              "given",
+              "saved",
+              "suggested"
+            ]
+          },
+          "suggested": {
+            "type": "object",
+            "properties": {
+              "columns": {
+                "type": "object",
+                "propertyNames": {
+                  "type": "string"
+                },
+                "additionalProperties": {
+                  "type": "string"
+                }
+              },
+              "values": {
+                "type": "object",
+                "propertyNames": {
+                  "type": "string"
+                },
+                "additionalProperties": {
+                  "type": "object",
+                  "propertyNames": {
+                    "type": "string"
+                  },
+                  "additionalProperties": {
+                    "type": "string"
+                  }
+                }
+              },
+              "dateFormat": {
+                "type": "string",
+                "enum": [
+                  "YYYY-MM-DD",
+                  "DD/MM/YYYY",
+                  "MM/DD/YYYY"
+                ]
+              }
+            },
+            "required": [
+              "columns"
+            ],
+            "additionalProperties": false
+          },
+          "encoding": {
+            "type": "string",
+            "enum": [
+              "utf-8",
+              "utf-16le",
+              "utf-16be",
+              "windows-1252"
+            ]
+          },
+          "exportedOn": {
+            "type": "string"
+          },
+          "rows": {
+            "type": "object",
+            "properties": {
+              "read": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "refused": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              }
+            },
+            "required": [
+              "read",
+              "refused"
+            ],
+            "additionalProperties": false
+          },
+          "issueCount": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "issues": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "file": {
+                  "type": "string",
+                  "enum": [
+                    "people",
+                    "timetable"
+                  ]
+                },
+                "row": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                "column": {
+                  "type": "string"
+                },
+                "problem": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "file",
+                "row",
+                "problem"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "formulaLike": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991,
+            "description": "Cells kept as text that start as a formula would"
+          },
+          "outcome": {
+            "type": "object",
+            "properties": {
+              "changes": {
+                "type": "object",
+                "properties": {
+                  "new": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  "changed": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  "unchanged": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991
+                  },
+                  "removed": {
+                    "type": "integer",
+                    "minimum": -9007199254740991,
+                    "maximum": 9007199254740991,
+                    "description": "In the current list and not in this file: they go"
+                  }
+                },
+                "required": [
+                  "new",
+                  "changed",
+                  "unchanged",
+                  "removed"
+                ],
+                "additionalProperties": false,
+                "description": "People (members) or classes (timetable) against the current list"
+              },
+              "kept": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "notKept": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991,
+                "description": "Not a member, no live pass, not booked, not staff-linked"
+              },
+              "dropped": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991,
+                "description": "Of an erased person: nothing of them is kept"
+              },
+              "previouslyErased": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991,
+                "description": "Of those, dropped by a ref an erase suppressed"
+              },
+              "linked": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "links": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "toMatch": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "unlinked": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "items": {
+                "type": "object",
+                "propertyNames": {
+                  "type": "string"
+                },
+                "additionalProperties": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                }
+              }
+            },
+            "required": [
+              "changes",
+              "kept",
+              "notKept",
+              "dropped",
+              "previouslyErased",
+              "linked",
+              "links",
+              "toMatch",
+              "unlinked",
+              "items"
+            ],
+            "additionalProperties": false
+          },
+          "linking": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "ref": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "to": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "ref",
+                "name",
+                "to"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "waiting": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "ref": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string"
+                },
+                "why": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "ref",
+                "name",
+                "why"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "statements": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "fingerprint": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "kind",
+          "ready",
+          "missing",
+          "headers",
+          "mapping",
+          "mappingFrom",
+          "suggested",
+          "encoding",
+          "exportedOn",
+          "rows",
+          "issueCount",
+          "issues",
+          "formulaLike",
+          "outcome",
+          "linking",
+          "waiting",
+          "statements",
+          "fingerprint"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
       "name": "outside.link",
       "description": "Link an outside person from the members list to a Person, or a coach from the timetable list to a staff account, by hand, with why. A link made by a person is kept across loads by ref, whatever the address. It changes nothing on the Person: no name, address or phone, no customer account, nothing sent. Removes them from To match. A person with bookingSystem:manage only, never an AI.",
       "risk": "write",
@@ -71057,6 +71783,7 @@
         "additionalProperties": false
       },
       "invalidates": [
+        "outside.file.preview",
         "outside.matches",
         "outside.settings.get",
         "outside.status"
@@ -71130,6 +71857,7 @@
         "additionalProperties": false
       },
       "invalidates": [
+        "outside.file.preview",
         "outside.matches",
         "outside.settings.get",
         "outside.status"
@@ -71349,6 +72077,14 @@
               ],
               "additionalProperties": false
             }
+          },
+          "mappings": {
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {},
+            "description": "The column mapping and value maps saved by the last load of each kind"
           }
         },
         "required": [
@@ -71359,7 +72095,8 @@
           "bookUrl",
           "largestAgeDays",
           "updatedAt",
-          "types"
+          "types",
+          "mappings"
         ],
         "additionalProperties": false
       },
@@ -71488,6 +72225,7 @@
         "additionalProperties": false
       },
       "invalidates": [
+        "outside.file.preview",
         "outside.matches",
         "outside.settings.get",
         "outside.status"
@@ -71717,6 +72455,7 @@
         "additionalProperties": false
       },
       "invalidates": [
+        "outside.file.preview",
         "outside.matches",
         "outside.settings.get",
         "outside.status"
@@ -71780,6 +72519,7 @@
         "additionalProperties": false
       },
       "invalidates": [
+        "outside.file.preview",
         "outside.matches",
         "outside.settings.get",
         "outside.status"

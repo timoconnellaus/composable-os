@@ -1339,6 +1339,9 @@ export interface CoreOutsideListTable {
   mapping: Defaulted<string>;
   state: Defaulted<"current" | "replaced" | "removed">;
   ended_at: Defaulted<string | null>;
+  /** Migration 1413: when the admins were told it is 3 days from the largest age, and past it. */
+  told_soon_at: Defaulted<string | null>;
+  told_old_at: Defaulted<string | null>;
 }
 
 /** Migration 1410: an outside person kept from the current members list, and their link. */

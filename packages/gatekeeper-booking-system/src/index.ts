@@ -28,6 +28,7 @@ export {
   fakeBookingSystemState,
 } from "./fake.js";
 export {
+  type CsvLimits,
   dryRunFiles,
   FILE_PAGE,
   FileBookingSystem,
@@ -36,8 +37,15 @@ export {
   type FileIssue,
   type FileLoad,
   type FileSourceInput,
+  fitRef,
+  formulaLike,
   loadFiles,
+  MAX_CELL,
+  MAX_COLUMNS,
   MAX_FILE_CHARS,
+  MAX_FILE_CLASSES,
+  MAX_ISSUES_SHOWN,
+  MAX_NAMED,
   MAX_PEOPLE_ROWS,
   MAX_TIMETABLE_ROWS,
   type PeopleFileMapping,

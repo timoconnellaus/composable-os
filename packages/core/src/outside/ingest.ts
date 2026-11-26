@@ -132,6 +132,11 @@ export interface IngestPlan {
   counts: IngestCounts;
   /** The Persons linked now by address (each gets one timeline activity). */
   linkedPersons: string[];
+  /**
+   * The rows the statements write, by table (no ids made here): what a file's dry run compares
+   * with the current copy, and what its fingerprint is taken over (stage 65 step 4).
+   */
+  rows: Record<string, readonly Record<string, unknown>[]>;
 }
 
 const cut = (value: string | null | undefined): string | null =>
@@ -547,6 +552,13 @@ export async function planMembers(db: Db, data: MembersData, meta: ListMeta): Pr
     kind: "members",
     statements,
     linkedPersons: persons,
+    rows: {
+      person: personRows,
+      membership: membershipRows,
+      membershipType: typeRows,
+      match: matchRows,
+      linked: persons.map((id) => ({ id })),
+    },
     counts: {
       kept: personRows.length,
       notKept,
@@ -787,6 +799,13 @@ export async function planTimetable(
     kind: "timetable",
     statements,
     linkedPersons: [],
+    rows: {
+      classType: typeRows,
+      class: classRows,
+      booking: bookingRows,
+      staff: staffRows,
+      match: matchRows,
+    },
     counts: {
       kept: staffRows.length,
       notKept: 0,

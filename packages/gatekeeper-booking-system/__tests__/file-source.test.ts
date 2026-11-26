@@ -10,6 +10,7 @@ import {
   dryRunFiles,
   FileBookingSystem,
   type FileSourceInput,
+  fitRef,
   loadFiles,
   parseCsv,
 } from "../src/file-source.js";
@@ -383,5 +384,108 @@ describe("the contract over loaded files", () => {
     await session.listStaff();
     expect((await session.describeSite()).calls.used).toBe(0);
     expect(await session.listBookings({ classes: ["x"] })).toEqual([]);
+  });
+});
+
+describe("a timetable of bookings, and a file read as hostile input (stage 65 step 4)", () => {
+  const BOOKINGS = [
+    "Class ID,Class,Starts,Coach,Coach email,Client ID,Email,Status",
+    "c1,Strength,2026-11-20 07:00,Riley Coach,riley@example.com,101,,Booked",
+    "c1,Strength,2026-11-20 07:00,Riley Coach,riley@example.com,,robin@example.com,Checked in",
+    "c1,Strength,2026-11-20 07:00,Riley Coach,riley@example.com,103,,Mystery",
+    "c2,Mobility,2026-11-21 18:00,Sky Coach,,,,",
+  ].join("\n");
+  const timetable = {
+    text: BOOKINGS,
+    mapping: {
+      columns: {
+        ref: "Class ID",
+        title: "Class",
+        startsAt: "Starts",
+        staff: "Coach",
+        staffEmail: "Coach email",
+        person: "Client ID",
+        personEmail: "Email",
+        bookingState: "Status",
+      },
+    },
+  };
+
+  it("reads one row per booking, a class once, its counts from its bookings, and the coach's address", async () => {
+    const load = loadFiles({ site: INPUT.site, now: NOW, timetable });
+    expect(load.people).toEqual([]);
+    expect(load.classes.map((c) => [c.ref, c.booked, c.waiting])).toEqual([
+      ["c1", 2, 0],
+      ["c2", 0, 0],
+    ]);
+    expect(load.bookings.map((b) => [b.class, b.person, b.state])).toEqual([
+      ["c1", "101", "booked"],
+      ["c1", "email:robin@example.com", "attended"],
+    ]);
+    expect(load.issues).toEqual([
+      expect.objectContaining({
+        row: 3,
+        column: "Status",
+        problem: expect.stringMatching(/left out/),
+      }),
+    ]);
+    expect(load.staff.find((s) => s.ref === "staff:riley-coach")?.email).toBe("riley@example.com");
+    const session = directSession(new FileBookingSystem(loadFiles({ ...INPUT, timetable })));
+    expect(await session.listBookings({ classes: ["c1"] })).toHaveLength(2);
+    const results = await runConformance(
+      { session, declaredActions: async () => [] },
+      { now: NOW },
+    );
+    expect(results.filter((r) => r.status === "failed")).toEqual([]);
+  });
+
+  it("keeps refs the contract takes, text without hidden characters, and a formula as text", () => {
+    expect(fitRef("abc-1")).toBe("abc-1");
+    expect(fitRef("Ö 12")).toMatch(/^-12~[0-9a-f]{16}$/);
+    expect(fitRef("x".repeat(300))).toHaveLength(217);
+    expect(fitRef("Ö 12")).toBe(fitRef("Ö 12"));
+    const load = loadFiles({
+      site: INPUT.site,
+      now: NOW,
+      people: {
+        text: 'id,mail,first\nÖ1,a@example.com,"=1+1"\n2,b@example.com,"Al‮ice\r\nB"\n',
+        mapping: { columns: { ref: "id", email: "mail", givenName: "first" } },
+      },
+    });
+    expect(load.people.map((p) => [p.ref, p.givenName])).toEqual([
+      [expect.stringMatching(/^1~[0-9a-f]{16}$/), "=1+1"],
+      ["2", "Alice B"],
+    ]);
+    expect(load.formulaLike).toBe(1);
+  });
+
+  it("refuses a file past its limits while reading it, naming no value", () => {
+    expect(code(() => parseCsv(`a\n${"b\n".repeat(11)}`, { maxRows: 10 }))).toBe("invalid");
+    expect(code(() => parseCsv(`${"a,".repeat(5)}a\n`, { maxColumns: 5 }))).toBe("invalid");
+    expect(code(() => parseCsv(`a\n"${"s".repeat(20)}"\n`, { maxCell: 10 }))).toBe("invalid");
+    expect(code(() => parseCsv("a,b\n1,\u00002\n"))).toBe("invalid");
+    expect(
+      code(() =>
+        loadFiles({
+          site: INPUT.site,
+          people: { text: "mail,Mail\na@example.com,b\n", mapping: { columns: { email: "mail" } } },
+        }),
+      ),
+    ).toBe("invalid");
+    const types = [
+      "mail,plan",
+      ...Array.from({ length: 501 }, (_, i) => `p${i}@example.com,Plan ${i}`),
+    ];
+    expect(
+      code(() =>
+        loadFiles({
+          site: INPUT.site,
+          people: {
+            text: types.join("\n"),
+            mapping: { columns: { email: "mail", membershipType: "plan" } },
+          },
+        }),
+      ),
+    ).toBe("invalid");
   });
 });

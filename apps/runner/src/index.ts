@@ -27,6 +27,7 @@ import {
   runAgreementsDue,
   runChecklistDue,
   runDuplicateCron,
+  runOutsideListsDue,
   runPayoutsDue,
   runPublishDue,
   runRecurringDue,
@@ -424,6 +425,12 @@ export async function minuteTick(env: Env, at: Date) {
       floor: parseFloor(env.APPROVAL_FLOOR),
     }),
   );
+  // The booking system's members list (stage 65 step 4, ADR 0923): its holders of
+  // bookingSystem:manage told once when it is 3 days from the largest age and once when it passes
+  // it; the lists' log rows past 30 days removed. A quiet minute is two reads and no write.
+  const bookingSystemLists = await minuteStep("booking system lists", () =>
+    runOutsideListsDue(createCrmDb(env.DB), at),
+  );
   // Read and understood (stage 38, ADR 0706): once a local day, the reminders of what is still to
   // read, the owners' weekly notice and the welcome of new accounts. A quiet minute is two reads.
   const acknowledgements = await minuteStep("acknowledgements", () =>
@@ -481,6 +488,7 @@ export async function minuteTick(env: Env, at: Date) {
     timedMoves,
     staffing,
     checklists,
+    bookingSystemLists,
     acknowledgements,
     agreements,
     agreementCopies,
