@@ -1,0 +1,11 @@
+{
+  "name": "knowledge-help-centre",
+  "pack": "knowledge",
+  "skin": "web",
+  "operations": ["x.knowledge.helpTopics", "content.list", "content.search"],
+  "files": ["help-centre.tsx", "LICENSE"],
+  "dependsOn": ["ui-input"],
+  "packages": {
+    "@composable-os/pack-knowledge": "*"
+  }
+}

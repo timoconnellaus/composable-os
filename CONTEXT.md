@@ -1105,7 +1105,9 @@ A shipped pack's staff screen in the product's admin (stage 47, ADR 0660): one o
 declared in its manifest (`screens`: a label, the block and export, where it sits in the
 navigation, the tools that gate it, and optionally the record whose page shows it as a tab),
 built into the admin and shown to whoever could call every tool in its gate (`screens.mine`).
-Runtime extensions declare none. A fixed-role account's admin shows its screens and nothing else.
+Runtime extensions declare none. A fixed-role account's admin shows its screens and nothing else;
+a record's link (a notice's) opens the record screen it is listed on that object, if any (ADR
+0708: a procedure's reader, a class's list).
 _Avoid_: page (an admin page is the host's own), view (a view is a saved spec), app screen (the
 app's screens are native blocks, not declared screens)
 
@@ -2678,8 +2680,10 @@ _Avoid_: search index (that is `core_search`, over working copies, for staff), F
 **Staff read** (of a publishable object; stage 38, ADR 0701)
 What an object that declares `publishable.staffRead` gives every staff account, pack roles (a
 cleaner, a coach, the door) included: its records' current published versions, their content and
-slug, through `content.staffGet`, `content.staffList` and `content.search`. Never the working copy
-being edited, never a draft or an unpublished record, never the public or a customer.
+slug, through `content.staffGet`, `content.staffList` and `content.search`, and the title of a
+related record of the same pack its `staffNames` fields name (a procedure's section's name, ADR
+0708). Never the working copy being edited, never a draft or an unpublished record, never the
+public or a customer.
 _Avoid_: staff view (a saved view of records), internal (a note's level)
 
 **Procedure** (stage 38, ADR 0706)
@@ -2695,6 +2699,8 @@ _Avoid_: policy (an agreement's word), SOP, article, guide
 An answer to a customer's common question on the business's website (`knowledge.helppage`):
 "where do I park", "how do I pause my membership". Read by anyone, signed in or not, in its
 published wording, found by address, in its **help topic**, or by searching its published words.
+The **help centre** is the blocks a site or app shows them with: a search box, the topics with
+their pages, a page and its related pages (ADR 0708).
 _Avoid_: FAQ entry, article, knowledge base article, support doc
 
 **Item** (the Equipment pack; stage 59, ADR 0862)
@@ -2728,7 +2734,9 @@ record of an **acknowledged** object (one whose `publishable` declares `acknowle
 procedure). Only the person makes it, for the current version, once; a row nobody changes
 (`core_publish_ack`). Who is asked is the record's **must read**: everyone, or staff roles, pack
 roles and granted pack permissions, checked on the day. A record is **to read** for a person it
-asks who has no confirmation that counts.
+asks who has no confirmation that counts. The reader's button says what it confirms, the title
+and the version on screen ("I have read and understood "Injuries" (version 4)"), and is drawn only
+when that version is the person's to confirm (ADR 0708).
 _Avoid_: acceptance (an agreement's, a customer's), acknowledgement in prose (the declaration's
 name), sign-off
 

@@ -1,0 +1,17 @@
+{
+  "name": "knowledge-procedures",
+  "pack": "knowledge",
+  "skin": "web",
+  "operations": [
+    "content.staffList",
+    "content.staffGet",
+    "content.search",
+    "x.knowledge.toRead",
+    "x.knowledge.confirm"
+  ],
+  "files": ["procedures.tsx", "LICENSE"],
+  "dependsOn": ["ui-button", "ui-input", "content-rich-text"],
+  "packages": {
+    "@composable-os/pack-knowledge": "*"
+  }
+}

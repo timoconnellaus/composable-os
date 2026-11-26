@@ -2075,7 +2075,17 @@ date-relative automation reminds the owner on) in sections, and help pages
 (`knowledge.helppage`, public as published) in help topics. Its tools compose `ack.*`,
 `public.list` and the record writes; it adds no rule. A formula of a publishable object's own
 fields may read `publishedAt` and `publishedVersion`, and a date-relative trigger may name a date
-formula.
+formula. Its blocks (step 6, [ADR 0708](adr/0708-the-knowledge-packs-blocks-and-screens.md)): the
+help centre for a site and an app (search through `content.search` asked for help pages, the
+topics with their pages, a page), and for staff the procedures with the reader and its confirm
+(the version on screen, drawn only when the host's list says it is the person's to confirm), To
+read, and Read status (web only); rich text through Content's renderers, which `cos add` brings
+whatever packs are listed because they call no operation. Its admin screens are Procedures, To
+read (every staff account, pack roles included), the reader as a record screen on a procedure,
+and Read status (`readStatus`). `publishable.staffNames` gives a staff reader the title of a
+related record of the same pack with each published record (`names`: a procedure's section), and
+`content.staffGet` says whether the caller is served its pictures (`pictures`), so a coach's
+screens ask for nothing the host refuses.
 
 **The Equipment pack** (stage 59 step 3, [ADR 0862](adr/0862-the-equipment-pack.md),
 `packs/equipment`). Items (`equipment.item`: a tag `unique` and folded among items in or out
@@ -3010,7 +3020,9 @@ boundary, with its pack's hooks over the staff client on the app's own origin
 (`src/lib/staff-client.ts`), and its data is forgotten when it closes. An account with a pack role
 gets a small shell (its screens, its account, sign out) that makes no call its role is refused;
 every other server function and `/api/*` route refuses it, and MCP holds it to its role
-(ADR 0436).
+(ADR 0436). `/s/<pack>/<screen>?record=<id>` opens a record screen on that record, and the small
+shell sends a record's page (`/x/<object>/<id>`, a notice's link) to the record screen listed for
+it on that object (ADR 0708).
 
 **Today items** (stage 60, [ADR 0870](adr/0870-todays-items-and-the-today-items-declaration.md)): a
 shipped pack declares the numbers it adds to the owner's Today (`todayItems` in its manifest: a

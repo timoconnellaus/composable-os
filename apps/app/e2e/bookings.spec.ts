@@ -305,8 +305,20 @@ test("a coach signs in to the admin, opens today's list and ticks who came", asy
     const watch = watchRefusals(coach.page);
     await open(coach.page, "/");
     await expect(coach.page.locator('[data-shell="fixed-role"]')).toBeVisible();
+    // Its whole shell: Bookings' class list, and the screens every staff account has of the packs
+    // installed: Knowledge's (the global setup installs it), and Daily checklists' Today's
+    // checklists when a spec has installed that (read from the host just before comparing).
     const screens = coach.page.locator('[data-testid^="screens-nav-"] a');
-    await expect(screens).toHaveText(["Class list"]);
+    const listed = await op<{ screens: { pack: string; nav?: unknown }[] }>(
+      coach.page.request,
+      "screens.mine",
+      {},
+    );
+    const checklists = listed.screens.some((s) => s.pack === "dailychecks" && s.nav)
+      ? ["Today's checklists"]
+      : [];
+    const theirs = (bookings: string[]) => [...bookings, ...checklists, "Procedures", "To read"];
+    await expect(screens).toHaveText(theirs(["Class list"]));
     // No search, assistant, notifications or records in its shell.
     await expect(coach.page.getByTestId("open-palette")).toHaveCount(0);
     await expect(coach.page.getByTestId("open-assistant")).toHaveCount(0);
@@ -339,12 +351,16 @@ test("a coach signs in to the admin, opens today's list and ticks who came", asy
       `/people/${person.id}`,
       "/settings",
       "/dashboards",
-      `/x/bookings.class/${klass.id}`,
       "/s/bookings/desk",
     ]) {
       await coach.page.goto(path);
       await expect(coach.page.getByTestId("not-found"), path).toBeVisible();
     }
+    // The class's own page (a notice's link) opens the record screen the host lists for it on a
+    // class instead: its Class list, for that class (ADR 0708).
+    await coach.page.goto(`/x/bookings.class/${klass.id}`);
+    await expect(coach.page).toHaveURL(new RegExp(`/s/bookings/classList\\?record=${klass.id}$`));
+    await expect(coach.page.getByRole("region", { name: "Class list" })).toBeVisible();
     await watch.settled();
     expect(watch.refused).toEqual([]);
 
@@ -354,13 +370,13 @@ test("a coach signs in to the admin, opens today's list and ticks who came", asy
       permissions: ["bookings:desk"],
     });
     await open(coach.page, "/");
-    await expect(screens).toHaveText(["Front desk", "Class list"]);
+    await expect(screens).toHaveText(theirs(["Front desk", "Class list"]));
     await openScreen(coach.page, "Bookings", "Front desk");
     await expect(coach.page.getByRole("region", { name: "Front desk" })).toBeVisible();
     // The grant removed: gone on the next load, and its address is "not found".
     await op(page.request, "user.setPermissions", { id: coach.id, permissions: [] });
     await open(coach.page, "/");
-    await expect(screens).toHaveText(["Class list"]);
+    await expect(screens).toHaveText(theirs(["Class list"]));
     await coach.page.goto("/s/bookings/desk");
     await expect(coach.page.getByTestId("not-found")).toBeVisible();
   } finally {

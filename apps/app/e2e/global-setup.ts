@@ -16,6 +16,7 @@ const E2E_PACKS = [
   "memberships",
   "ticketing",
   "forms",
+  "knowledge",
 ];
 
 /** The dev server, not the product, failed the call: no answer, or Vite's own error page. */

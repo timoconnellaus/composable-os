@@ -164,6 +164,7 @@ export interface ObjectDefinitionJson {
         }
       | undefined;
     staffRead?: boolean | undefined;
+    staffNames?: string[] | undefined;
   };
   navigationOrder?: number;
   requireOneOf?: string[][];
@@ -1541,6 +1542,7 @@ export function buildRegistry(state: SchemaState): Map<string, ObjectDefinition>
                   }
                 : {}),
               ...(publishable.staffRead ? { staffRead: true } : {}),
+              ...(publishable.staffNames ? { staffNames: [...publishable.staffNames] } : {}),
             },
           }
         : {}),

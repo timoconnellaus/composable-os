@@ -111,7 +111,15 @@ buttons, fields, lists, sheets, or a pack's screens. Blocks ship inside the plat
    site, call it from the site's own Worker before its pages). The Courses
    players (`courses-player`, `courses-native-player`) bring Content's rich text block with them
    (Courses requires Content): pass `renderText` drawing the lesson's value with it: `RichText` on
-   the web, `RichTextView` with `mediaUrl` and `openUrl` in the app. `api` is the client the
+   the web, `RichTextView` with `mediaUrl` and `openUrl` in the app. Knowledge's blocks take
+   `knowledge`: `createKnowledgeHooks({ useQuery, useMutation }, api)` from
+   `@composable-os/pack-knowledge/client`. The help centre (`knowledge-help-centre`'s `HelpCentre`,
+   `knowledge-help-page`'s `HelpPage` on the site's `/help/<address>` route with the address as
+   `slug`; `knowledge-native-help` in the app) is public: allow `x.knowledge.helpTopics`,
+   `content.list`, `content.search` and `content.get` on the web app's operation route. They bring
+   Content's rich text block with them even when Content is not listed (it calls no operation).
+   The staff ones (`knowledge-native-procedures`, `knowledge-native-to-read`) go in the app with a
+   role client; on the web, staff read procedures in the admin. `api` is the client the
    screen's user holds: the customer client on a customer's screen, the role client
    (`staff.client(createTicketingDoorClient)`) on the door scanner. The hooks returned are only
    those that client can back, and the block's prop names the hooks it calls

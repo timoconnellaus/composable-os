@@ -19,6 +19,7 @@
     "@composable-os/pack-courses": "workspace:*",
     "@composable-os/pack-dailychecks": "workspace:*",
     "@composable-os/pack-forms": "workspace:*",
+    "@composable-os/pack-knowledge": "workspace:*",
     "@composable-os/pack-memberships": "workspace:*",
     "@composable-os/pack-programs": "workspace:*",
     "@composable-os/pack-rostering": "workspace:*",

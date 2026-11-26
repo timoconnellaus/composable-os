@@ -1,0 +1,11 @@
+{
+  "name": "knowledge-to-read",
+  "pack": "knowledge",
+  "skin": "web",
+  "operations": ["x.knowledge.toRead", "x.knowledge.confirm", "content.staffGet"],
+  "files": ["to-read.tsx", "LICENSE"],
+  "dependsOn": ["knowledge-procedures", "ui-button"],
+  "packages": {
+    "@composable-os/pack-knowledge": "*"
+  }
+}

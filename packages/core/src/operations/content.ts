@@ -35,6 +35,7 @@ import type { ObjectDefinition, PublishableDefinition } from "../fields/types.ts
 import { filterSchema } from "../filter.ts";
 import { LIST_MAX_LIMIT, sortSchema } from "../list.ts";
 import { defineOperation, type HandlerContext } from "../operation.ts";
+import { loadStaffRights, staffRightsReach } from "../pack-roles.ts";
 import type { PublicPrincipal } from "../principals.ts";
 import { jsonList } from "../records/common.ts";
 import { type Reader, visibleSource } from "../visibility/index.ts";
@@ -46,6 +47,7 @@ import {
   staffReadObject,
   staffReadSource,
 } from "../visibility/staff-read.ts";
+import { mediaServe } from "./media.ts";
 import { loadRecord } from "./record.ts";
 import {
   ftsQuery,
@@ -404,6 +406,13 @@ const publishedOut = recordOut.extend({
   values: z.record(z.string(), z.unknown()),
   version: z.number().int().describe("The published version these values are"),
   publishedAt: z.string().describe("When that version was published"),
+  names: z
+    .record(z.string(), z.string())
+    .optional()
+    .describe(
+      "For an object that declares staffNames: the title of each related record those fields " +
+        "name, by field (a procedure's section's name)",
+    ),
 });
 
 export const contentStaffGet = defineOperation({
@@ -428,6 +437,12 @@ export const contentStaffGet = defineOperation({
       .string()
       .nullable()
       .describe("Read by an old slug: the slug the record has now; else null"),
+    pictures: z
+      .boolean()
+      .describe(
+        "Whether the caller is served the record's pictures (media.serve): false for an account " +
+          "with a pack role, which a reader then does not ask for (ADR 0708)",
+      ),
   }),
   permission: "records:read",
   risk: "read",
@@ -437,17 +452,20 @@ export const contentStaffGet = defineOperation({
     const object = staffReadObject(input.object);
     if (!object) throw staffNotFound(input.object);
     const reader = staffReader(ctx);
+    // Whether this account reaches media.serve at all (a pack role does not, ADR 0701): a reader
+    // that knows a picture will be refused does not ask for it, so no refusal is audited for it.
+    const pictures = staffRightsReach(await loadStaffRights(ctx.db, ctx.user.id), mediaServe);
     if (input.id !== undefined) {
       const found = await getPublished(reader, object, { id: input.id });
       if (!found) throw staffNotFound(input.object);
-      return { ...found, redirect: null };
+      return { ...found, redirect: null, pictures };
     }
     const value = input.slug ?? "";
     if (!object.publishable.slug || value.length > SLUG_MAX || !SLUG_RE.test(value)) {
       throw staffNotFound(input.object);
     }
     const found = await getPublished(reader, object, { slug: value });
-    if (found) return { ...found, redirect: null };
+    if (found) return { ...found, redirect: null, pictures };
     // An old address: the record it points to, while it is published.
     const old = await ctx.db
       .selectFrom("core_slug_redirect")
@@ -458,7 +476,7 @@ export const contentStaffGet = defineOperation({
     const target = old ? await getPublished(reader, object, { id: old.record_id }) : null;
     const now = target?.values[object.publishable.slug];
     if (!target || typeof now !== "string" || now === value) throw staffNotFound(input.object);
-    return { ...target, redirect: now };
+    return { ...target, redirect: now, pictures };
   },
 });
 
