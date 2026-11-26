@@ -1200,6 +1200,26 @@ the first staff page on a client's database that has been idle long enough to be
 many database calls one request can make; and every probe on which the two answer differently.
 It is not the host and serves no one; it holds only its own seeded records.
 
+**Where the clients' databases are** (since the first runs; ADR 0614, "Its own Worker"). The
+`ClientDb` class is not in the proof Worker: it is in its own small Worker, `apps/client-db`,
+deployed as `crm-client-db-proof-db` (45 KiB, against the proof Worker's 7.8 MB that carries the
+host's code), exactly as the host will have it in `cos-client-db`. The proof Worker reaches the
+clients' databases as the host will: the timed pages through the query-only service
+(`CLIENT_DB_QUERIES`, `ClientDbQueries`), setup and the operator's probes through the class's
+namespace by script name (`CLIENT_DB`). The first three runs had the class in the proof Worker
+itself, so a cold object had to start that whole 7.7 MB Worker (wrangler printed a Worker Startup
+Time of 501 ms); their cold first pages (949, 889 and 445 ms against D1's 246, 323 and 250) measure
+that arrangement, not the design. The proof Worker's migration `v2` deletes that old class and
+every object of it (seeded test data only). Going back to the old arrangement for a comparison
+would need the class re-created under a new migration tag and the data seeded again, so it is not
+offered as an input.
+
+**Setup runs beside the databases.** Each setup call runs in the proof's timer object, placed by
+the location hint, so its queries cross metres instead of the world (it took 17 minutes a database
+from a runner, one call a migration across the Pacific): every migration in one call (inside the
+object for a client's database), then up to five chunks of the seed. Work already done is skipped,
+so a rerun's setup is a few seconds.
+
 What it does not show: the test suites running deployed. Those run on `ClientDb` locally
 (`pnpm test:client-db`); on Cloudflare the probes and the scenarios stand in for them (stage 66,
 step 1's Status).
@@ -1242,26 +1262,42 @@ hand, and with a secret missing it passes with a notice and deploys nothing):
 2. `pnpm --filter @composable-os/db test` and `pnpm --filter @composable-os/client-db-proof test`,
    without secrets: the probes on the local D1 and `ClientDb`, and every route of the proof.
 3. In the `fleet` environment: a fresh random key for the run (masked), then `deploy.mjs`: the
-   Worker and its D1 database are named from the product (`crm-client-db-proof` for the CRM), the
-   database is found by exact name or created with the location hint, the Worker is deployed with
-   `ClientDb` and the key set as its `PROOF_KEY` secret.
+   names come from the product (`crm-client-db-proof` for the proof Worker and the D1 database,
+   `crm-client-db-proof-db` for the Worker of the clients' databases); the database is found by
+   exact name or created with the location hint; `crm-client-db-proof-db` is deployed first (the
+   proof Worker binds it by script name), then the proof Worker, with the key set as its
+   `PROOF_KEY` secret. Wrangler's "Worker Startup Time" and upload size for each are kept for the
+   summary.
 4. `time.mjs`, which prints, in order:
+   - **Deployed:** each Worker's startup time and size: the cold start of a client's database is
+     the startup of the Worker its class is in.
+   - **Setup:** each call's progress and time beside the database.
    - **Conformance:** every probe (those of `@composable-os/db/testing/conformance` and the
      proof's own, `src/probes.ts`), D1's answer beside the client's database's when they differ.
      The probes include how bound numbers are typed, the error text of a UNIQUE, a FOREIGN KEY and
      a trigger's `RAISE(ABORT)`, `changes` with triggers, FTS5 and JSON1, the 2 MB value and
      100-parameter limits, a batch sent in parts and a result over 32 MiB.
    - **Warm:** each scenario's median and p95, `near` (in a Durable Object beside the databases:
-     read this one) and `edge` (where the request landed: mostly the runner's distance).
+     read this one) and `edge` (where the request landed: mostly the runner's distance), for D1,
+     for the client's database as the host reaches it (`client`, through the service) and for the
+     same object through its namespace (`direct`), so the service's own cost shows. A database
+     that fails a scenario (a limit on the service, say) is reported and the run goes on.
    - **Cold:** for each sample, a fresh client's database is set up, left idle for `cold_wait`
      seconds (Cloudflare evicts an idle object after 70 to 140 seconds, when the runtime decides,
-     so 150 is the default), then the first staff page is timed on it and on D1 after the same
-     wait. Each sample says whether the object really had been evicted (its instance changed): a
-     sample that was not is not a cold start. D1 has no cold start per client, so this measures
-     the cost a quiet client pays that a D1 host does not.
+     so 150 is the default: a shorter wait finds the object only hibernated, at best), then the
+     first staff page is timed on it and on D1 after the same wait, in two parts: the very first
+     query alone (on a cold object: its Worker's startup, the constructor, SQLite opening, the
+     hop), then the rest of the page. Each sample says whether the object really had been
+     restarted (its session id, read through the namespace after timing, changed): a sample that
+     was not is not a cold start. D1 has no cold start per client, so this measures the cost a
+     quiet client pays that a D1 host does not.
    - **Subrequests:** how many queries one request makes to each database (after 20 fetches)
-     before a limit stops it, and the error then. Workers allow 10,000 subrequests an invocation
-     on the paid plan; with ClientDb every query is a call to an object.
+     before a limit stops it, and the error then, for D1, the service and the namespace. Workers
+     allow 10,000 subrequests an invocation on the paid plan; with ClientDb every query is a call
+     to an object, and through the service also a call to `crm-client-db-proof-db`. Cloudflare's
+     service-binding page also says "A single request has a maximum of 32 Worker invocations, and
+     each call to a Service binding counts towards this limit": if that is a total and not a
+     depth, the service shape fails past 32 queries a request, and this line shows it.
    - **The verdict** against the thresholds below.
 5. The run's summary has the whole printout; the `client-db-proof` artifact has it and the JSON.
 6. `step2.mjs` (stage 66 step 2, ADR 0614), after the timing, with the address from the same file
@@ -1293,8 +1329,8 @@ verdict, and timing never fails the run):
 
 **A difference in the probes fails the run** (after everything has printed), unless the probe is
 in `apps/client-db-proof/conformance-allow.json` with the reason. Each new difference is judged:
-fixed in `ClientDb`, or allowed with its reason in a pull request. Today the list holds one known
-limit: a result over Workers RPC's 32 MiB a call.
+fixed in `ClientDb`, or allowed with its reason in a pull request. Today the list is empty
+(the one known limit, a result over Workers RPC's 32 MiB a call, was answered by stage 66 step 2).
 
 To time it from Australia, near the databases, set a key of your own (the workflow's is masked
 and replaced on each run) and run the script against the deployed Worker:
@@ -1305,9 +1341,11 @@ PROOF_URL=https://crm-client-db-proof.<subdomain>.workers.dev PROOF_KEY=<that ke
   pnpm --filter @composable-os/client-db-proof time:remote -- --skip-setup --runs 10 --rounds 5
 ```
 
-**To remove the proof,** run the workflow with mode `remove`. It deletes the Worker and the D1
-database named exactly `crm-client-db-proof` (the product's name for it), nothing matched by a
-pattern, and nothing else. By hand, with the fleet's token:
+**To remove the proof,** run the workflow with mode `remove`. It deletes the proof Worker
+`crm-client-db-proof` first, then `crm-client-db-proof-db` (with every client's database in it),
+then the D1 database `crm-client-db-proof`, each named exactly (the product's names), nothing
+matched by a pattern, and nothing else: never a host's own `crm-client-db`. By hand, with the
+fleet's token:
 
 ```sh
 pnpm --filter @composable-os/client-db-proof exec node scripts/deploy.mjs --remove

@@ -66,19 +66,25 @@ describe("the proof Worker", () => {
     expect(setup.status).toBe(200);
     const { instance } = (await setup.json()) as { instance: string };
     const path = `/cold/time?run=t1&i=0&order=client-first&instance=${instance}`;
+    type Parts = { firstQueryMs: number; pageMs: number; totalMs: number };
     const sample = (await (await call(path)).json()) as {
-      d1Ms: number;
-      clientDbMs: number;
+      d1: Parts;
+      clientDb: Parts;
       clientWasCold: boolean;
     };
-    expect(sample.clientDbMs).toBeGreaterThan(0);
-    expect(sample.d1Ms).toBeGreaterThan(0);
+    for (const parts of [sample.d1, sample.clientDb]) {
+      // The Workers clock moves only across I/O: a local first query may read 0 ms.
+      expect(parts.firstQueryMs).toBeGreaterThanOrEqual(0);
+      expect(parts.pageMs).toBeGreaterThan(0);
+      expect(parts.totalMs).toBeCloseTo(parts.firstQueryMs + parts.pageMs, 5);
+    }
     // Locally nothing is evicted between setup and the sample: the object is warm.
     expect(sample.clientWasCold).toBe(false);
   });
 
   it("counts the calls one request makes, up to a limit", async () => {
-    for (const db of ["d1", "client-db"]) {
+    // The service (the host's shape) and the namespace, and D1.
+    for (const db of ["d1", "client-db", "client-db-direct"]) {
       const result = (await (await call(`/subrequests?db=${db}&max=200&fetches=0`)).json()) as {
         queries: number;
         error: string | null;

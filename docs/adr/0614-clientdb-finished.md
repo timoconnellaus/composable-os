@@ -256,6 +256,19 @@ whatever holds its namespace can call them. So the host's Workers never hold the
   - tests keep binding the namespace (`CLIENT_DB`).
 - A test calls each operator method through the service and finds it is not there ("The RPC
   receiver does not implement …"), and that a client id the registry refuses is refused.
+- **Open, for the proof run to settle:** Cloudflare's service-binding page (2026-11) says service
+  bindings add "zero overhead or added latency" (both Workers run on the same thread), but also "A
+  single request has a maximum of 32 Worker invocations, and each call to a Service binding counts
+  towards this limit". The Workers limits and RPC pages do not mention 32. If it is a total per
+  request and not a chain depth, a page of more than 32 queries cannot go through the service, and
+  the query-only path needs another shape (the namespace in the host's Workers with the operator's
+  methods behind a capability only the operator holds, say). Locally 200 queries through the
+  service pass, which proves nothing about Cloudflare; the proof's `/subrequests` now measures the
+  service, the namespace and D1 side by side, and its warm timing reports a scenario that fails on
+  the service instead of stopping.
+- **The proof measures this arrangement** (after its first three runs had the class inside the
+  7.7 MB proof Worker): `apps/client-db` deployed as `<product>-client-db-proof-db`, the timed
+  pages through `ClientDbQueries`, setup and the operator's probes through the namespace.
 
 ## Consequences
 - A single-client deployment is unchanged: nothing outside `packages/db`, `apps/client-db` and the
