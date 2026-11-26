@@ -558,13 +558,13 @@ export function clientWeb(
 /**
  * The deployed name of each of a release's Worker and resource names, for a client product: the
  * release's product's names replaced by the client's (`crm-app` → `gym-app`, the `crm` database →
- * `gym`). Only names that differ are listed. What the deployment state's `workerNames` and
- * `resourceNames` hold (ADR 0193).
+ * `gym`). Only names that differ are listed, and no Durable Object class. What the deployment
+ * state's `workerNames` and `resourceNames` hold (ADR 0193).
  */
 export function clientNameMaps(
   release: ProductDefinition,
   client: ProductDefinition["names"],
-  manifest: { workers: { name: string }[]; resources: { name: string }[] },
+  manifest: { workers: { name: string }[]; resources: { name: string; type?: string }[] },
 ): { workers: Record<string, string>; resources: Record<string, string> } {
   const rename = (name: string): string => {
     const r = release.names;
@@ -585,7 +585,12 @@ export function clientNameMaps(
     );
   return {
     workers: map(manifest.workers.map((w) => w.name)),
-    resources: map(manifest.resources.map((r) => r.name)),
+    // A Durable Object class (`<worker>:<Class>` in the manifest) is not a named resource of the
+    // account: it belongs to its Worker, which the workers map renames. Listing it here made the
+    // installer refuse the names (`--names`), so no client product could be installed.
+    resources: map(
+      manifest.resources.filter((r) => r.type !== "durable_object").map((r) => r.name),
+    ),
   };
 }
 
