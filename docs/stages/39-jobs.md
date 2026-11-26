@@ -579,7 +579,7 @@ may override any of them.
 - **Step 4** — not built — needs: stage 44 step 6 — Acceptance of a record: variation approval
   and sign-off, the phone view
 
-- **Step 5** — built — PR #PRNUM — The Jobs pack's spine (branch `feat/stage-39-jobs-pack`):
+- **Step 5** — built — PR #505 — The Jobs pack's spine (branch `feat/stage-39-jobs-pack`):
   `packs/jobs` (`@composable-os/pack-jobs`). Jobs on `stages` with the seeded Trades and Projects
   pipelines, Accepted, Signed off and Invoiced gated on `acceptedAt`, `signedOffAt` and
   `invoicedAt`; the office's `recordAcceptance` (`humanOnly`); sites (no access notes); visit types

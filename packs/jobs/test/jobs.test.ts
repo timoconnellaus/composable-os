@@ -37,8 +37,11 @@ function hostWith(
   return { host, calls };
 }
 
-const rowOf = (host: ReturnType<typeof hostWith>["host"], object: string, id: string) =>
-  host.records.get(object)?.get(id) ?? {};
+const rowOf = (
+  host: ReturnType<typeof hostWith>["host"],
+  object: string,
+  id: string,
+): Record<string, unknown> => host.records.get(object)?.get(id) ?? {};
 const rowsOf = (host: ReturnType<typeof hostWith>["host"], object: string) => [
   ...(host.records.get(object)?.values() ?? []),
 ];
