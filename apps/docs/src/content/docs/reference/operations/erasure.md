@@ -57,7 +57,7 @@ Take an email address off the erased-address list, so mail and calendar sync can
 
 ## erasure.reapply
 
-After the database is restored from a backup or Time Travel, erase again every person and organisation the erase log says was erased, and restore the erased-address list. The log lives in blob storage, outside the database, and holds only hashes. Safe to run more than once. Admins only, and only a person in the app.
+After the database is restored from a backup or Time Travel, erase again every person and organisation the erase log says was erased, and restore the erased-address list and the booking-system copy's suppressions. The log lives in blob storage, outside the database, and holds only hashes. Safe to run more than once. Admins only, and only a person in the app.
 
 |  |  |
 | --- | --- |
@@ -79,3 +79,4 @@ No fields.
 | `people` | array of string | yes |   | People erased again |
 | `organisations` | array of string | yes |   | Organisations erased again |
 | `addresses` | number | yes |   | Addresses on the erased-address list |
+| `outsideSuppressed` | number | yes |   | Booking-system refs and addresses suppressed again (stage 65), by keyed hash |

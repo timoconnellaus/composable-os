@@ -7,6 +7,7 @@
 import { z } from "zod";
 import { ConfigError } from "../errors.ts";
 import { defineOperation } from "../operation.ts";
+import { suppressStatement } from "../outside/erase.ts";
 import { chunk } from "../records/common.ts";
 import { planReapply, putEraseLog, readEraseLog } from "../records/erase-log.ts";
 import { erasedAddressHash } from "../records/erase-subject.ts";
@@ -70,7 +71,8 @@ export const erasureReapply = defineOperation({
   name: "erasure.reapply",
   description:
     "After the database is restored from a backup or Time Travel, erase again every person and " +
-    "organisation the erase log says was erased, and restore the erased-address list. The log " +
+    "organisation the erase log says was erased, and restore the erased-address list and the " +
+    "booking-system copy's suppressions. The log " +
     "lives in blob storage, outside the database, and holds only hashes. Safe to run more than " +
     "once. Admins only, and only a person in the app.",
   input: z.object({}),
@@ -79,6 +81,9 @@ export const erasureReapply = defineOperation({
     people: z.array(z.string()).describe("People erased again"),
     organisations: z.array(z.string()).describe("Organisations erased again"),
     addresses: z.number().describe("Addresses on the erased-address list"),
+    outsideSuppressed: z
+      .number()
+      .describe("Booking-system refs and addresses suppressed again (stage 65), by keyed hash"),
   }),
   permission: "records:erase",
   risk: "destructive",
@@ -128,11 +133,15 @@ export const erasureReapply = defineOperation({
           .onConflict((oc) => oc.doNothing()),
       );
     }
+    // The booking system's copy keeps nothing of them at the next load (stage 65, ADR 0926).
+    const suppress = suppressStatement(plan.outside, ctx.now);
+    if (suppress) ctx.write(suppress);
     return {
       entries: entries.length,
       people: plan.people,
       organisations: plan.organisations,
       addresses: plan.addresses.length,
+      outsideSuppressed: plan.outside.length,
     };
   },
 });

@@ -38635,7 +38635,7 @@
     },
     {
       "name": "erasure.reapply",
-      "description": "After the database is restored from a backup or Time Travel, erase again every person and organisation the erase log says was erased, and restore the erased-address list. The log lives in blob storage, outside the database, and holds only hashes. Safe to run more than once. Admins only, and only a person in the app.",
+      "description": "After the database is restored from a backup or Time Travel, erase again every person and organisation the erase log says was erased, and restore the erased-address list and the booking-system copy's suppressions. The log lives in blob storage, outside the database, and holds only hashes. Safe to run more than once. Admins only, and only a person in the app.",
       "risk": "destructive",
       "audiences": [
         "staff"
@@ -38669,13 +38669,18 @@
           "addresses": {
             "type": "number",
             "description": "Addresses on the erased-address list"
+          },
+          "outsideSuppressed": {
+            "type": "number",
+            "description": "Booking-system refs and addresses suppressed again (stage 65), by keyed hash"
           }
         },
         "required": [
           "entries",
           "people",
           "organisations",
-          "addresses"
+          "addresses",
+          "outsideSuppressed"
         ],
         "additionalProperties": false
       },
@@ -69249,6 +69254,35 @@
           "bodiesDeleted": {
             "type": "number",
             "description": "Synced email bodies deleted from blob storage now (the rest are retried)"
+          },
+          "bookingSystem": {
+            "description": "A person's copy from the booking system's lists (stage 65): their memberships, passes, bookings, links and matches are deleted and their outside refs and addresses suppressed, so no later list brings them back. A copy remains in the booking system, for staff to deal with there",
+            "type": "object",
+            "properties": {
+              "people": {
+                "type": "number",
+                "description": "Outside people of theirs removed from the booking system's copy"
+              },
+              "coaches": {
+                "type": "number",
+                "description": "Coaches with their address removed from the copy"
+              },
+              "copyRemains": {
+                "type": "boolean",
+                "const": true,
+                "description": "The booking system itself still holds them: the host cannot remove it there"
+              },
+              "note": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "people",
+              "coaches",
+              "copyRemains",
+              "note"
+            ],
+            "additionalProperties": false
           }
         },
         "required": [
@@ -70964,6 +70998,75 @@
         "required": [
           "kind",
           "linkedTo"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "outside.matches",
+        "outside.settings.get",
+        "outside.status"
+      ]
+    },
+    {
+      "name": "outside.lists.remove",
+      "description": "Remove the booking system's copy: the current members list (its outside people, their memberships and passes, membership types, links and To match), the timetable list (classes, class types, bookings, coaches and their To match), or all of it, which is what disconnecting the booking system means for a loaded list. The list stops counting at once and its rows are deleted at once, 2000 a statement and at most 200000 a call: when done is false, call again for the rest (nothing reads it meanwhile). Kept: the settings, the lists' log (counts only, 30 days), erased people's suppressions (so no later list brings them back), staff's unlink decisions (a hash, no person) and the timeline. Nothing is written to the booking system. A person with bookingSystem:manage only, never an AI, an MCP client, an extension or an automation.",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "members",
+              "timetable",
+              "all"
+            ],
+            "description": "members, timetable, or all (disconnect the booking system's lists)"
+          }
+        },
+        "required": [
+          "kind"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "removed": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "members",
+                "timetable"
+              ]
+            },
+            "description": "The kinds whose current list was removed"
+          },
+          "rows": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991,
+            "description": "Rows of the copy deleted by this call"
+          },
+          "remaining": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991,
+            "description": "Rows left for the next call; 0 when done"
+          },
+          "done": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "removed",
+          "rows",
+          "remaining",
+          "done"
         ],
         "additionalProperties": false
       },
@@ -73085,7 +73188,7 @@
     },
     {
       "name": "person.erase",
-      "description": "Permanently delete a person now, for GDPR erasure requests (admins only). Works on live people and people in Trash, and also erases anyone merged into them. Emails, phones, affiliations and tags go; activities and tasks linked only to them are deleted; system activities about them (field changes, job changes, merges) are removed from every timeline. Audit-log content that mentions them (their id, emails or phone numbers) is replaced with \"[erased]\"; who did what and when is kept. In-app assistant conversations that referenced them are redacted the same way (tool calls and results that mention them lose their content; their ids, emails, phone numbers and names in text become \"[erased]\"). Former emails and phones count too. Synced email bodies, suggested contacts, signatures, extension data related to them, automation run history and notifications about them are deleted or redacted, and their addresses are added to the erased-address list so mail sync does not collect them again. Their customer account, its sessions and sign-in codes, invites for their addresses and their erase requests are deleted (an open request is closed as erased). Their birthday, health answers and minor mark are deleted; what they agreed to is kept, no longer theirs, as the business's evidence until the retention period ends (agreement.retention, counted from the erase), then deleted: agreementsKept says how many and until when. Every subscription they pay for or hold that still runs is asked at the payment provider to end when the period already paid for ends (one paused, unpaid or waiting for its first payment ends at once): nothing is refunded and nothing more is charged; admins are told of one that could not be asked, and of one another person is still on. Cannot be undone; use person.delete for a reversible delete.",
+      "description": "Permanently delete a person now, for GDPR erasure requests (admins only). Works on live people and people in Trash, and also erases anyone merged into them. Emails, phones, affiliations and tags go; activities and tasks linked only to them are deleted; system activities about them (field changes, job changes, merges) are removed from every timeline. Audit-log content that mentions them (their id, emails or phone numbers) is replaced with \"[erased]\"; who did what and when is kept. In-app assistant conversations that referenced them are redacted the same way (tool calls and results that mention them lose their content; their ids, emails, phone numbers and names in text become \"[erased]\"). Former emails and phones count too. Synced email bodies, suggested contacts, signatures, extension data related to them, automation run history and notifications about them are deleted or redacted, and their addresses are added to the erased-address list so mail sync does not collect them again. Their customer account, its sessions and sign-in codes, invites for their addresses and their erase requests are deleted (an open request is closed as erased). Their birthday, health answers and minor mark are deleted; what they agreed to is kept, no longer theirs, as the business's evidence until the retention period ends (agreement.retention, counted from the erase), then deleted: agreementsKept says how many and until when. Every subscription they pay for or hold that still runs is asked at the payment provider to end when the period already paid for ends (one paused, unpaid or waiting for its first payment ends at once): nothing is refunded and nothing more is charged; admins are told of one that could not be asked, and of one another person is still on. Their copy from the booking system's lists (outside people linked to them or listed with their address, coaches with their address, memberships, passes, bookings, links and To match) is deleted and its refs and addresses suppressed, so no later list brings them back; bookingSystem says a copy remains in the booking system itself. Cannot be undone; use person.delete for a reversible delete.",
       "risk": "destructive",
       "audiences": [
         "staff"
@@ -73183,6 +73286,35 @@
           "bodiesDeleted": {
             "type": "number",
             "description": "Synced email bodies deleted from blob storage now (the rest are retried)"
+          },
+          "bookingSystem": {
+            "description": "A person's copy from the booking system's lists (stage 65): their memberships, passes, bookings, links and matches are deleted and their outside refs and addresses suppressed, so no later list brings them back. A copy remains in the booking system, for staff to deal with there",
+            "type": "object",
+            "properties": {
+              "people": {
+                "type": "number",
+                "description": "Outside people of theirs removed from the booking system's copy"
+              },
+              "coaches": {
+                "type": "number",
+                "description": "Coaches with their address removed from the copy"
+              },
+              "copyRemains": {
+                "type": "boolean",
+                "const": true,
+                "description": "The booking system itself still holds them: the host cannot remove it there"
+              },
+              "note": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "people",
+              "coaches",
+              "copyRemains",
+              "note"
+            ],
+            "additionalProperties": false
           },
           "dependantsWithoutGuardian": {
             "description": "People this person was the only live guardian of (ADR 0540): they stay, with no guardian linked, and a note on their timeline",
@@ -74301,7 +74433,7 @@
     },
     {
       "name": "person.merge",
-      "description": "Merge a duplicate person (mergedId) into another (survivorId). The survivor keeps its own values unless fields says to take the duplicate's (per field: 'survivor' or 'merged'); empty survivor fields are filled from the duplicate (the birthday too: the survivor's is kept unless it has none). Emails, phones, social profiles and tags are combined, and the duplicate's affiliations, activity links and task links move to the survivor (the survivor keeps its primary affiliation if it has one). The duplicate goes to Trash pointing at the survivor, and can be restored from there (without what moved). A customer account moves to the survivor; when both people have one, the merge is refused until staff disable one (the disabled one is then deleted). Returns the survivor.",
+      "description": "Merge a duplicate person (mergedId) into another (survivorId). The survivor keeps its own values unless fields says to take the duplicate's (per field: 'survivor' or 'merged'); empty survivor fields are filled from the duplicate (the birthday too: the survivor's is kept unless it has none). Emails, phones, social profiles and tags are combined, and the duplicate's affiliations, activity links and task links move to the survivor (the survivor keeps its primary affiliation if it has one). The duplicate goes to Trash pointing at the survivor, and can be restored from there (without what moved). Links to the booking system's copy move to the survivor. A customer account moves to the survivor; when both people have one, the merge is refused until staff disable one (the disabled one is then deleted). Returns the survivor.",
       "risk": "destructive",
       "audiences": [
         "staff"

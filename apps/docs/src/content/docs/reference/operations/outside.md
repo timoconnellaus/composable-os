@@ -29,6 +29,33 @@ No fields.
 | `kind` | `"person"`, `"staff"` | yes |   |   |
 | `linkedTo` | string | yes |   |   |
 
+## outside.lists.remove
+
+Remove the booking system's copy: the current members list (its outside people, their memberships and passes, membership types, links and To match), the timetable list (classes, class types, bookings, coaches and their To match), or all of it, which is what disconnecting the booking system means for a loaded list. The list stops counting at once and its rows are deleted at once, 2000 a statement and at most 200000 a call: when done is false, call again for the rest (nothing reads it meanwhile). Kept: the settings, the lists' log (counts only, 30 days), erased people's suppressions (so no later list brings them back), staff's unlink decisions (a hash, no person) and the timeline. Nothing is written to the booking system. A person with bookingSystem:manage only, never an AI, an MCP client, an extension or an automation.
+
+|  |  |
+| --- | --- |
+| Permission | `bookingSystem:manage` |
+| Risk | `write` |
+| Audiences | `staff` |
+| Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
+
+### Input
+
+| Field | Type | Required | Limits | Description |
+| --- | --- | --- | --- | --- |
+| `kind` | `"members"`, `"timetable"`, `"all"` | yes |   | members, timetable, or all (disconnect the booking system's lists) |
+
+### Output
+
+| Field | Type | Required | Limits | Description |
+| --- | --- | --- | --- | --- |
+| `removed` | array of `"members"`, `"timetable"` | yes |   | The kinds whose current list was removed |
+| `rows` | integer | yes | ≥ -9007199254740991, ≤ 9007199254740991 | Rows of the copy deleted by this call |
+| `remaining` | integer | yes | ≥ -9007199254740991, ≤ 9007199254740991 | Rows left for the next call; 0 when done |
+| `done` | boolean | yes |   |   |
+
 ## outside.matches
 
 To match: the outside people and coaches the host could not link by address, each with why (several_people: more than one Person or staff account has the address; shared_address: several outside people share it, as a family on one mailbox; no_address: the list gives none) and the candidates (Persons, or staff accounts) to choose from. Nobody is linked until a person links them with outside.link. Paged by ref. Needs bookingSystem:manage.

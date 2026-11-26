@@ -48,7 +48,7 @@ import {
   unlinkedOf,
   usersByAddress,
 } from "./match.ts";
-import { businessToday, type ListKind } from "./settings.ts";
+import { businessToday, type ListKind, onCurrentList } from "./settings.ts";
 
 type Db = Kysely<CoreDatabase>;
 
@@ -324,11 +324,17 @@ export async function planMembers(db: Db, data: MembersData, meta: ListMeta): Pr
     m.status === "live" && (m.until === null || m.until >= today);
 
   const [bookedRows, heldRows] = await Promise.all([
-    db.selectFrom("core_outside_booking").select("person_ref").distinct().execute(),
+    db
+      .selectFrom("core_outside_booking")
+      .select("person_ref")
+      .distinct()
+      .where(onCurrentList("list_id"))
+      .execute(),
     db
       .selectFrom("core_outside_person")
       .select(["ref", "person_id as to", "link_how", "link_by", "link_why", "linked_at"])
       .where("link_how", "is not", null)
+      .where(onCurrentList("list_id"))
       .execute(),
   ]);
   const booked = new Set(bookedRows.map((r) => r.person_ref));
@@ -572,6 +578,7 @@ export async function planTimetable(
       "u.id as exists",
     ])
     .where("s.link_how", "is not", null)
+    .where(onCurrentList("s.list_id"))
     .execute();
   const held = heldLinks(heldRows.map((r) => ({ ...r, exists: r.exists === null ? 0 : 1 })));
   for (const [ref, decision] of await unlinkedOf(
@@ -587,7 +594,7 @@ export async function planTimetable(
     s.email === null ? null : normaliseStaff(s.email);
   const addresses = staff.map(staffAddress).filter((a): a is string => a !== null);
   const bookingPeople = [...new Set(data.bookings.map((b) => b.person))];
-  const [holders, droppedPeople] = await Promise.all([
+  const [holders, droppedPeople, droppedStaff] = await Promise.all([
     usersByAddress(db, addresses),
     // A list with no ids of its own names a person by their address (`email:<address>`): one on
     // the erased-address list keeps no booking either.
@@ -599,6 +606,14 @@ export async function planTimetable(
         return address ? [address] : [];
       }),
     ),
+    // A coach who is an erased Person (their ref or address suppressed, their address erased)
+    // keeps nothing either (stage 65 step 10): no row, no name, and their classes name no coach.
+    droppedOf(
+      db,
+      staff.map((s) => s.ref),
+      addresses,
+      "staff",
+    ),
   ]);
   const outcomes = decideMatches(
     staff.map((s) => ({ ref: s.ref, address: staffAddress(s) })),
@@ -606,13 +621,18 @@ export async function planTimetable(
       fold: normaliseStaff,
       holders,
       held,
-      dropped: { refs: new Set(), addresses: new Set() },
+      dropped: droppedStaff,
     },
   );
+  const goneStaff = new Set<string>();
   const staffRows: Record<string, unknown>[] = [];
   const matchRows: Record<string, unknown>[] = [];
   outcomes.forEach((o, i) => {
     const s = staff[i] as BookingSystemStaff;
+    if (o.outcome === "dropped") {
+      goneStaff.add(s.ref);
+      return;
+    }
     const prior = held.get(s.ref);
     let link: HeldOutsideLink | null = null;
     if (o.outcome === "kept" || o.outcome === "held_none") link = prior ?? null;
@@ -643,7 +663,7 @@ export async function planTimetable(
     starts_at: new Date(Date.parse(c.startsAt)).toISOString(),
     ends_at: new Date(Date.parse(c.endsAt)).toISOString(),
     location_name: c.location === null ? null : cut(locations.get(c.location) ?? null),
-    staff_ref: c.staff,
+    staff_ref: c.staff !== null && goneStaff.has(c.staff) ? null : c.staff,
     places: c.places,
     booked: c.booked,
     waiting: c.waiting,
@@ -735,7 +755,7 @@ export async function planTimetable(
       kept: staffRows.length,
       notKept: 0,
       ...tally(outcomes),
-      dropped: bookings.length - bookingRows.length,
+      dropped: bookings.length - bookingRows.length + goneStaff.size,
       items: {
         classes: classRows.length,
         bookings: bookingRows.length,

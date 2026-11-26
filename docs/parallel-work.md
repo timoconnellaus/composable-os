@@ -90,7 +90,7 @@ here is what made parallel PRs conflict.
 | BW | 1330–1349 | 0880–0889 | Stage 61, Accounting sync (spec `docs/stages/61-accounting-sync.md`; step 1, `feat/stage-61-accounting-contract`: the contract, the fake and the conformance suite, ADR 0880, no migration) | in flight |
 | BY | 1370–1389 | 0900–0909 | Stage 63, App publishing (spec `docs/stages/63-app-publishing.md`) | specced |
 | BZ | 1390–1409 | 0910–0919 | Stage 64, More than one location (spec `docs/stages/64-multi-location.md`; each step's numbers are in its Status) | in flight |
-| CA | 1410–1429 | 0920–0929 | Stage 65, Booking system connection (spec `docs/stages/65-booking-system-connection.md`): migrations 1410 and 1411, ADRs 0920 to 0925 named in the spec | specced |
+| CA | 1410–1429 | 0920–0929 | Stage 65, Booking system connection (spec `docs/stages/65-booking-system-connection.md`): migrations 1410 and 1411, ADRs 0920 to 0925 named in the spec; step 10 (`feat/stage-65-erase-merge`): ADR 0926, no migration | specced |
 | CB | — | 0930–0939 | The docs site (`apps/docs`, `feat/docs-site`): ADR 0930; no migrations | in flight |
 | CC | 1450–1469 | 0940–0949 | A rate limit for public operations (`feat/public-rate-limit`): the per-client-address limit, the visitor's address through the client-app binding, wrong guesses counted, promo codes looked up by index | in flight |
 | CD | 1470–1489 | 0950–0959 | Stage 14, Teams and permissions (re-spec 2026-11-25, `docs/stage-14-respec`; spec `docs/stages/14-teams-permissions.md`): migrations 1470 to 1473 and ADRs 0950 to 0955 named in the spec. Migration 1430 is stage 36's, outside its block | specced |
@@ -116,7 +116,7 @@ Avoid these unless your build is the one named, because another build is changin
 | Area | Reserved for |
 | --- | --- |
 | `packages/core/src/ai/roles.ts`, `ai/client.ts`, hosted provisioning in `packages/release`, `products/crm/apps/control` AI metering | Hosted platform AI |
-| `person.erase`, `organisation.erase`, `records/erase.ts`, `assistant/erase.ts`, sync ingest's suppression check | Erase completeness. Held by stage 44 step 8 (`feat/stage-44-erase`, agreements' erase, merge and retention) until it merges: stage 43 step 4 has not started, so nothing else is in it now |
+| `person.erase`, `organisation.erase`, `records/erase.ts`, `assistant/erase.ts`, sync ingest's suppression check | Erase completeness. Held by stage 65 step 10 (`feat/stage-65-erase-merge`, erase, merge and removal of the booking system's copy) until it merges |
 | `packages/core/src/visibility/`, `audiences` on operations, `invoke()`'s audience check, customer and public principals | Stage 22 |
 | Visibility and permissions anywhere | Stage 14, once it starts |
 | `packages/core/src/http/`, `packages/client*`, `apps/app/src/server/http/`, `/api/v<n>/*`, `core_idempotency_*`, `core_device_session` | Stage 23 |

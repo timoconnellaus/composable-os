@@ -213,3 +213,11 @@ An erased Person's acceptances are kept detached for the retention period, as de
 unpaid acceptances go at once. The email gatekeeper's storage of their copies (journal records
 and history lines) is scrubbed through the host's own agreements mail, and a waiting copy's
 approval is turned down and redacted.
+
+## Amended 2026-11-26: the booking system's copy (stage 65 step 10, [ADR 0926](0926-erase-merge-and-removal-of-the-outside-copy.md))
+A person erase reaches the booking system's copy (`core_outside_*`): outside people linked to them
+or listed with their address, coaches with their address, their memberships, passes, bookings,
+To match rows and their id in others' candidates go in the erase's batch, and the copy's refs,
+addresses and names join the erase's terms. Their outside refs and the addresses the copy held go
+into `core_outside_suppressed` by keyed hash (not on the erased-address list, which stays the
+Person's own addresses), which every load checks; the erase log carries them for a re-apply.

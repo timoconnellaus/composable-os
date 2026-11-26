@@ -35,6 +35,9 @@ linked and what a customer may see are rules of the host.
   Someone who gets the address later (a sign-up, an import, a restore, staff) is linked then.
 - **Linked by hand**: a person with `bookingSystem:manage` links an outside person to a Person, or
   a coach to a staff account, with why; or says "nobody here". Both hold across loads.
+- **Suppressed**: an erased Person's outside refs and the addresses the copy held for them, kept
+  as hashes keyed with the deployment's salt, never the values. No later list keeps anything they
+  name, and nobody can link them by hand.
 
 ## How the pieces fit
 
@@ -44,6 +47,8 @@ linked and what a customer may see are rules of the host.
 - `outside/match.ts` holds the host's side of matching: which live Persons and staff accounts hold
   an address, the erased-address list and the suppressed refs, and the links already held. The
   rules themselves are the contract package's `matchPeople`.
+- `outside/erase.ts` is how an erase, a merge and a purge reach the copy; `outside/remove.ts`
+  plans a list's removal in bounded passes.
 - `operations/outside.ts` is how anything reads or changes the copy.
 
 ## Main flows
@@ -55,19 +60,29 @@ linked and what a customer may see are rules of the host.
 3. Staff open To match (`outside.matches`) and link (`outside.link`) or say "nobody here"
    (`outside.unlink`), with why.
 4. `outside.status` shows each list's date, its age, and whether it still counts.
+5. A Person is erased (`person.erase`): every outside row linked to them or listed with their
+   address, a coach with their address, their memberships, passes, bookings and To match go, their
+   refs and addresses are suppressed, and the result says a copy remains in the booking system.
+6. Two People are merged: links move to the survivor, and someone who waited only because the two
+   were two People is linked to the survivor. A purge drops a purged Person's links.
+7. A person removes a list, or both (`outside.lists.remove`): it stops counting at once and its
+   rows go, in passes; a copy bigger than one call's is finished by calling again. Settings,
+   suppressions, unlink decisions, the lists' log and the timeline stay.
 
 ## Who may do what
 
 - `bookingSystem:manage` (admins, grantable one by one, never to a pack's fixed role) reads the
-  lists' state, To match and the settings. Linking and unlinking are a person's only, never an AI's.
+  lists' state, To match and the settings. Linking, unlinking and removing a list are a person's
+  only, never an AI's, an MCP client's, an extension's or an automation's.
 - The settings (on or off, which types make a member, the two links, the largest age) are a human
   admin's (`settings:manage`).
 - The copy is in no `rec_*` view: no SQL, export, search, dashboard or AI record read reaches it.
 
 ## What is built
 
-The tables, the settings, the lists' ages, the ingest plan, matching and linking by hand, and the
-operations above. Loading a list from a file and the screens are not built yet.
+The tables, the settings, the lists' ages, the ingest plan, matching and linking by hand, erase,
+merge, purge and removal, and the operations above. Loading a list from a file and the screens are
+not built yet.
 
 
 ## Reference

@@ -13,14 +13,14 @@ import {
   matchPeople,
 } from "@composable-os/gatekeeper-booking-system";
 import { CompiledQuery, type Kysely, sql } from "kysely";
+import { saltedHash } from "../contact/suppression.ts";
 import { foldAddress, foldedSql, normaliseCustomerEmail } from "../customers/accounts.ts";
 import { newId } from "../ids.ts";
 import type { HandlerContext } from "../operation.ts";
 import { chunk, jsonList } from "../records/common.ts";
-import { sha256Ref } from "../records/erase-log.ts";
-import { erasedAddressHash } from "../records/erase-subject.ts";
 import { erasedAddresses } from "../sync/ingest.ts";
 import { SYSTEM_USER } from "../users.ts";
+import { onCurrentList } from "./settings.ts";
 
 type Db = Kysely<CoreDatabase>;
 
@@ -66,9 +66,23 @@ export async function usersByAddress(
   return out;
 }
 
-/** The hash a suppressed outside ref is kept by. */
-export function suppressedRefHash(ref: string): Promise<string> {
-  return sha256Ref(`outside-ref:${ref}`);
+/** An outside person (`person`) or coach (`staff`). */
+export type OutsideKind = "person" | "staff";
+
+/**
+ * The hash an outside ref is kept by, in `core_outside_suppressed` (an erased Person's) and
+ * `core_outside_unlinked` (staff's "nobody here"): keyed with the deployment's salt, as the
+ * consent register's suppression list (ADR 0675), never the ref itself. A list with no ids of its
+ * own uses the address as the ref, so a plain digest would be one anyone could recompute from an
+ * address; the salt keeps one deployment's hashes from matching another's (stage 65 step 10).
+ */
+export function outsideRefHash(db: Db, kind: OutsideKind, ref: string): Promise<string> {
+  return saltedHash(db, `outside:${kind}:ref:${ref}`);
+}
+
+/** The hash an outside address is suppressed by: its normalised form, keyed the same way. */
+export function outsideAddressHash(db: Db, address: string): Promise<string> {
+  return saltedHash(db, `outside:address:${normaliseCustomerEmail(address) ?? address}`);
 }
 
 /**
@@ -80,14 +94,19 @@ export async function droppedOf(
   db: Db,
   refs: readonly string[],
   addresses: readonly string[],
+  kind: OutsideKind = "person",
 ): Promise<{ refs: Set<string>; addresses: Set<string> }> {
   const refHashes = await Promise.all(
-    [...new Set(refs)].map(async (ref) => ({ ref, hash: await suppressedRefHash(ref) })),
+    [...new Set(refs)].map(async (ref) => ({ ref, hash: await outsideRefHash(db, kind, ref) })),
   );
   const addressHashes = await Promise.all(
-    [...new Set(addresses)].map(async (a) => ({ address: a, hash: await erasedAddressHash(a) })),
+    [...new Set(addresses)].map(async (a) => ({
+      address: a,
+      hash: await outsideAddressHash(db, a),
+    })),
   );
   const hashes = [...refHashes.map((h) => h.hash), ...addressHashes.map((h) => h.hash)];
+  // One JSON parameter (D1 binds at most 100), however many a list holds.
   const suppressed = hashes.length
     ? new Set(
         (
@@ -172,13 +191,13 @@ export const normaliseStaff = (address: string): string | null => normaliseCusto
 /** The hashes `core_outside_unlinked` keeps staff's "nobody here" under, for these refs. */
 export async function unlinkedOf(
   db: Db,
-  kind: "person" | "staff",
+  kind: OutsideKind,
   refs: readonly string[],
 ): Promise<Map<string, { by: string; at: string }>> {
   const out = new Map<string, { by: string; at: string }>();
   if (!refs.length) return out;
   const hashes = await Promise.all(
-    [...new Set(refs)].map(async (ref) => ({ ref, hash: await suppressedRefHash(ref) })),
+    [...new Set(refs)].map(async (ref) => ({ ref, hash: await outsideRefHash(db, kind, ref) })),
   );
   const rows = await db
     .selectFrom("core_outside_unlinked")
@@ -276,6 +295,7 @@ export async function matchPersonAddresses(
       join.onRef("m.ref", "=", "o.ref").on("m.kind", "=", "person"),
     )
     .select(["o.ref", "o.address_folded", "o.person_id", "o.link_how", "m.ref as waiting"])
+    .where(onCurrentList("o.list_id"))
     .where((eb) =>
       eb.or([
         ...(folded.length ? [eb("o.address_folded", "in", jsonList(folded))] : []),

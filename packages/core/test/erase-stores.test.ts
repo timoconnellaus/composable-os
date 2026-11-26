@@ -422,7 +422,30 @@ describe("person.erase reaches every store", () => {
     };
     await invokeByName("me.deleteAccount", { confirm: true, expect: preview.expect }, signedIn);
 
+    // The booking system's copy (stage 65): an outside person linked to them, their membership
+    // and booking, a coach with their address, and To match naming them beside the bystander.
+    const outsideRef = unique("bsref");
+    const coachRef = unique("bscoach");
+    await env.DB.batch([
+      env.DB.prepare(
+        "INSERT INTO core_outside_person (ref, list_id, address, address_folded, given_name, family_name, member_status, active, why_kept, person_id, link_how, linked_at) VALUES (?, 'ol_x', ?, ?, ?, ?, 'member', 1, 'member', ?, 'address', ?)",
+      ).bind(outsideRef, email, email, given, family, person.id, now),
+      env.DB.prepare(
+        "INSERT INTO core_outside_membership (ref, list_id, person_ref, type_ref, name, kind, status, renews) VALUES (?, 'ol_x', ?, 't', 'Unlimited', 'membership', 'live', 1)",
+      ).bind(`${outsideRef}-m`, outsideRef),
+      env.DB.prepare(
+        "INSERT INTO core_outside_booking (ref, list_id, class_ref, person_ref, state) VALUES (?, 'ol_y', 'c1', ?, 'booked')",
+      ).bind(`${outsideRef}-b`, outsideRef),
+      env.DB.prepare(
+        "INSERT INTO core_outside_staff (ref, list_id, display_name, address, active) VALUES (?, 'ol_y', ?, ?, 1)",
+      ).bind(coachRef, display, email),
+      env.DB.prepare(
+        "INSERT INTO core_outside_match (kind, ref, why, candidates, created_at) VALUES ('person', ?, 'several_people', ?, ?)",
+      ).bind(unique("bswait"), JSON.stringify([person.id, bystander.id]), now),
+    ]);
+
     const result = await invoke("person.erase", { id: person.id }, context(admin, { blobs }));
+    expect(result.bookingSystem).toMatchObject({ people: 1, coaches: 1, copyRemains: true });
     expect(result).toMatchObject({
       eraseRequestsClosed: 1,
       suggestionsRemoved: 1,
@@ -474,7 +497,7 @@ describe("person.erase reaches every store", () => {
 
     // Nothing anywhere: ids, emails (current and former), the phone in any form, the profile.
     const hits = await findAnywhere(
-      [person.id, email, oldEmail, phone, digits, profile.toLowerCase()],
+      [person.id, email, oldEmail, phone, digits, profile.toLowerCase(), outsideRef, coachRef],
       auditKept,
     );
     expect(hits).toEqual([]);

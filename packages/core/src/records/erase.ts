@@ -18,6 +18,7 @@ import { conversationsOf, eraseConversationStatements } from "../inbox/index.ts"
 import { eraseJourneyStatements } from "../journeys/entries.ts";
 import { queueEraseSignals } from "../journeys/signals.ts";
 import type { HandlerContext } from "../operation.ts";
+import { type OutsideErased, outsideOf, queueEraseOutside } from "../outside/erase.ts";
 import { queueErasePersonCodes } from "../people-codes/people.ts";
 import { chunk, jsonList } from "./common.ts";
 import { drainAllBlobDeletions, writeEraseLog } from "./erase-log.ts";
@@ -79,6 +80,8 @@ export interface EraseCounts {
   eraseRequests: number;
   /** A person's agreements: what is kept, until when, and what went (ADR 0646). */
   agreements: AgreementsErased | null;
+  /** A person's copy from the booking system, removed and suppressed (stage 65, ADR 0926). */
+  outside: OutsideErased | null;
 }
 
 /** The counts person.erase and organisation.erase report beyond the audit and conversations. */
@@ -113,7 +116,26 @@ export const eraseCountsOutput = {
   bodiesDeleted: z
     .number()
     .describe("Synced email bodies deleted from blob storage now (the rest are retried)"),
+  bookingSystem: z
+    .object({
+      people: z
+        .number()
+        .describe("Outside people of theirs removed from the booking system's copy"),
+      coaches: z.number().describe("Coaches with their address removed from the copy"),
+      copyRemains: z
+        .literal(true)
+        .describe("The booking system itself still holds them: the host cannot remove it there"),
+      note: z.string(),
+    })
+    .optional()
+    .describe(
+      "A person's copy from the booking system's lists (stage 65): their memberships, passes, bookings, links and matches are deleted and their outside refs and addresses suppressed, so no later list brings them back. A copy remains in the booking system, for staff to deal with there",
+    ),
 };
+
+/** What an erase's result says of the booking system's copy. */
+export const BOOKING_SYSTEM_COPY_NOTE =
+  "A copy remains in the booking system: the host cannot remove it there, so staff deal with it in the booking system.";
 
 /**
  * After the commit: the reported counts, and the R2 bodies the erase queued for deletion are
@@ -132,6 +154,7 @@ export async function afterErase(
   eraseRequestsClosed: number;
   bodiesDeleted: number;
   agreementsKept?: { count: number; until: string | null; deleted: number };
+  bookingSystem?: { people: number; coaches: number; copyRemains: true; note: string };
 }> {
   let bodiesDeleted = 0;
   if (ctx.blobs && !ctx.simulation) {
@@ -151,6 +174,16 @@ export async function afterErase(
     }
   }
   return {
+    ...(counts.outside && counts.outside.people + counts.outside.coaches > 0
+      ? {
+          bookingSystem: {
+            people: counts.outside.people,
+            coaches: counts.outside.coaches,
+            copyRemains: true as const,
+            note: BOOKING_SYSTEM_COPY_NOTE,
+          },
+        }
+      : {}),
     ...(counts.agreements
       ? {
           agreementsKept: {
@@ -182,9 +215,20 @@ export async function queueErase(ctx: HandlerContext, request: EraseRequest): Pr
   const signInEmails = object === "person" ? await customerAddresses(ctx, recordIds) : [];
   const heldByOthers = await addressesHeldByOthers(ctx.db, signInEmails, recordIds);
   const accountEmails = signInEmails.filter((email) => !heldByOthers.has(email));
+  // Their copy from the booking system (stage 65, ADR 0926): its refs, the addresses and names it
+  // lists them by are theirs too, so the audit, approvals and conversations lose them as well.
+  const outside =
+    object === "person"
+      ? await outsideOf(ctx.db, recordIds, [...(request.addresses ?? []), ...accountEmails])
+      : null;
   const terms = [
     ...new Set(
-      [...recordIds, ...request.terms, ...accountEmails].map((t) => t.trim().toLowerCase()),
+      [
+        ...recordIds,
+        ...request.terms,
+        ...accountEmails,
+        ...(outside ? [...outside.addresses, ...outside.refs, ...outside.staffRefs] : []),
+      ].map((t) => t.trim().toLowerCase()),
     ),
   ]
     .filter((t) => t.length >= MIN_TERM_LENGTH)
@@ -353,17 +397,18 @@ export async function queueErase(ctx: HandlerContext, request: EraseRequest): Pr
   // 3d. Assistant conversations that referenced the records (ADR 0200): their objects redact
   // their stored history now (before the commit, so an unreachable one fails the erase), and
   // their list rows and the subject's refs follow in this batch.
+  const names = [...new Set([...(request.names ?? []), ...(outside?.names ?? [])])];
   const conversations = await queueScrubConversations(ctx, {
     recordIds,
     terms: request.terms,
-    names: request.names ?? [],
+    names,
   });
 
   // 3d'. Agents (ADR 0344): what their rows say, and what running ones still hold.
   await queueScrubAgentJobs(ctx, {
     recordIds,
     terms: request.terms,
-    names: request.names ?? [],
+    names,
   });
 
   // 3e. Everything else that copied the subject (ADR 0320): sync's suggestions, signatures and
@@ -374,7 +419,7 @@ export async function queueErase(ctx: HandlerContext, request: EraseRequest): Pr
     recordId,
     recordIds,
     terms,
-    names: request.names ?? [],
+    names,
     addresses: [...new Set([...(request.addresses ?? []), ...accountEmails])],
   };
   const suggestions = await queueEraseSync(ctx, subject);
@@ -409,10 +454,14 @@ export async function queueErase(ctx: HandlerContext, request: EraseRequest): Pr
   if (subject.object === "person") queueEraseSignals(ctx, [...recordIds]);
   // Their check-in codes, cards and PIN, and the dependants' codes on their app (stage 51, ADR 0783).
   if (subject.object === "person") queueErasePersonCodes(ctx, [...recordIds]);
+  // Their copy from the booking system, and its suppression (stage 65, ADR 0926).
+  const outsideErased = outside ? await queueEraseOutside(ctx, recordIds, outside) : null;
 
   // 3f. The erase log outside D1 (R2), so an erasure can be re-applied after a restore. Written
   // before the commit: if it cannot be written the erase fails and can be retried.
-  if (!ctx.simulation) await writeEraseLog(ctx, subject);
+  if (!ctx.simulation) {
+    await writeEraseLog(ctx, { ...subject, outside: outsideErased?.suppressed ?? [] });
+  }
 
   // 3g. Duplicate pairs (ADR 0247): the subject's own, whatever their status, and any other pair
   // whose stored reason names them (a shared organisation, domain or number).
@@ -467,6 +516,7 @@ export async function queueErase(ctx: HandlerContext, request: EraseRequest): Pr
     memoryLines,
     eraseRequests,
     agreements,
+    outside: outsideErased,
   };
 }
 
