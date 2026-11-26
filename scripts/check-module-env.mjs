@@ -425,8 +425,8 @@ export function findings(text, file = "file.ts") {
  * handing it to a helper, destructuring it) would hold the host's env in object code (review of
  * #520, S2).
  */
-function forwardsEnvOnly(constructor) {
-  const params = constructor.parameters;
+function forwardsEnvOnly(ctor) {
+  const params = ctor.parameters;
   const rest = params.find((p) => p.dotDotDotToken);
   const envParam = rest ?? params[1];
   if (!envParam) return true;
@@ -434,7 +434,7 @@ function forwardsEnvOnly(constructor) {
   if (ts.getModifiers(envParam)?.length) return false;
   const name = envParam.name.text;
   let ok = true;
-  walk(constructor.body ?? constructor, (node) => {
+  walk(ctor.body ?? ctor, (node) => {
     if (!ts.isIdentifier(node) || node.text !== name || node === envParam.name) return;
     const parent = node.parent;
     const call = rest ? parent?.parent : parent;
