@@ -52,11 +52,12 @@ describe("ClientDb against D1", () => {
     await db.prepare("CREATE TABLE big (id INTEGER PRIMARY KEY, v TEXT)").run();
     const value = "x".repeat(1_900_000);
     const insert = (id: number) => db.prepare("INSERT INTO big VALUES (?, ?)").bind(id, value);
-    // About 3.8 MB a statement on the wire: three parts of the 8 MiB each.
+    // About 1.9 MB a statement on the wire (one byte a character of a one-byte string): two parts
+    // of the 8 MiB each.
     const rows = [1, 2, 3, 4, 5, 6];
     expect(
       splitParts(rows.map((id) => ({ sql: "INSERT INTO big VALUES (?, ?)", params: [id, value] }))),
-    ).toHaveLength(3);
+    ).toHaveLength(2);
     await expect(db.batch([...rows.map(insert), insert(1)])).rejects.toThrow(
       "D1_ERROR: UNIQUE constraint failed: big.id",
     );
@@ -69,11 +70,11 @@ describe("ClientDb against D1", () => {
   it("refuses a parted batch whose earlier part is missing, applying nothing", async () => {
     const stub = bindings.CLIENT_DB.get(bindings.CLIENT_DB.idFromName("lost-part"));
     await stub.query([{ sql: "CREATE TABLE t (v)", params: [] }]);
-    await stub.stage("b1", [{ sql: "INSERT INTO t VALUES (1)", params: [] }]);
+    await stub.stage("b1", 0, [{ sql: "INSERT INTO t VALUES (1)", params: [] }]);
     const answer = await stub.commit("b1", 2, [{ sql: "INSERT INTO t VALUES (2)", params: [] }]);
     expect(answer.ok).toBe(false);
     const count = await stub.query([{ sql: "SELECT count(*) FROM t", params: [] }]);
-    expect(count.ok && count.results[0]?.rows).toEqual([[0]]);
+    expect(count.ok && count.pieces[0]?.[3]).toEqual([[0]]);
   });
 
   it("keeps two clients' databases apart", async () => {

@@ -1,10 +1,14 @@
 #!/usr/bin/env node
-// Times and checks the deployed proof Worker (stage 66 step 1): D1 against a client's database.
+// Times and checks the deployed proof Worker (stage 66): D1 against a client's database, the
+// client's database in its own Worker and reached as the host reaches it (the query-only service;
+// `client-db-direct` is the same object through the class's namespace, for comparison).
 //
 //   PROOF_URL=https://… PROOF_KEY=… node scripts/time.mjs [--runs 10] [--rounds 5]
 //     [--cold 3] [--cold-wait 150] [--subrequest-max 11000] [--out results.json] [--skip-setup]
 //
-// 1. Setup: migrations and the seed on both databases.
+// 0. What was deployed: each Worker's startup time and size, from PROOF_DEPLOY_FILE (deploy.mjs).
+// 1. Setup: migrations and the seed on both databases, beside them (each call loops inside the
+//    proof's timer object near the databases; work already done is skipped).
 // 2. Conformance: every probe on D1 and on the client's database, printed side by side. A
 //    difference not in conformance-allow.json fails the run (exit 1), after everything else ran.
 // 3. Warm timing: a staff list, a person's page and a checkout, `rounds` requests of `runs` runs
@@ -12,8 +16,8 @@
 //    host's own time for a member near them, wherever this runs); `edge`: where the request landed.
 // 4. Cold start: `cold` fresh clients' databases, each left idle `cold-wait` seconds (Cloudflare
 //    evicts an idle object after 70 to 140 seconds, at the runtime's discretion), then the first
-//    staff page on it and on D1, after the same wait. Each sample says whether the object really
-//    had been evicted.
+//    staff page on it and on D1, after the same wait: the very first query alone, then the rest
+//    of the page. Each sample says whether the object really had been evicted.
 // 5. Subrequests: how many calls one request makes to each database before a limit stops it.
 // 6. A verdict against the review's thresholds (docs/deploying.md). Timing never fails the run.
 //
@@ -58,7 +62,7 @@ if (!/^(https:\/\/[a-z0-9.-]+|http:\/\/(localhost|127\.0\.0\.1):\d{2,5})$/.test(
 }
 
 const SCENARIOS = ["staff-list", "record-page", "checkout"];
-const DATABASES = ["d1", "client-db"];
+const DATABASES = ["d1", "client-db", "client-db-direct"];
 const FROMS = ["near", "edge"];
 const allow = JSON.parse(
   readFileSync(new URL("../conformance-allow.json", import.meta.url), "utf8"),
@@ -96,12 +100,32 @@ function summarise(times) {
 const show = (value) => JSON.stringify(value).slice(0, 240);
 const sleep = (seconds) => new Promise((resolve) => setTimeout(resolve, seconds * 1000));
 
+// 0. What was deployed.
+if (process.env.PROOF_DEPLOY_FILE) {
+  try {
+    console.log(`== Deployed\n${readFileSync(process.env.PROOF_DEPLOY_FILE, "utf8").trim()}`);
+  } catch {
+    console.log("== Deployed: no deploy report");
+  }
+}
+
 // 1. Setup.
 if (!values["skip-setup"]) {
-  for (const db of DATABASES) {
+  for (const db of ["d1", "client-db"]) {
+    const started = Date.now();
     let remaining = Number.POSITIVE_INFINITY;
-    while (remaining > 0) ({ remaining } = await call(`/setup?db=${db}`, { method: "POST" }));
-    console.log(`setup ${db}: done`);
+    let migrated = 0;
+    while (remaining > 0) {
+      const step = await call(`/setup?db=${db}`, { method: "POST" });
+      ({ remaining } = step);
+      migrated += step.migrationsApplied;
+      console.log(
+        `setup ${db}: ${step.migrationsApplied} migrations applied, ${remaining} people still to seed (${Math.round(step.ms)} ms beside the database)`,
+      );
+    }
+    console.log(
+      `setup ${db}: done in ${Math.round((Date.now() - started) / 1000)} s (${migrated} migrations applied)`,
+    );
   }
 }
 
@@ -127,34 +151,58 @@ const unallowed = conformance.all.filter((p) => !p.same && !allow[p.name]).map((
 const results = [];
 for (const from of FROMS) {
   for (const scenario of SCENARIOS) {
-    const inside = { d1: [], "client-db": [] };
+    const inside = Object.fromEntries(DATABASES.map((db) => [db, []]));
     let statements = 0;
+    const failed = {};
     for (let round = 0; round < rounds; round += 1) {
       for (const db of round % 2 ? [...DATABASES].reverse() : DATABASES) {
-        const result = await call(`/time?db=${db}&scenario=${scenario}&runs=${runs}&from=${from}`);
-        inside[db].push(...result.times);
-        statements = result.statementsPerRun;
+        if (failed[db]) continue;
+        try {
+          const result = await call(
+            `/time?db=${db}&scenario=${scenario}&runs=${runs}&from=${from}`,
+          );
+          inside[db].push(...result.times);
+          statements = result.statementsPerRun;
+        } catch (error) {
+          // Reported, and the run goes on: a limit on the service is itself a finding.
+          failed[db] = error.message.slice(0, 300);
+        }
       }
     }
     for (const db of DATABASES) {
-      results.push({ from, scenario, db, statements, ...summarise(inside[db]) });
+      results.push({
+        from,
+        scenario,
+        db,
+        statements,
+        failed: failed[db] ?? null,
+        ...summarise(inside[db]),
+      });
     }
   }
 }
 console.log(
   "\n== Warm, ms. near: beside the databases (read this). edge: where the request landed.",
 );
-console.log("from  scenario      statements  D1 median  D1 p95  client median  client p95");
+console.log(
+  "client: the host's shape (the query-only service). direct: the same object by its namespace.",
+);
+console.log(
+  "from  scenario      statements  D1 median  D1 p95  client median  client p95  direct median  direct p95",
+);
 const pair = (from, scenario) =>
   DATABASES.map((db) =>
     results.find((r) => r.from === from && r.scenario === scenario && r.db === db),
   );
 for (const from of FROMS) {
   for (const scenario of SCENARIOS) {
-    const [d1, client] = pair(from, scenario);
+    const [d1, client, direct] = pair(from, scenario);
     console.log(
-      `${from.padEnd(5)} ${scenario.padEnd(13)} ${String(d1.statements).padStart(10)} ${String(d1.median).padStart(10)} ${String(d1.p95).padStart(7)} ${String(client.median).padStart(14)} ${String(client.p95).padStart(11)}`,
+      `${from.padEnd(5)} ${scenario.padEnd(13)} ${String(d1.statements).padStart(10)} ${String(d1.median).padStart(10)} ${String(d1.p95).padStart(7)} ${String(client.median).padStart(14)} ${String(client.p95).padStart(11)} ${String(direct.median).padStart(14)} ${String(direct.p95).padStart(11)}`,
     );
+    for (const r of [d1, client, direct]) {
+      if (r.failed) console.log(`    ${r.db} FAILED: ${r.failed}`);
+    }
   }
 }
 
@@ -175,10 +223,14 @@ if (coldSamples > 0) {
     const order = i % 2 ? "client-first" : "d1-first";
     cold.push(await call(`/cold/time?run=${run}&i=${i}&order=${order}&instance=${instances[i]}`));
   }
-  console.log("\n== Cold: the first staff page after the idle wait, ms (near)");
+  console.log(
+    "\n== Cold: the first staff page after the idle wait, ms (near): the first query alone + the rest of the page = total",
+  );
+  const parts = (p) =>
+    `${Math.round(p.firstQueryMs)} + ${Math.round(p.pageMs)} = ${Math.round(p.totalMs)}`;
   for (const s of cold) {
     console.log(
-      `D1 ${Math.round(s.d1Ms)}  client db ${Math.round(s.clientDbMs)}  (the object ${s.clientWasCold ? "had been evicted: a real cold start" : "was still in memory: NOT a cold sample"})`,
+      `D1 ${parts(s.d1)}   client db ${parts(s.clientDb)}   (the object ${s.clientWasCold ? "had been evicted: a real cold start" : "was still in memory: NOT a cold sample"})`,
     );
   }
 }
@@ -199,6 +251,11 @@ for (const s of subrequests) {
 
 // 6. Verdict.
 const reasons = [];
+for (const r of results) {
+  if (r.failed && r.db !== "client-db-direct") {
+    reasons.push(`${r.from} ${r.scenario} on ${r.db} failed: ${r.failed}`);
+  }
+}
 for (const scenario of ["staff-list", "record-page"]) {
   const [d1, client] = pair("near", scenario);
   if (client.median > 1.5 * d1.median || client.median - d1.median > 20) {
@@ -214,9 +271,15 @@ for (const scenario of ["staff-list", "record-page"]) {
 }
 const realCold = cold.filter((s) => s.clientWasCold);
 if (realCold.length > 0) {
-  const extra = summarise(realCold.map((s) => s.clientDbMs - s.d1Ms)).median;
+  const extra = summarise(realCold.map((s) => s.clientDb.totalMs - s.d1.totalMs)).median;
+  const first = summarise(realCold.map((s) => s.clientDb.firstQueryMs - s.d1.firstQueryMs)).median;
+  console.log(
+    `\nCold, median over ${realCold.length} real cold sample(s): the client's first page ${Math.round(extra)} ms more than D1's, of which the first query ${Math.round(first)} ms`,
+  );
   if (extra > 300)
-    reasons.push(`a cold first page ${Math.round(extra)} ms worse than D1's (over 300 ms)`);
+    reasons.push(
+      `a cold first page ${Math.round(extra)} ms worse than D1's (over 300 ms; the first query alone ${Math.round(first)} ms)`,
+    );
 } else if (coldSamples > 0) {
   reasons.push(
     "no cold sample was really cold: the cold start is unmeasured (run again with a longer --cold-wait)",

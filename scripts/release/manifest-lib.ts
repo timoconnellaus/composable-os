@@ -103,9 +103,16 @@ export interface DeployablePackage {
  * the hosted control plane (products/crm/apps/control: crm-control and crm-dispatch, ADR 0210) is our own
  * service, deployed by docs/saas-go-live.md, never part of a customer's deployment. The proof Worker
  * of a client's database (apps/client-db-proof, stage 66 step 1, ADR 0612) is a measurement,
- * deployed only by hand by .github/workflows/client-db-proof.yml.
+ * deployed only by hand by .github/workflows/client-db-proof.yml. The Worker that holds clients'
+ * databases (apps/client-db, stage 66 step 2, ADR 0614) is a deployment's only once it holds
+ * clients; a single-client release never ships it.
  */
-const NOT_RELEASED = new Set(["apps/marketing", "apps/docs", "apps/client-db-proof"]);
+const NOT_RELEASED = new Set([
+  "apps/marketing",
+  "apps/docs",
+  "apps/client-db-proof",
+  "apps/client-db",
+]);
 
 /** Every wrangler.jsonc under apps/ and packages/, sorted by directory. */
 export function readDeployablePackages(root: string): DeployablePackage[] {

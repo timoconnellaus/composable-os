@@ -1,0 +1,18 @@
+// The Worker that holds clients' databases (stage 66 step 2, ADR 0614): it exports `ClientDb` and
+// nothing else. Deploying a Durable Object class's Worker restarts every live object of that class,
+// so the class lives here, deployed rarely, and not in the host's app or runner, which deploy with
+// every release: they bind to it by script name (`script_name: "cos-client-db"`, renamed to the
+// product's names at deploy). Not in a single-client release (scripts/release/manifest-lib.ts,
+// NOT_RELEASED): a deployment ships it only once it holds clients (stage 66 steps 3 and 7).
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "cos-client-db",
+  "main": "src/worker.ts",
+  "compatibility_date": "2026-10-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": false,
+  "durable_objects": {
+    "bindings": [{ "name": "CLIENT_DB", "class_name": "ClientDb" }]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["ClientDb"] }]
+}

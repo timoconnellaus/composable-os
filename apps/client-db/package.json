@@ -1,0 +1,23 @@
+{
+  "name": "@composable-os/client-db",
+  "version": "0.0.0",
+  "license": "FSL-1.1-ALv2",
+  "private": true,
+  "description": "Stage 66: the Worker that holds clients' databases (ClientDb), apart from the host's Workers. Not in a single-client release.",
+  "type": "module",
+  "scripts": {
+    "types": "wrangler types --strict-vars=false",
+    "typecheck": "wrangler types --strict-vars=false --check && tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@composable-os/db": "workspace:*"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-plugin": "1.5.1",
+    "@composable-os/config": "workspace:*",
+    "typescript": "6.0.3",
+    "vitest": "5.1.0",
+    "wrangler": "4.157.0"
+  }
+}

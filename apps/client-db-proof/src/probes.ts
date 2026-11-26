@@ -1,8 +1,9 @@
 // The proof's own probes (review of PR #507, S8 and S1), run with those of
 // @composable-os/db/testing/conformance: behaviours most likely to differ between D1 and a
 // Durable Object on Cloudflare, where they are different services. Locally both are SQLite in a
-// Durable Object, so only `read-over-32mib` differs here (a known limit of ClientDb, on the
-// allow-list, conformance-allow.json).
+// Durable Object, so none differs here. `read-over-32mib`, on the allow-list until stage 66 step 2,
+// is now answered as D1 answers it (ADR 0614: an answer over one call is held and fetched in
+// parts); the allow-list (conformance-allow.json) is empty.
 import {
   dropProbeTables,
   PROBES,
