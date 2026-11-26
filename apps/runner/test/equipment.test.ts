@@ -969,3 +969,62 @@ describe("the register's cost (AC 17)", () => {
     expect(page.truncated).toBe(true);
   }, 120_000);
 });
+
+// Batch 20261126 (PR #479 beside #491): a person's own call of a humanOnly or personApproves tool
+// is never held up by the approval policy (its writes skip the policy review), so every person's
+// tool of the pack runs at once under every preset and leaves nothing waiting.
+describe("a person's tools under every approval policy", () => {
+  for (const preset of ["cautious", "balanced", "autonomous"] as const) {
+    it(`a member and a manager use each of their tools at once (${preset})`, async () => {
+      const pending = async () =>
+        (
+          await env.DB.prepare(
+            "SELECT count(*) AS n FROM core_pending_action WHERE status = 'pending'",
+          ).first<{ n: number }>()
+        )?.n;
+      await setPreset(preset);
+      try {
+        const before = await pending();
+        const id = await newItem(`Rower ${preset}`);
+        const reported = await run<{ faultId: string; takenOut: boolean }>(
+          "x.equipment.reportFault",
+          {
+            itemId: id,
+            description: `The seat is loose (${preset})`,
+            severity: "safety_risk",
+            takeOut: { reason: "Seat loose" },
+          },
+          staff(member),
+        );
+        expect(reported.takenOut).toBe(true);
+        await run(
+          "x.equipment.correctOutReason",
+          { itemId: id, reason: "Seat rail cracked" },
+          staff(manager),
+        );
+        await run(
+          "x.equipment.correctFault",
+          { faultId: reported.faultId, severity: "not_working" },
+          staff(manager),
+        );
+        await run(
+          "x.equipment.triage",
+          { faultId: reported.faultId, action: "fixed", why: "New rail" },
+          staff(manager),
+        );
+        await run("x.equipment.putBack", { itemId: id }, staff(manager));
+        expect((await get(ITEM, id)).values.state).toBe("in_service");
+        await run("x.equipment.takeOut", { itemId: id, reason: "Worn out" }, staff(member));
+        await run("x.equipment.retire", { itemId: id, reason: "Replaced" }, staff(manager));
+        expect((await get(ITEM, id)).values.state).toBe("retired");
+        expect((await get(FAULT, reported.faultId)).values).toMatchObject({
+          state: "fixed",
+          severity: "not_working",
+        });
+        expect(await pending()).toBe(before);
+      } finally {
+        await setPreset("balanced");
+      }
+    });
+  }
+});
