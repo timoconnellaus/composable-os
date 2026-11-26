@@ -30,7 +30,12 @@ import {
 } from "../list.ts";
 import { defineOperation, type HandlerContext, type RecordChange } from "../operation.ts";
 import { jsonList } from "../records/common.ts";
-import { filesOfNotes, recordFileSchema, STAGED_FILE_HOURS } from "../records/files.ts";
+import {
+  filesOfNotes,
+  type RecordFile,
+  recordFileSchema,
+  STAGED_FILE_HOURS,
+} from "../records/files.ts";
 import {
   assertLinkTargets,
   linkedRecordSchema,
@@ -327,7 +332,7 @@ function activityQuery(reader: Reader) {
 async function toActivities(
   db: Kysely<CoreDatabase>,
   rows: ActivityRow[],
-  { unlock = false } = {},
+  { unlock = false, withFiles = true } = {},
 ): Promise<Activity[]> {
   const links = await loadLinks(
     db,
@@ -335,16 +340,20 @@ async function toActivities(
     rows.map((r) => r.id),
   );
   const isLocked = (row: ActivityRow) => row.level === "sensitive" && !unlock;
-  // The files of the notes shown with their text: one statement for the page.
-  const files = await filesOfNotes(
-    db,
-    rows.filter((row) => row.type === "note" && !isLocked(row)).map((row) => row.id),
-  );
+  // The files of the notes shown with their text: one statement for the page. Not on the feed
+  // across all records (activity.list), which lists no note's files.
+  const files = withFiles
+    ? await filesOfNotes(
+        db,
+        rows.filter((row) => row.type === "note" && !isLocked(row)).map((row) => row.id),
+      )
+    : new Map<string, RecordFile[]>();
   return rows.map((row) => {
     const locked = isLocked(row);
+    const own = files.get(row.id);
     return {
       ...activityOf(row, links.get(row.id) ?? []),
-      ...(row.type === "note" && !locked ? { files: files.get(row.id) ?? [] } : {}),
+      ...(own?.length && !locked ? { files: own } : {}),
       ...(locked ? { subject: null, body: null, payload: {}, sections: null, locked: true } : {}),
     };
   });
@@ -1095,7 +1104,7 @@ export const activityList = defineOperation({
       const row = byId.get(id);
       return row ? [row] : [];
     });
-    const items = await toActivities(ctx.db, ordered);
+    const items = await toActivities(ctx.db, ordered, { withFiles: false });
     return {
       items: selectFields(items, input.fields, ACTIVITY_FIELDS),
       nextCursor: page.nextCursor,

@@ -55,7 +55,7 @@ shows.
   most 20 MB (the route reads no more than 20 MB whatever the header says), at most 20 files a
   note, at most 20 uploads waiting for their note per account, and a storage cap (a setting,
   10 GB by default, changed by a human admin with `file.storage.setCap`; `file.storage.get` gives
-  the total to those who manage notes, in Settings → Notes). Before the body is read the route asks
+  the total to human admins, in Settings → Notes). Before the body is read the route asks
   `file.checkUpload` with the size it was told (the note, the room, the cap); `file.upload` checks
   everything again on the stored bytes, and the batch holds the note's room, the waiting count and
   the cap at commit (`core_record_file_guard`), so two uploads at once cannot pass a limit. When an

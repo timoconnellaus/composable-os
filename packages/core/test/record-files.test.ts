@@ -712,7 +712,7 @@ describe("deleting, the Trash, erase and merge", () => {
       expect((await refusal(serve(admin, id))).code).toBe("not_found");
       expect(await env.DB.prepare("SELECT id FROM core_record_file WHERE id = ?").bind(id).first()).toBeNull();
     }
-    expect((await invoke("activity.get", { id: shared.id }, as(admin))).files).toEqual([]);
+    expect((await invoke("activity.get", { id: shared.id }, as(admin))).files).toBeUndefined();
     await drainAllBlobDeletions(db.query, blobs);
     for (const id of [...own.files, sharedUpload.id]) {
       expect(await bucket.head(`${FILES_PREFIX}${id}`)).toBeNull();

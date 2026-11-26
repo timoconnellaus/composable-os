@@ -163,10 +163,10 @@ const inGb = (bytes: number) =>
 
 /**
  * What the files attached to notes take, and the limit past which uploads are refused (stage 56
- * step 3, ADR 0834). Shown to people who manage notes; the limit is changed by a human admin.
+ * step 3, ADR 0834). Shown to admins (settings:manage), who also change the limit.
  */
 function FileStorage({ isAdmin }: { isAdmin: boolean }) {
-  // Refused to anyone who does not manage notes: the card is then not shown.
+  // Refused to anyone but an admin: the card is then not shown.
   const storage = useOp("file.storage.get", {}, { retry: false });
   const setCap = useOpMutation("file.storage.setCap");
   const [cap, setCapText] = useState("");

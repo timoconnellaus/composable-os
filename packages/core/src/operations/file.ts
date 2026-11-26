@@ -2,11 +2,11 @@
 // Staff only (none is open to a customer or the public, ADR 0402; a customer's upload is step 6),
 // a person only (no AI actor uploads, is served a file's bytes, or deletes one), and not on MCP:
 //
-//   file.checkUpload    staff (records:write)   may this upload go ahead: asked before its bytes
+//   file.checkUpload    staff (records:read)    may this upload go ahead: asked before its bytes
 //   file.upload         staff (records:write)   store an uploaded file (bytes from the route)
 //   file.serve          staff (records:read)    may the caller be served this file now, and how
 //   file.delete         staff (records:write)   remove a file from its note, at once
-//   file.storage.get    staff (notes:manage)    how much the files take, and the cap
+//   file.storage.get    staff (settings:manage) how much the files take, and the cap
 //   file.storage.setCap staff (settings:manage) change the cap
 //
 // A file's readers are exactly its note's, at every moment: `file.serve` reads the note through
@@ -187,7 +187,7 @@ export const fileCheckUpload = defineOperation({
     bytes: z.number().int().min(0).describe("The size the upload says it is"),
   }),
   output: z.object({ ok: z.literal(true) }),
-  permission: "records:write",
+  permission: "records:read",
   risk: "read",
   actors: ["human"],
   mcp: { expose: false },
@@ -442,10 +442,10 @@ export const fileStorageGet = defineOperation({
   name: "file.storage.get",
   description:
     "How much storage the files attached to notes take, how many there are, and the limit past " +
-    "which uploads are refused. People allowed to manage notes. Read-only.",
+    "which uploads are refused. A human admin. Read-only.",
   input: z.object({}),
   output: storageOut,
-  permission: "notes:manage",
+  permission: "settings:manage",
   risk: "read",
   actors: ["human"],
   mcp: { expose: false },
