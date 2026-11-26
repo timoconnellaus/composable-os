@@ -59,6 +59,14 @@
 - [Deals: screens](https://docs.composableos.dev/packs/deals/screens/)
 - [Deals: settings](https://docs.composableos.dev/packs/deals/settings/)
 - [Deals: operations and tools](https://docs.composableos.dev/packs/deals/tools/)
+- [Equipment: data model](https://docs.composableos.dev/packs/equipment/data-model/)
+- [Equipment: decisions](https://docs.composableos.dev/packs/equipment/decisions/)
+- [Equipment](https://docs.composableos.dev/packs/equipment/): A register of what a business owns and looks after, with tags, suppliers, costs and warranties; faults reported by staff; items taken out of service by any staff member and put back by a manager.
+- [Equipment: messages](https://docs.composableos.dev/packs/equipment/messages/)
+- [Equipment: permissions and roles](https://docs.composableos.dev/packs/equipment/permissions/)
+- [Equipment: screens](https://docs.composableos.dev/packs/equipment/screens/)
+- [Equipment: settings](https://docs.composableos.dev/packs/equipment/settings/)
+- [Equipment: operations and tools](https://docs.composableos.dev/packs/equipment/tools/)
 - [Forms: data model](https://docs.composableos.dev/packs/forms/data-model/)
 - [Forms: decisions](https://docs.composableos.dev/packs/forms/decisions/)
 - [Forms](https://docs.composableos.dev/packs/forms/): Forms a business builds and publishes (enquiries, sign-ups, surveys, feedback, staff reports), and every answer in one inbox, linked to the person who sent it.

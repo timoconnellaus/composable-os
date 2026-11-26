@@ -1373,7 +1373,18 @@ such a tool may be named in a move's `tools` ([ADR 0552](adr/0552-a-tool-a-perso
 `packages/core/src/records/unique.ts`). `unique: [{ fields, states? }]` is a partial unique index
 the reconciler builds on the extension's table: no two live records in those states share the
 fields (one active booking per Person per class), whoever writes and however many at once. A
-read before the write gives the clear message and the dry run's answer.
+read before the write gives the clear message and the dry run's answer, and a restore whose
+values were taken while it was in the Trash is refused in words. `fold: true`
+([ADR 0864](adr/0864-uniqueness-that-folds-case-and-spaces.md)) keeps the rule's text fields
+trimmed and in upper case on every write, so case and outer spaces never make a second (an
+equipment tag).
+
+**The Trash and a guarded state** ([ADR 0863](adr/0863-a-state-only-tools-leave-keeps-its-record-out-of-the-trash.md),
+`packages/core/src/records/trash-states.ts`). A state that is not final and that only the host
+leaves (`by: ["host"]`, with or without `tools`) is guarded: a record in it is put in the Trash by
+a record write only from inside one of those tools, or by a person holding one of their
+permissions, never by an AI, an automation or other code, whatever the preset. The host's own
+removals (a series' records) are not held.
 
 **`recurring`** ([ADR 0500](adr/0500-recurring-a-weekly-rule-in-local-time.md),
 `packages/core/src/recurring/`, `packages/core/src/time/local.ts`). A series (a timetable line)
@@ -2060,6 +2071,19 @@ date-relative automation reminds the owner on) in sections, and help pages
 `public.list` and the record writes; it adds no rule. A formula of a publishable object's own
 fields may read `publishedAt` and `publishedVersion`, and a date-relative trigger may name a date
 formula.
+
+**The Equipment pack** (stage 59 step 3, [ADR 0862](adr/0862-the-equipment-pack.md),
+`packs/equipment`). Items (`equipment.item`: a tag `unique` and folded among items in or out
+of service, a supplier Organisation, cost and warranty) and the faults staff report on them
+(`equipment.fault`, one open fault per report key, none on a retired item). An item is in service,
+out of service or retired, and each move is one only the pack's tools make (ADR 0513): `takeOut`
+and `reportFault` for anyone with `equipment:report` (a coach or cleaner by grant), an AI's call
+waiting for a person (`personApproves`); `putBack` a manager's own act (`equipment:manage`,
+restricted, `humanOnly`); `retire` a manager's. A fault is triaged by a manager through `triage`,
+each close with why; `reportFaultOnly` reports without taking anything out, which the assistant
+may do. Why an item is out and a fault's severity and words are read-only but to the tools
+(`correctOutReason`, `correctFault` for a manager), and the Trash is held to the moves (ADR 0863).
+The register is one `query.sql` statement whatever its size. It adds no rule.
 
 **Media** ([ADR 0444](adr/0444-media-the-editor-and-the-content-pack.md),
 `packages/core/src/operations/media.ts`, `packages/core/src/http/media.ts`). A base record,
@@ -3099,6 +3123,7 @@ client's copy of its block exports what the release declares, says which copy is
 | Daily checklists | no objects: screens and tools over the host's tool-only day-run operations (`checklist.today`, `.day`, `.dayTick`, `.dayDone`, `.days`), tools open to every staff account (`anyStaff`) or held to `checklists:write` (`corePermission`) | built (checklists on their own, [ADR 0651](adr/0651-checklists-on-their-own-a-schedule-a-run-a-day-and-who-may-do-it.md), [ADR 0652](adr/0652-a-tool-for-every-staff-account-and-a-tool-held-to-a-core-permission.md)): Today's checklists (web and the app) and Checklist history; requires nothing |
 | Forms | `publishable` with a slug and no public half, `intake` (form and submission), `states` (moves into and out of spam only by `personApproves` tools), a status, dates, cap and address a person approves, an old address that redirects, a setting a person approves, a low-rating automation, routine mail (the receipt) | stage 29: step 3 built (forms and submissions, the inbox's tools, views among them "Asked to hear from us", the hourly cap setting, the low-rating notice, the staff form kind, [ADR 0726](adr/0726-the-forms-pack-forms-submissions-and-who-reads-them.md)); step 5 built (personal links, answered with `link` or `linkId`, and the receipt, ADRs 0723 and 0724); step 4 built (the form page `/f/<slug>` and `/form` on the host and through the binding, the `forms-form` and `forms-native-form` blocks and the headless entry, ADR 0728); Leads as a destination, erase, and the screens and dashboard to come |
 | Shop | `sellable.goods` (sold where its item says) with `stock` and a reorder level told to `shop:stock`, `sellable.delivery` with seeded options and a shipment `grants`, `publishable` items, `public` with a list of conditions and `via` alone, a buyer's `customer` read of their shipments, prices a person approves, supplier fields on Organisation, a pack role (`shop.stockroom`), grantable permissions | stage 37: step 5 built (items, variants, delivery options, shipments, supplier fields, the stockroom role, the country setting, views, the Shop dashboard, the stock and shipment tools, [ADR 0689](adr/0689-the-shop-pack-and-public-reads-through-a-public-record.md)); purchase orders, receipts, counts and write-offs, recorded returns and routine mail, blocks and screens, and the import to come |
+| Equipment | `unique` (an item's tag), `states` whose moves only the pack's tools make (out of service by `takeOut` and `reportFault`, `personApproves`; back by `putBack`, `humanOnly`; retired by `retire`; a fault's triage), grantable and restricted permissions (`equipment:report`, `equipment:manage`) | stage 59: step 1 built (the interval rule in `recurring`, [ADR 0860](adr/0860-the-interval-rule-in-recurring.md)); step 3 built (items, faults, the tag, out of service and back, the staff tools, [ADR 0862](adr/0862-the-equipment-pack.md)); overseers, service plans, maintenance and inspections, the member's report, automations, the dashboard and the blocks to come |
 | Memberships | `allowance` (holders, paying for Bookings' classes and, when they say they pay for sessions, its appointments by service: stage 49, [ADR 0764](adr/0764-appointments-in-the-bookings-pack.md)), recurring billing with `recurring.grants` and `recurring.pause`, `sellable.onePerPerson`, `humanOnly` tools, `requires: ["programs", "bookings"]` | stage 32b: steps 5 to 7 built (the behaviour, the pack, plan changes and pauses, the dashboard, views and blocks); the import (step 8) to come |
 
 ### Client repos

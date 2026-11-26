@@ -44,7 +44,24 @@ them): decisions 1 to 10 below. Nothing waits for an interview. Roadmap stage 59
 
 - **Step 2** — not built — P2 to P4: overseers, a move that needs its checklist done, the wording
 
-- **Step 3** — not built — The pack's spine: items, faults, states, uniqueness, permissions, staff tools, out of service
+- **Step 3** — built — PR #491 — The pack's spine: items, faults, states, uniqueness, permissions, staff tools, out of service
+  (`feat/stage-59-equipment-pack`): `packs/equipment` with `equipment.item` (the tag `unique`)
+  and `equipment.fault`; the item's moves only tools make (out of service by `takeOut` and
+  `reportFault`, `personApproves`, requiring why; back by `putBack`, `equipment:manage` and
+  `humanOnly`; retired by `retire`, requiring why and unlisting) and the fault's by `triage`
+  (each close requiring why); `equipment:report` (grantable) and `equipment:manage` (restricted);
+  the tools `register` (one statement), `item`, `reportFault`, `reportFaultOnly` (the
+  assistant's, no approval), `takeOut`, `putBack`, `retire`, `triage`, `correctFault`,
+  `correctOutReason`; why an item is out and a fault's severity and words read-only but to the
+  tools; a report made once (a report key); no fault on a retired item; the tag folded and given
+  up by a retired item. Platform: a record in a state only tools leave stays out of the Trash but
+  for those tools or a person holding their permission (ADR 0863), and uniqueness that folds case
+  and spaces (`fold`, ADR 0864). Tests in `packs/equipment/test/`, `packages/sdk/test/unique.test.ts`
+  and `apps/runner/test/equipment.test.ts`. No migration; ADRs 0862 to 0864. Left: the keeper
+  triaging (needs a behaviour: a move by a record's user field, which step 4's "the assignee or a
+  manager" needs too); the repair link on `fixed`, `costs` and `equipment:work` (step 4); the
+  member's report and reads, and who may change `listForMembers` (step 5); the notices (step 6).
+  The report and the take-out are two writes, the fault first (ADR 0862).
 
 - **Step 4** — not built — needs: step 1, step 2, step 3 — Service plans and maintenance, inspections
 

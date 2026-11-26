@@ -10,10 +10,22 @@ import type { ExtensionManifest, ObjectManifest } from "./manifest.ts";
  * their state (the object's `states` field) is one of `states`. Left without `states`, every
  * live record counts. The database refuses a second record, or a move back into a counted state,
  * as a conflict (`rule: "unique"`).
+ *
+ * `fold: true` (stage 59, ADR 0864) makes the rule ignore case and outer spaces: the host keeps
+ * the rule's text fields folded on every write, whoever writes (a form, the assistant, MCP, the
+ * import): white space trimmed from both ends and the letters in upper case (`foldUniqueText`).
+ * So `tm-03 ` and `TM-03` are one value, the code on a sticker. Every field of a folded rule is a
+ * `text` field.
  */
 export interface UniqueSpec {
   fields: readonly string[];
   states?: readonly string[];
+  fold?: boolean;
+}
+
+/** A text value of a folded uniqueness rule as the host keeps it (ADR 0864). */
+export function foldUniqueText(value: string): string {
+  return value.normalize("NFKC").trim().toUpperCase();
 }
 
 export const uniqueManifestSchema = z
@@ -22,6 +34,7 @@ export const uniqueManifestSchema = z
       .object({
         fields: z.array(z.string().max(40)).min(1).max(4),
         states: z.array(z.string().min(1).max(100)).min(1).max(20).optional(),
+        fold: z.boolean().optional(),
       })
       .strict(),
   )
@@ -61,6 +74,11 @@ export function checkObjectUnique(
       const field = Object.hasOwn(object.fields, local) ? object.fields[local] : undefined;
       if (!field || field.many || !UNIQUE_TYPES.has(field.type)) {
         contract(`${path}.fields`, `"${local}" must be a single-valued, stored field of ${name}`);
+      } else if (rule.fold && field.type !== "text") {
+        contract(
+          `${path}.fold`,
+          `"${local}" is a ${field.type} field: a rule that folds case and spaces names text fields only`,
+        );
       }
     }
     if (rule.states) {

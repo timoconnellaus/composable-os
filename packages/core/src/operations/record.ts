@@ -83,7 +83,8 @@ import {
 import type { StageCache } from "../records/stages.ts";
 import { resolveStateRequest } from "../records/states.ts";
 import { type Mover, type TransitionOutcome, transitionTimeline } from "../records/transitions.ts";
-import { assertUnique } from "../records/unique.ts";
+import { assertTrashLeavesState } from "../records/trash-states.ts";
+import { assertUnique, foldUniqueValues } from "../records/unique.ts";
 import { guardStatement } from "../recurring/bookkeeping.ts";
 import {
   assertRuleValues,
@@ -805,8 +806,9 @@ export async function createRecord(
     await prepareValues(
       ctx,
       object,
-      // A code word is kept folded, long enough and one of its kind (ADR 0940).
-      await foldCodeWords(ctx, object, null, withDefaults),
+      // A code word is kept folded, long enough and one of its kind (ADR 0940); a folded unique
+      // rule's text is trimmed and upper case (ADR 0864).
+      await foldCodeWords(ctx, object, null, foldUniqueValues(object, withDefaults)),
       "create",
       options,
     ),
@@ -1225,8 +1227,9 @@ export async function updateRecord(
   let prepared = await prepareValues(
     ctx,
     object,
-    // A code word is kept folded, long enough and one of its kind (ADR 0940).
-    await foldCodeWords(ctx, object, id, asked),
+    // A code word is kept folded, long enough and one of its kind (ADR 0940); a folded unique
+    // rule's text is trimmed and upper case (ADR 0864).
+    await foldCodeWords(ctx, object, id, foldUniqueValues(object, asked)),
     "update",
     options,
   );
@@ -1798,6 +1801,11 @@ async function trashRecord(ctx: HandlerContext, object: ObjectDefinition, id: st
   await checklistRecordWritten(ctx, object, id, before.values, null, undefined);
   await assertChecklistHolderMove(ctx, object, id, "put in the Trash", undefined);
   await assertHolderTrashable(ctx, object, id);
+  // A state only tools or the host leave is left by the Trash only by those hands (ADR 0863),
+  // after the rules above so each keeps its own words.
+  if (object.states) {
+    await assertTrashLeavesState(ctx, object, before.values[object.states.field]);
+  }
   const table = objectTableOf(object.name) as string;
   ctx.write(
     CompiledQuery.raw(`UPDATE ${table} SET deleted_at = ?, deleted_by = ? WHERE id = ?`, [
@@ -1857,6 +1865,25 @@ export const recordRestore = defineOperation({
     assertMayChangeGatedStages(ctx, object, undefined);
     // Its slug may have been taken while it was in the Trash (stage 28, ADR 0444).
     await assertRestorable(ctx, object, input.id);
+    // Its declared unique values may have been taken while it was in the Trash (ADR 0864): said
+    // so plainly here, and held at commit by the rule's index.
+    if (object.unique?.length) {
+      const named = new Set([
+        ...object.unique.flatMap((r) => r.fields),
+        ...(object.states ? [object.states.field] : []),
+      ]);
+      const stored = await sql<Record<string, unknown>>`
+        SELECT * FROM ${visibleTable(ctx, object)} WHERE id = ${input.id}
+      `.execute(ctx.db);
+      const row = stored.rows[0] ?? {};
+      const values = Object.fromEntries(
+        [...named].map((name) => {
+          const column = fieldStorage(object.name, name)?.column;
+          return [name, column ? (row[column] ?? null) : null];
+        }),
+      );
+      await assertUnique(ctx, object, input.id, values, { restoring: true });
+    }
     // Back with someone on it (a shift's person, a series' regular person): a rosterer's (ADR 0626).
     await assertRosterRestore(ctx, object, input.id);
     // A shift's time may have been given to its person meanwhile (ADR 0621): refused naming it.
