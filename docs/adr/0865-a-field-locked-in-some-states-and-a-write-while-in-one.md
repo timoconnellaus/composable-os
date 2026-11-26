@@ -59,4 +59,5 @@ retag test fails.
   `while` and the Trash do.
 - **The keyed import** (`record.import`) asks the same rule before each update: a row it refuses is
   reported `invalid` with the reason, in the dry run and the real run, and the other rows are
-  written; any other refusal of one row's update is that row's answer too.
+  written. Any other refusal of a row's update still refuses the call whole, as before: some rules
+  count every row of the call together (the follower limit, ADR 0841).

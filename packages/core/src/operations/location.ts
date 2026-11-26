@@ -512,7 +512,12 @@ export const locationRelocate = defineOperation({
       const u = users[i] as (typeof users)[number];
       if (u.parent < 0) return sql`(SELECT ${input.id})`;
       const p = users[u.parent] as (typeof users)[number];
-      return sql`(SELECT id FROM ${sql.table(p.table)} WHERE ${sql.ref(p.linkColumn)} IN ${parentIds(u.parent)})`;
+      // Through the seam's table, as the counts read it: every record, in the Trash too.
+      const above = ctx.db
+        .selectFrom(visibleTable(ctx, p.user, `l${u.parent}`))
+        .select(sql.ref(`l${u.parent}.id`).as("id"))
+        .where(sql<SqlBool>`${sql.ref(`l${u.parent}.${p.linkColumn}`)} IN ${parentIds(u.parent)}`);
+      return sql`(${above})`;
     };
     const moved = await Promise.all(
       users.map(async (u, i) => {

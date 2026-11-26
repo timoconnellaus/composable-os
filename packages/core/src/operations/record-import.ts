@@ -21,7 +21,7 @@
 // run. An assistant or an MCP client writes records with record.create like any write.
 import { CompiledQuery } from "kysely";
 import { z } from "zod";
-import { ConflictError, ValidationError } from "../errors.ts";
+import { ValidationError } from "../errors.ts";
 import { defineOperation } from "../operation.ts";
 import { callerMover } from "../records/lifecycle.ts";
 import { slugsForCreate } from "../records/slug.ts";
@@ -202,22 +202,15 @@ export const recordImport = defineOperation({
         continue;
       }
       if (!input.dryRun) {
-        try {
-          await updateRecord(
-            ctx,
-            object,
-            record.id,
-            Object.fromEntries(changed.map((f) => [f, values[f]])),
-            { imported: true },
-          );
-        } catch (error) {
-          // A refusal of this row is this row's answer; the others are written.
-          if (!(error instanceof ValidationError) && !(error instanceof ConflictError)) throw error;
-          result(error instanceof ConflictError ? "conflict" : "invalid", record.id, {
-            problems: [error.message],
-          });
-          continue;
-        }
+        // Any other refusal refuses the call whole, as before: some count every row of the call
+        // together (the follower limit, ADR 0841), so one row's answer is not theirs to give.
+        await updateRecord(
+          ctx,
+          object,
+          record.id,
+          Object.fromEntries(changed.map((f) => [f, values[f]])),
+          { imported: true },
+        );
         ctx.write(
           CompiledQuery.raw(
             "UPDATE core_import_key SET written = ?, imported_at = ?, imported_by = ? WHERE object_type = ? AND import_key = ?",
