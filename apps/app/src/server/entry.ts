@@ -241,8 +241,7 @@ export async function hostQueue(batch: MessageBatch<unknown>, env: Env): Promise
   // By the queue the batch came from, never by what a message looks like (review of #512, M1).
   if (isFanOutQueue(batch.queue)) {
     await consumeFanOut(env, batch, {
-      tick: (clientEnv, tick) =>
-        runInClientEnv(clientEnv, () => runAppCron(clientEnv, tick.cron)),
+      tick: (clientEnv, tick) => runInClientEnv(clientEnv, () => runAppCron(clientEnv, tick.cron)),
       parked: { [ROUTINE_DELIVERY_QUEUE]: deliverRoutines },
     });
     return;

@@ -64,7 +64,7 @@ export function envNameUse(name: string): EnvNameUse | null {
  *   id, and with empty, `..` and over-long input, client A never reaches client B's part. The
  *   property walk in client-environment.test.ts does not prove this; it cannot see closures.
  */
-export type BindingWrapper<B = unknown> = (binding: B, client: ClientId) => B;
+export type BindingWrapper<B = unknown> = (binding: B, client: ClientId, host: object) => B;
 
 /**
  * Workers Rate Limiting, kept apart: the client in every key, so one client's callers never use
@@ -181,7 +181,7 @@ export function buildClientEnvironment<E extends HostBindings>(env: E, part: Cli
       case "kept-apart": {
         const wrap = wrapperFor(name);
         if (wrap && value !== undefined && value !== null) {
-          out[name] = frozen(wrap(value, client.id));
+          out[name] = frozen(wrap(value, client.id, env));
         }
         break;
       }

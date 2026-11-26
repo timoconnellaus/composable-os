@@ -12,7 +12,7 @@ import {
 } from "cloudflare:test";
 import { type ActingUser, invokeByName, newId, vendorBinding } from "@composable-os/core";
 import { createCrmDb } from "@composable-os/db";
-import { RUNNER_METHODS } from "@composable-os/db/client-bindings";
+import { clientObjectName, RUNNER_METHODS } from "@composable-os/db/client-bindings";
 import {
   consumeByClient,
   consumeFanOut,
@@ -21,16 +21,21 @@ import {
   PARKING,
   propsClientEnvironment,
   RUNNER_CALLER,
+  runnerCallerProps,
   stampOf,
   workflowRun,
 } from "@composable-os/db/client-entries";
 import { clientOf, environmentFor } from "@composable-os/db/client-environment";
+import { bindingProof, PROOF } from "@composable-os/db/client-proofs";
+import type { ClientId } from "@composable-os/db/registry";
 import { setUpTwoClients, TWO_CLIENTS } from "@composable-os/db/testing/two-clients";
 import { beforeAll, describe, expect, it } from "vitest";
 import Runner, { ClientRunner, extensionHost } from "../src/index.ts";
 import { availableVendors, hostFor, integrationRuntime } from "../src/integrations/runtime.ts";
 
 const { a, b, paused, behind } = TWO_CLIENTS;
+/** The suite's host binding key (vitest.two-client.config.ts). */
+const KEY = "two-client-suite-binding-key-0123456789abcdef";
 
 interface CallAs {
   callAs(client: string, method: string, args: unknown[]): Promise<unknown>;
@@ -40,7 +45,9 @@ interface CallAs {
 // this Worker's own loopback bindings across).
 /** An execution context with the props the deploy fixes on cos-app's binding (S4). */
 const fromApp = () =>
-  Object.assign(createExecutionContext(), { props: { ...RUNNER_CALLER } }) as ExecutionContext;
+  Object.assign(createExecutionContext(), {
+    props: runnerCallerProps(KEY),
+  }) as ExecutionContext;
 const entry = new Runner(fromApp(), env as unknown as Env) as unknown as CallAs;
 /** The runner's methods as `client`, as cos-app's RUNNER wrapper calls them. */
 const as = (client: string) =>
@@ -91,13 +98,19 @@ describe("the runner's RPC on a many-client host", () => {
       env as unknown as Env,
     ) as unknown as CallAs;
     await expect(stranger.callAs(a.id, "ping", [])).rejects.toThrow(/only to the host's own app/);
-    const forged = new Runner(
-      Object.assign(createExecutionContext(), {
-        props: { caller: "cos-front" },
-      }) as ExecutionContext,
-      env as unknown as Env,
-    ) as unknown as CallAs;
-    await expect(forged.callAs(b.id, "ping", [])).rejects.toThrow(/only to the host's own app/);
+    // Another caller, and the app's caller name copied without the proof (what code minting
+    // `exports.default` could do), or with another key's: all refused.
+    for (const props of [
+      { caller: "cos-front" },
+      { ...RUNNER_CALLER },
+      runnerCallerProps(`${KEY}x`),
+    ]) {
+      const forged = new Runner(
+        Object.assign(createExecutionContext(), { props }) as ExecutionContext,
+        env as unknown as Env,
+      ) as unknown as CallAs;
+      await expect(forged.callAs(b.id, "ping", [])).rejects.toThrow(/only to the host's own app/);
+    }
   });
 
   it("refuses a client it does not know or does not serve now", async () => {
@@ -410,7 +423,13 @@ describe("Durable Objects, Workflows and minted entrypoints decide their client 
       await (env as unknown as Env).CODE_MODE_GATE.getByName(name).acquire(1000);
     await expect(gate("user-1")).rejects.toThrow(/named <client>:<name>/);
     await expect(gate("gym-nobody:user-1")).rejects.toThrow();
-    expect(typeof (await gate(`${a.id}:user-1`))).toBe("string");
+    // With the raw namespace, code without the host's key cannot name a client's object: the
+    // plain `<client>:<name>`, a made-up proof and another name's proof are refused (S1).
+    await expect(gate(`${b.id}:user-1`)).rejects.toThrow(/named <client>:<name>/);
+    await expect(gate(`${b.id}:${"0".repeat(32)}:user-1`)).rejects.toThrow();
+    const otherProof = clientObjectName(b.id as ClientId, "user-9", KEY).split(":")[1];
+    await expect(gate(`${b.id}:${otherProof}:user-1`)).rejects.toThrow();
+    expect(typeof (await gate(clientObjectName(a.id as ClientId, "user-1", KEY)))).toBe("string");
     // Through each client's environment the same caller's name is two objects.
     const aGate = (await clientEnv(a.id)).CODE_MODE_GATE.getByName("user-2");
     const bGate = (await clientEnv(b.id)).CODE_MODE_GATE.getByName("user-2");
@@ -435,11 +454,33 @@ describe("Durable Objects, Workflows and minted entrypoints decide their client 
     expect(ran.env).toBe(await clientEnv(a.id));
   });
 
-  it("a gatekeeper's callback reaches only the client its props were minted with", async () => {
+  it("a gatekeeper's callback reaches only the client its props were minted with, with the host's proof", async () => {
     const host = env as unknown as Env;
-    await expect(propsClientEnvironment(host, {})).rejects.toThrow(/No client/);
-    expect(await propsClientEnvironment(host, { client: a.id })).toBe(await clientEnv(a.id));
-    await expect(propsClientEnvironment(host, { client: "gym-nobody" })).rejects.toThrow();
+    const minted = (client: string, connection: string) => ({
+      client,
+      proof: bindingProof(KEY, PROOF.callback, client, connection),
+    });
+    await expect(propsClientEnvironment(host, {}, PROOF.callback, "c")).rejects.toThrow(
+      /No client/,
+    );
+    expect(await propsClientEnvironment(host, minted(a.id, "c"), PROOF.callback, "c")).toBe(
+      await clientEnv(a.id),
+    );
+    // What code without the key mints through ctx.exports: no proof, another client's, another
+    // connection's, or another purpose's (S1).
+    for (const props of [
+      { client: b.id },
+      { client: b.id, proof: minted(a.id, "c").proof },
+      { client: b.id, proof: minted(b.id, "other").proof },
+      { client: b.id, proof: bindingProof(KEY, PROOF.clientApp, b.id) },
+    ]) {
+      await expect(propsClientEnvironment(host, props, PROOF.callback, "c")).rejects.toThrow(
+        /not minted by the host/,
+      );
+    }
+    await expect(
+      propsClientEnvironment(host, minted("gym-nobody", "c"), PROOF.callback, "c"),
+    ).rejects.toThrow();
   });
 });
 

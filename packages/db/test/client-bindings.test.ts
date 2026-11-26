@@ -29,6 +29,9 @@ import type { ClientId } from "../src/registry.ts";
 
 const A = "gym-a" as ClientId;
 const B = "gym-b" as ClientId;
+/** The host's binding key, as a many-client deployment holds it (client-proofs.ts). */
+const KEY = "the-host-binding-key-for-the-suite-0123456789";
+const HOST = { COS_BINDING_KEY: KEY };
 const real = env as unknown as {
   BLOBS: R2Bucket;
   OAUTH_KV: KVNamespace;
@@ -518,10 +521,10 @@ describe("Workflows: the client in the instance id and beside the params", () =>
 });
 
 describe("Durable Object namespaces: the client in every name", () => {
-  const a = keepObjectsApart(real.CLIENT_DB, A);
-  const b = keepObjectsApart(real.CLIENT_DB, B);
+  const a = keepObjectsApart(real.CLIENT_DB, A, HOST);
+  const b = keepObjectsApart(real.CLIENT_DB, B, HOST);
 
-  it("names every object <client>:<name>, so the same name is two objects", async () => {
+  it("names every object <client>:<proof>:<name>, so the same name is two objects", async () => {
     const stubA = a.get(a.idFromName("workspace"));
     const stubB = b.getByName("workspace");
     await stubA.query([{ sql: "CREATE TABLE IF NOT EXISTS mine (v TEXT)", params: [] }]);
@@ -530,9 +533,9 @@ describe("Durable Object namespaces: the client in every name", () => {
     expect(fromB.ok).toBe(false);
     const fromA = await a.getByName("workspace").query([{ sql: "SELECT v FROM mine", params: [] }]);
     expect(fromA.ok && fromA.results[0]?.rows).toEqual([["a"]]);
-    expect(a.idFromName("workspace").equals(real.CLIENT_DB.idFromName("gym-a:workspace"))).toBe(
-      true,
-    );
+    const stored = clientObjectName(A, "workspace", KEY);
+    expect(stored).toMatch(/^gym-a:[0-9a-f]{32}:workspace$/);
+    expect(a.idFromName("workspace").equals(real.CLIENT_DB.idFromName(stored))).toBe(true);
   });
 
   it("cannot open B's object: not by B's id, a hex id, a unique id or B's prefixed name", async () => {
@@ -541,23 +544,35 @@ describe("Durable Object namespaces: the client in every name", () => {
     // As strings: a stub that should not have been handed out cannot be printed, and printing
     // one hangs the file (review of #512, S2).
     expect(outcome(() => a.get(bId))).toBe("refused");
-    expect(outcome(() => a.get(real.CLIENT_DB.idFromName("gym-b:workspace")))).toBe("refused");
+    expect(
+      outcome(() => a.get(real.CLIENT_DB.idFromName(clientObjectName(B, "workspace", KEY)))),
+    ).toBe("refused");
     expect(() => a.idFromString(bId.toString())).toThrow(ClientPartError);
     expect(() => a.newUniqueId()).toThrow(ClientPartError);
     // A name that looks like B's is only a name under A.
-    expect(a.idFromName("gym-b:workspace").equals(bId)).toBe(false);
-    expect(objectNameParts(clientObjectName(A, "gym-b:workspace"))).toEqual({
+    const looksLikeB = clientObjectName(B, "workspace", KEY);
+    expect(a.idFromName(looksLikeB).equals(bId)).toBe(false);
+    expect(objectNameParts(clientObjectName(A, looksLikeB, KEY), KEY)).toEqual({
       client: "gym-a",
-      name: "gym-b:workspace",
+      name: looksLikeB,
     });
     expectNoWayBack(a, real.CLIENT_DB);
   });
 
-  it("reads a client back from a name only when it is a client's", () => {
-    expect(objectNameParts("x:1")).toBeNull();
-    expect(objectNameParts("Admin:x")).toBeNull();
-    expect(objectNameParts("gym-a:")).toBeNull();
-    expect(objectNameParts(undefined)).toBeNull();
+  it("reads a client back from a name only with the host's proof (review of #512, S1)", () => {
+    expect(objectNameParts("x:1", KEY)).toBeNull();
+    expect(objectNameParts("Admin:x", KEY)).toBeNull();
+    expect(objectNameParts("gym-a:", KEY)).toBeNull();
+    expect(objectNameParts(undefined, KEY)).toBeNull();
+    // A name made with the raw namespace and no key: the plain `<client>:<name>` of before, a
+    // made-up proof, another client's proof, or the right proof under another key.
+    expect(objectNameParts("gym-b:workspace", KEY)).toBeNull();
+    expect(objectNameParts(`gym-b:${"0".repeat(32)}:workspace`, KEY)).toBeNull();
+    const aProof = clientObjectName(A, "workspace", KEY).split(":")[1];
+    expect(objectNameParts(`gym-b:${aProof}:workspace`, KEY)).toBeNull();
+    expect(objectNameParts(clientObjectName(B, "workspace", `${KEY}-other`), KEY)).toBeNull();
+    expect(objectNameParts(clientObjectName(B, "workspace", KEY), null)).toBeNull();
+    expect(() => keepObjectsApart(real.CLIENT_DB, A).idFromName("x")).toThrow(/COS_BINDING_KEY/);
   });
 });
 
@@ -609,7 +624,7 @@ describe("every method of every wrapper (review of #512, S2)", () => {
       vectors: keepVectorsApart(fakeIndex() as unknown as Vectorize, A),
       queue: keepQueueApart(recordingQueue() as unknown as Queue<unknown>, A),
       workflow: keepWorkflowApart(fakeWorkflow() as unknown as Workflow<unknown>, A),
-      objects: keepObjectsApart(real.CLIENT_DB, A),
+      objects: keepObjectsApart(real.CLIENT_DB, A, HOST),
       runner: keepRunnerApart(fakeRunner, A) as object,
     };
     const untested: string[] = [];

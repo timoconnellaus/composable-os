@@ -60,6 +60,7 @@ import {
   gatekeeperOffered,
   perClientMissing,
 } from "@composable-os/db/client-entries";
+import { PROOF } from "@composable-os/db/client-proofs";
 import { runnerJudge } from "../extensions/ai.ts";
 import { paymentEventDeps } from "./payments.ts";
 import { HostQueue, type QueueCaller, type QueueHost } from "./queue.ts";
@@ -321,6 +322,12 @@ export class IntegrationHost extends DurableObject<Env> {
     this.env = clientEnv;
   });
 
+  /** The host's proof on what this object mints for a gatekeeper (review of #512, S1). */
+  #mintProof(connectionId: string): string | null {
+    const client = this.#client.client;
+    return client === null ? null : this.#client.proof(PROOF.callback, client, connectionId);
+  }
+
   // --- State ----------------------------------------------------------------------------------
 
   async #meta(): Promise<Meta> {
@@ -433,7 +440,12 @@ export class IntegrationHost extends DurableObject<Env> {
       ({ url } = await (await this.#account(vendor)).reconnect());
     } else {
       const callback = this.ctx.exports.ConnectCallback({
-        props: { connectionId: meta.connectionId, vendor, client: this.#client.client },
+        props: {
+          connectionId: meta.connectionId,
+          vendor,
+          client: this.#client.client,
+          proof: this.#mintProof(meta.connectionId),
+        },
       });
       ({ url } = await this.#vendor(vendor).connectAccount(callback, {}));
     }
@@ -1245,7 +1257,12 @@ export class IntegrationHost extends DurableObject<Env> {
     const controller = await this.ctx.storage.get<Stub>(`controller:${id}`);
     if (!controller) throw new Error("The hook controller is gone");
     const initiator = this.ctx.exports.HostHookInitiator({
-      props: { connectionId: meta.connectionId, hookId: id, client: this.#client.client },
+      props: {
+        connectionId: meta.connectionId,
+        hookId: id,
+        client: this.#client.client,
+        proof: this.#mintProof(meta.connectionId),
+      },
     });
     await controller.enable(initiator, { workspaceId: meta.connectionId });
     await this.ctx.storage.put<HookRecord>(`hook:${id}`, {

@@ -69,6 +69,7 @@ import {
   refusalResponse,
   servesManyClients,
 } from "@composable-os/db/client-entries";
+import { PROOF } from "@composable-os/db/client-proofs";
 import { type MediaEnv, mediaResizerFor, mediaStoreFor } from "../media.ts";
 import { runInClientEnv } from "../request-env.ts";
 import { handleAgreementPdf, isAgreementPdfPath } from "./agreement-pdf.ts";
@@ -273,7 +274,9 @@ export async function handleBound(request: Request, env: ApiEnv): Promise<Respon
  * It has one method, `fetch`; there is no RPC method that takes a caller.
  *
  * On a many-client host (stage 66, ADR 0615) the client is fixed on the binding itself, in its
- * props (`"props": { "client": "<id>" }`, set by the deploy when it uploads the web app, step 8):
+ * props (`"props": { "client": "<id>", "proof": "<the host's proof>" }`, `clientAppProps`, set
+ * by the deploy when it uploads the web app, step 8; without the host's key no code can mint props
+ * for another client, even through `exports`):
  * a web app's code cannot change its own binding's props, so whatever hostname, header or body
  * it sends, it reaches only its own client. A binding with no client in its props is refused (a
  * 404, as an unknown hostname), and a client not served now gets "being updated".
@@ -283,7 +286,7 @@ export class ClientApp extends WorkerEntrypoint<Env, ClientAppProps> {
     if (!servesManyClients(this.env)) return handleBound(request, this.env as unknown as ApiEnv);
     let env: Env;
     try {
-      env = await propsClientEnvironment(this.env, this.ctx.props);
+      env = await propsClientEnvironment(this.env, this.ctx.props, PROOF.clientApp);
     } catch (error) {
       return refusalResponse(error, request);
     }
@@ -294,4 +297,6 @@ export class ClientApp extends WorkerEntrypoint<Env, ClientAppProps> {
 /** What the host fixes on a web app's binding to ClientApp, on a many-client host. */
 export interface ClientAppProps {
   client?: string;
+  /** The host's proof of the client (`clientAppProps`, client-proofs.ts), set by the deploy. */
+  proof?: string;
 }

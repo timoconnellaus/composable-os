@@ -22,6 +22,7 @@ export default defineWorkersTestConfig({
         TEST_MIGRATIONS: await readD1Migrations(migrationsDir),
         REGISTRY_MIGRATIONS: await readD1Migrations(registryMigrationsDir),
         COS_HOST_ENVIRONMENT: "live",
+        COS_BINDING_KEY: "two-client-suite-binding-key-0123456789abcdef",
         INTEGRATIONS_FAKE_PROVIDER: "false",
         TURNSTILE_SECRET_KEY: "",
       },

@@ -6,6 +6,7 @@
 import { fileURLToPath } from "node:url";
 import { readD1Migrations } from "@cloudflare/vitest-plugin";
 import { defineWorkersTestConfig } from "@composable-os/config/vitest";
+import { clientAppProps } from "@composable-os/db/client-proofs";
 import { addClientDb } from "@composable-os/db/testing/vitest";
 import { mergeConfig } from "vitest/config";
 
@@ -26,6 +27,9 @@ export default class extends WorkerEntrypoint {
 // A client's web app as step 8 will upload it: its one binding, HOST, to ClientApp, the client
 // fixed in the binding's props. It forwards every request as it came, Host header and all.
 const WEB_APP = `export default { fetch: (request, env) => env.HOST.fetch(request) };`;
+
+/** The suite's host binding key (a real deployment's is a long random secret of the operator's). */
+export const BINDING_KEY_FOR_TESTS = "two-client-suite-binding-key-0123456789abcdef";
 
 /** The pool's name for the Worker under test, which auxiliary Workers bind to. */
 const SELF_WORKER = "vitest-plugin-runner-";
@@ -53,6 +57,8 @@ export default mergeConfig(
           REGISTRY_MIGRATIONS: await readD1Migrations(registryMigrationsDir),
           // Which of its clients' environments this deployment holds (ADR 0613).
           COS_HOST_ENVIRONMENT: "live",
+          // The host's binding key (client-proofs.ts): its proofs on objects' names and props.
+          COS_BINDING_KEY: BINDING_KEY_FOR_TESTS,
           // The deployment's own: a client's environment never holds it (step 6 derives each
           // client's). The suite shows a client's sign-in refuses without its own.
           BETTER_AUTH_SECRET: "the-host-wide-secret-the-host-wide-secret",
@@ -64,6 +70,8 @@ export default mergeConfig(
           WEB_NO_CLIENT: "web-no-client",
           WEB_PAUSED: "web-paused",
           WEB_NOBODY: "web-nobody",
+          WEB_FORGED: "web-forged",
+          WEB_UNPROVEN: "web-unproven",
         },
         workers: [
           {
@@ -72,10 +80,16 @@ export default mergeConfig(
             script: RUNNER_STUB,
             compatibilityDate: "2026-10-01",
           },
-          webApp("web-gym-a", { client: "gym-a" }),
+          webApp("web-gym-a", clientAppProps(BINDING_KEY_FOR_TESTS, "gym-a")),
           webApp("web-no-client"),
-          webApp("web-paused", { client: "gym-paused" }),
-          webApp("web-nobody", { client: "gym-nobody" }),
+          webApp("web-paused", clientAppProps(BINDING_KEY_FOR_TESTS, "gym-paused")),
+          webApp("web-nobody", clientAppProps(BINDING_KEY_FOR_TESTS, "gym-nobody")),
+          // gym-b named with gym-a's proof, and gym-b with none: what code without the key mints.
+          webApp("web-forged", {
+            client: "gym-b",
+            proof: clientAppProps(BINDING_KEY_FOR_TESTS, "gym-a").proof,
+          }),
+          webApp("web-unproven", { client: "gym-b" }),
         ],
       }),
     }),

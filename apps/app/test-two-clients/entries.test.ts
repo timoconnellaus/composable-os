@@ -15,6 +15,7 @@ import {
   getQueueResult,
   waitOnExecutionContext,
 } from "cloudflare:test";
+import { exports } from "cloudflare:workers";
 import { issueDeviceSession, newId } from "@composable-os/core";
 import { createCrmDb } from "@composable-os/db";
 import { unknownHostResponse } from "@composable-os/db/client-entries";
@@ -359,6 +360,35 @@ describe("a client's web app, through its HOST binding (criterion 9)", () => {
     expect((await bound(e.WEB_NO_CLIENT as Fetcher, a.hostname)).status).toBe(404);
     expect((await bound(e.WEB_NOBODY as Fetcher, a.hostname)).status).toBe(404);
     expect((await bound(e.WEB_PAUSED as Fetcher, paused.hostname)).status).toBe(503);
+  });
+
+  it("is refused with props minted without the host's key: gym-b by gym-a's proof, or none (S1)", async () => {
+    const e = env as unknown as Record<string, Fetcher>;
+    expect((await bound(e.WEB_FORGED as Fetcher, b.hostname)).status).toBe(404);
+    expect((await bound(e.WEB_UNPROVEN as Fetcher, b.hostname)).status).toBe(404);
+  });
+});
+
+describe("what code below an entry could reach through exports (review of #512, S1)", () => {
+  it("cannot mint ClientApp for another client: its props need the host's proof", async () => {
+    const minted = (props: { client: string; proof?: string }) =>
+      (exports as unknown as { ClientApp: (o: { props: unknown }) => Fetcher }).ClientApp({
+        props,
+      });
+    for (const props of [{ client: b.id }, { client: b.id, proof: "0".repeat(32) }]) {
+      const response = await minted(props).fetch(`https://${b.hostname}/api/v1/manifest`);
+      expect(response.status).toBe(404);
+    }
+  });
+
+  it("cannot open another client's object with the raw namespace: its name needs the proof", async () => {
+    const raw = (exports as unknown as { AssistantAgent: DurableObjectNamespace }).AssistantAgent;
+    for (const name of [`${b.id}:user:x`, `${b.id}:${"0".repeat(32)}:user:x`]) {
+      const stub = raw.get(raw.idFromName(name)) as unknown as {
+        threadState(u: string, o: object): Promise<unknown>;
+      };
+      await expect((async () => await stub.threadState("x", {}))()).rejects.toThrow();
+    }
   });
 });
 

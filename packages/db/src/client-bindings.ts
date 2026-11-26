@@ -13,6 +13,13 @@
 //
 // The other side of a stamp (a queue consumer, a Workflow, a Durable Object) reads it with the
 // functions in client-entries.ts. A single-client deployment never builds any of this.
+import {
+  BINDING_KEY,
+  bindingProof,
+  hostBindingKey,
+  isBindingProof,
+  PROOF,
+} from "./client-proofs.ts";
 import { type ClientId, isClientId } from "./registry.ts";
 
 /** Why a wrapper refused a call: the message names the rule, never another client. */
@@ -485,36 +492,49 @@ export function keepWorkflowApart<Params>(
 
 // --- Durable Object namespaces: the client in every object's name ----------------------------
 
-/** What separates the client from the caller's name in a Durable Object's name. */
+/** What separates the client, the proof and the caller's name in a Durable Object's name. */
 export const OBJECT_NAME_SEPARATOR = ":";
 
 /** The runtime exposes `ctx.id.name` inside an object only for names of 1,024 bytes at most. */
 const OBJECT_NAME_MAX_BYTES = 1024;
 
 /**
- * The stored name of a client's object: `<client>:<name>`. A client id never holds `:`, so the
- * first `:` ends it, and every name a caller passes stays under its client.
+ * The stored name of a client's object: `<client>:<proof>:<name>`, the proof the host's HMAC of
+ * the client and the name (client-proofs.ts). A client id never holds `:` and a proof is hex, so
+ * the first two `:` end them, and every name a caller passes stays under its client. Without the
+ * host's key no code can make a name the object accepts as another client's, even holding the raw
+ * namespace (review of #512, S1).
  */
-export function clientObjectName(client: ClientId, name: unknown): string {
+export function clientObjectName(client: ClientId, name: unknown, key: string | null): string {
   if (typeof name !== "string" || name.length === 0)
     refuse("A Durable Object name is a non-empty string");
-  const stored = `${client}${OBJECT_NAME_SEPARATOR}${name}`;
+  if (!key) refuse(`${BINDING_KEY} is not bound: no client's object can be named`);
+  const proof = bindingProof(key, PROOF.object, client, name);
+  const stored = `${client}${OBJECT_NAME_SEPARATOR}${proof}${OBJECT_NAME_SEPARATOR}${name}`;
   if (vectorEncoder.encode(stored).length > OBJECT_NAME_MAX_BYTES) {
     refuse("A Durable Object name is too long for the object to know its client");
   }
   return stored;
 }
 
-/** The client and the caller's name of an object, from its stored name; null when it has none. */
+/**
+ * The client and the caller's name of an object, from its stored name, when its proof is the
+ * host's under `key`; null otherwise (no client, a forged or missing proof, no key).
+ */
 export function objectNameParts(
   stored: string | undefined | null,
+  key: string | null,
 ): { client: ClientId; name: string } | null {
   if (typeof stored !== "string") return null;
-  const at = stored.indexOf(OBJECT_NAME_SEPARATOR);
-  if (at <= 0) return null;
-  const client = stored.slice(0, at);
-  const name = stored.slice(at + 1);
+  const first = stored.indexOf(OBJECT_NAME_SEPARATOR);
+  if (first <= 0) return null;
+  const second = stored.indexOf(OBJECT_NAME_SEPARATOR, first + 1);
+  if (second <= first) return null;
+  const client = stored.slice(0, first);
+  const proof = stored.slice(first + 1, second);
+  const name = stored.slice(second + 1);
   if (!isClientId(client) || name.length === 0) return null;
+  if (!isBindingProof(key, proof, PROOF.object, client, name)) return null;
   return { client, name };
 }
 
@@ -524,15 +544,18 @@ const objectIdClient = new WeakMap<DurableObjectId, ClientId>();
 /**
  * A Durable Object namespace (ASSISTANT, AGENT_JOB, EXTENSION_WORKSPACE, CODE_MODE_GATE,
  * INTEGRATION_HOST, FAKE_ACCOUNT, FAKE_PROVIDER), kept apart: every object is named
- * `<client>:<name>` by the wrapper (`idFromName`, `getByName`), and `get` opens only an id made
- * by a wrapper for the same client. `idFromString` (a hex id says nothing of whose it is) and
- * `newUniqueId` (an object with no name cannot know its client) are refused. The object reads its
- * client from its own name (client-entries.ts, `ClientObject`).
+ * `<client>:<proof>:<name>` by the wrapper (`idFromName`, `getByName`), and `get` opens only an
+ * id made by a wrapper for the same client. `idFromString` (a hex id says nothing of whose it is)
+ * and `newUniqueId` (an object with no name cannot know its client) are refused. The object reads
+ * its client from its own name and checks the proof (client-entries.ts, `ClientObject`). The
+ * host's key is held in this closure only.
  */
 export function keepObjectsApart<N extends DurableObjectNamespace<never> | DurableObjectNamespace>(
   namespace: N,
   client: ClientId,
+  host: object = {},
 ): N {
+  const key = hostBindingKey(host);
   const real = namespace as unknown as DurableObjectNamespace;
   const own = (id: DurableObjectId): DurableObjectId => {
     objectIdClient.set(id, client);
@@ -540,7 +563,7 @@ export function keepObjectsApart<N extends DurableObjectNamespace<never> | Durab
   };
   const wrap = (inner: DurableObjectNamespace): DurableObjectNamespace =>
     ({
-      idFromName: (name: string) => own(inner.idFromName(clientObjectName(client, name))),
+      idFromName: (name: string) => own(inner.idFromName(clientObjectName(client, name, key))),
       idFromString: () =>
         refuse("idFromString cannot be kept to one client: name the object instead"),
       newUniqueId: () =>
@@ -551,7 +574,7 @@ export function keepObjectsApart<N extends DurableObjectNamespace<never> | Durab
         return inner.get(id, options);
       },
       getByName: (name: string, options?: DurableObjectNamespaceGetDurableObjectOptions) =>
-        inner.getByName(clientObjectName(client, name), options),
+        inner.getByName(clientObjectName(client, name, key), options),
       // No `jurisdiction()`: nothing in the host uses it, and it is left out rather than wrapped.
     }) as unknown as DurableObjectNamespace;
   return wrap(real) as unknown as N;

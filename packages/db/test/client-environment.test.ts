@@ -258,7 +258,7 @@ describe("buildClientEnvironment", () => {
     await a.MCP_RATE_LIMIT.limit({ key: "app-1" });
     expect(host.MCP_RATE_LIMIT.keys).toEqual(["gym-a:app-1"]);
     const limiter = recordingRateLimit();
-    await keepRateLimitApart(limiter, "gym-b" as ClientId).limit({ key: "gym-a:app-1" });
+    await keepRateLimitApart(limiter, "gym-b" as ClientId, {}).limit({ key: "gym-a:app-1" });
     expect(limiter.keys).toEqual(["gym-b:gym-a:app-1"]);
   });
 

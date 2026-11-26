@@ -340,7 +340,7 @@ export default class Runner extends WorkerEntrypoint<Env> implements RunnerRpc {
     // Only cos-app's own binding, whose props the deploy fixes (review of #512, S4): a Worker
     // that binds cos-runner itself, a namespace Worker among them, has no such props, and a
     // binding's caller cannot set them.
-    if (!isRunnerCaller((this.ctx as { props?: unknown }).props)) {
+    if (!isRunnerCaller((this.ctx as { props?: unknown }).props, this.env)) {
       throw new NoClientError("callAs is offered only to the host's own app");
     }
     if (!(RUNNER_METHODS as readonly string[]).includes(method)) {

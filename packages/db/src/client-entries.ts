@@ -25,6 +25,14 @@ import {
   hostMode,
   type Refusal,
 } from "./client-environment.ts";
+import {
+  BINDING_KEY,
+  bindingProof,
+  hostBindingKey,
+  isBindingProof,
+  PROOF,
+  RUNNER_CALLER,
+} from "./client-proofs.ts";
 import { type ClientId, type ClientRecord, isClientId, isSchemaBehind } from "./registry.ts";
 
 /** Whether `env` is a many-client host's: one constant check, no read. */
@@ -631,7 +639,7 @@ export class ClientObject<E extends HostBindings> {
       this.#env = env;
       return;
     }
-    const parts = objectNameParts(stored);
+    const parts = objectNameParts(stored, hostBindingKey(env));
     this.client = parts?.client ?? null;
     this.name = parts?.name;
     // A throw here resets the object and fails the event that woke it: the refusal. The promise
@@ -672,42 +680,73 @@ export class ClientObject<E extends HostBindings> {
     if (!this.#env) throw new NoClientError("This object's client is not decided: refused");
     return this.#env;
   }
+
+  /**
+   * The host's proof of `parts` for `purpose`, for props this object mints (an entrypoint it hands
+   * a gatekeeper): made with the key in the object's real `env`, which no client's code holds.
+   * Single-client: null, nothing is checked.
+   */
+  proof(purpose: string, ...parts: string[]): string | null {
+    if (this.client === null) return null;
+    const key = hostBindingKey(this.#host);
+    if (!key) throw new NoClientError(`${BINDING_KEY} is not bound: nothing can be minted`);
+    return bindingProof(key, purpose, ...parts);
+  }
 }
 
 // --- Entrypoints a host mints with props -----------------------------------------------------
 
+/** What an entrypoint minted for one client carries in its props on a many-client host. */
+export interface MintedProps {
+  client?: string | null;
+  /** The host's proof of the client and `parts` (client-proofs.ts), made by the minting code. */
+  proof?: string | null;
+}
+
 /**
- * The environment an entrypoint minted by the host (`ctx.exports.X({ props })`) runs with: the
- * client the host put in its props when it minted it. Props are set by the host's own code and
- * cannot be changed by whoever holds the entrypoint (a gatekeeper, a client's web app), so the
- * holder cannot name another client. Many-client: refused without one.
+ * The environment an entrypoint minted by the host (`ctx.exports.X({ props })`, or a binding's
+ * props set at deploy) runs with: the client in its props, only when their proof is the host's
+ * for `purpose` and the client and `parts`. Props cannot be changed by whoever holds the
+ * entrypoint (a gatekeeper, a client's web app), and without the host's key no code can mint
+ * props that name another client, even through `exports` (review of #512, S1). Many-client:
+ * refused without a client or a valid proof.
  */
-export function propsClientEnvironment<E extends HostBindings>(
+export async function propsClientEnvironment<E extends HostBindings>(
   env: E,
-  props: { client?: string | null } | undefined,
+  props: MintedProps | undefined,
+  purpose: string,
+  ...parts: string[]
 ): Promise<E> {
-  if (!servesManyClients(env)) return Promise.resolve(env);
-  return clientEnvironment(env, props?.client ?? null);
+  if (!servesManyClients(env)) return env;
+  const client = props?.client ?? null;
+  if (!isClientId(client)) throw new NoClientError("No client: this entry refuses to run");
+  if (!isBindingProof(hostBindingKey(env), props?.proof, purpose, client, ...parts)) {
+    throw new NoClientError("These props were not minted by the host for this client");
+  }
+  return clientEnvironment(env, client);
 }
 
 // --- The runner's caller -------------------------------------------------------------------
 
 /**
  * The props the deploy engine fixes on cos-app's binding to cos-runner on a many-client host
- * (step 7: `{ "binding": "RUNNER", "service": "cos-runner", "props": { "caller": "cos-app" } }`).
- * A binding's props are set by whoever uploads the Worker that holds it, never by its code, so
- * `callAs` refuses any caller without them: a Worker of the account that binds cos-runner on its
- * own (a namespace Worker a client's upload made, step 8) cannot name a client to it.
+ * (step 7: `{ "binding": "RUNNER", "service": "cos-runner", "props": { "caller": "cos-app",
+ * "proof": <runnerCallerProof> } }`). A binding's props are set by whoever uploads the Worker that
+ * holds it, never by its code, and the proof needs the host's key, so `callAs` refuses any other
+ * caller: a Worker of the account that binds cos-runner on its own (a namespace Worker a client's
+ * upload made, step 8), or code in the runner minting `exports.default` with copied props.
  */
-export const RUNNER_CALLER = Object.freeze({ caller: "cos-app" });
 
-export function isRunnerCaller(props: unknown): boolean {
+export function isRunnerCaller(props: unknown, env: object): boolean {
+  if (!props || typeof props !== "object") return false;
+  const { caller, proof } = props as { caller?: unknown; proof?: unknown };
   return (
-    !!props &&
-    typeof props === "object" &&
-    (props as { caller?: unknown }).caller === RUNNER_CALLER.caller
+    caller === RUNNER_CALLER.caller &&
+    isBindingProof(hostBindingKey(env), proof, PROOF.runnerCaller)
   );
 }
+
+export { clientAppProps, RUNNER_CALLER, runnerCallerProps } from "./client-proofs.ts";
 
 // --- Gatekeepers ---------------------------------------------------------------------------
 

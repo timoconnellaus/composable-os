@@ -9,17 +9,20 @@
 // props are the host's and the holder cannot change them. One minted without a client refuses.
 import { WorkerEntrypoint } from "cloudflare:workers";
 import { propsClientEnvironment } from "@composable-os/db/client-entries";
+import { PROOF } from "@composable-os/db/client-proofs";
 import { hostFor } from "./runtime.ts";
 
 interface Minted {
   connectionId: string;
   /** The client, on a many-client host; absent or null on a single-client deployment. */
   client?: string | null;
+  /** The host's proof of the client and the connection, made when it was minted. */
+  proof?: string | null;
 }
 
 /** The minting connection's object, in its client's environment. */
 async function mintedHost(env: Env, props: Minted) {
-  const clientEnv = await propsClientEnvironment(env, props);
+  const clientEnv = await propsClientEnvironment(env, props, PROOF.callback, props.connectionId);
   return hostFor(clientEnv, props.connectionId);
 }
 

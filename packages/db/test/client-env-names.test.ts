@@ -39,7 +39,13 @@ describe("the names of the host's environment", () => {
   });
 
   it("list nothing no Worker declares or reads (except the host's own bindings to come)", () => {
-    const toCome = new Set(["REGISTRY", "CLIENT_DB", "COS_HOST_ENVIRONMENT", "CLIENT_FANOUT"]);
+    const toCome = new Set([
+      "REGISTRY",
+      "CLIENT_DB",
+      "COS_HOST_ENVIRONMENT",
+      "CLIENT_FANOUT",
+      "COS_BINDING_KEY",
+    ]);
     const stale = [...Object.keys(ENV_NAMES), ...Object.keys(CLIENT_SETTINGS)].filter(
       (name) => !declared.has(name) && !toCome.has(name),
     );
