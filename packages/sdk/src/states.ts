@@ -165,6 +165,14 @@ export interface StatesSpec {
    */
   requests?: Readonly<Record<string, readonly string[]>>;
   /**
+   * A relation (one record) to another of this extension's objects (ADR 0863, amended): while this
+   * record is in a state only tools or the host leave, the record it points to is put in the Trash
+   * only by whoever may put this one there (one of the tools that move it out of its state, or a
+   * person holding one of their permissions). An open fault holds its item: the item does not
+   * leave the register while the fault is open. Never an AI's.
+   */
+  holds?: string;
+  /**
    * A cascade from the record a relation points to (ADR 0507): when that record moves into a
    * state named in `when`, the host moves every live record of this object pointing at it, and in
    * one of `from`, to the state `when` gives, in the same batch, as the host (a class cancelled
@@ -247,6 +255,7 @@ export const statesManifestSchema = z.object({
     .record(z.string().regex(/^[a-z][a-z0-9_]{0,39}$/), z.array(stateValue).min(1).max(10))
     .refine((r) => Object.keys(r).length <= 10, "At most 10 requests")
     .optional(),
+  holds: fieldName.optional(),
   follows: z
     .object({
       relation: fieldName,
@@ -294,6 +303,28 @@ export function checkObjectStates(
   contract: (path: string, message: string) => void,
 ): void {
   const states = object.states;
+  // A field locked in some states (ADR 0865) names states of this object's own machine.
+  for (const [local, f] of Object.entries(object.fields)) {
+    if (!f.lockedIn) continue;
+    const lp = `objects.${name}.fields.${local}.lockedIn`;
+    if (!states) {
+      contract(lp, `${name} has no states: a field is locked in states of the object's own`);
+      continue;
+    }
+    if (local === states.field || f.type === "formula") {
+      contract(
+        lp,
+        "The state field and a formula cannot be locked: the moves and the host set them",
+      );
+    }
+    const options = Object.hasOwn(object.fields, states.field)
+      ? (object.fields[states.field]?.options ?? [])
+      : [];
+    const values = new Set(options.map((o) => o.value));
+    for (const state of f.lockedIn) {
+      if (!values.has(state)) contract(lp, `"${state}" is not a state of ${name}`);
+    }
+  }
   if (!states) return;
   const sp = `objects.${name}.states`;
   if (object.stages) {
@@ -429,6 +460,17 @@ export function checkObjectStates(
       if (!fieldOf(required)) {
         contract(`${sp}.create.requires`, `"${required}" is not a field of ${name}`);
       }
+    }
+  }
+  if (states.holds !== undefined) {
+    const held = fieldOf(states.holds);
+    const to = held?.type === "relation" && !held.many ? held.to : undefined;
+    const own = to?.startsWith(`${m.id}.`) ? to.slice(m.id.length + 1) : undefined;
+    if (own === undefined || !Object.hasOwn(m.objects, own)) {
+      contract(
+        `${sp}.holds`,
+        `"${states.holds}" must be a relation (one record) of ${name} to another of this extension's objects`,
+      );
     }
   }
   if (states.follows) {

@@ -52,11 +52,16 @@ It requires no other pack.
 - **What the floor trusts is the tools'.** Why an item is out, and a fault's severity and words,
   are written only by the pack's tools; a manager corrects them with `correctOutReason` and
   `correctFault`. No fault is reported on a retired item.
-- **The Trash follows the moves.** An item out of service and an open fault are put in the Trash
-  only by a manager in person; an item in service, or a closed fault, by any member; never by the
-  assistant or an MCP client.
+- **The Trash follows the moves.** An item out of service, an item with an open fault and an open
+  fault are put in the Trash only by a manager in person; an item in service with no open fault,
+  or a closed fault, by any member; never by the assistant or an MCP client.
+- **The sticker stays put.** An item's tag does not change while it is out of service, and a
+  fault's item never changes: no retag or re-point lets a new item in service take the sticker of a
+  machine that must not be used, or moves a safety risk off it.
 - **A report is made once.** The same report again by the same person on the same item while it
-  is open, or a retry with the same `requestId`, finds the fault already made.
+  is open, or a retry with the same `requestId` on the same item, finds the fault already made. A
+  `requestId` used again for a different report on that item is refused, and nothing is taken out.
+  A closed fault's report is never corrected.
 - **Who may do what.** Every staff member holds `equipment:report`: the register, one item,
   reporting a fault and taking an item out of service. An admin grants it to a coach or a cleaner
   on a pack role, who then reaches those and nothing else of the pack. `equipment:manage` is

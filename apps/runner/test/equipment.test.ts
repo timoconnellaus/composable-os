@@ -549,6 +549,176 @@ describe("out of service and back (AC 6, 7)", () => {
   });
 });
 
+describe("the second review (issue #498)", () => {
+  it("an item out of service keeps its tag, so no new item in service takes the sticker", async () => {
+    const tag = unique("RT-").toUpperCase();
+    const id = await newItem("Retag bike", { tag });
+    await run("x.equipment.takeOut", { itemId: id, reason: "Broken: do not use" }, staff(member));
+    for (const who of [member, manager, admin]) {
+      const refused = await refusal(
+        run("record.update", { object: ITEM, id, values: { tag: `${tag}-OLD` } }, staff(who)),
+      );
+      expect(refused.code).toBe("invalid_input");
+      expect((refused.details as { rule?: string } | undefined)?.rule).toBe("field_locked");
+    }
+    expect((await get(ITEM, id)).values.tag).toBe(tag);
+    expect(
+      (
+        await refusal(
+          run("record.create", { object: ITEM, values: { name: "Copy", tag } }, staff(member)),
+        )
+      ).code,
+    ).toBe("conflict");
+    // Written unchanged it is no change; in service it is any member's to change.
+    await run("record.update", { object: ITEM, id, values: { tag } }, staff(member));
+    await run("x.equipment.putBack", { itemId: id }, staff(manager));
+    await run("record.update", { object: ITEM, id, values: { tag: `${tag}-B` } }, staff(member));
+    expect((await get(ITEM, id)).values.tag).toBe(`${tag}-B`);
+  });
+
+  it("a fault stays on its item, and an item with an open fault is a manager's to Trash", async () => {
+    const tag = unique("HF-").toUpperCase();
+    const id = await newItem("Held bike", { tag });
+    const other = await newItem("Other bike");
+    const { faultId } = await run<{ faultId: string }>(
+      "x.equipment.reportFaultOnly",
+      { itemId: id, description: "Brake cable snapped", severity: "safety_risk" },
+      staff(member),
+    );
+    // Not re-pointed at another item.
+    expect(
+      (
+        await refusal(
+          run(
+            "record.update",
+            { object: FAULT, id: faultId, values: { item: other } },
+            staff(admin),
+          ),
+        )
+      ).code,
+    ).toBe("invalid_input");
+    // Not dropped with its item: the item in service is a member's to Trash, but not while open.
+    const refused = await refusal(run("record.delete", { object: ITEM, id }, staff(member)));
+    expect(refused.code).toBe("forbidden");
+    expect((refused.details as { reason?: string } | undefined)?.reason).toBe("held");
+    expect(refused.message).toContain("has a fault that is reported");
+    try {
+      await setPreset("autonomous");
+      expect(
+        (await refusal(run("record.delete", { object: ITEM, id }, assistant(admin)))).code,
+      ).toBe("forbidden");
+    } finally {
+      await setPreset("balanced");
+    }
+    const register = await run<{ items: { id: string; safetyRisks: number }[] }>(
+      "x.equipment.register",
+      { q: tag },
+      staff(member),
+    );
+    expect(register.items.find((i) => i.id === id)?.safetyRisks).toBe(1);
+    // Closed, it holds nothing; and a manager in person may Trash it while it is open.
+    const second = await newItem("Held bike 2");
+    await run(
+      "x.equipment.reportFaultOnly",
+      { itemId: second, description: "Seat loose", severity: "worn" },
+      staff(member),
+    );
+    await run("record.delete", { object: ITEM, id: second }, staff(manager));
+    await run(
+      "x.equipment.triage",
+      { faultId, action: "fixed", why: "New brake cable" },
+      staff(manager),
+    );
+    await run("record.delete", { object: ITEM, id }, staff(member));
+  });
+
+  it("a request id used again on another item makes that item's own report", async () => {
+    const a = await newItem("Request bike A");
+    const b = await newItem("Request bike B");
+    const requestId = unique("same");
+    const first = await run<{ faultId: string }>(
+      "x.equipment.reportFaultOnly",
+      { itemId: a, description: "Chain slips", severity: "not_working", requestId },
+      staff(member),
+    );
+    const onB = await run<{
+      faultId: string;
+      alreadyReported: boolean;
+      takenOut: boolean;
+      itemId: string;
+    }>(
+      "x.equipment.reportFault",
+      {
+        itemId: b,
+        description: "Frame cracked",
+        severity: "safety_risk",
+        requestId,
+        takeOut: { reason: "Frame cracked: do not use" },
+      },
+      staff(member),
+    );
+    expect(onB.faultId).not.toBe(first.faultId);
+    expect(onB).toMatchObject({ alreadyReported: false, takenOut: true, itemId: b });
+    expect((await get(FAULT, onB.faultId)).values).toMatchObject({
+      item: b,
+      severity: "safety_risk",
+    });
+    // On the same item with other words it is another report: refused, and nothing taken out.
+    const c = await newItem("Request bike C");
+    await run(
+      "x.equipment.reportFaultOnly",
+      { itemId: c, description: "Bell missing", severity: "worn", requestId },
+      staff(member),
+    );
+    const reused = await refusal(
+      run(
+        "x.equipment.reportFault",
+        {
+          itemId: c,
+          description: "Brakes gone",
+          severity: "safety_risk",
+          requestId,
+          takeOut: { reason: "Brakes gone" },
+        },
+        staff(member),
+      ),
+    );
+    expect(reused.inner ?? reused.code).toBe("conflict");
+    expect(JSON.stringify(reused)).toContain("request id was used for another report");
+    expect((await get(ITEM, c)).values.state).toBe("in_service");
+  });
+
+  it("a correction is refused on a closed fault, and only while the item is still out", async () => {
+    const id = await newItem("Correct bike");
+    const { faultId } = await run<{ faultId: string }>(
+      "x.equipment.reportFaultOnly",
+      { itemId: id, description: "Pedal snapped", severity: "safety_risk" },
+      staff(member),
+    );
+    await run("x.equipment.triage", { faultId, action: "fixed", why: "New pedal" }, staff(manager));
+    const closed = await refusal(
+      run("x.equipment.correctFault", { faultId, severity: "worn" }, staff(manager)),
+    );
+    expect(closed.inner ?? closed.code).toBe("conflict");
+    expect((await get(FAULT, faultId)).values.severity).toBe("safety_risk");
+    // record.update { while }: written only while the record is still in that state.
+    const moved = await refusal(
+      run(
+        "record.update",
+        { object: ITEM, id, while: "out_of_service", values: { place: "Store" } },
+        staff(admin),
+      ),
+    );
+    expect(moved.code).toBe("conflict");
+    await run(
+      "record.update",
+      { object: ITEM, id, while: "in_service", values: { place: "Store" } },
+      staff(admin),
+    );
+    expect((await get(ITEM, id)).values.place).toBe("Store");
+  });
+});
+
 describe("what only the tools write", () => {
   it("why an item is out is the tools'; a manager corrects it; nobody else rewrites or clears it", async () => {
     const id = await newItem("Leg press");

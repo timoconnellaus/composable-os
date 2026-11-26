@@ -77,11 +77,13 @@ person's own act.
 ## What a member without `equipment:manage` may still do
 The spec gives `equipment:manage` "items". The platform has no write permission per object, so
 the build holds what matters and leaves the rest as for every pack's records. A member may:
-- **create an item**, and **edit its details**: name, category, place, tag (unique), make, model,
+- **create an item**, and **edit its details**: name, category, place, tag (unique, and not while
+  the item is out of service: amended below), make, model,
   serial, dates, cost, supplier, warranty, photo, keeper, who has it, renewal date, listed for
   members, notes;
-- **Trash an item in service** (it hides no danger: an item that must not be used is out of service,
-  and that one only a manager Trashes); **Trash a closed fault**;
+- **Trash an item in service with no open fault** (it hides no danger: an item that must not be used
+  is out of service, and an item with an open fault is held by it; those only a manager Trashes);
+  **Trash a closed fault**;
 - report faults (through the tools) and take items out of service.
 A member may **not**: put an item back, retire it, triage, write why an item is out or a fault's
 severity or words, Trash an item out of service or an open fault, or make any move by a record
@@ -149,3 +151,26 @@ take-out, take out, retire and triage, reporting alone with no approval, and ref
 under the balanced and autonomous presets;
 the register one statement's read at 20 items and at 500. Each rule, taken out, fails a test
 (listed in the pull request).
+
+## Amended 2026-11-26, after the second review of PR #491 (issue #498)
+- **The tag changes only while the item is in service** (`lockedIn: ["out_of_service"]`, ADR 0865):
+  a retag of an out-of-service item, by anyone but the pack's tools, is refused, so no new item in
+  service can take the sticker of a machine that must not be used. A retired item's tag is free
+  (above), so the lock is needed only out of service. Chosen over a read-only tag with a manager's
+  tool because the form and the admin's import must still set it.
+- **A fault stays on its item.** The fault's `item` is read-only (set by the report tools; every
+  create must name one, `states.create.requires`), and an open fault holds its item out of the
+  Trash (`states.holds: "item"`, ADR 0863 amended): an item with an open fault is a manager's, in
+  person, to put in the Trash. So a member may Trash an item in service only when it has no open
+  fault.
+- **A request id is one report on one item.** The item is part of the report key, and a fault found
+  by the key whose item, severity or words differ is refused (`conflict`, `reason:
+  "request_id_reused`) and nothing is taken out, never answered as "already reported".
+- **Corrections hold to the state they read**: `correctFault` refuses a closed fault and writes only
+  while the fault is still in the state it read; `correctOutReason` writes only while the item is
+  still out of service (`record.update { while }`, ADR 0865).
+- **Left for steps 5 and 6: how a fault the assistant reported is attributed.** `reportFaultOnly`
+  from the assistant is recorded with the person it acts for as `reportedBy`, with nothing saying
+  the assistant made it. Nothing reads faults yet but staff (no automation, no member view), so
+  step 5 (members' reports) and step 6 (the new-fault notice) decide whether a fault records who
+  made it (a person, the assistant, MCP) and whether the assistant's reports need a rate limit.

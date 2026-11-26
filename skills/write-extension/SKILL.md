@@ -184,8 +184,9 @@ extension declares it; it never implements it. Each behaviour the platform has i
   two live records in those states share the fields (one active booking per Person per class).
   The database refuses the second, however many write at once (`conflict`, `rule: "unique"`).
   Add `fold: true` for a code people type (a tag on a sticker): the rule's fields are then text
-  fields the host keeps trimmed and in upper case on every write, so case and outer spaces never
-  make a second one (ADR 0864). Never check for a duplicate, or fold a value, in a tool instead.
+  fields the host keeps trimmed, without invisible characters and in upper case on every write
+  (and folds a list filter's value to match), so case and outer spaces never make a second one
+  (ADR 0864). The stored and shown value becomes upper case: never fold a name or an address. Never check for a duplicate, or fold a value, in a tool instead.
   See `UniqueSpec` in `packages/sdk/src/unique.ts` and ADR 0502.
 - **Windows and staff-only rules** on `states`: a move's `window: { from?, until? }` and
   `staffOnly: "<boolean field>"`, and the same on `states.create` for every create, bind
@@ -194,7 +195,12 @@ extension declares it; it never implements it. Each behaviour the platform has i
   `humanOnly` with a `permission` (ADR 0513). A record in a state that only such tools (or the
   host) leave is kept out of the Trash too: only those tools, or a person holding one of their
   permissions, put it there, never an AI (ADR 0863), so give a record that others should remove a
-  way out of the state first. An end is `"<datetime field>"` or
+  way out of the state first. `states.holds: "<relation>"` (to another of your objects) makes such
+  a record hold the one it points to as well: an open fault keeps its item out of the Trash but
+  for whoever may triage it; make that relation `readOnly` so it is not re-pointed. A field that
+  must not change in some states (an item's tag while it is out of service) declares
+  `lockedIn: [<states>]` (ADR 0865): only your own tools and the host change it there. A tool that
+  corrects a record only while it is in one state writes `record.update { while: "<state>" }`. An end is `"<datetime field>"` or
   `{ at, daysBefore?, minutesBefore?, zone? }`, each a field of the record or
   `<relation>.<field>` (`klass.startsAt`), up to two relations away (`class.classType.lateMinutes`,
   every field on the way your own, including fields you add to another pack's object), or a

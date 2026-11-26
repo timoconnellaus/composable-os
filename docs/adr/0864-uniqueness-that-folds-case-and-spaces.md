@@ -41,3 +41,18 @@ would not hold for the record page or the import.
 `apps/runner/test/equipment.test.ts`: a tag written ` tm-x ` is kept `TM-X`; `tm-x`, `TM-X ` and
 ` TM-X` are refused by a create and by an update; a register re-imported with other case and stray
 spaces creates nothing. With the folding taken out of the host's write, those fail.
+
+## Amended 2026-11-26, after the second review of PR #491 (issue #498)
+- **Invisible format characters are folded away** (Unicode `Cf`: a zero-width space, a joiner, a
+  byte order mark), so `TM-03` and `TM-03` with a zero-width space after it are one tag.
+- **A filter's value on a folded field is folded too** (`eq`, `neq`, `in`, `not_in`): a list
+  filtered by ` tm-03 ` finds `TM-03`. Other operators compare as given.
+- **A rule that gains `fold` is checked against the live records.** Its index now has its own name,
+  so the reconciler's check for live records that break a new rule runs again, comparing
+  `upper(trim(...))` (SQLite's, ASCII letters and spaces: what such a clash is made of). Two live
+  records that would clash once folded refuse the change (`unique_conflict`, naming them) instead of
+  staying side by side. The earlier wording, that records are folded "until each is next written",
+  was wrong: only a write of the folded field folds it. A record whose folded field is not written
+  again keeps its spelling, which the check above makes harmless.
+- The stored and displayed value becomes upper case: the write-extension skill now says so, and not
+  to fold a name or an address.

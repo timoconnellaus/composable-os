@@ -64,7 +64,12 @@ describe("the Equipment pack (test host)", () => {
       { fields: ["reportKey"], states: ["reported", "acknowledged"] },
     ]);
     // Nobody reports a fault on a retired item.
-    expect(fault?.states?.create).toEqual({ closed: "item.retiredFlag" });
+    expect(fault?.states?.create).toEqual({ closed: "item.retiredFlag", requires: ["item"] });
+    // An open fault holds its item out of the Trash; the item it is about is the report's.
+    expect(fault?.states?.holds).toBe("item");
+    expect(fault?.fields.item?.readOnly).toBe(true);
+    // The sticker stays with an item out of service.
+    expect(item?.fields.tag?.lockedIn).toEqual(["out_of_service"]);
     // Out of service only through takeOut and reportFault, with why; back only through putBack;
     // retired only through retire, with why. No staff record write makes any of them.
     expect(item?.states?.moves).toEqual([
@@ -306,7 +311,7 @@ describe("reportFault", () => {
     expect(first.alreadyReported).toBe(false);
     expect(again).toMatchObject({ faultId: first.faultId, alreadyReported: true });
     expect(again.message).toMatch(/^Already reported/);
-    // By request id: the same call retried, whatever its words.
+    // By request id: the same call retried finds it; the same id with other words is refused.
     const a = await host.runTool<{ faultId: string }>(
       "reportFaultOnly",
       { ...report, description: "Squeaks", requestId: "req-1" },
@@ -314,10 +319,17 @@ describe("reportFault", () => {
     );
     const b = await host.runTool<{ faultId: string; alreadyReported: boolean }>(
       "reportFaultOnly",
-      { ...report, description: "Squeaks loudly", requestId: "req-1" },
+      { ...report, description: "Squeaks", requestId: "req-1" },
       { caller: COACH },
     );
     expect(b).toMatchObject({ faultId: a.faultId, alreadyReported: true });
+    await expect(
+      host.runTool(
+        "reportFaultOnly",
+        { ...report, description: "Squeaks loudly", requestId: "req-1" },
+        { caller: COACH },
+      ),
+    ).rejects.toMatchObject({ code: "conflict" });
     // Another person's same words are their own report.
     const other = await host.runTool<{ faultId: string; alreadyReported: boolean }>(
       "reportFaultOnly",
@@ -440,7 +452,16 @@ describe("retire", () => {
 describe("correctFault and correctOutReason", () => {
   it("a manager corrects a fault's severity and words", async () => {
     const { host } = hostWith({
-      [FAULT]: [{ id: "flt_1", item: "itm_1", description: "Belt", severity: "safety_risk" }],
+      [FAULT]: [
+        {
+          id: "flt_1",
+          item: "itm_1",
+          description: "Belt",
+          severity: "safety_risk",
+          state: "reported",
+        },
+        { id: "flt_2", item: "itm_1", description: "Old", severity: "worn", state: "fixed" },
+      ],
     });
     expect(
       await host.runTool("correctFault", {
@@ -454,6 +475,11 @@ describe("correctFault and correctOutReason", () => {
       description: "Belt worn at the edge, safe to use",
     });
     await expect(host.runTool("correctFault", { faultId: "flt_1" })).rejects.toBeTruthy();
+    // A closed fault is kept as it was closed.
+    await expect(
+      host.runTool("correctFault", { faultId: "flt_2", severity: "safety_risk" }),
+    ).rejects.toMatchObject({ code: "conflict" });
+    expect(rowOf(host, FAULT, "flt_2").severity).toBe("worn");
   });
 
   it("a manager corrects why an item is out, only while it is out", async () => {

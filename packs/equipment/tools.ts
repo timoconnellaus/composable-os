@@ -390,9 +390,34 @@ async function recordFault(
 ): Promise<{ fault: HostRecord; again: boolean }> {
   const staff = staffOf(ctx);
   const who = staff?.userId ?? "-";
+  // The item is part of every key: a request id used again on another item is another report.
   const reportKey = input.requestId
-    ? `r:${who}:${input.requestId}`
+    ? `r:${who}:${input.itemId}:${input.requestId}`
     : `k:${who}:${input.itemId}:${input.severity}:${digest(input.description.toLowerCase())}`;
+  /**
+   * A fault found by the key is this report only when it says the same: the same item, words and
+   * severity. Anything else is another report under a reused request id: refused, never answered
+   * as "already reported" (the report it carries would be lost).
+   */
+  const same = (found: HostRecord): HostRecord => {
+    const v = found.values;
+    const words = (x: unknown) =>
+      String(x ?? "")
+        .trim()
+        .toLowerCase();
+    if (
+      v.item !== input.itemId ||
+      v.severity !== input.severity ||
+      words(v.description) !== words(input.description)
+    ) {
+      throw new OpsCallError(
+        "conflict",
+        "This request id was used for another report. Send this report with a new request id, or with none.",
+        { reason: "request_id_reused", faultId: found.id },
+      );
+    }
+    return found;
+  };
   const find = async () =>
     (
       await ctx.ops.call<{ items: HostRecord[] }>("record.list", {
@@ -407,7 +432,7 @@ async function recordFault(
       })
     ).items[0];
   const earlier = await find();
-  if (earlier) return { fault: earlier, again: true };
+  if (earlier) return { fault: same(earlier), again: true };
   try {
     const fault = await ctx.ops.call<HostRecord>("record.create", {
       object: FAULT,
@@ -424,7 +449,7 @@ async function recordFault(
   } catch (error) {
     // The same report made at the same moment by another call: that one is this one.
     const raced = isConflict(error) ? await find() : undefined;
-    if (raced) return { fault: raced, again: true };
+    if (raced) return { fault: same(raced), again: true };
     throw error;
   }
 }
@@ -756,9 +781,23 @@ export const correctFault = defineTool({
   permission: MANAGE,
   personApproves: true,
   async handler(input, ctx) {
+    const fault = await ctx.ops.call<HostRecord>("record.get", {
+      object: FAULT,
+      id: input.faultId,
+    });
+    const state = text(fault.values.state) ?? "";
+    if (state !== "reported" && state !== "acknowledged") {
+      // A closed fault is the item's history, kept as it was closed.
+      throw new OpsCallError("conflict", "The fault is closed: its report is kept as it was", {
+        reason: "closed",
+        state,
+      });
+    }
     const after = await ctx.ops.call<HostRecord>("record.update", {
       object: FAULT,
       id: input.faultId,
+      // Only while it is still open as read (ADR 0865): a close landing first wins.
+      while: state,
       values: {
         ...(input.severity ? { severity: input.severity } : {}),
         ...(input.description ? { description: input.description } : {}),
@@ -796,6 +835,8 @@ export const correctOutReason = defineTool({
     const after = await ctx.ops.call<HostRecord>("record.update", {
       object: ITEM,
       id: input.itemId,
+      // Only while it is still out of service (ADR 0865): a put-back landing first wins.
+      while: "out_of_service",
       values: { outReason: input.reason },
     });
     return { itemId: input.itemId, outReason: text(after.values.outReason) };

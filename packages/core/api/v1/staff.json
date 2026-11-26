@@ -82441,6 +82441,12 @@
             "type": "string",
             "minLength": 1,
             "maxLength": 64
+          },
+          "while": {
+            "description": "Only write if the record is still in this state, and leave it there: for a correction that holds only in one state (why an item is out of service). Refused as a conflict (reason not_in_position) when it is elsewhere, and when it moves before the write commits.",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
           }
         },
         "required": [

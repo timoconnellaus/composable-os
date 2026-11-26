@@ -333,7 +333,9 @@ function uniqueIndexes(state: SchemaState, object: ObjectState, ext: string) {
       ? [`${ident(stateColumn as string)} IN (${rule.states.map(sqlString).join(", ")})`]
       : [];
     const where = ["deleted_at IS NULL", ...filled, ...states].join(" AND ");
-    const name = ident(`${object.tableName}__${named.join("__")}__u${shortHash(where)}`);
+    // A rule that folds (ADR 0864) is another index: gaining `fold` checks the live records again.
+    const hashed = rule.fold ? `${where}|fold` : where;
+    const name = ident(`${object.tableName}__${named.join("__")}__u${shortHash(hashed)}`);
     out.push({ rule: i, name, columns: named, where });
   });
   return out;
@@ -417,8 +419,13 @@ async function dataIssues(
         .select(sql<string>`group_concat(id, ', ')`.as("ids"));
       for (const column of columns) query = query.where(column as string, "is not", null);
       if (rule.states && stateColumn) query = query.where(stateColumn, "in", [...rule.states]);
+      // A folded rule's text compares as the host will keep it (ADR 0864): trimmed, upper case
+      // (SQLite's upper and trim: ASCII letters and spaces, which is what a clash is made of).
+      const groups = rule.fold
+        ? (columns as string[]).map((c) => sql`upper(trim(${sql.ref(c)}))`)
+        : (columns as string[]);
       const clash = (await query
-        .groupBy(columns as string[])
+        .groupBy(groups)
         .having(sql`count(*)`, ">", 1)
         .limit(5)
         .execute()) as { ids: string }[];

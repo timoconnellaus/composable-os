@@ -429,6 +429,20 @@ export function createTestHost(extension: Extension, options: TestHostOptions = 
           });
         }
       }
+      if (typeof input.while === "string") {
+        // `while` (ADR 0865): write only while the record is still in this state.
+        const local = object.startsWith(`${manifest.id}.`)
+          ? object.slice(manifest.id.length + 1)
+          : "";
+        const field = manifest.objects[local]?.states?.field;
+        if (!field || row[field] !== input.while) {
+          throw new ExtensionToolError("conflict", `${object} is no longer ${input.while}`, {
+            reason: "not_in_position",
+            while: input.while,
+            current: field ? (row[field] ?? null) : null,
+          });
+        }
+      }
       checkDocuments(object, input.values as Record<string, unknown>);
       const next = { ...row, ...(input.values as Record<string, unknown>), id: row.id };
       rows.set(row.id, next);

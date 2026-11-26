@@ -1215,6 +1215,8 @@ export async function updateRecord(
   options: {
     by?: Mover;
     from?: string | undefined;
+    /** Write only while the record is still in this state, without moving it (ADR 0865). */
+    while?: string | undefined;
     /** A series or closure change moving or cancelling records with places taken: their count. */
     recurringConfirm?: number | undefined;
     /** A series change applies from this local date (`recurring.change { from }`). */
@@ -1242,6 +1244,10 @@ export async function updateRecord(
     await resolveStateRequest(ctx, object, before.values, values, by),
   );
   if (options.from !== undefined) assertMovesFrom(object, before.values, asked, options.from);
+  if (options.while !== undefined)
+    await assertStillIn(ctx, object, id, before.values, asked, options.while);
+  // A field locked in the record's state (ADR 0865) changes only by its extension's own code.
+  assertUnlocked(ctx, object, before.values, foldUniqueValues(object, asked), by);
   assertMayChangeGatedStages(ctx, object, by);
   // Who must read a record staff confirm: a person's, and once published a manager's (ADR 0702).
   if (by !== "host") await assertMayChangeMustRead(ctx, object, id, asked, before.values);
@@ -1610,6 +1616,80 @@ async function assertFollowerRestorable(
 }
 
 /**
+ * `record.update { while }` (ADR 0865): the record is in `state` when it is read, the write does
+ * not move it, and the batch fails if it moves before the write commits (the `unmoved` guard).
+ */
+async function assertStillIn(
+  ctx: HandlerContext,
+  object: ObjectDefinition,
+  id: string,
+  stored: Record<string, unknown>,
+  values: Record<string, unknown>,
+  state: string,
+): Promise<void> {
+  const field = object.states?.field;
+  if (!field) {
+    throw new ValidationError(`${object.label} has no states: "while" names a state`, {
+      field: "while",
+    });
+  }
+  const current = stored[field] ?? null;
+  if (field in values && values[field] !== current) {
+    throw new ValidationError(`With "while", the write leaves the record's state as it is`, {
+      field,
+    });
+  }
+  if (current === null || String(current) !== state) {
+    throw new ConflictError(
+      `${object.label} is no longer ${state}: its state is ${String(current ?? "empty")}. Nothing was changed.`,
+      { reason: "not_in_position", field, while: state, current },
+    );
+  }
+  const row = await ctx.db
+    .selectFrom("core_transition_history")
+    .select((eb) => eb.fn.countAll<number>().as("n"))
+    .where("object_type", "=", object.name)
+    .where("record_id", "=", id)
+    .executeTakeFirst();
+  ctx.write(guardStatement("unmoved", object.name, id, Number(row?.n ?? 0)));
+}
+
+/**
+ * Refuses a change of a field locked in the record's current state (`lockedIn`, ADR 0865), unless
+ * the host or the field's own extension's code makes it (its tools: an item's tag while it is out
+ * of service changes by no form, import, assistant or other pack). A value written unchanged is
+ * not a change.
+ */
+function assertUnlocked(
+  ctx: HandlerContext,
+  object: ObjectDefinition,
+  stored: Record<string, unknown>,
+  values: Record<string, unknown>,
+  by: Mover,
+): void {
+  const stateField = object.states?.field;
+  if (!stateField || by === "host") return;
+  const state = stored[stateField];
+  if (typeof state !== "string") return;
+  for (const field of object.fields) {
+    if (!field.options?.lockedIn?.includes(state) || !(field.name in values)) continue;
+    const before = stored[field.name] ?? null;
+    const after = values[field.name] ?? null;
+    if (JSON.stringify(before) === JSON.stringify(after)) continue;
+    if (field.extension !== undefined && ctx.extension?.id === field.extension) continue;
+    const label =
+      object.fields
+        .find((f) => f.name === stateField)
+        ?.options?.choices?.find((o) => o.value === state)
+        ?.label?.toLowerCase() ?? state;
+    throw new ValidationError(
+      `${object.label}'s ${field.label.toLowerCase()} does not change while it is ${label}`,
+      { field: field.name, rule: "field_locked", state },
+    );
+  }
+}
+
+/**
  * `record.update { from }` (ADR 0437): the write must move the record out of `from`, and the
  * record must still be there when it is read. Refused as a conflict when it has left it. The
  * move itself is then made from this read or not at all (records/transitions.ts), so of two
@@ -1711,13 +1791,26 @@ export const recordUpdate = defineOperation({
           "it: for a write two people may make at once, such as checking a ticket in. Refused " +
           "as a conflict (reason not_in_position or moved_meanwhile) when the record has left it.",
       ),
+    while: z
+      .string()
+      .min(1)
+      .max(64)
+      .optional()
+      .describe(
+        "Only write if the record is still in this state, and leave it there: for a correction " +
+          "that holds only in one state (why an item is out of service). Refused as a conflict " +
+          "(reason not_in_position) when it is elsewhere, and when it moves before the write commits.",
+      ),
   }),
   output: recordWriteSchema,
   permission: "records:write",
   risk: "write",
   async handler(input, ctx) {
     const object = requireObject(input.object);
-    await updateRecord(ctx, object, input.id, input.values, { from: input.from });
+    await updateRecord(ctx, object, input.id, input.values, {
+      from: input.from,
+      while: input.while,
+    });
     const warnings = warningsOf(ctx, object.name, input.id);
     return ctx.afterCommit(() => withWarnings(ctx, object, input.id, warnings));
   },
@@ -1829,10 +1922,14 @@ async function trashRecord(ctx: HandlerContext, object: ObjectDefinition, id: st
   await assertChecklistHolderMove(ctx, object, id, "put in the Trash", undefined);
   await assertHolderTrashable(ctx, object, id);
   // A state only tools or the host leave is left by the Trash only by those hands (ADR 0863),
-  // after the rules above so each keeps its own words.
-  if (object.states) {
-    await assertTrashLeavesState(ctx, object, before.values[object.states.field]);
-  }
+  // after the rules above so each keeps its own words; so is a record another holds (an item its
+  // open faults hold), and the Trash is tied to the state it was judged in.
+  await assertTrashLeavesState(
+    ctx,
+    object,
+    id,
+    object.states ? before.values[object.states.field] : undefined,
+  );
   const table = objectTableOf(object.name) as string;
   ctx.write(
     CompiledQuery.raw(`UPDATE ${table} SET deleted_at = ?, deleted_by = ? WHERE id = ?`, [
