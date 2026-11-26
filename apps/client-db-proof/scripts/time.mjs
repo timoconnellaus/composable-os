@@ -64,15 +64,27 @@ const allow = JSON.parse(
   readFileSync(new URL("../conformance-allow.json", import.meta.url), "utf8"),
 );
 
+// A secret set with `wrangler secret put` takes a few seconds to reach every place the Worker
+// runs. Until it does the proof answers 503 (no key yet) or 404 (the last run's key): the first
+// run on Cloudflare failed on exactly that, 1.6 s after the deploy. So the first calls wait.
+let keyReached = false;
 async function call(path, init = {}) {
-  const response = await fetch(`${base}${path}`, {
-    ...init,
-    headers: { "x-proof-key": key, ...init.headers },
-  });
-  const body = await response.json().catch(() => null);
-  if (!response.ok)
-    throw new Error(`${path.split("?")[0]}: ${response.status} ${JSON.stringify(body)}`);
-  return body;
+  const deadline = Date.now() + 90_000;
+  for (;;) {
+    const response = await fetch(`${base}${path}`, {
+      ...init,
+      headers: { "x-proof-key": key, ...init.headers },
+    });
+    const body = await response.json().catch(() => null);
+    if (response.ok) {
+      keyReached = true;
+      return body;
+    }
+    const notYet = !keyReached && (response.status === 503 || response.status === 404);
+    if (!notYet || Date.now() > deadline)
+      throw new Error(`${path.split("?")[0]}: ${response.status} ${JSON.stringify(body)}`);
+    await new Promise((resolve) => setTimeout(resolve, 3000));
+  }
 }
 
 function summarise(times) {
