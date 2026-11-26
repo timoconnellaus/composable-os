@@ -70,6 +70,7 @@ describe("the minute cron and the kill switch", () => {
       customerSignup: null,
       deferredRuns: null,
       routineMessages: null,
+      accounting: null,
     });
     expect(await state(ids)).toEqual({ outboxPending: true, eventConsumed: false });
 

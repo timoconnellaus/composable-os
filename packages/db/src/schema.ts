@@ -4407,6 +4407,11 @@ export interface CoreAccountingSettingsTable {
   automatic_told_at: Defaulted<Timestamp | null>;
   updated_by: string;
   updated_at: Timestamp;
+  /** The last day the runner's daily pass built (migration 1332), in the organisation's zone. */
+  daily_date: Defaulted<string | null>;
+  /** What blocks every send now, so the admins are told once: the connection, or the currency. */
+  blocked: Defaulted<"connection" | "currency" | null>;
+  blocked_at: Defaulted<Timestamp | null>;
 }
 
 export type AccountingMapKind =
@@ -4492,6 +4497,10 @@ export interface CoreAccountingPostTable {
   skip_reason: Defaulted<string | null>;
   created_at: Timestamp;
   updated_at: Timestamp;
+  /** JSON object: the call's other fields as built, the mapping's keys where refs go (1332). */
+  body: Defaulted<JsonText>;
+  /** JSON object: the exact call last sent, written as the entry is claimed (1332). */
+  request: Defaulted<JsonText | null>;
 }
 
 /** Migration 1330: each money event to the entry it went in, unique by source. */

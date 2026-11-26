@@ -37,5 +37,6 @@ In tests, run the suite in memory (`directSession(new FakeBooks())`) or through 
 In development the CRM's dev server binds the fake to cos-runner as `GATEKEEPER_ACCOUNTING_FAKE`:
 connect **Fake books (development)** for the org in Settings → Integrations and bind
 `accounting-fake://books/<name>`. cos-runner's tests reach its controls (`FakeBooksControl`) as
-`TEST_ACCOUNTING_BOOKS`: reset a set of books, lock them, make the next write fail, count how many
-times a reference was written, add the bookkeeper's own payments and invoices.
+`TEST_ACCOUNTING_BOOKS`: reset a set of books, lock them, make the next write fail, take them down
+(`setUnavailable`: every read and write refused `unavailable`, nothing written, as an outage), count
+how many times a reference was written, add the bookkeeper's own payments and invoices.

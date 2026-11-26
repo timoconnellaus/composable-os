@@ -658,6 +658,18 @@ the invoice default). Each entry waits in the host's **outbox** (`core_accountin
 fixed reference until it is sent once; a person approves each day until fourteen days are approved.
 _Avoid_: export, integration (it is core, not a pack or a generic integration)
 
+**Accounting outbox**
+The entries waiting to go to the books (`core_accounting_post`, ADR 0882), each queued once by its
+reference with the **mapping**'s keys where the books' refs go, and sent by the host's runner on
+the minute cron. An entry is **claimed** before it is sent and recorded after; an **uncertain
+outcome** (an answer lost, a run that stopped) is looked up by its reference before anything is
+sent again; a refusal **holds** it with its reason for a person (who may **retry** or **skip** it,
+with why), a transient one retries on a schedule. An entry that **depends on** another (a payment
+on its invoice) waits for it. Nothing is dated inside the books' **lock date** or sent from before
+the **start date**. While approval is on, a day's entries **await approval** until a person
+approves the day.
+_Avoid_: queue (the automation events' outbox is **Outbox**), job, sync log
+
 **Booking system contract**
 The typed session every booking-system gatekeeper serves (`BookingSystemSession`, in
 `packages/gatekeeper-booking-system`, ADR 0920): read the site, its people, membership types,

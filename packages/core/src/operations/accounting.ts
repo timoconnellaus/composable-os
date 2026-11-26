@@ -9,11 +9,17 @@
 //   accounting.map.set          accounting:manage, a person: which books account or tax rate one
 //                               kind of host money goes to
 //   accounting.map.clear        accounting:manage, a person: forget one mapping row
+//   accounting.approveDay       accounting:manage, a person: a day's entries go to the books
+//                               (step 4, ADR 0882); the fourteenth approved day ends approval
+//   accounting.post.retry       accounting:manage, a person: a held entry is tried again
+//   accounting.post.skip        accounting:manage, a person: an entry is never sent, with why
 //
 // Every write is a person's whatever is granted (`actors: ["human"]`): no assistant, MCP client,
 // automation or extension changes where the business's money goes in its books. None is open to
 // customers or the public (ADR 0402), and none writes an order, a payment or a refund.
 
+import type { CoreDatabase } from "@composable-os/db";
+import type { Kysely } from "kysely";
 import { z } from "zod";
 import {
   ACCOUNTING_MAP_KINDS,
@@ -249,7 +255,13 @@ export const accountingSettingsUpdate = defineOperation({
     // made since it was read (`approved_days`) is kept. The insert, for a first save, is whole.
     const changes = {
       ...(input.books !== undefined ? { connection_id: connectionId, resource } : {}),
-      ...(input.startDate !== undefined ? { start_date: startDate } : {}),
+      // A new start: the daily pass starts from it (only before anything was sent, above).
+      ...(input.startDate !== undefined
+        ? {
+            start_date: startDate,
+            ...(input.startDate !== before.startDate ? { daily_date: null } : {}),
+          }
+        : {}),
       // Approval put back on: the count starts again, and the admins are told again when it ends.
       ...(input.restartApproval ? { approved_days: 0, automatic_told_at: null } : {}),
       ...(input.approveUntil !== undefined ? { approve_until: approveUntil } : {}),
@@ -389,6 +401,22 @@ export const accountingMapSet = defineOperation({
         .values({ connection_id: connectionId, kind: input.kind, host_key: hostKey, ...values })
         .onConflict((oc) => oc.columns(["connection_id", "kind", "host_key"]).doUpdateSet(values)),
     );
+    // Entries held for a mapping are tried again: the runner resolves every mapping when it sends,
+    // so one still missing holds it again, with what is still to map.
+    ctx.write(
+      ctx.db
+        .updateTable("core_accounting_post")
+        .set({
+          state: "queued",
+          error_code: null,
+          error_text: null,
+          next_attempt_at: null,
+          updated_at: ctx.now,
+        })
+        .where("connection_id", "=", connectionId)
+        .where("state", "=", "held")
+        .where("error_code", "=", "unmapped"),
+    );
     ctx.recordChange({
       object: "accounting_map",
       id: `${input.kind}:${hostKey}`,
@@ -440,9 +468,230 @@ export const accountingMapClear = defineOperation({
   },
 });
 
+// --- The outbox (stage 61 step 4, ADR 0882) ----------------------------------------------------
+
+export const accountingApproveDay = defineOperation({
+  name: "accounting.approveDay",
+  description:
+    "Approve one day's entries for the books (a person): while approval is on, each day's " +
+    "entries (its summary, transfers, contacts and documents) wait until a person approves the " +
+    "whole day; then they are sent. Skip an entry first to leave it out. Each day approved for " +
+    "the first time counts towards the days after which entries go on their own; a day nobody " +
+    "approved does not count.",
+  input: z.object({ day: localDate.describe("The day the entries belong to, YYYY-MM-DD") }),
+  output: z.object({
+    day: z.string(),
+    approved: z.number().int().describe("Entries now queued to send"),
+    approvedDays: z.number().int(),
+    approveUntil: z.number().int(),
+    automatic: z.boolean(),
+  }),
+  permission: "accounting:manage",
+  risk: "write",
+  actors: ["human"],
+  mcp: { expose: false },
+  async handler(input, ctx) {
+    const settings = await loadAccountingSettings(ctx.db);
+    const connectionId = requireConnection(settings);
+    const waiting = await ctx.db
+      .selectFrom("core_accounting_post")
+      .select(["id", "amount"])
+      .where("connection_id", "=", connectionId)
+      .where("belongs_date", "=", input.day)
+      .where("state", "=", "awaiting_approval")
+      .limit(1000)
+      .execute();
+    if (!waiting.length) {
+      throw new ConflictError("Nothing on that day waits for approval", {
+        rule: "accounting_nothing_to_approve",
+      });
+    }
+    const counted = await ctx.db
+      .selectFrom("core_accounting_post")
+      .select("id")
+      .where("connection_id", "=", connectionId)
+      .where("belongs_date", "=", input.day)
+      .where("approved_at", "is not", null)
+      .limit(1)
+      .executeTakeFirst();
+    // Counted the first time the day is approved, decided in the same batch as the approval, so
+    // two people approving the day at once count it once.
+    ctx.write(
+      ctx.db
+        .updateTable("core_accounting_settings")
+        .set((eb) => ({ approved_days: eb("approved_days", "+", 1) }))
+        .where("id", "=", 1)
+        .where("connection_id", "=", connectionId)
+        .where(({ not, exists, selectFrom }) =>
+          not(
+            exists(
+              selectFrom("core_accounting_post")
+                .select("id")
+                .where("connection_id", "=", connectionId)
+                .where("belongs_date", "=", input.day)
+                .where("approved_at", "is not", null),
+            ),
+          ),
+        ),
+    );
+    ctx.write(
+      ctx.db
+        .updateTable("core_accounting_post")
+        .set({
+          state: "queued",
+          approved_by: ctx.user.id,
+          approved_at: ctx.now,
+          next_attempt_at: null,
+          updated_at: ctx.now,
+        })
+        .where("connection_id", "=", connectionId)
+        .where("belongs_date", "=", input.day)
+        .where("state", "=", "awaiting_approval"),
+    );
+    const approvedDays = settings.approvedDays + (counted ? 0 : 1);
+    ctx.recordChange({
+      object: "accounting_day",
+      id: input.day,
+      action: "update",
+      before: { state: "awaiting_approval", entries: waiting.length },
+      after: {
+        state: "approved",
+        entries: waiting.length,
+        amount: waiting.reduce((sum, p) => sum + p.amount, 0),
+        approvedDays,
+      },
+    });
+    return {
+      day: input.day,
+      approved: waiting.length,
+      approvedDays,
+      approveUntil: settings.approveUntil,
+      automatic: approvedDays >= settings.approveUntil,
+    };
+  },
+});
+
+const postId = z.string().min(1).max(64).describe("The entry's id");
+
+async function loadPost(db: Kysely<CoreDatabase>, id: string) {
+  const post = await db
+    .selectFrom("core_accounting_post")
+    .select(["id", "state", "reference", "amount", "error_code"])
+    .where("id", "=", id)
+    .executeTakeFirst();
+  if (!post) throw new NotFoundError("accounting entry", id);
+  return post;
+}
+
+export const accountingPostRetry = defineOperation({
+  name: "accounting.post.retry",
+  description:
+    "Try a held entry again, or one waiting to retry, now (a person), once what held it is put " +
+    "right (a contact, an account in the books, a refusal). It is looked up by its reference " +
+    "before anything is written, so it is never in the books twice. An entry before the start " +
+    "date is never sent.",
+  input: z.object({ id: postId }),
+  output: z.object({ id: z.string(), state: z.literal("queued") }),
+  permission: "accounting:manage",
+  risk: "write",
+  actors: ["human"],
+  mcp: { expose: false },
+  async handler(input, ctx) {
+    const post = await loadPost(ctx.db, input.id);
+    if (
+      (post.state !== "held" && post.state !== "retrying") ||
+      post.error_code === "before_start"
+    ) {
+      throw new ConflictError(
+        post.error_code === "before_start"
+          ? "Its day is before the start date: it is never sent"
+          : `Only a held entry is tried again; this one is ${post.state}`,
+        { rule: "accounting_not_held" },
+      );
+    }
+    ctx.write(
+      ctx.db
+        .updateTable("core_accounting_post")
+        .set({
+          state: "queued",
+          attempts: 0,
+          next_attempt_at: null,
+          error_code: null,
+          error_text: null,
+          updated_at: ctx.now,
+        })
+        .where("id", "=", post.id)
+        .where("state", "=", post.state),
+    );
+    ctx.recordChange({
+      object: "accounting_post",
+      id: post.id,
+      action: "update",
+      before: { state: post.state, reference: post.reference, error: post.error_code },
+      after: { state: "queued", reference: post.reference },
+    });
+    return { id: post.id, state: "queued" as const };
+  },
+});
+
+/** The states a person may skip from: never one that may be in the books. */
+const SKIPPABLE = ["awaiting_approval", "queued", "retrying", "held"] as const;
+
+export const accountingPostSkip = defineOperation({
+  name: "accounting.post.skip",
+  description:
+    "Leave one entry out of the books for good (a person), with why: one waiting for approval, " +
+    "queued, held or waiting to retry. Never one being sent, sent, or whose outcome is not yet " +
+    "known. Its money is listed on the log as not in the books; an entry that depends on it is " +
+    "held.",
+  input: z.object({
+    id: postId,
+    reason: z.string().trim().min(1).max(500).describe("Why it is left out"),
+  }),
+  output: z.object({ id: z.string(), state: z.literal("skipped") }),
+  permission: "accounting:manage",
+  risk: "write",
+  actors: ["human"],
+  mcp: { expose: false },
+  async handler(input, ctx) {
+    const post = await loadPost(ctx.db, input.id);
+    if (!(SKIPPABLE as readonly string[]).includes(post.state)) {
+      throw new ConflictError(
+        `This entry is ${post.state}: only one not sent and not being sent is skipped`,
+        { rule: "accounting_not_skippable" },
+      );
+    }
+    ctx.write(
+      ctx.db
+        .updateTable("core_accounting_post")
+        .set({
+          state: "skipped",
+          skipped_by: ctx.user.id,
+          skipped_at: ctx.now,
+          skip_reason: input.reason,
+          next_attempt_at: null,
+          updated_at: ctx.now,
+        })
+        .where("id", "=", post.id)
+        .where("state", "=", post.state),
+    );
+    ctx.recordChange({
+      object: "accounting_post",
+      id: post.id,
+      action: "update",
+      before: { state: post.state, reference: post.reference, amount: post.amount },
+      after: { state: "skipped", reference: post.reference, reason: input.reason },
+    });
+    return { id: post.id, state: "skipped" as const };
+  },
+});
+
 export const accountingOperations = [
   accountingSettingsGet,
   accountingSettingsUpdate,
   accountingMapSet,
   accountingMapClear,
+  accountingApproveDay,
+  accountingPostRetry,
+  accountingPostSkip,
 ] as const;

@@ -62,8 +62,21 @@ steps 1 to 4 and 8; summaries wait for stage 52, documents for stage 35.
   refused for every caller; `integration.types` still reads the contract's types. Tests:
   `apps/runner/test/accounting-host-path.test.ts`.
 
-- **Step 4** — not built — needs: step 2, step 3 — The outbox runner: references, retries, uncertain
-  outcomes, holds, dependencies, lock date, start date, approval, the daily cron.
+- **Step 4** — in progress — branch `feat/stage-61-outbox-runner` — The outbox runner
+  (migration 1332, ADR 0882): `queuePost` (`accounting/outbox.ts`: an entry once by its reference,
+  the mapping's keys and its dependency's books ref resolved when sent, nothing before the start
+  date, `awaiting_approval` until approval is over) and the runner (`accounting/runner.ts`, the
+  minute cron's `runAccountingDue`: claimed before it is sent and recorded after; an uncertain
+  outcome or a claim left `sending` ten minutes looked up by reference before anything is sent
+  again; refusals held with their reason, transient ones retried after 1, 5, 30 minutes, 2 and 12
+  hours, sending paused meanwhile; the books unreachable touch nothing; dependencies wait, are held
+  behind a held or skipped one and released when it is sent; dated past the books' lock with the
+  real date in the text; blocked by an inactive connection or another currency, told once; told
+  once when approval ends; the daily pass from 02:00 in the organisation's zone with step 5's
+  builders, seven days a run; at most 25 sends and 25 look-ups a run), `accounting.approveDay`,
+  `accounting.post.retry` and `accounting.post.skip` (a person with `accounting:manage`), and the
+  fake books' outage control (`setUnavailable`). `accounting.run` is host code, not an operation
+  (ADR 0882). Tests: `apps/runner/test/accounting-outbox*.test.ts`, `accounting-approval.test.ts`.
 
 - **Step 5** — not built — needs: step 4, stage 52 — Summaries and payouts: daily, late events, the
   reopen adjustment, transfers (needs stage 52's figures, close and payouts).

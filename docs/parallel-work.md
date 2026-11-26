@@ -87,7 +87,7 @@ here is what made parallel PRs conflict.
 | BT | 1270–1289 | 0850–0859 | Stage 58, Timesheets and leave (spec `docs/stages/58-timesheets-leave.md`) | specced |
 | BU | 1290–1309 | 0860–0869 | Stage 59, Equipment (spec `docs/stages/59-equipment.md`; what each step used is in its Status section) | in flight |
 | BV | 1310–1329 | 0870–0879 | Stage 60, Owner's Today (spec `docs/stages/60-owners-today.md`) | step 1 built (ADR 0871 used; no migration) |
-| BW | 1330–1349 | 0880–0889 | Stage 61, Accounting sync (spec `docs/stages/61-accounting-sync.md`; step 1, `feat/stage-61-accounting-contract`: the contract, the fake and the conformance suite, ADR 0880, no migration) | in flight |
+| BW | 1330–1349 | 0880–0889 | Stage 61, Accounting sync (spec `docs/stages/61-accounting-sync.md`; step 1, `feat/stage-61-accounting-contract`: the contract, the fake and the conformance suite, ADR 0880, no migration; step 4, `feat/stage-61-outbox-runner`: the outbox runner, migration 1332, ADR 0882; 1331 stays step 6's) | in flight |
 | BY | 1370–1389 | 0900–0909 | Stage 63, App publishing (spec `docs/stages/63-app-publishing.md`) | specced |
 | BZ | 1390–1409 | 0910–0919 | Stage 64, More than one location (spec `docs/stages/64-multi-location.md`; each step's numbers are in its Status) | in flight |
 | CA | 1410–1429 | 0920–0929 | Stage 65, Booking system connection (spec `docs/stages/65-booking-system-connection.md`): migrations 1410 and 1411, ADRs 0920 to 0925 named in the spec | specced |

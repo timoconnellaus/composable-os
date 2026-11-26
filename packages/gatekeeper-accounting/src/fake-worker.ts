@@ -116,6 +116,7 @@ const BOOKS_METHODS = [
   "failNext",
   "writesOf",
   "setLockDate",
+  "setUnavailable",
   "recordPaymentInBooks",
   "addInvoiceInBooks",
 ] as const;
@@ -253,6 +254,11 @@ export class FakeBooksControl extends WorkerEntrypoint<Env> {
 
   async setLockDate(books: string, date: string | null): Promise<void> {
     await booksStub(this.env, books).run("setLockDate", [date]);
+  }
+
+  /** The books go down (every call refused `unavailable`), or come back. */
+  async setUnavailable(books: string, on: boolean): Promise<void> {
+    await booksStub(this.env, books).run("setUnavailable", [on]);
   }
 
   async recordPaymentInBooks(books: string, document: string, amount: number, date: string) {

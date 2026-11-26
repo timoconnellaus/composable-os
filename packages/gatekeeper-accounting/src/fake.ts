@@ -79,6 +79,8 @@ export type FakeBooksState = {
   /** The next writes' failures, in order, each for one method or for any write. */
   failures: { method: FakeWriteMethod | "any"; failure: FakeFailure }[];
   seq: number;
+  /** The books cannot be reached: every read and write is refused `unavailable` (an outage). */
+  unavailable?: boolean;
 };
 
 /** The marker the fake's lost answers carry across RPC, so the gatekeeper's side throws it again. */
@@ -170,6 +172,18 @@ export class FakeBooks implements AccountingSystem {
     this.state.books.lockDate = date;
   }
 
+  /** The books go down (every read and write refused `unavailable`, nothing written), or come back. */
+  setUnavailable(on: boolean): void {
+    this.state.unavailable = on;
+  }
+
+  /** Refuses the call, read or write, while the books are down: nothing is read or written. */
+  #reachable(): void {
+    if (this.state.unavailable) {
+      throw refuse("unavailable", "The fake books cannot be reached (an outage, as asked).");
+    }
+  }
+
   /** The bookkeeper records a payment on a document in the books (a transfer in the bank feed). */
   recordPaymentInBooks(document: string, amount: number, date: string): string {
     const doc = this.#document(document);
@@ -207,18 +221,22 @@ export class FakeBooks implements AccountingSystem {
   // --- Reads. ------------------------------------------------------------------------------------
 
   async describeBooks(): Promise<AccountingBooks> {
+    this.#reachable();
     return structuredClone(this.state.books);
   }
 
   async listAccounts(): Promise<AccountingAccount[]> {
+    this.#reachable();
     return structuredClone(this.state.accounts);
   }
 
   async listTaxRates(): Promise<AccountingTaxRate[]> {
+    this.#reachable();
     return structuredClone(this.state.taxRates);
   }
 
   async findContacts(query: AccountingContactQuery): Promise<AccountingContact[]> {
+    this.#reachable();
     return this.state.contacts
       .filter(
         (c) =>
@@ -232,6 +250,7 @@ export class FakeBooks implements AccountingSystem {
   }
 
   async documentStatus(refs: string[]): Promise<AccountingDocumentStatus[]> {
+    this.#reachable();
     const out: AccountingDocumentStatus[] = [];
     for (const ref of refs) {
       const doc = this.state.records.find(
@@ -260,6 +279,7 @@ export class FakeBooks implements AccountingSystem {
   }
 
   async findByReference(reference: string): Promise<AccountingRecord | null> {
+    this.#reachable();
     const contact = this.state.contacts.find((c) => c.reference === reference);
     if (contact) return { ref: contact.ref, kind: "contact", reference, voided: false };
     const record = this.state.records.find((r) => r.reference === reference);
@@ -366,6 +386,7 @@ export class FakeBooks implements AccountingSystem {
 
   /** Runs one write with the next failure that applies to it, and counts it by reference. */
   #write(method: FakeWriteMethod, reference: string | null, write: () => string): string {
+    this.#reachable();
     const index = this.state.failures.findIndex((f) => f.method === method || f.method === "any");
     const failure = index === -1 ? null : this.state.failures.splice(index, 1)[0]?.failure;
     if (failure && typeof failure === "object") {
