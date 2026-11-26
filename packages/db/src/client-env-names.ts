@@ -44,6 +44,7 @@ export const ENV_NAMES: Readonly<Record<string, EnvNameUse>> = {
   // Each Worker's own fan-out queue (stage 66 step 4): a cron's one message per client.
   CLIENT_FANOUT: HOST("the crons' fan-out: one message per client, sent by the host"),
   COS_BINDING_KEY: HOST("signs what the host hands a client by a name or props (client-proofs.ts)"),
+  COS_CALLBACK_HOSTNAME: HOST("the deployment's one callback address, no client's (callbacks.ts)"),
   CLOUDFLARE_API_TOKEN: HOST(
     "Settings → AI writes the deployment's Worker secrets with it, every client's at once (ADR 0151), and it can read AI Gateway's logs",
   ),

@@ -125,7 +125,10 @@ describe("the runner's RPC on a many-client host", () => {
     );
     expect([...methods].sort()).toEqual([...RUNNER_METHODS].sort());
     const own = Object.getOwnPropertyNames(Runner.prototype).filter(
-      (name) => !["constructor", "callAs", "queue", "scheduled", "fetch"].includes(name),
+      (name) =>
+        !["constructor", "callAs", "gatekeeperCallback", "queue", "scheduled", "fetch"].includes(
+          name,
+        ),
     );
     expect(own.sort()).toEqual([...RUNNER_METHODS].sort());
   });
@@ -378,6 +381,26 @@ describe("gatekeepers on a many-client host (B1)", () => {
       every.map((v) => [vendorBinding(v), fakeGatekeeper(v)]),
     ) as unknown as Env;
     expect(availableVendors(single).sort()).toEqual([...every].sort());
+  });
+
+  it("the callback door reaches only a shared gatekeeper's own fetch, from the app's binding", async () => {
+    const host = withGatekeepers();
+    const door = new Runner(fromApp(), host) as unknown as {
+      gatekeeperCallback(vendor: string, request: Request): Promise<Response>;
+    };
+    const at = (vendor: string) =>
+      door.gatekeeperCallback(vendor, new Request(`https://callbacks.test/gatekeeper/${vendor}/x`));
+    expect(await (await at("google")).text()).toBe("google");
+    for (const vendor of ["payments", "text", "webhook", "email", "email-send", "nobody"]) {
+      expect((await at(vendor)).status, vendor).toBe(404);
+    }
+    const stranger = new Runner(createExecutionContext(), host) as unknown as typeof door;
+    await expect(
+      stranger.gatekeeperCallback(
+        "google",
+        new Request("https://callbacks.test/gatekeeper/google/x"),
+      ),
+    ).rejects.toThrow(/only to the host's own app/);
   });
 
   it("a connection of gym-a's is not one of gym-b's: B cannot use, enable or replace it", async () => {
@@ -658,32 +681,28 @@ describe("a client not served for a while (review of #512, S3 and S5)", () => {
 });
 
 describe("a warm object of a client that stops being served (review of #512, M2)", () => {
-  it(
-    "refuses its next call once the registry pauses the client, and serves again on resume",
-    async () => {
-      const registry = (env as unknown as { REGISTRY: D1Database }).REGISTRY;
-      const gate = (await clientEnv(b.id)).CODE_MODE_GATE.getByName("warm-user");
-      const acquire = async () => await gate.acquire(1_000);
-      expect(typeof (await acquire())).toBe("string");
+  it("refuses its next call once the registry pauses the client, and serves again on resume", async () => {
+    const registry = (env as unknown as { REGISTRY: D1Database }).REGISTRY;
+    const gate = (await clientEnv(b.id)).CODE_MODE_GATE.getByName("warm-user");
+    const acquire = async () => await gate.acquire(1_000);
+    expect(typeof (await acquire())).toBe("string");
+    await registry
+      .prepare("UPDATE registry_clients SET status = 'paused' WHERE id = ?")
+      .bind(b.id)
+      .run();
+    try {
+      // The object's isolate reads the registry's stamp at most every 10 seconds.
+      await new Promise((resolve) => setTimeout(resolve, 10_500));
+      await expect(acquire()).rejects.toThrow(/not served now|paused/);
+    } finally {
       await registry
-        .prepare("UPDATE registry_clients SET status = 'paused' WHERE id = ?")
+        .prepare("UPDATE registry_clients SET status = 'active' WHERE id = ?")
         .bind(b.id)
         .run();
-      try {
-        // The object's isolate reads the registry's stamp at most every 10 seconds.
-        await new Promise((resolve) => setTimeout(resolve, 10_500));
-        await expect(acquire()).rejects.toThrow(/not served now|paused/);
-      } finally {
-        await registry
-          .prepare("UPDATE registry_clients SET status = 'active' WHERE id = ?")
-          .bind(b.id)
-          .run();
-      }
-      await new Promise((resolve) => setTimeout(resolve, 10_500));
-      // A stub of a reset object stays broken: a new one reaches the object again.
-      const fresh = (await clientEnv(b.id)).CODE_MODE_GATE.getByName("warm-user");
-      await expect((async () => await fresh.acquire(1_000))()).resolves.toBeDefined();
-    },
-    40_000,
-  );
+    }
+    await new Promise((resolve) => setTimeout(resolve, 10_500));
+    // A stub of a reset object stays broken: a new one reaches the object again.
+    const fresh = (await clientEnv(b.id)).CODE_MODE_GATE.getByName("warm-user");
+    await expect((async () => await fresh.acquire(1_000))()).resolves.toBeDefined();
+  }, 40_000);
 });

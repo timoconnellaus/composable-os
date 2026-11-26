@@ -23,6 +23,8 @@ import {
   staffInviteEmail,
 } from "@composable-os/core";
 import { createCrmDb } from "@composable-os/db";
+import { perClientMissing } from "@composable-os/db/client-entries";
+import { clientOf } from "@composable-os/db/client-environment";
 import { productName } from "@composable-os/product";
 import { product } from "@composable-os/products/active";
 import { integrationRuntimeFor } from "./integrations.ts";
@@ -80,8 +82,22 @@ export function staffCodesFor(env: MailEnv): StaffCodes {
   };
 }
 
+/** A client's staff address from its environment, or undefined (said, naming step 6). */
+function staffAddress(env: object): string | undefined {
+  const missing = perClientMissing(env, "APP_ORIGIN");
+  if (missing) {
+    console.error(`staff invite: ${missing}`);
+    return undefined;
+  }
+  return String((env as { APP_ORIGIN?: string }).APP_ORIGIN).replace(/\/+$/, "");
+}
+
 /** The host's mail as a staff call sees it: the invite notice, with where to sign in. */
-export function hostMailFor(env: MailEnv, appOrigin: string | undefined): HostMail {
+export function hostMailFor(env: MailEnv, requestOrigin: string | undefined): HostMail {
+  // On a many-client host the invite's link is the client's own staff address, from its
+  // environment (stage 66 step 6 fills APP_ORIGIN), never the request's; without it no invite
+  // goes out, and the log names step 6.
+  const appOrigin = clientOf(env) === null ? requestOrigin : staffAddress(env);
   const staffSignIn = identityProviderKind(env) === "cloudflare-access" ? "access" : "code";
   return {
     staffSignIn,

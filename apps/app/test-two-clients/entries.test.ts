@@ -283,49 +283,44 @@ describe("a credential issued for one client, at the other's address (criterion 
     expect((await op(b.hostname, "me.get", {}, A.customerToken)).status).toBe(401);
   });
 
-  it("an MCP client registered at one client is unknown at the other, and its tokens too", async () => {
-    const registered = await fetchAt(a.hostname, "/oauth/register", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({
-        client_name: "Claude",
-        redirect_uris: ["http://localhost:3333/callback"],
-        grant_types: ["authorization_code", "refresh_token"],
-        response_types: ["code"],
-        token_endpoint_auth_method: "none",
-      }),
-    });
-    expect(registered.status).toBeLessThan(300);
-    const { client_id: clientId } = (await registered.json()) as { client_id: string };
-    // The OAuth library's keys are under A's prefix, and none is outside the clients' parts.
-    const keys = (await host.OAUTH_KV.list()).keys.map((k) => k.name);
-    expect(keys.some((k) => k.startsWith("clients/gym-a/") && k.includes(clientId))).toBe(true);
-    expect(keys.every((k) => k.startsWith("clients/"))).toBe(true);
-    const exchange = (hostname: string) =>
-      fetchAt(hostname, "/oauth/token", {
-        method: "POST",
-        headers: { "content-type": "application/x-www-form-urlencoded" },
-        body: new URLSearchParams({
-          grant_type: "authorization_code",
-          client_id: clientId,
-          code: "x:y:z",
-          redirect_uri: "http://localhost:3333/callback",
-          code_verifier: "v".repeat(43),
-        }),
-      });
-    const atB = await exchange(b.hostname);
-    expect(atB.status).toBe(401);
-    expect(await atB.text()).toMatch(/invalid_client/);
-    // A bearer token of the library's shape is not one of B's.
-    const mcp = await fetchAt(b.hostname, "/mcp", {
-      method: "POST",
-      headers: {
-        authorization: `Bearer ${A.userId}:grant:secret`,
-        "content-type": "application/json",
-      },
-      body: "{}",
-    });
-    expect(mcp.status).toBe(401);
+  it("MCP and OAuth: refused at every client's address until step 6 gives it its own address", async () => {
+    // The issuer and resource are the client's MCP_RESOURCE (step 6), never the request's: until
+    // then registration, tokens and /mcp all answer 503 naming step 6, at A and at B. That the
+    // library's clients, grants and tokens are each client's own (its KV prefix) is shown in
+    // packages/db/test/client-bindings.test.ts; the cross-client exchange waits for step 6.
+    for (const hostname of [a.hostname, b.hostname]) {
+      for (const [path, init] of [
+        [
+          "/oauth/register",
+          {
+            method: "POST",
+            headers: { "content-type": "application/json" },
+            body: JSON.stringify({ client_name: "Claude", redirect_uris: ["http://localhost/cb"] }),
+          },
+        ],
+        ["/oauth/token", { method: "POST", body: "grant_type=authorization_code" }],
+        ["/.well-known/oauth-authorization-server", {}],
+        [
+          "/mcp",
+          { method: "POST", headers: { authorization: `Bearer ${A.userId}:g:s` }, body: "{}" },
+        ],
+      ] as const) {
+        const response = await fetchAt(hostname, path, init as RequestInit);
+        expect(response.status, `${hostname}${path}`).toBe(503);
+        expect(await response.text()).toMatch(/MCP_RESOURCE.*step 6/);
+      }
+    }
+    // Nothing was stored for any client.
+    expect((await host.OAUTH_KV.list()).keys).toEqual([]);
+  });
+
+  it("the deployment's callback address decides no client and reaches only the gatekeepers' door", async () => {
+    const callback = await fetchAt("callbacks.test", "/gatekeeper/google/oauth?state=x");
+    expect(await callback.text()).toBe("callback for google");
+    for (const path of ["/", "/api/v1/op/person.list", "/mcp", "/gatekeeper/"]) {
+      const response = await fetchAt("callbacks.test", path);
+      expect(response.status, path).toBe(404);
+    }
   });
 
   it("a staff or customer browser session: refused, since a client's auth secret is step 6's", async () => {

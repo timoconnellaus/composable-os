@@ -27,9 +27,11 @@ import {
   consumeFanOut,
   decideRequest,
   fanOutCron,
+  isCallbackRequest,
   isDeadLetterQueue,
   isFanOutQueue,
   servesManyClients,
+  unknownHostResponse,
 } from "@composable-os/db/client-entries";
 import { runAdjudicatorCron } from "./adjudicator.ts";
 import { runEmbeddingCron } from "./ai.ts";
@@ -184,10 +186,26 @@ export async function hostFetch(
   parts: AppParts,
 ): Promise<Response> {
   if (!servesManyClients(env)) return dispatch(request, env, ctx, parts);
+  // The deployment's callback address first: no client's, and decided before any client is.
+  if (isCallbackRequest(env, request)) return callbackFetch(request, env);
   const decided = await decideRequest(env, request, APP_SURFACES);
   if ("response" in decided) return decided.response;
   const clientEnv = decided.env;
   return runInClientEnv(clientEnv, () => dispatch(request, clientEnv, ctx, parts));
+}
+
+/**
+ * A request to the deployment's callback address (a gatekeeper's OAuth redirect or a provider's
+ * push): only `/gatekeeper/<vendor>/*`, handed to the runner's host-level door for gatekeepers,
+ * whose state says whose connection it is for. Anything else there is the plain 404.
+ */
+async function callbackFetch(request: Request, env: Env): Promise<Response> {
+  const match = /^\/gatekeeper\/([a-z0-9-]+)(?:\/|$)/.exec(new URL(request.url).pathname);
+  if (!match?.[1]) return unknownHostResponse();
+  const runner = env.RUNNER as unknown as {
+    gatekeeperCallback(vendor: string, request: Request): Promise<Response>;
+  };
+  return runner.gatekeeperCallback(match[1], request);
 }
 
 /** One cron's work for one environment: the real `env`, or one client's. */

@@ -45,6 +45,7 @@ describe("the names of the host's environment", () => {
       "COS_HOST_ENVIRONMENT",
       "CLIENT_FANOUT",
       "COS_BINDING_KEY",
+      "COS_CALLBACK_HOSTNAME",
     ]);
     const stale = [...Object.keys(ENV_NAMES), ...Object.keys(CLIENT_SETTINGS)].filter(
       (name) => !declared.has(name) && !toCome.has(name),

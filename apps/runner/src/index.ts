@@ -7,6 +7,7 @@ import {
   type AutomationQueueMessage,
   type AutomationTestInput,
   type AutomationTestReport,
+  CATALOGUE,
   type CodeResult,
   type EvaluateResult,
   type ExtensionHost,
@@ -60,6 +61,7 @@ import {
   NoClientError,
   servesManyClients,
 } from "@composable-os/db/client-entries";
+import { envNameUse } from "@composable-os/db/client-environment";
 import { PRODUCT_LABEL_VAR, setProductLabel } from "@composable-os/product";
 import { dispatchAutomationMessages, runDeferredDue } from "./automations/dispatch.ts";
 import { automationHost } from "./automations/host.ts";
@@ -350,6 +352,33 @@ export default class Runner extends WorkerEntrypoint<Env> implements RunnerRpc {
     const run = (target as unknown as Record<string, (...a: unknown[]) => unknown>)[method];
     if (typeof run !== "function") throw new NoClientError(`${method} is not offered`);
     return run.apply(target, Array.isArray(args) ? args : []);
+  }
+
+  /**
+   * A gatekeeper's request at the deployment's callback address (a many-client host's only, from
+   * the app's binding): its own `fetch`, whose state says whose connection it is for. Never one of
+   * the gatekeepers that hold one account for every client (`ENV_NAMES`), which are offered to no
+   * client; the fake one only when it is on.
+   */
+  async gatekeeperCallback(vendor: string, request: Request): Promise<Response> {
+    if (
+      !servesManyClients(this.env) ||
+      !isRunnerCaller((this.ctx as { props?: unknown }).props, this.env)
+    ) {
+      throw new NoClientError("gatekeeperCallback is offered only to the host's own app");
+    }
+    const notFound = () => new Response("Not found", { status: 404 });
+    if (!CATALOGUE.some((entry) => entry.vendor === vendor)) return notFound();
+    const binding = vendorBinding(vendor);
+    const use = envNameUse(binding);
+    if (use?.use !== "shared") return notFound();
+    if (vendor === "fake") {
+      return this.env.INTEGRATIONS_FAKE_PROVIDER === "true"
+        ? fakeProviderFetch(this.env, request)
+        : notFound();
+    }
+    const gatekeeper = (this.env as unknown as Record<string, Fetcher | undefined>)[binding];
+    return gatekeeper ? gatekeeper.fetch(request) : notFound();
   }
 
   /** The methods on the runner's own `env`: a single-client deployment's only. */

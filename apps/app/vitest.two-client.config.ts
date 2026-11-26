@@ -21,6 +21,7 @@ const RUNNER_STUB = `
 import { WorkerEntrypoint } from "cloudflare:workers";
 export default class extends WorkerEntrypoint {
   async callAs(client, method, args) { return { client, method, args }; }
+  async gatekeeperCallback(vendor) { return new Response("callback for " + vendor); }
   async ping() { throw new Error("a many-client host's runner is called as a client"); }
 }`;
 
@@ -59,6 +60,8 @@ export default mergeConfig(
           COS_HOST_ENVIRONMENT: "live",
           // The host's binding key (client-proofs.ts): its proofs on objects' names and props.
           COS_BINDING_KEY: BINDING_KEY_FOR_TESTS,
+          // The deployment's one callback address (step 6 names it; entry.ts routes it first).
+          COS_CALLBACK_HOSTNAME: "callbacks.test",
           // The deployment's own: a client's environment never holds it (step 6 derives each
           // client's). The suite shows a client's sign-in refuses without its own.
           BETTER_AUTH_SECRET: "the-host-wide-secret-the-host-wide-secret",
