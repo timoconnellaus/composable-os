@@ -42,6 +42,8 @@ export const books = env.TEST_ACCOUNTING_BOOKS as unknown as {
   writesOf(books: string, reference: string): Promise<number>;
   setLockDate(books: string, date: string | null): Promise<void>;
   setUnavailable(books: string, on: boolean): Promise<void>;
+  setLookupLag(books: string, lookups: number): Promise<void>;
+  hangNext(books: string, ms: number): Promise<void>;
   state(books: string): Promise<{ records: FakeRecord[]; writes: Record<string, number> }>;
 };
 
@@ -153,6 +155,10 @@ export async function clearOutbox(b: Books): Promise<void> {
   await books.reset(b.name);
   const at = new Date().toISOString();
   await env.DB.batch([
+    // An entry the host knows was applied is in the books: it is only ever sent (never skipped).
+    env.DB.prepare(
+      "UPDATE core_accounting_post SET state = 'sent', books_ref = 'cleared', sent_at = ? WHERE applied_at IS NOT NULL AND state NOT IN ('sent', 'skipped')",
+    ).bind(at),
     env.DB.prepare("UPDATE core_accounting_post SET state = 'unknown' WHERE state = 'sending'"),
     env.DB.prepare("UPDATE core_accounting_post SET state = 'queued' WHERE state = 'unknown'"),
     env.DB.prepare(
@@ -226,6 +232,12 @@ export function runAt(at: string | Date, extra: Partial<RunnerDeps> = {}) {
 export interface PostRow {
   id: string;
   state: string;
+  applied_at: string | null;
+  lookups: number;
+  unknowns: number;
+  pending_action_id: string | null;
+  detail: string | null;
+  body: string;
   reference: string;
   attempts: number;
   next_attempt_at: string | null;
@@ -257,4 +269,57 @@ export async function refusal(call: Promise<unknown>) {
     return { code: e.code, message: e.message, details: e.details };
   }
   throw new Error("expected a refusal");
+}
+
+type HostCall = NonNullable<typeof integrations.callAsHost>;
+
+/**
+ * The real integration runtime with the host's call changed for writes only (`postSummary` and
+ * the rest): what an integration host could answer that the fake books cannot be made to (an
+ * applied action without its ref, a configuration error, an entry left in Approvals).
+ */
+export function changedWrites(
+  change: (input: Parameters<HostCall>[0], real: HostCall) => ReturnType<HostCall>,
+) {
+  const real = integrations.callAsHost?.bind(integrations) as HostCall;
+  return new Proxy(integrations, {
+    get(target, key, receiver) {
+      if (key !== "callAsHost") return Reflect.get(target, key, receiver);
+      return (input: Parameters<HostCall>[0]) =>
+        input.method.startsWith("post") || input.method === "upsertContact"
+          ? change(input, real)
+          : real(input);
+    },
+  });
+}
+
+export async function writesAt(b: Books, reference: string): Promise<number> {
+  return books.writesOf(b.name, reference);
+}
+
+export async function noticesTitled(user: ActingUser, title: string): Promise<number> {
+  const row = await env.DB.prepare(
+    "SELECT count(*) AS n FROM core_notifications WHERE user_id = ? AND title = ?",
+  )
+    .bind(user.id, title)
+    .first<{ n: number }>();
+  return row?.n ?? 0;
+}
+
+/** A payout as step 5 will queue it: clearing to the bank (a `postTransfer`, apart from summaries). */
+export function transferEntry(b: Books, day: string, amount = 1000): QueuePostInput {
+  return {
+    connectionId: b.connectionId,
+    kind: "transfer",
+    sourceKind: "payout",
+    sourceId: source("po"),
+    belongsDate: day,
+    amount,
+    body: {
+      text: `Payout of ${day}`,
+      clearingAccount: { map: "clearing" },
+      bankAccount: { map: "bank" },
+      amount,
+    },
+  };
 }

@@ -18,6 +18,7 @@ import {
   queue,
   runAt,
   summaryEntry,
+  transferEntry,
 } from "./accounting-fixture.ts";
 import { meterStatements } from "./statement-meter.ts";
 
@@ -87,8 +88,13 @@ describe("an uncertain outcome", () => {
     await runAt(NOW);
     expect((await post(q.id)).state).toBe("unknown");
     expect(await writes([q.reference])).toEqual([0]);
-    const next = await runAt(minutes(NOW, 1));
-    // Looked up first (not found), then sent in the same run.
+    // Looked up 1, 6 and 36 minutes later (in case the books are slow to find it); only when all
+    // three miss is it queued again, and sent in that run.
+    for (const m of [1, 6]) {
+      expect(await runAt(minutes(NOW, m))).toMatchObject({ found: 0, requeued: 0, sent: 0 });
+      expect((await post(q.id)).state).toBe("unknown");
+    }
+    const next = await runAt(minutes(NOW, 36));
     expect(next).toMatchObject({ found: 0, requeued: 1, sent: 1 });
     expect(await post(q.id)).toMatchObject({ state: "sent", attempts: 2 });
     expect(await writes([q.reference])).toEqual([1]);
@@ -128,8 +134,11 @@ describe("an uncertain outcome", () => {
     }).catch(() => null);
     expect((await post(q.id)).state).toBe("sending");
     expect(await writes([q.reference])).toEqual([0]);
-    const later = new Date(Date.parse(NOW) + STALE_MS + 60_000);
-    expect(await runAt(later)).toMatchObject({ requeued: 1, sent: 1 });
+    const later = new Date(Date.parse(NOW) + STALE_MS + 60_000).toISOString();
+    // Stale: looked up at once, then 5 and 35 minutes on; all miss, so it is sent once.
+    await runAt(later);
+    await runAt(minutes(later, 5));
+    expect(await runAt(minutes(later, 35))).toMatchObject({ requeued: 1, sent: 1 });
     expect(await writes([q.reference])).toEqual([1]);
   });
 });
@@ -156,17 +165,22 @@ describe("two runs at once", () => {
     for (const q of queued) expect((await post(q.id)).state).toBe("unknown");
     const [one, two] = await Promise.all([runAt(minutes(NOW, 1)), runAt(minutes(NOW, 1))]);
     expect((one?.found ?? 0) + (two?.found ?? 0)).toBe(2);
-    expect((one?.requeued ?? 0) + (two?.requeued ?? 0)).toBe(2);
-    await runAt(minutes(NOW, 2));
+    await Promise.all([runAt(minutes(NOW, 6)), runAt(minutes(NOW, 6))]);
+    const [three, four] = await Promise.all([runAt(minutes(NOW, 36)), runAt(minutes(NOW, 36))]);
+    expect((three?.requeued ?? 0) + (four?.requeued ?? 0)).toBe(2);
+    await runAt(minutes(NOW, 37));
     expect(await writes(queued.map((q) => q.reference))).toEqual([1, 1, 1, 1]);
     for (const q of queued) expect((await post(q.id)).state).toBe("sent");
   });
 });
 
 describe("a storm of refusals", () => {
-  it("retries on the schedule, sends nothing else meanwhile, then holds; a person's retries send it once", async () => {
+  it("retries on the schedule, its own day waiting behind it, then holds; a person's retries send it once", async () => {
     const first = await queue(summaryEntry(b, "2026-11-20"));
-    const second = await queue(summaryEntry(b, "2026-11-21"));
+    // Its own day's next entry keeps its place behind it; another day's goes past it.
+    const second = await queue(summaryEntry(b, "2026-11-20", { net: 500 }));
+    // Another day's entry, a payout (the books refuse only summaries here).
+    const other = await queue(transferEntry(b, "2026-11-21"));
     for (let i = 0; i < 6; i++) {
       await books.failNext(b.name, "postSummary", { refuse: "rate_limited" });
     }
@@ -179,7 +193,7 @@ describe("a storm of refusals", () => {
       await runAt(new Date(at));
       if ((await post(first.id)).attempts !== before) tried.push(new Date(at).toISOString());
       if ((await post(first.id)).state === "held") break;
-      // The second entry waits behind the first while it waits to retry.
+      // The second entry, the same day, waits behind the first while it waits to retry.
       expect((await post(second.id)).state).toBe("queued");
       // Every minute for the first hour, every five to the fourth, then every fifteen.
       const elapsed = at - t0;
@@ -197,6 +211,7 @@ describe("a storm of refusals", () => {
     const held = await post(first.id);
     expect(held).toMatchObject({ state: "held", error_code: "rate_limited", attempts: 6 });
     expect(await writes([first.reference])).toEqual([0]);
+    expect((await post(other.id)).state).toBe("sent");
 
     // Held, it holds only itself: the next run sends the other one.
     await runAt(new Date(at + 60_000));
@@ -300,8 +315,9 @@ describe("one run", () => {
   it(`looks up at most ${LOOKUPS_PER_RUN} entries of unknown outcome, whatever the backlog`, async () => {
     const small = await measure(LOOKUPS_PER_RUN + 5, "unknown");
     const large = await measure(LOOKUPS_PER_RUN * 4, "unknown");
-    expect(small.result).toMatchObject({ requeued: LOOKUPS_PER_RUN, more: true });
-    expect(large.result).toMatchObject({ requeued: LOOKUPS_PER_RUN, more: true });
+    // Each looked up once, missed, and left for its next look-up.
+    expect(small.result).toMatchObject({ found: 0, requeued: 0, more: true });
+    expect(large.result).toMatchObject({ found: 0, requeued: 0, more: true });
     expect(large.statements).toBe(small.statements);
     expect(small.statements).toBeLessThanOrEqual(200);
   }, 120_000);

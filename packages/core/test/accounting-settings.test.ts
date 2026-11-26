@@ -541,7 +541,9 @@ describe("the outbox's guards against every form of write", () => {
 
   it("an entry that may be in the books leaves its state only for what its outcome allows", async () => {
     const unknown = await post("unknown");
-    for (const state of ["held", "skipped", "awaiting_approval", "retrying"]) {
+    // Held is allowed since migration 1332 (ADR 0882): the runner's look-ups ran out and a person
+    // decides; it is tested in the runner's tests.
+    for (const state of ["skipped", "awaiting_approval", "retrying"]) {
       await expect(
         env.DB.prepare("UPDATE core_accounting_post SET state = ? WHERE id = ?")
           .bind(state, unknown.id)

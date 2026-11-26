@@ -44,7 +44,13 @@ export interface IntegrationCallResult {
   /** Outbound actions the call submitted that are waiting for approval. */
   pending: PendingApproval[];
   /** Outbound actions the call submitted that applied at once (auto-approved). */
-  applied: { action: number; actionKind: string | null; title: string }[];
+  applied: {
+    action: number;
+    actionKind: string | null;
+    title: string;
+    /** For the host's accounting call: the books' ref the write named (ADR 0882). */
+    ref?: string;
+  }[];
   /**
    * Actions that were to apply at once and failed, with the gatekeeper's message (stage 32b):
    * the host's own subscription calls tell a refusal (nothing changed) from an unknown outcome.

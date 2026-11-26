@@ -4410,7 +4410,7 @@ export interface CoreAccountingSettingsTable {
   /** The last day the runner's daily pass built (migration 1332), in the organisation's zone. */
   daily_date: Defaulted<string | null>;
   /** What blocks every send now, so the admins are told once: the connection, or the currency. */
-  blocked: Defaulted<"connection" | "currency" | null>;
+  blocked: Defaulted<"connection" | "currency" | "lock" | null>;
   blocked_at: Defaulted<Timestamp | null>;
 }
 
@@ -4501,6 +4501,14 @@ export interface CoreAccountingPostTable {
   body: Defaulted<JsonText>;
   /** JSON object: the exact call last sent, written as the entry is claimed (1332). */
   request: Defaulted<JsonText | null>;
+  /** When the host knew the write was applied: never sent again, only looked up (1332). */
+  applied_at: Defaulted<Timestamp | null>;
+  /** Look-ups by reference that missed since it last became unknown (1332). */
+  lookups: Defaulted<number>;
+  /** How often its outcome was not known (1332). */
+  unknowns: Defaulted<number>;
+  /** The pending action it waits on in Approvals, when it went there instead (1332). */
+  pending_action_id: Defaulted<string | null>;
 }
 
 /** Migration 1330: each money event to the entry it went in, unique by source. */

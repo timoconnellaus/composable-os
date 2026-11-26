@@ -3,9 +3,12 @@
 // and payouts) and 6 (contacts and documents) build entries from host records and queue them
 // here; the runner (`runner.ts`) sends them.
 //
-// - **Once.** The reference is `cos:<kind>:<source id>:<n>`, unique in the table: queuing the same
-//   entry again is a no-op (an insert conditional on the reference, so two builders at once
-//   queue one), and the books store it, so nothing is ever written there twice.
+// - **Once.** The reference is `cos:<kind>:<source id>:<n>`, unique per books: queuing the same
+//   entry again for the same books is a no-op (an insert conditional on the reference, so two
+//   builders at once queue one), and the books store it, so nothing is ever written there twice.
+//   Other books (after a change of books) get their own.
+// - **A person's details apart.** Kept in `detail` and named by key elsewhere, so an erase clears
+//   them alone.
 // - **The mapping's keys, not the books' refs.** Where an account or a tax rate goes, an entry
 //   holds `{ map: <kind>, key? }`; the runner resolves it when it sends, so a mapping changed
 //   before then applies, and an entry nobody mapped waits ("map passes to an account"). Where a
@@ -94,8 +97,13 @@ export interface QueuePostInput {
   lines?: unknown[];
   /** The call's other fields (text, number, dates, accounts, amount), with `MapRef`s and `DepRef`s. */
   body: Record<string, unknown>;
-  /** What a contact or document carries about the person it is for (an erase may clear it). */
-  detail?: unknown;
+  /**
+   * A person's details the entry carries (a contact's name, email, address and tax number, a
+   * document's bill-to), as one JSON object. `lines` and `body` name them by key,
+   * `{ detail: "name" }`, and never hold them: an erase clears `detail` alone (step 9), the
+   * figures sent stay as they were.
+   */
+  detail?: Record<string, unknown>;
   /** The entry that must be sent first (a payment's invoice, an invoice's contact). */
   dependsOn?: string | null;
 }
@@ -123,6 +131,8 @@ function checkRefs(value: unknown): void {
     return;
   }
   if ("dep" in object) return;
+  // A person's details, by their key in `detail` (an erase clears `detail` alone, ADR 0882).
+  if ("detail" in object && Object.keys(object).length === 1) return;
   for (const item of Object.values(object)) checkRefs(item);
 }
 
@@ -163,7 +173,8 @@ export function queuePostStatement(
      FROM core_accounting_settings s
      WHERE s.id = 1 AND s.connection_id = ?2 AND s.start_date IS NOT NULL
        AND ?8 >= s.start_date
-       AND NOT EXISTS (SELECT 1 FROM core_accounting_post p WHERE p.reference = ?7)`,
+       AND NOT EXISTS (SELECT 1 FROM core_accounting_post p WHERE p.connection_id = ?2
+         AND p.reference = ?7)`,
     [
       id,
       input.connectionId,
@@ -199,6 +210,7 @@ export async function queuePost(
   const row = await db
     .selectFrom("core_accounting_post")
     .select(["id", "state"])
+    .where("connection_id", "=", input.connectionId)
     .where("reference", "=", reference)
     .executeTakeFirst();
   return row ? { id: row.id, reference, state: row.state } : null;

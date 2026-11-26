@@ -17,6 +17,7 @@ import {
   connectBooks,
   integrations,
   minutes,
+  noticesTitled,
   op,
   post,
   queue,
@@ -50,7 +51,9 @@ async function invoiceChain(day = "2026-11-20") {
     sourceId: id,
     belongsDate: day,
     amount: 0,
-    body: { name: `Customer ${id}`, email: `${id}@example.com` },
+    // A person's details apart, named by key (ADR 0882): an erase clears `detail` alone.
+    body: { name: { detail: "name" }, email: { detail: "email" } },
+    detail: { name: `Customer ${id}`, email: `${id}@example.com` },
   });
   const invoice = await queue({
     connectionId: b.connectionId,
@@ -375,6 +378,41 @@ describe("blocked", () => {
     } finally {
       await env.DB.prepare("UPDATE core_accounting_settings SET enabled = 1").run();
     }
+  });
+});
+
+describe("a day builder that fails, and a lock date that is not a date", () => {
+  it("a failing builder never stops the sends: the day is built again later, the admins told", async () => {
+    const q = await queue(summaryEntry(b, "2026-11-20"));
+    await env.DB.prepare("UPDATE core_accounting_settings SET daily_date = '2026-11-22'").run();
+    const title = "A day's entries for the books could not be built";
+    const told = await noticesTitled(b.admin, title);
+    const broken: DayBuilder = async () => {
+      throw new Error("the figures are not there yet");
+    };
+    const result = await runAt(NOW, { builders: [broken] });
+    expect(result).toMatchObject({ sent: 1, days: 0, buildFailed: "2026-11-23" });
+    expect(await post(q.id)).toMatchObject({ state: "sent" });
+    await runAt(minutes(NOW, 1), { builders: [broken] });
+    expect(await noticesTitled(b.admin, title)).toBe(told + 1);
+    const built: string[] = [];
+    await runAt(minutes(NOW, 2), { builders: [async ({ day }) => void built.push(day)] });
+    expect(built).toEqual(["2026-11-23", "2026-11-24"]);
+  });
+
+  it("a lock date that is not a date blocks every send, and the admins are told once", async () => {
+    const q = await queue(summaryEntry(b, "2026-11-20"));
+    await books.reset(b.name, { lockDate: "soon" as never });
+    const title = "Nothing is going to the books: their lock date cannot be read";
+    const told = await noticesTitled(b.admin, title);
+    for (let i = 0; i < 3; i++) {
+      expect(await runAt(minutes(NOW, i))).toMatchObject({ state: "blocked", blocked: "lock" });
+    }
+    expect(await noticesTitled(b.admin, title)).toBe(told + 1);
+    expect(await post(q.id)).toMatchObject({ state: "queued", attempts: 0 });
+    await books.reset(b.name);
+    await runAt(minutes(NOW, 5));
+    expect(await post(q.id)).toMatchObject({ state: "sent" });
   });
 });
 

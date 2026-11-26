@@ -94,3 +94,26 @@ reads; only the CRM's dev server and cos-runner's tests run it, bound as
   are step 3 (ADR 0881). Until then the fake is reachable like any dev-only gatekeeper.
 - A receipt names the books' ref only when the write was applied within the call; the host's own
   call applies after the call returns, so the outbox finds the ref by reference.
+
+## Amended 2026-11-26 (stage 61 step 4, the review of PR #504)
+
+- **Read after write.** The host's own guard against a second write, and the gatekeeper's
+  (`applyWrite` writes nothing for a reference the books hold), are both a look-up by reference.
+  The contract now says what was only assumed: once a write has been applied, `findByReference`
+  finds it on the very next call. A system whose search lags reads the record by its own key, or
+  the gatekeeper keeps the reference itself until the search catches up; where a system offers an
+  idempotency key on its writes, the gatekeeper sends the reference as that key too. The
+  conformance suite checks it for a contact, a summary and a transfer ("finds every write by its
+  reference straight after it is written").
+- **The host does not stake a second write on it** (ADR 0882): a write the host knows was applied
+  is never sent again, however long its reference takes to be found; an uncertain one is looked up
+  for 36 minutes before it is sent again, at most three times, then held for a person. The fake can
+  make its search lag (`setLookupLag`) to prove it.
+- **The ref without a second call.** The facet keeps the books' ref of each write it applies
+  (`appliedRef(action)`, outside the vendored interface), and the integration host gives it to the
+  host's accounting call with the applied action; the last consequence above no longer holds for
+  that call.
+- **Refusal words.** A gatekeeper's refusal and failure messages reach the outbox (cut to 300
+  characters) and the outbound audit (cut likewise for the accounting call). A gatekeeper never puts
+  a request's or response's headers, body or any credential in them; step 8's Xero gatekeeper
+  writes its own words, with the books' error code at most.
