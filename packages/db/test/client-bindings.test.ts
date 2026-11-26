@@ -56,6 +56,27 @@ function expectNoWayBack(wrapped: unknown, realBinding: unknown) {
   walk(wrapped, "binding", 0);
 }
 
+/**
+ * Which methods of each kind of wrapper a cross-client test below has tried. The last test of
+ * the file fails when a wrapper has a method no test has registered here (review of #512, S2).
+ */
+const tried = new Map<string, Set<string>>();
+function covers(kind: string, ...methods: string[]): void {
+  const set = tried.get(kind) ?? new Set<string>();
+  for (const method of methods) set.add(method);
+  tried.set(kind, set);
+}
+
+/** What a call did, as a string a failed expectation can print (an RPC stub cannot be printed). */
+function outcome(run: () => unknown): "refused" | "allowed" | "failed" {
+  try {
+    run();
+    return "allowed";
+  } catch (error) {
+    return error instanceof ClientPartError ? "refused" : "failed";
+  }
+}
+
 describe("every kept-apart name", () => {
   it("has a wrapper, so none is left out of a client's environment or let through raw", () => {
     const keptApart = Object.entries(ENV_NAMES)
@@ -153,6 +174,30 @@ describe("files (BLOBS): a key prefix per client", () => {
     expect(second.objects.map((o) => o.key)).toEqual(["page/1"]);
   });
 
+  it("cannot delete B's object, or resume B's upload, by B's stored key", async () => {
+    covers("bucket", "head", "get", "put", "delete", "list", "createMultipartUpload");
+    covers("bucket", "resumeMultipartUpload");
+    await b.put("keep", "b's");
+    await a.delete("clients/gym-b/keep");
+    await a.delete(["clients/gym-b/keep"]);
+    expect(await (await b.get("keep"))?.text()).toBe("b's");
+    const upload = await b.createMultipartUpload("b-big");
+    const resumed = a.resumeMultipartUpload("clients/gym-b/b-big", upload.uploadId);
+    expect(resumed.key).toBe("clients/gym-b/b-big");
+    const finished = await (async () => {
+      const part = await resumed.uploadPart(1, "from A");
+      return resumed.complete([part]);
+    })().then(
+      () => "completed",
+      () => "refused by the store",
+    );
+    // Under A's prefix the upload id is no upload of that key: the store refuses it, and B's
+    // key holds nothing A wrote.
+    expect(finished).toBe("refused by the store");
+    expect(await real.BLOBS.head("clients/gym-b/b-big")).toBeNull();
+    await upload.abort();
+  });
+
   it("keeps multipart uploads to the client's key", async () => {
     const upload = await a.createMultipartUpload("big");
     expect(upload.key).toBe("big");
@@ -202,6 +247,16 @@ describe("key-value (OAUTH_KV): a key prefix per client", () => {
     expect(page.list_complete).toBe(false);
     if (page.list_complete) throw new Error("unreachable");
     await expect(a.list({ cursor: page.cursor })).rejects.toThrow(ClientPartError);
+  });
+
+  it("cannot delete, overwrite or read B's key by B's stored key", async () => {
+    covers("kv", "get", "getWithMetadata", "put", "delete", "list");
+    await b.put("grant:keep", "b's grant");
+    await a.delete("clients/gym-b/grant:keep");
+    await a.put("clients/gym-b/grant:keep", "a's overwrite");
+    expect(await b.get("grant:keep")).toBe("b's grant");
+    expect((await a.getWithMetadata("clients/gym-b/grant:keep")).value).toBe("a's overwrite");
+    expect(await real.OAUTH_KV.get("clients/gym-b/grant:keep")).toBe("b's grant");
   });
 
   it("holds no way back to the real namespace", () => {
@@ -281,6 +336,17 @@ describe("search (VECTORIZE): a namespace per client, ids no other client can na
     expect(none.matches[0]).toEqual({ id: "person:1", score: 1 });
   });
 
+  it("insert, like upsert, writes only in the client's namespace and ids", async () => {
+    covers("vectors", "insert", "upsert", "query", "queryById", "getByIds", "deleteByIds");
+    covers("vectors", "describe");
+    const index = fakeIndex();
+    const a = keepVectorsApart(index as unknown as Vectorize, A);
+    await a.insert([{ id: "x:1", values: [1], namespace: "gym-b", metadata: { object: "x" } }]);
+    const [stored] = [...index.vectors.values()];
+    expect(stored?.namespace).toBe("gym-a");
+    expect(stored?.id).toBe(await clientVectorId(A, "x:1"));
+  });
+
   it("cannot get, delete or query by an id of B's", async () => {
     const index = fakeIndex();
     const a = keepVectorsApart(index as unknown as Vectorize, A);
@@ -339,6 +405,7 @@ function recordingQueue() {
 
 describe("queues: the client stamped on every message", () => {
   it("stamps each message with the client, whatever its body says", async () => {
+    covers("queue", "send", "sendBatch", "metrics");
     const queue = recordingQueue();
     const a = keepQueueApart(queue as unknown as Queue<unknown>, A);
     await a.send({ kind: "record", id: "1" });
@@ -394,7 +461,10 @@ function fakeWorkflow() {
         instances.set(options.id, options);
         return handle(options.id);
       }),
-    deleteBatch: async (ids: string[]) => ({ deleted: ids.map((id) => ({ id })), errors: [] }),
+    deleteBatch: async (ids: string[]) => {
+      for (const id of ids) instances.delete(id);
+      return { deleted: ids.map((id) => ({ id })), errors: [] };
+    },
   };
 }
 
@@ -422,6 +492,18 @@ describe("Workflows: the client in the instance id and beside the params", () =>
     await expect(a.createBatch({ count: 3 })).rejects.toThrow(ClientPartError);
     expect(clientWorkflowId(A, "run-1")).toBe("gym-a_run-1");
     expectNoWayBack(a, workflow);
+  });
+
+  it("cannot delete B's instances, by B's id or by B's stored id", async () => {
+    covers("workflow", "get", "create", "createBatch", "deleteBatch");
+    const workflow = fakeWorkflow();
+    const a = keepWorkflowApart(workflow as unknown as Workflow<{ n: number }>, A);
+    const b = keepWorkflowApart(workflow as unknown as Workflow<{ n: number }>, B);
+    await b.create({ id: "run-9", params: { n: 9 } });
+    const result = await a.deleteBatch(["run-9", "gym-b_run-9"]);
+    expect(result.deleted.map((d) => d.id)).toEqual(["run-9", "gym-b_run-9"]);
+    expect(workflow.instances.has("gym-b_run-9")).toBe(true);
+    expect((await b.get("run-9")).id).toBe("run-9");
   });
 
   it("runs as a client only when the id and the stamp agree", () => {
@@ -455,8 +537,11 @@ describe("Durable Object namespaces: the client in every name", () => {
 
   it("cannot open B's object: not by B's id, a hex id, a unique id or B's prefixed name", async () => {
     const bId = b.idFromName("workspace");
-    expect(() => a.get(bId)).toThrow(ClientPartError);
-    expect(() => a.get(real.CLIENT_DB.idFromName("gym-b:workspace"))).toThrow(ClientPartError);
+    covers("objects", "idFromName", "idFromString", "newUniqueId", "get", "getByName");
+    // As strings: a stub that should not have been handed out cannot be printed, and printing
+    // one hangs the file (review of #512, S2).
+    expect(outcome(() => a.get(bId))).toBe("refused");
+    expect(outcome(() => a.get(real.CLIENT_DB.idFromName("gym-b:workspace")))).toBe("refused");
     expect(() => a.idFromString(bId.toString())).toThrow(ClientPartError);
     expect(() => a.newUniqueId()).toThrow(ClientPartError);
     // A name that looks like B's is only a name under A.
@@ -478,6 +563,7 @@ describe("Durable Object namespaces: the client in every name", () => {
 
 describe("the runner: the client named on every call", () => {
   it("offers each listed method as callAs(<client>, <method>, args), and nothing else", async () => {
+    covers("runner", ...RUNNER_METHODS);
     const calls: { client: string; method: string; args: unknown[] }[] = [];
     const runner = {
       callAs: (client: string, method: string, args: unknown[]) => {
@@ -511,5 +597,31 @@ describe("the runner: the client named on every call", () => {
       args: ["call", { client: "gym-b" }],
     });
     expectNoWayBack(a, runner);
+  });
+});
+
+describe("every method of every wrapper (review of #512, S2)", () => {
+  it("has a cross-client test above: a method added to a wrapper with none fails here", () => {
+    const fakeRunner = { callAs: () => undefined };
+    const wrappers: Record<string, object> = {
+      bucket: keepBucketApart(real.BLOBS, A),
+      kv: keepKeyValueApart(real.OAUTH_KV, A),
+      vectors: keepVectorsApart(fakeIndex() as unknown as Vectorize, A),
+      queue: keepQueueApart(recordingQueue() as unknown as Queue<unknown>, A),
+      workflow: keepWorkflowApart(fakeWorkflow() as unknown as Workflow<unknown>, A),
+      objects: keepObjectsApart(real.CLIENT_DB, A),
+      runner: keepRunnerApart(fakeRunner, A) as object,
+    };
+    const untested: string[] = [];
+    for (const [kind, wrapper] of Object.entries(wrappers)) {
+      const methods = Object.keys(wrapper).filter(
+        (key) => typeof (wrapper as Record<string, unknown>)[key] === "function",
+      );
+      expect(methods.length, kind).toBeGreaterThan(0);
+      for (const method of methods) {
+        if (!tried.get(kind)?.has(method)) untested.push(`${kind}.${method}`);
+      }
+    }
+    expect(untested).toEqual([]);
   });
 });
