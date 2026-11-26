@@ -236,6 +236,18 @@ export function toOperationError(error: unknown): OperationError {
       reason: "movement_immutable",
     });
   }
+  // A conversation (migration 1050) or a saved reply (migration 1051) written from a read that is
+  // no longer current: someone took it, filed it or changed it a moment before. Nothing was applied.
+  if (message.includes("core_conversation_stale")) {
+    return new ConflictError("The conversation changed since you read it. Read it again.", {
+      reason: "conversation_changed",
+    });
+  }
+  if (message.includes("core_saved_reply_stale")) {
+    return new ConflictError("The saved reply changed since you read it. Read it again.", {
+      reason: "saved_reply_changed",
+    });
+  }
   // An order written from a read that is no longer current (migration 0421): nothing was
   // applied, and the same call made again reads the order as it now is.
   if (message.includes("core_order_stale")) {

@@ -12,7 +12,9 @@
 // Every write is audited with the conversation's state, never a message's words.
 //
 // Sending (`message.send`, `conversation.start`) needs a channel and is built with email (step 2)
-// and chat (step 4); snooze and categories with reply targets (step 5) and Settings → Inbox (step 3).
+// and chat (step 4); snooze with reply targets (step 5). Categories (`conversation.setCategory`),
+// Settings → Inbox and saved replies are step 3's: operations/inbox-settings.ts and
+// operations/saved-reply.ts.
 import { sql } from "kysely";
 import { z } from "zod";
 import { enqueueConversationEmbeddings, enqueueEmbeddings } from "../ai/embedding.ts";
@@ -47,18 +49,21 @@ const expectedVersion = z
   .optional()
   .describe("The version you read: the write is refused if the conversation changed since");
 
-function viewer(ctx: HandlerContext): InboxViewer {
+export function viewer(ctx: HandlerContext): InboxViewer {
   return { id: ctx.user.id, role: ctx.user.role };
 }
 
 /** The conversation as the caller may read it, or not found (a private one they may not see). */
-async function requireConversation(ctx: HandlerContext, id: string): Promise<ConversationListRow> {
+export async function requireConversation(
+  ctx: HandlerContext,
+  id: string,
+): Promise<ConversationListRow> {
   const row = await conversationQuery(ctx.db).where("c.id", "=", id).executeTakeFirst();
   if (!row || !mayRead(viewer(ctx), row)) throw new NotFoundError("conversation", id);
   return row;
 }
 
-function checkVersion(row: ConversationListRow, expected: number | undefined) {
+export function checkVersion(row: ConversationListRow, expected: number | undefined) {
   if (expected !== undefined && expected !== row.version) {
     throw new ConflictError("The conversation changed since you read it. Read it again.", {
       reason: "conversation_changed",
@@ -67,7 +72,7 @@ function checkVersion(row: ConversationListRow, expected: number | undefined) {
   }
 }
 
-async function readBack(ctx: HandlerContext, id: string) {
+export async function readBack(ctx: HandlerContext, id: string) {
   const row = await conversationQuery(ctx.db).where("c.id", "=", id).executeTakeFirst();
   if (!row) throw new NotFoundError("conversation", id);
   return toConversation(row);

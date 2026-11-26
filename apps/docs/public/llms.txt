@@ -399,6 +399,7 @@
 - [routine.* operations](https://docs.composableos.dev/reference/operations/routine/): The core operations named routine.*
 - [routineMail.* operations](https://docs.composableos.dev/reference/operations/routinemail/): The core operations named routineMail.*
 - [sample.* operations](https://docs.composableos.dev/reference/operations/sample/): The core operations named sample.*
+- [savedReply.* operations](https://docs.composableos.dev/reference/operations/savedreply/): The core operations named savedReply.*
 - [schema.* operations](https://docs.composableos.dev/reference/operations/schema/): The core operations named schema.*
 - [screens.* operations](https://docs.composableos.dev/reference/operations/screens/): The core operations named screens.*
 - [search.* operations](https://docs.composableos.dev/reference/operations/search/): The core operations named search.*

@@ -220,8 +220,11 @@ export interface CheckOptions {
   installed?: readonly string[];
 }
 
-/** The shared inbox's operations: `inbox.*`, `conversation.*`, `message.*` (ADR 0740). */
-const INBOX_OPERATION = /^(?:inbox|conversation|message)\./;
+/**
+ * The shared inbox's operations: `inbox.*`, `conversation.*`, `message.*` (ADR 0740) and
+ * `savedReply.*` (ADR 0749).
+ */
+const INBOX_OPERATION = /^(?:inbox|conversation|message|savedReply)\./;
 
 /** Issues for everything in `manifest` that opens the host to customers or the public. */
 function outsideDeclarations(manifest: ExtensionManifest): CheckIssue[] {

@@ -28406,6 +28406,279 @@
       ]
     },
     {
+      "name": "conversation.setCategory",
+      "description": "File a conversation under one of the inbox's categories (inbox.categories lists them), or under none (category null). Returns the conversation.",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "maxLength": 64,
+            "format": "starts_with",
+            "pattern": "^cnv_.*",
+            "description": "Conversation id (cnv_…)"
+          },
+          "category": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 40,
+                "description": "A category's name, as the admin wrote it"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "version": {
+            "description": "The version you read: the write is refused if the conversation changed since",
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": [
+          "id",
+          "category"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "channel": {
+            "type": "string",
+            "enum": [
+              "email",
+              "chat"
+            ]
+          },
+          "subject": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "open",
+              "waiting",
+              "closed"
+            ]
+          },
+          "person": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                },
+                "required": [
+                  "id",
+                  "name"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The Person it is with; null while the sender is unknown"
+          },
+          "unknownSender": {
+            "description": "An unknown sender's address (null once linked to a Person)",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "senderUnverified": {
+            "type": "boolean",
+            "description": "The sender check failed on a message"
+          },
+          "assignee": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                },
+                "required": [
+                  "id",
+                  "name"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Who has it; null: unassigned"
+          },
+          "category": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "about": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "object": {
+                    "type": "string"
+                  },
+                  "id": {
+                    "type": "string"
+                  },
+                  "title": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                },
+                "required": [
+                  "object",
+                  "id"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The record it is about"
+          },
+          "private": {
+            "type": "boolean",
+            "description": "Only admins and whoever has it see it"
+          },
+          "privateAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "privateBy": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "openedAt": {
+            "type": "string"
+          },
+          "lastInboundAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "lastReplyAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "firstReplyAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "replyDueAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "snoozedUntil": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "closedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "closedBy": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "updatedAt": {
+            "type": "string"
+          },
+          "version": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991,
+            "description": "Pass back to a write to refuse it if this changed since"
+          }
+        },
+        "required": [
+          "id",
+          "channel",
+          "subject",
+          "status",
+          "person",
+          "unknownSender",
+          "senderUnverified",
+          "assignee",
+          "category",
+          "about",
+          "private",
+          "privateAt",
+          "privateBy",
+          "openedAt",
+          "lastInboundAt",
+          "lastReplyAt",
+          "firstReplyAt",
+          "replyDueAt",
+          "snoozedUntil",
+          "closedAt",
+          "closedBy",
+          "updatedAt",
+          "version"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "conversation.get"
+      ]
+    },
+    {
       "name": "conversation.setPrivate",
       "description": "Mark a conversation private (only admins and whoever has it see it, its messages and notes: it leaves everyone else's inbox and timelines, and search, SQL views and AI summaries for everyone), or not private again. Anyone working the inbox may mark one; only an admin or whoever has it may unmark it. People only. Returns the conversation.",
       "risk": "write",
@@ -43149,6 +43422,35 @@
       "invalidates": []
     },
     {
+      "name": "inbox.categories",
+      "description": "The categories an admin set for the shared inbox, in the order they are offered: what conversation.setCategory accepts and what inbox.list filters by. Read-only.",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "categories": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "categories"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
       "name": "inbox.list",
       "description": "The shared inbox: conversations with people by email and chat, most recent first, one page at a time. view: 'mine' (yours), 'unassigned' (nobody has it) or 'all'. Filter by status (default open and waiting), channel, category or a person. Each item says who it is with (or the unknown sender's address), who has it, its status and times. Private conversations are listed only for admins and whoever has them. Pass nextCursor back as cursor for the next page. Read-only.",
       "risk": "read",
@@ -43463,6 +43765,98 @@
         "additionalProperties": false
       },
       "invalidates": []
+    },
+    {
+      "name": "inbox.settings.get",
+      "description": "Read the shared inbox's settings: the categories conversations are filed under, in the order they are offered. A human admin in the app only.",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "categories": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The categories offered, in order"
+          }
+        },
+        "required": [
+          "categories"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
+      "name": "inbox.settings.update",
+      "description": "Change the shared inbox's settings: the categories conversations are filed under (the whole list, in order, at most 50; a name given twice is kept once). A conversation filed under a category taken off the list keeps it until someone changes it. Only what you pass changes. A human admin in the app only: AI assistants, MCP clients, automations and extensions are refused.",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "categories": {
+            "maxItems": 50,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 40,
+              "description": "A category's name, as the admin wrote it"
+            }
+          }
+        }
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "categories": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The categories offered, in order"
+          },
+          "previous": {
+            "type": "object",
+            "properties": {
+              "categories": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "The categories offered, in order"
+              }
+            },
+            "required": [
+              "categories"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "categories",
+          "previous"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "inbox.categories",
+        "inbox.list",
+        "inbox.settings.get"
+      ]
     },
     {
       "name": "integration.call",
@@ -87385,6 +87779,698 @@
         "additionalProperties": false
       },
       "invalidates": []
+    },
+    {
+      "name": "savedReply.archive",
+      "description": "Archive a saved reply (archived: true, the default): it is kept, and no longer offered in the reply box; or bring an archived one back (archived: false). Who may: as for savedReply.update. People only. Returns the saved reply.",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "maxLength": 64,
+            "format": "starts_with",
+            "pattern": "^svr_.*",
+            "description": "Saved reply id (svr_…)"
+          },
+          "archived": {
+            "default": true,
+            "type": "boolean"
+          },
+          "version": {
+            "description": "The version you read: the write is refused if the saved reply changed since",
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "body": {
+            "type": "string",
+            "description": "Its words, with slots written {{person.firstName}}"
+          },
+          "channels": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "email",
+                "chat"
+              ]
+            },
+            "description": "The channels it fits"
+          },
+          "shared": {
+            "type": "boolean",
+            "description": "Shared by the whole inbox; false: the caller's own"
+          },
+          "owner": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                },
+                "required": [
+                  "id",
+                  "name"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Whose own it is; null for a shared one"
+          },
+          "slots": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "person.firstName",
+                "staff.firstName",
+                "business.name"
+              ]
+            }
+          },
+          "archived": {
+            "type": "boolean"
+          },
+          "archivedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "canEdit": {
+            "type": "boolean",
+            "description": "The caller may change or archive it"
+          },
+          "updatedAt": {
+            "type": "string"
+          },
+          "version": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991,
+            "description": "Pass back to a write to refuse it if this changed since"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "body",
+          "channels",
+          "shared",
+          "owner",
+          "slots",
+          "archived",
+          "archivedAt",
+          "canEdit",
+          "updatedAt",
+          "version"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "savedReply.fill",
+        "savedReply.list"
+      ]
+    },
+    {
+      "name": "savedReply.create",
+      "description": "Save a reply: a title, its words (plain text, with only the fixed slots {{person.firstName}}, {{staff.firstName}} and {{business.name}}) and the channels it fits. shared: true makes it the whole inbox's (admins only); otherwise it is the caller's own. People only. Returns the saved reply.",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "body": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 10000,
+            "description": "Its words, plain text. Slots: {{person.firstName}}, {{staff.firstName}}, {{business.name}}"
+          },
+          "channels": {
+            "default": [
+              "email",
+              "chat"
+            ],
+            "minItems": 1,
+            "maxItems": 2,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "email",
+                "chat"
+              ]
+            },
+            "description": "The channels it fits"
+          },
+          "shared": {
+            "default": false,
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "title",
+          "body"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "body": {
+            "type": "string",
+            "description": "Its words, with slots written {{person.firstName}}"
+          },
+          "channels": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "email",
+                "chat"
+              ]
+            },
+            "description": "The channels it fits"
+          },
+          "shared": {
+            "type": "boolean",
+            "description": "Shared by the whole inbox; false: the caller's own"
+          },
+          "owner": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                },
+                "required": [
+                  "id",
+                  "name"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Whose own it is; null for a shared one"
+          },
+          "slots": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "person.firstName",
+                "staff.firstName",
+                "business.name"
+              ]
+            }
+          },
+          "archived": {
+            "type": "boolean"
+          },
+          "archivedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "canEdit": {
+            "type": "boolean",
+            "description": "The caller may change or archive it"
+          },
+          "updatedAt": {
+            "type": "string"
+          },
+          "version": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991,
+            "description": "Pass back to a write to refuse it if this changed since"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "body",
+          "channels",
+          "shared",
+          "owner",
+          "slots",
+          "archived",
+          "archivedAt",
+          "canEdit",
+          "updatedAt",
+          "version"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "savedReply.fill",
+        "savedReply.list"
+      ]
+    },
+    {
+      "name": "savedReply.fill",
+      "description": "A saved reply's words for one conversation, its slots filled by the host: the person's first name, the caller's first name and the business's name. missing lists the slots that had no value (left empty, to fix before sending). Refused when it does not fit the conversation's channel, or is archived. Read-only: it sends nothing.",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "maxLength": 64,
+            "format": "starts_with",
+            "pattern": "^svr_.*",
+            "description": "Saved reply id (svr_…)"
+          },
+          "conversationId": {
+            "type": "string",
+            "maxLength": 64,
+            "format": "starts_with",
+            "pattern": "^cnv_.*",
+            "description": "Conversation id (cnv_…)"
+          }
+        },
+        "required": [
+          "id",
+          "conversationId"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string"
+          },
+          "body": {
+            "type": "string",
+            "description": "Plain text, slots filled"
+          },
+          "missing": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Slots with no value, left empty"
+          }
+        },
+        "required": [
+          "title",
+          "body",
+          "missing"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
+      "name": "savedReply.list",
+      "description": "The inbox's saved replies the caller may use: the shared ones and their own (never another staff member's own), by title, one page at a time. scope: 'all' (default), 'shared' or 'mine'. channel: only those that fit it. archived: true lists the archived ones instead. Each says its slots and whether the caller may change it. Pass nextCursor back as cursor for the next page. Read-only.",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "scope": {
+            "default": "all",
+            "type": "string",
+            "enum": [
+              "all",
+              "shared",
+              "mine"
+            ]
+          },
+          "channel": {
+            "type": "string",
+            "enum": [
+              "email",
+              "chat"
+            ]
+          },
+          "archived": {
+            "default": false,
+            "type": "boolean"
+          },
+          "cursor": {
+            "type": "string",
+            "maxLength": 1000
+          },
+          "limit": {
+            "default": 50,
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          }
+        }
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "body": {
+                  "type": "string",
+                  "description": "Its words, with slots written {{person.firstName}}"
+                },
+                "channels": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "enum": [
+                      "email",
+                      "chat"
+                    ]
+                  },
+                  "description": "The channels it fits"
+                },
+                "shared": {
+                  "type": "boolean",
+                  "description": "Shared by the whole inbox; false: the caller's own"
+                },
+                "owner": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string"
+                        },
+                        "name": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "name"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "Whose own it is; null for a shared one"
+                },
+                "slots": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "enum": [
+                      "person.firstName",
+                      "staff.firstName",
+                      "business.name"
+                    ]
+                  }
+                },
+                "archived": {
+                  "type": "boolean"
+                },
+                "archivedAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "canEdit": {
+                  "type": "boolean",
+                  "description": "The caller may change or archive it"
+                },
+                "updatedAt": {
+                  "type": "string"
+                },
+                "version": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991,
+                  "description": "Pass back to a write to refuse it if this changed since"
+                }
+              },
+              "required": [
+                "id",
+                "title",
+                "body",
+                "channels",
+                "shared",
+                "owner",
+                "slots",
+                "archived",
+                "archivedAt",
+                "canEdit",
+                "updatedAt",
+                "version"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "nextCursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "items",
+          "nextCursor"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
+      "name": "savedReply.update",
+      "description": "Change a saved reply's title, words or channels. One's own may be changed by its owner; a shared one by an admin. Only what you pass changes. People only. Returns the saved reply.",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "maxLength": 64,
+            "format": "starts_with",
+            "pattern": "^svr_.*",
+            "description": "Saved reply id (svr_…)"
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "body": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 10000,
+            "description": "Its words, plain text. Slots: {{person.firstName}}, {{staff.firstName}}, {{business.name}}"
+          },
+          "channels": {
+            "minItems": 1,
+            "maxItems": 2,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "email",
+                "chat"
+              ]
+            },
+            "description": "The channels it fits"
+          },
+          "version": {
+            "description": "The version you read: the write is refused if the saved reply changed since",
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "body": {
+            "type": "string",
+            "description": "Its words, with slots written {{person.firstName}}"
+          },
+          "channels": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "email",
+                "chat"
+              ]
+            },
+            "description": "The channels it fits"
+          },
+          "shared": {
+            "type": "boolean",
+            "description": "Shared by the whole inbox; false: the caller's own"
+          },
+          "owner": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                },
+                "required": [
+                  "id",
+                  "name"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Whose own it is; null for a shared one"
+          },
+          "slots": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "person.firstName",
+                "staff.firstName",
+                "business.name"
+              ]
+            }
+          },
+          "archived": {
+            "type": "boolean"
+          },
+          "archivedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "canEdit": {
+            "type": "boolean",
+            "description": "The caller may change or archive it"
+          },
+          "updatedAt": {
+            "type": "string"
+          },
+          "version": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991,
+            "description": "Pass back to a write to refuse it if this changed since"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "body",
+          "channels",
+          "shared",
+          "owner",
+          "slots",
+          "archived",
+          "archivedAt",
+          "canEdit",
+          "updatedAt",
+          "version"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "savedReply.fill",
+        "savedReply.list"
+      ]
     },
     {
       "name": "schema.objects",

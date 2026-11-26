@@ -2416,6 +2416,25 @@ export interface CoreConversationTable {
 }
 
 /**
+ * Migration 1051 (stage 36 step 3, ADR 0749): a saved reply, a staff member's own (owner_id) or
+ * shared by the inbox (owner_id null). `channels` and `slots` are JSON lists.
+ */
+export interface CoreSavedReplyTable {
+  id: string;
+  title: string;
+  body: string;
+  channels: string;
+  owner_id: string | null;
+  slots: Defaulted<string>;
+  archived_at: Defaulted<Timestamp | null>;
+  created_by: Defaulted<string | null>;
+  updated_by: Defaulted<string | null>;
+  created_at: Timestamp;
+  updated_at: Timestamp;
+  version: Defaulted<number>;
+}
+
+/**
  * Migration 1350 (stage 62 step 1, ADR 0890): a customer account's private calendar feed, by the
  * SHA-256 of its token (never the token).
  */
@@ -4731,6 +4750,7 @@ export interface CoreDatabase {
   core_identify_lockout: CoreIdentifyLockoutTable;
   core_checklist: CoreChecklistTable;
   core_conversation: CoreConversationTable;
+  core_saved_reply: CoreSavedReplyTable;
   core_checklist_step: CoreChecklistStepTable;
   core_checklist_run: CoreChecklistRunTable;
   core_checklist_tick: CoreChecklistTickTable;

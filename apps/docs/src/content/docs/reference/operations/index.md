@@ -87,6 +87,7 @@ Every operation in the core registry, grouped by the first part of its name. Any
 - [`routine`](/reference/operations/routine/)
 - [`routineMail`](/reference/operations/routinemail/)
 - [`sample`](/reference/operations/sample/)
+- [`savedReply`](/reference/operations/savedreply/)
 - [`schema`](/reference/operations/schema/)
 - [`screens`](/reference/operations/screens/)
 - [`search`](/reference/operations/search/)

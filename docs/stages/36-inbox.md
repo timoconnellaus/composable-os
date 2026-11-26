@@ -58,7 +58,7 @@ stage 30".
 - **Step 2** — not built — needs: step 1 — Email in and out: the inbound hook, sender checks,
   threading, unknown senders, replies via email-send, auto-acknowledgement
 
-- **Step 3** — not built — needs: step 1 — The web inbox screens, saved replies, Settings → Inbox
+- **Step 3** — in progress — branch `feat/stage-36-inbox-screens` — The web inbox screens, saved replies, Settings → Inbox
 
 - **Step 4** — not built — needs: step 1 — Chat for customers: `chat.*`, web and native blocks,
   the Messages section and `message_unread`

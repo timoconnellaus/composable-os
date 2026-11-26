@@ -193,6 +193,19 @@ path; it leaves search, the `rec_*` views, embeddings and summaries for everyone
 inbox may mark one; an admin or whoever has it unmarks it (ADR 0740).
 _Avoid_: private activity (that is one synced email or meeting only its mailbox's owner sees)
 
+**Saved reply** (stage 36)
+Ready words for a reply in the **Inbox**: a staff member's own (theirs alone, an admin included) or
+shared by the whole inbox (written by admins, `inbox:manage`), with the channels it fits. Its words
+hold only fixed slots (`{{person.firstName}}`, `{{staff.firstName}}`, `{{business.name}}`), which the
+host fills for one conversation; never a free merge field. Written only by a person; archived ones
+are kept and no longer offered (ADR 0749).
+_Avoid_: template (stage 13's email templates, and a note kind's template), canned response, macro
+
+**Inbox category**
+One of an admin's list of names a **Conversation** is filed under (bookings, payments, an injury),
+set in Settings → Inbox; the inbox filters by it (ADR 0749).
+_Avoid_: tag (that is a record's), note kind, label
+
 **Note level**
 Who may read a note (stage 56, ADR 0830): `staff` (every staff account, the default and every
 note before stage 56), `coaches` (its author, the staff who look after its one Person, admins and
