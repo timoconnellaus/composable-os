@@ -460,14 +460,19 @@ export class ClientObject<E extends HostBindings> {
     const parts = objectNameParts(stored);
     this.client = parts?.client ?? null;
     this.name = parts?.name;
-    ctx.blockConcurrencyWhile(async () => {
-      if (!parts) {
-        throw new NoClientError(
-          `A Durable Object on a many-client host is named <client>${OBJECT_NAME_SEPARATOR}<name>: refused`,
-        );
-      }
-      await this.refresh();
-    });
+    // A throw here resets the object and fails the event that woke it: the refusal. The promise
+    // itself is not awaited by anyone, so its rejection is caught here (the runtime has already
+    // refused the event) rather than reported as unhandled.
+    ctx
+      .blockConcurrencyWhile(async () => {
+        if (!parts) {
+          throw new NoClientError(
+            `A Durable Object on a many-client host is named <client>${OBJECT_NAME_SEPARATOR}<name>: refused`,
+          );
+        }
+        await this.refresh();
+      })
+      .catch(() => {});
   }
 
   /**

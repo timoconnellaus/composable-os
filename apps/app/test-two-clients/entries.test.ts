@@ -258,12 +258,14 @@ describe("each client's staff, at their own address (criterion 3)", () => {
     await aThread.threadState("user-1", {});
     // B's object of the same name is another object: it has no owner yet, so user-2 takes it.
     const bThread = await threadStub(bEnv.ASSISTANT as never, "user-1");
-    await expect(bThread.threadState("user-2", {})).resolves.toBeTruthy();
+    await expect((async () => await bThread.threadState("user-2", {}))()).resolves.toBeTruthy();
     // A's is user-1's: user-2 is refused there.
-    await expect(aThread.threadState("user-2", {})).rejects.toThrow(/No such thread/);
+    await expect((async () => await aThread.threadState("user-2", {}))()).rejects.toThrow(
+      /No such thread/,
+    );
     // The raw namespace with a name that carries no client refuses.
     const raw = host.ASSISTANT.get(host.ASSISTANT.idFromName("user:1"));
-    await expect(raw.threadState("user-1", {})).rejects.toThrow();
+    await expect((async () => await raw.threadState("user-1", {}))()).rejects.toThrow();
   });
 });
 

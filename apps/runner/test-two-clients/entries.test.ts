@@ -291,8 +291,9 @@ describe("the runner's D1 binding", () => {
 
 describe("Durable Objects, Workflows and minted entrypoints decide their client themselves", () => {
   it("an object refuses a name with no client, or a client the registry does not have", async () => {
-    const gate = (name: string) =>
-      (env as unknown as Env).CODE_MODE_GATE.getByName(name).acquire(1000);
+    // A native promise of the call's outcome: an RPC promise handed to `expect` is read twice.
+    const gate = async (name: string) =>
+      await (env as unknown as Env).CODE_MODE_GATE.getByName(name).acquire(1000);
     await expect(gate("user-1")).rejects.toThrow(/named <client>:<name>/);
     await expect(gate("gym-nobody:user-1")).rejects.toThrow();
     expect(typeof (await gate(`${a.id}:user-1`))).toBe("string");
