@@ -26,10 +26,12 @@ import {
   consumeByClient,
   consumeDeadLetters,
   consumeFanOut,
+  consumeParked,
   decideRequest,
   fanOutCron,
   isDeadLetterQueue,
   isFanOutQueue,
+  isParkingQueue,
   servesManyClients,
   unknownHostResponse,
 } from "@composable-os/db/client-entries";
@@ -261,9 +263,15 @@ export async function hostQueue(batch: MessageBatch<unknown>, env: Env): Promise
   }
   // By the queue the batch came from, never by what a message looks like (review of #512, M1).
   if (isFanOutQueue(batch.queue)) {
-    await consumeFanOut(env, batch, {
-      tick: (clientEnv, tick) => runInClientEnv(clientEnv, () => runAppCron(clientEnv, tick.cron)),
-      parked: { [ROUTINE_DELIVERY_QUEUE]: deliverRoutines },
+    await consumeFanOut(env, batch, (clientEnv, tick) =>
+      runInClientEnv(clientEnv, () => runAppCron(clientEnv, tick.cron)),
+    );
+    return;
+  }
+  if (isParkingQueue(batch.queue)) {
+    await consumeParked(env, batch, {
+      // cos-routine-delivery's consumer: 3 retries, 10 s apart (wrangler.jsonc).
+      [ROUTINE_DELIVERY_QUEUE]: { consume: deliverRoutines, maxRetries: 3, retryDelaySeconds: 10 },
     });
     return;
   }

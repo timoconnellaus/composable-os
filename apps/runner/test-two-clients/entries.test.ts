@@ -9,16 +9,26 @@ import {
   createScheduledController,
   env,
   getQueueResult,
+  runInDurableObject,
 } from "cloudflare:test";
 import { type ActingUser, invokeByName, newId, vendorBinding } from "@composable-os/core";
 import { createCrmDb } from "@composable-os/db";
-import { clientObjectName, RUNNER_METHODS } from "@composable-os/db/client-bindings";
+import {
+  clientObjectName,
+  keepLoaderApart,
+  RUNNER_METHODS,
+} from "@composable-os/db/client-bindings";
 import {
   consumeByClient,
   consumeFanOut,
+  consumeParked,
   FANOUT_CONSUMER,
   gatekeeperOffered,
+  isRunnerCaller,
   PARKING,
+  PARKING_LEDGER_NAME,
+  type ParkedConsumer,
+  perClientMissing,
   propsClientEnvironment,
   RUNNER_CALLER,
   runnerCallerProps,
@@ -26,16 +36,25 @@ import {
   workflowRun,
 } from "@composable-os/db/client-entries";
 import { clientOf, environmentFor } from "@composable-os/db/client-environment";
+import {
+  CLIENT_OBJECT,
+  ClientDurableObject,
+  type ClientObject,
+  refreshOnEachCall,
+} from "@composable-os/db/client-objects";
+import { PARKING_HORIZON_MS, type ParkingLedger } from "@composable-os/db/client-parking";
 import { bindingProof, PROOF } from "@composable-os/db/client-proofs";
 import type { ClientId } from "@composable-os/db/registry";
 import { setUpTwoClients, TWO_CLIENTS } from "@composable-os/db/testing/two-clients";
-import { beforeAll, describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 import Runner, { ClientRunner, extensionHost } from "../src/index.ts";
 import { availableVendors, hostFor, integrationRuntime } from "../src/integrations/runtime.ts";
 
-const { a, b, paused, behind } = TWO_CLIENTS;
-/** The suite's host binding key (vitest.two-client.config.ts). */
+const { a, b, paused, moving, behind } = TWO_CLIENTS;
+/** The suite's object-naming key (vitest.two-client.config.ts). */
 const KEY = "two-client-suite-binding-key-0123456789abcdef";
+/** The suite's props key (packages/db/testing/vitest.ts, `TEST_PROPS_KEY`). */
+const TEST_PROPS_KEY = (env as unknown as { COS_PROPS_KEY: string }).COS_PROPS_KEY;
 
 interface CallAs {
   callAs(client: string, method: string, args: unknown[]): Promise<unknown>;
@@ -46,7 +65,7 @@ interface CallAs {
 /** An execution context with the props the deploy fixes on cos-app's binding (S4). */
 const fromApp = () =>
   Object.assign(createExecutionContext(), {
-    props: runnerCallerProps(KEY),
+    props: runnerCallerProps(TEST_PROPS_KEY, "live"),
   }) as ExecutionContext;
 const entry = new Runner(fromApp(), env as unknown as Env) as unknown as CallAs;
 /** The runner's methods as `client`, as cos-app's RUNNER wrapper calls them. */
@@ -110,7 +129,9 @@ describe("the runner's RPC on a many-client host", () => {
     for (const props of [
       { caller: "cos-front" },
       { ...RUNNER_CALLER },
-      runnerCallerProps(`${KEY}x`),
+      runnerCallerProps(`${TEST_PROPS_KEY}x`, "live"),
+      // The object-naming key's proof is no props proof (#515, S4: two keys).
+      runnerCallerProps(KEY, "live"),
     ]) {
       const forged = new Runner(
         Object.assign(createExecutionContext(), { props }) as ExecutionContext,
@@ -225,11 +246,28 @@ describe("automation events", () => {
         body: { cosClient: behind.id, body: event("4") },
       },
     ]);
+    const parked: unknown[] = [];
+    const host = {
+      ...(env as unknown as Env),
+      CLIENT_PARKING: { send: async (body: unknown) => void parked.push(body) },
+    } as unknown as Env;
     const ctx = createExecutionContext();
-    await new Runner(ctx, env as unknown as Env).queue(batch);
+    await new Runner(ctx, host).queue(batch);
     const result = await getQueueResult(batch, ctx);
-    expect(result.explicitAcks.sort()).toEqual(["e-a", "e-b"]);
-    expect(result.retryMessages.map((m) => m.msgId).sort()).toEqual(["e-behind", "e-none"]);
+    // The client behind the code's schema waits: parked, acked, never retried.
+    expect(result.explicitAcks.sort()).toEqual(["e-a", "e-b", "e-behind"]);
+    expect(result.retryMessages.map((m) => m.msgId).sort()).toEqual(["e-none"]);
+    expect(parked).toMatchObject([{ cosParked: 1, stamped: { cosClient: behind.id } }]);
+  });
+
+  it("are refused whole, with what is missing said, on a host of many clients with no parking (review of #520, M5)", async () => {
+    const batch = createMessageBatch<unknown>("cos-automation-events", [
+      { id: "e-p", timestamp: new Date(), attempts: 1, body: { cosClient: paused.id, body: {} } },
+    ]);
+    const host = { ...(env as unknown as Env), CLIENT_PARKING_LEDGER: undefined } as unknown as Env;
+    await expect(new Runner(createExecutionContext(), host).queue(batch)).rejects.toThrow(
+      /binds CLIENT_PARKING and CLIENT_PARKING_LEDGER/,
+    );
   });
 
   it("are sent stamped with the client by the queue in a client's environment", async () => {
@@ -271,6 +309,27 @@ export default defineExtension({
 `,
   });
 
+  it("a worker id named through one client's LOADER is never another client's warm worker (review of #520, M3)", async () => {
+    const code = () => ({
+      compatibilityDate: "2026-10-01",
+      mainModule: "m.js",
+      modules: {
+        "m.js":
+          "let n = 0; export default { fetch() { n += 1; return new Response(String(n)); } };",
+      },
+    });
+    const count = async (loader: WorkerLoader, id: string) =>
+      Number(await (await loader.get(id, code).getEntrypoint().fetch("https://w/")).text());
+    const aLoader = (await clientEnv(a.id)).LOADER;
+    const bLoader = (await clientEnv(b.id)).LOADER;
+    expect(await count(bLoader, "probe-m3")).toBe(1);
+    expect(await count(bLoader, "probe-m3")).toBe(2);
+    // gym-b's worker as the real Worker Loader knows it, asked for through gym-a's: a new one.
+    expect(await count(aLoader, "client:gym-b:probe-m3")).toBe(1);
+    expect(await count(aLoader, "probe-m3")).toBe(1);
+    expect(await count(bLoader, "probe-m3")).toBe(3);
+  });
+
   it("are each client's own: same pack, two workspaces, two Worker Loader ids, no shared state", async () => {
     const id = "counter";
     const seen: string[] = [];
@@ -286,7 +345,10 @@ export default defineExtension({
     for (const client of [a.id, b.id]) {
       const clientEnvironment = await clientEnv(client);
       const admin = await adminIn(clientEnvironment);
-      const host = extensionHost(clientEnvironment, { loader: counting(env.LOADER) });
+      // The client's own LOADER (keepLoaderApart) over a recorder of what the real one is asked.
+      const host = extensionHost(clientEnvironment, {
+        loader: keepLoaderApart(counting(env.LOADER), client as ClientId),
+      });
       const installed = (await invokeByName(
         "extension.install",
         { id, files: files(id) },
@@ -467,15 +529,120 @@ describe("Durable Objects, Workflows and minted entrypoints decide their client 
     // plain `<client>:<name>`, a made-up proof and another name's proof are refused (S1).
     await expect(gate(`${b.id}:user-1`)).rejects.toThrow(/named <client>:<name>/);
     await expect(gate(`${b.id}:${"0".repeat(32)}:user-1`)).rejects.toThrow();
-    const otherProof = clientObjectName(b.id as ClientId, "user-9", KEY).split(":")[1];
+    const otherProof = clientObjectName(b.id as ClientId, b.generation, "user-9", KEY).split(
+      ":",
+    )[1];
     await expect(gate(`${b.id}:${otherProof}:user-1`)).rejects.toThrow();
-    expect(typeof (await gate(clientObjectName(a.id as ClientId, "user-1", KEY)))).toBe("string");
+    expect(
+      typeof (await gate(clientObjectName(a.id as ClientId, a.generation, "user-1", KEY))),
+    ).toBe("string");
     // Through each client's environment the same caller's name is two objects.
     const aGate = (await clientEnv(a.id)).CODE_MODE_GATE.getByName("user-2");
     const bGate = (await clientEnv(b.id)).CODE_MODE_GATE.getByName("user-2");
     expect(typeof (await aGate.acquire(60_000))).toBe("string");
     expect(typeof (await bGate.acquire(60_000))).toBe("string");
     expect(await aGate.acquire(60_000)).toBeNull();
+  });
+
+  it("an object named for an earlier client of the same id is refused (#515, S3)", async () => {
+    // What gym-a's objects were called before it was removed and added again: another generation.
+    const earlier = clientObjectName(a.id as ClientId, "f6".repeat(16), "user-3", KEY);
+    await expect(
+      (async () => await (env as unknown as Env).CODE_MODE_GATE.getByName(earlier).acquire(1000))(),
+    ).rejects.toThrow(/not the host's for its client/);
+  });
+
+  it("an object's code holds its client's environment only, and signs for its own client only (#515, S2)", async () => {
+    const stub = (await clientEnv(a.id)).INTEGRATION_HOST.getByName("conn-s2");
+    await runInDurableObject(stub as never, async (instance: object) => {
+      const objectEnv = (instance as { env: Record<string, unknown> }).env;
+      // The host's keys, the registry, every client's databases and the raw namespaces: absent.
+      for (const name of [
+        "COS_BINDING_KEY",
+        "COS_PROPS_KEY",
+        "COS_ROOT_KEY",
+        "REGISTRY",
+        "CLIENT_DB",
+        "CLIENT_DB_QUERIES",
+        "CLIENT_FANOUT",
+        "CLIENT_PARKING",
+        "CLIENT_PARKING_LEDGER",
+      ]) {
+        expect(objectEnv[name], name).toBeUndefined();
+        expect(name in objectEnv, name).toBe(false);
+      }
+      expect(Object.keys(objectEnv)).toEqual(Object.keys(await clientEnv(a.id)));
+      expect(objectEnv.COS_CLIENT_ID).toBe(a.id);
+      // It answers as gym-a's environment to the checks that tell one (review of #520, M1).
+      expect(clientOf(objectEnv)).toBe(a.id);
+      expect(perClientMissing(objectEnv, "MCP_RESOURCE_NOT_A_NAME")).toMatch(/each client's own/);
+      // Its namespaces are gym-a's wrappers: the same name through them is gym-a's object.
+      const viaObject = (objectEnv.CODE_MODE_GATE as DurableObjectNamespace).idFromName("user-s2");
+      const viaA = (await clientEnv(a.id)).CODE_MODE_GATE.idFromName("user-s2");
+      expect(viaObject.equals(viaA)).toBe(true);
+      // Nothing is written through it.
+      expect(Reflect.set(objectEnv, "REGISTRY", {})).toBe(false);
+      // Its proof is of gym-a, its generation and the parts: there is no client to pass.
+      const owner = (instance as Record<symbol, ClientObject<Env>>)[CLIENT_OBJECT];
+      expect(owner?.proof(PROOF.callback, "conn-s2")).toBe(
+        bindingProof(TEST_PROPS_KEY, PROOF.callback, "live", a.id, a.generation, "conn-s2"),
+      );
+      expect(owner?.proof(PROOF.callback, b.id, "conn-s2")).not.toBe(
+        bindingProof(TEST_PROPS_KEY, PROOF.callback, "live", b.id, b.generation, "conn-s2"),
+      );
+    });
+  });
+
+  it("an object reaches no other client's parking ledger, nor the fake gatekeeper, through ctx.exports (review of #520, S3)", async () => {
+    const stub = (await clientEnv(a.id)).INTEGRATION_HOST.getByName("conn-s3");
+    await runInDurableObject(stub as never, async (instance: object) => {
+      const { exports } = (instance as { ctx: { exports: Record<string, DurableObjectNamespace> } })
+        .ctx;
+      const raw = exports.ParkingLedger as unknown as DurableObjectNamespace<ParkingLedger>;
+      // gym-b's ledger by its id, by a made-up proof, by gym-a's proof: each refused.
+      const aProof = clientObjectName(
+        a.id as ClientId,
+        a.generation,
+        PARKING_LEDGER_NAME,
+        KEY,
+      ).split(":")[1];
+      for (const name of [
+        b.id,
+        `${b.id}:${"0".repeat(32)}:${PARKING_LEDGER_NAME}`,
+        `${b.id}:${aProof}:${PARKING_LEDGER_NAME}`,
+        clientObjectName(b.id as ClientId, "f6".repeat(16), PARKING_LEDGER_NAME, KEY),
+      ]) {
+        const ledger = raw.get(raw.idFromName(name));
+        await expect((async () => await ledger.admit("probe", 0, 0))(), name).rejects.toThrow();
+        await expect((async () => await ledger.stats())(), name).rejects.toThrow();
+        await expect((async () => await ledger.settle("probe", true))(), name).rejects.toThrow();
+      }
+      // The fake gatekeeper's classes refuse to be built on a host of many clients.
+      // Each through a method it has, so only the refusal can fail the call.
+      for (const [name, method] of [
+        ["FakeAccount", "describe"],
+        ["FakeProvider", "messages"],
+      ] as const) {
+        const namespace = exports[name] as unknown as DurableObjectNamespace;
+        const fake = namespace.get(namespace.idFromName("x")) as unknown as Record<
+          string,
+          () => Promise<unknown>
+        >;
+        await expect((async () => await fake[method]?.())(), name).rejects.toThrow(
+          /never on a host of many clients/,
+        );
+      }
+    });
+    // gym-b's real ledger, as the host's parking names it, saw none of it.
+    const ledgers = (
+      env as unknown as { CLIENT_PARKING_LEDGER: DurableObjectNamespace<ParkingLedger> }
+    ).CLIENT_PARKING_LEDGER;
+    const bLedger = ledgers.get(
+      ledgers.idFromName(
+        clientObjectName(b.id as ClientId, b.generation, PARKING_LEDGER_NAME, KEY),
+      ),
+    );
+    expect(await bLedger.stats()).toEqual({ parked: 0, givenUpTotal: 0 });
   });
 
   it("a Workflow instance runs only as the client its id and stamped params agree on", async () => {
@@ -496,9 +663,11 @@ describe("Durable Objects, Workflows and minted entrypoints decide their client 
 
   it("a gatekeeper's callback reaches only the client its props were minted with, with the host's proof", async () => {
     const host = env as unknown as Env;
-    const minted = (client: string, connection: string) => ({
+    const generation = (client: string) =>
+      client === a.id ? a.generation : client === b.id ? b.generation : "";
+    const minted = (client: string, connection: string, key = TEST_PROPS_KEY) => ({
       client,
-      proof: bindingProof(KEY, PROOF.callback, client, connection),
+      proof: bindingProof(key, PROOF.callback, "live", client, generation(client), connection),
     });
     await expect(propsClientEnvironment(host, {}, PROOF.callback, "c")).rejects.toThrow(
       /No client/,
@@ -507,12 +676,20 @@ describe("Durable Objects, Workflows and minted entrypoints decide their client 
       await clientEnv(a.id),
     );
     // What code without the key mints through ctx.exports: no proof, another client's, another
-    // connection's, or another purpose's (S1).
+    // connection's, another purpose's, or one for an earlier client of the id (S1; #515, S3).
     for (const props of [
       { client: b.id },
       { client: b.id, proof: minted(a.id, "c").proof },
       { client: b.id, proof: minted(b.id, "other").proof },
-      { client: b.id, proof: bindingProof(KEY, PROOF.clientApp, b.id) },
+      {
+        client: b.id,
+        proof: bindingProof(TEST_PROPS_KEY, PROOF.clientApp, "live", b.id, b.generation),
+      },
+      {
+        client: b.id,
+        proof: bindingProof(TEST_PROPS_KEY, PROOF.callback, "live", b.id, "f6".repeat(16), "c"),
+      },
+      minted(b.id, "c", `${TEST_PROPS_KEY}-other`),
     ]) {
       await expect(propsClientEnvironment(host, props, PROOF.callback, "c")).rejects.toThrow(
         /not minted by the host/,
@@ -522,9 +699,30 @@ describe("Durable Objects, Workflows and minted entrypoints decide their client 
       propsClientEnvironment(host, minted("gym-nobody", "c"), PROOF.callback, "c"),
     ).rejects.toThrow();
   });
+
+  it("props signed with the key before a rotation are still accepted, and never made (#515, S4)", async () => {
+    const host = {
+      ...(env as unknown as Env),
+      COS_PROPS_KEY: `${TEST_PROPS_KEY}-new`,
+      COS_PROPS_KEY_PREVIOUS: TEST_PROPS_KEY,
+    } as unknown as Env;
+    const old = {
+      client: a.id,
+      proof: bindingProof(TEST_PROPS_KEY, PROOF.callback, "live", a.id, a.generation, "c"),
+    };
+    await expect(propsClientEnvironment(host, old, PROOF.callback, "c")).resolves.toBeTruthy();
+    // Once the previous key is dropped, the old props are no proof.
+    const after = { ...host, COS_PROPS_KEY_PREVIOUS: undefined } as unknown as Env;
+    await expect(propsClientEnvironment(after, old, PROOF.callback, "c")).rejects.toThrow(
+      /not minted by the host/,
+    );
+    // The runner's caller props rotate the same way.
+    expect(isRunnerCaller(runnerCallerProps(TEST_PROPS_KEY, "live"), host)).toBe(true);
+    expect(isRunnerCaller(runnerCallerProps(TEST_PROPS_KEY, "live"), after)).toBe(false);
+  });
 });
 
-describe("a client not served for a while (review of #512, S3 and S5)", () => {
+describe("a client not served for a while (review of #512, S3 and S5; #515)", () => {
   const event = (id: string) => ({
     v: 1,
     kind: "record",
@@ -533,8 +731,8 @@ describe("a client not served for a while (review of #512, S3 and S5)", () => {
     origin: { surface: "ui" },
     changes: [],
   });
-  /** A fan-out queue the suite holds: what is sent to it, and with what delay. */
-  const fanOutQueue = () => {
+  /** A queue the suite holds: what is sent to it, and with what delay. */
+  const heldQueue = () => {
     const sent: { body: unknown; delaySeconds?: number }[] = [];
     return {
       sent,
@@ -546,12 +744,56 @@ describe("a client not served for a while (review of #512, S3 and S5)", () => {
       },
     };
   };
+  const setStatus = (id: string, status: string) =>
+    (env as unknown as { REGISTRY: D1Database }).REGISTRY.prepare(
+      "UPDATE registry_clients SET status = ? WHERE id = ?",
+    )
+      .bind(status, id)
+      .run();
+  const ledgers = () =>
+    (env as unknown as { CLIENT_PARKING_LEDGER: DurableObjectNamespace<ParkingLedger> })
+      .CLIENT_PARKING_LEDGER;
+  /** A client's ledger as the host's parking names it (review of #520, S3). */
+  const generationOf = (client: string) =>
+    Object.values(TWO_CLIENTS).find((c) => c.id === client)?.generation ?? "";
+  const ledgerOf = (client: string) =>
+    ledgers().get(
+      ledgers().idFromName(
+        clientObjectName(client as ClientId, generationOf(client), PARKING_LEDGER_NAME, KEY),
+      ),
+    );
+  const automationConsumer = (
+    consume: ParkedConsumer<Env>["consume"] = async () => {},
+  ): Record<string, ParkedConsumer<Env>> => ({
+    "cos-automation-events": { consume, maxRetries: 5, retryDelaySeconds: 10 },
+  });
+  /** One delivery of the parking queue's message `body`, consumed. */
+  const deliver = async (
+    host: Env,
+    body: unknown,
+    consumers: Record<string, ParkedConsumer<Env>>,
+    at: number,
+    id = `delivery-${crypto.randomUUID()}`,
+  ) => {
+    const batch = createMessageBatch<unknown>("cos-runner-parking", [
+      { id, timestamp: new Date(at), attempts: 1, body },
+    ]);
+    const ctx = createExecutionContext();
+    await consumeParked(host, batch, consumers, { now: () => at });
+    return getQueueResult(batch, ctx);
+  };
 
-  it("parks a paused client's events for the whole pause, never retrying, then handles them", async () => {
-    const queue = fanOutQueue();
-    const host = () => ({ ...(env as unknown as Env), CLIENT_FANOUT: queue }) as unknown as Env;
+  it("parks a paused client's events on the parking queue for the whole pause, never retrying, then handles them", async () => {
+    const parking = heldQueue();
+    const fanOut = heldQueue();
+    const host = () =>
+      ({
+        ...(env as unknown as Env),
+        CLIENT_PARKING: parking,
+        CLIENT_FANOUT: fanOut,
+      }) as unknown as Env;
     const start = 1_000_000;
-    // A message for the paused client: parked on the fan-out queue, the original acked.
+    // A message for the paused client: parked on the parking queue, the original acked.
     const first = createMessageBatch<unknown>("cos-automation-events", [
       {
         id: "p-1",
@@ -565,106 +807,244 @@ describe("a client not served for a while (review of #512, S3 and S5)", () => {
     const firstResult = await getQueueResult(first, ctx);
     expect(firstResult.explicitAcks).toEqual(["p-1"]);
     expect(firstResult.retryMessages).toEqual([]);
-    expect(queue.sent.at(-1)?.delaySeconds).toBe(PARKING.firstDelaySeconds);
+    expect(parking.sent.at(-1)?.delaySeconds).toBe(PARKING.firstDelaySeconds);
+    expect(parking.sent.at(-1)?.body).toMatchObject({
+      cosParked: 1,
+      queue: "cos-automation-events",
+      generation: paused.generation,
+      failures: 0,
+    });
+    // The crons' fan-out queue carries nothing of it: ticks never wait behind a backlog (S5).
+    expect(fanOut.sent).toEqual([]);
     // Ten minutes of pause: each time it comes back it is parked again, waiting longer, never
     // retried (so `max_retries` is never reached).
     const delays: number[] = [];
     let at = start;
     while (at - start < 10 * 60 * 1000) {
-      const parked = queue.sent.at(-1);
+      const parked = parking.sent.at(-1);
       at += (parked?.delaySeconds ?? 0) * 1000;
-      const batch = createMessageBatch<unknown>("cos-runner-fanout", [
-        { id: `again-${at}`, timestamp: new Date(at), attempts: 1, body: parked?.body },
-      ]);
-      const c = createExecutionContext();
-      await consumeFanOut(
-        host(),
-        batch,
-        { tick: async () => {}, parked: { "cos-automation-events": async () => {} } },
-        { now: () => at },
-      );
-      const r = await getQueueResult(batch, c);
+      const r = await deliver(host(), parked?.body, automationConsumer(), at);
       expect(r.retryMessages).toEqual([]);
-      delays.push(queue.sent.at(-1)?.delaySeconds ?? 0);
+      delays.push(parking.sent.at(-1)?.delaySeconds ?? 0);
     }
     expect(delays.slice(0, 4)).toEqual([120, 240, 480, 900]);
     expect(Math.max(...delays)).toBe(PARKING.maxDelaySeconds);
     // The client resumes: the parked event is handled by the events' consumer, in its environment.
-    await (env as unknown as { REGISTRY: D1Database }).REGISTRY.prepare(
-      "UPDATE registry_clients SET status = 'active' WHERE id = ?",
-    )
-      .bind(paused.id)
-      .run();
+    await setStatus(paused.id, "active");
     try {
       const handled: string[] = [];
-      const parked = queue.sent.at(-1);
-      const last = createMessageBatch<unknown>("cos-runner-fanout", [
-        { id: "resumed", timestamp: new Date(at), attempts: 1, body: parked?.body },
-      ]);
-      const c = createExecutionContext();
-      await consumeFanOut(
+      const parked = parking.sent.at(-1);
+      const r = await deliver(
         host(),
-        last,
-        {
-          tick: async () => {},
-          parked: {
-            "cos-automation-events": async (clientEnv, share) => {
-              handled.push(String(clientOf(clientEnv)));
-              share.ackAll();
-            },
-          },
-        },
-        { now: () => at },
+        parked?.body,
+        automationConsumer(async (clientEnv, share) => {
+          handled.push(String(clientOf(clientEnv)));
+          share.ackAll();
+        }),
+        at,
+        "resumed",
       );
-      const r = await getQueueResult(last, c);
       expect(handled).toEqual([paused.id]);
       expect(r.explicitAcks).toEqual(["resumed"]);
+      // Handled once: delivered again (queues deliver at least once), it is dropped.
+      const again = await deliver(
+        host(),
+        parked?.body,
+        automationConsumer(async () => {
+          handled.push("twice");
+        }),
+        at,
+      );
+      expect(handled).toEqual([paused.id]);
+      expect(again.explicitAcks.length).toBe(1);
     } finally {
-      await (env as unknown as { REGISTRY: D1Database }).REGISTRY.prepare(
-        "UPDATE registry_clients SET status = 'paused' WHERE id = ?",
-      )
-        .bind(paused.id)
-        .run();
+      await setStatus(paused.id, "paused");
     }
   });
 
-  it("gives a parked message up after 7 days, as a dead letter, and never acts on it", async () => {
-    const queue = fanOutQueue();
-    const host = { ...(env as unknown as Env), CLIENT_FANOUT: queue } as unknown as Env;
-    const parkedAt = 5_000;
-    const batch = createMessageBatch<unknown>("cos-runner-fanout", [
+  it("leaves no ledger row for a message it could not send, handles one sent but not recorded, and forgets old rows (review of #520, M5)", async () => {
+    const ledger = ledgerOf(moving.id);
+    const before = (await ledger.stats()).parked;
+    // The send fails: the message is retried on its own queue, and nothing counts towards the cap.
+    const failing = {
+      ...(env as unknown as Env),
+      CLIENT_PARKING: {
+        send: async () => {
+          throw new Error("queue down");
+        },
+      },
+    } as unknown as Env;
+    const batch = createMessageBatch<unknown>("cos-automation-events", [
       {
-        id: "old",
+        id: "m-x",
         timestamp: new Date(),
         attempts: 1,
-        body: {
-          cosParked: 1,
-          queue: "cos-automation-events",
-          stamped: { cosClient: paused.id, body: event("old") },
-          parkedAt,
-          delaySeconds: 900,
-        },
+        body: { cosClient: moving.id, body: event("x") },
       },
     ]);
-    const handled: string[] = [];
     const ctx = createExecutionContext();
-    await consumeFanOut(
-      host,
-      batch,
-      {
-        tick: async () => {},
-        parked: {
-          "cos-automation-events": async () => {
-            handled.push("acted");
-          },
+    await consumeByClient(failing, batch, async () => {});
+    const result = await getQueueResult(batch, ctx);
+    expect(result.retryMessages.map((m) => m.msgId)).toEqual(["m-x"]);
+    expect((await ledger.stats()).parked).toBe(before);
+    // Sent, but its row never written: its delivery handles it, and says so.
+    await setStatus(moving.id, "active");
+    const warned: string[] = [];
+    const warn = vi.spyOn(console, "warn").mockImplementation((line: string) => {
+      warned.push(String(line));
+    });
+    try {
+      const handled: string[] = [];
+      const r = await deliver(
+        { ...(env as unknown as Env), CLIENT_PARKING: heldQueue() } as unknown as Env,
+        {
+          cosParked: 1,
+          id: crypto.randomUUID(),
+          queue: "cos-automation-events",
+          stamped: { cosClient: moving.id, body: event("unrecorded") },
+          generation: moving.generation,
+          parkedAt: Date.now(),
+          delaySeconds: 60,
+          failures: 0,
         },
-      },
-      { now: () => parkedAt + PARKING.giveUpAfterMs + 1 },
+        automationConsumer(async (_clientEnv, share) => {
+          handled.push("handled");
+          share.ackAll();
+        }),
+        Date.now(),
+      );
+      expect(handled).toEqual(["handled"]);
+      expect(r.explicitAcks.length).toBe(1);
+      expect(warned.some((line) => line.includes("cos.queue.parked_unrecorded"))).toBe(true);
+      expect(warned.join("\n")).not.toContain("audit-unrecorded");
+    } finally {
+      warn.mockRestore();
+      await setStatus(moving.id, "moving");
+    }
+    // A row older than the horizon (its delivery never came) is forgotten on the next admit
+    // (on a ledger no other test counts).
+    const aside = ledgerOf(behind.id);
+    const old = crypto.randomUUID();
+    await aside.admit(old, 0, PARKING.maxPerClient, 0);
+    const counted = (await aside.stats()).parked;
+    await aside.admit(
+      crypto.randomUUID(),
+      PARKING_HORIZON_MS + 10,
+      PARKING.maxPerClient,
+      PARKING_HORIZON_MS + 10,
     );
-    const r = await getQueueResult(batch, ctx);
-    expect(r.explicitAcks).toEqual(["old"]);
+    expect((await aside.stats()).parked).toBe(counted);
+  });
+
+  it("retries a parked message as its own queue would, then gives it up (#515)", async () => {
+    const parking = heldQueue();
+    const host = { ...(env as unknown as Env), CLIENT_PARKING: parking } as unknown as Env;
+    const id = crypto.randomUUID();
+    await ledgerOf(a.id).admit(id, 1, PARKING.maxPerClient);
+    let body: unknown = {
+      cosParked: 1,
+      id,
+      queue: "cos-automation-events",
+      stamped: { cosClient: a.id, body: event("retry") },
+      generation: a.generation,
+      parkedAt: Date.now(),
+      delaySeconds: 60,
+      failures: 0,
+    };
+    let tries = 0;
+    const failing = automationConsumer(async (_clientEnv, share) => {
+      tries += 1;
+      share.retryAll();
+    });
+    // cos-automation-events retries 5 times, 10 s apart: so does its parked message.
+    for (let i = 1; i <= 5; i++) {
+      await deliver(host, body, failing, Date.now());
+      expect(parking.sent.at(-1)).toMatchObject({ delaySeconds: 10, body: { failures: i } });
+      body = parking.sent.at(-1)?.body;
+    }
+    const sentBefore = parking.sent.length;
+    const r = await deliver(host, body, failing, Date.now());
+    expect(tries).toBe(6);
+    expect(r.explicitAcks.length).toBe(1);
+    expect(parking.sent.length).toBe(sentBefore);
+    expect((await ledgerOf(a.id).stats()).givenUpTotal).toBeGreaterThanOrEqual(1);
+  });
+
+  it("gives up a client's oldest parked messages over its cap, counted, never acting on them (#515, S5)", async () => {
+    const parking = heldQueue();
+    const host = { ...(env as unknown as Env), CLIENT_PARKING: parking } as unknown as Env;
+    const ledger = ledgerOf(moving.id);
+    const before = (await ledger.stats()).givenUpTotal;
+    const cap = 3;
+    const ids = ["m-1", "m-2", "m-3", "m-4", "m-5"];
+    const gaveUp: string[] = [];
+    for (const [i, id] of ids.entries()) gaveUp.push(...(await ledger.admit(id, i, cap, i)));
+    expect(gaveUp).toEqual(["m-1", "m-2"]);
+    expect(await ledger.stats()).toEqual({ parked: 3, givenUpTotal: before + 2 });
+    // When one given up comes back from the queue, it is not handled.
+    await setStatus(moving.id, "active");
+    try {
+      const handled: string[] = [];
+      const r = await deliver(
+        host,
+        {
+          cosParked: 1,
+          id: "m-1",
+          queue: "cos-automation-events",
+          stamped: { cosClient: moving.id, body: event("m-1") },
+          generation: moving.generation,
+          parkedAt: 0,
+          delaySeconds: 60,
+          failures: 0,
+        },
+        automationConsumer(async () => {
+          handled.push("acted");
+        }),
+        1,
+      );
+      expect(handled).toEqual([]);
+      expect(r.explicitAcks.length).toBe(1);
+    } finally {
+      await setStatus(moving.id, "moving");
+    }
+    // The cap the host uses.
+    expect(PARKING.maxPerClient).toBe(1000);
+  });
+
+  it("gives a parked message up after 7 days, or when parked for an earlier client of its id", async () => {
+    const parking = heldQueue();
+    const host = { ...(env as unknown as Env), CLIENT_PARKING: parking } as unknown as Env;
+    const parkedAt = 5_000;
+    const handled: string[] = [];
+    const acting = automationConsumer(async () => {
+      handled.push("acted");
+    });
+    const parkedFor = async (client: string, generation: string) => {
+      const id = crypto.randomUUID();
+      await ledgerOf(client).admit(id, parkedAt, PARKING.maxPerClient);
+      return {
+        cosParked: 1,
+        id,
+        queue: "cos-automation-events",
+        stamped: { cosClient: client, body: event(id) },
+        generation,
+        parkedAt,
+        delaySeconds: 900,
+        failures: 0,
+      };
+    };
+    const old = await deliver(
+      host,
+      await parkedFor(paused.id, paused.generation),
+      acting,
+      parkedAt + PARKING.giveUpAfterMs + 1,
+    );
+    expect(old.explicitAcks.length).toBe(1);
+    // gym-a now is not the gym-a it was parked for (S3).
+    const earlier = await deliver(host, await parkedFor(a.id, "f6".repeat(16)), acting, parkedAt);
+    expect(earlier.explicitAcks.length).toBe(1);
     expect(handled).toEqual([]);
-    expect(queue.sent).toEqual([]);
+    expect(parking.sent).toEqual([]);
   });
 
   it("runs a fan-out batch one client's tick at a time, each acked on its own", async () => {
@@ -677,16 +1057,13 @@ describe("a client not served for a while (review of #512, S3 and S5)", () => {
       { id: "3", timestamp: new Date(), attempts: 1, body: tick(a.id) },
     ]);
     const ctx = createExecutionContext();
-    await consumeFanOut(env as unknown as Env, batch, {
-      tick: async (clientEnv) => {
-        running += 1;
-        most = Math.max(most, running);
-        order.push(String(clientOf(clientEnv)));
-        await new Promise((resolve) => setTimeout(resolve, 5));
-        running -= 1;
-        if (order.length === 2) throw new Error("gym-b's tick fails");
-      },
-      parked: {},
+    await consumeFanOut(env as unknown as Env, batch, async (clientEnv) => {
+      running += 1;
+      most = Math.max(most, running);
+      order.push(String(clientOf(clientEnv)));
+      await new Promise((resolve) => setTimeout(resolve, 5));
+      running -= 1;
+      if (order.length === 2) throw new Error("gym-b's tick fails");
     });
     const r = await getQueueResult(batch, ctx);
     expect(most).toBe(1);
@@ -697,12 +1074,51 @@ describe("a client not served for a while (review of #512, S3 and S5)", () => {
   });
 });
 
-describe("a warm object of a client that stops being served (review of #512, M2)", () => {
+/** A base class shaped as a Durable Object's, with an inherited sync and async method. */
+class ProbeBase {
+  ctx: DurableObjectState;
+  env: unknown;
+  constructor(ctx: DurableObjectState, env: unknown) {
+    this.ctx = ctx;
+    this.env = env;
+  }
+  inheritedSync(): string {
+    return "inherited";
+  }
+}
+
+/** An object class with a sync method, an inherited one and a plain-promise one (#515). */
+class Probe extends ClientDurableObject(ProbeBase) {
+  sync(): number {
+    return 1;
+  }
+  promised(): Promise<number> {
+    return Promise.resolve(2);
+  }
+  callsItsOwn(): number {
+    return this.sync() + 1;
+  }
+}
+refreshOnEachCall(Probe);
+
+describe("a warm object of a client that stops being served (review of #512, M2; #515)", () => {
   it("refuses its next call once the registry pauses the client, and serves again on resume", async () => {
     const registry = (env as unknown as { REGISTRY: D1Database }).REGISTRY;
     const gate = (await clientEnv(b.id)).CODE_MODE_GATE.getByName("warm-user");
     const acquire = async () => await gate.acquire(1_000);
     expect(typeof (await acquire())).toBe("string");
+    // An object of each kind of method, warm: a sync one, an inherited one, one that answers a
+    // promise without being an async function (#515: no method is skipped for how it is written).
+    const ctx = {
+      id: { name: clientObjectName(b.id as ClientId, b.generation, "probe", KEY) },
+      blockConcurrencyWhile: (run: () => Promise<unknown>) => run(),
+    } as unknown as DurableObjectState;
+    const probe = new Probe(ctx, env);
+    await (probe as unknown as Record<symbol, ClientObject<Env>>)[CLIENT_OBJECT]?.refresh();
+    expect(probe.sync()).toBe(1);
+    expect(probe.inheritedSync()).toBe("inherited");
+    expect(await probe.promised()).toBe(2);
+    expect(probe.callsItsOwn()).toBe(2);
     await registry
       .prepare("UPDATE registry_clients SET status = 'paused' WHERE id = ?")
       .bind(b.id)
@@ -711,6 +1127,14 @@ describe("a warm object of a client that stops being served (review of #512, M2)
       // The object's isolate reads the registry's stamp at most every 10 seconds.
       await new Promise((resolve) => setTimeout(resolve, 10_500));
       await expect(acquire()).rejects.toThrow(/not served now|paused/);
+      for (const call of [
+        () => probe.sync(),
+        () => probe.inheritedSync(),
+        () => probe.promised(),
+        () => probe.callsItsOwn(),
+      ]) {
+        await expect((async () => await call())()).rejects.toThrow(/not served now/);
+      }
     } finally {
       await registry
         .prepare("UPDATE registry_clients SET status = 'active' WHERE id = ?")
@@ -721,5 +1145,6 @@ describe("a warm object of a client that stops being served (review of #512, M2)
     // A stub of a reset object stays broken: a new one reaches the object again.
     const fresh = (await clientEnv(b.id)).CODE_MODE_GATE.getByName("warm-user");
     await expect((async () => await fresh.acquire(1_000))()).resolves.toBeDefined();
+    expect(await probe.sync()).toBe(1);
   }, 40_000);
 });

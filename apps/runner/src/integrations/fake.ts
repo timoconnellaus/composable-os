@@ -10,6 +10,7 @@
 import { DurableObject, RpcStub, RpcTarget, WorkerEntrypoint } from "cloudflare:workers";
 import { messageStatements, newConversationStatement } from "@composable-os/core";
 import { createCrmDb } from "@composable-os/db";
+import { servesManyClients } from "@composable-os/db/client-entries";
 import {
   AGREEMENT_FILENAME,
   agreementSummary,
@@ -193,9 +194,38 @@ function randomToken(): string {
     .replace(/=+$/, "");
 }
 
+// --- Never on a host of many clients ----------------------------------------------------------
+
+/**
+ * The fake gatekeeper keeps one deployment's fake books with the real `env`: on a host of many
+ * clients every class of it refuses to be built (review of #520, S3), so no object's code that
+ * reaches `ctx.exports` can use one, whatever the runner's entry does.
+ */
+function refuseOnFleet(env: unknown): void {
+  if (env && typeof env === "object" && servesManyClients(env)) {
+    throw new Error("The fake gatekeeper is never on a host of many clients (ADR 0616)");
+  }
+}
+
+/** The fake's Durable Object base: refused on a host of many clients. */
+abstract class FakeObject<E = Env, P = unknown> extends DurableObject<E, P> {
+  constructor(ctx: DurableObjectState<P>, env: E) {
+    refuseOnFleet(env);
+    super(ctx, env);
+  }
+}
+
+/** The fake's entrypoint base: refused on a host of many clients. */
+abstract class FakeEntrypoint<E = Env, P = unknown> extends WorkerEntrypoint<E, P> {
+  constructor(ctx: ExecutionContext<P>, env: E) {
+    refuseOnFleet(env);
+    super(ctx, env);
+  }
+}
+
 // --- The provider's data: one DO per mailbox address -------------------------------------------
 
-export class FakeProvider extends DurableObject<Env> {
+export class FakeProvider extends FakeObject<Env> {
   #seq(): number {
     const next = (this.ctx.storage.kv.get<number>("seq") ?? 0) + 1;
     this.ctx.storage.kv.put("seq", next);
@@ -352,7 +382,7 @@ interface AccountState {
 }
 
 /** One connected (or connecting) fake account. Serves the fake provider's consent page. */
-export class FakeAccount extends DurableObject<Env> {
+export class FakeAccount extends FakeObject<Env> {
   #state(): AccountState {
     return (
       this.ctx.storage.kv.get<AccountState>("state") ?? {
@@ -531,7 +561,7 @@ export async function fakeProviderFetch(env: Env, request: Request): Promise<Res
 
 // --- Gatekeeper interface ----------------------------------------------------------------------
 
-export class FakeGatekeeperVendor extends WorkerEntrypoint<Env> {
+export class FakeGatekeeperVendor extends FakeEntrypoint<Env> {
   async describe() {
     return {
       displayName: "Fake provider",
@@ -557,7 +587,7 @@ export class FakeGatekeeperVendor extends WorkerEntrypoint<Env> {
   }
 }
 
-export class FakeUser extends WorkerEntrypoint<Env, { accountId: string }> {
+export class FakeUser extends FakeEntrypoint<Env, { accountId: string }> {
   #account() {
     return account(this.env, this.ctx.props.accountId);
   }
@@ -623,7 +653,7 @@ export class FakeUser extends WorkerEntrypoint<Env, { accountId: string }> {
   }
 }
 
-export class FakeVerifier extends WorkerEntrypoint<Env, { accountId: string }> {}
+export class FakeVerifier extends FakeEntrypoint<Env, { accountId: string }> {}
 
 /** The `ui` capability resource pickers call (Settings → Integrations). */
 export class FakeConfiguratorUi extends RpcTarget {
@@ -637,7 +667,7 @@ export class FakeConfiguratorUi extends RpcTarget {
   }
 }
 
-export class FakeHookController extends WorkerEntrypoint<Env, { address: string; hookId: string }> {
+export class FakeHookController extends FakeEntrypoint<Env, { address: string; hookId: string }> {
   async enable(initiator: HookInitiatorStub, _target: unknown): Promise<void> {
     await provider(this.env, this.ctx.props.address).addInitiator(this.ctx.props.hookId, initiator);
   }
@@ -725,7 +755,7 @@ class FakeSession extends RpcTarget {
 }
 
 /** The facet: one per (connection, resource), owned by the integration host. */
-export class FakeGatekeeper extends DurableObject<
+export class FakeGatekeeper extends FakeObject<
   Env,
   { accountId: string; kind: FakeKind; address: string }
 > {

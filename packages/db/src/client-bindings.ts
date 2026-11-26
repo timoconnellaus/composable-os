@@ -16,6 +16,7 @@
 import {
   BINDING_KEY,
   bindingProof,
+  generationPart,
   hostBindingKey,
   isBindingProof,
   PROOF,
@@ -499,17 +500,39 @@ export const OBJECT_NAME_SEPARATOR = ":";
 const OBJECT_NAME_MAX_BYTES = 1024;
 
 /**
- * The stored name of a client's object: `<client>:<proof>:<name>`, the proof the host's HMAC of
- * the client and the name (client-proofs.ts). A client id never holds `:` and a proof is hex, so
- * the first two `:` end them, and every name a caller passes stays under its client. Without the
- * host's key no code can make a name the object accepts as another client's, even holding the raw
- * namespace (review of #512, S1).
+ * Names one client's objects: `name` → the stored name `<client>:<proof>:<name>`, the proof the
+ * host's HMAC (`COS_BINDING_KEY`) of the client, its secret generation and the name. A client id
+ * never holds `:` and a proof is hex, so the first two `:` end them, and every name a caller passes
+ * stays under its client. Made by the directory for one client (`clientObjectNamer`); the
+ * namespace wrapper holds only this function, never the key or the host's `env` (#515, S2).
  */
-export function clientObjectName(client: ClientId, name: unknown, key: string | null): string {
+export type ClientObjectNamer = (name: unknown) => string;
+
+/**
+ * The namer of `client`'s objects under the host's key in its real `env`, for the client's
+ * generation (a client id removed and added again would get other objects; #515, S3).
+ */
+export function clientObjectNamer(
+  host: object,
+  client: ClientId,
+  generation: string | null,
+): ClientObjectNamer {
+  const key = hostBindingKey(host);
+  const part = generationPart(generation);
+  return (name) => clientObjectName(client, part, name, key);
+}
+
+/** The stored name of a client's object (see `ClientObjectNamer`). */
+export function clientObjectName(
+  client: ClientId,
+  generation: string,
+  name: unknown,
+  key: string | null,
+): string {
   if (typeof name !== "string" || name.length === 0)
     refuse("A Durable Object name is a non-empty string");
   if (!key) refuse(`${BINDING_KEY} is not bound: no client's object can be named`);
-  const proof = bindingProof(key, PROOF.object, client, name);
+  const proof = bindingProof(key, PROOF.object, client, generation, name);
   const stored = `${client}${OBJECT_NAME_SEPARATOR}${proof}${OBJECT_NAME_SEPARATOR}${name}`;
   if (vectorEncoder.encode(stored).length > OBJECT_NAME_MAX_BYTES) {
     refuse("A Durable Object name is too long for the object to know its client");
@@ -518,13 +541,13 @@ export function clientObjectName(client: ClientId, name: unknown, key: string | 
 }
 
 /**
- * The client and the caller's name of an object, from its stored name, when its proof is the
- * host's under `key`; null otherwise (no client, a forged or missing proof, no key).
+ * The client, the proof and the caller's name of an object, from its stored name, unchecked:
+ * null when it has no client part. The object checks the proof (`isObjectName`) once it has read
+ * its client's generation from the registry.
  */
 export function objectNameParts(
   stored: string | undefined | null,
-  key: string | null,
-): { client: ClientId; name: string } | null {
+): { client: ClientId; proof: string; name: string } | null {
   if (typeof stored !== "string") return null;
   const first = stored.indexOf(OBJECT_NAME_SEPARATOR);
   if (first <= 0) return null;
@@ -534,8 +557,23 @@ export function objectNameParts(
   const proof = stored.slice(first + 1, second);
   const name = stored.slice(second + 1);
   if (!isClientId(client) || name.length === 0) return null;
-  if (!isBindingProof(key, proof, PROOF.object, client, name)) return null;
-  return { client, name };
+  return { client, proof, name };
+}
+
+/** Whether an object's name parts carry the host's proof for the client's `generation`. */
+export function isObjectName(
+  parts: { client: ClientId; proof: string; name: string },
+  generation: string | null,
+  key: string | null,
+): boolean {
+  return isBindingProof(
+    key,
+    parts.proof,
+    PROOF.object,
+    parts.client,
+    generationPart(generation),
+    parts.name,
+  );
 }
 
 /** Which client each id a namespace wrapper made is for: `get` opens only the client's ids. */
@@ -543,19 +581,19 @@ const objectIdClient = new WeakMap<DurableObjectId, ClientId>();
 
 /**
  * A Durable Object namespace (ASSISTANT, AGENT_JOB, EXTENSION_WORKSPACE, CODE_MODE_GATE,
- * INTEGRATION_HOST, FAKE_ACCOUNT, FAKE_PROVIDER), kept apart: every object is named
- * `<client>:<proof>:<name>` by the wrapper (`idFromName`, `getByName`), and `get` opens only an
- * id made by a wrapper for the same client. `idFromString` (a hex id says nothing of whose it is)
- * and `newUniqueId` (an object with no name cannot know its client) are refused. The object reads
- * its client from its own name and checks the proof (client-entries.ts, `ClientObject`). The
- * host's key is held in this closure only.
+ * INTEGRATION_HOST, FAKE_ACCOUNT, FAKE_PROVIDER), kept apart: every object is named by the
+ * client's namer (`idFromName`, `getByName`), and `get` opens only an id made by a wrapper for the
+ * same client. `idFromString` (a hex id says nothing of whose it is) and `newUniqueId` (an object
+ * with no name cannot know its client) are refused. The object reads its client from its own name
+ * and checks the proof (client-entries.ts, `ClientObject`). The wrapper holds the namer of one
+ * client only: nothing in it names another client's object.
  */
 export function keepObjectsApart<N extends DurableObjectNamespace<never> | DurableObjectNamespace>(
   namespace: N,
   client: ClientId,
-  host: object = {},
+  namer: ClientObjectNamer,
 ): N {
-  const key = hostBindingKey(host);
+  if (typeof namer !== "function") refuse("No namer: this client's objects cannot be named");
   const real = namespace as unknown as DurableObjectNamespace;
   const own = (id: DurableObjectId): DurableObjectId => {
     objectIdClient.set(id, client);
@@ -563,7 +601,7 @@ export function keepObjectsApart<N extends DurableObjectNamespace<never> | Durab
   };
   const wrap = (inner: DurableObjectNamespace): DurableObjectNamespace =>
     ({
-      idFromName: (name: string) => own(inner.idFromName(clientObjectName(client, name, key))),
+      idFromName: (name: string) => own(inner.idFromName(namer(name))),
       idFromString: () =>
         refuse("idFromString cannot be kept to one client: name the object instead"),
       newUniqueId: () =>
@@ -574,10 +612,37 @@ export function keepObjectsApart<N extends DurableObjectNamespace<never> | Durab
         return inner.get(id, options);
       },
       getByName: (name: string, options?: DurableObjectNamespaceGetDurableObjectOptions) =>
-        inner.getByName(clientObjectName(client, name, key), options),
+        inner.getByName(namer(name), options),
       // No `jurisdiction()`: nothing in the host uses it, and it is left out rather than wrapped.
     }) as unknown as DurableObjectNamespace;
   return wrap(real) as unknown as N;
+}
+
+// --- Worker Loader: the client in every worker id -----------------------------------------
+
+/** The prefix of every Worker Loader id a client's environment asks for: `client:<id>:`. */
+export function clientWorkerIdPrefix(client: ClientId): string {
+  return `client:${client}:`;
+}
+
+/**
+ * Worker Loader (LOADER), kept apart (review of #520, M3): `get(id, code)` asks for the worker
+ * `client:<client>:<id>`, so a pack's warm isolate, and any module-level state its code keeps, is
+ * never another client's, and an id a caller passes (even another client's prefixed id) is only a
+ * name under this client. `get(null, …)` names no warm worker and goes through as it is; `load`
+ * takes no id. A single-client deployment's LOADER is the real one, its ids unchanged.
+ */
+export function keepLoaderApart(loader: WorkerLoader, client: ClientId): WorkerLoader {
+  const prefix = clientWorkerIdPrefix(client);
+  return {
+    get: (id: string | null, getCode: Parameters<WorkerLoader["get"]>[1]) => {
+      if (id !== null && (typeof id !== "string" || id.length === 0)) {
+        refuse("A Worker Loader id is a non-empty string, or null");
+      }
+      return loader.get(id === null ? null : `${prefix}${id}`, getCode);
+    },
+    load: (code: Parameters<WorkerLoader["load"]>[0]) => loader.load(code),
+  } as WorkerLoader;
 }
 
 // --- The runner: the app names the client on every call --------------------------------------

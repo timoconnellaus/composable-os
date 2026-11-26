@@ -1325,8 +1325,9 @@ _Avoid_: tenant context
 
 What a wrapper of a many-client host puts beside what one client sends into a shared binding, so
 the other side acts as that client: `{ cosClient, body }` on a queue message, `{ cosClient,
-params }` and the id `<client>_<id>` on a Workflow instance, the name `<client>:<name>` of a
-Durable Object. The sender cannot choose it, and the consumer refuses what has none.
+params }` and the id `<client>_<id>` on a Workflow instance, the name `<client>:<proof>:<name>`
+of a Durable Object (the proof the host's, of the client, its secret generation and the name). The
+sender cannot choose it, and the consumer refuses what has none.
 _Avoid_: tenant tag
 
 ### Fan-out
@@ -1336,6 +1337,15 @@ _Avoid_: tenant tag
 How a many-client host runs a cron: the tick sends one message per client served to the Worker's
 own fan-out queue (`CLIENT_FANOUT`) and does no client's work; each client's tick runs as its
 message is consumed, in its environment, acked or retried alone.
+
+### Parking
+
+(stage 66; ADR 0615)
+
+What a many-client host does with a queue message for a client it does not serve for a while
+(paused, moving, behind): it waits on the Worker's own parking queue (`CLIENT_PARKING`), counted
+and capped per client by a ledger, and is handled when the client is served again, or given up and
+reported as a dead letter.
 
 ### Control plane
 

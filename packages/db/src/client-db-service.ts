@@ -7,10 +7,21 @@
 // where a D1 binding stands over it. The raw namespace is bound only where the operator's commands
 // run (step 7) and in tests.
 //
+// Who may call it (#515, S1): any Worker of the account can bind a service by name, so the
+// entrypoint checks two things the host alone can make, under the props key (`COS_PROPS_KEY`,
+// and `COS_PROPS_KEY_PREVIOUS` during a rotation, both in cos-client-db's own secrets too):
+// - the binding's props, which the deploy engine sets and no code can change: `{ caller, proof }`
+//   of one of the host's Workers (`clientDbCallerProps`);
+// - each call's target: `{ client, proof }`, the proof of that client, which the directory makes
+//   when it builds the client's environment (`clientDatabaseService(…, { proof })`). Code holding
+//   the binding without the key (code below an entry, which never sees the host's `env`) opens no
+//   client's database but the one its environment's `DB` already is.
+//
 // Binding names (for step 4):
 //   app, runner:  "services": [{ "binding": "CLIENT_DB_QUERIES", "service": "cos-client-db",
-//                                "entrypoint": "ClientDbQueries" }]
-//                 DB = clientDatabaseService(env.CLIENT_DB_QUERIES, client, { locationHint })
+//                                "entrypoint": "ClientDbQueries",
+//                                "props": { "caller": "cos-app", "proof": … } }]
+//                 DB = clientDatabaseService(env.CLIENT_DB_QUERIES, client, { locationHint, proof })
 //   operator:     "durable_objects": { "bindings": [{ "name": "CLIENT_DB", "class_name": "ClientDb",
 //                                "script_name": "cos-client-db" }] }
 //                 clientDatabase(env.CLIENT_DB, client) and the operator methods on its stub
@@ -23,12 +34,15 @@ import type {
   ClientDbQuery,
   ClientDbStaged,
 } from "./client-db.ts";
+import { CLIENT_DB_CALLERS, isPropsProof, PROOF } from "./client-proofs.ts";
 import { validateClientId } from "./registry.ts";
 
 /** Which client's database a call is for, and where to create it if it does not exist yet. */
 export interface ClientDbTarget {
   client: string;
   locationHint?: DurableObjectLocationHint;
+  /** The host's proof of the client (`PROOF.clientDb`), required by `ClientDbQueries`. */
+  proof?: string;
 }
 
 /** What `ClientDbQueries` serves: the query path only, each call for one named client. */
@@ -77,9 +91,31 @@ export function checkTarget(target: unknown): ClientDbTarget {
   ) {
     throw new RangeError("Not a client's database: an unknown location hint");
   }
-  return locationHint === undefined
-    ? { client: id }
-    : { client: id, locationHint: locationHint as DurableObjectLocationHint };
+  const { proof } = target as { proof?: unknown };
+  return {
+    client: id,
+    ...(locationHint === undefined
+      ? {}
+      : { locationHint: locationHint as DurableObjectLocationHint }),
+    ...(typeof proof === "string" ? { proof } : {}),
+  };
+}
+
+/** What `ClientDbQueries` reads of its own `env`: the namespace and the props keys. */
+export interface ClientDbQueriesEnv {
+  CLIENT_DB: DurableObjectNamespace<ClientDb>;
+  COS_PROPS_KEY?: string;
+  COS_PROPS_KEY_PREVIOUS?: string;
+}
+
+/** Whether `props` are a host Worker's binding props under a key `env` accepts. */
+export function isClientDbCaller(env: object, props: unknown): boolean {
+  if (!props || typeof props !== "object") return false;
+  const { caller, proof } = props as { caller?: unknown; proof?: unknown };
+  return (
+    (CLIENT_DB_CALLERS as readonly unknown[]).includes(caller) &&
+    isPropsProof(env, proof, PROOF.clientDbCaller, caller as string)
+  );
 }
 
 /**
@@ -87,11 +123,17 @@ export function checkTarget(target: unknown): ClientDbTarget {
  * database. Its `env` holds the namespace; nothing it serves reaches the operator's methods.
  */
 export class ClientDbQueries
-  extends WorkerEntrypoint<{ CLIENT_DB: DurableObjectNamespace<ClientDb> }>
+  extends WorkerEntrypoint<ClientDbQueriesEnv, { caller?: string; proof?: string }>
   implements ClientDbQueryService
 {
   #stub(target: ClientDbTarget) {
-    const { client, locationHint } = checkTarget(target);
+    if (!isClientDbCaller(this.env, this.ctx.props)) {
+      throw new RangeError("Not a client's database: this caller is not one of the host's Workers");
+    }
+    const { client, locationHint, proof } = checkTarget(target);
+    if (!isPropsProof(this.env, proof, PROOF.clientDb, client)) {
+      throw new RangeError("Not a client's database: the call carries no proof of its client");
+    }
     const namespace = this.env.CLIENT_DB;
     return namespace.get(namespace.idFromName(client), locationHint ? { locationHint } : undefined);
   }

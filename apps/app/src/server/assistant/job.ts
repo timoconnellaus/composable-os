@@ -56,7 +56,12 @@ import {
   scrubText,
 } from "@composable-os/core";
 import { type CrmDb, createCrmDb } from "@composable-os/db";
-import { CLIENT_OBJECT, ClientObject, refreshOnEachCall } from "@composable-os/db/client-entries";
+import {
+  CLIENT_OBJECT,
+  ClientDurableObject,
+  type ClientObject,
+  refreshOnEachCall,
+} from "@composable-os/db/client-objects";
 import { activeUser } from "../acting-user.ts";
 import { aiContextFor } from "../ai.ts";
 import { approvalExpiryDays } from "../approval-expiry.ts";
@@ -103,16 +108,16 @@ interface JobSpec {
 
 type Phase = "running" | "reviewing" | "finished";
 
-export class AgentJob extends DurableObject<Cloudflare.Env> {
+export class AgentJob extends ClientDurableObject(DurableObject<Cloudflare.Env>) {
   #abort: AbortController | null = null;
   #waiters = new Set<() => void>();
   #ready = false;
-  /** Whose agent this is on a many-client host: its name is `<client>:job:<id>` (ADR 0615). */
-  readonly #client = new ClientObject(this.ctx, this.env as unknown as AgentJobEnv);
-
-  /** Its ClientObject, for `refreshOnEachCall` (below the class). */
-  get [CLIENT_OBJECT]() {
-    return this.#client;
+  /**
+   * Whose agent this is on a many-client host: its name is `<client>:<proof>:job:<id>`, and its
+   * base class holds the client's environment only (`ClientDurableObject`, ADR 0615).
+   */
+  get #client(): ClientObject<AgentJobEnv> {
+    return this[CLIENT_OBJECT] as unknown as ClientObject<AgentJobEnv>;
   }
 
   get #env(): AgentJobEnv {

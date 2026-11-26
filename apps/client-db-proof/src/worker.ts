@@ -21,6 +21,7 @@ import { DurableObject } from "cloudflare:workers";
 import { applyMigrations, type Migration } from "@composable-os/db";
 import { type ClientDb, clientDatabase, clientDatabaseService } from "@composable-os/db/client-db";
 import type { ClientDbQueryService } from "@composable-os/db/client-db-service";
+import { bindingProof, PROOF } from "@composable-os/db/client-proofs";
 import migrations from "./generated/migrations.json";
 import { compareAll } from "./probes.ts";
 import {
@@ -49,10 +50,25 @@ const near = (env: Env) => ({ locationHint: env.LOCATION_HINT as DurableObjectLo
 const clientDbs = (env: Env) => env.CLIENT_DB as unknown as DurableObjectNamespace<ClientDb>;
 const queries = (env: Env) => env.CLIENT_DB_QUERIES as unknown as ClientDbQueryService;
 
+/**
+ * The proof of `client` each call on the query service carries, as the host's directory makes it
+ * (#515, S1): under the props key deploy.mjs sets as both Workers' secret.
+ */
+function proofOf(env: Env, client: string): string {
+  const own = env as unknown as { COS_PROPS_KEY?: string; COS_HOST_ENVIRONMENT?: string };
+  // In the environment deploy.mjs sets on both Workers (review of #520, M4).
+  return bindingProof(
+    own.COS_PROPS_KEY ?? "",
+    PROOF.clientDb,
+    own.COS_HOST_ENVIRONMENT ?? "",
+    client,
+  );
+}
+
 function database(env: Env, which: Database, client = env.CLIENT_ID): D1Database {
   if (which === "d1") return env.DB;
   return which === "client-db"
-    ? clientDatabaseService(queries(env), client, near(env))
+    ? clientDatabaseService(queries(env), client, { ...near(env), proof: proofOf(env, client) })
     : clientDatabase(clientDbs(env), client, near(env));
 }
 
