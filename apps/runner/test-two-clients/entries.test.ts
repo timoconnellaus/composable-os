@@ -618,12 +618,19 @@ describe("Durable Objects, Workflows and minted entrypoints decide their client 
         await expect((async () => await ledger.settle("probe", true))(), name).rejects.toThrow();
       }
       // The fake gatekeeper's classes refuse to be built on a host of many clients.
-      for (const name of ["FakeAccount", "FakeProvider"]) {
+      // Each through a method it has, so only the refusal can fail the call.
+      for (const [name, method] of [
+        ["FakeAccount", "describe"],
+        ["FakeProvider", "messages"],
+      ] as const) {
         const namespace = exports[name] as unknown as DurableObjectNamespace;
-        const fake = namespace.get(namespace.idFromName("x")) as unknown as {
-          fetch(r: string): Promise<Response>;
-        };
-        await expect((async () => await fake.fetch("https://x/"))(), name).rejects.toThrow();
+        const fake = namespace.get(namespace.idFromName("x")) as unknown as Record<
+          string,
+          () => Promise<unknown>
+        >;
+        await expect((async () => await fake[method]?.())(), name).rejects.toThrow(
+          /never on a host of many clients/,
+        );
       }
     });
     // gym-b's real ledger, as the host's parking names it, saw none of it.
