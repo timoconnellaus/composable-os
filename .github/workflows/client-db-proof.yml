@@ -1,25 +1,39 @@
 # Stage 66 step 1 (ADR 0612): deploys the proof Worker (apps/client-db-proof) to the fleet's
-# account, a client's database (ClientDb) beside a D1 database, then times a staff page and a
-# customer checkout on each and reports every probe on which the two answer differently. Run by
-# hand only. Uses FLEET_CLOUDFLARE_API_TOKEN and FLEET_CLOUDFLARE_ACCOUNT_ID (docs/deploying.md,
-# "Proving a client's database on Cloudflare"); without them nothing is deployed and the workflow
-# passes with a notice.
+# account, a client's database (ClientDb) beside a D1 database, then compares the two probe by
+# probe and times a staff page, a customer checkout and a cold first page on each. Or, with mode
+# `remove`, deletes the proof's own Worker and D1 database by their exact names. Run by hand only.
+#
+# Uses FLEET_CLOUDFLARE_API_TOKEN and FLEET_CLOUDFLARE_ACCOUNT_ID (docs/deploying.md, "Proving a
+# client's database on Cloudflare"). Without them nothing is deployed and the workflow passes with
+# a notice. The secrets are given only to the steps that call Cloudflare, in the `fleet`
+# environment (the owner may add required reviewers to it); installing and testing run without them.
 name: Client database proof
 
 on:
   workflow_dispatch:
     inputs:
+      mode:
+        description: prove (deploy, compare, time) or remove (delete the proof's Worker and database)
+        type: choice
+        default: prove
+        options: [prove, remove]
       location:
-        description: Where the D1 database and the client's object are created
+        description: Where the D1 database and the client's objects are created
         type: choice
         default: oc
         options: [oc, apac, wnam, enam, weur, eeur]
       runs:
-        description: Runs of each scenario per request
+        description: Runs of each scenario per request (1 to 50)
         default: "10"
       rounds:
-        description: Requests per scenario and database
+        description: Requests per scenario and database (1 to 20)
         default: "5"
+      cold:
+        description: Cold first-page samples (0 to 10), each after an idle wait
+        default: "3"
+      cold_wait:
+        description: Seconds each cold sample waits idle (0 to 900; Cloudflare evicts after 70 to 140)
+        default: "150"
 
 concurrency:
   group: client-db-proof
@@ -47,15 +61,36 @@ jobs:
             echo "::notice::FLEET_CLOUDFLARE_API_TOKEN / FLEET_CLOUDFLARE_ACCOUNT_ID are not set; not deploying the client database proof."
           fi
 
-  prove:
-    name: Deploy, compare and time
-    needs: check
-    if: needs.check.outputs.enabled == 'true'
+  inputs:
+    name: Check the inputs
     runs-on: ubuntu-latest
-    env:
-      CLOUDFLARE_API_TOKEN: ${{ secrets.FLEET_CLOUDFLARE_API_TOKEN }}
-      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.FLEET_CLOUDFLARE_ACCOUNT_ID }}
-      LOCATION_HINT: ${{ inputs.location }}
+    steps:
+      - env:
+          MODE: ${{ inputs.mode }}
+          LOCATION: ${{ inputs.location }}
+          RUNS: ${{ inputs.runs }}
+          ROUNDS: ${{ inputs.rounds }}
+          COLD: ${{ inputs.cold }}
+          COLD_WAIT: ${{ inputs.cold_wait }}
+        run: |
+          in_range() {
+            if ! [[ "$2" =~ ^[0-9]{1,4}$ ]] || (( 10#$2 < $3 || 10#$2 > $4 )); then
+              echo "::error::$1 must be an integer from $3 to $4"
+              exit 1
+            fi
+          }
+          case "$MODE" in prove|remove) ;; *) echo "::error::mode must be prove or remove"; exit 1 ;; esac
+          case "$LOCATION" in oc|apac|wnam|enam|weur|eeur) ;; *) echo "::error::location is not a location hint"; exit 1 ;; esac
+          in_range runs "$RUNS" 1 50
+          in_range rounds "$ROUNDS" 1 20
+          in_range cold "$COLD" 0 10
+          in_range cold_wait "$COLD_WAIT" 0 900
+
+  test:
+    name: Tests, without secrets
+    needs: inputs
+    if: inputs.mode == 'prove'
+    runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v5
       - uses: pnpm/action-setup@v4
@@ -64,38 +99,94 @@ jobs:
           node-version-file: .nvmrc
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      # The suites on a client's database first, locally on the runner: nothing is deployed if
-      # they fail.
       - run: pnpm --filter @composable-os/db test
       - run: pnpm --filter @composable-os/client-db-proof test
+
+  prove:
+    name: Deploy, compare and time
+    needs: [check, inputs, test]
+    if: needs.check.outputs.enabled == 'true' && inputs.mode == 'prove'
+    runs-on: ubuntu-latest
+    environment: fleet
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      # No secret in this step's environment: dependencies' install scripts never see the token.
+      - run: pnpm install --frozen-lockfile
+      - run: pnpm --filter @composable-os/client-db-proof run migrations
       # A fresh key for this run, masked in the log; the Worker refuses every request without it.
       - id: key
         run: |
           key="$(openssl rand -hex 32)"
           echo "::add-mask::$key"
           echo "key=$key" >> "$GITHUB_OUTPUT"
-      - id: deploy
+      # The only step with the token. The Worker's address is masked by the script and passed in a
+      # file, never as an output.
+      - name: Deploy
         env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.FLEET_CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.FLEET_CLOUDFLARE_ACCOUNT_ID }}
           PROOF_KEY: ${{ steps.key.outputs.key }}
-        run: pnpm --filter @composable-os/client-db-proof run deploy
+          LOCATION_HINT: ${{ inputs.location }}
+          PROOF_URL_FILE: ${{ runner.temp }}/proof-url
+        working-directory: apps/client-db-proof
+        run: node scripts/deploy.mjs
+      # No Cloudflare token: the proof Worker is reached with the run's key only.
       - name: Compare and time
         env:
           PROOF_KEY: ${{ steps.key.outputs.key }}
-        run: >-
-          pnpm --filter @composable-os/client-db-proof exec node scripts/time.mjs
-          --url "${{ steps.deploy.outputs.url }}"
-          --runs "${{ inputs.runs }}" --rounds "${{ inputs.rounds }}"
-          --out "$RUNNER_TEMP/client-db-proof.json"
-          | tee "$RUNNER_TEMP/client-db-proof.txt"
+          URL_FILE: ${{ runner.temp }}/proof-url
+          RUNS: ${{ inputs.runs }}
+          ROUNDS: ${{ inputs.rounds }}
+          COLD: ${{ inputs.cold }}
+          COLD_WAIT: ${{ inputs.cold_wait }}
+          OUT: ${{ runner.temp }}/client-db-proof
+        working-directory: apps/client-db-proof
+        run: |
+          PROOF_URL="$(cat "$URL_FILE")"
+          echo "::add-mask::$PROOF_URL"
+          export PROOF_URL
+          set -o pipefail
+          node scripts/time.mjs --runs "$RUNS" --rounds "$ROUNDS" --cold "$COLD" \
+            --cold-wait "$COLD_WAIT" --out "$OUT.json" | tee "$OUT.txt"
       - name: Summary
         if: always()
+        env:
+          OUT: ${{ runner.temp }}/client-db-proof
         run: |
-          if [ -f "$RUNNER_TEMP/client-db-proof.txt" ]; then
-            { echo '```'; cat "$RUNNER_TEMP/client-db-proof.txt"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          if [ -f "$OUT.txt" ]; then
+            { echo '```'; cat "$OUT.txt"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
           fi
       - uses: actions/upload-artifact@v4
         if: always()
         with:
           name: client-db-proof
-          path: ${{ runner.temp }}/client-db-proof.*
+          path: |
+            ${{ runner.temp }}/client-db-proof.json
+            ${{ runner.temp }}/client-db-proof.txt
           if-no-files-found: ignore
+
+  remove:
+    name: Remove the proof
+    needs: [check, inputs]
+    if: needs.check.outputs.enabled == 'true' && inputs.mode == 'remove'
+    runs-on: ubuntu-latest
+    environment: fleet
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      - name: Delete the proof's Worker and D1 database, by exact name
+        env:
+          CLOUDFLARE_API_TOKEN: ${{ secrets.FLEET_CLOUDFLARE_API_TOKEN }}
+          CLOUDFLARE_ACCOUNT_ID: ${{ secrets.FLEET_CLOUDFLARE_ACCOUNT_ID }}
+        working-directory: apps/client-db-proof
+        run: node scripts/deploy.mjs --remove
