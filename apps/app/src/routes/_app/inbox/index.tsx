@@ -18,6 +18,7 @@ import { createFileRoute, Link, useNavigate } from "@tanstack/react-router";
 import { InboxIcon, MessageSquareTextIcon, RotateCwIcon } from "lucide-react";
 import { useMemo, useState } from "react";
 import { EmptyState, ErrorState } from "#/components/empty-state";
+import { NoInboxAccess, useInboxAccess } from "#/components/inbox/access";
 import {
   CHANNEL_LABELS,
   ChannelIcon,
@@ -59,9 +60,16 @@ function InboxPage() {
   const [status, setStatus] = useState<StatusFilter>("active");
   const [channel, setChannel] = useState<ConversationChannel | typeof ANY>(ANY);
   const [category, setCategory] = useState<string>(ANY);
-  const categories = useOp("inbox.categories", {}, { staleTime: 60_000 });
-  const { user } = Route.useRouteContext();
-  const works = user.role !== "viewer";
+  const { reads, works } = useInboxAccess();
+  const categories = useOp("inbox.categories", {}, { staleTime: 60_000, enabled: reads });
+
+  if (!reads) {
+    return (
+      <PageLayout title="Inbox" width="lg">
+        <NoInboxAccess />
+      </PageLayout>
+    );
+  }
 
   return (
     <PageLayout
