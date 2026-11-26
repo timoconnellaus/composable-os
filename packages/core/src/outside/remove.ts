@@ -17,7 +17,7 @@
 // person); the timeline's "Linked to the booking system's list" activities (a Person's history,
 // naming no address); the audit.
 import type { CoreDatabase } from "@composable-os/db";
-import { CompiledQuery, type Kysely, sql } from "kysely";
+import { CompiledQuery, type Kysely } from "kysely";
 import type { ListKind } from "./settings.ts";
 
 type Db = Kysely<CoreDatabase>;
@@ -69,14 +69,17 @@ export async function planRemoval(
   const parts = kinds.flatMap((kind) => TABLES[kind]);
   const key = (p: { table: string; match?: string }) => `${p.table}:${p.match ?? ""}`;
   // One SELECT of scalar subqueries: no compound SELECT, nothing bound.
-  const counted = await sql<Record<string, number>>`SELECT ${sql.join(
-    parts.map(
-      (p, i) =>
-        sql`(SELECT count(*) FROM ${sql.table(p.table)}${
-          p.match ? sql` WHERE kind = ${sql.lit(p.match)}` : sql``
-        }) AS ${sql.ref(`n${i}`)}`,
+  // The table names are this file's own constants: nothing from a caller reaches the text.
+  const counted = await db.executeQuery<Record<string, number>>(
+    CompiledQuery.raw(
+      `SELECT ${parts
+        .map(
+          (p, i) =>
+            `(SELECT count(*) FROM ${p.table}${p.match ? ` WHERE kind = '${p.match}'` : ""}) AS n${i}`,
+        )
+        .join(", ")}`,
     ),
-  )}`.execute(db);
+  );
   const counts = new Map(
     parts.map((p, i) => [key(p), Number(counted.rows[0]?.[`n${i}`] ?? 0)] as const),
   );
