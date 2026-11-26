@@ -9,6 +9,7 @@ import { env } from "cloudflare:workers";
 import { DAYS_PER_RUN, type DayBuilder, runAccountingDue } from "@composable-os/core";
 import { createCrmDb } from "@composable-os/db";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
+import { minuteTick } from "../src/index.ts";
 import {
   type Books,
   books,
@@ -416,5 +417,15 @@ describe("the daily pass", () => {
     // The same local day later: nothing more to build.
     await run("2026-11-26T05:00:00.000Z");
     expect(built).toHaveLength(26);
+  });
+});
+
+describe("the minute cron", () => {
+  it("sends what is due as one of its steps, and a quiet minute after it finds nothing to do", async () => {
+    const q = await queue(summaryEntry(b, "2026-11-20"));
+    const tick = await minuteTick(env, new Date(NOW));
+    expect(tick.accounting).toMatchObject({ state: "ran", sent: 1 });
+    expect(await post(q.id)).toMatchObject({ state: "sent" });
+    expect((await minuteTick(env, new Date(minutes(NOW, 1)))).accounting).toBeNull();
   });
 });
