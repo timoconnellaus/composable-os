@@ -138,3 +138,33 @@ write by a non-person waits is taken out.
   code takes about 2^80 SHA-256 tries; against N stored hashes, about 2^80/N (2^60 for a million
   codes: years of a large GPU fleet), far above what any discount is worth. A per-deployment
   pepper would need the host to hash on write, since the pack hashes in the sandbox; not built.
+
+## Amended 2026-11-26, after the second review of PR #479
+- **A run standing as an AI's is not a person's act** (S1). The policy skip above holds only for a
+  run whose writes stand as a person's: never one the runner marks `ai` (`markStanding`, ADR 0590:
+  it used a model, read outside text through a gatekeeper, or is a runtime extension's run, whose
+  code an AI may have written), whoever called the tool. Proved in
+  `packages/core/test/discounts.test.ts` with the standing set on the call; a real tool run that
+  uses a model or reads outside text is not built into a test.
+- **Each action is checked just before it applies** (S2). The terms check runs before the claim
+  and again inside the apply loop, so of the assistant's queued change to 90% and its queued
+  "make live" (whose words say 10%) approved together, the change applies and the make live is
+  refused (`discount_changed`). Its words also name any other request waiting on the same
+  discount, saying that one approved with it applies first and this one is then refused.
+- **Only what depends on the terms is bound to them** (M2): a record write of the discount, or a
+  tool its object names in a move into a live state. Pausing, ending and voiding codes are always
+  approvable, whatever changed meanwhile.
+- **No way round the draft** (M6): the `discount` contract refuses `states.create.in` for any state
+  but the initial one (and the live ones, already the host's) by anyone but the host, and any move
+  back to the initial state by anyone but the host.
+- **Words, not stored values** (M3): choices by their labels, yes or no, money with the order
+  currency.
+- Left as notes, not built:
+  - **M1, a narrow race**: between the check and the activating tool's own write, a non-person's
+    edit of the draft can still land. Closing it means the move into a live state re-checking the
+    approved terms under `ctx.approval`.
+  - **M4, a deploy floor**: under a floor that reviews the extension's bulk writes,
+    `generateCodes`' chunk write is still queued and the tool stops at 0 codes, leaving a pending
+    write of hashes nobody holds. The tool could refuse up front under such a floor.
+  - **M5, the `objects` check**: a typo in the pack's own name (`membership.passtype`) is not
+    caught, only an unknown object of a pack beside it that was installed for the check.

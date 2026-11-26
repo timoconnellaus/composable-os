@@ -19,6 +19,8 @@ export interface DiscountSnapshot {
   title: string;
   /** Each field the behaviour names, by field name, as stored. */
   terms: Record<string, unknown>;
+  /** Whether approving the call depends on these terms (false: pausing, ending, voiding). */
+  bound?: boolean;
 }
 
 type DiscountObject = ObjectDefinition & { discount: DiscountDefinition };
@@ -101,53 +103,138 @@ function normal(value: unknown): unknown {
 
 const same = (a: unknown, b: unknown) => JSON.stringify(normal(a)) === JSON.stringify(normal(b));
 
-/** The discounts among `ids` (the ids a waiting call's input names), with their terms now. */
-export function snapshotDiscounts(
-  db: Kysely<CoreDatabase>,
-  ids: readonly string[],
-): Promise<DiscountSnapshot[]> {
-  return read(db, ids);
-}
+/** The record writes whose approval is bound to a discount's terms. */
+const RECORD_WRITES = new Set([
+  "record.create",
+  "record.createMany",
+  "record.update",
+  "record.restore",
+  "record.restoreVersion",
+  "record.import",
+]);
 
-function labelOf(object: string, name: string): string {
-  return (
-    listObjects()
-      .find((o) => o.name === object)
-      ?.fields.find((f) => f.name === name)?.label ?? name
-  );
-}
-
-function shown(value: unknown): string {
-  if (value === null || value === undefined) return "empty";
-  if (Array.isArray(value)) return value.length ? value.join(", ") : "empty";
-  return String(value);
-}
-
-/** The terms in words, for the person who approves: every field the behaviour names. */
-export function describeDiscount(snapshot: DiscountSnapshot): string {
-  const parts = Object.entries(snapshot.terms)
-    .filter(([, value]) => value !== null && !(Array.isArray(value) && !value.length))
-    .map(([name, value]) => `${labelOf(snapshot.object, name)}: ${shown(value)}`);
-  return (
-    `It names the discount "${snapshot.title}" as it is now: ${parts.join("; ") || "no terms set"}. ` +
-    "If its terms change before this is approved, approving it is refused."
+/**
+ * Whether approving `operation` depends on the discount's terms (review of PR #479, M2): a record
+ * write of it, or a tool its object names in a move into a live state (making it live). Pausing,
+ * ending, voiding codes and the like make nothing reach buyers, so a change to the terms meanwhile
+ * never stops a person approving them (ending a leaked discount is always approvable).
+ */
+export function boundToTerms(operation: string, object: DiscountObject): boolean {
+  if (RECORD_WRITES.has(operation)) return true;
+  const ext = object.name.split(".")[0];
+  const tool = /^x\.([a-z][a-z0-9]*)\.([A-Za-z0-9_]+)$/.exec(operation);
+  if (!tool || tool[1] !== ext) return false;
+  const live = new Set(object.discount.live);
+  return (object.states?.moves ?? []).some(
+    (move) => live.has(move.to) && (move.tools ?? []).includes(tool[2] as string),
   );
 }
 
 /**
- * Refuses an approval when a discount it names has terms other than those it was asked with
- * (ADR 0699): the person would be approving terms they were not shown.
+ * The discounts among `ids` (the ids a waiting call's input names), with their terms now, each
+ * marked whether approving `operation` is bound to them.
+ */
+export async function snapshotDiscounts(
+  db: Kysely<CoreDatabase>,
+  ids: readonly string[],
+  operation: string,
+): Promise<DiscountSnapshot[]> {
+  const found = await read(db, ids);
+  return found.map((s) => {
+    const object = discountObjects().find((o) => o.name === s.object);
+    return { ...s, bound: object ? boundToTerms(operation, object) : true };
+  });
+}
+
+/**
+ * Other requests waiting for approval that name the same discounts (review of PR #479, S2): the
+ * words say so, since approving them with this one would change the terms it shows.
+ */
+export async function otherPendingFor(
+  db: Kysely<CoreDatabase>,
+  ids: readonly string[],
+  now: string,
+): Promise<Map<string, string[]>> {
+  const others = new Map<string, string[]>();
+  if (!ids.length) return others;
+  const rows = await db
+    .selectFrom("core_pending_action_records as r")
+    .innerJoin("core_pending_action as p", "p.id", "r.action_id")
+    .select(["r.record_id as record", "p.id as action"])
+    .where("r.record_id", "in", [...ids])
+    .where("p.status", "=", "pending")
+    .where("p.expires_at", ">", now)
+    .execute();
+  for (const row of rows) {
+    others.set(row.record, [...(others.get(row.record) ?? []), row.action]);
+  }
+  return others;
+}
+
+const fieldOf = (object: string, name: string) =>
+  listObjects()
+    .find((o) => o.name === object)
+    ?.fields.find((f) => f.name === name);
+
+function labelOf(object: string, name: string): string {
+  return fieldOf(object, name)?.label ?? name;
+}
+
+/** A stored value in words: a choice's label, yes or no, money with its currency. */
+function shown(object: string, name: string, value: unknown, currency: string | null): string {
+  if (value === null || value === undefined) return "empty";
+  const field = fieldOf(object, name);
+  const choices = field?.options?.choices;
+  const label = (v: unknown) => choices?.find((c) => c.value === String(v))?.label ?? String(v);
+  if (Array.isArray(value)) return value.length ? value.map(label).join(", ") : "empty";
+  if (field?.fieldType === "boolean") return value === 1 || value === true ? "yes" : "no";
+  if (field?.fieldType === "currency" && typeof value === "number" && currency) {
+    return `${value.toFixed(2)} ${currency}`;
+  }
+  return label(value);
+}
+
+/** The terms in words, for the person who approves: every field the behaviour names. */
+export function describeDiscount(
+  snapshot: DiscountSnapshot,
+  currency: string | null = null,
+  others: readonly string[] = [],
+): string {
+  const parts = Object.entries(snapshot.terms)
+    .filter(([, value]) => value !== null && !(Array.isArray(value) && !value.length))
+    .map(
+      ([name, value]) =>
+        `${labelOf(snapshot.object, name)}: ${shown(snapshot.object, name, value, currency)}`,
+    );
+  return (
+    `It names the discount "${snapshot.title}" as it is now: ${parts.join("; ") || "no terms set"}.` +
+    (snapshot.bound === false
+      ? ""
+      : " If its terms change before this is applied, it is refused.") +
+    (others.length
+      ? ` Other requests waiting for approval also name this discount (${others.join(", ")}): ` +
+        "approved with this one, one that changes its terms applies first and this one is then refused."
+      : "")
+  );
+}
+
+/**
+ * Refuses an approval when a discount it is bound to has terms other than those it was asked with
+ * (ADR 0699): the person would be approving terms they were not shown. Run before the claim and
+ * again just before each action applies, so an action approved with it that changes the terms
+ * cannot slip past.
  */
 export async function assertDiscountsUnchanged(
   db: Kysely<CoreDatabase>,
   snapshots: readonly DiscountSnapshot[],
 ): Promise<void> {
-  if (!snapshots.length) return;
+  const bound = snapshots.filter((s) => s.bound !== false);
+  if (!bound.length) return;
   const now = await read(
     db,
-    snapshots.map((s) => s.id),
+    bound.map((s) => s.id),
   );
-  for (const then of snapshots) {
+  for (const then of bound) {
     const current = now.find((n) => n.id === then.id && n.object === then.object);
     if (!current) continue;
     const changed = Object.keys(then.terms).filter(
@@ -157,7 +244,7 @@ export async function assertDiscountsUnchanged(
       const what = changed
         .map(
           (name) =>
-            `${labelOf(then.object, name)} ${shown(then.terms[name])} → ${shown(current.terms[name])}`,
+            `${labelOf(then.object, name)} ${shown(then.object, name, then.terms[name], null)} → ${shown(then.object, name, current.terms[name], null)}`,
         )
         .join(", ");
       throw new ConflictError(

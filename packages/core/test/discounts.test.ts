@@ -1551,6 +1551,69 @@ describe("promo codes kept folded, looked up by index, and guessed no faster tha
   });
 });
 
+// --- Stage 34 step 5, the second review of PR #479 ---------------------------------------------
+
+describe("a person's own tool and the approval policy (review S1)", () => {
+  const toolRun = (markStanding?: "ai") =>
+    context(admin, {
+      actor: "extension",
+      extension: {
+        id: OFFERS,
+        permissions: { read: [], write: [], operations: [], modules: ["ops"] },
+        tool: {
+          name: "activate",
+          personApproves: true,
+          permission: MANAGE,
+          calledBy: { account: admin.id, actor: "human" },
+        },
+      },
+      ...(markStanding ? { markStanding } : {}),
+    } as never);
+  const newCode = async () =>
+    (
+      (await run(
+        "record.create",
+        { object: CODE, values: { word: word("POLICY"), uses: 1 } },
+        context(admin),
+      )) as { id: string }
+    ).id;
+
+  it("under cautious, a person's tool deletes its own record; a run standing as an AI's waits", async () => {
+    await setPreset("cautious");
+    try {
+      const mine = await newCode();
+      await run("record.delete", { object: CODE, id: mine }, toolRun());
+      const ais = await newCode();
+      const asked = await refusal(run("record.delete", { object: CODE, id: ais }, toolRun("ai")));
+      expect(asked.code).toBe("pending_approval");
+    } finally {
+      await setPreset("balanced");
+    }
+  });
+});
+
+describe("the contract leaves no way round the draft (review M6)", () => {
+  type Loose = ExtensionManifest & {
+    objects: { discount: { states: { create?: unknown; moves: unknown[] } } };
+  };
+  it("refuses creating a discount past its first state, and a staff move back to it", async () => {
+    const id = extId("m6off");
+    const now = new Date().toISOString();
+    const created = offers(id) as Loose;
+    created.objects.discount.states.create = { in: { paused: ["staff"] } };
+    const back = offers(id) as Loose;
+    back.objects.discount.states.moves = [
+      ...back.objects.discount.states.moves,
+      { from: "paused", to: "draft", by: ["staff"] },
+    ];
+    const one = await checkManifest(db.query, id, created, now);
+    expect(one.issues.map((i) => i.path)).toContain("objects.discount.states.create.in.paused");
+    const two = await checkManifest(db.query, id, back, now);
+    expect(two.issues.map((i) => i.path)).toContain("objects.discount.states.moves.3.by");
+    expect((await checkManifest(db.query, id, offers(id), now)).issues).toEqual([]);
+  });
+});
+
 // --- Stage 34 step 5 (ADR 0699): single-use codes kept as their hash ------------------------------
 
 describe("codes kept as their hash", () => {

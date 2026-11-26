@@ -698,3 +698,71 @@ describe("a person's tools under every approval policy (review item 3)", () => {
     }
   });
 });
+
+// --- The second review of PR #479 ---------------------------------------------------------------
+
+describe("approving two requests together (second review, S2)", () => {
+  it("the assistant's change to 90% and its make live, approved at once: the make live is refused", async () => {
+    await setPreset("cautious");
+    try {
+      const code = word("TOGETHER");
+      const draft = await run<{ id: string }>(
+        "x.offers.draftDiscount",
+        { name: "Together", kind: "percent", percent: 10, code },
+        staff(),
+      );
+      const update = await refusal(
+        run(
+          "record.update",
+          { object: DISCOUNT, id: draft.id, values: { percent: 90 } },
+          assistant(),
+        ),
+      );
+      expect(update.code).toBe("pending_approval");
+      const activate = await refusal(
+        run("x.offers.activateDiscount", { discountId: draft.id }, assistant()),
+      );
+      expect(activate.code).toBe("pending_approval");
+      const updateId = String(update.details?.actionId);
+      const activateId = String(activate.details?.actionId);
+      // Its words say another request names the same discount.
+      const row = await env.DB.prepare("SELECT simulated FROM core_pending_action WHERE id = ?")
+        .bind(activateId)
+        .first<{ simulated: string }>();
+      expect(row?.simulated).toContain(updateId);
+      const approve = (confirm?: string) =>
+        run<{ results: { actionId: string; status: string; error: unknown }[] }>(
+          "approval.approve",
+          { actionIds: [updateId, activateId], ...(confirm ? { confirm } : {}) },
+          staff(),
+        );
+      const decided = await approve().catch(
+        async (error: { details?: { confirmLabel?: string } }) => {
+          const label = error.details?.confirmLabel;
+          if (!label) throw error;
+          return approve(label);
+        },
+      );
+      const byId = new Map(decided.results.map((r) => [r.actionId, r]));
+      expect(byId.get(updateId)?.status).toBe("applied");
+      expect(byId.get(activateId)?.status).toBe("failed");
+      expect(JSON.stringify(byId.get(activateId)?.error)).toContain("discount_changed");
+      expect(await stateOf(draft.id)).toBe("draft");
+      expect((await refusal(buyTicket(code))).message).toBe(NOT_VALID);
+    } finally {
+      await setPreset("balanced");
+    }
+  });
+});
+
+describe("what does not depend on the terms is always approvable (second review, M2)", () => {
+  it("ending a discount whose terms a person changed after the assistant asked", async () => {
+    const code = word("LEAKED");
+    const id = await liveDiscount({ kind: "percent", percent: 10, code });
+    const asked = await refusal(run("x.offers.endDiscount", { discountId: id }, assistant()));
+    expect(asked.code).toBe("pending_approval");
+    await run("record.update", { object: DISCOUNT, id, values: { percent: 20 } }, staff());
+    expect((await approveAs(String(asked.details?.actionId))).results[0]?.status).toBe("applied");
+    expect(await stateOf(id)).toBe("ended");
+  });
+});

@@ -1306,6 +1306,12 @@ async function approveActions(
         const granted = parse<string[] | null>(action.granted_permissions, null);
         const asked = replaceIds(parse<Record<string, unknown>>(action.input, {}), bindings);
         // The approver's read-again choice replaces the AI's suggestion (ADR 0702).
+        // Its discount's terms again, just before it applies (review of PR #479, S2): an action
+        // approved with it that changed them has applied by now, and this one is refused.
+        await assertDiscountsUnchanged(
+          ctx.db,
+          parse<{ discounts?: DiscountSnapshot[] }>(action.simulated, {}).discounts ?? [],
+        );
         const choice = input.readAgain?.[action.id];
         const applying =
           choice !== undefined && READ_AGAIN_OPERATIONS.has(action.operation)
