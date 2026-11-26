@@ -12,6 +12,7 @@ import { ArrowDownIcon, ArrowUpIcon, PlusIcon, Trash2Icon } from "lucide-react";
 import { type FormEvent, useState } from "react";
 import { toast } from "sonner";
 import { ErrorState } from "#/components/empty-state";
+import { NoInboxAccess } from "#/components/inbox/access";
 import { PageLayout } from "#/components/layout/page-layout";
 import { same } from "#/lib/draft";
 import { errorMessage, useOp, useOpMutation } from "#/lib/query";
@@ -21,7 +22,9 @@ export const Route = createFileRoute("/_app/settings/inbox")({ component: InboxS
 const MAX_CATEGORIES = 50;
 
 function InboxSettingsPage() {
-  const settings = useOp("inbox.settings.get", {});
+  const { isAdmin } = Route.useRouteContext();
+  // Only an admin holds inbox:manage: anyone else gets a plain "no access", not a refused call.
+  const settings = useOp("inbox.settings.get", {}, { enabled: isAdmin });
   return (
     <PageLayout
       title="Inbox"
@@ -29,7 +32,9 @@ function InboxSettingsPage() {
       back={{ to: "/settings", label: "Settings" }}
       description="How the shared inbox files its conversations."
     >
-      {settings.isPending ? (
+      {!isAdmin ? (
+        <NoInboxAccess what="the inbox's settings" />
+      ) : settings.isPending ? (
         <Skeleton className="h-48" aria-busy="true" />
       ) : settings.isError ? (
         <ErrorState

@@ -137,7 +137,7 @@ One conversation: who it is with, who has it, its status, what it is about, and 
 
 ## conversation.linkPerson
 
-Link a conversation from an unknown sender to a Person (make the Person first with person.create when there is none): its messages move onto their timeline and the unknown address is cleared from it. Needs records:write as well. People only. Returns the conversation.
+Link a conversation from an unknown sender to a Person: an existing one (personId), or a new one made from its sender in the same write (newPerson: their names; the sender's address becomes their email), so a failure leaves no Person behind. Its messages move onto their timeline and the unknown address is cleared from it. Needs records:write as well. People only. Returns the conversation.
 
 |  |  |
 | --- | --- |
@@ -152,7 +152,10 @@ Link a conversation from an unknown sender to a Person (make the Person first wi
 | Field | Type | Required | Limits | Description |
 | --- | --- | --- | --- | --- |
 | `id` | string (starts_with) | yes | max length 64, pattern `^cnv_.*` | Conversation id (cnv_…) |
-| `personId` | string (starts_with) | yes | max length 64, pattern `^per_.*` |   |
+| `personId` | string (starts_with) |   | max length 64, pattern `^per_.*` |   |
+| `newPerson` | object |   |   | Make a new Person from the sender instead of linking an existing one |
+| `newPerson.givenName` | string | yes | min length 1, max length 100 |   |
+| `newPerson.familyName` | string or null |   |   |   |
 | `version` | integer |   | ≥ 0, ≤ 9007199254740991 | The version you read: the write is refused if the conversation changed since |
 
 ### Output
@@ -247,13 +250,14 @@ Say what a conversation is about: a record (a booking, a membership, a lead, a p
 
 ## conversation.setCategory
 
-File a conversation under one of the inbox's categories (inbox.categories lists them), or under none (category null). Returns the conversation.
+File a conversation under one of the inbox's categories (inbox.categories lists them), or under none (category null). From an assistant, MCP, an automation or an extension it is a suggestion: it waits for a person to apply it in Approvals. Returns the conversation.
 
 |  |  |
 | --- | --- |
 | Permission | `inbox:work` |
 | Risk | `write` |
 | Audiences | `staff` |
+| Also | always reviewed when called by `assistant`, `mcp`, `automation`, `extension` (`alwaysReview`) |
 
 ### Input
 

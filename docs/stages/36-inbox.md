@@ -68,6 +68,11 @@ stage 30".
   `conversation.setCategory`; the stale guards are conflicts. Left: Send waits for `message.send`
   (steps 2 and 4), "due soon" and the other settings for steps 2, 4 and 5, "Draft with AI" and
   drafts for step 6 (its own migration, not 1051), choosing "about" for step 9.
+  After review (PR #501): the conversation page keys its thread, reply box and person panel by
+  the conversation (nothing typed or read on one shows on the next); "make a Person" is one host
+  write (`conversation.linkPerson` with `newPerson`); an AI caller's `conversation.setCategory`
+  always waits for a person; the screens follow the host's `inbox:read` and `inbox:work`, with a
+  plain no-access page; the e2e checks the full email as text.
 
 - **Step 4** — not built — needs: step 1 — Chat for customers: `chat.*`, web and native blocks,
   the Messages section and `message_unread`

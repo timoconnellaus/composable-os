@@ -4,8 +4,12 @@
 // writers as the inbound hook of step 2 will); a member of staff finds it unassigned, takes it,
 // and the admin, on the same conversation, sees who has it. The admin files it and leaves a note
 // mentioning them; the member puts the saved reply into the reply box with the person's first name
-// filled in, and marks the conversation waiting. The email's HTML is shown as text. The Person's
+// filled in, and marks the conversation waiting. The email's HTML is shown as text, its snippet and
+// its full body. Moving to the person's other conversation leaves the reply behind. The Person's
 // page lists the conversation.
+//
+// The category and the saved reply are fixed names made only when missing, so a reused local
+// database does not fill up with one per run.
 //
 // Sending the reply is step 2's (`message.send`): the Send button is off here. Rules and edge
 // cases (private conversations, who may write shared replies, slots) are in core's vitest.
@@ -29,29 +33,37 @@ test("two staff work one conversation: take it, see who has it, file it, note it
 }) => {
   test.setTimeout(150_000);
   const token = unique();
-  const category = `Bookings ${token}`;
-  const savedTitle = `Moving a class ${token}`;
+  const category = "Bookings (e2e)";
+  const savedTitle = "Moving a class (e2e)";
   const given = `Ada${token}`;
 
-  // Settings → Inbox: the admin adds a category, keeping whatever other specs left there.
+  // Settings → Inbox: the admin adds the category when it is not there yet, keeping the rest.
   await open(page, "/settings/inbox");
-  await page.getByLabel("New category").fill(category);
-  await page.getByRole("button", { name: "Add", exact: true }).click();
-  await page.getByRole("button", { name: "Save categories" }).click();
-  await expect(page.getByText("Categories saved")).toBeVisible();
+  await expect(page.getByRole("button", { name: "Save categories" })).toBeVisible();
+  if ((await page.getByTestId("inbox-category").filter({ hasText: category }).count()) === 0) {
+    await page.getByLabel("New category").fill(category);
+    await page.getByRole("button", { name: "Add", exact: true }).click();
+    await page.getByRole("button", { name: "Save categories" }).click();
+    await expect(page.getByText("Categories saved")).toBeVisible();
+  }
+  await expect(page.getByTestId("inbox-category").filter({ hasText: category })).toHaveCount(1);
 
-  // A shared saved reply with the person's first name in it.
+  // A shared saved reply with the person's first name in it, made when it is not there yet.
   await open(page, "/inbox/saved-replies");
-  await page.getByRole("button", { name: "New saved reply" }).click();
-  const dialog = page.getByRole("dialog", { name: "New saved reply" });
-  await dialog.getByLabel("Title").fill(savedTitle);
-  await dialog.getByLabel("Words").fill("Hi ");
-  await dialog.getByRole("button", { name: "Their first name" }).click();
-  await dialog.getByLabel("Words").press("End");
-  await dialog.getByLabel("Words").pressSequentially(", of course: which class suits you?");
-  await dialog.getByLabel("Shared with everyone on the inbox").check();
-  await dialog.getByRole("button", { name: "Save reply" }).click();
-  await expect(page.getByText("Reply saved")).toBeVisible();
+  const existing = page.getByTestId("saved-reply").filter({ hasText: savedTitle });
+  await expect(page.locator('[aria-busy="true"]')).toHaveCount(0);
+  if ((await existing.count()) === 0) {
+    await page.getByRole("button", { name: "New saved reply" }).click();
+    const dialog = page.getByRole("dialog", { name: "New saved reply" });
+    await dialog.getByLabel("Title").fill(savedTitle);
+    await dialog.getByLabel("Words").fill("Hi ");
+    await dialog.getByRole("button", { name: "Their first name" }).click();
+    await dialog.getByLabel("Words").press("End");
+    await dialog.getByLabel("Words").pressSequentially(", of course: which class suits you?");
+    await dialog.getByLabel("Shared with everyone on the inbox").check();
+    await dialog.getByRole("button", { name: "Save reply" }).click();
+    await expect(page.getByText("Reply saved")).toBeVisible();
+  }
   await expect(
     page.getByTestId("saved-reply").filter({ hasText: savedTitle }).getByText("Shared"),
   ).toBeVisible();
@@ -63,11 +75,18 @@ test("two staff work one conversation: take it, see who has it, file it, note it
     emails: [{ email: `${token}@example.com` }],
   });
   const subject = `Can I move my class? ${token}`;
+  // An earlier conversation of theirs, about something else.
+  const earlier = await page.request.post("/gatekeeper/fake/inbox", {
+    data: { personId: person.id, subject: `My locker ${token}`, text: "Is there a locker free?" },
+  });
+  expect(earlier.ok(), await earlier.text()).toBe(true);
+  const { conversationId: otherId } = (await earlier.json()) as { conversationId: string };
   const seeded = await page.request.post("/gatekeeper/fake/inbox", {
     data: {
       personId: person.id,
       subject,
       text: "Hello, can I move Tuesday's class? <b>Thanks</b>",
+      full: "Hello, can I move Tuesday's class? <b>Thanks</b>\n\n<i>Sent from my phone</i>",
     },
   });
   expect(seeded.ok(), await seeded.text()).toBe(true);
@@ -87,6 +106,10 @@ test("two staff work one conversation: take it, see who has it, file it, note it
     "Hello, can I move Tuesday's class? <b>Thanks</b>",
   );
   await expect(message.locator("b")).toHaveCount(0);
+  // The full email from blob storage, as text too.
+  await message.getByRole("button", { name: "Show full email" }).click();
+  await expect(message.getByTestId("message-body")).toContainText("<i>Sent from my phone</i>");
+  await expect(message.locator("b, i")).toHaveCount(0);
 
   // The admin has it open too; the member takes it; the admin sees who has it.
   await open(page, `/inbox/${conversationId}`);
@@ -116,6 +139,20 @@ test("two staff work one conversation: take it, see who has it, file it, note it
     "They booked Tuesday last week too.",
   );
   await expect(member.page.getByTestId("conversation-note")).toContainText("Staff only");
+  // They glance at the person's other conversation and come back (both now read in this tab).
+  const other = member.page.getByRole("link", { name: `My locker ${token}` });
+  await other.click();
+  await expect(member.page).toHaveURL(new RegExp(`/inbox/${otherId}`));
+  await expect(
+    member.page.getByTestId("conversation-message").filter({ hasText: "Is there a locker free?" }),
+  ).toBeVisible();
+  // Nothing of the conversation they came from: its message, its note.
+  await expect(
+    member.page.getByTestId("conversation-message").filter({ hasText: "Tuesday" }),
+  ).toHaveCount(0);
+  await expect(member.page.getByTestId("conversation-note")).toHaveCount(0);
+  await member.page.goBack();
+  await expect(member.page.getByTestId("conversation-note")).toBeVisible();
   await member.page.getByRole("button", { name: "Saved replies" }).click();
   await member.page.getByRole("menuitem", { name: savedTitle }).click();
   await expect(member.page.getByRole("textbox", { name: "Reply" })).toHaveValue(
@@ -123,6 +160,23 @@ test("two staff work one conversation: take it, see who has it, file it, note it
   );
   // Sending is not on until email goes out from the inbox (step 2).
   await expect(member.page.getByRole("button", { name: "Send" })).toBeDisabled();
+
+  // The other conversation, read a moment ago in this tab, opens with its own empty reply box:
+  // not this one's words and first name (the page is reused from one conversation to the next).
+  await other.click();
+  await expect(member.page).toHaveURL(new RegExp(`/inbox/${otherId}`));
+  await expect(
+    member.page.getByTestId("conversation-message").filter({ hasText: "Is there a locker free?" }),
+  ).toBeVisible();
+  // Nothing of the conversation they came from: its message, its note.
+  await expect(
+    member.page.getByTestId("conversation-message").filter({ hasText: "Tuesday" }),
+  ).toHaveCount(0);
+  await expect(member.page.getByTestId("conversation-note")).toHaveCount(0);
+  await expect(member.page.getByRole("textbox", { name: "Reply" })).toHaveValue("");
+  await member.page.goBack();
+  await expect(member.page).toHaveURL(new RegExp(`/inbox/${conversationId}`));
+  await expect(member.page.getByTestId("conversation-note")).toBeVisible();
 
   // Waiting on them.
   await member.page.getByLabel("Status").click();

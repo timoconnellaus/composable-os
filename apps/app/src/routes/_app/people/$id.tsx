@@ -36,6 +36,7 @@ import {
 } from "#/components/automations/record-automations";
 import { EmptyState } from "#/components/empty-state";
 import { ExtensionFieldsCards } from "#/components/fields/fields-card";
+import { useInboxAccess } from "#/components/inbox/access";
 import { PersonConversations } from "#/components/inbox/person-conversations";
 import { useEnrichAction } from "#/components/integrations/enrich-action";
 import { useMergeAction } from "#/components/merge/merge-action";
@@ -144,6 +145,7 @@ function PersonRecord({
   const deleted = Boolean(person.deletedAt);
   // customer.list is admins only: other users never see the customer account card.
   const { isAdmin } = Route.useRouteContext();
+  const inbox = useInboxAccess();
   const [types, setTypes] = useState<ActivityType[]>([]);
   const timeline = useTimeline("person", person.id, { types });
   const recordViews = useRecordViews("person", person.id);
@@ -311,11 +313,16 @@ function PersonRecord({
               />
             ),
           },
-          {
-            value: "conversations",
-            label: "Conversations",
-            content: <PersonConversations personId={person.id} />,
-          },
+          // The inbox's tab, for an account that reads the inbox.
+          ...(inbox.reads
+            ? [
+                {
+                  value: "conversations",
+                  label: "Conversations",
+                  content: <PersonConversations personId={person.id} />,
+                },
+              ]
+            : []),
           ...recordViews.tabs,
         ]}
         side={
