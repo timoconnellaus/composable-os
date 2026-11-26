@@ -18,7 +18,7 @@ import type {
   WorkspaceEntry,
   WorkspaceWrite,
 } from "@composable-os/core";
-import { ClientObject } from "@composable-os/db/client-entries";
+import { CLIENT_OBJECT, ClientObject, refreshOnEachCall } from "@composable-os/db/client-entries";
 import type { BuildRecord } from "../executor/build-cache.ts";
 import { buildKey, contentHash } from "../executor/worker-code.ts";
 import { shippedExtensions } from "./shipped-list.ts";
@@ -66,6 +66,11 @@ export class ExtensionWorkspace extends DurableObject<Env> {
    * packs and its own extensions).
    */
   protected readonly owner: ClientObject<Env>;
+
+  /** Its ClientObject, for `refreshOnEachCall` (below the class). */
+  get [CLIENT_OBJECT]() {
+    return this.owner;
+  }
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
@@ -443,3 +448,6 @@ export class ExtensionWorkspace extends DurableObject<Env> {
     });
   }
 }
+
+// Every async method re-reads the client's admission first (stage 66, review of #512, M2).
+refreshOnEachCall(ExtensionWorkspace);

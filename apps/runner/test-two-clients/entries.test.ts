@@ -656,3 +656,34 @@ describe("a client not served for a while (review of #512, S3 and S5)", () => {
     expect(FANOUT_CONSUMER.max_batch_size).toBe(1);
   });
 });
+
+describe("a warm object of a client that stops being served (review of #512, M2)", () => {
+  it(
+    "refuses its next call once the registry pauses the client, and serves again on resume",
+    async () => {
+      const registry = (env as unknown as { REGISTRY: D1Database }).REGISTRY;
+      const gate = (await clientEnv(b.id)).CODE_MODE_GATE.getByName("warm-user");
+      const acquire = async () => await gate.acquire(1_000);
+      expect(typeof (await acquire())).toBe("string");
+      await registry
+        .prepare("UPDATE registry_clients SET status = 'paused' WHERE id = ?")
+        .bind(b.id)
+        .run();
+      try {
+        // The object's isolate reads the registry's stamp at most every 10 seconds.
+        await new Promise((resolve) => setTimeout(resolve, 10_500));
+        await expect(acquire()).rejects.toThrow(/not served now|paused/);
+      } finally {
+        await registry
+          .prepare("UPDATE registry_clients SET status = 'active' WHERE id = ?")
+          .bind(b.id)
+          .run();
+      }
+      await new Promise((resolve) => setTimeout(resolve, 10_500));
+      // A stub of a reset object stays broken: a new one reaches the object again.
+      const fresh = (await clientEnv(b.id)).CODE_MODE_GATE.getByName("warm-user");
+      await expect((async () => await fresh.acquire(1_000))()).resolves.toBeDefined();
+    },
+    40_000,
+  );
+});

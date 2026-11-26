@@ -694,6 +694,33 @@ export class ClientObject<E extends HostBindings> {
   }
 }
 
+/** Where an object class keeps its `ClientObject`, for `refreshOnEachCall`. */
+export const CLIENT_OBJECT: unique symbol = Symbol.for("cos.client-object");
+
+/**
+ * Makes every async method of a Durable Object class (its RPC methods, `fetch`, `alarm`, the
+ * Agents SDK's hooks it overrides) read its client's admission again before it runs, so a warm
+ * object of a client paused, moving, behind or removed stops serving at its next event, as a
+ * request would (review of #512, M2). Cheap: the directory is in memory, the stamp read at most
+ * every 10 seconds. The class keeps its `ClientObject` at `CLIENT_OBJECT`. Single-client: the
+ * method runs as before, with nothing awaited first. Sync methods are left as they are.
+ */
+export function refreshOnEachCall(cls: { prototype: object }): void {
+  const prototype = cls.prototype as Record<string | symbol, unknown>;
+  for (const name of Object.getOwnPropertyNames(prototype)) {
+    if (name === "constructor") continue;
+    const descriptor = Object.getOwnPropertyDescriptor(prototype, name);
+    const original = descriptor?.value;
+    if (typeof original !== "function" || original.constructor?.name !== "AsyncFunction") continue;
+    const checked = async function (this: Record<symbol, unknown>, ...args: unknown[]) {
+      const owner = this[CLIENT_OBJECT] as ClientObject<HostBindings> | undefined;
+      if (owner && owner.client !== null) await owner.refresh();
+      return (original as (...a: unknown[]) => unknown).apply(this, args);
+    };
+    Object.defineProperty(prototype, name, { ...descriptor, value: checked });
+  }
+}
+
 // --- Entrypoints a host mints with props -----------------------------------------------------
 
 /** What an entrypoint minted for one client carries in its props on a many-client host. */

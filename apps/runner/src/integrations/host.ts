@@ -56,9 +56,11 @@ import {
 } from "@composable-os/core";
 import { createCrmDb } from "@composable-os/db";
 import {
+  CLIENT_OBJECT,
   ClientObject,
   gatekeeperOffered,
   perClientMissing,
+  refreshOnEachCall,
 } from "@composable-os/db/client-entries";
 import { PROOF } from "@composable-os/db/client-proofs";
 import { runnerJudge } from "../extensions/ai.ts";
@@ -321,6 +323,11 @@ export class IntegrationHost extends DurableObject<Env> {
   readonly #client = new ClientObject(this.ctx, this.env, (clientEnv) => {
     this.env = clientEnv;
   });
+
+  /** Its ClientObject, for `refreshOnEachCall` (below the class). */
+  get [CLIENT_OBJECT]() {
+    return this.#client;
+  }
 
   /** The host's proof on what this object mints for a gatekeeper (review of #512, S1). */
   #mintProof(connectionId: string): string | null {
@@ -1573,3 +1580,6 @@ export class IntegrationHost extends DurableObject<Env> {
     };
   }
 }
+
+// Every async method re-reads the client's admission first (stage 66, review of #512, M2).
+refreshOnEachCall(IntegrationHost);

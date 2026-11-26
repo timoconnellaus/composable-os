@@ -262,10 +262,13 @@ export function createAppHandler(fallback: Fallback) {
   return {
     fetch(request: Request, env: McpEnv, ctx: ExecutionContext): Promise<Response> {
       const origin = new URL(request.url).origin;
-      let provider = providers.get(origin);
+      // By client and origin (review of #512, M4): a hostname the registry gives another client
+      // gets that client's token lifetime and resource address, never the first one's.
+      const cacheKey = `${clientOf(env) ?? ""} ${origin}`;
+      let provider = providers.get(cacheKey);
       if (!provider) {
         provider = new OAuthProvider<McpEnv>(oauthOptions(origin, env, fallback));
-        providers.set(origin, provider);
+        providers.set(cacheKey, provider);
       }
       return provider.fetch(request, oauthEnv(env, origin, fallback), ctx);
     },

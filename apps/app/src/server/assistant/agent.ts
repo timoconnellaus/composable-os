@@ -99,7 +99,7 @@ import {
   withSavedLines,
 } from "@composable-os/core";
 import { type CrmDb, createCrmDb } from "@composable-os/db";
-import { ClientObject } from "@composable-os/db/client-entries";
+import { CLIENT_OBJECT, ClientObject, refreshOnEachCall } from "@composable-os/db/client-entries";
 import { Agent, type Connection, type ConnectionContext, type WSMessage } from "agents";
 import "./routine-agents.ts";
 import { activeUser } from "../acting-user.ts";
@@ -220,6 +220,11 @@ export class AssistantAgent extends withAssistantVoice(Agent<Cloudflare.Env>) im
    * environment. A single-client deployment's: the real `env`.
    */
   readonly #client = new ClientObject(this.ctx, this.env as unknown as AssistantEnv);
+
+  /** Its ClientObject, for `refreshOnEachCall` (below the class). */
+  get [CLIENT_OBJECT]() {
+    return this.#client;
+  }
 
   get #env(): AssistantEnv {
     return this.#client.env;
@@ -1422,3 +1427,6 @@ function withCutOffText(
 
 /** The person's words of a stored message (for previews and tests). */
 export { messageText };
+
+// Every async method re-reads the client's admission first (stage 66, review of #512, M2).
+refreshOnEachCall(AssistantAgent);
