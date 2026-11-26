@@ -237,6 +237,7 @@ export * from "./operations/extension.ts";
 export * from "./operations/extension-authoring.ts";
 export * from "./operations/extension-ui.ts";
 export * from "./operations/field-options.ts";
+export * from "./operations/file.ts";
 export { runPayoutsDue } from "./operations/finance.ts";
 export * from "./operations/import.ts";
 export { coreOperations } from "./operations/index.ts";
@@ -333,6 +334,19 @@ export {
   ERASE_LOG_PREFIX,
   type EraseLogEntry,
 } from "./records/erase-log.ts";
+export {
+  contentDisposition,
+  DEFAULT_FILES_CAP_BYTES,
+  downloadName,
+  FILES_PREFIX,
+  prepareRecordFile,
+  purgeRecordFiles,
+  type RecordFile,
+  STAGED_FILE_HOURS,
+  stripJpeg,
+  stripPng,
+  stripWebp,
+} from "./records/files.ts";
 export {
   applyTransition,
   callerMover,

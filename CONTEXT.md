@@ -218,10 +218,20 @@ _Avoid_: private (a synced email's `private_to`, its owner's only), confidential
 The business's kinds of note (stage 56, ADR 0833): Note, Session note, Sensitive, From the client
 and its own, kept in Settings → Notes by `notes:manage`. Each has a template (labelled sections a
 person fills in, which make the note's body), the level a note of it starts at and the lowest it
-may ever have, and later its files, retention and whether it is evidence. A retired kind is no
-longer offered and keeps its notes. Every note has one; a note written without one is a Note,
-which stays `staff`.
+may ever have, whether **record files** may be attached to its notes (only From the client by
+default), and later its retention and whether it is evidence. A retired kind is no longer offered
+and keeps its notes. Every note has one; a note written without one is a Note, which stays `staff`.
 _Avoid_: type (an activity's type: note, email, call), category, template (a kind's part)
+
+**Record file**
+A photo (JPEG, PNG or WebP, at most 10 MB) or a PDF (at most 20 MB) attached to a note (stage 56,
+ADR 0834), typed from its bytes, kept privately in R2 under `files/` with a picture's location,
+camera and other metadata removed, and served only to its note's readers at that moment (the one
+not-found to anyone else; serves of a level 2 or 3 note's file audited). Never in the media
+library. An upload waits for its note for a day, then is purged; at most 20 a note; a storage cap
+a human admin sets. It goes when its note is purged from the Trash or its Person is erased.
+_Avoid_: attachment (an email's), media (the library's), document (a customer's Documents section
+lists shared notes and their files)
 
 **Looks after**
 A staff account that looks after a Person (stage 56, ADR 0831): it reads their `coaches` notes

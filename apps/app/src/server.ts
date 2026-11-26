@@ -10,8 +10,10 @@ import { env as workerEnv } from "cloudflare:workers";
 import { provideStaffCodes } from "@composable-os/auth";
 import {
   coreInvoker,
+  handleFiles,
   handleMedia,
   isApiPath,
+  isFilesPath,
   isMediaPath,
   type RoutineDeliveryMessage,
   setVideoHost,
@@ -142,6 +144,17 @@ export default {
         uploads: true,
         // `cos content import` (ADR 0470): a person's staff device token, beside the surface.
         tokenUploads: true,
+      });
+    }
+    // A note's photos and PDFs (stage 56 step 3, ADR 0834): staff upload, and only a person who
+    // may read the note now is served one, as file.serve decides. Before the surface:
+    // /api/v1/files/<id> is a staff phone's address for one.
+    if (isFilesPath(pathname)) {
+      const api = env as unknown as ApiEnv & MediaEnv;
+      return handleFiles(request, {
+        invoker: coreInvoker,
+        context: (req) => apiContext(req, api),
+        store: mediaStoreFor(api),
       });
     }
     // A staff member's private calendar feed (stage 45 step 5, ADR 0628): a calendar app polls

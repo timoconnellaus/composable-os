@@ -385,6 +385,7 @@
 - [extension.* operations](https://docs.composableos.dev/reference/operations/extension/): The core operations named extension.*
 - [extensionSettings.* operations](https://docs.composableos.dev/reference/operations/extensionsettings/): The core operations named extensionSettings.*
 - [fieldOptions.* operations](https://docs.composableos.dev/reference/operations/fieldoptions/): The core operations named fieldOptions.*
+- [file.* operations](https://docs.composableos.dev/reference/operations/file/): The core operations named file.*
 - [finance.* operations](https://docs.composableos.dev/reference/operations/finance/): The core operations named finance.*
 - [import.* operations](https://docs.composableos.dev/reference/operations/import/): The core operations named import.*
 - [inbox.* operations](https://docs.composableos.dev/reference/operations/inbox/): The core operations named inbox.*

@@ -247,7 +247,7 @@ async function captionUpload(
 }
 
 /** The body, refused once it passes `max` bytes, whatever the header said. */
-async function readCapped(request: Request, max: number): Promise<Uint8Array> {
+export async function readCapped(request: Request, max: number): Promise<Uint8Array> {
   if (!request.body) return new Uint8Array();
   const reader = request.body.getReader();
   const parts: Uint8Array[] = [];

@@ -49,6 +49,7 @@ import { extensionOperations } from "./extension.ts";
 import { extensionAuthoringOperations } from "./extension-authoring.ts";
 import { extensionUiOperations } from "./extension-ui.ts";
 import { fieldOptionsOperations } from "./field-options.ts";
+import { fileOperations } from "./file.ts";
 import { financeOperations } from "./finance.ts";
 import { importOperations } from "./import.ts";
 import { importRecordsOperations } from "./import-records.ts";
@@ -219,6 +220,7 @@ export const coreOperations = [
   ...personLinkOperations,
   ...noteOperations,
   ...noteKindOperations,
+  ...fileOperations,
   ...carerOperations,
   ...personCodeOperations,
   ...orderOperations,

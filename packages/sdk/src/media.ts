@@ -106,3 +106,59 @@ export function isWebVtt(bytes: Uint8Array): boolean {
 
 /** A caption's language: a BCP 47 tag as Stream takes it (`en`, `pt-BR`). */
 export const CAPTION_LANGUAGE_RE = /^[a-z]{2,3}(?:-[A-Za-z0-9]{2,8}){0,2}$/;
+
+// --- Record files (stage 56, ADR 0834) -----------------------------------------------------------
+//
+// A photo or a PDF attached to a note about a client, kept privately (never in the media library).
+// The same rule as the library's: the type is the file's first bytes, never its name or a client's
+// word. Fewer types than the library takes: JPEG, PNG and WebP pictures and PDF documents. No GIF
+// or AVIF, no SVG or HTML, no HEIC (a phone's photo is converted to JPEG before it is sent), no
+// office document, no video, no empty file. The host also checks each file's structure as it
+// removes its metadata (packages/core/src/records/files.ts).
+
+/** The types a record file may be. */
+export const RECORD_FILE_TYPES = [
+  "image/jpeg",
+  "image/png",
+  "image/webp",
+  "application/pdf",
+] as const;
+export type RecordFileType = (typeof RECORD_FILE_TYPES)[number];
+
+/** The most a picture attached by staff may be, in bytes. */
+export const RECORD_FILE_PICTURE_MAX_BYTES = 10 * 1024 * 1024;
+/** The most a PDF attached by staff may be, in bytes. */
+export const RECORD_FILE_PDF_MAX_BYTES = 20 * 1024 * 1024;
+/** The most any record file may be: the upload route reads no more than this. */
+export const RECORD_FILE_MAX_BYTES = RECORD_FILE_PDF_MAX_BYTES;
+/** The most files one note may have. */
+export const RECORD_FILES_PER_NOTE = 20;
+
+/** The record file type `bytes` are, from their first bytes, or null when it is not one. */
+export function sniffRecordFile(bytes: Uint8Array): RecordFileType | null {
+  const picture = sniffMediaType(bytes);
+  if (picture === "image/jpeg" || picture === "image/png" || picture === "image/webp") {
+    return picture;
+  }
+  // GIF and AVIF are the library's, not a note's.
+  if (picture) return null;
+  return sniffFileType(bytes);
+}
+
+/** The most a record file of `type` may be. */
+export function recordFileMaxBytes(type: RecordFileType): number {
+  return type === "application/pdf" ? RECORD_FILE_PDF_MAX_BYTES : RECORD_FILE_PICTURE_MAX_BYTES;
+}
+
+/** Why `bytes` cannot be a record file, or null when their type and size allow it. */
+export function recordFileProblem(bytes: Uint8Array): string | null {
+  if (bytes.byteLength === 0) return "The file is empty";
+  const type = sniffRecordFile(bytes);
+  if (!type) return "This is not a file a note takes: a JPEG, PNG or WebP picture, or a PDF";
+  const max = recordFileMaxBytes(type);
+  if (bytes.byteLength > max) {
+    const what = type === "application/pdf" ? "a PDF" : "a picture";
+    return `The file is ${bytes.byteLength} bytes; ${what} is at most ${max}`;
+  }
+  return null;
+}

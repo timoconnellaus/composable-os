@@ -2113,6 +2113,22 @@ the current version of a record they may read shows in a field they may read
 `IMAGES` is bound. The `image` field type is `{ media, alt, focal? }`. The Trash purge deletes a
 picture's row, and a trigger queues its R2 key on the blob deletion path (ADR 0320).
 
+**Record files** ([ADR 0834](adr/0834-record-files.md), `packages/core/src/operations/file.ts`,
+`packages/core/src/records/files.ts`, `packages/core/src/http/files.ts`; stage 56 step 3). A note's
+photos and PDFs, never the media library: `core_record_file` (migration 1233), each object in the
+same bucket under `files/<id>`. Typed by `sniffRecordFile` (`packages/sdk/src/media.ts`: JPEG, PNG,
+WebP, PDF), read whole as what it starts as, and a picture's metadata removed by a byte-level
+rewrite before it is stored (a JPEG keeps only its orientation of its EXIF); PDFs stored as sent.
+`POST /api/files?name=&note=` (cos-app, staff, from the admin's own pages) asks `file.checkUpload`
+before reading the body, then hands the bytes to `file.upload` as `ctx.upload`; the bytes go to R2
+after the row commits. Without a note an upload waits for `activity.log`'s `files` and is purged
+by the daily maintenance a day later. `GET /api/files/<id>` (and `/api/v1/files/<id>` for a staff
+phone) streams what `file.serve` allows: a person who may read the note now, through the seam, or
+the one not-found; with `nosniff`, a sandboxing CSP, `private, no-store`, pictures inline and PDFs
+as downloads. The client-app binding mounts neither. Every file operation is staff only, a person's
+and not on MCP. A row's delete queues its R2 key (trigger); the Trash purge and erase delete a
+note's files in their own batch, as nothing in the migration names `core_activity`.
+
 **Locations** ([ADR 0910](adr/0910-locations-a-base-record-inside-the-one-organisation.md),
 `packages/core/src/fields/location.ts`, `packages/core/src/operations/location.ts`; stage 64). A
 base record, `location` (`core_location`, migration 1390): a place the one organisation works from,

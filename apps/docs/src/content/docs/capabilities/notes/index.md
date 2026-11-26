@@ -33,6 +33,10 @@ meetings, and on the timeline of anything else it is linked to (a class, a deal)
   level one may ever have. A retired kind is no longer offered and keeps its notes.
 - **Looks after**: a staff account set on a person's page as one of their coaches. It reads the
   person's `coaches` notes while the row is live.
+- **Record file**: a photo (JPEG, PNG or WebP, at most 10 MB) or a PDF (at most 20 MB) attached
+  to a note of a kind that takes files, at most 20 a note. Its type is read from its bytes and a
+  picture's location, camera and other metadata are removed before it is kept. It is served only
+  to a person who may read its note at that moment; anyone else gets the same not-found.
 - **The notes permissions**: `notes:clients`, `notes:sensitive` and `notes:manage`, held by admins
   and given to others one by one by a human admin, never to oneself. They give an AI nothing, except
   that an AI acting for a holder of `notes:manage` may draft a kind's name and template, which waits
@@ -48,6 +52,13 @@ meetings, and on the timeline of anything else it is linked to (a class, a deal)
 - `core_note_kind` holds the kinds; `note.kinds.list`, `.save` and `.retire` keep them. The
   operations and database triggers hold every note at or above its kind's lowest level.
 - `core_person_carer` holds who looks after whom; `carer.set`, `.end` and `.list` keep it.
+- `core_record_file` holds a note's files; their bytes are in R2 under `files/`, never in the
+  media library. `POST /api/files` asks `file.checkUpload` before reading the body, then
+  `file.upload` stores the file once its row commits. An upload made before its note is saved
+  waits for `activity.log`'s `files` and is deleted the next day if no note takes it.
+  `GET /api/files/<id>` streams what `file.serve` allows, with headers that stop a file running as
+  a page. `file.delete` removes one; `file.storage.get` and `file.storage.setCap` give the total
+  and keep the limit. Every file operation is a person's, staff only, and not on MCP.
 - The composer blocks (`web-note-composer`, `native-note-composer`) and the admin's own timeline
   use the notes entry of `@composable-os/client`: the kinds and levels the host lists, and a draft
   that only says what is empty before the host checks the note in full.
@@ -64,13 +75,19 @@ meetings, and on the timeline of anything else it is linked to (a class, a deal)
   change waits for a person who holds `notes:manage`, and it never sets a level.
 - **Who looks after whom.** On a person's page someone with `people:link` adds or ends a staff
   account in Looks after; it takes effect on the next read.
+- **A photo on a note.** A person uploads a photo to `/api/files`, then saves the note with the
+  file's id in `files`; a note may be its files alone. The note's readers see the file's name,
+  type and size on the note and open it at `/api/files/<id>`; a serve of a file on a note kept from
+  the whole staff is recorded in the audit log by id. In the Trash the note serves no file; purged,
+  its files go, and erasing a person deletes the files of every note about them.
 
 ## What is built
 
-Levels, the note scope, looks after, the three permissions, kinds and templates, Settings → Notes,
-the admin's composer and timeline, and the composer blocks. Files on notes, sharing a note with the
-client, the client's own uploads, the coach's class list, and erase and retention for notes are
-later steps of stage 56.
+Levels, the note scope, looks after, the three permissions, kinds and templates, Settings → Notes
+(with a kind's files and the storage total and limit), the admin's composer and timeline, the
+composer blocks, and record files with their upload and serve routes. A file picker in the
+composer, sharing a note with the client, the client's own uploads, the coach's class list, and
+evidence and retention for notes are later steps of stage 56.
 
 
 ## Reference

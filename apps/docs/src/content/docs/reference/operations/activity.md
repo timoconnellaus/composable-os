@@ -82,6 +82,14 @@ Get one activity by id with its payload, author and linked records. Deleted acti
 | `sections.key` | string | yes |   |   |
 | `sections.label` | string | yes |   |   |
 | `sections.text` | string | yes |   |   |
+| `files` | array of object |   |   |   |
+| `files[].id` | string | yes |   |   |
+| `files[].name` | string | yes |   | The name it was uploaded with |
+| `files[].type` | `"image/jpeg"`, `"image/png"`, `"image/webp"`, `"application/pdf"` | yes |   |   |
+| `files[].bytes` | integer | yes | ≥ -9007199254740991, ≤ 9007199254740991 |   |
+| `files[].width` | integer or null | yes |   |   |
+| `files[].height` | integer or null | yes |   |   |
+| `files[].createdAt` | string | yes |   |   |
 
 ## activity.getBody
 
@@ -165,6 +173,14 @@ List live activities across all records (the Activity feed), newest first by def
 | `items[].sections.key` | string | yes |   |   |
 | `items[].sections.label` | string | yes |   |   |
 | `items[].sections.text` | string | yes |   |   |
+| `items[].files` | array of object |   |   |   |
+| `items[].files[].id` | string | yes |   |   |
+| `items[].files[].name` | string | yes |   | The name it was uploaded with |
+| `items[].files[].type` | `"image/jpeg"`, `"image/png"`, `"image/webp"`, `"application/pdf"` | yes |   |   |
+| `items[].files[].bytes` | integer | yes | ≥ -9007199254740991, ≤ 9007199254740991 |   |
+| `items[].files[].width` | integer or null | yes |   |   |
+| `items[].files[].height` | integer or null | yes |   |   |
+| `items[].files[].createdAt` | string | yes |   |   |
 | `nextCursor` | string or null | yes |   |   |
 
 ## activity.listForRecord
@@ -223,6 +239,14 @@ A record's timeline: live activities linked to the record, newest first (by occu
 | `items[].sections.key` | string | yes |   |   |
 | `items[].sections.label` | string | yes |   |   |
 | `items[].sections.text` | string | yes |   |   |
+| `items[].files` | array of object |   |   |   |
+| `items[].files[].id` | string | yes |   |   |
+| `items[].files[].name` | string | yes |   | The name it was uploaded with |
+| `items[].files[].type` | `"image/jpeg"`, `"image/png"`, `"image/webp"`, `"application/pdf"` | yes |   |   |
+| `items[].files[].bytes` | integer | yes | ≥ -9007199254740991, ≤ 9007199254740991 |   |
+| `items[].files[].width` | integer or null | yes |   |   |
+| `items[].files[].height` | integer or null | yes |   |   |
+| `items[].files[].createdAt` | string | yes |   |   |
 | `nextCursor` | string or null | yes |   |   |
 
 ## activity.log
@@ -274,6 +298,14 @@ No fields.
 | `sections.key` | string | yes |   |   |
 | `sections.label` | string | yes |   |   |
 | `sections.text` | string | yes |   |   |
+| `files` | array of object |   |   |   |
+| `files[].id` | string | yes |   |   |
+| `files[].name` | string | yes |   | The name it was uploaded with |
+| `files[].type` | `"image/jpeg"`, `"image/png"`, `"image/webp"`, `"application/pdf"` | yes |   |   |
+| `files[].bytes` | integer | yes | ≥ -9007199254740991, ≤ 9007199254740991 |   |
+| `files[].width` | integer or null | yes |   |   |
+| `files[].height` | integer or null | yes |   |   |
+| `files[].createdAt` | string | yes |   |   |
 
 ## activity.proposeNote
 
@@ -330,6 +362,14 @@ Propose a note on a record for the person to OK, instead of adding it straight a
 | `sections.key` | string | yes |   |   |
 | `sections.label` | string | yes |   |   |
 | `sections.text` | string | yes |   |   |
+| `files` | array of object |   |   |   |
+| `files[].id` | string | yes |   |   |
+| `files[].name` | string | yes |   | The name it was uploaded with |
+| `files[].type` | `"image/jpeg"`, `"image/png"`, `"image/webp"`, `"application/pdf"` | yes |   |   |
+| `files[].bytes` | integer | yes | ≥ -9007199254740991, ≤ 9007199254740991 |   |
+| `files[].width` | integer or null | yes |   |   |
+| `files[].height` | integer or null | yes |   |   |
+| `files[].createdAt` | string | yes |   |   |
 
 ## activity.restore
 
@@ -382,6 +422,14 @@ Restore an activity from Trash, putting it back on its linked records' timelines
 | `sections.key` | string | yes |   |   |
 | `sections.label` | string | yes |   |   |
 | `sections.text` | string | yes |   |   |
+| `files` | array of object |   |   |   |
+| `files[].id` | string | yes |   |   |
+| `files[].name` | string | yes |   | The name it was uploaded with |
+| `files[].type` | `"image/jpeg"`, `"image/png"`, `"image/webp"`, `"application/pdf"` | yes |   |   |
+| `files[].bytes` | integer | yes | ≥ -9007199254740991, ≤ 9007199254740991 |   |
+| `files[].width` | integer or null | yes |   |   |
+| `files[].height` | integer or null | yes |   |   |
+| `files[].createdAt` | string | yes |   |   |
 
 ## activity.setPrivate
 
@@ -437,6 +485,14 @@ Mark a synced email or meeting private (only you see it: it leaves everyone else
 | `sections.key` | string | yes |   |   |
 | `sections.label` | string | yes |   |   |
 | `sections.text` | string | yes |   |   |
+| `files` | array of object |   |   |   |
+| `files[].id` | string | yes |   |   |
+| `files[].name` | string | yes |   | The name it was uploaded with |
+| `files[].type` | `"image/jpeg"`, `"image/png"`, `"image/webp"`, `"application/pdf"` | yes |   |   |
+| `files[].bytes` | integer | yes | ≥ -9007199254740991, ≤ 9007199254740991 |   |
+| `files[].width` | integer or null | yes |   |   |
+| `files[].height` | integer or null | yes |   |   |
+| `files[].createdAt` | string | yes |   |   |
 
 ## activity.update
 
@@ -501,3 +557,11 @@ Edit a note, email, call or meeting: subject, body, occurredAt, payload (validat
 | `sections.key` | string | yes |   |   |
 | `sections.label` | string | yes |   |   |
 | `sections.text` | string | yes |   |   |
+| `files` | array of object |   |   |   |
+| `files[].id` | string | yes |   |   |
+| `files[].name` | string | yes |   | The name it was uploaded with |
+| `files[].type` | `"image/jpeg"`, `"image/png"`, `"image/webp"`, `"application/pdf"` | yes |   |   |
+| `files[].bytes` | integer | yes | ≥ -9007199254740991, ≤ 9007199254740991 |   |
+| `files[].width` | integer or null | yes |   |   |
+| `files[].height` | integer or null | yes |   |   |
+| `files[].createdAt` | string | yes |   |   |
