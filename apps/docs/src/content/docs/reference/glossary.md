@@ -1152,8 +1152,8 @@ required relation to one location (a room, a class), or `relation.field` reachin
 `class.location`). With one open location the host fills it; a located record's empty zone is its
 location's; a closed location takes no new located record. A pack never filters by location in
 its own code. **Agree**: two paths of a record that must name the same location (a class's and its
-room's), refused in the database for every writer (`location_mismatch`); a room's location is fixed
-while a live class names it.
+room's), refused in the database for every writer (`location_mismatch`); a room's location changes
+only together with every record that uses it (`location.relocate`).
 
 ### Location hint
 

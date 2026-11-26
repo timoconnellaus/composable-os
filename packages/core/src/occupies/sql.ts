@@ -20,7 +20,7 @@
 // claim that has not ended meets core_thing_time's own triggers, which refuse an overlap for every
 // statement shape.
 import { CompiledQuery } from "kysely";
-import { ident } from "../extensions/naming.ts";
+import { fitName, ident } from "../extensions/naming.ts";
 import { literal } from "../staffing/sql.ts";
 
 /** A margin's column: the occupant's own, or a column of the record its `via` relation names. */
@@ -150,7 +150,7 @@ export function deriveClaims(t: OccupiesTables, where: string, now = DB_NOW): st
 }
 
 /** The trigger names one occupying object owns: on its table, its thing's and its margins'. */
-export function occupiesTriggerNames(t: OccupiesTables): string[] {
+function occupiesTriggerNamesUnfitted(t: OccupiesTables): string[] {
   return [
     `${t.table}__occupies_ins`,
     `${t.table}__occupies_upd`,
@@ -164,6 +164,11 @@ export function occupiesTriggerNames(t: OccupiesTables): string[] {
       `${v.table}__margins_${t.table}_${v.column}_del`,
     ]),
   ];
+}
+
+/** occupiesTriggerNames with each name fitted to an identifier (naming.ts `fitName`). */
+export function occupiesTriggerNames(t: OccupiesTables): string[] {
+  return occupiesTriggerNamesUnfitted(t).map(fitName);
 }
 
 /** DROP TRIGGER statements for an object's triggers (safe when they do not exist). */

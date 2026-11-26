@@ -12,7 +12,7 @@ import type { ExtensionManifest, FieldManifest, ObjectManifest } from "./manifes
  * - `field`: a required relation field of this object to one `location` (a room, a series, a
  *   class, a duty shift). With one open location the host fills it on a new record, and the
  *   reconciler fills it on records that existed before the field (with the main location).
- * - `path`: `relation.field`, a relation of this object to one record of another of this
+ * - `path`: `relation.field`, a required relation of this object to one record of another of this
  *   extension's objects, and that object's relation to one `location` (a booking's
  *   `class.location`). The record is at the location its related record is at.
  *
@@ -116,6 +116,11 @@ export function checkObjectLocated(
         contract(
           `${at}.path`,
           `"${located.path}" must be relation.field: a relation of ${name} to one of this extension's objects, and its relation to one location`,
+        );
+      } else if (!own(object, located.path.split(".")[0] as string)?.required) {
+        contract(
+          `${at}.path`,
+          `"${located.path.split(".")[0]}" must be required: every ${name} is at a location, through it`,
         );
       }
     }

@@ -57,9 +57,11 @@ as best practice without asking, below). Build may start.
   location, a located record's empty zone its location's (`record.create`, `recurring`, the
   reconciler), the reconciler's fill of a new or newly located field with the main location (one
   statement per field); `agree` refused by triggers on the declaring table and the table a path
-  passes through (`location_mismatch`: a used room keeps its location), read first in the write
-  path, and an install over disagreeing records refused; a closed location takes no new located
-  record and its series make nothing. Not yet: any shipped pack located (steps 4 and 6), the zone
+  passes through (`location_mismatch`: a used room moves only with what uses it, through
+  `location.relocate`), read first in the write path, and an install over disagreeing records
+  refused; a record moved takes its new location's zone unless set by hand; a fill on a host with
+  more than one location tells the admins how many records went to the main location; a closed
+  location takes no new located record and its series make nothing. Not yet: any shipped pack located (steps 4 and 6), the zone
   readers (step 3).
 
 - **Step 3** — not built — needs: step 2 — Zone readers made location-aware; `core_staff_hours.location`

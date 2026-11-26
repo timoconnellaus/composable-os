@@ -8,6 +8,7 @@
 //   location.update   settings:manage       its name, address, zone, price; an AI's asks
 //   location.close    settings:manage       a person only; never the last open one
 //   location.reopen   settings:manage       a person only
+//   location.relocate settings:manage       a room with everything using it; an AI's asks
 //
 // The public reads a location through public.list and public.get (ADR 0916): what the object
 // declares, only while it is shown to the public and open. Nothing deletes a location: it is
@@ -16,11 +17,15 @@
 import { sql } from "kysely";
 import { z } from "zod";
 import { ConflictError, NotFoundError, ValidationError } from "../errors.ts";
+import { objectTableOf } from "../extensions/schema.ts";
+import { getObject } from "../fields/index.ts";
 import { LOCATION_STATES, locationObject, MAIN_LOCATION_FALLBACK } from "../fields/location.ts";
+import type { ObjectDefinition } from "../fields/types.ts";
 import { newId } from "../ids.ts";
+import { usersOf } from "../locations/index.ts";
 import { defineOperation, type HandlerContext } from "../operation.ts";
 import { isTimezone, loadGeneralSettings } from "../settings.ts";
-import { type Reader, visibleSource } from "../visibility/index.ts";
+import { type Reader, visibleSource, visibleTable } from "../visibility/index.ts";
 
 /** At most this many locations on one host: the list is one page, never a cursor. */
 export const LOCATION_MAX = 100;
@@ -433,6 +438,119 @@ export async function followOrganisation(
   });
 }
 
+/**
+ * A record filed at the wrong location, moved with everything that names it (ADR 0911): a room the
+ * reconciler filed under the main location when its classes were held elsewhere. A room's
+ * location never changes on its own while a live record that agrees with it names it; this moves
+ * the record and every record of every object whose `agree` passes through it (in the Trash too,
+ * past and future alike) in one batch. Each moved record names its relation to it again with the
+ * new location in a second statement, so every agree trigger reads the end state: the room at the
+ * new location, each class there with it. Zones and times are kept: it says where records are
+ * filed, not when anything happens.
+ */
+export const locationRelocate = defineOperation({
+  name: "location.relocate",
+  description:
+    "Move a located record (a room) to another location together with every record that uses " +
+    "it (its classes and series, past and future, in the Trash too), in one change: the way to " +
+    "correct a record filed at the wrong location, since a used room's location never changes " +
+    "on its own. Times and zones are kept. A request from an AI always waits for a person to " +
+    "apply it. Returns how many records of each object moved.",
+  input: z.object({
+    object: z.string().min(1).max(81).describe("The record's object, e.g. bookings.room"),
+    id: z.string().min(1).max(64).describe("The record's id"),
+    location: locationId.describe("The location to move it to"),
+  }),
+  output: z.object({
+    object: z.string(),
+    id: z.string(),
+    location: z.string(),
+    moved: z.array(z.object({ object: z.string(), count: z.number().int() })),
+  }),
+  permission: "settings:manage",
+  risk: "write",
+  actors: ["human", "assistant", "mcp"],
+  // Past records' location changes what every report by location says: an AI drafts.
+  alwaysReview: ["assistant", "mcp"],
+  async handler(input, ctx) {
+    const object = getObject(input.object);
+    const located = object?.located;
+    const table = object ? objectTableOf(object.name) : undefined;
+    const column = object && located ? columnOfField(object, located.field) : undefined;
+    if (!object || !located || located.via || !table || !column) {
+      throw new ValidationError(`${input.object} is not located by a field of its own`, {
+        field: "object",
+      });
+    }
+    const row = (await ctx.db
+      .selectFrom(visibleSource(ctx, object))
+      .select(sql<string | null>`${sql.ref(column)}`.as("location"))
+      .where("id", "=", input.id)
+      .executeTakeFirst()) as { location: string | null } | undefined;
+    if (!row) throw new NotFoundError(object.name, input.id);
+    const to = await requireLocation(ctx, input.location);
+    const result = { object: object.name, id: input.id, location: to.id };
+    if (row.location === to.id) return { ...result, moved: [] };
+    if (to.state === "closed") {
+      throw new ValidationError(`${to.name} is closed: nothing new is filed there`, {
+        field: "location",
+        rule: "location_closed",
+        location: to.id,
+      });
+    }
+    const users = usersOf(object.name).map((u) => ({
+      ...u,
+      table: objectTableOf(u.user.name) as string,
+      linkColumn: columnOfField(u.user, u.link) as string,
+      locationColumn: columnOfField(u.user, u.location) as string,
+    }));
+    const moved = await Promise.all(
+      users.map(async (u) => {
+        // Through the seam's table: every record naming it, in the Trash too.
+        const counted = await ctx.db
+          .selectFrom(visibleTable(ctx, u.user, "r"))
+          .select(sql<number>`count(*)`.as("n"))
+          .where(sql.ref(`r.${u.linkColumn}`), "=", input.id)
+          .executeTakeFirst();
+        return { object: u.user.name, count: Number(counted?.n ?? 0) };
+      }),
+    );
+    // A mark no record's id can be: while it stands in the relation, the record names nothing.
+    const mark = `relocating:${input.id}`;
+    for (const u of users) {
+      ctx.write(
+        sql`UPDATE ${sql.table(u.table)} SET ${sql.ref(u.linkColumn)} = ${mark} WHERE ${sql.ref(u.linkColumn)} = ${input.id}`.compile(
+          ctx.db,
+        ),
+      );
+    }
+    ctx.write(
+      sql`UPDATE ${sql.table(table)} SET ${sql.ref(column)} = ${to.id}, updated_at = ${ctx.now}, updated_by = ${ctx.user.id} WHERE id = ${input.id}`.compile(
+        ctx.db,
+      ),
+    );
+    for (const u of users) {
+      ctx.write(
+        sql`UPDATE ${sql.table(u.table)} SET ${sql.ref(u.linkColumn)} = ${input.id}, ${sql.ref(u.locationColumn)} = ${to.id}, updated_at = ${ctx.now}, updated_by = ${ctx.user.id} WHERE ${sql.ref(u.linkColumn)} = ${mark}`.compile(
+          ctx.db,
+        ),
+      );
+    }
+    ctx.recordChange({
+      object: object.name,
+      id: input.id,
+      action: "update",
+      before: { [located.field]: row.location },
+      after: { [located.field]: to.id, relocatedWith: moved },
+    });
+    return { ...result, moved };
+  },
+});
+
+/** A field's column, from the registry. */
+const columnOfField = (object: ObjectDefinition, field: string) =>
+  object.fields.find((f) => f.name === field)?.column;
+
 export const locationOperations = [
   locationList,
   locationGet,
@@ -440,4 +558,5 @@ export const locationOperations = [
   locationUpdate,
   locationClose,
   locationReopen,
+  locationRelocate,
 ] as const;

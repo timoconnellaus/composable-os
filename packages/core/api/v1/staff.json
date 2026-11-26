@@ -55788,6 +55788,89 @@
       "invalidates": []
     },
     {
+      "name": "location.relocate",
+      "description": "Move a located record (a room) to another location together with every record that uses it (its classes and series, past and future, in the Trash too), in one change: the way to correct a record filed at the wrong location, since a used room's location never changes on its own. Times and zones are kept. A request from an AI always waits for a person to apply it. Returns how many records of each object moved.",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "object": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 81,
+            "description": "The record's object, e.g. bookings.room"
+          },
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "The record's id"
+          },
+          "location": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "The location to move it to"
+          }
+        },
+        "required": [
+          "object",
+          "id",
+          "location"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "object": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "location": {
+            "type": "string"
+          },
+          "moved": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "object": {
+                  "type": "string"
+                },
+                "count": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                }
+              },
+              "required": [
+                "object",
+                "count"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "object",
+          "id",
+          "location",
+          "moved"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "location.get",
+        "location.list"
+      ]
+    },
+    {
       "name": "location.reopen",
       "description": "Open a closed location again: it takes new classes, appointments and shifts. A person only, never an AI. Returns the location.",
       "risk": "write",
