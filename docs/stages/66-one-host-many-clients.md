@@ -238,7 +238,8 @@ Each is wrapped in the client's environment so the code below it does not change
 | The cache | Already keyed by a random value per database |
 
 Worker Loader ids stay as they are: the same extension at the same commit is the same code for
-every client, and a dynamic Worker holds nothing of a client between runs.
+every client, and a dynamic Worker holds nothing of a client between runs. _Amended 2026-11-26
+(see "Decided by this spec"): the client is part of every tool worker id on a many-client host._
 
 **Stream:** the host stamps each upload with the client as its `creator` and refuses any call for
 a video with another creator. With one host there is one holder of the token and no broker.
@@ -399,7 +400,10 @@ Steps 2 and 3 can run side by side; 4 and 6 after 3.
 - **The registry is a D1 database of the host,** written only by the operator.
 - **Auth secrets are derived, not stored.**
 - **Crons fan out through a queue,** one message per client, from the start.
-- **Worker Loader ids are not per client.**
+- **Worker Loader ids are not per client.** _Amended 2026-11-26 (coordinator, after the review
+  of step 3; open to the owner's override, ADR 0613): on a many-client host the client is part of
+  every tool worker id, since a warm isolate and a pack's module-level variables would otherwise
+  carry one client's data into another's run. Isolation wins over cold starts. Step 4 builds it._
 - **Gatekeeper callbacks use one address per deployment.**
 - **The host refuses requests for a client whose schema is behind.**
 - **Packs are the product's:** every client of a deployment has the product's packs, or a subset
@@ -418,7 +422,7 @@ build step adds a bullet of its own here (CONTRIBUTING.md, Working in parallel).
 
 - **Step 2** — in progress — branch `feat/stage-66-client-db-finished` — `ClientDb` finished: migrations inside, bookmarks and restore, export and import, size, location hint. Done locally (ADR 0614, stacked on step 1's PR #507): bounded answers held and fetched in parts, write sets recorded under their id and never run twice (the review of step 1: B1, S1, M1, M2, M4, S6), `migrateAndReport` and `level`, `bookmark`/`restore`/`restoreClientDb`, `usage` with a refusal before the 10 GB limit, `place`, export and import as SQL (`@composable-os/db/sql-export`, D1 to a client's database and back, compared table by table), `ClientDb` in its own Worker `apps/client-db`. Waits for the proof run on Cloudflare: `/step2/pitr` (restore and undo on a real object), `/step2/export`, `/step2/answers`, `/step2/calls`
 
-- **Step 3** — not built — needs: step 1 — The registry and the client's environment, single-client mode unchanged
+- **Step 3** — built — PR #509 — The registry and the client's environment, single-client mode unchanged: the registry's own D1 database (`REGISTRY`) and migrations (`packages/db/registry-migrations`, 0790: clients, verified hostnames, settings, the encrypted secrets' columns, a version stamp moved by triggers), read in one batch whatever the number of clients (`@composable-os/db/registry`: client ids, exact hostnames, `isSchemaBehind`); the client's environment (`@composable-os/db/client-environment`: the real `env` with no registry; otherwise the client's database, its settings, shared values and wrapped bindings only, by `ENV_NAMES`, with rate limits as the worked wrapper) and `ClientDirectory`, one per isolate, keyed by client, serving only an active, current client of the deployment's environment (`COS_HOST_ENVIRONMENT`) and refusing every other with its reason, its environments frozen. ADR 0613. No entry wired (step 4); secrets and addresses left out (step 6); the registry's writes and its deployment table are step 7's
 
 - **Step 4** — not built — needs: step 3 — The app's entries, then the runner's, with their wrappers
 

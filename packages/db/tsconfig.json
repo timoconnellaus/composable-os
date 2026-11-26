@@ -5,5 +5,5 @@
   },
   "include": ["src", "test", "testing"],
   // Node-side, read by the suites' vitest configs (which are not type-checked here either).
-  "exclude": ["testing/vitest.ts"]
+  "exclude": ["testing/vitest.ts", "testing/worker-env-names.ts"]
 }

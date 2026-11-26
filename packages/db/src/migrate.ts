@@ -26,16 +26,29 @@ export const MIGRATIONS_TABLE = "core_migrations";
  */
 export { CORE_SCHEMA_VERSION };
 
-const CREATE_MIGRATIONS_TABLE = `CREATE TABLE IF NOT EXISTS ${MIGRATIONS_TABLE} (
+const createMigrationsTable = (table: string) => `CREATE TABLE IF NOT EXISTS ${table} (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
   name TEXT UNIQUE,
   applied_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP NOT NULL
 )`;
 
+export interface ApplyMigrationsOptions {
+  /**
+   * The bookkeeping table. The host's migrations use `core_migrations`; the registry's own
+   * (stage 66, `registry-migrations/`) use `registry_migrations` in the registry's database.
+   */
+  table?: typeof MIGRATIONS_TABLE | "registry_migrations";
+}
+
 /** Applies every migration not yet recorded, in order. Returns the names it applied. */
-export async function applyMigrations(db: D1Database, migrations: Migration[]): Promise<string[]> {
-  await db.prepare(CREATE_MIGRATIONS_TABLE).run();
-  const { results } = await db.prepare(`SELECT name FROM ${MIGRATIONS_TABLE}`).all<{
+export async function applyMigrations(
+  db: D1Database,
+  migrations: Migration[],
+  options: ApplyMigrationsOptions = {},
+): Promise<string[]> {
+  const table = options.table ?? MIGRATIONS_TABLE;
+  await db.prepare(createMigrationsTable(table)).run();
+  const { results } = await db.prepare(`SELECT name FROM ${table}`).all<{
     name: string;
   }>();
   const applied = new Set(results.map((row) => row.name));
@@ -48,10 +61,13 @@ export async function applyMigrations(db: D1Database, migrations: Migration[]): 
     // leaves neither the migration's changes nor its bookkeeping row behind.
     await db.batch([
       ...migration.queries.map((query) => db.prepare(query)),
-      db.prepare(`INSERT INTO ${MIGRATIONS_TABLE} (name) VALUES (?)`).bind(migration.name),
+      db.prepare(`INSERT INTO ${table} (name) VALUES (?)`).bind(migration.name),
     ]);
   }
-  await syncSchemaVersion(db, [...applied, ...pending.map((m) => m.name)]);
+  // The core schema version is the host's migrations' only (the registry has no core_meta).
+  if (table === MIGRATIONS_TABLE) {
+    await syncSchemaVersion(db, [...applied, ...pending.map((m) => m.name)]);
+  }
   return pending.map((migration) => migration.name);
 }
 

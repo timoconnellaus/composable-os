@@ -9,6 +9,8 @@
     "./seed": "./src/seed.ts",
     "./client-db": "./src/client-db.ts",
     "./sql-export": "./src/sql-export.ts",
+    "./registry": "./src/registry.ts",
+    "./client-environment": "./src/client-environment.ts",
     "./testing/vitest": "./testing/vitest.ts",
     "./testing/conformance": "./testing/conformance.ts",
     "./testing/contents": "./testing/contents.ts"

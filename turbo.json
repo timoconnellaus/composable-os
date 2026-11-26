@@ -50,6 +50,37 @@
         "!$TURBO_ROOT$/blocks/.turbo/**"
       ]
     },
+    "@composable-os/core#test": {
+      "dependsOn": ["^typecheck"],
+      "outputs": [],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/packs/**",
+        "!$TURBO_ROOT$/packs/*/node_modules/**",
+        "!$TURBO_ROOT$/packs/*/.turbo/**"
+      ]
+    },
+    "@composable-os/db#test": {
+      "dependsOn": ["^typecheck"],
+      "outputs": [],
+      "inputs": [
+        "$TURBO_DEFAULT$",
+        "$TURBO_ROOT$/apps/app/worker-configuration.d.ts",
+        "$TURBO_ROOT$/apps/runner/worker-configuration.d.ts",
+        "$TURBO_ROOT$/apps/app/.dev.vars.example",
+        "$TURBO_ROOT$/apps/runner/.dev.vars.example",
+        "$TURBO_ROOT$/apps/app/deploy-inputs.json",
+        "$TURBO_ROOT$/apps/runner/deploy-inputs.json",
+        "$TURBO_ROOT$/apps/app/src/**",
+        "$TURBO_ROOT$/apps/runner/src/**",
+        "$TURBO_ROOT$/packages/auth/src/**",
+        "$TURBO_ROOT$/packages/core/src/**",
+        "$TURBO_ROOT$/packages/product/src/**",
+        "$TURBO_ROOT$/packages/create-composable-os/src/**",
+        "$TURBO_ROOT$/packages/release/src/**",
+        "$TURBO_ROOT$/scripts/**"
+      ]
+    },
     "@composable-os/release-scripts#test": {
       "dependsOn": ["^typecheck"],
       "outputs": [],
