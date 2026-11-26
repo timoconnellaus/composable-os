@@ -171,7 +171,7 @@ export interface ObjectDefinitionJson {
         }
       | undefined;
     staffRead?: boolean | undefined;
-    staffNames?: string[] | undefined;
+    staffNames?: (string | { field: string; order: string })[] | undefined;
   };
   navigationOrder?: number;
   requireOneOf?: string[][];

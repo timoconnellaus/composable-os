@@ -2082,7 +2082,7 @@ topics with their pages, a page), and for staff the procedures with the reader a
 read, and Read status (web only); rich text through Content's renderers, which `cos add` brings
 whatever packs are listed because they call no operation. Its admin screens are Procedures, To
 read (every staff account, pack roles included), the reader as a record screen on a procedure,
-and Read status (`readStatus`). `publishable.staffNames` gives a staff reader the title of a
+and Read status (`readStatus`). `publishable.staffNames` gives a staff reader the id, title and declared order of a
 related record of the same pack with each published record (`names`: a procedure's section), and
 `content.staffGet` says whether the caller is served its pictures (`pictures`), so a coach's
 screens ask for nothing the host refuses.

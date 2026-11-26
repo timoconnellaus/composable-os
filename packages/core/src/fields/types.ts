@@ -304,7 +304,7 @@ export interface PublishableDefinition {
    * pack whose related record's title a staff reader is given beside the values (a procedure's
    * section), so a pack-role account need not read that object.
    */
-  readonly staffNames?: readonly string[];
+  readonly staffNames?: readonly (string | { readonly field: string; readonly order: string })[];
 }
 
 /**

@@ -12,9 +12,11 @@
 //
 // Names (stage 38 step 6, ADR 0708): an object may declare `publishable.staffNames`, single
 // relation content fields to another object of its own pack (a procedure's section). A record is
-// then given, beside its values, each related record's title (`names`), read from that object's
-// live row: the one thing of it a staff reader is told, so a pack-role account, which reads
-// nothing of the grouping object itself, need not ask for it.
+// then given, beside its values, each related record's id, title and (when declared) order
+// (`names`), read from that object's live row: all a staff reader is told of it, so a pack-role
+// account, which reads nothing of the grouping object itself, need not ask for it. The related
+// object has no row rules of its own (no versions, no customer, no access holders) and a plain
+// text title: the contract refuses anything else at install, and `namedTarget` again here.
 import { sql } from "kysely";
 import { liveViewOf, objectTableOf } from "../extensions/schema.ts";
 import { getObject } from "../fields/index.ts";
@@ -89,62 +91,103 @@ export function staffReadSource(
   );
 }
 
+/** What a staff reader is given of a related record a `staffNames` field names (ADR 0708). */
+export interface RelatedName {
+  /** The related record's id (the field's own value). */
+  id: string;
+  /** Its title. */
+  title: string;
+  /** Its value of the declared order field (`{ field, order }`), when one is declared. */
+  order?: number | null;
+}
+
 /** A record as a staff reader is given it: its content and slug, the version and when. */
 export interface PublishedRecord extends VisibleRecord {
   version: number;
   publishedAt: string;
-  /** For each `staffNames` field naming a live record: that record's title. */
-  names?: Record<string, string>;
+  /** For each `staffNames` field naming a live record: that record's id, title and order. */
+  names?: Record<string, RelatedName>;
 }
 
 /**
- * The titles of the records the `staffNames` fields of `records` name: one read per field, live
- * records only, the title field only. Each record is given `names` when the object declares any.
+ * The object a `staffNames` field may name, held at read time as the contract holds it at
+ * install (ADR 0708): another object of the same pack with no row rules of its own (not
+ * publishable, no customer, customerVia or access) whose title field is plain text, and the
+ * order field, when declared, a number. Null for anything else: no name is given.
+ */
+function namedTarget(object: StaffReadObject, entry: string | { field: string; order: string }) {
+  const name = typeof entry === "string" ? entry : entry.field;
+  const field = object.fields.find((f) => f.name === name);
+  const to = field?.options?.to;
+  const target = to ? getObject(to) : undefined;
+  if (!field || field.options?.many || !target || target.name === object.name) return null;
+  if (target.extension === undefined || target.extension !== object.extension) return null;
+  if (target.publishable || target.customer || target.customerVia || target.access) return null;
+  const title = target.fields.find((f) => f.name === target.titleField);
+  if (!title?.column || (title.fieldType ?? title.type) !== "text") return null;
+  const order =
+    typeof entry === "string" ? undefined : target.fields.find((f) => f.name === entry.order);
+  if (order && (!order.column || (order.fieldType ?? order.type) !== "number")) return null;
+  if (typeof entry !== "string" && !order) return null;
+  const table = objectTableOf(target.name);
+  if (!table) return null;
+  return { name, table, title: title.column, order: order?.column };
+}
+
+/**
+ * The related records the `staffNames` fields of `records` name: one read per field, live records
+ * only, their id, title and (when declared) order only. Each record is given `names` when the
+ * object declares any.
  */
 async function withNames(
   reader: Reader,
   object: StaffReadObject,
   records: PublishedRecord[],
 ): Promise<PublishedRecord[]> {
-  const fields = object.publishable.staffNames ?? [];
-  if (!fields.length || !records.length) return records;
-  const titles = new Map<string, Map<string, string>>();
-  for (const name of fields) {
-    const field = object.fields.find((f) => f.name === name);
-    const to = field?.options?.to;
-    const target = to ? getObject(to) : undefined;
-    // The contract allows only a single relation to another object of the same pack; held again.
-    if (!field || field.options?.many || !target || target.extension !== object.extension) continue;
-    const table = objectTableOf(target.name);
-    const column = target.fields.find((f) => f.name === target.titleField)?.column;
-    if (!table || !column) continue;
+  const entries = object.publishable.staffNames ?? [];
+  if (!entries.length || !records.length) return records;
+  const found = new Map<string, Map<string, RelatedName>>();
+  for (const entry of entries) {
+    const target = namedTarget(object, entry);
+    if (!target) continue;
     const ids = [
       ...new Set(
         records
-          .map((r) => r.values[name])
+          .map((r) => r.values[target.name])
           .filter((v): v is string => typeof v === "string" && v !== ""),
       ),
     ];
     if (!ids.length) continue;
-    const rows = await sql<{ id: string; title: unknown }>`SELECT id, ${sql.ref(column)} AS title
-      FROM ${sql.table(table)} WHERE id IN ${jsonList(ids)} AND deleted_at IS NULL`.execute(
+    const order = target.order ? sql.ref(target.order) : sql`NULL`;
+    const rows = await sql<{ id: string; title: unknown; position: unknown }>`SELECT id,
+      ${sql.ref(target.title)} AS title, ${order} AS position
+      FROM ${sql.table(target.table)} WHERE id IN ${jsonList(ids)} AND deleted_at IS NULL`.execute(
       reader.db,
     );
-    titles.set(
-      name,
+    found.set(
+      target.name,
       new Map(
         rows.rows
           .filter((r) => typeof r.title === "string" && r.title !== "")
-          .map((r) => [r.id, r.title as string]),
+          .map((r) => [
+            r.id,
+            {
+              id: r.id,
+              title: r.title as string,
+              ...(target.order
+                ? { order: typeof r.position === "number" ? r.position : null }
+                : {}),
+            },
+          ]),
       ),
     );
   }
   return records.map((record) => {
-    const names: Record<string, string> = {};
-    for (const [name, byId] of titles) {
+    const names: Record<string, RelatedName> = {};
+    for (const [name, byId] of found) {
       const id = record.values[name];
-      const title = typeof id === "string" ? byId.get(id) : undefined;
-      if (title !== undefined) names[name] = title;
+      const related = typeof id === "string" ? byId.get(id) : undefined;
+      if (related !== undefined) names[name] = related;
     }
     return { ...record, names };
   });

@@ -90,10 +90,10 @@ const pauseBody = {
 export const SAFETY = "rec_sec_safety";
 export const DESK = "rec_sec_desk";
 export const CLEANING = "rec_sec_cleaning";
-const SECTION_NAMES: Record<string, string> = {
-  [SAFETY]: "Safety",
-  [DESK]: "Front desk",
-  [CLEANING]: "Cleaning",
+const SECTION_NAMES: Record<string, { id: string; title: string; order: number }> = {
+  [SAFETY]: { id: SAFETY, title: "Safety", order: 1 },
+  [DESK]: { id: DESK, title: "Front desk", order: 2 },
+  [CLEANING]: { id: CLEANING, title: "Cleaning", order: 3 },
 };
 
 const published = (
@@ -108,7 +108,7 @@ const published = (
   id,
   values: { title, slug: id.replace("rec_", ""), summary, section, body: injuryBody },
   // The section's name, as the host gives it with the procedure (staffNames, ADR 0708).
-  names: { section: SECTION_NAMES[section] ?? "" },
+  ...(SECTION_NAMES[section] ? { names: { section: SECTION_NAMES[section] } } : {}),
   version,
   publishedAt: at("09:00", date),
 });

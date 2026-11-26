@@ -1,11 +1,22 @@
 // Staff read names (stage 38 step 6, ADR 0708): what the contract checks of `staffNames`. Each
-// is a single relation content field to another object of the same pack, and it needs
-// `staffRead`: a staff reader, a pack role's included, is given the related record's title and
-// nothing else of it, so a person, an organisation or another pack's record is never one.
+// is a single relation content field to another object of the same pack, it needs `staffRead`,
+// and the related object has no row rules of its own (not publishable, no customer, customerVia
+// or access) and a plain text title: a staff reader, a pack role's included, is given the related
+// record's id, title and declared order as it is on the record, so nothing a row rule or a draft
+// keeps from them can be one. The host checks the same at install (core's checkManifest runs
+// this) and again when it reads (`namedTarget` in visibility/staff-read.ts).
 import { describe, expect, it } from "vitest";
 import { defineExtension, toManifest, validateManifest } from "../src/index.ts";
 
-function pack(publishable: Record<string, unknown>, extraFields: Record<string, unknown> = {}) {
+const chapterFields = {
+  name: { type: "text", label: "Name" },
+  email: { type: "email", label: "Email" },
+  order: { type: "number", label: "Order" },
+  note: { type: "text", label: "Note" },
+  reader: { type: "relation", label: "Reader", to: "person" },
+};
+
+function pack(publishable: Record<string, unknown>, chapter: Record<string, unknown> = {}) {
   return defineExtension({
     id: "manual",
     version: "1.0.0",
@@ -21,7 +32,6 @@ function pack(publishable: Record<string, unknown>, extraFields: Record<string, 
           chapter: { type: "relation", label: "Chapter", to: "manual.chapter" },
           chapters: { type: "relation", label: "Chapters", to: "manual.chapter", many: true },
           contact: { type: "relation", label: "Contact", to: "person" },
-          ...extraFields,
         },
         publishable: publishable as never,
       },
@@ -29,14 +39,15 @@ function pack(publishable: Record<string, unknown>, extraFields: Record<string, 
         label: "Chapter",
         plural: "Chapters",
         titleField: "name",
-        fields: { name: { type: "text", label: "Name" } },
+        fields: chapterFields as never,
+        ...chapter,
       },
     },
   });
 }
 
-const issues = (publishable: Record<string, unknown>) =>
-  validateManifest(toManifest(pack(publishable)))
+const issues = (publishable: Record<string, unknown>, chapter: Record<string, unknown> = {}) =>
+  validateManifest(toManifest(pack(publishable, chapter)))
     .issues.filter((i) => i.path.includes("staffNames"))
     .map((i) => i.message);
 
@@ -45,19 +56,20 @@ const base = {
   slug: "slug",
   staffRead: true,
 };
+const names = { ...base, staffNames: ["chapter"] };
 
 describe("publishable.staffNames (ADR 0708)", () => {
-  it("names a single relation content field to another object of the pack", () => {
-    expect(issues({ ...base, staffNames: ["chapter"] })).toEqual([]);
+  it("names a single relation content field to a plain object of the pack, with an order", () => {
+    expect(issues(names)).toEqual([]);
+    expect(issues({ ...base, staffNames: [{ field: "chapter", order: "order" }] })).toEqual([]);
     expect(
-      toManifest(pack({ ...base, staffNames: ["chapter"] })).objects.page?.publishable,
-    ).toMatchObject({
-      staffNames: ["chapter"],
-    });
+      toManifest(pack({ ...base, staffNames: [{ field: "chapter", order: "order" }] })).objects.page
+        ?.publishable,
+    ).toMatchObject({ staffNames: [{ field: "chapter", order: "order" }] });
   });
 
   it("refuses it without staff read", () => {
-    expect(issues({ ...base, staffRead: false, staffNames: ["chapter"] })).toEqual([
+    expect(issues({ ...names, staffRead: false })).toEqual([
       "publishable.staffNames needs staffRead",
     ]);
   });
@@ -71,6 +83,35 @@ describe("publishable.staffNames (ADR 0708)", () => {
     ]);
     expect(issues({ ...base, staffNames: ["contact"] })).toEqual([
       '"contact" must relate to another object of this pack (manual.*)',
+    ]);
+  });
+
+  it("refuses a related object with versions: its title could be an unpublished draft's", () => {
+    expect(issues(names, { publishable: { content: ["name", "note"] } })).toEqual([
+      '"chapter" relates to manual.chapter, which declares publishable: staffNames names only an object with no row rules of its own',
+    ]);
+  });
+
+  it("refuses a related object a customer, a customer's record or an access source owns", () => {
+    expect(issues(names, { customer: { field: "reader", read: ["name"], write: [] } })).toEqual([
+      '"chapter" relates to manual.chapter, which declares customer: staffNames names only an object with no row rules of its own',
+    ]);
+    expect(
+      issues(names, { customerVia: { from: "manual.page", field: "chapter", read: ["name"] } }),
+    ).toEqual([
+      '"chapter" relates to manual.chapter, which declares customerVia: staffNames names only an object with no row rules of its own',
+    ]);
+    expect(issues(names, { access: { sources: [{ kind: "subscription" }] } })).toEqual([
+      '"chapter" relates to manual.chapter, which declares access: staffNames names only an object with no row rules of its own',
+    ]);
+  });
+
+  it("refuses a title that is not plain text, and an order that is not a number", () => {
+    expect(issues(names, { titleField: "email" })).toEqual([
+      '"chapter" relates to manual.chapter, whose title field is not plain text',
+    ]);
+    expect(issues({ ...base, staffNames: [{ field: "chapter", order: "note" }] })).toEqual([
+      '"chapter" orders by "note", which is not a number field of manual.chapter',
     ]);
   });
 });

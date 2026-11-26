@@ -56,7 +56,10 @@ How the business does something, for staff: read by every staff account in the w
     "slug": "slug",
     "staffRead": true,
     "staffNames": [
-      "section"
+      {
+        "field": "section",
+        "order": "order"
+      }
     ],
     "acknowledge": {
       "who": "mustRead",

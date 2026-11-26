@@ -465,7 +465,14 @@ extension declares it; it never implements it. Each behaviour the platform has i
   procedure): `publishable.staffRead: true` opens the current published version (the content and
   the slug, never the working copy) to every staff account, pack roles included, through
   `content.staffGet`, `content.staffList` and `content.search`; a block reads it with those, never
-  `record.get`. `publishable.acknowledge: { who, manage, managed?, owner?, notices? }` asks the
+  `record.get`. `publishable.staffNames: ["section"]` (or `[{ field: "section", order: "order" }]`,
+  ADR 0708) gives each published record, in `names`, the id, title and (with `order`, that number
+  field's value) of the record a single relation content field names, so a staff screen groups
+  and labels by it without reading that object, which a pack-role account may not. Every staff
+  reader, a coach's or a cleaner's included, is given that title as it is on the record: the
+  contract allows only another object of your pack with no row rules of its own (not
+  `publishable`, no `customer`, `customerVia` or `access`) whose title field is plain `text`; and
+  it needs `staffRead`. `publishable.acknowledge: { who, manage, managed?, owner?, notices? }` asks the
   staff a "must read" field names (`who`: a `document` field with `MUST_READ_SCHEMA`, outside the
   content: everyone, staff roles, pack roles, granted pack permissions) to confirm each version
   that asks again, with one tap; `manage` is a restricted, grantable permission of yours (who

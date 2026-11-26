@@ -8,7 +8,7 @@
 // read it, and whether a confirmation counts. The button confirms the version on screen, never
 // the one the list names; a refusal (a newer version, already confirmed) is shown, never taken
 // as done. Rich text is the Content pack's native renderer (`content-native-rich-text`). Each
-// procedure's section is the name the host gives with it (`names.section`, ADR 0708). A pack-role
+// procedure's section is what the host gives with it (`names.section`: its id, name and order, ADR 0708). A pack-role
 // account is not served a procedure's pictures (the host's media rule): a picture it cannot have
 // says so in its place.
 
@@ -355,7 +355,7 @@ function ProcedureList({
   return (
     <View style={styles.gapLg}>
       {groups.map((group) => (
-        <View key={group.name ?? "none"} style={styles.gap}>
+        <View key={group.id ?? "none"} style={styles.gap}>
           {group.name ? (
             <Text style={styles.groupTitle} accessibilityRole="header">
               {group.name}
