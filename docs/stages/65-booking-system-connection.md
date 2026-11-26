@@ -137,7 +137,10 @@ business, and its lawyer or the booking system's support, to confirm. The load s
   deployment's salt, as ADR 0675's suppression list) with the salt's fingerprint and a row per
   erase (`core_outside_suppressed_erase`), carried in the erase log and put back by
   `erasure.reapply`, which with every load, link and erase refuses a changed salt; the result's
-  `bookingSystem` always says what happened and that a copy remains in the booking system. Loads drop a suppressed coach too and
+  `bookingSystem` always says what happened and that a copy remains in the booking system. One
+  rule (`keptByLink`) keeps a row linked to another Person or a staff account at the erase and at
+  every later load; a later timetable scrubs an erased coach's name from its titles; every address
+  an erase considered is recorded per erase, so consent lifts exactly that erase's own. Loads drop a suppressed coach too and
   count what a suppressed ref drops (`previouslyErased`); `outside.link` refuses a suppressed ref
   or address; `outside.suppression.lift` (a person with records:erase too) lifts a reused ref; `erasure.allowAddress`
   lifts an address with that erase's refs. `person.merge` moves links to the survivor and

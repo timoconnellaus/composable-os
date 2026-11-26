@@ -48,6 +48,7 @@ import {
   unlinkedOf,
   usersByAddress,
 } from "./match.ts";
+import { isFullName, scrubNames, wholeName } from "./names.ts";
 import { businessToday, type ListKind, onCurrentList } from "./settings.ts";
 
 type Db = Kysely<CoreDatabase>;
@@ -583,11 +584,15 @@ export async function planTimetable(
       "s.link_why",
       "s.linked_at",
       "u.id as exists",
+      "u.deactivated_at",
     ])
     .where("s.link_how", "is not", null)
     .where(onCurrentList("s.list_id"))
     .execute();
-  const held = heldLinks(heldRows.map((r) => ({ ...r, exists: r.exists === null ? 0 : 1 })));
+  // A coach's link holds only to an active staff account: one deactivated is matched again.
+  const held = heldLinks(
+    heldRows.map((r) => ({ ...r, exists: r.exists === null || r.deactivated_at !== null ? 0 : 1 })),
+  );
   for (const [ref, decision] of await unlinkedOf(
     db,
     "staff",
@@ -694,6 +699,30 @@ export async function planTimetable(
     description: cut(t.description),
     active: t.active ? 1 : 0,
   }));
+  // An erased coach dropped here may still be named in this list's own text ("Strength with
+  // <coach>"): their full name, as listed now, leaves it before it is written (the same rule as
+  // the erase's, outside/names.ts). A member named in a title has no name kept to match after the
+  // erase (it would need keyed hashes of erased names; not built).
+  const goneNames = staff
+    .filter((s) => goneStaff.has(s.ref) && isFullName(s.displayName))
+    .map((s) => wholeName(s.displayName));
+  let textScrubbed = 0;
+  if (goneNames.length) {
+    for (const c of classRows) {
+      const title = scrubNames(c.title, goneNames);
+      if (title !== null) {
+        c.title = title.slice(0, MAX_TEXT);
+        textScrubbed += 1;
+      }
+    }
+    for (const t of typeRows) {
+      const name = scrubNames(t.name, goneNames);
+      const description = scrubNames(t.description, goneNames);
+      if (name !== null || description !== null) textScrubbed += 1;
+      if (name !== null) t.name = name.slice(0, MAX_TEXT);
+      if (description !== null) t.description = description.slice(0, MAX_TEXT);
+    }
+  }
 
   const statements = [
     ...listStatements("timetable", listId, meta, classRows.length),
@@ -767,6 +796,8 @@ export async function planTimetable(
         classes: classRows.length,
         bookings: bookingRows.length,
         classTypes: typeRows.length,
+        // Classes and class types whose text named an erased coach, scrubbed (ADR 0926).
+        textScrubbed,
       },
     },
   };

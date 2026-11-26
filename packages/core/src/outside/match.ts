@@ -126,7 +126,7 @@ export async function droppedOf(
   refs: readonly string[],
   addresses: readonly string[],
   kind: OutsideKind = "person",
-): Promise<{ refs: Set<string>; addresses: Set<string> }> {
+): Promise<{ refs: Set<string>; addresses: Set<string>; suppressed: Set<string> }> {
   await assertSuppressionSalt(db);
   const refHashes = await Promise.all(
     [...new Set(refs)].map(async (ref) => ({ ref, hash: await outsideRefHash(db, kind, ref) })),
@@ -151,13 +151,32 @@ export async function droppedOf(
       )
     : new Set<string>();
   const erased = await erasedAddresses(db, [...new Set(addresses)]);
+  const suppressedAddresses = addressHashes
+    .filter((h) => suppressed.has(h.hash))
+    .map((h) => h.address);
   return {
     refs: new Set(refHashes.filter((h) => suppressed.has(h.hash)).map((h) => h.ref)),
-    addresses: new Set([
-      ...erased,
-      ...addressHashes.filter((h) => suppressed.has(h.hash)).map((h) => h.address),
-    ]),
+    // Either: on the erased-address list, or suppressed in the copy.
+    addresses: new Set([...erased, ...suppressedAddresses]),
+    // Only the copy's own suppressions (an erase's), which nothing outlives.
+    suppressed: new Set(suppressedAddresses),
   };
+}
+
+/**
+ * THE rule an erase and a load share (ADR 0926), so they cannot drift: an outside row linked to a
+ * Person other than the ones being erased (by address or by staff), or a coach linked to a staff
+ * account, belongs to that Person or account. An erase never deletes it, and a load never drops it
+ * for an address on the erased-address list (an erased member's address their family member, or
+ * a staff account, still lists). Only a suppressed ref or a suppressed outside address drops it.
+ * `link.to` is the Person or staff account linked (a load passes only links to live Persons and
+ * active staff accounts); `erasing` the Persons an erase is removing (none at a load).
+ */
+export function keptByLink(
+  link: { to: string | null } | undefined,
+  erasing: ReadonlySet<string> = new Set(),
+): boolean {
+  return link?.to !== null && link?.to !== undefined && !erasing.has(link.to);
 }
 
 /** A link held on an outside row. A staff link with no Person is staff saying "nobody here". */
@@ -185,7 +204,11 @@ export function decideMatches(
     fold(address: string): string | null;
     holders: ReadonlyMap<string, readonly string[]>;
     held: ReadonlyMap<string, HeldOutsideLink>;
-    dropped: { refs: ReadonlySet<string>; addresses: ReadonlySet<string> };
+    dropped: {
+      refs: ReadonlySet<string>;
+      addresses: ReadonlySet<string>;
+      suppressed?: ReadonlySet<string>;
+    };
   },
 ): OutsideOutcome[] {
   const byRef = new Map<string, OutsideOutcome>();
@@ -193,7 +216,18 @@ export function decideMatches(
   for (const r of rows) {
     if (ctx.dropped.refs.has(r.ref)) {
       byRef.set(r.ref, { ref: r.ref, outcome: "dropped", why: "suppressed" });
-    } else if (r.address !== null && ctx.dropped.addresses.has(r.address)) {
+    } else if (
+      r.address !== null &&
+      (ctx.dropped.suppressed ?? ctx.dropped.addresses).has(r.address)
+    ) {
+      byRef.set(r.ref, { ref: r.ref, outcome: "dropped", why: "erased_address" });
+    } else if (
+      r.address !== null &&
+      ctx.dropped.addresses.has(r.address) &&
+      !keptByLink(ctx.held.get(r.ref))
+    ) {
+      // On the erased-address list, and linked to nobody else: dropped. One linked to a live
+      // Person or an active staff account is theirs, and stays (keptByLink).
       byRef.set(r.ref, { ref: r.ref, outcome: "dropped", why: "erased_address" });
     } else if (ctx.held.get(r.ref)?.how === "staff" && ctx.held.get(r.ref)?.to === null) {
       byRef.set(r.ref, { ref: r.ref, outcome: "held_none" });

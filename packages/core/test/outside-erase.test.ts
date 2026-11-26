@@ -325,6 +325,7 @@ describe("erase reaches the booking system's copy", () => {
       keptLinkedToOthers: 0,
       // Lane and Devon: another Person holds their address (folded).
       keptWaiting: 2,
+      keptNamedElsewhere: 0,
       // Their plus-tag and third addresses, which others hold folded.
       sharedAddresses: 2,
       textScrubbed: 0,
@@ -629,14 +630,19 @@ describe("a family on the erased Person's own address", () => {
       ),
     ).toBe(1);
     expect(await taskTitle(task)).toBe(before);
-    // While the child's row lists the parent's erased address, a load drops it (spec rule 2,
-    // the erased-address list); once the booking system gives the child their own address, they
-    // are back, and matched again.
-    await loadMembers(f, admin.id);
-    expect(await outsidePerson(f.ref(4))).toBeNull();
+    // SF2: the child's staff link to their own Person wins over the parent's address on the
+    // erased-address list, at the next load and the one after (keptByLink, the erase's rule too).
+    for (const load of [1, 2]) {
+      await loadMembers(f, admin.id);
+      expect(await outsidePerson(f.ref(4)), `load ${load}`).toMatchObject({
+        person_id: child,
+        link_how: "staff",
+      });
+    }
+    // Once the booking system gives the child their own address, the staff link still holds.
     f.fake.change("person", f.ref(4), { email: kidAddress });
     await loadMembers(f, admin.id);
-    expect(await outsidePerson(f.ref(4))).toMatchObject({ person_id: child, link_how: "address" });
+    expect(await outsidePerson(f.ref(4))).toMatchObject({ person_id: child, link_how: "staff" });
   });
 
   it("erasing the child leaves the parent's row, and the shared address unsuppressed", async () => {
@@ -1345,6 +1351,7 @@ describe("the rule: which outside rows are the erased Person's", () => {
       coaches: 0,
       keptLinkedToOthers: 0,
       keptWaiting: 0,
+      keptNamedElsewhere: 0,
       sharedAddresses: 0,
       textScrubbed: 0,
       copyRemains: true,
@@ -1367,10 +1374,11 @@ describe("the rule: which outside rows are the erased Person's", () => {
         await outsideAddressHash(db.query, x),
       ),
     ).toBe(2);
-    // Whose consent this is cannot be told: the address is allowed, the first erase's ref is not.
+    // Whose consent this is cannot be told: the address is allowed for mail, nothing of either
+    // erase is lifted in the copy, and the first erase's ref is counted as left.
     expect(await call("erasure.allowAddress", { email: x }, admin)).toEqual({
       removed: true,
-      bookingSystem: { addresses: 1, refs: 0, refsLeft: 1 },
+      bookingSystem: { addresses: 0, refs: 0, refsLeft: 1 },
     });
     expect(await suppressed("ref", f.ref(1))).toBe(1);
   });

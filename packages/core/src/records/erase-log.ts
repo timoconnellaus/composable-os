@@ -34,7 +34,7 @@ export interface EraseLogEntry {
    * `core_outside_suppressed`, written as stored (they are already hashes), so a re-apply puts
    * them back.
    */
-  outside?: { hash: string; kind: "ref" | "address" }[];
+  outside?: { hash: string; kind: "ref" | "address"; suppressed?: boolean }[];
   /** The erase those suppressions came from (lifted together on consent to come back). */
   outsideErase?: string;
   /** The deployment salt's fingerprint the hashes were keyed with (never the salt). */
@@ -66,7 +66,7 @@ export async function writeEraseLog(
     object: "person" | "organisation";
     recordIds: readonly string[];
     addresses: readonly string[];
-    outside?: readonly { hash: string; kind: "ref" | "address" }[];
+    outside?: readonly { hash: string; kind: "ref" | "address"; suppressed?: boolean }[];
     outsideErase?: string;
     fingerprint?: string;
   },
@@ -129,6 +129,7 @@ export async function planReapply(
   outside: {
     hash: string;
     kind: "ref" | "address";
+    suppressed: boolean;
     eraseId: string | null;
     fingerprint: string | null;
   }[];
@@ -137,7 +138,13 @@ export async function planReapply(
   const addresses = new Set<string>();
   const outside = new Map<
     string,
-    { kind: "ref" | "address"; eraseId: string | null; fingerprint: string | null }
+    {
+      hash: string;
+      kind: "ref" | "address";
+      suppressed: boolean;
+      eraseId: string | null;
+      fingerprint: string | null;
+    }
   >();
   for (const entry of entries) {
     if (entry.kind === "erase") {
@@ -145,8 +152,11 @@ export async function planReapply(
       for (const a of entry.addresses) addresses.add(a);
       for (const o of entry.outside ?? []) {
         if (typeof o?.hash === "string" && (o.kind === "ref" || o.kind === "address")) {
-          outside.set(o.hash, {
+          // A row per erase and hash, as core_outside_suppressed_erase keeps them.
+          outside.set(`${o.hash} ${entry.outsideErase ?? ""}`, {
+            hash: o.hash,
             kind: o.kind,
+            suppressed: o.suppressed !== false,
             eraseId: entry.outsideErase ?? null,
             fingerprint: entry.fingerprint ?? null,
           });
@@ -155,7 +165,13 @@ export async function planReapply(
     } else {
       for (const a of entry.addresses) addresses.delete(a);
       // Consent to come back, or a person lifting a ref: those suppressions stay lifted.
-      for (const o of entry.outside ?? []) outside.delete(o.hash);
+      for (const o of entry.outside ?? []) {
+        for (const [key, kept] of outside) {
+          if (kept.hash !== o.hash) continue;
+          // Consent lifts its own erase's record; a lift by a person, every erase's.
+          if (!entry.outsideErase || kept.eraseId === entry.outsideErase) outside.delete(key);
+        }
+      }
     }
   }
   // Ids are stored hashed, so live records are hashed to compare: a scan, run only after a
@@ -183,7 +199,7 @@ export async function planReapply(
     people: await match("core_person", records.person),
     organisations: await match("core_organisation", records.organisation),
     addresses: [...addresses],
-    outside: [...outside].map(([hash, o]) => ({ hash, ...o })),
+    outside: [...outside.values()],
   };
 }
 

@@ -126,28 +126,37 @@ export const eraseCountsOutput = {
       deletedUnlinked: z
         .number()
         .describe(
-          "Outside people linked to nobody on an address only they held (their household's unmatched copies): deleted, no ref suppressed",
+          "Outside people linked to nobody on an address only they held (their household's unmatched copies): deleted, no ref suppressed, as one may be a family member's: such a row comes back if the booking system later lists it under another address",
         ),
-      coaches: z.number().describe("Coaches on their address with no staff account: deleted"),
+      coaches: z
+        .number()
+        .describe(
+          "Coaches on their address with no staff account: deleted, their refs suppressed unless someone else holds the address",
+        ),
       keptLinkedToOthers: z
         .number()
         .describe(
-          "Outside people and coaches on their address kept, because linked to another Person or a staff account",
+          "Outside people and coaches on their address kept, because linked to another Person or a staff account: kept at later loads too while that link holds, though their address is on the erased-address list",
         ),
       keptWaiting: z
         .number()
         .describe(
-          "Outside people on their address left waiting in To match, because another Person holds the address too",
+          "Outside people on their address left waiting in To match, because another Person holds the address too: the next load drops them while they list an address of theirs on the erased-address list",
+        ),
+      keptNamedElsewhere: z
+        .number()
+        .describe(
+          "Outside people linked to nobody that list their full name on an address someone else holds (a child on a parent's mailbox): left, as they cannot be told from a namesake; staff decide",
         ),
       sharedAddresses: z
         .number()
         .describe(
-          "Their addresses another Person, customer account or kept outside person also holds: not suppressed, not redacted (a count only)",
+          "Their addresses another Person, customer account or kept outside person also holds: not suppressed in the copy (a count only). Their own live addresses are on the erased-address list and redacted from the audit whatever this says",
         ),
       textScrubbed: z
         .number()
         .describe(
-          "Classes and class types whose text named them (a full name, whole words), scrubbed; a later list brings back what the booking system still says",
+          "Classes and class types whose text named them (a full name of two words or more, whole words, any case), scrubbed. A later timetable scrubs an erased coach's name again; a member's name a later list writes into a title is not matched (no name is kept after the erase)",
         ),
       copyRemains: z
         .literal(true)
@@ -187,6 +196,7 @@ export async function afterErase(
     coaches: number;
     keptLinkedToOthers: number;
     keptWaiting: number;
+    keptNamedElsewhere: number;
     sharedAddresses: number;
     textScrubbed: number;
     copyRemains: true;
@@ -219,6 +229,7 @@ export async function afterErase(
             coaches: counts.outside.coaches,
             keptLinkedToOthers: counts.outside.keptLinkedToOthers,
             keptWaiting: counts.outside.keptWaiting,
+            keptNamedElsewhere: counts.outside.keptNamedElsewhere,
             sharedAddresses: counts.outside.sharedAddresses,
             textScrubbed: counts.outside.textScrubbed,
             copyRemains: true as const,
@@ -262,7 +273,12 @@ export async function queueErase(ctx: HandlerContext, request: EraseRequest): Pr
   // Never the refs: a booking system's ids (often numbers) would blank unrelated text.
   const outside =
     object === "person"
-      ? await outsideOf(ctx.db, recordIds, [...(request.addresses ?? []), ...accountEmails])
+      ? await outsideOf(
+          ctx.db,
+          recordIds,
+          [...(request.addresses ?? []), ...accountEmails],
+          request.names ?? [],
+        )
       : null;
   const terms = [
     ...new Set(

@@ -1463,6 +1463,8 @@ export interface CoreOutsideSuppressedEraseTable {
   hash: string;
   erase_id: string;
   kind: "ref" | "address";
+  /** 1: this erase suppressed it; 0: it considered it and left it (someone else holds it). */
+  suppressed: Generated<number>;
 }
 
 /** Migration 0850 (stage 44, ADR 0640): an agreement document and its working copy. */

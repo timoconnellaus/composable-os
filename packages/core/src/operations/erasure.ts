@@ -81,7 +81,7 @@ export const erasureAllowAddress = defineOperation({
       .where("hash", "=", hash)
       .executeTakeFirst();
     const outside = await liftForAddress(ctx.db, input.email);
-    if (!row && !outside.hashes.length) {
+    if (!row && !outside.hashes.length && !outside.refsLeft) {
       return { removed: false, bookingSystem: { addresses: 0, refs: 0, refsLeft: 0 } };
     }
     if (ctx.blobs && !ctx.simulation) {
@@ -90,7 +90,12 @@ export const erasureAllowAddress = defineOperation({
         kind: "allow",
         at: ctx.now,
         addresses: row ? [hash] : [],
-        ...(outside.hashes.length ? { outside: outside.hashes } : {}),
+        ...(outside.hashes.length
+          ? {
+              outside: outside.hashes,
+              ...(outside.eraseId ? { outsideErase: outside.eraseId } : {}),
+            }
+          : {}),
       });
     }
     if (row) ctx.write(ctx.db.deleteFrom("core_erased_address").where("hash", "=", hash));
