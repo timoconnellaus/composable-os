@@ -1227,10 +1227,13 @@ _Avoid_: tenant, multi-tenant (in prose and UI copy)
 
 ### Client's database
 
-(stage 66, spec agreed)
+(stage 66; `ClientDb`, ADR 0612)
 
 A Durable Object with SQLite storage, one per client, that the host opens by client and uses
-through the same interface as D1. A deployment with one client uses D1 itself.
+through the same interface as D1. A deployment with one client uses D1 itself. The class is
+`ClientDb` (`@composable-os/db/client-db`) and `clientDatabase(namespace, client)` stands where a
+D1 binding stands, with D1's results, errors and limits; the test suites run on it with
+`COS_TEST_DB=client-db`. Built in step 1; no Worker of the host binds it yet.
 
 ### Registry
 

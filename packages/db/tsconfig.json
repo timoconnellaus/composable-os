@@ -3,5 +3,7 @@
   "compilerOptions": {
     "types": ["@cloudflare/workers-types", "@cloudflare/vitest-plugin/types"]
   },
-  "include": ["src", "test"]
+  "include": ["src", "test", "testing"],
+  // Node-side, read by the suites' vitest configs (which are not type-checked here either).
+  "exclude": ["testing/vitest.ts"]
 }

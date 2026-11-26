@@ -112,6 +112,17 @@ registry** and compiled to parameterised SQL. `packages/core/README.md` shows ho
 
 One **D1** database per deployment, with real tables ([ADR 0002](adr/0002-d1-real-tables.md)).
 
+- **A client's database** (stage 66 step 1, [ADR 0612](adr/0612-clientdb-a-durable-object-behind-the-d1-interface.md)):
+  for a host that serves many clients (ADR 0611), `ClientDb` in `packages/db` is a Durable Object
+  with SQLite storage behind the same `D1Database` interface, one object per client, migrated
+  inside the object. `clientDatabase()` reproduces D1's binding (result shapes, conversions,
+  errors, meta, batch atomicity), makes a stub for every call (a stub cannot cross requests), and
+  sends a batch over Workers RPC's 32 MiB a call in parts committed as one transaction. The core,
+  auth, app and runner suites run on it with `COS_TEST_DB=client-db`, and
+  `@composable-os/db/testing/conformance` probes it against D1. No entry uses it yet: every Worker
+  still opens `createCrmDb(env.DB)` on D1. `apps/client-db-proof` is the Worker that times it
+  against D1 on Cloudflare (docs/deploying.md).
+
 - **Core schema** (`core_*` tables): our versioned migrations, applied on deploy or upgrade. It covers
   the minimal core objects (People, Organisations, Activities, Tasks), users, settings, the approval
   queue and the audit log. Deletes are soft (Trash); a daily cron trigger on `cos-app` purges
