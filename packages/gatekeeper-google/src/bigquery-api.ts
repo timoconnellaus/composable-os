@@ -1,3 +1,4 @@
+// Vendored from cloudflare/cloudflare-os@a3ba4746b58f packages/gatekeeper-google/src/bigquery-api.ts (Apache-2.0). Modified locally: see UPSTREAM.md in this package.
 // BigQuery REST API wrapper.
 //
 // Implements the methods needed by BigQuerySession against the public BigQuery REST API

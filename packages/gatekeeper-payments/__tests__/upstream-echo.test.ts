@@ -6,6 +6,31 @@ import { StripeProvider } from "../src/stripe.js";
 
 const KEY = "sk_test_s66eStripeSecretAb3dEf6hIj9kLm2n";
 
+describe("Stripe errors naming a long parameter", () => {
+  it("keep the parameter (it is not taken for no parameter at all)", async () => {
+    const param = "line_items[0][price_data][product_data][tax_code][s66e_long_parameter_name]";
+    const provider = new StripeProvider({
+      secretKey: KEY,
+      webhookSecret: "whsec_s66e_webhook_secret_1234567890",
+      apiBase: "https://stripe.test",
+      account: "",
+      fetch: async () =>
+        new Response(
+          JSON.stringify({
+            error: { type: "invalid_request_error", code: "resource_missing", param },
+          }),
+          { status: 400, headers: { "content-type": "application/json" } },
+        ),
+    });
+    const error = await provider.getPayment("cs_test_s66e").then(
+      () => null,
+      (e: unknown) => e as { param?: unknown },
+    );
+    expect(param.length).toBeGreaterThan(60);
+    expect(error?.param).toBe(param);
+  });
+});
+
 describe("Stripe errors from an echoing upstream", () => {
   it("never carry the secret key", async () => {
     const provider = new StripeProvider({

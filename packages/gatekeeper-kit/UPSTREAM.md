@@ -15,7 +15,8 @@
 
 - **`src/upstream-error.ts` (ours, 2026-11-27, issue #517).** What a gatekeeper may say about an
   upstream failure: the status, the provider's code and a description scrubbed of what was sent.
-  Test: `__tests__/upstream-error.test.ts`.
+  Test: `__tests__/upstream-error.test.ts`. Both are on this package's `keep` list in
+  `scripts/gatekeeper-upstreams.mjs`, so a sync never removes them.
 - **Scope rename.** Imports of `@gadgets/workshop-shared/gatekeeper` now point at
   `@composable-os/gatekeeper-interface/gatekeeper`, and `@gadgets/observability/*` at
   `@composable-os/gatekeeper-observability/*`. Every source file this touched starts with a

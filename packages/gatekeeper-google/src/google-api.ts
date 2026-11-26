@@ -10,7 +10,7 @@ import {
 import { createMimeMessage } from "mimetext/browser";
 import PostalMime, { addressParser } from "postal-mime";
 import type {Attachment as PostalAttachment} from "postal-mime";
-import { upstreamErrorMessage, upstreamFailure } from "@composable-os/gatekeeper-kit/upstream-error";
+import { tokenEndpointErrorMessage } from "@composable-os/gatekeeper-kit/upstream-error";
 import { AccessTokenProvider, fetchWithAuthRetry } from "./auth-retry";
 
 /**
@@ -94,6 +94,16 @@ export type GmailOutboundMessage = {
   attachments: GmailOutboundAttachment[];
 };
 
+/**
+ * A token-endpoint failure (exchanging a code, refreshing a token). Its message keeps the status out
+ * of the `: <status>` position API errors use, so `httpStatusFromError` never reads a wrong client
+ * secret's 401 as the API's "no access" (issue #517 follow-up). The class does not survive an RPC
+ * hop; the message shape does.
+ */
+export class GoogleTokenError extends Error {
+  override name = "GoogleTokenError";
+}
+
 export type GoogleAccessToken = {
   token: string;
   expires: Date;
@@ -127,8 +137,15 @@ export async function exchangeAuthCode(
   if (!response.ok) {
     // Only Google's error code and description, scrubbed of what was sent (the client secret, the
     // code): never the raw body.
-    throw new Error(
-        await upstreamFailure("Google token exchange", response, [clientSecret, code]));
+    let failed: unknown;
+    try {
+      failed = isJson ? await response.json() : undefined;
+    } catch {
+      failed = undefined;
+    }
+    if (!isJson) await response.body?.cancel().catch(() => undefined);
+    throw new GoogleTokenError(tokenEndpointErrorMessage(
+        "Google token exchange", response.status, failed, [clientSecret, code]));
   }
 
   if (!isJson) {
@@ -186,13 +203,14 @@ export async function getAccessToken(
         return { ok: false, reason: "policyBlocked",
                  detail: body.error_description ?? "admin_policy_enforced" };
       }
-      throw new Error(upstreamErrorMessage(
+      throw new GoogleTokenError(tokenEndpointErrorMessage(
           "Google token refresh", response.status, body, [refreshToken, clientSecret]));
     }
 
     // Not JSON: the status only, never the body.
     await response.body?.cancel().catch(() => undefined);
-    throw new Error(upstreamErrorMessage("Google token refresh", response.status, undefined, []));
+    throw new GoogleTokenError(
+        tokenEndpointErrorMessage("Google token refresh", response.status, undefined, []));
   }
 
   const data = await response.json() as {

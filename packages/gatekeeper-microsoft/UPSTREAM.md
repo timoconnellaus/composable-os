@@ -21,7 +21,8 @@ edit them by hand. The `*types.txt -> *types.d.ts` symlinks (the agent-facing AP
 
 - **Upstream error text (2026-11-27, issue #517).** `errorForResponse` (`src/graph-api.ts`) scrubs
   Graph's message of the access token the request sent (`@composable-os/gatekeeper-kit/upstream-error`).
-  Test: `__tests__/upstream-echo.test.ts`.
+  Test: `__tests__/upstream-echo.test.ts`, on this package's `keep` list in
+  `scripts/gatekeeper-upstreams.mjs`.
 - **Scope rename.** `@gadgets/*` imports point at `@composable-os/gatekeeper-interface`,
   `@composable-os/gatekeeper-kit`, `@composable-os/gatekeeper-observability` and `@composable-os/gatekeeper-configurator-ui`.
   The 35 source files this touched start with a

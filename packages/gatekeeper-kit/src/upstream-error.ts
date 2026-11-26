@@ -119,6 +119,25 @@ export function upstreamErrorMessage(
 }
 
 /**
+ * The message for a token-endpoint failure: `<label> failed (HTTP <status>)[ <code>][ - <description>]`.
+ * The status is kept out of the `failed: <status>` position on purpose: a caller that reads an
+ * API's status back from a message (Google's `httpStatusFromError`) must never take the token
+ * endpoint's 401 (a wrong client secret) for the API's own "no access", which would turn a broken
+ * connection into a quiet denial.
+ */
+export function tokenEndpointErrorMessage(
+  label: string,
+  status: number,
+  body: unknown,
+  sent: readonly (string | null | undefined)[],
+): string {
+  return upstreamErrorMessage(label, status, body, sent).replace(
+    `${label} failed: ${status}`,
+    `${label} failed (HTTP ${status})`,
+  );
+}
+
+/**
  * `upstreamErrorMessage` for a response: reads at most 16 KiB of it, parses it as JSON when it is,
  * and quotes only the provider's code and description.
  */

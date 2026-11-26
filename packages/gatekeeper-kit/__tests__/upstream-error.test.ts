@@ -4,6 +4,7 @@ import { describe, expect, it } from "vitest";
 import {
   providerErrorOf,
   scrubSent,
+  tokenEndpointErrorMessage,
   upstreamErrorMessage,
   upstreamFailure,
 } from "../src/upstream-error.ts";
@@ -46,6 +47,19 @@ describe("upstream errors", () => {
     // A code that is not an identifier is not quoted.
     expect(providerErrorOf({ error: `echo ${SECRET}` })).toEqual({});
     expect(upstreamErrorMessage("X", 400, { message: "a\nb\u0000c" }, [])).toBe("X failed: 400 - a b c");
+  });
+
+  it("keep a token endpoint's status out of the `: <status>` position API errors use", () => {
+    const message = tokenEndpointErrorMessage(
+      "Google token refresh",
+      401,
+      { error: "invalid_client", error_description: "Unauthorized" },
+      [],
+    );
+    expect(message).toBe("Google token refresh failed (HTTP 401) invalid_client - Unauthorized");
+    // Google's httpStatusFromError reads `: <status>` and `[http=<status>]`.
+    expect(message).not.toMatch(/:\s(\d{3})(?:\s|$)/);
+    expect(message).not.toMatch(/\[http=\d{3}\]/);
   });
 
   it("cut a bearer or basic token, but not ordinary words after the scheme", () => {

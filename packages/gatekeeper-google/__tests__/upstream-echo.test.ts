@@ -40,6 +40,21 @@ async function messageOf(work: Promise<unknown>): Promise<string> {
 
 const forms = (s: string) => [s, encodeURIComponent(s), s.slice(0, 14), s.slice(-14)];
 
+describe("Google Calendar errors echoing the bare access token", () => {
+  it("scrub the token it was sent, even where no `Bearer` precedes it", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (_input, init) => {
+      const token = (new Headers(init?.headers).get("authorization") ?? "").replace(/^Bearer /, "");
+      return new Response(
+        JSON.stringify({ error: { code: 401, status: token, message: `token ${token} is not valid` } }),
+        { status: 401, headers: { "content-type": "application/json" } },
+      );
+    });
+    const message = await messageOf(new GoogleCalendarApi(async () => ACCESS).listCalendars());
+    expect(message).toMatch(/failed: 401/);
+    for (const form of forms(ACCESS)) expect(message, message).not.toContain(form);
+  });
+});
+
 describe("Google gatekeeper errors from an echoing upstream", () => {
   for (const json of [true, false]) {
     it(`never carry what was sent (${json ? "JSON" : "plain text"} body)`, async () => {
@@ -50,7 +65,7 @@ describe("Google gatekeeper errors from an echoing upstream", () => {
         await messageOf(new GoogleCalendarApi(async () => ACCESS).listCalendars()),
       ];
       for (const message of messages) {
-        expect(message).toMatch(/failed: 400/);
+        expect(message).toMatch(/failed(?: \(HTTP 400\)|: 400)/);
         expect(message).not.toContain("upstream proxy echo");
         for (const secret of [SECRET, REFRESH, CODE, ACCESS]) {
           for (const form of forms(secret)) expect(message, `${form} in ${message}`).not.toContain(form);
