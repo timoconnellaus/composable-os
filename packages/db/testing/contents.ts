@@ -45,7 +45,12 @@ export async function databaseContents(
       const c = `"${name.replaceAll('"', '""')}"`;
       return `typeof(${c}) || ':' || CASE typeof(${c}) WHEN 'text' THEN hex(${c}) WHEN 'blob' THEN hex(${c}) ELSE quote(${c}) END`;
     });
-    const withoutRowid = /WITHOUT ROWID\s*$/i.test(m.sql ?? "");
+    // From SQLite itself: a trailing comment in the CREATE text would fool a pattern.
+    const withoutRowid =
+      (await db
+        .prepare("SELECT wr FROM pragma_table_list WHERE schema = 'main' AND name = ?")
+        .bind(m.name)
+        .first<number>("wr")) === 1;
     const select = [...(withoutRowid ? [] : ["quote(rowid)"]), ...values].join(", ");
     tables[m.name] = await db
       .prepare(`SELECT ${select || "1"} FROM ${quoted} ORDER BY 1${values.length ? ", 2" : ""}`)

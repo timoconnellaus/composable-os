@@ -1220,7 +1220,9 @@ takes bookmarks and is restored to them (`restoreClientDb`), reports its size ag
 limit (`usage`), records where it was first placed (`place`), and is exported and imported as SQL
 (`@composable-os/db/sql-export`); a set is committed only with an answer it can return. The class
 lives in a Worker of its own, `cos-client-db` (`apps/client-db`), so a release of the host does
-not restart it. No Worker of the host binds it yet.
+not restart it; the host's Workers are to reach it only through that Worker's query-only entrypoint
+`ClientDbQueries` (`CLIENT_DB_QUERIES`), never the namespace with its operator methods. No Worker
+of the host binds it yet.
 
 ### Client export
 
@@ -1228,7 +1230,11 @@ not restart it. No Worker of the host binds it yet.
 
 A database written out as plain SQL in parts (`cos-sql-export/1`), every table, value, index,
 trigger and view exactly, taken from a client's database or D1 and imported into either, but only
-into an empty one. What a move between hosts and the leaving promise rest on.
+into an empty one. The database is held still while it is exported (a client's database refuses
+writes until the export ends). An import runs only the statements an export writes and, after the
+last part, compares the whole schema with what the code's migrations and the reconciler make,
+emptying the database on any difference. What a move between hosts and the leaving promise rest
+on.
 _Avoid_: dump, backup
 
 ### Registry

@@ -124,15 +124,21 @@ One **D1** database per deployment, with real tables ([ADR 0002](adr/0002-d1-rea
   against D1 on Cloudflare (docs/deploying.md).
   Step 2 ([ADR 0614](adr/0614-clientdb-finished.md)) finished it: an answer larger than one call
   is held by the object and fetched in parts, and one too large to hold rolls its set back, so
-  nothing is committed that cannot be reported; every write set is recorded under its id
-  (`outcome`), so a lost answer is never retried blind. Migrations report what they applied and
-  the schema version (`migrateAndReport`, `level`); bookmarks and restore use the object's
-  point-in-time recovery (30 days, Cloudflare only); `usage()` and a clear refusal before the
-  10 GB limit; `place()` records the first location hint. `@composable-os/db/sql-export` writes
-  any database (a client's or D1) out as parts of plain SQL and imports them into an empty one,
-  resumably, so a client moves to D1 and back with every value the same. `ClientDb` is deployed in
-  its own Worker, `cos-client-db` (`apps/client-db`), bound by script name, so a release of the
-  host does not restart every client's database; no single-client release ships it.
+  nothing is committed that cannot be reported; every set that may write (any but a provable
+  read, DDL included) is recorded under its id (`outcome`), so a lost answer is never retried
+  blind, and an outcome that cannot be learned is never retryable. Migrations report what they
+  applied and the schema version (`migrateAndReport`, `level`); bookmarks and restore use the
+  object's point-in-time recovery (30 days, Cloudflare only); `usage()` and a clear refusal before
+  the 10 GB limit, with a reserve an erase can still use; `place()` records the first location
+  hint. `@composable-os/db/sql-export` writes any database (a client's or D1) out as parts of plain
+  SQL, with the database held still throughout, and imports them into an empty one, resumably,
+  running only the statements an export writes and refusing (and emptying the database) unless
+  the resulting schema is what the code's migrations and the reconciler make; a client moves to D1
+  and back with every value the same. `ClientDb` is deployed in its own Worker, `cos-client-db`
+  (`apps/client-db`), so a release of the host does not restart every client's database; the
+  host's Workers are to bind only its query-only entrypoint `ClientDbQueries`
+  (`CLIENT_DB_QUERIES`, `clientDatabaseService`), and the namespace with the operator's methods is
+  bound only where the operator's commands run. No single-client release ships it.
 
 - **The registry and the client's environment** (stage 66 step 3,
   [ADR 0613](adr/0613-the-registry-and-the-clients-environment.md)): a host that serves many

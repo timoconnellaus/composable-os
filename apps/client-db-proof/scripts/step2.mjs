@@ -1,19 +1,19 @@
 #!/usr/bin/env node
 // Runs stage 66 step 2's probes on the deployed proof Worker (ADR 0614): bookmarks and restore on a
-// real object, an export and import between D1 and clients' databases, the largest batch and read,
-// and how many calls to a client's database one request may make. Prints what each answered and
-// fails when bookmarks, restore, the export or the answers did not do what they should.
+// real object, an export and import between D1 and clients' databases, the features of real D1
+// they use, the largest batch and reads, and the size after deletes. Prints what each answered and
+// fails when restore, the export, D1's features or the answers did not do what they should.
 //
-//   PROOF_KEY=… node scripts/step2.mjs --url https://<worker>.workers.dev
-import { parseArgs } from "node:util";
+//   PROOF_URL=https://… PROOF_KEY=… node scripts/step2.mjs
+//
+// The URL names the account's workers.dev subdomain: it is read from PROOF_URL and never printed.
 
-const { values } = parseArgs({ options: { url: { type: "string" } } });
 const key = process.env.PROOF_KEY;
-if (!values.url || !key) {
-  console.error("usage: PROOF_KEY=… node scripts/step2.mjs --url https://…");
+const base = (process.env.PROOF_URL ?? "").replace(/\/$/, "");
+if (!/^https:\/\/[^/]+$/.test(base) || !key) {
+  console.error("PROOF_URL (https://…, no path) and PROOF_KEY must be set");
   process.exit(2);
 }
-const base = values.url.replace(/\/$/, "");
 
 async function call(path) {
   const response = await fetch(`${base}${path}`, { headers: { "x-proof-key": key } });
@@ -30,14 +30,12 @@ const show = (name, result, mustPass = true) => {
 
 show("Bookmarks and restore (/step2/pitr)", await call("/step2/pitr"));
 show("Export and import (/step2/export)", await call("/step2/export"));
-show("A 200,000-statement batch and a 40 MB read (/step2/answers)", await call("/step2/answers"));
-// Past the documented 10,000 subrequests: where the limit falls, and its error.
+show("What the export and import use, on real D1 (/step2/d1)", await call("/step2/d1"));
 show(
-  "Calls to a client's database in one request (/step2/calls)",
-  await call("/step2/calls?n=12000"),
-  false,
+  "A 200,000-statement batch, a 40 MB read, a 60 MB read refused (/step2/answers)",
+  await call("/step2/answers"),
 );
-show("Calls and D1 queries in one request", await call("/step2/calls?n=6000&d1=6000"), false);
+show("Size after deletes, and VACUUM (/step2/size)", await call("/step2/size"), false);
 if (failed) {
   console.error("\nA step 2 probe failed.");
   process.exit(1);

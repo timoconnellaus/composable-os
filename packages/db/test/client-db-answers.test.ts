@@ -55,7 +55,7 @@ describe("a query set's answer", () => {
     const insert = `WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < 60)
       INSERT INTO t SELECT i, ${MB_OF_ZEROS} FROM n RETURNING v`;
     await expect(db.prepare(insert).all()).rejects.toThrow(
-      /D1_ERROR: the result is about \d+ MiB, more than the 48 MiB .* Nothing was applied/,
+      /^D1_ERROR: the result is more than 48 MiB, the most a client's database returns .* Nothing was applied$/,
     );
     expect(await db.prepare("SELECT count(*) AS n FROM t").first("n")).toBe(0);
   }, 60_000);

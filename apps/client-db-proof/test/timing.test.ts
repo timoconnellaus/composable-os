@@ -55,8 +55,9 @@ describe("the proof Worker", () => {
       all: { name: string; same: boolean }[];
     };
     expect(report.differ).toEqual([]);
-    // Locally only ClientDb's 32 MiB result limit shows (review of PR #507, S1).
-    expect(report.allowed.map((p) => p.name)).toEqual(["read-over-32mib"]);
+    // Since stage 66 step 2 (ADR 0614) a result over 32 MiB is answered as on D1: nothing differs.
+    expect(report.allowed.map((p) => p.name)).toEqual([]);
+    expect(report.all.find((p) => p.name === "read-over-32mib")?.same).toBe(true);
     expect(report.all.find((p) => p.name === "batch-in-parts")?.same).toBe(true);
   });
 

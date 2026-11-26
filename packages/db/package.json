@@ -8,6 +8,7 @@
     ".": "./src/index.ts",
     "./seed": "./src/seed.ts",
     "./client-db": "./src/client-db.ts",
+    "./client-db-service": "./src/client-db-service.ts",
     "./sql-export": "./src/sql-export.ts",
     "./registry": "./src/registry.ts",
     "./client-environment": "./src/client-environment.ts",

@@ -7,13 +7,18 @@ import { type ClientDb, clientDatabase } from "../src/client-db.ts";
 import { applyMigrations, type Migration } from "../src/migrate.ts";
 import { seedDatabase } from "../src/seed.ts";
 import {
+  clientDbHold,
+  type ExportOptions,
   type ExportPart,
   exportDatabase,
   exportPart,
+  type ImportOptions,
   importDatabase,
   importPart,
   MAX_STATEMENT_BYTES,
+  migrationsSchema,
   partToSql,
+  schemaRows,
 } from "../src/sql-export.ts";
 import { databaseContents } from "../testing/contents.ts";
 
@@ -84,20 +89,45 @@ async function makeSource(db: D1Database) {
 /** Everything the database holds, read without the export's code. */
 const contents = (db: D1Database) => databaseContents(db, ["a*", "kangaroo"]);
 
-async function collect(db: D1Database): Promise<ExportPart[]> {
+let references = 0;
+
+/**
+ * What the import expects, as step 7 will build it: the core schema from the code's own
+ * migrations at the export's level, and the rest (the fixture's and the seed's extension tables)
+ * from `truth`, standing in for what the reconciler would derive from the manifests.
+ */
+function expectedFrom(truth: D1Database): ImportOptions {
+  return {
+    async expectedSchema(_db, source) {
+      references += 1;
+      const reference = clientDatabase(bindings.CLIENT_DB, `reference-${references}`);
+      const core = await migrationsSchema(reference, bindings.TEST_MIGRATIONS, source.migrations);
+      const known = new Set(core.map((row) => `${row.type} ${row.name}`));
+      const rest = (await schemaRows(truth)).filter((row) => !known.has(`${row.type} ${row.name}`));
+      return [...core, ...rest];
+    },
+  };
+}
+
+async function collect(db: D1Database, hold: ExportOptions["hold"]): Promise<ExportPart[]> {
   const parts: ExportPart[] = [];
-  for await (const part of exportDatabase(db, PART)) parts.push(part);
+  for await (const part of exportDatabase(db, { ...PART, hold })) parts.push(part);
   return parts;
 }
+
+const PAUSED = "caller-paused" as const;
+const holdOf = (client: string, ms?: number) => clientDbHold(bindings.CLIENT_DB, client, ms);
 
 describe("export and import as SQL", () => {
   let source: Awaited<ReturnType<typeof contents>>;
   let fromD1: ExportPart[];
+  let options: ImportOptions;
 
   beforeAll(async () => {
     await makeSource(bindings.DB);
     source = await contents(bindings.DB);
-    fromD1 = await collect(bindings.DB);
+    fromD1 = await collect(bindings.DB, PAUSED);
+    options = expectedFrom(bindings.DB);
   }, 120_000);
 
   it("the source holds what the test means it to", () => {
@@ -106,6 +136,7 @@ describe("export and import as SQL", () => {
     expect(source.search["core_search a*"]?.length).toBeGreaterThan(0);
     expect(fromD1.length).toBeGreaterThan(10);
     expect(fromD1.at(-1)?.last).toBe(true);
+    expect(fromD1[0]?.source?.migrations).toHaveLength(bindings.TEST_MIGRATIONS.length);
     expect(
       fromD1.every((part) => part.statements.every((s) => s.length <= MAX_STATEMENT_BYTES)),
     ).toBe(true);
@@ -113,12 +144,12 @@ describe("export and import as SQL", () => {
 
   it("moves a D1 database into a client's database, and back out onto D1, unchanged", async () => {
     const client = clientDatabase(bindings.CLIENT_DB, "imported");
-    await importDatabase(client, fromD1);
+    await importDatabase(client, fromD1, options);
     expect(await contents(client)).toEqual(source);
 
     // The leaving promise: the client's database exported and installed on D1.
-    const fromClient = await collect(client);
-    await importDatabase(bindings.DB2, fromClient);
+    const fromClient = await collect(client, holdOf("imported"));
+    await importDatabase(bindings.DB2, fromClient, options);
     expect(await contents(bindings.DB2)).toEqual(source);
 
     // Nothing of the import is left behind, and no trigger fired while the rows went in.
@@ -127,44 +158,210 @@ describe("export and import as SQL", () => {
     ).raw();
     expect(leftovers).toEqual([]);
     // Into a database that holds tables: refused.
-    await expect(importDatabase(bindings.DB2, fromClient)).rejects.toThrow(
+    await expect(importDatabase(bindings.DB2, fromClient, options)).rejects.toThrow(
       /the database is not empty \(it holds \d+ tables or views/,
     );
   }, 120_000);
 
   it("resumes an import that stopped part way, and refuses parts out of order", async () => {
     const client = clientDatabase(bindings.CLIENT_DB, "resumed");
-    for (const part of fromD1.slice(0, 5)) await importPart(client, part);
-    await expect(importPart(client, fromD1[7] as ExportPart)).rejects.toThrow(
+    for (const part of fromD1.slice(0, 5)) await importPart(client, part, options);
+    await expect(importPart(client, fromD1[7] as ExportPart, options)).rejects.toThrow(
       "part 5 is missing before part 7",
     );
     const other = { ...(fromD1[5] as ExportPart), id: "another" };
-    await expect(importPart(client, other)).rejects.toThrow(/another export did not finish/);
+    await expect(importPart(client, other, options)).rejects.toThrow(
+      /another export did not finish/,
+    );
     // Given every part again, the five already in are skipped.
     const steps = [];
-    for (const part of fromD1) steps.push(await importPart(client, part));
+    for (const part of fromD1) steps.push(await importPart(client, part, options));
     expect(steps.filter((s) => !s.applied)).toHaveLength(5);
     expect(steps.at(-1)).toEqual({ applied: true, done: true });
     expect(await contents(client)).toEqual(source);
   }, 120_000);
 
-  it("refuses to start anywhere but part 0, and checks the row counts at the end", async () => {
+  it("finishes an import whose last part went in but whose end was lost (S4)", async () => {
+    const client = clientDatabase(bindings.CLIENT_DB, "end-lost");
+    // The import's last statement, the drop of its own record, fails once after the last part.
+    let lose = true;
+    const losing = new Proxy(client, {
+      get(target, key) {
+        if (key === "prepare") {
+          return (sql: string) => {
+            const statement = target.prepare(sql);
+            if (sql === 'DROP TABLE "_cos_import"' && lose) {
+              lose = false;
+              return {
+                ...statement,
+                run: async () => Promise.reject(new Error("Network connection lost.")),
+              };
+            }
+            return statement;
+          };
+        }
+        const value = Reflect.get(target, key);
+        return typeof value === "function" ? value.bind(target) : value;
+      },
+    });
+    await expect(importDatabase(losing, fromD1, options)).rejects.toThrow(
+      "Network connection lost.",
+    );
+    // Given the same parts again, every part is in, and the last one finishes it.
+    expect(await importDatabase(client, fromD1, options)).toEqual({ parts: fromD1.length });
+    expect(await contents(client)).toEqual(source);
+  }, 120_000);
+
+  it("refuses to start anywhere but part 0, and empties the database on wrong counts (S4)", async () => {
     const fresh = clientDatabase(bindings.CLIENT_DB, "counted");
-    await expect(importPart(fresh, fromD1[1] as ExportPart)).rejects.toThrow(
+    await expect(importPart(fresh, fromD1[1] as ExportPart, options)).rejects.toThrow(
       "an import starts with part 0, not part 1",
     );
     const last = fromD1.at(-1) as ExportPart;
     const wrong = { ...last, counts: { ...last.counts, x_proof_plain: 1 } };
-    await expect(importDatabase(fresh, [...fromD1.slice(0, -1), wrong])).rejects.toThrow(
-      /does not match its export: x_proof_plain: \d+ rows, the export has 1/,
+    await expect(importDatabase(fresh, [...fromD1.slice(0, -1), wrong], options)).rejects.toThrow(
+      "the import was refused and the database emptied: its row counts do not match the export's",
     );
+    expect(await schemaRows(fresh)).toEqual([]);
   }, 120_000);
 
   it("writes parts that read as a .sql file", async () => {
-    const { part } = await exportPart(clientDatabase(bindings.CLIENT_DB, "empty-export"));
+    const { part } = await exportPart(clientDatabase(bindings.CLIENT_DB, "empty-export"), null, {
+      hold: PAUSED,
+    });
     expect(part.last).toBe(true);
     expect(partToSql(part)).toMatch(
       /^-- cos-sql-export\/1 .* part 0 \(last\)\nCREATE TABLE IF NOT EXISTS "_cos_import_scratch"/,
     );
+  });
+
+  describe("a file from elsewhere (S5)", () => {
+    const first = () => structuredClone(fromD1[0] as ExportPart);
+
+    it("refuses a statement an export does not write, before running anything", async () => {
+      const target = clientDatabase(bindings.CLIENT_DB, "hostile-statements");
+      const hostile = [
+        "CREATE TRIGGER core_person_spy AFTER INSERT ON core_person BEGIN SELECT 1; END",
+        'INSERT INTO "core_settings" ("key", "value") VALUES ((SELECT 1), 2)',
+        "DELETE FROM core_person",
+        'UPDATE "core_settings" SET "value" = 1',
+        "PRAGMA writable_schema = ON",
+        'INSERT INTO "_cf_KV" ("key", "value") VALUES (\'a\', X\'00\')',
+        'INSERT INTO "core_settings" ("key") VALUES (\'a\'); DROP TABLE core_person',
+      ];
+      for (const sql of hostile) {
+        const part = first();
+        part.statements.push(sql);
+        await expect(importPart(target, part, options), sql).rejects.toThrow(
+          /^part 0 holds a statement an export does not write/,
+        );
+      }
+      expect(await schemaRows(target)).toEqual([]);
+    });
+
+    it("empties the database when the schema is not what this code makes", async () => {
+      const target = clientDatabase(bindings.CLIENT_DB, "hostile-schema");
+      const extra = "CREATE TABLE core_people (v TEXT)";
+      const trigger =
+        "CREATE TRIGGER core_person_spy AFTER INSERT ON core_person BEGIN DELETE FROM core_settings; END";
+      const parts = structuredClone(fromD1);
+      const head = parts[0] as ExportPart;
+      head.source?.schema.push(extra, trigger);
+      head.statements.push(extra);
+      (parts.at(-1) as ExportPart).statements.splice(-1, 0, trigger);
+      await expect(importDatabase(target, parts, options)).rejects.toThrow(
+        /the import was refused and the database emptied: its schema is not what this code makes \(table core_people; trigger core_person_spy\)/,
+      );
+      expect(await schemaRows(target)).toEqual([]);
+    }, 120_000);
+
+    it("refuses a part whose fields are of the wrong type (M4)", async () => {
+      const target = clientDatabase(bindings.CLIENT_DB, "hostile-types");
+      const part = { ...first(), index: "0" } as unknown as ExportPart;
+      await expect(importPart(target, part, options)).rejects.toThrow(
+        "not a part of an export: its index is not a whole number from 0",
+      );
+    });
+  });
+});
+
+describe("an export held still (S3)", () => {
+  it("refuses a client's writes while it is exported, and takes them after", async () => {
+    const name = "held-export";
+    const db = clientDatabase(bindings.CLIENT_DB, name);
+    await db.prepare("CREATE TABLE t (id INTEGER PRIMARY KEY, v TEXT)").run();
+    await db.batch(
+      Array.from({ length: 300 }, (_, i) =>
+        db.prepare("INSERT INTO t VALUES (?, ?)").bind(i + 1, "x".repeat(400)),
+      ),
+    );
+    const hold = holdOf(name);
+    let { part, next } = await exportPart(db, null, { maxBytes: 8 * 1024, hold });
+    const parts = [part];
+    await expect(db.prepare("UPDATE t SET v = 'changed' WHERE id = 1").run()).rejects.toThrow(
+      /held still while it is exported/,
+    );
+    await expect(db.prepare("INSERT INTO t VALUES (0, 'behind')").run()).rejects.toThrow(
+      /held still/,
+    );
+    while (next) {
+      ({ part, next } = await exportPart(db, next, { maxBytes: 8 * 1024, hold }));
+      parts.push(part);
+    }
+    expect(parts.length).toBeGreaterThan(3);
+    // Released at the end: writes are taken again.
+    await db.prepare("UPDATE t SET v = 'changed' WHERE id = 1").run();
+    const target = clientDatabase(bindings.CLIENT_DB, "held-import");
+    await importDatabase(target, parts, { expectedSchema: async () => schemaRows(db) });
+    expect(await target.prepare("SELECT count(*) AS n FROM t").first("n")).toBe(300);
+    expect(await target.prepare("SELECT v FROM t WHERE id = 1").first("v")).toBe("x".repeat(400));
+  });
+
+  it("fails when the hold lapsed between parts, or the schema changed", async () => {
+    const name = "lapsed-export";
+    const db = clientDatabase(bindings.CLIENT_DB, name);
+    await db.prepare("CREATE TABLE t (v TEXT)").run();
+    await db.batch(
+      Array.from({ length: 50 }, () =>
+        db.prepare("INSERT INTO t VALUES (?)").bind("y".repeat(400)),
+      ),
+    );
+    const hold = holdOf(name, 1_000);
+    const { next } = await exportPart(db, null, { maxBytes: 4 * 1024, hold });
+    await new Promise((resolve) => setTimeout(resolve, 1_300));
+    await expect(exportPart(db, next, { maxBytes: 4 * 1024, hold })).rejects.toThrow(
+      "the export was refused: the database was not held still for the whole export (the hold lapsed or was replaced)",
+    );
+    const paused = await exportPart(db, null, { maxBytes: 4 * 1024, hold: PAUSED });
+    await db.prepare("CREATE TABLE u (v)").run();
+    await expect(exportPart(db, paused.next, { maxBytes: 4 * 1024, hold: PAUSED })).rejects.toThrow(
+      "the schema changed during the export; it must start again",
+    );
+  });
+});
+
+describe("tables an export must read from SQLite itself", () => {
+  it("carries a WITHOUT ROWID table with a trailing comment, and FTS over a view (M3, M9)", async () => {
+    const db = clientDatabase(bindings.CLIENT_DB, "odd-tables");
+    await db.batch(
+      [
+        "CREATE TABLE x_wr (k TEXT PRIMARY KEY, v INTEGER) WITHOUT ROWID -- a trailing comment",
+        "INSERT INTO x_wr VALUES ('a', 1), ('b', 2)",
+        "CREATE TABLE docs (id INTEGER PRIMARY KEY, body TEXT)",
+        "INSERT INTO docs VALUES (1, 'kangaroo'), (2, 'wombat')",
+        "CREATE VIEW docs_v AS SELECT id, body FROM docs",
+        "CREATE VIRTUAL TABLE docs_fts USING fts5 (body, content = 'docs_v', content_rowid = 'id')",
+        "INSERT INTO docs_fts (docs_fts) VALUES ('rebuild')",
+      ].map((sql) => db.prepare(sql)),
+    );
+    const parts = await collect(db, holdOf("odd-tables"));
+    const target = clientDatabase(bindings.CLIENT_DB, "odd-tables-in");
+    await importDatabase(target, parts, { expectedSchema: async () => schemaRows(db) });
+    expect(await databaseContents(target, ["kangaroo"])).toEqual(
+      await databaseContents(db, ["kangaroo"]),
+    );
+    expect(
+      await target.prepare("SELECT rowid FROM docs_fts WHERE docs_fts MATCH 'kangaroo'").raw(),
+    ).toEqual([[1]]);
   });
 });

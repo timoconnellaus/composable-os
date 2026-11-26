@@ -1272,10 +1272,14 @@ hand, and with a secret missing it passes with a notice and deploys nothing):
    - `/step2/export`: the D1 database out as SQL into a client's database and out of that into a
      second one, every table compared with D1's. The other direction (a client's database onto a
      fresh D1) needs a second D1 database the proof does not have; it is proved locally.
-   - `/step2/answers`: a 200,000-statement batch, a 40 MB read, and a read over 48 MiB, which must
-     be refused cleanly ("read it in pages") and leave the object answering.
-   - `/step2/size`: whether `databaseSize` falls after deletes (reported, not judged).
-   The run fails if restore, the export or the answers do not do what they should.
+   - `/step2/d1`: each feature the export and import use (the table-valued pragmas,
+     `pragma_table_list`, `PRAGMA defer_foreign_keys` in a batch, the scratch table's appends,
+     writing `sqlite_sequence`, an FTS5 rebuild, the count check), run on real D1 and rolled back.
+   - `/step2/answers`: a 200,000-statement batch, a 40 MB read, and a 60 MB read, which must be
+     refused cleanly ("read it in pages") and leave the object answering, not reset.
+   - `/step2/size`: whether `databaseSize` falls after deletes, and what `VACUUM` answers
+     (reported, not judged).
+   The run fails if restore, the export, D1's features or the answers do not do what they should.
 
 **When to stop and return to the owner** (from the review of PR #507; `time.mjs` prints the
 verdict, and timing never fails the run):

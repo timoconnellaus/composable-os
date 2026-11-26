@@ -110,21 +110,76 @@ describe("size", () => {
     expect(fresh.bytes).toBe(await stub.size());
 
     const at = fresh.bytes;
-    await stub.setSizeLimits({ warnAtBytes: at, refuseAtBytes: at + 200_000 });
+    await stub.setSizeLimits({
+      warnAtBytes: at,
+      refuseAtBytes: at + 200_000,
+      reserveBytes: 3_000_000,
+    });
     await db.prepare("INSERT INTO t VALUES (1, ?)").bind("x".repeat(100_000)).run();
     expect((await stub.usage()).state).toBe("warning");
+    const full =
+      /^D1_ERROR: this client's database is full: .* small writes such as an erase still work$/;
+    // Past the line, a set that grows the database by more than 1 MiB is refused.
     await expect(
-      db.prepare("INSERT INTO t VALUES (2, ?)").bind("y".repeat(400_000)).run(),
-    ).rejects.toThrow(
-      /^D1_ERROR: this client's database is full: .* reads and deletes still work$/,
-    );
+      db.prepare("INSERT INTO t VALUES (2, ?)").bind("y".repeat(2_000_000)).run(),
+    ).rejects.toThrow(full);
     expect(await db.prepare("SELECT count(*) AS n FROM t").first("n")).toBe(1);
-    // Reads and deletes still work.
-    await db.prepare("DELETE FROM t WHERE id = 1").run();
+    // A small one (an erase: a delete and its audit row) still goes in, inside the reserve.
+    await db.batch([
+      db.prepare("DELETE FROM t WHERE id = 1"),
+      db.prepare("INSERT INTO t VALUES (3, ?)").bind("audit".repeat(60_000)),
+    ]);
+    expect((await stub.usage()).state).toBe("refusing");
+    // Small sets fill the reserve; past it, any set that grows the database is refused.
+    let refused: unknown = null;
+    for (let id = 10; id < 40 && !refused; id += 1) {
+      refused = await db
+        .prepare("INSERT INTO t VALUES (?, ?)")
+        .bind(id, "z".repeat(500_000))
+        .run()
+        .then(
+          () => null,
+          (e: Error) => e.message,
+        );
+    }
+    expect(refused).toMatch(full);
+    expect((await stub.usage()).bytes).toBeLessThanOrEqual(at + 200_000 + 3_000_000);
+    // A delete, which does not grow it, still works.
+    await db.prepare("DELETE FROM t").run();
     expect(await db.prepare("SELECT count(*) AS n FROM t").first("n")).toBe(0);
     expect(
       String(await failure(stub.setSizeLimits({ warnAtBytes: 10, refuseAtBytes: 5 }))),
     ).toMatch(/size limits/);
+  });
+});
+
+describe("holding still for an export (S3)", () => {
+  it("refuses every set that may write while held, and only then", async () => {
+    const stub = stubOf("held");
+    const db = clientDatabase(bindings.CLIENT_DB, "held");
+    await db.prepare("CREATE TABLE t (v)").run();
+    const hold = await stub.hold(60_000);
+    if (!hold.ok) throw new Error(hold.error);
+    for (const sql of [
+      "INSERT INTO t VALUES (1)",
+      "CREATE TABLE u (v)",
+      "PRAGMA defer_foreign_keys = ON",
+    ]) {
+      await expect(db.prepare(sql).run(), sql).rejects.toThrow(
+        "D1_ERROR: this client's database is held still while it is exported; nothing was applied",
+      );
+    }
+    expect(await db.prepare("SELECT count(*) AS n FROM t").first("n")).toBe(0);
+    expect((await stub.hold(60_000)).ok).toBe(false);
+    expect((await stub.renewHold(hold.token)).ok).toBe(true);
+    expect((await stub.renewHold("another")).ok).toBe(false);
+    // It outlives a restart.
+    await stub.restart().catch(() => {});
+    await expect(db.prepare("INSERT INTO t VALUES (1)").run()).rejects.toThrow(/held still/);
+    expect(await stubOf("held").release(hold.token)).toEqual({ ok: true });
+    await db.prepare("INSERT INTO t VALUES (1)").run();
+    expect((await stubOf("held").renewHold(hold.token)).ok).toBe(false);
+    expect((await stubOf("held").hold(10)).ok).toBe(false);
   });
 });
 

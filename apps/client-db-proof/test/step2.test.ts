@@ -31,17 +31,31 @@ describe("the step 2 probes", () => {
     expect(report.rows).toBeGreaterThan(300);
   }, 120_000);
 
-  it("count the calls one request makes", async () => {
-    expect(await call("/step2/calls?n=50&d1=5")).toEqual({
-      asked: { clientDb: 50, d1: 5 },
-      done: { clientDb: 50, d1: 5 },
-      error: null,
+  it("find every feature the export and import use on the D1 binding", async () => {
+    expect(await call("/step2/d1")).toEqual({
+      ok: true,
+      tableXinfo: "ok",
+      foreignKeys: "ok",
+      tableList: "ok",
+      hexAndQuote: "ok",
+      masterByRowid: "ok",
+      deferForeignKeys: "ok",
+      scratchConcat: "ok",
+      sqliteSequence: "ok",
+      ftsRebuild: "ok",
+      checkTable: "ok",
     });
   });
 
-  it("answer a huge batch and a large read", async () => {
-    expect(await call("/step2/answers")).toMatchObject({ ok: true });
+  it("answer a huge batch and a large read, and refuse one too large cleanly", async () => {
+    expect(await call("/step2/answers")).toMatchObject({ ok: true, objectReset: false });
   }, 120_000);
+
+  it("report the size after deletes", async () => {
+    const report = await call("/step2/size");
+    expect(report.ok).toBe(true);
+    expect(report).toHaveProperty("fellAfterDelete");
+  }, 60_000);
 
   it("report that point-in-time recovery is Cloudflare's only", async () => {
     const report = await call("/step2/pitr");
