@@ -1,4 +1,4 @@
-// A fleet deployment, a host of many clients (stage 66 step 7, ADR 0617): what the deploy engine
+// A fleet deployment, a host of many clients (stage 66 step 7, ADR 0618): what the deploy engine
 // adds, checked against ADR 0615's list ("What a many-client deployment binds"), and that a
 // single-client deployment's uploads have none of it.
 import { describe, expect, it } from "vitest";
@@ -240,6 +240,18 @@ describe("a fleet deployment", () => {
     expect(named(app, "CLIENT_DB_QUERIES")).toMatchObject({ service: "demo-client-db-staging" });
     expect(named(app, "CLIENT_FANOUT")).toMatchObject({ queue_name: "demo-app-fanout-staging" });
     expect(named(app, "RUNNER")).toMatchObject({ service: "demo-runner-staging" });
+  });
+});
+
+describe("an imported client's videos", () => {
+  it("are stamped with their creator; one the account does not hold answers false", async () => {
+    const { cf, api } = await setup();
+    const held = "c".repeat(32);
+    cf.streamCreators.set(held, null);
+    expect(await api.setStreamCreator(ACCOUNT, held, "live:gym-b")).toBe(true);
+    expect(cf.streamCreators.get(held)).toBe("live:gym-b");
+    expect(await api.setStreamCreator(ACCOUNT, "d".repeat(32), "live:gym-b")).toBe(false);
+    await expect(api.setStreamCreator(ACCOUNT, "../x", "live:gym-b")).rejects.toThrow(/Stream/);
   });
 });
 

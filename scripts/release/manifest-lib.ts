@@ -105,7 +105,7 @@ export interface DeployablePackage {
  * of a client's database (apps/client-db-proof, stage 66 step 1, ADR 0612) is a measurement,
  * deployed only by hand by .github/workflows/client-db-proof.yml. The Worker that holds clients'
  * databases (apps/client-db, stage 66 step 2, ADR 0614) and the operator's Worker (apps/operator,
- * step 7, ADR 0617) are released as `fleet` Workers: optional, and deployed only on a deployment
+ * step 7, ADR 0618) are released as `fleet` Workers: optional, and deployed only on a deployment
  * whose state is a fleet's (packages/release fleet.ts), never on a single-client one.
  */
 const NOT_RELEASED = new Set(["apps/marketing", "apps/docs", "apps/client-db-proof"]);

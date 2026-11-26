@@ -206,6 +206,16 @@ export function validateClientId(id: unknown): ClientId {
   return id as ClientId;
 }
 
+/**
+ * A client's one name outside the host, `<environment>:<client>` (review of #522, M2): the creator
+ * stamped on its videos and the key of the zone's shared caches. `clientStampOf` gives it for a
+ * client's environment; the operator's commands (stage 66 step 7: an import re-stamping a client's
+ * videos) give it for a registry row. The shape is decided here only.
+ */
+export function clientStamp(environment: ClientEnvironmentName | string, client: string): string {
+  return `${environment}:${client}`;
+}
+
 // --- Hostnames -----------------------------------------------------------------------------
 
 const LABEL = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;

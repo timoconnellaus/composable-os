@@ -471,7 +471,7 @@ gatekeeper is made per client.
 of the operator's writes". Decided: **not added now**; base-mode HPKE stays. A signature adds
 something only when its key is held apart from the Cloudflare token that can write the registry and
 redeploy the host, and today the operator holds both. The signed audit and a signing key held apart
-(a hardware key or the control plane) come together, as one later step. ADR 0617.
+(a hardware key or the control plane) come together, as one later step. ADR 0618.
 
 ## Consequences
 - **A single-client deployment is unchanged:** no Worker of one binds `REGISTRY`, so nothing here

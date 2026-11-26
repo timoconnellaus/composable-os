@@ -1,4 +1,4 @@
-// The operator's commands for a host of many clients (stage 66 step 7, ADR 0617), criteria 11 to 13:
+// The operator's commands for a host of many clients (stage 66 step 7, ADR 0618), criteria 11 to 13:
 // `cos client add`, `cos fleet upgrade` across clients, export, import and remove, against the
 // registry's real migrations (on Node's SQLite) and a stand-in for the operator's Worker (whose own
 // code is tested on a real client's database in packages/db's operator.test.ts).
@@ -49,6 +49,8 @@ class FakeOperator implements Operator {
   extensions: Record<string, { id: string; source: string; status: string; contract: number }[]> =
     {};
   secrets: Record<string, Record<string, string>> = {};
+  /** The Stream ids a client's database names (core_media), by client. */
+  mediaVideos: Record<string, string[]> = {};
   db(client: string) {
     let db = this.dbs.get(client);
     if (!db) {
@@ -108,6 +110,11 @@ class FakeOperator implements Operator {
         this.dbs.set(client, JSON.parse(this.bookmarks.get(body.bookmark as string) as string));
         return r({ undo: "u" });
       case "query":
+        if (String(body.sql).includes("core_media")) {
+          return r({
+            results: (this.mediaVideos[client] ?? []).map((uid) => ({ stream_uid: uid })),
+          });
+        }
         return r({ results: this.extensions[client] ?? [] });
       case "export-db-part": {
         const path = `${body.exportKey}/database/000000.json`;
@@ -245,7 +252,9 @@ beforeEach(async () => {
 describe("cos client add (criterion 11)", () => {
   it("makes a working client with no Worker upload, in under a minute, and prints its two hostnames", async () => {
     const started = Date.now();
-    expect(await addClient(ctx(), { id: "gym-a", locationHint: "oc" })).toBe(0);
+    expect(
+      await addClient(ctx(), { id: "gym-a", locationHint: "oc", webHostname: "gym-a.example" }),
+    ).toBe(0);
     expect(Date.now() - started).toBeLessThan(60_000);
     expect(await readClient(registry, id("gym-a"))).toMatchObject({
       status: "active",
@@ -254,14 +263,24 @@ describe("cos client add (criterion 11)", () => {
     const snapshot = await readRegistry(registry);
     expect(snapshot.addresses.get(id("gym-a"))).toMatchObject({
       staff: "gym-a-admin.fleet.example",
-      web: "gym-a.fleet.example",
+      web: "gym-a.example",
     });
     expect(operator.calls).toEqual(["place gym-a", "migrate gym-a"]);
     expect(out.lines.join("\n")).toContain("with no Worker uploaded");
     expect(out.lines.join("\n")).toContain("staff https://gym-a-admin.fleet.example");
-    expect(out.lines.join("\n")).toContain("web https://gym-a.fleet.example");
+    expect(out.lines.join("\n")).toContain("web https://gym-a.example");
     // Once added it is a client: a second add is refused.
     await expect(addClient(ctx(), { id: "gym-a" })).rejects.toThrow(/already a client/);
+  });
+
+  it("never puts a client's web app on the fleet's domain beside the staff hostnames (no Public Suffix listing)", async () => {
+    await expect(
+      addClient(ctx(), { id: "gym-a", webHostname: "gym-a.fleet.example" }),
+    ).rejects.toThrow(/never on the fleet's domain/);
+    expect(await readClient(registry, id("gym-a"))).toBeNull();
+    // With none named, it has only its staff hostname.
+    await addClient(ctx(), { id: "gym-a" });
+    expect((await readRegistry(registry)).addresses.get(id("gym-a"))?.web).toBeNull();
   });
 
   it("changes nothing on a dry run", async () => {
@@ -458,7 +477,21 @@ describe("export, import and remove (criterion 13)", () => {
     // No key material in what was printed.
     expect(out.lines.join("\n")).not.toContain("derived-staff-secret-value");
 
-    expect(await importClient(ctx(), { id: "gym-b", from: dir })).toBe(0);
+    // Its records name two videos; this account's Stream holds one of them.
+    const held = "a".repeat(32);
+    const elsewhere = "b".repeat(32);
+    operator.mediaVideos["gym-b"] = [held, elsewhere];
+    const stamped: string[] = [];
+    const videos = {
+      setCreator: async (uid: string, creator: string) => {
+        stamped.push(`${uid}=${creator}`);
+        return uid === held;
+      },
+    };
+    expect(await importClient(ctx({ videos }), { id: "gym-b", from: dir })).toBe(0);
+    // Re-stamped with the creator step 5's video host checks: `<environment>:<client>`.
+    expect(stamped).toEqual([`${held}=live:gym-b`, `${elsewhere}=live:gym-b`]);
+    expect(out.lines.join("\n")).toContain(`1 not in this account's Stream`);
     expect(await readClient(registry, id("gym-b"))).toMatchObject({
       status: "active",
       imported: true,

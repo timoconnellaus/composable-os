@@ -1,4 +1,4 @@
-// The operator's Worker (stage 66 step 7, ADR 0617): the one way `cos` on the operator's machine
+// The operator's Worker (stage 66 step 7, ADR 0618): the one way `cos` on the operator's machine
 // reaches each client's database (the raw `ClientDb` namespace of cos-client-db, with the
 // operator's methods) and a client's part of the shared stores, for `cos client add`, the update,
 // `export`, `import` and `remove`. Deployed on a fleet deployment only (a release's `fleet`

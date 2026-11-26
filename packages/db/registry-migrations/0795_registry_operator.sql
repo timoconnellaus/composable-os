@@ -1,4 +1,4 @@
--- Registry migration 0795: the operator's commands (stage 66 step 7, ADR 0617).
+-- Registry migration 0795: the operator's commands (stage 66 step 7, ADR 0618).
 --
 -- 1. A client's environment never changes (issue #523, F4). Live and staging are two deployments,
 --    each with its own registry; a row moved to the other environment by an UPDATE would be served

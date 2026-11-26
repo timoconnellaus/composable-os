@@ -1,4 +1,4 @@
-// The operator's Worker (stage 66 step 7, ADR 0617): the one way `cos` reaches clients' databases
+// The operator's Worker (stage 66 step 7, ADR 0618): the one way `cos` reaches clients' databases
 // and their part of the shared stores. Driven here through its `fetch`, on a real `ClientDb` and
 // the registry, files, exports and key-value bindings of the local runtime.
 import { env } from "cloudflare:workers";

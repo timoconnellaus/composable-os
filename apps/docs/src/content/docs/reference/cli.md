@@ -123,7 +123,8 @@ installing a product with no repository.
                                          only after staging (--skip-staging, deliberately)
   cos client add <id> [--env e] [--tier t] [--location oc] [--setting NAME=VALUE]… [--dry-run]
                                          a client: its registry rows, its database made and
-                                         migrated, its two hostnames; no Worker uploaded
+                                         migrated, its staff hostname (a web one only with
+                                         --web-hostname, on its own domain); no upload
   cos client pause|resume <id>, cos client list
   cos client secret set|remove <id> <NAME> [--value-file f]
                                          a client's given secret, sealed (this command cannot

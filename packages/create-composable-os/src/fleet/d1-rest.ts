@@ -1,4 +1,4 @@
-// A `D1Database` over D1's REST API (stage 66 step 7, ADR 0617), so the operator's commands run
+// A `D1Database` over D1's REST API (stage 66 step 7, ADR 0618), so the operator's commands run
 // the same registry code (`@composable-os/db/registry-writes`, `registry-sealing`) from `cos` on the
 // operator's machine as the tests run on the binding.
 //

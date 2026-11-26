@@ -306,7 +306,7 @@ describe("release manifest", () => {
     const order = deployOrder(manifest.workers).map((w) => w.name);
     expect(order.indexOf(RUNNER)).toBeLessThan(order.indexOf(APP));
     // Optional: gatekeepers, and the fleet Workers only a host of many clients deploys (stage 66
-    // step 7, ADR 0617).
+    // step 7, ADR 0618).
     expect(
       manifest.workers
         .filter((w) => w.optional)

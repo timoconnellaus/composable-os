@@ -1,4 +1,4 @@
-# ADR 0617: The operator's commands for a host of many clients
+# ADR 0618: The operator's commands for a host of many clients
 
 Status: accepted, 2026-11-27 (stage 66 step 7, `feat/stage-66-client-commands`). Builds on
 [ADR 0613](0613-the-registry-and-the-clients-environment.md) (the registry; "Step 7: writing the
@@ -99,8 +99,12 @@ product and staging adds `-staging`, so a batch's queue is matched on what follo
 
 ### `cos client add`
 The rows (paused), the database placed (location hint) and migrated inside the object, its schema
-version recorded, then the client active; no Worker uploaded; prints the staff and web hostnames
-(`<id>-admin.<domain>`, `<id>.<domain>`, unless named). The product's packs are the deployment's
+version recorded, then the client active; no Worker uploaded; prints its hostnames: the staff
+hostname `<id>-admin.<domain>` unless named, and a web hostname only when one is named
+(`--web-hostname`). **A client's web or desk hostname is refused on the fleet's domain:** the
+domain has no Public Suffix listing (and will not soon), so code on one of its hostnames could set
+cookies for the staff hostnames beside it (ADR 0616, "Cookies"); a client's web app is on its own
+domain. Nothing here assumes the listing. The product's packs are the deployment's
 (`COS_PACKS` inherited unless a setting says otherwise); a client's own extensions come with its
 repository's `cos deploy` (step 8).
 
@@ -125,7 +129,8 @@ Live takes a release only once staging runs it (`--skip-staging` deliberately). 
   added as `imported` (migration 0793): its database part by part (each checked by `importPart`;
   the schema against this code's migrations for core objects), its files, its derivable secrets
   stored with `writeImportedSecret` and its given ones with `writeClientSecret`, migrated to this
-  release, every embedded record queued again (the index is new), then served. **An import over an
+  release, every embedded record queued again (the index is new), its videos in this account
+  re-stamped with its creator, then served. **An import over an
   existing id is refused**, not overwritten: a client's id is never given new data under it.
 - **`cos install --import <dir>`**: the same export installed as a single-client deployment in
   another account (criterion 13): into the new install's empty D1 before any migration, files into
@@ -152,9 +157,11 @@ signed audit of the operator's writes together with a signing key held apart (a 
 the control plane), as one later step. Recorded in ADR 0616 too.
 
 ## What is left out, and why
-- **Videos** are neither exported nor imported: step 5 (#522, open) stamps the client as each
-  video's creator and refuses one with none, and its creator's shape is changing; export and import
-  must call its function. Recorded in the spec's Status and an issue.
+- **Videos are not copied.** Step 5 (#522, merged) stamps each video with its client's creator
+  (`<environment>:<client>`) and refuses one without. An import re-stamps every video the client's
+  records name (`core_media.stream_uid`) that this account's Stream holds, with `clientStamp`, the
+  one place the creator's shape is decided (`clientStampOf` uses it), and names the ones the account
+  does not hold; an export lists none and does not download them (issue #525).
 - **Extension objects in an import** (`x_*`, `rec_*`) are taken as the export declares them; core
   objects are checked against this code's migrations. Checking extension objects against what the
   reconciler derives from the imported manifests is not built.

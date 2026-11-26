@@ -911,6 +911,22 @@ export class CloudflareClient {
     });
   }
 
+  /**
+   * Stamps a Stream video with its creator (stage 66 step 7: an imported client's videos, which
+   * the host's video host serves only to the client stamped as their creator). False when the
+   * account has no such video (an export from another account carries none).
+   */
+  async setStreamCreator(accountId: string, uid: string, creator: string): Promise<boolean> {
+    if (!/^[0-9a-f]{32}$/.test(uid)) throw new Error("Not a Stream video id");
+    try {
+      await this.request("POST", `/accounts/${accountId}/stream/${uid}`, { creator });
+      return true;
+    } catch (error) {
+      if (error instanceof CloudflareApiError && error.status === 404) return false;
+      throw error;
+    }
+  }
+
   // ---- Static assets (direct upload) ----------------------------------------------------------
 
   /** Starts an assets upload session; returns the JWT and the hashes the API still needs. */

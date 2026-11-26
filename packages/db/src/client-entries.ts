@@ -288,7 +288,7 @@ export function isParkingQueue(name: string): boolean {
  * `local` (a `cos-…` name of wrangler.jsonc). A release names queues for the product
  * (`cos-automation-events` deploys as `<prefix>automation-events`, packages/product
  * `deployedName`), and a fleet's staging deployment adds `-staging` to every name of its own
- * (stage 66 step 7, ADR 0617), so the name is matched on what follows the product's prefix.
+ * (stage 66 step 7, ADR 0618), so the name is matched on what follows the product's prefix.
  */
 export function isQueue(deployed: string, local: string): boolean {
   const base = deployed.endsWith("-staging") ? deployed.slice(0, -"-staging".length) : deployed;

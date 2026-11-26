@@ -1,4 +1,4 @@
-// The operator's Worker (stage 66 step 7, ADR 0617): the one way `cos` on the operator's machine
+// The operator's Worker (stage 66 step 7, ADR 0618): the one way `cos` on the operator's machine
 // reaches what Cloudflare's REST API cannot, each client's database (a Durable Object of
 // cos-client-db) and the client's part of the shared stores, for the operator's commands only:
 // `cos client add`, the update, `export`, `import` and `remove`.
@@ -143,7 +143,7 @@ function extensionOwned(row: SchemaRow): boolean {
 /**
  * What an import into a client's database expects: the core schema the code's migrations make
  * (`migrationsSchema`, on a reference database of its own, erased after), and the extension
- * objects as the export declared them (ADR 0617: the reconciler's check of those is not built).
+ * objects as the export declared them (ADR 0618: the reconciler's check of those is not built).
  */
 async function importExpectation(env: OperatorEnv, migrations: Migration[]) {
   return async (db: D1Database, source: { migrations: string[] }): Promise<SchemaRow[]> => {

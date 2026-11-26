@@ -1,4 +1,4 @@
-// The operator's writes to the registry (stage 66 step 7, ADR 0617), registry migration 0795 (a
+// The operator's writes to the registry (stage 66 step 7, ADR 0618), registry migration 0795 (a
 // client's environment fixed, issue #523 F4; the operations a re-run carries on), and the given
 // secrets held for a gatekeeper made per client later (the owner's payments decision).
 import { env } from "cloudflare:workers";

@@ -1,4 +1,4 @@
-// The operator's commands for a host of many clients (stage 66 step 7, ADR 0617): `cos client
+// The operator's commands for a host of many clients (stage 66 step 7, ADR 0618): `cos client
 // add`, `pause`, `resume`, `list`, `secret set|remove`, `export`, `import` and `remove`. Each runs
 // over the registry (a `D1Database`: D1's REST API from `cos`, Node's SQLite in the tests) and the
 // operator's Worker (`Operator`), so the same code is what the tests drive.
@@ -12,7 +12,12 @@ import { createHash } from "node:crypto";
 import { chmodSync, existsSync, mkdirSync, readFileSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve, sep } from "node:path";
 import type { Migration, MigrationLevel } from "@composable-os/db";
-import { type ClientId, type ClientStatus, validateClientId } from "@composable-os/db/registry";
+import {
+  type ClientId,
+  type ClientStatus,
+  clientStamp,
+  validateClientId,
+} from "@composable-os/db/registry";
 import {
   isDerivedSecretName,
   isGivenSecretName,
@@ -55,6 +60,11 @@ export interface FleetContext {
   yes: boolean;
   dryRun: boolean;
   now?: () => Date;
+  /**
+   * Stamps a Stream video of the account with its creator (Stream's API, with the account's
+   * token); false when the account has no such video. Absent: videos are left as they are.
+   */
+  videos?: { setCreator(uid: string, creator: string): Promise<boolean> };
 }
 
 /** A refreshed registry is served within this long (packages/db `REGISTRY_REFRESH_MS`). */
@@ -114,7 +124,25 @@ export interface AddInput {
   imported?: boolean;
 }
 
-/** The client as it would be added: its hostnames on the fleet's domain unless named. */
+/**
+ * The client as it would be added: its staff hostname on the fleet's domain unless named, and a
+ * web hostname only when one is named. A client's web app (code the client controls) is never on
+ * the fleet's domain beside the staff hostnames: with no Public Suffix listing for that domain, a
+ * page on one of its hostnames can set cookies for all of them (ADR 0616, "Cookies").
+ */
+/** What is wrong with a client's hostnames for this fleet, beyond the registry's own rules. */
+export function fleetHostnameProblems(ctx: FleetContext, client: NewClient): string[] {
+  const domain = ctx.fleet.domain;
+  return client.hostnames
+    .filter(
+      (h) => h.surface !== "staff" && (h.hostname === domain || h.hostname.endsWith(`.${domain}`)),
+    )
+    .map(
+      (h) =>
+        `${h.hostname}: a client's ${h.surface} hostname is never on the fleet's domain (${domain}), where its code could set the staff hostnames' cookies; use the client's own domain`,
+    );
+}
+
 export function plannedClient(ctx: FleetContext, input: AddInput): NewClient {
   const id = input.id;
   return {
@@ -126,7 +154,7 @@ export function plannedClient(ctx: FleetContext, input: AddInput): NewClient {
     imported: input.imported ?? false,
     hostnames: [
       { hostname: input.staffHostname ?? `${id}-admin.${ctx.fleet.domain}`, surface: "staff" },
-      { hostname: input.webHostname ?? `${id}.${ctx.fleet.domain}`, surface: "web" },
+      ...(input.webHostname ? [{ hostname: input.webHostname, surface: "web" as const }] : []),
     ],
     settings: input.settings ?? {},
   };
@@ -152,7 +180,10 @@ export async function addClient(ctx: FleetContext, input: AddInput): Promise<num
   const started = Date.now();
   const id = idOf(input.id);
   const client = plannedClient(ctx, { ...input, id });
-  const problems = newClientProblems(client, { callbackHostname: ctx.fleet.callbackHostname });
+  const problems = [
+    ...newClientProblems(client, { callbackHostname: ctx.fleet.callbackHostname }),
+    ...fleetHostnameProblems(ctx, client),
+  ];
   if (problems.length) throw new FleetError(`Cannot add ${id}: ${problems.join("; ")}`);
   const unfinished = await unfinishedOperation<AddState>(ctx.registry, "add", id);
   const existing = await readClient(ctx.registry, id);
@@ -643,7 +674,9 @@ export interface ImportInput extends Omit<AddInput, "imported"> {
  * migrations, the row counts against the export's), its files, and its own secrets stored sealed
  * as `imported` rows so its sessions, cards, PINs, app codes and desk enrolments carry on (given
  * secrets as given ones), then migrated to this release, its search index queued for rebuilding,
- * and served. Videos are not imported (see the spec's Status: #522 re-stamps them).
+ * and served. Its videos are not copied: those its records name that this account's Stream holds
+ * are re-stamped with the client's creator (`clientStamp`, `<environment>:<client>`, step 5), so
+ * the host's video host serves them to it; any this account does not hold are named (issue #525).
  *
  * Crash and re-run: the client is paused until the end; a re-run carries on from the operation's
  * step (an unfinished database import resumes from its next part, files from the next one not
@@ -653,7 +686,10 @@ export async function importClient(ctx: FleetContext, input: ImportInput): Promi
   const id = idOf(input.id);
   const folder = readExportFolder(input.from);
   const client = plannedClient(ctx, { ...input, id, imported: true });
-  const problems = newClientProblems(client, { callbackHostname: ctx.fleet.callbackHostname });
+  const problems = [
+    ...newClientProblems(client, { callbackHostname: ctx.fleet.callbackHostname }),
+    ...fleetHostnameProblems(ctx, client),
+  ];
   if (problems.length) throw new FleetError(`Cannot import ${id}: ${problems.join("; ")}`);
   let op = await unfinishedOperation<ImportState>(ctx.registry, "import", id);
   const existing = await readClient(ctx.registry, id);
@@ -741,6 +777,31 @@ export async function importClient(ctx: FleetContext, input: ImportInput): Promi
       `  secrets: ${n} stored sealed${n ? "" : " (every secret is derived: staff and customers sign in again)"}`,
     );
   }
+  // Its videos: stamped with its creator, so the video host (step 5) serves them to this client.
+  const { results: videos } = await ctx.operator.op<{ results: { stream_uid: string }[] }>(
+    "query",
+    {
+      client: id,
+      sql: "SELECT stream_uid FROM core_media WHERE kind = 'video' AND stream_uid IS NOT NULL ORDER BY stream_uid",
+    },
+  );
+  if (videos.length) {
+    const creator = clientStamp(record.environment, id);
+    if (!ctx.videos) {
+      ctx.io.err(`  videos: ${videos.length} named, not re-stamped (no Stream access here)`);
+    } else {
+      const missing: string[] = [];
+      for (const { stream_uid: uid } of videos) {
+        if (!(await ctx.videos.setCreator(uid, creator))) missing.push(uid);
+      }
+      ctx.io.out(`  videos: ${videos.length - missing.length} re-stamped as ${creator}`);
+      if (missing.length) {
+        ctx.io.err(
+          `  videos: ${missing.length} not in this account's Stream (copy them, then import again or stamp them): ${missing.join(", ")}`,
+        );
+      }
+    }
+  }
   // An export from an earlier release: brought up to this one's schema.
   const report = await ctx.operator.op<{
     applied: string[];
@@ -758,9 +819,6 @@ export async function importClient(ctx: FleetContext, input: ImportInput): Promi
   state.step = "done";
   await finishOperation(ctx.registry, op.id, "succeeded", state);
   ctx.io.out(`\nImported ${id}. Its search index is rebuilt by the host's embeddings tick.`);
-  ctx.io.out(
-    "  Videos are not imported yet; the client's own must be re-stamped with its creator once the video host does (stage 66 step 5).",
-  );
   for (const h of client.hostnames) ctx.io.out(`  ${h.surface} https://${h.hostname}`);
   ctx.io.out(REFRESH_NOTE);
   return 0;

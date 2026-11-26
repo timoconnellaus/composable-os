@@ -1,4 +1,4 @@
-// A migration file's SQL as its statements (stage 66 step 7, ADR 0617): what `cos` sends the
+// A migration file's SQL as its statements (stage 66 step 7, ADR 0618): what `cos` sends the
 // operator's Worker to migrate a client's database, from the release bundle's migration files, in
 // the shape `applyMigrations` takes (`Migration.queries`). Split at each `;` outside a string, an
 // identifier, a comment and a trigger's body. A statement keeps its own comments (SQLite keeps

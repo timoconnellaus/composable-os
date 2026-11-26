@@ -1194,7 +1194,7 @@ Releases are built by `.github/workflows/release.yml` on a `vX.Y.Z` / `vX.Y.Z-be
 ## A host of many clients (stage 66 step 7)
 
 One deployment of the host serving many clients, each with a database of its own (stage 66, ADRs
-0613 to 0617). Live and staging are two deployments, each with its own Workers, registry, queues,
+0613 to 0618). Live and staging are two deployments, each with its own Workers, registry, queues,
 cos-client-db and keys. Nothing here changes a single-client install. Not yet run on Cloudflare:
 every command below is proved locally and against the fake API only.
 
@@ -1204,8 +1204,8 @@ cos fleet keys --env staging --out ~/fleet-keys/staging.json
 # The host, its registry (migrated), cos-client-db, the operator's Worker, every fleet binding.
 cos fleet install --env staging --keys-file ~/fleet-keys/staging.json \
   --callback-hostname callback-staging.<fleet domain> --domain <fleet domain>
-# A client: its registry rows, its database made and migrated, its two hostnames. No upload.
-cos client add gym-a --env staging --location oc
+# A client: its registry rows, its database made and migrated, its hostnames. No upload.
+cos client add gym-a --env staging --location oc --web-hostname staging.gym-a.example
 cos client secret set gym-a GOOGLE_CLIENT_SECRET --env staging   # asked for, hidden; sealed
 # A release across every client: staging first, then live.
 cos fleet upgrade --env staging --keys-file ~/fleet-keys/staging.json --version 1.4.0
@@ -1230,9 +1230,13 @@ cos client remove gym-a                      # export kept 90 days, then erased;
   them at a client's staff address and resumes. A client whose migration fails is restored, and so
   is every client migrated before it; nothing is uploaded. A client's own extension on a contract
   the new release does not run stops the update before anything changes.
-- **Export and import** carry the database, files and secrets, not videos yet (stage 66 step 5).
-  `cos client import <id> --from <dir>` adds a new client only; an existing id is refused. Until
-  issue #525, an imported client's videos must be re-stamped with its creator once step 5 does.
+- **Export and import** carry the database, files and secrets, not videos: an import re-stamps the
+  client's videos this account's Stream holds with its creator, and names any it does not (copying
+  videos is issue #525). `cos client import <id> --from <dir>` adds a new client only; an existing
+  id is refused.
+- **A client's web app is on its own domain**, never under the fleet's domain beside the staff
+  hostnames: `cos client add` names a web hostname only with `--web-hostname`, and refuses one on
+  the fleet's domain (it has no Public Suffix listing).
 - **Payments, text, inbound webhooks and email** are off for every client of a host of many clients
   until their gatekeepers are made per client (ADR 0616). A client's Stripe keys can already be
   stored (`cos client secret set <id> STRIPE_SECRET_KEY`), unused until then.

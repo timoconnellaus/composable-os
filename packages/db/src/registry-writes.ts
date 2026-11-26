@@ -1,4 +1,4 @@
-// The operator's writes to the registry (stage 66 step 7, ADR 0617): what `cos client add`, the
+// The operator's writes to the registry (stage 66 step 7, ADR 0618): what `cos client add`, the
 // update, `export`, `import`, `remove`, `pause` and `resume` change, over any `D1Database` (the
 // registry's binding in a test, or D1's REST API from `cos`, packages/release `d1OverRest`).
 //

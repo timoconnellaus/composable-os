@@ -121,7 +121,7 @@ export interface DeploymentState {
   /** sha256 of the installed bundle. */
   bundleDigest?: string;
   /**
-   * A host of many clients (stage 66, ADR 0617): its environment, callback hostname, domain and
+   * A host of many clients (stage 66, ADR 0618): its environment, callback hostname, domain and
    * sealing public key. Absent on every single-client deployment, whose uploads it never changes.
    */
   fleet?: FleetState;

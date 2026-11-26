@@ -1,4 +1,4 @@
-// The operator's keys file (stage 66 step 7, ADR 0617): a fleet deployment's keys, made once by
+// The operator's keys file (stage 66 step 7, ADR 0618): a fleet deployment's keys, made once by
 // `cos fleet keys --out <file>` and read by every fleet deploy, because the props each host
 // Worker's bindings carry are signed with the props key. Written only where the operator says,
 // with mode 0600, never inside a git working tree (a repository is the one place a key must not

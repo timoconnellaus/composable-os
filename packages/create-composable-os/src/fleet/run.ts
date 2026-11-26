@@ -1,5 +1,5 @@
 // `cos fleet …` and `cos client <add|pause|resume|list|secret|export|import|remove> …` (stage 66
-// step 7, ADR 0617): the operator's commands for a host of many clients, over the account's token.
+// step 7, ADR 0618): the operator's commands for a host of many clients, over the account's token.
 //
 //   cos fleet keys --env <live|staging> --out <file>
 //   cos fleet install --env <e> --keys-file <file> --callback-hostname <h> --domain <d> [--version]
@@ -367,6 +367,9 @@ async function withContext(
       io: deps.io,
       yes: Boolean(flags.yes),
       dryRun: Boolean(flags["dry-run"]),
+      videos: {
+        setCreator: (uid, creator) => s.api.setStreamCreator(s.accountId, uid, creator),
+      },
     });
   } finally {
     await operator.close().catch(() => {});

@@ -1,4 +1,4 @@
-// An update of a host of many clients (stage 66 step 7, ADR 0617): the deploy engine's update with
+// An update of a host of many clients (stage 66 step 7, ADR 0618): the deploy engine's update with
 // the database steps done for every client. `cos fleet upgrade`.
 //
 //   check    every client's own extensions against the new release's contracts; one that would

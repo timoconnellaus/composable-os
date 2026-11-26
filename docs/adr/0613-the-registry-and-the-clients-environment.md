@@ -208,11 +208,11 @@ still be refused as `schema-behind` when its message is handled); `isSchemaBehin
   and the deployment table the spec lists. Whether a subset of packs set in `COS_PACKS` must be
   checked against the product's packs is decided where it is written.
 
-*Amended 2026-11-27 (step 7, ADR 0617):* the registry's writes are built
+*Amended 2026-11-27 (step 7, ADR 0618):* the registry's writes are built
 (`@composable-os/db/registry-writes`, from `cos` over D1's REST API), with registry migration 0795: a
 client's environment never changes (issue #523, F4) and `registry_operations` records each
 operator's command so a re-run carries on. The deployment table stays the host D1's `core_install`
-(ADR 0617, "What is left out"). A subset of packs is a `COS_PACKS` setting, not checked against the
+(ADR 0618, "What is left out"). A subset of packs is a `COS_PACKS` setting, not checked against the
 product's packs at write.
 
 ## Consequences

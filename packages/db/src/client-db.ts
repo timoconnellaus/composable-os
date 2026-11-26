@@ -1124,7 +1124,7 @@ export class ClientDb extends DurableObject {
 
   /**
    * Deletes everything the object holds, its tables and its own records, for good: what `cos
-   * client remove` calls once the client's export is kept (stage 66 step 7, ADR 0617). Refused
+   * client remove` calls once the client's export is kept (stage 66 step 7, ADR 0618). Refused
    * while a restore waits or an export holds the database. Point-in-time recovery can still bring
    * it back for 30 days, as for any write.
    */

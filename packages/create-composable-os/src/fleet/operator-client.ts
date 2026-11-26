@@ -1,4 +1,4 @@
-// `cos`'s side of the operator's Worker (stage 66 step 7, ADR 0617; packages/db `operator.ts`).
+// `cos`'s side of the operator's Worker (stage 66 step 7, ADR 0618; packages/db `operator.ts`).
 //
 // Each command opens a session: a fresh random token, set as the Worker's `COS_OPERATOR_TOKEN`
 // secret with the account's token, waited for until the Worker accepts it, used for the command's

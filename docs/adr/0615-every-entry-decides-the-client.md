@@ -402,7 +402,7 @@ is closed here, with a test that fails when the fix is taken out.
   twice is two parked messages, each handled once. On a host of many clients a queue entry with
   no parking bindings fails at once, saying which are missing, before anything is acked.
 
-### Built by step 7 (2026-11-27, ADR 0617)
+### Built by step 7 (2026-11-27, ADR 0618)
 - The list above ("What a many-client deployment binds") is what the deploy engine adds for a
   fleet deployment (`packages/release/src/fleet.ts`), item by item, tested against a fixture
   release; a single-client deployment's uploads have none of it. The ledger's class comes with a

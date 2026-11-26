@@ -142,7 +142,7 @@ One **D1** database per deployment, with real tables ([ADR 0002](adr/0002-d1-rea
   release carries it as a `fleet` Worker since step 7).
 
 - **The operator's commands** (stage 66 step 7,
-  [ADR 0617](adr/0617-the-operators-commands-for-a-host-of-many-clients.md)): a fleet deployment
+  [ADR 0618](adr/0618-the-operators-commands-for-a-host-of-many-clients.md)): a fleet deployment
   (`DeploymentState.fleet`) is deployed by the same engine with ADR 0615's list of bindings added
   (`packages/release/src/fleet.ts`: the registry, the query path to cos-client-db with signed props,
   the fan-out and parking queues with their consumers and DLQs, the parking ledger's class, the

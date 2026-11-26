@@ -1,4 +1,4 @@
-// What a fleet deployment, a host of many clients, binds (stage 66 step 7, ADR 0617; the list is
+// What a fleet deployment, a host of many clients, binds (stage 66 step 7, ADR 0618; the list is
 // ADR 0615's "What a many-client deployment binds, and where it comes from"). The deploy engine
 // adds all of it to a deployment whose state has `fleet`, and to no other: the committed
 // wrangler.jsonc of the app and the runner, which self-hosted installs use, never has any of it,

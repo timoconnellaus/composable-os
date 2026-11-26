@@ -30,6 +30,7 @@ import {
   type ClientAddresses,
   type ClientId,
   type ClientRecord,
+  clientStamp,
   isClientId,
 } from "./registry.ts";
 
@@ -226,7 +227,7 @@ export function clientStampOf(env: object): string | null {
   }
   const environment = own ? environmentNameOf.get(own) : undefined;
   if (!environment) return null;
-  return `${environment}:${client}`;
+  return clientStamp(environment, client);
 }
 
 /**
