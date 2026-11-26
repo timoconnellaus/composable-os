@@ -100,7 +100,12 @@ import {
   withSavedLines,
 } from "@composable-os/core";
 import { type CrmDb, createCrmDb } from "@composable-os/db";
-import { CLIENT_OBJECT, ClientObject, refreshOnEachCall } from "@composable-os/db/client-entries";
+import {
+  CLIENT_OBJECT,
+  ClientDurableObject,
+  type ClientObject,
+  refreshOnEachCall,
+} from "@composable-os/db/client-objects";
 import { Agent, type Connection, type ConnectionContext, type WSMessage } from "agents";
 import "./routine-agents.ts";
 import { activeUser } from "../acting-user.ts";
@@ -207,7 +212,10 @@ function sseFrame(event: AssistantEvent): Uint8Array {
   );
 }
 
-export class AssistantAgent extends withAssistantVoice(Agent<Cloudflare.Env>) implements VoiceHost {
+export class AssistantAgent
+  extends ClientDurableObject(withAssistantVoice(Agent<Cloudflare.Env>))
+  implements VoiceHost
+{
   static override options = { sendIdentityOnConnect: false };
 
   #store: SqliteMessageStore | null = null;
@@ -217,14 +225,12 @@ export class AssistantAgent extends withAssistantVoice(Agent<Cloudflare.Env>) im
   #compactionHost: ThreadCompaction | null = null;
   /**
    * Whose thread this is on a many-client host (stage 66, ADR 0615): its name is
-   * `<client>:user:<id>`, given by the ASSISTANT wrapper, and it runs on that client's
-   * environment. A single-client deployment's: the real `env`.
+   * `<client>:<proof>:user:<id>`, given by the ASSISTANT wrapper, and it runs on that client's
+   * environment, which is all its base class holds (`ClientDurableObject`). A single-client
+   * deployment's: the real `env`.
    */
-  readonly #client = new ClientObject(this.ctx, this.env as unknown as AssistantEnv);
-
-  /** Its ClientObject, for `refreshOnEachCall` (below the class). */
-  get [CLIENT_OBJECT]() {
-    return this.#client;
+  get #client(): ClientObject<AssistantEnv> {
+    return this[CLIENT_OBJECT] as unknown as ClientObject<AssistantEnv>;
   }
 
   get #env(): AssistantEnv {
@@ -1437,4 +1443,5 @@ function withCutOffText(
 export { messageText };
 
 // Every async method re-reads the client's admission first (stage 66, review of #512, M2).
-refreshOnEachCall(AssistantAgent);
+// The Agents SDK's own methods are its machinery: only its runtime entry points are checked.
+refreshOnEachCall(AssistantAgent, [Agent]);

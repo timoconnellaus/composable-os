@@ -54,9 +54,11 @@ import {
   consumeByClient,
   consumeDeadLetters,
   consumeFanOut,
+  consumeParked,
   fanOutCron,
   isDeadLetterQueue,
   isFanOutQueue,
+  isParkingQueue,
   isRunnerCaller,
   NoClientError,
   servesManyClients,
@@ -92,6 +94,7 @@ const bootPacksProblem = packsProblem(
 );
 if (bootPacksProblem) console.error(`cos-runner: ${bootPacksProblem}`);
 
+export { ParkingLedger } from "@composable-os/db/client-parking";
 export {
   type AutomationRunParams,
   type CandidateOrigin,
@@ -495,15 +498,21 @@ export default class Runner extends WorkerEntrypoint<Env> implements RunnerRpc {
     }
     // By the queue the batch came from, never by what a message looks like (review of #512, M1).
     if (isFanOutQueue(batch.queue)) {
-      await consumeFanOut(this.env, batch, {
-        tick: async (clientEnv, tick) => {
-          await inClientScope(clientEnv, () => minuteTick(clientEnv, new Date(tick.scheduledTime)));
-        },
-        parked: {
-          [AUTOMATION_EVENTS_QUEUE]: (clientEnv, share) =>
+      await consumeFanOut(this.env, batch, async (clientEnv, tick) => {
+        await inClientScope(clientEnv, () => minuteTick(clientEnv, new Date(tick.scheduledTime)));
+      });
+      return;
+    }
+    if (isParkingQueue(batch.queue)) {
+      await consumeParked(this.env, batch, {
+        // cos-automation-events' consumer: 5 retries, 10 s apart (wrangler.jsonc).
+        [AUTOMATION_EVENTS_QUEUE]: {
+          consume: (clientEnv, share) =>
             inClientScope(clientEnv, () =>
               consumeAutomationEvents(clientEnv, share as MessageBatch<AutomationQueueMessage>),
             ),
+          maxRetries: 5,
+          retryDelaySeconds: 10,
         },
       });
       return;

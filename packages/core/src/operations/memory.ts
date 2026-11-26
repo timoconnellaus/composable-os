@@ -50,6 +50,13 @@ import { roleHasPermission } from "../principals.ts";
  * `active_since` when that is not earlier. The fold covers lines through the newest
  * `active_since` (`memoryForTurn`), so a line made active in the same millisecond as a fold would
  * otherwise count as folded and its edit be lost from the tail (review of #512, M6).
+ *
+ * The read and the write are two statements, so two writes at once may both pick the same time,
+ * and a fold between them may then count the second as folded (the second review of #512). That
+ * is accepted rather than made one statement: it needs two writes to one person's memory in the
+ * same millisecond with a fold committed between them; nothing is lost (the line is in the table
+ * and in every later fold's block); and the cost is only that the thread's tail does not show
+ * that edit until the next fold, which every compaction makes. ADR 0615, "What is accepted".
  */
 async function activeSinceNow(ctx: Pick<HandlerContext, "db" | "now">): Promise<string> {
   const row = await ctx.db

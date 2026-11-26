@@ -247,6 +247,29 @@ function isOAuthPath(pathname: string): boolean {
 const oauthEnvs = new WeakMap<object, Map<string, McpEnv>>();
 
 /**
+ * How many origins an isolate keeps an OAuth provider (and helpers) for, per environment: a
+ * request's origin is its Host, which a caller chooses, so the cache is bounded (#515). The
+ * oldest-used is dropped first; one dropped is made again on its next request.
+ */
+export const OAUTH_ORIGINS_KEPT = 16;
+
+/** `map`'s value for `key`, made with `make` if absent; at most `OAUTH_ORIGINS_KEPT` kept. */
+export function keptFor<V>(map: Map<string, V>, key: string, make: () => V): V {
+  let value = map.get(key);
+  if (value === undefined) {
+    value = make();
+  } else {
+    map.delete(key);
+  }
+  map.set(key, value);
+  while (map.size > OAUTH_ORIGINS_KEPT) {
+    const oldest = map.keys().next().value as string;
+    map.delete(oldest);
+  }
+  return value;
+}
+
+/**
  * The `env` the OAuth library is handed. A single-client deployment's own `env`, on which the
  * library sets its helpers itself, as before; a client's environment on a many-client host is
  * frozen, so its helpers (over its own OAUTH_KV) are made here and set beside it (stage 66,
@@ -259,17 +282,17 @@ function oauthEnv(env: McpEnv, origin: string, fallback: Fallback): McpEnv {
     byOrigin = new Map();
     oauthEnvs.set(env, byOrigin);
   }
-  let withHelpers = byOrigin.get(origin);
-  if (!withHelpers) {
-    withHelpers = withOAuthHelpers(env, getOAuthApi(oauthOptions(origin, env, fallback), env));
-    byOrigin.set(origin, withHelpers);
-  }
-  return withHelpers;
+  return keptFor(byOrigin, origin, () =>
+    withOAuthHelpers(env, getOAuthApi(oauthOptions(origin, env, fallback), env)),
+  );
 }
 
-/** Wraps the app's fetch handler with OAuth and /mcp. One provider per origin, per isolate. */
+/**
+ * Wraps the app's fetch handler with OAuth and /mcp. One provider per environment and origin, per
+ * isolate, at most `OAUTH_ORIGINS_KEPT` origins an environment.
+ */
 export function createAppHandler(fallback: Fallback) {
-  const providers = new Map<string, OAuthProvider<McpEnv>>();
+  const owned = new WeakMap<object, Map<string, OAuthProvider<McpEnv>>>();
   return {
     fetch(request: Request, env: McpEnv, ctx: ExecutionContext): Promise<Response> {
       const origin = new URL(request.url).origin;
@@ -288,14 +311,20 @@ export function createAppHandler(fallback: Fallback) {
           );
         }
       }
-      // By client and origin (review of #512, M4): a hostname the registry gives another client
-      // gets that client's token lifetime and resource address, never the first one's.
-      const cacheKey = `${clientOf(env) ?? ""} ${origin}`;
-      let provider = providers.get(cacheKey);
-      if (!provider) {
-        provider = new OAuthProvider<McpEnv>(oauthOptions(origin, env, fallback));
-        providers.set(cacheKey, provider);
+      // By environment and origin (review of #512, M4; #515): a hostname the registry gives
+      // another client gets that client's token lifetime and resource address, never the first
+      // one's; a client's environment rebuilt (its settings changed) gets new providers, and the
+      // old ones go with the old environment. Bounded: a caller chooses the origin.
+      let providers = owned.get(env);
+      if (!providers) {
+        providers = new Map();
+        owned.set(env, providers);
       }
+      const provider = keptFor(
+        providers,
+        origin,
+        () => new OAuthProvider<McpEnv>(oauthOptions(origin, env, fallback)),
+      );
       return provider.fetch(request, oauthEnv(env, origin, fallback), ctx);
     },
   };

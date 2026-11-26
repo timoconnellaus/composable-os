@@ -8,7 +8,8 @@ import { fileURLToPath } from "node:url";
 import { readD1Migrations } from "@cloudflare/vitest-plugin";
 import { defineWorkersTestConfig } from "@composable-os/config/vitest";
 import { clientAppProps } from "@composable-os/db/client-proofs";
-import { addClientDbService } from "@composable-os/db/testing/vitest";
+import { TWO_CLIENTS } from "@composable-os/db/testing/two-clients";
+import { addClientDbService, TEST_PROPS_KEY } from "@composable-os/db/testing/vitest";
 import { mergeConfig } from "vitest/config";
 
 const migrationsDir = fileURLToPath(new URL("../../packages/db/migrations", import.meta.url));
@@ -43,6 +44,10 @@ const SUPPORT_KEYS = (() => {
 /** The suite's host binding key (a real deployment's is a long random secret of the operator's). */
 export const BINDING_KEY_FOR_TESTS = "two-client-suite-binding-key-0123456789abcdef";
 
+/** A web app's props for `client`, as step 8's deploy writes them: with its generation (S3). */
+const propsFor = (client: { id: string; generation: string }) =>
+  clientAppProps(TEST_PROPS_KEY, "live", client.id, client.generation);
+
 /** The pool's name for the Worker under test, which auxiliary Workers bind to. */
 const SELF_WORKER = "vitest-plugin-runner-";
 
@@ -64,12 +69,16 @@ export default mergeConfig(
       main: "./test-two-clients/worker.ts",
       miniflare: await addClientDbService({
         d1Databases: ["REGISTRY"],
+        // Each client's parked messages, counted and capped (client-parking.ts), as step 7 binds it.
+        durableObjects: {
+          CLIENT_PARKING_LEDGER: { className: "ParkingLedger", useSQLite: true },
+        },
         bindings: {
           TEST_MIGRATIONS: await readD1Migrations(migrationsDir),
           REGISTRY_MIGRATIONS: await readD1Migrations(registryMigrationsDir),
           // Which of its clients' environments this deployment holds (ADR 0613).
           COS_HOST_ENVIRONMENT: "live",
-          // The host's binding key (client-proofs.ts): its proofs on objects' names and props.
+          // The host's object-naming key (client-proofs.ts); its props key is addClientDbService's.
           COS_BINDING_KEY: BINDING_KEY_FOR_TESTS,
           // The deployment's one callback address (step 6, ADR 0616; entry.ts routes it first).
           COS_CALLBACK_HOSTNAME: "callbacks.test",
@@ -94,6 +103,7 @@ export default mergeConfig(
           WEB_NOBODY: "web-nobody",
           WEB_FORGED: "web-forged",
           WEB_UNPROVEN: "web-unproven",
+          WEB_EARLIER: "web-earlier",
         },
         workers: [
           {
@@ -102,16 +112,15 @@ export default mergeConfig(
             script: RUNNER_STUB,
             compatibilityDate: "2026-10-01",
           },
-          webApp("web-gym-a", clientAppProps(BINDING_KEY_FOR_TESTS, "gym-a")),
+          webApp("web-gym-a", propsFor(TWO_CLIENTS.a)),
           webApp("web-no-client"),
-          webApp("web-paused", clientAppProps(BINDING_KEY_FOR_TESTS, "gym-paused")),
-          webApp("web-nobody", clientAppProps(BINDING_KEY_FOR_TESTS, "gym-nobody")),
+          webApp("web-paused", propsFor(TWO_CLIENTS.paused)),
+          webApp("web-nobody", clientAppProps(TEST_PROPS_KEY, "live", "gym-nobody", null)),
           // gym-b named with gym-a's proof, and gym-b with none: what code without the key mints.
-          webApp("web-forged", {
-            client: "gym-b",
-            proof: clientAppProps(BINDING_KEY_FOR_TESTS, "gym-a").proof,
-          }),
+          webApp("web-forged", { client: "gym-b", proof: propsFor(TWO_CLIENTS.a).proof }),
           webApp("web-unproven", { client: "gym-b" }),
+          // gym-a's props as they were for an earlier client of the id (another generation, S3).
+          webApp("web-earlier", clientAppProps(TEST_PROPS_KEY, "live", "gym-a", "f6".repeat(16))),
         ],
       }),
     }),

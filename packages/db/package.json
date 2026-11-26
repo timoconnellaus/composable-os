@@ -15,6 +15,8 @@
     "./client-bindings": "./src/client-bindings.ts",
     "./client-entries": "./src/client-entries.ts",
     "./client-proofs": "./src/client-proofs.ts",
+    "./client-parking": "./src/client-parking.ts",
+    "./client-objects": "./src/client-objects.ts",
     "./testing/two-clients": "./testing/two-clients.ts",
     "./registry-sealing": "./src/registry-sealing.ts",
     "./callbacks": "./src/callbacks.ts",

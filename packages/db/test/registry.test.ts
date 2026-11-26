@@ -45,6 +45,7 @@ describe("the registry's migrations", () => {
       "registry_hostnames",
       "registry_meta",
       "registry_migrations",
+      "registry_removed_clients",
       "registry_secrets",
       "registry_settings",
       "sqlite_sequence",
@@ -167,6 +168,58 @@ describe("what the registry refuses", () => {
       )
       .first<{ n: number }>();
     expect(left?.n).toBe(0);
+  });
+
+  it("never takes a removed client's id again, and never changes a client's id (#515, S3)", async () => {
+    await registry.batch([
+      insertClient(registry, { id: "gym-a" }),
+      insertClient(registry, { id: "gym-b" }),
+    ]);
+    const before = await registry
+      .prepare("SELECT secret_generation FROM registry_clients WHERE id = 'gym-a'")
+      .first<{ secret_generation: string }>();
+    await registry.prepare("DELETE FROM registry_clients WHERE id = 'gym-a'").run();
+    // Kept, with the generation it had, so what was made for it is told apart from anything later.
+    expect(
+      await registry
+        .prepare("SELECT id, environment, secret_generation FROM registry_removed_clients")
+        .all(),
+    ).toMatchObject({
+      results: [{ id: "gym-a", environment: "live", secret_generation: before?.secret_generation }],
+    });
+    // Its objects, database and parked messages would be the new client's: refused.
+    await expect(insertClient(registry, { id: "gym-a" }).run()).rejects.toThrow(/never used again/);
+    await expect(
+      insertClient(registry, { id: "gym-a", environment: "staging" }).run(),
+    ).rejects.toThrow(/never used again/);
+    await expect(
+      registry.prepare("UPDATE registry_clients SET id = 'gym-c' WHERE id = 'gym-b'").run(),
+    ).rejects.toThrow(/id never changes/);
+  });
+
+  it("refuses INSERT OR REPLACE of a client it has: no new generation, no other environment (review of #520, S1)", async () => {
+    await registry.batch([insertClient(registry, { id: "gym-a" })]);
+    const read = () =>
+      registry
+        .prepare("SELECT environment, secret_generation FROM registry_clients WHERE id = 'gym-a'")
+        .first<{ environment: string; secret_generation: string }>();
+    const before = await read();
+    for (const environment of ["live", "staging"]) {
+      await expect(
+        registry
+          .prepare(
+            "INSERT OR REPLACE INTO registry_clients (id, environment, tier) VALUES ('gym-a', ?, 'standard')",
+          )
+          .bind(environment)
+          .run(),
+        environment,
+      ).rejects.toThrow(/never used again, nor added twice/);
+    }
+    expect(await read()).toEqual(before);
+    expect(
+      (await registry.prepare("SELECT count(*) AS n FROM registry_removed_clients").first("n")) ??
+        0,
+    ).toBe(0);
   });
 });
 

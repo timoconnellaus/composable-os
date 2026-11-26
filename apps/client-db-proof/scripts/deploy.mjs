@@ -21,7 +21,10 @@
 // 3. The proof Worker is deployed, its bindings pointed at crm-client-db-proof-db. Its migration
 //    v2 deletes the `ClientDb` class step 1's proof exported itself, with every object of it (the
 //    earlier runs' seeded databases; nothing else was ever in them).
-// 4. PROOF_KEY is set as the proof Worker's secret.
+// 4. PROOF_KEY is set as the proof Worker's secret, and a props key derived from it
+//    (COS_PROPS_KEY, #515 S1) as both Workers' secret: the query service answers only the proof
+//    Worker's binding (its props carry the key's proof) and only calls with a proof of their
+//    client, as it answers the host's Workers.
 // 5. Each Worker's "Worker Startup Time" and upload size, from wrangler's output, are written to
 //    PROOF_DEPLOY_FILE for the run's summary: the cold start of a client's database is the
 //    startup of the Worker its class is in.
@@ -29,6 +32,7 @@
 //    public: it is masked in the Actions log before wrangler's output is printed, never printed by
 //    this script, and written only to PROOF_URL_FILE for the next step.
 import { execFileSync, spawnSync } from "node:child_process";
+import { createHmac } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
 import { fileURLToPath, pathToFileURL } from "node:url";
 
@@ -167,20 +171,48 @@ function report(worker, output) {
   return `${worker}: Worker Startup Time ${startup}; Total Upload ${upload}`;
 }
 
+const { clientDbCallerProps } = await import(
+  pathToFileURL(
+    fileURLToPath(new URL("../../../packages/db/src/client-proofs.ts", import.meta.url)),
+  ).href
+);
+/** The run's props key, from its PROOF_KEY: never printed, set only as the Workers' secret. */
+const propsKey = createHmac("sha256", process.env.PROOF_KEY ?? "")
+  .update("cos-props-key")
+  .digest("base64url");
+
+/** Sets `name` as the secret of the Worker whose config is `dir`'s wrangler.deploy.jsonc. */
+function putSecret(dir, name, value) {
+  const result = spawnSync(
+    "pnpm",
+    ["exec", "wrangler", "secret", "put", name, "-c", "wrangler.deploy.jsonc"],
+    { cwd: dir, input: value, encoding: "utf8" },
+  );
+  if (result.status !== 0) {
+    process.stderr.write(result.stderr ?? "");
+    process.exit(result.status ?? 1);
+  }
+}
+
 // 2. The Worker that holds the clients' databases, first.
 const dbConfig = readConfig(`${clientDbDir}/wrangler.jsonc`);
 dbConfig.name = dbWorker;
+// The environment every proof binds (review of #520, M4): the proof is a live-like run.
+dbConfig.vars = { ...dbConfig.vars, COS_HOST_ENVIRONMENT: "live" };
 const dbOutput = deploy(clientDbDir, dbConfig);
+putSecret(clientDbDir, "COS_PROPS_KEY", propsKey);
 
 // 3. The proof Worker, bound to it by script name.
 const config = readConfig(`${here}/wrangler.jsonc`);
 config.name = name;
-config.vars = { ...config.vars, LOCATION_HINT: location };
+config.vars = { ...config.vars, LOCATION_HINT: location, COS_HOST_ENVIRONMENT: "live" };
 config.d1_databases = config.d1_databases.map((db) =>
   db.binding === "DB" ? { ...db, database_name: name, database_id: database.uuid } : db,
 );
 config.services = config.services.map((service) =>
-  service.service === LOCAL_DB_WORKER ? { ...service, service: dbWorker } : service,
+  service.service === LOCAL_DB_WORKER
+    ? { ...service, service: dbWorker, props: clientDbCallerProps(propsKey, "live", "cos-app") }
+    : service,
 );
 config.durable_objects.bindings = config.durable_objects.bindings.map((binding) =>
   binding.script_name === LOCAL_DB_WORKER ? { ...binding, script_name: dbWorker } : binding,
@@ -189,16 +221,9 @@ const output = deploy(here, config);
 const url = new RegExp(`https://${name}\\.[a-z0-9.-]+\\.workers\\.dev`).exec(output)?.[0];
 if (!url) throw new Error("deployed, but wrangler printed no workers.dev address");
 
-// 4. The run's key.
-const secret = spawnSync(
-  "pnpm",
-  ["exec", "wrangler", "secret", "put", "PROOF_KEY", "-c", "wrangler.deploy.jsonc"],
-  { cwd: here, input: process.env.PROOF_KEY, encoding: "utf8" },
-);
-if (secret.status !== 0) {
-  process.stderr.write(secret.stderr ?? "");
-  process.exit(secret.status ?? 1);
-}
+// 4. The run's keys.
+putSecret(here, "PROOF_KEY", process.env.PROOF_KEY ?? "");
+putSecret(here, "COS_PROPS_KEY", propsKey);
 
 // 5. What the summary shows of the deploy.
 const deployed = [report(dbWorker, dbOutput), report(name, output)].join("\n");

@@ -11,12 +11,9 @@
 //
 // Exported as `@composable-os/db/client-entries`, never from `@composable-os/db`.
 import type { StampedMessage, StampedParams } from "./client-bindings.ts";
+import { clientObjectName, WORKFLOW_ID_SEPARATOR } from "./client-bindings.ts";
 import {
-  OBJECT_NAME_SEPARATOR,
-  objectNameParts,
-  WORKFLOW_ID_SEPARATOR,
-} from "./client-bindings.ts";
-import {
+  type ClientAdmission,
   clientOf,
   envNameUse,
   type HostBindings,
@@ -25,11 +22,11 @@ import {
   hostMode,
   type Refusal,
 } from "./client-environment.ts";
+import type { ParkingLedger } from "./client-parking.ts";
 import {
-  BINDING_KEY,
-  bindingProof,
+  generationPart,
   hostBindingKey,
-  isBindingProof,
+  isPropsProof,
   PROOF,
   RUNNER_CALLER,
 } from "./client-proofs.ts";
@@ -250,58 +247,163 @@ function clientBatch<Body>(
 }
 
 /**
- * How long a message for a client the host does not serve now (paused, moving, schema behind)
- * waits before it is tried again (review of #512, S3). It is parked, not retried: re-sent to the
- * Worker's own fan-out queue with a delay, so a pause never uses up the queue's `max_retries`
- * (3 for cos-routine-delivery, 5 for cos-automation-events, at 10 s each: about 30 to 50 s, which
- * every update's pause outlasts). The first wait is a minute, each next one twice the last, at
- * most 15 minutes (so a client resumed after a 10-minute pause has its messages within 15 minutes
- * of resuming), and a message parked for 7 days is given up and reported as a dead letter.
+ * How a message for a client the host does not serve now (paused, moving, schema behind) waits
+ * (review of #512, S3; #515, S3 and S5). It is parked, not retried: sent to the Worker's own
+ * parking queue (`CLIENT_PARKING`, apart from the crons' fan-out, so a paused client's backlog
+ * never delays another client's ticks) with a delay, so a pause never uses up the queue's
+ * `max_retries` (3 for cos-routine-delivery, 5 for cos-automation-events, at 10 s each: about 30 to
+ * 50 s, which every update's pause outlasts). The first wait is a minute, each next one twice the
+ * last, at most 15 minutes (so a client resumed after a 10-minute pause has its messages within 15
+ * minutes of resuming). A message parked for 7 days is given up; so are a client's oldest when it
+ * has more than `maxPerClient` parked (the ledger, client-parking.ts). Each one given up is
+ * reported as a dead letter and counted.
  */
 export const PARKING = Object.freeze({
   firstDelaySeconds: 60,
   maxDelaySeconds: 15 * 60,
   giveUpAfterMs: 7 * 24 * 60 * 60 * 1000,
+  maxPerClient: 1000,
 });
 
-/** A stamped message waiting for its client to be served again, on the fan-out queue. */
+/** The binding of a Worker's parking queue (producer and consumer), the host's own. */
+export const PARKING_BINDING = "CLIENT_PARKING";
+/** The binding of a Worker's parking ledgers (`ParkingLedger`, one per client), the host's own. */
+export const PARKING_LEDGER_BINDING = "CLIENT_PARKING_LEDGER";
+
+/** The name a client's parking ledger is given under its client (`<client>:<proof>:parking-ledger`). */
+export const PARKING_LEDGER_NAME = "parking-ledger";
+
+/** The parking queues, one per Worker: a batch of one is recognised by its queue's name. */
+export const PARKING_QUEUES = Object.freeze({
+  app: "cos-app-parking",
+  runner: "cos-runner-parking",
+});
+
+export function isParkingQueue(name: string): boolean {
+  return (Object.values(PARKING_QUEUES) as string[]).includes(name);
+}
+
+/** A stamped message waiting for its client to be served again, on the parking queue. */
 export interface ParkedMessage {
   cosParked: 1;
+  /** Its id in the client's ledger, the same each time it is parked again. */
+  id: string;
   /** The queue it came from: its consumer's code handles it when the client is served. */
   queue: string;
   /** The message as it was sent: the client's stamp and the body. */
   stamped: StampedMessage<unknown>;
+  /** The client's secret generation when it was parked: a later client of the id is not it. */
+  generation: string;
   parkedAt: number;
   delaySeconds: number;
+  /** How many times its consumer failed it once its client was served (its queue's retries). */
+  failures: number;
 }
 
 export function parkedMessageOf(body: unknown): ParkedMessage | null {
   if (!body || typeof body !== "object") return null;
   const parked = body as Partial<ParkedMessage>;
   if (parked.cosParked !== 1 || typeof parked.queue !== "string") return null;
+  if (typeof parked.id !== "string" || parked.id.length === 0) return null;
+  if (typeof parked.generation !== "string") return null;
   if (!stampOf(parked.stamped)) return null;
   if (typeof parked.parkedAt !== "number" || typeof parked.delaySeconds !== "number") return null;
+  if (typeof parked.failures !== "number") return null;
   return parked as ParkedMessage;
 }
 
-/** Parks one stamped message on the fan-out queue; false when there is none to park it on. */
-async function park(env: HostBindings, parked: Omit<ParkedMessage, "cosParked">): Promise<boolean> {
-  const queue = (env as unknown as Record<string, Queue<ParkedMessage> | undefined>)[
-    FANOUT_BINDING
-  ];
-  if (!queue) return false;
-  await queue.send({ cosParked: 1, ...parked }, { delaySeconds: parked.delaySeconds });
-  return true;
+/** What parking needs of a Worker's `env`: its queue and its ledgers. */
+interface ParkingBindings {
+  queue: Queue<ParkedMessage>;
+  ledgers: DurableObjectNamespace<ParkingLedger>;
+}
+
+function parkingOf(env: HostBindings): ParkingBindings | null {
+  const bindings = env as unknown as Record<string, unknown>;
+  const queue = bindings[PARKING_BINDING] as Queue<ParkedMessage> | undefined;
+  const ledgers = bindings[PARKING_LEDGER_BINDING] as
+    | DurableObjectNamespace<ParkingLedger>
+    | undefined;
+  return queue && ledgers ? { queue, ledgers } : null;
+}
+
+/**
+ * A Worker's parking on a many-client host, or a clear failure: a fleet deployment binds both
+ * (step 7), and without them a paused client's messages would use up their queue's retries and
+ * be lost during an update (review of #520, M5). Called first by every queue entry that parks.
+ */
+export function requireParking(env: HostBindings): ParkingBindings {
+  const parking = parkingOf(env);
+  if (!parking) {
+    throw new Error(
+      `A host of many clients binds ${PARKING_BINDING} and ${PARKING_LEDGER_BINDING}: neither, or only one, is bound`,
+    );
+  }
+  return parking;
+}
+
+/**
+ * A client's ledger, named as its objects are: `<client>:<proof>:parking-ledger`, the proof
+ * under the host's object key for the client's generation, which the ledger checks (review of
+ * #520, S3). Only the host's parking code names it; object code has no key to.
+ */
+function ledgerOf(
+  env: HostBindings,
+  parking: ParkingBindings,
+  client: Pick<ClientRecord, "id" | "secretGeneration">,
+) {
+  const name = clientObjectName(
+    client.id,
+    generationPart(client.secretGeneration),
+    PARKING_LEDGER_NAME,
+    hostBindingKey(env),
+  );
+  return parking.ledgers.get(parking.ledgers.idFromName(name));
+}
+
+/**
+ * Parks one stamped message: sent to the parking queue, then recorded in its client's ledger
+ * (which may give up the client's oldest, each reported). Sent first, so a failed send leaves no
+ * row counting towards the cap (review of #520, M5); a failed record leaves a message with no row,
+ * which its delivery handles and reports (`unrecorded`).
+ */
+async function park(
+  env: HostBindings,
+  parked: Omit<ParkedMessage, "cosParked">,
+  client: Pick<ClientRecord, "id" | "secretGeneration">,
+  now: number,
+): Promise<void> {
+  const parking = requireParking(env);
+  await parking.queue.send({ cosParked: 1, ...parked }, { delaySeconds: parked.delaySeconds });
+  const givenUp = await ledgerOf(env, parking, client).admit(
+    parked.id,
+    parked.parkedAt,
+    PARKING.maxPerClient,
+    now,
+  );
+  for (const id of givenUp) {
+    reportDeadLetter(
+      parked.queue,
+      { id, body: null },
+      `its client had more than ${PARKING.maxPerClient} messages parked: the oldest are given up`,
+      client.id,
+    );
+  }
 }
 
 /** A dead letter, said where the operator's logs and alerts read it (stage 66, ADR 0615). */
-function reportDeadLetter(queue: string, message: { id: string; body: unknown }, why: string) {
+function reportDeadLetter(
+  queue: string,
+  message: { id: string; body: unknown },
+  why: string,
+  client?: ClientId,
+) {
   const stamp = stampOf(message.body) ?? stampOf(parkedMessageOf(message.body)?.stamped);
   console.error(
     JSON.stringify({
       event: "cos.queue.dead_letter",
       queue,
-      client: stamp?.client ?? null,
+      client: client ?? stamp?.client ?? null,
       message: message.id,
       why,
     }),
@@ -323,6 +425,21 @@ export function consumeDeadLetters(batch: MessageBatch<unknown>): void {
     reportDeadLetter(batch.queue, message, "retried until the queue gave up on it");
     message.ack();
   }
+}
+
+/** A client's admission by id, with its record even when it is refused. */
+export async function admissionOf<E extends HostBindings>(
+  env: E,
+  client: ClientId,
+): Promise<ClientAdmission<E>> {
+  const directory = hostDirectory(env);
+  if (!directory) throw new NoClientError("A client was named on a single-client deployment");
+  return directory.environmentFor(client);
+}
+
+/** Whether an admission refuses a client for a while (it comes back), not for good. */
+export function waitsForClient(admission: ClientAdmission<unknown>): boolean {
+  return !admission.served && admission.refused !== "unknown" && admission.refused !== "unverified";
 }
 
 /**
@@ -351,37 +468,49 @@ export async function consumeByClient<E extends HostBindings, Body>(
   const failed: ClientId[] = [];
   let refused = unstamped.length;
   let parked = 0;
+  // Fails closed, before anything is acked: a fleet without parking would lose messages.
+  if (servesManyClients(env)) requireParking(env);
   await Promise.all(
     [...byClient].map(async ([client, entries]) => {
-      let clientEnv: E;
-      try {
-        clientEnv = await clientEnvironment(env, client);
-      } catch (error) {
-        if (error instanceof NoClientError && error.reason === "updating") {
+      const admission = await admissionOf(env, client);
+      if (!admission.served) {
+        if (waitsForClient(admission) && admission.client) {
+          // In the batch's order, one at a time: parked messages come back in about this order,
+          // which no consumer here depends on (queues do not keep order; ADR 0615).
           for (const { message } of entries) {
-            const sent = await park(env, {
-              queue: batch.queue,
-              stamped: message.body as StampedMessage<unknown>,
-              parkedAt: now(),
-              delaySeconds: PARKING.firstDelaySeconds,
-            });
-            if (sent) {
+            try {
+              await park(
+                env,
+                {
+                  id: crypto.randomUUID(),
+                  queue: batch.queue,
+                  stamped: message.body as StampedMessage<unknown>,
+                  generation: generationPart(admission.client.secretGeneration),
+                  parkedAt: now(),
+                  delaySeconds: PARKING.firstDelaySeconds,
+                  failures: 0,
+                },
+                admission.client,
+                now(),
+              );
               parked += 1;
               message.ack();
-            } else {
-              message.retry({ delaySeconds: PARKING.maxDelaySeconds });
+            } catch (error) {
+              // Not parked: retried on its own queue, which keeps it until it can be.
+              console.error(`${batch.queue}: a message could not be parked`, String(error));
+              message.retry({ delaySeconds: PARKING.firstDelaySeconds });
             }
           }
           return;
         }
         refused += entries.length;
-        console.error(`${batch.queue}: messages refused`, String(error));
+        console.error(`${batch.queue}: messages refused (${admission.refused})`);
         for (const { message } of entries) message.retry({ delaySeconds });
         return;
       }
       const share = clientBatch<Body>(batch, entries);
       try {
-        await handle(clientEnv, share, client);
+        await handle(admission.env, share, client);
         handled.push(client);
       } catch (error) {
         failed.push(client);
@@ -393,13 +522,168 @@ export async function consumeByClient<E extends HostBindings, Body>(
   return { handled, failed, refused, parked };
 }
 
+/** A parked message's consumer: its queue's code, and that queue's retries (wrangler.jsonc). */
+export interface ParkedConsumer<E> {
+  consume: (clientEnv: E, share: MessageBatch<unknown>) => Promise<void>;
+  /** The queue's `max_retries`: a parked message is failed this many times again at most. */
+  maxRetries: number;
+  /** The delay of each retry, as the queue's consumer gives it. */
+  retryDelaySeconds: number;
+}
+
+/**
+ * A batch of the parking queue, one message at a time, each acked when it is done with:
+ * - handled by its queue's consumer once its client is served again (as a batch of one, acked or
+ *   retried by that code as on its own queue); a failure is retried as its own queue would
+ *   (`maxRetries` times, `retryDelaySeconds` apart), then given up as its dead letter would be;
+ * - parked again (twice the wait, at most `PARKING.maxDelaySeconds`) while its client is not
+ *   served;
+ * - given up and reported as a dead letter when it has waited `PARKING.giveUpAfterMs`, when its
+ *   client is gone (removed, or moved to the other environment), when its client is a later one
+ *   under the same id (another generation), or when the ledger gave it up over the cap;
+ * - dropped when the ledger has it handled already or held by another delivery (a duplicate).
+ */
+export async function consumeParked<E extends HostBindings>(
+  env: E,
+  batch: MessageBatch<unknown>,
+  consumers: Readonly<Record<string, ParkedConsumer<E>>>,
+  options: { now?: () => number } = {},
+): Promise<void> {
+  const now = options.now ?? Date.now;
+  const parking = requireParking(env);
+  for (const message of batch.messages) {
+    const parked = parkedMessageOf(message.body);
+    const stamp = parked ? stampOf(parked.stamped) : null;
+    const consumer = parked ? consumers[parked.queue] : undefined;
+    if (!parked || !stamp || !consumer) {
+      reportDeadLetter(
+        batch.queue,
+        message,
+        "not a parked message of a queue this Worker consumes",
+      );
+      message.ack();
+      continue;
+    }
+    const admission = await admissionOf(env, stamp.client);
+    if (!admission.client) {
+      // Its client is gone (removed, or of the other environment): so is its ledger's use.
+      reportDeadLetter(parked.queue, message, "its client is gone", stamp.client);
+      message.ack();
+      continue;
+    }
+    const ledger = ledgerOf(env, parking, admission.client);
+    const claim = await ledger.claim(parked.id, message.id, parked.parkedAt);
+    if (claim === "duplicate") {
+      // Logged as a dead letter is, without its body: handled already, or held by another
+      // delivery (review of #520, M5).
+      reportDeadLetter(
+        parked.queue,
+        message,
+        "a parked message delivered again after it was handled, or while another delivery holds it: dropped",
+        stamp.client,
+      );
+      message.ack();
+      continue;
+    }
+    if (claim === "given-up") {
+      // Reported when the cap gave it up; nothing more to say.
+      message.ack();
+      continue;
+    }
+    if (claim === "unrecorded") {
+      console.warn(
+        JSON.stringify({
+          event: "cos.queue.parked_unrecorded",
+          queue: parked.queue,
+          client: stamp.client,
+          message: message.id,
+          why: "its ledger had no row (recording it failed after it was sent): handled as parked",
+        }),
+      );
+    }
+    const giveUp = async (why: string) => {
+      reportDeadLetter(parked.queue, message, why, stamp.client);
+      await ledger.settle(parked.id, true);
+      message.ack();
+    };
+    const parkAgain = async (next: Partial<ParkedMessage>) => {
+      await ledger.release(parked.id);
+      const again = { ...parked, ...next };
+      await parking.queue.send(again, { delaySeconds: again.delaySeconds });
+      message.ack();
+    };
+    if (!admission.served) {
+      if (!waitsForClient(admission)) {
+        await giveUp("its client is gone");
+      } else if (now() - parked.parkedAt >= PARKING.giveUpAfterMs) {
+        await giveUp("its client was not served for 7 days");
+      } else {
+        await parkAgain({
+          delaySeconds: Math.min(parked.delaySeconds * 2, PARKING.maxDelaySeconds),
+        });
+      }
+      continue;
+    }
+    if (generationPart(admission.client.secretGeneration) !== parked.generation) {
+      await giveUp("it was parked for an earlier client of this id");
+      continue;
+    }
+    // The consumer's code answers a batch of one; its ack or retry is recorded here, and the
+    // message underneath is acked once the ledger knows what became of it.
+    let answer: "ack" | "retry" | null = null;
+    const share: MessageBatch<unknown> = {
+      queue: parked.queue,
+      metadata: batch.metadata,
+      messages: [
+        {
+          id: message.id,
+          timestamp: message.timestamp,
+          attempts: parked.failures + 1,
+          body: stamp.body,
+          ack: () => {
+            answer ??= "ack";
+          },
+          retry: () => {
+            answer ??= "retry";
+          },
+        },
+      ],
+      ackAll: () => {
+        answer ??= "ack";
+      },
+      retryAll: () => {
+        answer ??= "retry";
+      },
+    };
+    try {
+      await consumer.consume(admission.env, share);
+    } catch (error) {
+      console.error(`${parked.queue}: a parked message failed`, String(error));
+      answer = "retry";
+    }
+    if (answer === "retry") {
+      if (parked.failures + 1 > consumer.maxRetries) {
+        await giveUp(`failed ${parked.failures + 1} times, as many as its queue retries`);
+      } else {
+        await parkAgain({
+          failures: parked.failures + 1,
+          delaySeconds: consumer.retryDelaySeconds,
+        });
+      }
+      continue;
+    }
+    await ledger.settle(parked.id);
+    message.ack();
+  }
+}
+
 // --- Crons: fanned out through a queue, one message per client -------------------------------
 
 /**
  * The binding of a Worker's fan-out queue: its own producer and consumer, bound only on a
  * many-client host (the deploy engine adds it for a fleet deployment, never the committed
  * single-client configuration). The host's own: never in a client's environment. It carries the
- * crons' ticks and the parked messages of clients not served for a while.
+ * crons' ticks only (parked messages have their own queue, `CLIENT_PARKING`).
  */
 export const FANOUT_BINDING = "CLIENT_FANOUT";
 
@@ -407,10 +691,10 @@ export const FANOUT_BINDING = "CLIENT_FANOUT";
 export const FANOUT_QUEUES = Object.freeze({ app: "cos-app-fanout", runner: "cos-runner-fanout" });
 
 /**
- * What the deploy engine sets for each fan-out queue's consumer (step 7): one message an
- * invocation, so one client's minute tick never shares an invocation's CPU, memory or
- * subrequests with another's; a tick that fails is retried alone. `consumeFanOut` holds to one at
- * a time whatever batch it is given.
+ * What the deploy engine sets for each fan-out and parking queue's consumer (step 7): one message
+ * an invocation, so one client's minute tick never shares an invocation's CPU, memory or
+ * subrequests with another's; a tick that fails is retried alone. `consumeFanOut` and
+ * `consumeParked` hold to one at a time whatever batch they are given.
  */
 export const FANOUT_CONSUMER = Object.freeze({
   max_batch_size: 1,
@@ -482,94 +766,37 @@ export async function fanOutCron(
   return clients.length;
 }
 
-/** What a Worker does with what arrives on its fan-out queue. */
-export interface FanOutHandlers<E> {
-  /** One client's tick of one cron. */
-  tick: (clientEnv: E, message: FanOutMessage) => Promise<void>;
-  /**
-   * A parked message's consumer, by the queue it came from, given the client's share as a batch
-   * of one (the consumer acks or retries it as it would on its own queue).
-   */
-  parked: Readonly<Record<string, (clientEnv: E, share: MessageBatch<unknown>) => Promise<void>>>;
-}
-
 /**
- * A batch of the fan-out queue, one message at a time (`FANOUT_CONSUMER`: a batch of one; a
- * larger one is still handled one by one), each acked or retried on its own:
- * - a tick runs in its client's environment; a client no longer served is skipped (the next tick
- *   comes); one that fails is retried alone;
- * - a parked message is handled by its queue's consumer once its client is served again, parked
- *   again (twice the wait, at most `PARKING.maxDelaySeconds`) while it is not, and reported as a
- *   dead letter when it has waited `PARKING.giveUpAfterMs` or its client is gone.
+ * A batch of the fan-out queue, one tick at a time (`FANOUT_CONSUMER`: a batch of one; a larger
+ * one is still handled one by one), each acked or retried on its own: a tick runs in its client's
+ * environment; a client no longer served is skipped (the next tick comes); one that fails is
+ * retried alone. Anything else on the queue is reported and acked.
  */
 export async function consumeFanOut<E extends HostBindings>(
   env: E,
   batch: MessageBatch<unknown>,
-  handlers: FanOutHandlers<E>,
-  options: { now?: () => number } = {},
+  tick: (clientEnv: E, message: FanOutMessage) => Promise<void>,
 ): Promise<void> {
-  const now = options.now ?? Date.now;
   for (const message of batch.messages) {
     const fanOut = fanOutMessageOf(message.body);
-    const parked = fanOut ? null : parkedMessageOf(message.body);
-    if (!fanOut && !parked) {
-      reportDeadLetter(batch.queue, message, "not a tick or a parked message");
-      message.ack();
-      continue;
-    }
-    if (fanOut) {
-      let clientEnv: E;
-      try {
-        clientEnv = await clientEnvironment(env, fanOut.client);
-      } catch {
-        message.ack();
-        continue;
-      }
-      try {
-        await handlers.tick(clientEnv, fanOut);
-        message.ack();
-      } catch (error) {
-        console.error("cron fan-out: one client's tick failed, retrying", String(error));
-        message.retry({ delaySeconds: 30 });
-      }
-      continue;
-    }
-    if (!parked) continue;
-    const stamp = stampOf(parked.stamped);
-    const consumer = handlers.parked[parked.queue];
-    if (!stamp || !consumer) {
-      reportDeadLetter(batch.queue, message, "parked from a queue this Worker does not consume");
+    if (!fanOut) {
+      reportDeadLetter(batch.queue, message, "not a tick");
       message.ack();
       continue;
     }
     let clientEnv: E;
     try {
-      clientEnv = await clientEnvironment(env, stamp.client);
-    } catch (error) {
-      const waiting = error instanceof NoClientError && error.reason === "updating";
-      if (waiting && now() - parked.parkedAt < PARKING.giveUpAfterMs) {
-        const delaySeconds = Math.min(parked.delaySeconds * 2, PARKING.maxDelaySeconds);
-        await park(env, { ...parked, delaySeconds });
-        message.ack();
-      } else {
-        reportDeadLetter(
-          parked.queue,
-          message,
-          waiting ? "its client was not served for 7 days" : "its client is gone",
-        );
-        message.ack();
-      }
+      clientEnv = await clientEnvironment(env, fanOut.client);
+    } catch {
+      message.ack();
       continue;
     }
-    const share = clientBatch<unknown>(
-      { queue: parked.queue, metadata: batch.metadata } as MessageBatch<unknown>,
-      [{ message, body: stamp.body }],
-    );
     try {
-      await consumer(clientEnv, share);
+      await tick(clientEnv, fanOut);
+      message.ack();
     } catch (error) {
-      console.error(`${parked.queue}: a parked message failed, retrying`, String(error));
-      share.retryAll({ delaySeconds: 30 });
+      console.error("cron fan-out: one client's tick failed, retrying", String(error));
+      message.retry({ delaySeconds: 30 });
     }
   }
 }
@@ -611,132 +838,24 @@ export async function workflowRun<E extends HostBindings, Params>(
   };
 }
 
-// --- Durable Objects -------------------------------------------------------------------------
-
-/**
- * A Durable Object on a host that may serve many clients: which client it is for (its name, as a
- * namespace wrapper gave it: `<client>:<name>`), the caller's name without the client, and that
- * client's environment. Made in the object's constructor; on a many-client host it holds every
- * event (`blockConcurrencyWhile`) until the environment is built, and an object whose name
- * carries no client the registry knows refuses every event. Single-client: the real `env` and
- * the object's own name, nothing read.
- */
-export class ClientObject<E extends HostBindings> {
-  #env: E | null = null;
-  readonly #host: E;
-  readonly #adopt: ((clientEnv: E) => void) | undefined;
-  readonly client: ClientId | null;
-  /** The object's name as its caller gave it (without the client), or undefined. */
-  readonly name: string | undefined;
-
-  constructor(ctx: DurableObjectState, env: E, adopt?: (clientEnv: E) => void) {
-    this.#host = env;
-    this.#adopt = adopt;
-    const stored = ctx.id.name;
-    if (!servesManyClients(env)) {
-      this.client = null;
-      this.name = stored;
-      this.#env = env;
-      return;
-    }
-    const parts = objectNameParts(stored, hostBindingKey(env));
-    this.client = parts?.client ?? null;
-    this.name = parts?.name;
-    // A throw here resets the object and fails the event that woke it: the refusal. The promise
-    // itself is not awaited by anyone, so its rejection is caught here (the runtime has already
-    // refused the event) rather than reported as unhandled.
-    ctx
-      .blockConcurrencyWhile(async () => {
-        if (!parts) {
-          throw new NoClientError(
-            `A Durable Object on a many-client host is named <client>${OBJECT_NAME_SEPARATOR}<name>: refused`,
-          );
-        }
-        await this.refresh();
-      })
-      .catch(() => {});
-  }
-
-  /**
-   * Reads the client's environment again (a long-lived object, such as the assistant's thread
-   * with its sockets, calls it on each message): the registry's latest, so settings changed and a
-   * client removed reach an object that outlives a version stamp. A client the registry no longer
-   * serves (removed, paused, moving, behind) is refused: this throws and the message, alarm or
-   * call fails. Single-client: the real `env`.
-   */
-  async refresh(): Promise<E> {
-    if (this.client === null) {
-      if (this.#env) return this.#env;
-      throw new NoClientError("This object's name carries no client: refused");
-    }
-    const clientEnv = await clientEnvironment(this.#host, this.client);
-    this.#env = clientEnv;
-    this.#adopt?.(clientEnv);
-    return clientEnv;
-  }
-
-  /** The environment the object runs with: the client's, or the real one on a single client. */
-  get env(): E {
-    if (!this.#env) throw new NoClientError("This object's client is not decided: refused");
-    return this.#env;
-  }
-
-  /**
-   * The host's proof of `parts` for `purpose`, for props this object mints (an entrypoint it hands
-   * a gatekeeper): made with the key in the object's real `env`, which no client's code holds.
-   * Single-client: null, nothing is checked.
-   */
-  proof(purpose: string, ...parts: string[]): string | null {
-    if (this.client === null) return null;
-    const key = hostBindingKey(this.#host);
-    if (!key) throw new NoClientError(`${BINDING_KEY} is not bound: nothing can be minted`);
-    return bindingProof(key, purpose, ...parts);
-  }
-}
-
-/** Where an object class keeps its `ClientObject`, for `refreshOnEachCall`. */
-export const CLIENT_OBJECT: unique symbol = Symbol.for("cos.client-object");
-
-/**
- * Makes every async method of a Durable Object class (its RPC methods, `fetch`, `alarm`, the
- * Agents SDK's hooks it overrides) read its client's admission again before it runs, so a warm
- * object of a client paused, moving, behind or removed stops serving at its next event, as a
- * request would (review of #512, M2). Cheap: the directory is in memory, the stamp read at most
- * every 10 seconds. The class keeps its `ClientObject` at `CLIENT_OBJECT`. Single-client: the
- * method runs as before, with nothing awaited first. Sync methods are left as they are.
- */
-export function refreshOnEachCall(cls: { prototype: object }): void {
-  const prototype = cls.prototype as Record<string | symbol, unknown>;
-  for (const name of Object.getOwnPropertyNames(prototype)) {
-    if (name === "constructor") continue;
-    const descriptor = Object.getOwnPropertyDescriptor(prototype, name);
-    const original = descriptor?.value;
-    if (typeof original !== "function" || original.constructor?.name !== "AsyncFunction") continue;
-    const checked = async function (this: Record<symbol, unknown>, ...args: unknown[]) {
-      const owner = this[CLIENT_OBJECT] as ClientObject<HostBindings> | undefined;
-      if (owner && owner.client !== null) await owner.refresh();
-      return (original as (...a: unknown[]) => unknown).apply(this, args);
-    };
-    Object.defineProperty(prototype, name, { ...descriptor, value: checked });
-  }
-}
-
 // --- Entrypoints a host mints with props -----------------------------------------------------
 
 /** What an entrypoint minted for one client carries in its props on a many-client host. */
 export interface MintedProps {
   client?: string | null;
-  /** The host's proof of the client and `parts` (client-proofs.ts), made by the minting code. */
+  /** The host's proof of the client, its generation and `parts` (client-proofs.ts). */
   proof?: string | null;
 }
 
 /**
  * The environment an entrypoint minted by the host (`ctx.exports.X({ props })`, or a binding's
  * props set at deploy) runs with: the client in its props, only when their proof is the host's
- * for `purpose` and the client and `parts`. Props cannot be changed by whoever holds the
- * entrypoint (a gatekeeper, a client's web app), and without the host's key no code can mint
- * props that name another client, even through `exports` (review of #512, S1). Many-client:
- * refused without a client or a valid proof.
+ * (under the props key, or the one before a rotation) for `purpose`, the client, its current
+ * generation and `parts`. Props cannot be changed by whoever holds the entrypoint (a gatekeeper,
+ * a client's web app), and without the host's key no code can mint props that name another
+ * client, even through `exports` (review of #512, S1). Props minted for a client id before it was
+ * removed are no proof for a later client of the id (#515, S3). Many-client: refused without a
+ * client or a valid proof.
  */
 export async function propsClientEnvironment<E extends HostBindings>(
   env: E,
@@ -747,10 +866,14 @@ export async function propsClientEnvironment<E extends HostBindings>(
   if (!servesManyClients(env)) return env;
   const client = props?.client ?? null;
   if (!isClientId(client)) throw new NoClientError("No client: this entry refuses to run");
-  if (!isBindingProof(hostBindingKey(env), props?.proof, purpose, client, ...parts)) {
+  const admission = await admissionOf(env, client);
+  const generation = admission.client?.secretGeneration ?? null;
+  if (!isPropsProof(env, props?.proof, purpose, client, generationPart(generation), ...parts)) {
     throw new NoClientError("These props were not minted by the host for this client");
   }
-  return clientEnvironment(env, client);
+  if (admission.served) return admission.env;
+  if (!waitsForClient(admission)) throw new NoClientError("Not a client of this host");
+  throw new NoClientError(`This client is not served now (${admission.refused})`, "updating");
 }
 
 // --- The runner's caller -------------------------------------------------------------------
@@ -759,18 +882,15 @@ export async function propsClientEnvironment<E extends HostBindings>(
  * The props the deploy engine fixes on cos-app's binding to cos-runner on a many-client host
  * (step 7: `{ "binding": "RUNNER", "service": "cos-runner", "props": { "caller": "cos-app",
  * "proof": <runnerCallerProof> } }`). A binding's props are set by whoever uploads the Worker that
- * holds it, never by its code, and the proof needs the host's key, so `callAs` refuses any other
- * caller: a Worker of the account that binds cos-runner on its own (a namespace Worker a client's
- * upload made, step 8), or code in the runner minting `exports.default` with copied props.
+ * holds it, never by its code, and the proof needs the host's props key, so `callAs` refuses any
+ * other caller: a Worker of the account that binds cos-runner on its own (a namespace Worker a
+ * client's upload made, step 8), or code in the runner minting `exports.default` with copied
+ * props.
  */
-
 export function isRunnerCaller(props: unknown, env: object): boolean {
   if (!props || typeof props !== "object") return false;
   const { caller, proof } = props as { caller?: unknown; proof?: unknown };
-  return (
-    caller === RUNNER_CALLER.caller &&
-    isBindingProof(hostBindingKey(env), proof, PROOF.runnerCaller)
-  );
+  return caller === RUNNER_CALLER.caller && isPropsProof(env, proof, PROOF.runnerCaller);
 }
 
 export { clientAppProps, RUNNER_CALLER, runnerCallerProps } from "./client-proofs.ts";

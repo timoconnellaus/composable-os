@@ -9,13 +9,22 @@ import { REGISTRY_MIGRATIONS_TABLE } from "../src/registry.ts";
 /** The clients of the suites' host, with each one's staff hostname. */
 export const TWO_CLIENTS = {
   /** Served. */
-  a: { id: "gym-a", hostname: "gym-a.test" },
-  b: { id: "gym-b", hostname: "gym-b.test" },
+  a: { id: "gym-a", hostname: "gym-a.test", generation: "a1".repeat(16) },
+  b: { id: "gym-b", hostname: "gym-b.test", generation: "b2".repeat(16) },
   /** Known, not served: paused, moving, and one whose schema the operator never recorded. */
-  paused: { id: "gym-paused", hostname: "gym-paused.test" },
-  moving: { id: "gym-moving", hostname: "gym-moving.test" },
-  behind: { id: "gym-behind", hostname: "gym-behind.test" },
+  paused: { id: "gym-paused", hostname: "gym-paused.test", generation: "c3".repeat(16) },
+  moving: { id: "gym-moving", hostname: "gym-moving.test", generation: "d4".repeat(16) },
+  behind: { id: "gym-behind", hostname: "gym-behind.test", generation: "e5".repeat(16) },
 } as const;
+
+/**
+ * The trigger of registry migration 0793 that keeps a client's secret generation the registry's
+ * own. The suites' clients are added with known generations (so their web apps' props, set in the
+ * vitest config, can carry the host's proof of them): the stand-in reads the trigger as the
+ * migration made it, drops it for its inserts and puts the same text back. No deployment's
+ * registry is written so.
+ */
+const GENERATION_TRIGGER = "registry_clients_secret_generation_ours";
 
 /** Hostnames that reach no client: an unverified one and gym-a's web and desk hostnames. */
 export const NOT_STAFF_HOSTNAMES = {
@@ -44,12 +53,13 @@ async function setUp(env: TwoClientBindings): Promise<void> {
   const { REGISTRY: registry } = env;
   await applyMigrations(registry, env.REGISTRY_MIGRATIONS, { table: REGISTRY_MIGRATIONS_TABLE });
   await registry.prepare("DELETE FROM registry_clients").run();
-  const client = (id: string, status: string, schema: number | null) =>
+  await registry.prepare("DELETE FROM registry_removed_clients").run();
+  const client = (c: { id: string; generation: string }, status: string, schema: number | null) =>
     registry
       .prepare(
-        "INSERT INTO registry_clients (id, environment, status, tier, repository, location_hint, schema_version) VALUES (?, 'live', ?, 'standard', NULL, NULL, ?)",
+        "INSERT INTO registry_clients (id, environment, status, tier, repository, location_hint, schema_version, secret_generation) VALUES (?, 'live', ?, 'standard', NULL, NULL, ?, ?)",
       )
-      .bind(id, status, schema);
+      .bind(c.id, status, schema, c.generation);
   const hostname = (name: string, id: string, surface: string, verified = 1) =>
     registry
       .prepare(
@@ -57,12 +67,19 @@ async function setUp(env: TwoClientBindings): Promise<void> {
       )
       .bind(name, id, surface, verified);
   const { a, b, paused, moving, behind } = TWO_CLIENTS;
+  const trigger = await registry
+    .prepare("SELECT sql FROM sqlite_master WHERE type = 'trigger' AND name = ?")
+    .bind(GENERATION_TRIGGER)
+    .first<{ sql: string }>();
+  if (!trigger) throw new Error(`no ${GENERATION_TRIGGER} trigger: migration 0793 changed`);
   await registry.batch([
-    client(a.id, "active", CORE_SCHEMA_VERSION),
-    client(b.id, "active", CORE_SCHEMA_VERSION),
-    client(paused.id, "paused", CORE_SCHEMA_VERSION),
-    client(moving.id, "moving", CORE_SCHEMA_VERSION),
-    client(behind.id, "active", null),
+    registry.prepare(`DROP TRIGGER ${GENERATION_TRIGGER}`),
+    client(a, "active", CORE_SCHEMA_VERSION),
+    client(b, "active", CORE_SCHEMA_VERSION),
+    client(paused, "paused", CORE_SCHEMA_VERSION),
+    client(moving, "moving", CORE_SCHEMA_VERSION),
+    client(behind, "active", null),
+    registry.prepare(trigger.sql),
     ...[a, b, paused, moving, behind].map((c) => hostname(c.hostname, c.id, "staff")),
     hostname(NOT_STAFF_HOSTNAMES.unverified, b.id, "staff", 0),
     hostname(NOT_STAFF_HOSTNAMES.web, a.id, "web"),

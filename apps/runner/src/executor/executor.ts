@@ -24,7 +24,6 @@ import {
   toolRunStanding,
 } from "@composable-os/core";
 import { createCrmDb } from "@composable-os/db";
-import { clientOf } from "@composable-os/db/client-environment";
 import {
   type AutomationRunRequest,
   type ExtensionManifest,
@@ -225,20 +224,16 @@ export class Executor {
     this.#toolTimeoutMs = options.toolTimeoutMs ?? TOOL_TIMEOUT_MS;
     this.#manifestTimeoutMs = options.manifestTimeoutMs ?? MANIFEST_TIMEOUT_MS;
     this.#codeTimeoutMs = options.codeTimeoutMs ?? CODE_TIMEOUT_MS;
-    this.#client = clientOf(env);
   }
 
-  /** The client whose environment this executor runs on, or null on a single-client host. */
-  readonly #client: string | null;
-
   /**
-   * A Worker Loader id as this client's (stage 66, ADR 0615, the coordinator's amendment of
-   * "Worker Loader ids are not per client"): on a many-client host the client is part of every
-   * id the executor loads, so a pack's warm isolate, and any module-level state its code keeps,
-   * is never shared between two clients. A single-client deployment's ids are unchanged.
+   * A Worker Loader id as this executor asks for it. On a many-client host the client's
+   * environment's LOADER puts the client in every id (`keepLoaderApart`, review of #520, M3), so
+   * a pack's warm isolate is never shared between two clients whatever builds the executor; the
+   * id here is the same on every host.
    */
   #clientWorkerId(id: string): string {
-    return this.#client ? `client:${this.#client}:${id}` : id;
+    return id;
   }
 
   /**

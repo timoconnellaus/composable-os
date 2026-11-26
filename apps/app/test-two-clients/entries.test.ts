@@ -16,9 +16,14 @@ import {
   waitOnExecutionContext,
 } from "cloudflare:test";
 import { exports } from "cloudflare:workers";
-import { createIdentityProvider, getCustomerIdentity } from "@composable-os/auth";
+import {
+  createIdentityProvider,
+  getCustomerIdentity,
+  getPractitionerIdentity,
+} from "@composable-os/auth";
 import {
   inviteCustomer,
+  invoke,
   issueDeviceSession,
   issueNativeHandoff,
   newId,
@@ -399,6 +404,51 @@ describe("a credential issued for one client, at the other's address (criterion 
     await expectSameAs(cookieOp(b.hostname, cookie, "me.get"), cookieOp(b.hostname, "", "me.get"));
   });
 
+  it("a practitioner browser session is unknown there", async () => {
+    const aEnv = await clientEnv(a.id);
+    const email = `pat-${crypto.randomUUID()}@practice.test`;
+    const codes = new Map<string, string>();
+    // As for customers: built first, this identity is the one A's routes use, and it hands the
+    // code to the test.
+    getPractitionerIdentity(aEnv as never, async ({ to, code }) => {
+      codes.set(to.toLowerCase(), code);
+    });
+    // Invited by A's admin in the web admin (the operation refuses a device's token).
+    await invoke(
+      "practitioner.invite",
+      { email, name: "Pat Physio", discipline: "Physiotherapist" },
+      {
+        actor: "human",
+        user: { id: A.userId, email: `admin@${a.hostname}`, name: "Ada admin", role: "admin" },
+        origin: { surface: "ui" },
+        db: createCrmDb(aEnv.DB),
+      },
+    );
+    const web = `https://${NOT_STAFF_HOSTNAMES.web}`;
+    const step = (route: string, body: unknown) =>
+      fetchAt(a.hostname, `/api/practitioner-auth${route}`, {
+        method: "POST",
+        headers: { "content-type": "application/json", origin: web },
+        body: JSON.stringify(body),
+      });
+    const asked = await step("/email-otp/send-verification-otp", { email, type: "sign-in" });
+    expect(asked.status, await asked.clone().text()).toBe(200);
+    const otp = codes.get(email);
+    expect(otp).toBeTruthy();
+    const signedIn = await step("/sign-in/email-otp", { email, otp });
+    expect(signedIn.status, await signedIn.clone().text()).toBe(200);
+    const cookie = cookiesOf(signedIn);
+    expect(cookie).toMatch(/^__Host-/);
+    const atA = await cookieOp(a.hostname, cookie, "practitioner.me");
+    expect(atA.status, await atA.clone().text()).toBe(200);
+    expect(await atA.text()).toContain(email);
+    // At B it is no session at all: the same answer as a request with no cookie.
+    await expectSameAs(
+      cookieOp(b.hostname, cookie, "practitioner.me"),
+      cookieOp(b.hostname, "", "practitioner.me"),
+    );
+  });
+
   it("a native sign-in's handoff code made at one client is unknown at the other", async () => {
     const codeVerifier = "v".repeat(43);
     const challenge = await pkceChallenge(codeVerifier);
@@ -475,6 +525,12 @@ describe("a client's web app, through its HOST binding (criterion 9)", () => {
     expect((await bound(e.WEB_FORGED as Fetcher, b.hostname)).status).toBe(404);
     expect((await bound(e.WEB_UNPROVEN as Fetcher, b.hostname)).status).toBe(404);
   });
+
+  it("is refused with props made for an earlier client of the same id (#515, S3)", async () => {
+    const e = env as unknown as Record<string, Fetcher>;
+    // gym-a's props as the deploy wrote them before gym-a was removed and added again.
+    expect((await bound(e.WEB_EARLIER as Fetcher, a.hostname)).status).toBe(404);
+  });
 });
 
 describe("what code below an entry could reach through exports (review of #512, S1)", () => {
@@ -519,6 +575,11 @@ describe("the crons and the queue (criterion 7)", () => {
   });
 
   it("each client's tick and each routine delivery runs as its client, acked or retried alone", async () => {
+    // A fleet binds the parking queue (step 7): the suite holds it.
+    const withParking = {
+      ...host,
+      CLIENT_PARKING: { send: async () => undefined },
+    } as unknown as Env;
     const tick = (client: string) => ({
       cosFanOut: 1,
       client,
@@ -532,7 +593,7 @@ describe("the crons and the queue (criterion 7)", () => {
       { id: "t-p", timestamp: new Date(), attempts: 1, body: tick(paused.id) },
     ]);
     const tickCtx = createExecutionContext();
-    await hostQueue(ticks, host);
+    await hostQueue(ticks, withParking);
     const ticked = await getQueueResult(ticks, tickCtx);
     expect(ticked.explicitAcks.sort()).toEqual(["t-a", "t-b", "t-p"]);
     // The delivery queue's batch: a tick-shaped body here is only a message with no stamp.
@@ -554,7 +615,7 @@ describe("the crons and the queue (criterion 7)", () => {
       { id: "r-tick", timestamp: new Date(), attempts: 1, body: tick(a.id) },
     ]);
     const ctx = createExecutionContext();
-    await hostQueue(batch, host);
+    await hostQueue(batch, withParking);
     const result = await getQueueResult(batch, ctx);
     expect(result.explicitAcks).toEqual([]);
     expect(result.retryMessages.map((m) => m.msgId).sort()).toEqual(["r-a", "r-none", "r-tick"]);
