@@ -145,6 +145,7 @@ jobs:
           PROOF_KEY: ${{ steps.key.outputs.key }}
           URL_FILE: ${{ runner.temp }}/proof-url
           PROOF_DEPLOY_FILE: ${{ runner.temp }}/proof-deploy.txt
+          PROOF_VERDICT_FILE: ${{ runner.temp }}/proof-verdict.txt
           RUNS: ${{ inputs.runs }}
           ROUNDS: ${{ inputs.rounds }}
           COLD: ${{ inputs.cold }}
@@ -159,19 +160,35 @@ jobs:
           node scripts/time.mjs --runs "$RUNS" --rounds "$ROUNDS" --cold "$COLD" \
             --cold-wait "$COLD_WAIT" --out "$OUT.json" | tee "$OUT.txt"
       # Stage 66 step 2 (ADR 0614): bookmarks and restore, export and import, large answers, size.
-      # No Cloudflare token; the address is read from the file and masked, as above.
+      # No Cloudflare token; the address is read from the file and masked, as above. Each probe is
+      # driven a bounded call at a time, and every probe runs even when one fails, or when the
+      # timing before them failed.
       - name: Step 2 probes
+        if: ${{ !cancelled() }}
         env:
           PROOF_KEY: ${{ steps.key.outputs.key }}
           URL_FILE: ${{ runner.temp }}/proof-url
           OUT: ${{ runner.temp }}/client-db-proof
         working-directory: apps/client-db-proof
         run: |
+          if [ ! -s "$URL_FILE" ]; then echo "::error::no proof Worker was deployed"; exit 1; fi
           PROOF_URL="$(cat "$URL_FILE")"
           echo "::add-mask::$PROOF_URL"
           export PROOF_URL
           set -o pipefail
           node scripts/step2.mjs | tee -a "$OUT.txt"
+      # The timing's verdict, last, after step 2's probes.
+      - name: Verdict
+        if: always()
+        env:
+          VERDICT: ${{ runner.temp }}/proof-verdict.txt
+          OUT: ${{ runner.temp }}/client-db-proof
+        run: |
+          if [ -f "$VERDICT" ]; then
+            { echo; cat "$VERDICT"; } | tee -a "$OUT.txt"
+          else
+            echo "No verdict: the timing did not finish." | tee -a "$OUT.txt"
+          fi
       - name: Summary
         if: always()
         env:

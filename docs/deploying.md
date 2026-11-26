@@ -1298,10 +1298,14 @@ hand, and with a secret missing it passes with a notice and deploys nothing):
      service-binding page also says "A single request has a maximum of 32 Worker invocations, and
      each call to a Service binding counts towards this limit": if that is a total and not a
      depth, the service shape fails past 32 queries a request, and this line shows it.
-   - **The verdict** against the thresholds below.
-5. The run's summary has the whole printout; the `client-db-proof` artifact has it and the JSON.
-6. `step2.mjs` (stage 66 step 2, ADR 0614), after the timing, with the address from the same file
-   and the run's key only; each probe uses a fresh client of its own:
+   - The verdict against the thresholds below is kept for the end of the run.
+5. `step2.mjs` (stage 66 step 2, ADR 0614), after the timing (and even when the timing failed),
+   with the address from the same file and the run's key only; each probe uses a fresh client of
+   its own. Each probe is driven a call at a time: the Worker works about eight seconds at most,
+   then answers its result or a cursor the script sends back, so no request comes near a limit
+   (the first run on Cloudflare did `/step2/export` as one request, which outlasted the runner's
+   five minutes). Every call's progress is printed; a probe not finished within ten minutes is
+   reported with how far it got; one probe's failure never stops the others:
    - `/step2/pitr`: a bookmark, a write, a restore to the bookmark, then the undo, on a real object
      (point-in-time recovery does not exist locally), with how long each took, and whether a call
      made while the restore waits is refused.
@@ -1315,7 +1319,13 @@ hand, and with a secret missing it passes with a notice and deploys nothing):
      refused cleanly ("read it in pages") and leave the object answering, not reset.
    - `/step2/size`: whether `databaseSize` falls after deletes, and what `VACUUM` answers
      (reported, not judged).
-   The run fails if restore, the export, D1's features or the answers do not do what they should.
+   After every probe has printed, the step fails if restore, the export, D1's features or the
+   answers did not do what they should.
+6. **The verdict**, last: the timing's verdict against the thresholds below, printed after step 2's
+   probes, whatever they did.
+7. The run's summary has the whole printout; the `client-db-proof` artifact has it and the JSON.
+   A Worker for which wrangler printed no startup time reads "not printed by wrangler" (wrangler
+   printed none for the 45 KiB Worker on 2026-11-27).
 
 **When to stop and return to the owner** (from the review of PR #507; `time.mjs` prints the
 verdict, and timing never fails the run):

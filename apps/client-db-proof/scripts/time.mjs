@@ -20,6 +20,7 @@
 //    of the page. Each sample says whether the object really had been evicted.
 // 5. Subrequests: how many calls one request makes to each database before a limit stops it.
 // 6. A verdict against the review's thresholds (docs/deploying.md). Timing never fails the run.
+//    With PROOF_VERDICT_FILE set it is written there instead, for the workflow to print last.
 //
 // The URL names the account's workers.dev subdomain: it is read from PROOF_URL and never printed
 // or written out.
@@ -286,11 +287,16 @@ if (realCold.length > 0) {
   );
 }
 if (unallowed.length) reasons.push(`conformance differences not allowed: ${unallowed.join(", ")}`);
-console.log(
-  reasons.length
-    ? `\nVERDICT: STOP and return to the owner before step 2:\n${reasons.map((r) => `  - ${r}`).join("\n")}`
-    : "\nVERDICT: within the review's thresholds (go on to step 2, the owner deciding)",
-);
+const verdict = reasons.length
+  ? `VERDICT: STOP and return to the owner:\n${reasons.map((r) => `  - ${r}`).join("\n")}`
+  : "VERDICT: within the review's thresholds (the owner deciding)";
+// In the workflow the verdict is printed last, after step 2's probes (PROOF_VERDICT_FILE).
+if (process.env.PROOF_VERDICT_FILE) {
+  writeFileSync(process.env.PROOF_VERDICT_FILE, `${verdict}\n`);
+  console.log("\n(The verdict is printed at the end, after step 2's probes.)");
+} else {
+  console.log(`\n${verdict}`);
+}
 
 if (values.out) {
   // No URL: it names the account's workers.dev subdomain.
