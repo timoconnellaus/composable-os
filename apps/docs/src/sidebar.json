@@ -180,6 +180,36 @@
         ]
       },
       {
+        "label": "Equipment",
+        "collapsed": true,
+        "items": [
+          {
+            "slug": "packs/equipment"
+          },
+          {
+            "slug": "packs/equipment/data-model"
+          },
+          {
+            "slug": "packs/equipment/tools"
+          },
+          {
+            "slug": "packs/equipment/permissions"
+          },
+          {
+            "slug": "packs/equipment/screens"
+          },
+          {
+            "slug": "packs/equipment/messages"
+          },
+          {
+            "slug": "packs/equipment/settings"
+          },
+          {
+            "slug": "packs/equipment/decisions"
+          }
+        ]
+      },
+      {
         "label": "Forms",
         "collapsed": true,
         "items": [
@@ -326,6 +356,36 @@
           },
           {
             "slug": "packs/memberships/decisions"
+          }
+        ]
+      },
+      {
+        "label": "Offers",
+        "collapsed": true,
+        "items": [
+          {
+            "slug": "packs/offers"
+          },
+          {
+            "slug": "packs/offers/data-model"
+          },
+          {
+            "slug": "packs/offers/tools"
+          },
+          {
+            "slug": "packs/offers/permissions"
+          },
+          {
+            "slug": "packs/offers/screens"
+          },
+          {
+            "slug": "packs/offers/messages"
+          },
+          {
+            "slug": "packs/offers/settings"
+          },
+          {
+            "slug": "packs/offers/decisions"
           }
         ]
       },
@@ -883,6 +943,9 @@
           },
           {
             "slug": "reference/operations/sample"
+          },
+          {
+            "slug": "reference/operations/savedreply"
           },
           {
             "slug": "reference/operations/schema"

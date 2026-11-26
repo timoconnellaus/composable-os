@@ -192,3 +192,17 @@ is the same, but a known word makes more reads than an unknown one. Looking word
 narrows the gap (no scan that grows with the codes) but does not close it. What bounds it is the
 wrong-code limit per caller and the host-wide ceiling. Decided and recorded; making every lookup do
 the same reads is left open.
+
+## Amended 2026-11-26 ([ADR 0699](0699-the-offers-pack-and-single-use-codes-kept-as-their-hash.md))
+- **Codes kept as their hash.** `codes.hashed: true` keeps each code of that object as `codeHash`
+  (SDK): the host refuses any other `word` (`rule: "code_hashed"`) and hashes what a buyer types
+  before the lookup. For generated single-use codes, which nobody may read after they are shown
+  once (the spec: an AI never reads single-use codes).
+- **A code typed is never in the audit log.** `order.start`, `order.startHeld`, `order.quote`,
+  `order.applyCode` and `discount.check` leave `code` out of their audit rows (`auditRedact`).
+- The Offers pack (step 5) declares the discounts and single-use codes; see ADR 0699.
+- **Changes wait for a person past the draft, not only while live** (review of PR #479): a
+  non-person's `record.update` of a discount in any state but its object's initial one (paused
+  and ended included) waits for a person, whatever the pack lists as `live`. And an approval of a
+  waiting call that names a discount is refused if the discount's terms changed since it was
+  asked for (ADR 0699).

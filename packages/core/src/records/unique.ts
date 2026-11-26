@@ -6,11 +6,35 @@
 // state, fails its batch whoever writes it and however many write at once (errors.ts answers it
 // as a conflict, `rule: "unique"`). This read before the write only gives the common case a
 // clear message, and the approval queue's dry run (whose writes are discarded) its answer.
+import { foldUniqueText } from "@composable-os/sdk";
 import type { Kysely } from "kysely";
 import { ConflictError } from "../errors.ts";
 import type { ObjectDefinition } from "../fields/types.ts";
 import type { HandlerContext } from "../operation.ts";
 import { visibleSource } from "../visibility/index.ts";
+
+/**
+ * `values` with the text fields of the object's folded rules (ADR 0864) kept as the host keeps
+ * them: trimmed, upper case; one left empty by the trim is cleared. Every create and update of a
+ * record passes through this, whoever writes it and by whatever path (a form, MCP, the import).
+ */
+export function foldUniqueValues(
+  object: ObjectDefinition,
+  values: Record<string, unknown>,
+): Record<string, unknown> {
+  const names = new Set((object.unique ?? []).filter((r) => r.fold).flatMap((r) => r.fields));
+  if (!names.size) return values;
+  let out = values;
+  for (const name of names) {
+    const value = values[name];
+    if (typeof value !== "string") continue;
+    const folded = foldUniqueText(value);
+    if (folded === value) continue;
+    if (out === values) out = { ...values };
+    out[name] = folded === "" ? null : folded;
+  }
+  return out;
+}
 
 /** Refuses a write that would leave two live records alike under one of the object's rules. */
 export async function assertUnique(
@@ -18,6 +42,7 @@ export async function assertUnique(
   object: ObjectDefinition,
   id: string,
   after: Record<string, unknown>,
+  options: { restoring?: boolean } = {},
 ): Promise<void> {
   const stateField = object.states?.field;
   for (const rule of object.unique ?? []) {
@@ -47,11 +72,18 @@ export async function assertUnique(
     const existing = (await query.limit(1).executeTakeFirst()) as { id: string } | undefined;
     if (!existing) continue;
     const labels = fields.map((f) => f?.label ?? "").join(" and ");
-    throw new ConflictError(`There is already a ${object.label.toLowerCase()} for this ${labels}`, {
-      rule: "unique",
-      object: object.name,
-      fields: [...rule.fields],
-      existing: existing.id,
-    });
+    const what = object.label.toLowerCase();
+    throw new ConflictError(
+      options.restoring
+        ? `This ${what} cannot come back from the Trash: another ${what} now has the same ${labels}. Change or remove that one first, then restore this one.`
+        : `There is already a ${what} for this ${labels}`,
+      {
+        rule: "unique",
+        ...(options.restoring ? { reason: "taken_while_in_trash" } : {}),
+        object: object.name,
+        fields: [...rule.fields],
+        existing: existing.id,
+      },
+    );
   }
 }

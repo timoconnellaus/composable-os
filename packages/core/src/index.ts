@@ -154,6 +154,9 @@ export * from "./gate.ts";
 export * from "./guesses.ts";
 export * from "./http/index.ts";
 export * from "./ids.ts";
+// The shared inbox's writers (stage 36, ADR 0740): the host's own code writes conversations and
+// their messages (the inbound hook, chat, the fake provider's development route).
+export { messageStatements, newConversationStatement } from "./inbox/index.ts";
 export * from "./intake/links.ts";
 export * from "./intake/runtime.ts";
 export * from "./integrations/catalogue.ts";

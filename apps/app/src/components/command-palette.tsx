@@ -36,7 +36,7 @@ import {
   UserPlusIcon,
 } from "lucide-react";
 import { type ReactNode, useEffect, useState } from "react";
-import { MAIN_NAV, type NavItem, NOTIFICATIONS_NAV, SETTINGS_NAV } from "#/lib/nav";
+import { MAIN_NAV, type NavItem, NOTIFICATIONS_NAV, navItemShown, SETTINGS_NAV } from "#/lib/nav";
 import {
   type HighlightSegment,
   type SearchAdapter,
@@ -53,6 +53,8 @@ export interface CommandPaletteProps {
   onCreate: (kind: CreateKind) => void;
   onShowShortcuts: () => void;
   isAdmin: boolean;
+  /** The nav items' permissions the account holds (the session's): a section needing another is not offered. */
+  navPermissions: readonly string[];
   /** Search backend (default: the app's adapter). */
   search?: SearchAdapter;
 }
@@ -137,6 +139,7 @@ export function CommandPalette({
   onCreate,
   onShowShortcuts,
   isAdmin,
+  navPermissions,
   search = searchAdapter,
 }: CommandPaletteProps) {
   const navigate = useNavigate();
@@ -209,7 +212,7 @@ export function CommandPalette({
     },
   ];
   const nav = [
-    ...MAIN_NAV,
+    ...MAIN_NAV.filter((item) => navItemShown(item, navPermissions)),
     NOTIFICATIONS_NAV,
     ...SETTINGS_NAV.filter((item) => isAdmin || !item.adminOnly),
   ].map(go);

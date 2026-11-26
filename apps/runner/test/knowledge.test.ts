@@ -666,3 +666,101 @@ describe("help pages and the public", () => {
     expect(out.topics.length).toBeGreaterThanOrEqual(2);
   });
 });
+
+describe("a procedure's section and pictures, as each reader is given them (step 6, ADR 0708)", () => {
+  it("gives every staff reader the section's name with the procedure, so a coach asks for none", async () => {
+    const name = unique("Safety ");
+    const section = await run<{ id: string }>(
+      "record.create",
+      { object: "knowledge.section", values: { name, order: 3 } },
+      staff(admin),
+    );
+    const id = await draftedProcedure(unique("Spills"), "# Straight away\nCone it off.");
+    await run(
+      "record.update",
+      { object: PROCEDURE, id, values: { section: section.id } },
+      staff(admin),
+    );
+    await run("record.publish", { object: PROCEDURE, id }, staff(admin));
+    // The coach is still refused the section itself.
+    const refused = await refusal(
+      run("record.get", { object: "knowledge.section", id: section.id }, staff(coach)),
+    );
+    expect(refused.code).toBe("forbidden");
+    const given = { section: { id: section.id, title: name, order: 3 } };
+    for (const who of [coach, member]) {
+      const one = await run<{ names?: Record<string, unknown> }>(
+        "content.staffGet",
+        { object: PROCEDURE, id },
+        staff(who),
+      );
+      expect(one.names).toEqual(given);
+      const page = await run<{ items: { id: string; names?: Record<string, unknown> }[] }>(
+        "content.staffList",
+        { object: PROCEDURE, filter: { field: "section", op: "eq", value: section.id } },
+        staff(who),
+      );
+      expect(page.items.find((p) => p.id === id)?.names).toEqual(given);
+    }
+    // A deleted section: no name.
+    await run("record.delete", { object: "knowledge.section", id: section.id }, staff(admin));
+    const after = await run<{ names?: Record<string, unknown> }>(
+      "content.staffGet",
+      { object: PROCEDURE, id },
+      staff(coach),
+    );
+    expect(after.names).toEqual({});
+  });
+
+  it("refuses at install a staffNames field naming an object with rules of its own", async () => {
+    // A runtime extension whose page names a chapter that is itself publishable: its title could
+    // be an unpublished draft's, so no staff reader is given it, and the install is refused.
+    const source = (chapter: string) => `import { defineExtension } from "@composable-os/sdk";
+export default defineExtension({
+  id: "manualx",
+  version: "1.0.0",
+  contractVersion: 1,
+  objects: {
+    page: {
+      label: "Page",
+      plural: "Pages",
+      titleField: "title",
+      fields: {
+        title: { type: "text", label: "Title" },
+        chapter: { type: "relation", label: "Chapter", to: "manualx.chapter" },
+      },
+      publishable: { content: ["title", "chapter"], staffRead: true, staffNames: ["chapter"] },
+    },
+    chapter: {
+      label: "Chapter",
+      plural: "Chapters",
+      titleField: "name",
+      fields: { name: { type: "text", label: "Name" } },
+      ${chapter}
+    },
+  },
+});
+`;
+    const refused = await refusal(
+      run(
+        "extension.install",
+        { id: "manualx", files: { "index.ts": source('publishable: { content: ["name"] },') } },
+        staff(admin),
+      ),
+    );
+    expect(JSON.stringify(refused.details)).toContain(
+      "which declares publishable: staffNames names only an object with no row rules of its own",
+    );
+  });
+
+  it("says whether the reader is served the procedure's pictures: a pack role is not", async () => {
+    const id = await draftedProcedure(unique("Pictures"), "Look at the chart.");
+    await run("record.publish", { object: PROCEDURE, id }, staff(admin));
+    const pictures = async (who: ActingUser) =>
+      (await run<{ pictures: boolean }>("content.staffGet", { object: PROCEDURE, id }, staff(who)))
+        .pictures;
+    expect(await pictures(admin)).toBe(true);
+    expect(await pictures(member)).toBe(true);
+    expect(await pictures(coach)).toBe(false);
+  });
+});

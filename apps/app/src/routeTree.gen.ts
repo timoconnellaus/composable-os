@@ -36,6 +36,9 @@ import { Route as AppAutomationsIndexRouteImport } from './routes/_app/automatio
 import { Route as AppAutomationsIdRouteImport } from './routes/_app/automations/$id'
 import { Route as AppDashboardsIndexRouteImport } from './routes/_app/dashboards/index'
 import { Route as AppDashboardsIdRouteImport } from './routes/_app/dashboards/$id'
+import { Route as AppInboxIndexRouteImport } from './routes/_app/inbox/index'
+import { Route as AppInboxIdRouteImport } from './routes/_app/inbox/$id'
+import { Route as AppInboxSavedRepliesRouteImport } from './routes/_app/inbox/saved-replies'
 import { Route as AppOrdersIndexRouteImport } from './routes/_app/orders/index'
 import { Route as AppOrdersIdRouteImport } from './routes/_app/orders/$id'
 import { Route as AppOrganisationsIndexRouteImport } from './routes/_app/organisations/index'
@@ -58,6 +61,7 @@ import { Route as AppSettingsDevicesRouteImport } from './routes/_app/settings/d
 import { Route as AppSettingsDuplicatesRouteImport } from './routes/_app/settings/duplicates'
 import { Route as AppSettingsExtensionsRouteImport } from './routes/_app/settings/extensions'
 import { Route as AppSettingsGeneralRouteImport } from './routes/_app/settings/general'
+import { Route as AppSettingsInboxRouteImport } from './routes/_app/settings/inbox'
 import { Route as AppSettingsIntegrationsRouteImport } from './routes/_app/settings/integrations'
 import { Route as AppSettingsNotesRouteImport } from './routes/_app/settings/notes'
 import { Route as AppSettingsNotificationDeliveryRouteImport } from './routes/_app/settings/notification-delivery'
@@ -221,6 +225,21 @@ const AppDashboardsIdRoute = AppDashboardsIdRouteImport.update({
   path: '/dashboards/$id',
   getParentRoute: () => AppRoute,
 } as any)
+const AppInboxIndexRoute = AppInboxIndexRouteImport.update({
+  id: '/inbox/',
+  path: '/inbox/',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppInboxIdRoute = AppInboxIdRouteImport.update({
+  id: '/inbox/$id',
+  path: '/inbox/$id',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppInboxSavedRepliesRoute = AppInboxSavedRepliesRouteImport.update({
+  id: '/inbox/saved-replies',
+  path: '/inbox/saved-replies',
+  getParentRoute: () => AppRoute,
+} as any)
 const AppOrdersIndexRoute = AppOrdersIndexRouteImport.update({
   id: '/orders/',
   path: '/orders/',
@@ -334,6 +353,11 @@ const AppSettingsExtensionsRoute = AppSettingsExtensionsRouteImport.update({
 const AppSettingsGeneralRoute = AppSettingsGeneralRouteImport.update({
   id: '/settings/general',
   path: '/settings/general',
+  getParentRoute: () => AppRoute,
+} as any)
+const AppSettingsInboxRoute = AppSettingsInboxRouteImport.update({
+  id: '/settings/inbox',
+  path: '/settings/inbox',
   getParentRoute: () => AppRoute,
 } as any)
 const AppSettingsIntegrationsRoute = AppSettingsIntegrationsRouteImport.update({
@@ -511,6 +535,8 @@ export interface FileRoutesByFullPath {
   '/assistant/cards': typeof AppAssistantCardsRoute
   '/automations/$id': typeof AppAutomationsIdRoute
   '/dashboards/$id': typeof AppDashboardsIdRoute
+  '/inbox/$id': typeof AppInboxIdRoute
+  '/inbox/saved-replies': typeof AppInboxSavedRepliesRoute
   '/orders/$id': typeof AppOrdersIdRoute
   '/organisations/$id': typeof AppOrganisationsIdRoute
   '/people/$id': typeof AppPeopleIdRoute
@@ -529,6 +555,7 @@ export interface FileRoutesByFullPath {
   '/settings/duplicates': typeof AppSettingsDuplicatesRoute
   '/settings/extensions': typeof AppSettingsExtensionsRoute
   '/settings/general': typeof AppSettingsGeneralRoute
+  '/settings/inbox': typeof AppSettingsInboxRoute
   '/settings/integrations': typeof AppSettingsIntegrationsRoute
   '/settings/notes': typeof AppSettingsNotesRoute
   '/settings/notification-delivery': typeof AppSettingsNotificationDeliveryRoute
@@ -548,6 +575,7 @@ export interface FileRoutesByFullPath {
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/automations/': typeof AppAutomationsIndexRoute
   '/dashboards/': typeof AppDashboardsIndexRoute
+  '/inbox/': typeof AppInboxIndexRoute
   '/orders/': typeof AppOrdersIndexRoute
   '/organisations/': typeof AppOrganisationsIndexRoute
   '/people/': typeof AppPeopleIndexRoute
@@ -589,6 +617,8 @@ export interface FileRoutesByTo {
   '/assistant/cards': typeof AppAssistantCardsRoute
   '/automations/$id': typeof AppAutomationsIdRoute
   '/dashboards/$id': typeof AppDashboardsIdRoute
+  '/inbox/$id': typeof AppInboxIdRoute
+  '/inbox/saved-replies': typeof AppInboxSavedRepliesRoute
   '/orders/$id': typeof AppOrdersIdRoute
   '/organisations/$id': typeof AppOrganisationsIdRoute
   '/people/$id': typeof AppPeopleIdRoute
@@ -607,6 +637,7 @@ export interface FileRoutesByTo {
   '/settings/duplicates': typeof AppSettingsDuplicatesRoute
   '/settings/extensions': typeof AppSettingsExtensionsRoute
   '/settings/general': typeof AppSettingsGeneralRoute
+  '/settings/inbox': typeof AppSettingsInboxRoute
   '/settings/integrations': typeof AppSettingsIntegrationsRoute
   '/settings/notes': typeof AppSettingsNotesRoute
   '/settings/notification-delivery': typeof AppSettingsNotificationDeliveryRoute
@@ -626,6 +657,7 @@ export interface FileRoutesByTo {
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/automations': typeof AppAutomationsIndexRoute
   '/dashboards': typeof AppDashboardsIndexRoute
+  '/inbox': typeof AppInboxIndexRoute
   '/orders': typeof AppOrdersIndexRoute
   '/organisations': typeof AppOrganisationsIndexRoute
   '/people': typeof AppPeopleIndexRoute
@@ -669,6 +701,8 @@ export interface FileRoutesById {
   '/_app/assistant_/cards': typeof AppAssistantCardsRoute
   '/_app/automations/$id': typeof AppAutomationsIdRoute
   '/_app/dashboards/$id': typeof AppDashboardsIdRoute
+  '/_app/inbox/$id': typeof AppInboxIdRoute
+  '/_app/inbox/saved-replies': typeof AppInboxSavedRepliesRoute
   '/_app/orders/$id': typeof AppOrdersIdRoute
   '/_app/organisations/$id': typeof AppOrganisationsIdRoute
   '/_app/people/$id': typeof AppPeopleIdRoute
@@ -687,6 +721,7 @@ export interface FileRoutesById {
   '/_app/settings/duplicates': typeof AppSettingsDuplicatesRoute
   '/_app/settings/extensions': typeof AppSettingsExtensionsRoute
   '/_app/settings/general': typeof AppSettingsGeneralRoute
+  '/_app/settings/inbox': typeof AppSettingsInboxRoute
   '/_app/settings/integrations': typeof AppSettingsIntegrationsRoute
   '/_app/settings/notes': typeof AppSettingsNotesRoute
   '/_app/settings/notification-delivery': typeof AppSettingsNotificationDeliveryRoute
@@ -706,6 +741,7 @@ export interface FileRoutesById {
   '/api/auth/$': typeof ApiAuthSplatRoute
   '/_app/automations/': typeof AppAutomationsIndexRoute
   '/_app/dashboards/': typeof AppDashboardsIndexRoute
+  '/_app/inbox/': typeof AppInboxIndexRoute
   '/_app/orders/': typeof AppOrdersIndexRoute
   '/_app/organisations/': typeof AppOrganisationsIndexRoute
   '/_app/people/': typeof AppPeopleIndexRoute
@@ -749,6 +785,8 @@ export interface FileRouteTypes {
     | '/assistant/cards'
     | '/automations/$id'
     | '/dashboards/$id'
+    | '/inbox/$id'
+    | '/inbox/saved-replies'
     | '/orders/$id'
     | '/organisations/$id'
     | '/people/$id'
@@ -767,6 +805,7 @@ export interface FileRouteTypes {
     | '/settings/duplicates'
     | '/settings/extensions'
     | '/settings/general'
+    | '/settings/inbox'
     | '/settings/integrations'
     | '/settings/notes'
     | '/settings/notification-delivery'
@@ -786,6 +825,7 @@ export interface FileRouteTypes {
     | '/api/auth/$'
     | '/automations/'
     | '/dashboards/'
+    | '/inbox/'
     | '/orders/'
     | '/organisations/'
     | '/people/'
@@ -827,6 +867,8 @@ export interface FileRouteTypes {
     | '/assistant/cards'
     | '/automations/$id'
     | '/dashboards/$id'
+    | '/inbox/$id'
+    | '/inbox/saved-replies'
     | '/orders/$id'
     | '/organisations/$id'
     | '/people/$id'
@@ -845,6 +887,7 @@ export interface FileRouteTypes {
     | '/settings/duplicates'
     | '/settings/extensions'
     | '/settings/general'
+    | '/settings/inbox'
     | '/settings/integrations'
     | '/settings/notes'
     | '/settings/notification-delivery'
@@ -864,6 +907,7 @@ export interface FileRouteTypes {
     | '/api/auth/$'
     | '/automations'
     | '/dashboards'
+    | '/inbox'
     | '/orders'
     | '/organisations'
     | '/people'
@@ -906,6 +950,8 @@ export interface FileRouteTypes {
     | '/_app/assistant_/cards'
     | '/_app/automations/$id'
     | '/_app/dashboards/$id'
+    | '/_app/inbox/$id'
+    | '/_app/inbox/saved-replies'
     | '/_app/orders/$id'
     | '/_app/organisations/$id'
     | '/_app/people/$id'
@@ -924,6 +970,7 @@ export interface FileRouteTypes {
     | '/_app/settings/duplicates'
     | '/_app/settings/extensions'
     | '/_app/settings/general'
+    | '/_app/settings/inbox'
     | '/_app/settings/integrations'
     | '/_app/settings/notes'
     | '/_app/settings/notification-delivery'
@@ -943,6 +990,7 @@ export interface FileRouteTypes {
     | '/api/auth/$'
     | '/_app/automations/'
     | '/_app/dashboards/'
+    | '/_app/inbox/'
     | '/_app/orders/'
     | '/_app/organisations/'
     | '/_app/people/'
@@ -1167,6 +1215,27 @@ declare module '@tanstack/react-router' {
       preLoaderRoute: typeof AppDashboardsIdRouteImport
       parentRoute: typeof AppRoute
     }
+    '/_app/inbox/': {
+      id: '/_app/inbox/'
+      path: '/inbox'
+      fullPath: '/inbox/'
+      preLoaderRoute: typeof AppInboxIndexRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/inbox/$id': {
+      id: '/_app/inbox/$id'
+      path: '/inbox/$id'
+      fullPath: '/inbox/$id'
+      preLoaderRoute: typeof AppInboxIdRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/inbox/saved-replies': {
+      id: '/_app/inbox/saved-replies'
+      path: '/inbox/saved-replies'
+      fullPath: '/inbox/saved-replies'
+      preLoaderRoute: typeof AppInboxSavedRepliesRouteImport
+      parentRoute: typeof AppRoute
+    }
     '/_app/orders/': {
       id: '/_app/orders/'
       path: '/orders'
@@ -1319,6 +1388,13 @@ declare module '@tanstack/react-router' {
       path: '/settings/general'
       fullPath: '/settings/general'
       preLoaderRoute: typeof AppSettingsGeneralRouteImport
+      parentRoute: typeof AppRoute
+    }
+    '/_app/settings/inbox': {
+      id: '/_app/settings/inbox'
+      path: '/settings/inbox'
+      fullPath: '/settings/inbox'
+      preLoaderRoute: typeof AppSettingsInboxRouteImport
       parentRoute: typeof AppRoute
     }
     '/_app/settings/integrations': {
@@ -1536,6 +1612,8 @@ interface AppRouteChildren {
   AppAssistantCardsRoute: typeof AppAssistantCardsRoute
   AppAutomationsIdRoute: typeof AppAutomationsIdRoute
   AppDashboardsIdRoute: typeof AppDashboardsIdRoute
+  AppInboxIdRoute: typeof AppInboxIdRoute
+  AppInboxSavedRepliesRoute: typeof AppInboxSavedRepliesRoute
   AppOrdersIdRoute: typeof AppOrdersIdRoute
   AppOrganisationsIdRoute: typeof AppOrganisationsIdRoute
   AppPeopleIdRoute: typeof AppPeopleIdRoute
@@ -1554,6 +1632,7 @@ interface AppRouteChildren {
   AppSettingsDuplicatesRoute: typeof AppSettingsDuplicatesRoute
   AppSettingsExtensionsRoute: typeof AppSettingsExtensionsRoute
   AppSettingsGeneralRoute: typeof AppSettingsGeneralRoute
+  AppSettingsInboxRoute: typeof AppSettingsInboxRoute
   AppSettingsIntegrationsRoute: typeof AppSettingsIntegrationsRoute
   AppSettingsNotesRoute: typeof AppSettingsNotesRoute
   AppSettingsNotificationDeliveryRoute: typeof AppSettingsNotificationDeliveryRoute
@@ -1570,6 +1649,7 @@ interface AppRouteChildren {
   AppSubscriptionsIdRoute: typeof AppSubscriptionsIdRoute
   AppAutomationsIndexRoute: typeof AppAutomationsIndexRoute
   AppDashboardsIndexRoute: typeof AppDashboardsIndexRoute
+  AppInboxIndexRoute: typeof AppInboxIndexRoute
   AppOrdersIndexRoute: typeof AppOrdersIndexRoute
   AppOrganisationsIndexRoute: typeof AppOrganisationsIndexRoute
   AppPeopleIndexRoute: typeof AppPeopleIndexRoute
@@ -1601,6 +1681,8 @@ const AppRouteChildren: AppRouteChildren = {
   AppAssistantCardsRoute: AppAssistantCardsRoute,
   AppAutomationsIdRoute: AppAutomationsIdRoute,
   AppDashboardsIdRoute: AppDashboardsIdRoute,
+  AppInboxIdRoute: AppInboxIdRoute,
+  AppInboxSavedRepliesRoute: AppInboxSavedRepliesRoute,
   AppOrdersIdRoute: AppOrdersIdRoute,
   AppOrganisationsIdRoute: AppOrganisationsIdRoute,
   AppPeopleIdRoute: AppPeopleIdRoute,
@@ -1619,6 +1701,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppSettingsDuplicatesRoute: AppSettingsDuplicatesRoute,
   AppSettingsExtensionsRoute: AppSettingsExtensionsRoute,
   AppSettingsGeneralRoute: AppSettingsGeneralRoute,
+  AppSettingsInboxRoute: AppSettingsInboxRoute,
   AppSettingsIntegrationsRoute: AppSettingsIntegrationsRoute,
   AppSettingsNotesRoute: AppSettingsNotesRoute,
   AppSettingsNotificationDeliveryRoute: AppSettingsNotificationDeliveryRoute,
@@ -1635,6 +1718,7 @@ const AppRouteChildren: AppRouteChildren = {
   AppSubscriptionsIdRoute: AppSubscriptionsIdRoute,
   AppAutomationsIndexRoute: AppAutomationsIndexRoute,
   AppDashboardsIndexRoute: AppDashboardsIndexRoute,
+  AppInboxIndexRoute: AppInboxIndexRoute,
   AppOrdersIndexRoute: AppOrdersIndexRoute,
   AppOrganisationsIndexRoute: AppOrganisationsIndexRoute,
   AppPeopleIndexRoute: AppPeopleIndexRoute,

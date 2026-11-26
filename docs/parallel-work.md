@@ -22,7 +22,7 @@ here is what made parallel PRs conflict.
 | F | 0270–0279 | 0255–0259 | Core fixes (erase, automations) | merged |
 | G | 0280–0289 | 0260–0269 (free) | Stage 12, Import (migrations only) | specced |
 | H | 0290–0299 | 0270–0279 (free) | Stage 13, Email (migrations only) | specced |
-| I | 0300–0309 | 0280–0289 (free) | Stage 14, Teams and permissions (migrations only) | specced |
+| I | 0300–0309 | 0280–0289 (free) | Stage 14, Teams and permissions (migrations only); released 2026-11-25, the re-spec uses block CD (these numbers sort before the tables it changes) | released |
 | J | 0310–0319 | 0290–0299 (free) | Stage 15, Leads: the Leads and lifecycle extensions, assignment rules (migration 0310 used; no ADRs, ADR 0246 amended) | in flight |
 | K | 0320–0329 | 0300–0309 (free) | Stage 16, Duplicates (migration 0320 used; ADR 0247 from block D) | in flight |
 | L | 0330–0339 | 0320–0329 | Erase completeness (every store) | in flight |
@@ -85,12 +85,15 @@ here is what made parallel PRs conflict.
 | BR | 1230–1249 | 0830–0839 | Stage 56, Client notes (spec `docs/stages/56-client-notes.md`) | specced |
 | BS | 1250–1269 | 0840–0849 | Stage 57, Events and venue hire (spec `docs/stages/57-events-venue-hire.md`) | specced |
 | BT | 1270–1289 | 0850–0859 | Stage 58, Timesheets and leave (spec `docs/stages/58-timesheets-leave.md`) | specced |
+| BU | 1290–1309 | 0860–0869 | Stage 59, Equipment (spec `docs/stages/59-equipment.md`; what each step used is in its Status section) | in flight |
 | BV | 1310–1329 | 0870–0879 | Stage 60, Owner's Today (spec `docs/stages/60-owners-today.md`) | step 1 built (ADR 0871 used; no migration) |
 | BW | 1330–1349 | 0880–0889 | Stage 61, Accounting sync (spec `docs/stages/61-accounting-sync.md`; step 1, `feat/stage-61-accounting-contract`: the contract, the fake and the conformance suite, ADR 0880, no migration) | in flight |
 | BY | 1370–1389 | 0900–0909 | Stage 63, App publishing (spec `docs/stages/63-app-publishing.md`) | specced |
+| BZ | 1390–1409 | 0910–0919 | Stage 64, More than one location (spec `docs/stages/64-multi-location.md`; each step's numbers are in its Status) | in flight |
 | CA | 1410–1429 | 0920–0929 | Stage 65, Booking system connection (spec `docs/stages/65-booking-system-connection.md`): migrations 1410 and 1411, ADRs 0920 to 0925 named in the spec | specced |
 | CB | — | 0930–0939 | The docs site (`apps/docs`, `feat/docs-site`): ADR 0930; no migrations | in flight |
 | CC | 1450–1469 | 0940–0949 | A rate limit for public operations (`feat/public-rate-limit`): the per-client-address limit, the visitor's address through the client-app binding, wrong guesses counted, promo codes looked up by index | in flight |
+| CD | 1470–1489 | 0950–0959 | Stage 14, Teams and permissions (re-spec 2026-11-25, `docs/stage-14-respec`; spec `docs/stages/14-teams-permissions.md`): migrations 1470 to 1473 and ADRs 0950 to 0955 named in the spec. Migration 1430 is stage 36's, outside its block | specced |
 
 **`core_write_guard` remakes come in order.** Each kind added drops and recreates the table and its
 trigger, carrying every earlier kind. Stage 44 step 2's remake (migration 0851, kind `agreements`)

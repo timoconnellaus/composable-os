@@ -64,3 +64,10 @@ a `zoneField` that is not a timezone field is refused.
   zone added to records that already exist" (without the reconciler's fill it fails).
 - Zoned triggers read their candidate rows once an hour instead of once a day.
 - The admin edits a zone as text (the field's validation names the format); a picker is for later.
+
+## Amended 2026-11-26: a located record's zone is its location's
+
+Stage 64 step 2 (ADR [0911](0911-located-and-agree-and-the-located-zone-default.md)): on an object
+that declares `located`, an empty `timezone` takes the zone of the record's location instead of the
+organisation's, in `record.create`, in a series' rule (`recurring`) and in the reconciler's fill of
+a zone added to records that exist. What is not located keeps the organisation's zone, as above.

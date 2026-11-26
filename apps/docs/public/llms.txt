@@ -59,6 +59,14 @@
 - [Deals: screens](https://docs.composableos.dev/packs/deals/screens/)
 - [Deals: settings](https://docs.composableos.dev/packs/deals/settings/)
 - [Deals: operations and tools](https://docs.composableos.dev/packs/deals/tools/)
+- [Equipment: data model](https://docs.composableos.dev/packs/equipment/data-model/)
+- [Equipment: decisions](https://docs.composableos.dev/packs/equipment/decisions/)
+- [Equipment](https://docs.composableos.dev/packs/equipment/): A register of what a business owns and looks after, with tags, suppliers, costs and warranties; faults reported by staff; items taken out of service by any staff member and put back by a manager.
+- [Equipment: messages](https://docs.composableos.dev/packs/equipment/messages/)
+- [Equipment: permissions and roles](https://docs.composableos.dev/packs/equipment/permissions/)
+- [Equipment: screens](https://docs.composableos.dev/packs/equipment/screens/)
+- [Equipment: settings](https://docs.composableos.dev/packs/equipment/settings/)
+- [Equipment: operations and tools](https://docs.composableos.dev/packs/equipment/tools/)
 - [Forms: data model](https://docs.composableos.dev/packs/forms/data-model/)
 - [Forms: decisions](https://docs.composableos.dev/packs/forms/decisions/)
 - [Forms](https://docs.composableos.dev/packs/forms/): Forms a business builds and publishes (enquiries, sign-ups, surveys, feedback, staff reports), and every answer in one inbox, linked to the person who sent it.
@@ -100,6 +108,14 @@
 - [Memberships: screens](https://docs.composableos.dev/packs/memberships/screens/)
 - [Memberships: settings](https://docs.composableos.dev/packs/memberships/settings/)
 - [Memberships: operations and tools](https://docs.composableos.dev/packs/memberships/tools/)
+- [Offers: data model](https://docs.composableos.dev/packs/offers/data-model/)
+- [Offers: decisions](https://docs.composableos.dev/packs/offers/decisions/)
+- [Offers](https://docs.composableos.dev/packs/offers/): Money off, as discounts the host applies when it prices an order - promo codes, batches of single-use codes, members' prices and customer rates - each with its dates and limits, made live by a person.
+- [Offers: messages](https://docs.composableos.dev/packs/offers/messages/)
+- [Offers: permissions and roles](https://docs.composableos.dev/packs/offers/permissions/)
+- [Offers: screens](https://docs.composableos.dev/packs/offers/screens/)
+- [Offers: settings](https://docs.composableos.dev/packs/offers/settings/)
+- [Offers: operations and tools](https://docs.composableos.dev/packs/offers/tools/)
 - [Programs: data model](https://docs.composableos.dev/packs/programs/data-model/)
 - [Programs: decisions](https://docs.composableos.dev/packs/programs/decisions/)
 - [Programs](https://docs.composableos.dev/packs/programs/): An exercise bank, programs built from it as one layout (weeks, sessions, blocks, items, levels, typed sets), published versions, assignments to a person or a class type as dated sessions, and a log of every set against its target.
@@ -217,6 +233,14 @@
 - [forms-form](https://docs.composableos.dev/reference/blocks/forms-form/): A form to fill in, for the business's own website (stage 29 step 4): any published form, with every question kind the question schema has, then its thank-you.
 - [forms-native-form](https://docs.composableos.dev/reference/blocks/forms-native-form/): A form to fill in, for the mobile app (stage 29 step 4): the native skin over the same headless entry as the web block, with every question kind the question schema has, then its thank-you.
 - [Blocks](https://docs.composableos.dev/reference/blocks/)
+- [knowledge-help-centre](https://docs.composableos.dev/reference/blocks/knowledge-help-centre/): The help centre (stage 38 step 6, ADR 0708), for a business's own website: a search box with results as the visitor types, and the help topics with their pages; a topic's own page.
+- [knowledge-help-page](https://docs.composableos.dev/reference/blocks/knowledge-help-page/): One help page (stage 38 step 6, ADR 0708), for a site's /help/&lt;address&gt; page: its title, summary and body as the public reads it (`useHelpPage`: the published version only, ADR 0442), and its related pages.
+- [knowledge-native-help](https://docs.composableos.dev/reference/blocks/knowledge-native-help/): The help centre in the app (stage 38 step 6, ADR 0708), for members: the same as the web's, over the native base.
+- [knowledge-native-procedures](https://docs.composableos.dev/reference/blocks/knowledge-native-procedures/): Procedures in the app, for staff (stage 38 step 6, ADR 0708): the same as the web's, over the native base.
+- [knowledge-native-to-read](https://docs.composableos.dev/reference/blocks/knowledge-native-to-read/): To read in the app (stage 38 step 6, ADR 0708): the same as the web's, over the native base.
+- [knowledge-procedures](https://docs.composableos.dev/reference/blocks/knowledge-procedures/): Procedures for staff (stage 38 step 6, ADR 0708): every published procedure, by section, with search, and the reader: one procedure in the wording last published (\"Version 4, published 3 March 2026\"), never the draft, with \"I have read and understood this\" at its end when it is the reader's to confirm.
+- [knowledge-read-status](https://docs.composableos.dev/reference/blocks/knowledge-read-status/): Read status (stage 38 step 6, ADR 0708): for those who manage procedures, every published procedure staff must read with how many have confirmed its current version of how many must, and for one, everyone who must read it: who confirmed and when, who has not and since when; with an export as CSV.
+- [knowledge-to-read](https://docs.composableos.dev/reference/blocks/knowledge-to-read/): To read (stage 38 step 6, ADR 0708): the procedures I must read and have not confirmed, oldest first, each with the version to read and since when, and what I have confirmed and when.
 - [memberships-mine](https://docs.composableos.dev/reference/blocks/memberships-mine/): A member's memberships and passes on the gym's site (stage 32b), and their section of My account (stage 48): what each allows, when it stops or expires, and what is left this week, this month or in all, from the host's count (`x.memberships.mine`, `allowance.get`); a child's the gym linked to them too (decision 8: a parent sees a child's memberships and passes), each under the child's name; and their membership subscriptions, through My account's one subscriptions part (`web-account-subscriptions`): cancel at the period's end, keep it going, confirm a payment that waits on them, and here a change of plan (the host decides: an upgrade now, its prorated charge on the card, or a downgrade from the next period).
 - [memberships-native-mine](https://docs.composableos.dev/reference/blocks/memberships-native-mine/): A member's memberships and passes in the gym's app (stage 32b), and their section of the app's My account (stage 48), read only: what each allows, what is left this week, this month or in all (the host's count), when it stops or expires, a child's the gym linked to them under the child's name (decision 8), and their membership's billing state in words through My account's one subscriptions part (`native-account-subscriptions`), with a plan change or a pause waiting and \"Manage on the website\" (`onManage`, which the account shell gives).
 - [memberships-passes](https://docs.composableos.dev/reference/blocks/memberships-passes/): Buying a pass on a gym's site (stage 32b): the pass types on sale (class packs, drop-ins, an intro offer) with the host's price, what each gives and how long it is valid, and a button that starts the order and opens the payment provider's page.
@@ -399,6 +423,7 @@
 - [routine.* operations](https://docs.composableos.dev/reference/operations/routine/): The core operations named routine.*
 - [routineMail.* operations](https://docs.composableos.dev/reference/operations/routinemail/): The core operations named routineMail.*
 - [sample.* operations](https://docs.composableos.dev/reference/operations/sample/): The core operations named sample.*
+- [savedReply.* operations](https://docs.composableos.dev/reference/operations/savedreply/): The core operations named savedReply.*
 - [schema.* operations](https://docs.composableos.dev/reference/operations/schema/): The core operations named schema.*
 - [screens.* operations](https://docs.composableos.dev/reference/operations/screens/): The core operations named screens.*
 - [search.* operations](https://docs.composableos.dev/reference/operations/search/): The core operations named search.*

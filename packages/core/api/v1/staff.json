@@ -26926,12 +26926,45 @@
             "type": "string",
             "description": "When that version was published"
           },
+          "names": {
+            "description": "For an object that declares staffNames: each related record those fields name, by field: its id, its title and, when declared, its order (a procedure's section)",
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "order": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "title"
+              ],
+              "additionalProperties": false
+            }
+          },
           "redirect": {
             "description": "Read by an old slug: the slug the record has now; else null",
             "type": [
               "string",
               "null"
             ]
+          },
+          "pictures": {
+            "type": "boolean",
+            "description": "Whether the caller is served the record's pictures (media.serve): false for an account with a pack role, which a reader then does not ask for (ADR 0708)"
           }
         },
         "required": [
@@ -26940,7 +26973,8 @@
           "values",
           "version",
           "publishedAt",
-          "redirect"
+          "redirect",
+          "pictures"
         ],
         "additionalProperties": false
       },
@@ -27106,6 +27140,35 @@
                 "publishedAt": {
                   "type": "string",
                   "description": "When that version was published"
+                },
+                "names": {
+                  "description": "For an object that declares staffNames: each related record those fields name, by field: its id, its title and, when declared, its order (a procedure's section)",
+                  "type": "object",
+                  "propertyNames": {
+                    "type": "string"
+                  },
+                  "additionalProperties": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string"
+                      },
+                      "title": {
+                        "type": "string"
+                      },
+                      "order": {
+                        "type": [
+                          "number",
+                          "null"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "title"
+                    ],
+                    "additionalProperties": false
+                  }
                 }
               },
               "required": [
@@ -28173,6 +28236,279 @@
         "required": [
           "id",
           "about"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "channel": {
+            "type": "string",
+            "enum": [
+              "email",
+              "chat"
+            ]
+          },
+          "subject": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "open",
+              "waiting",
+              "closed"
+            ]
+          },
+          "person": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                },
+                "required": [
+                  "id",
+                  "name"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The Person it is with; null while the sender is unknown"
+          },
+          "unknownSender": {
+            "description": "An unknown sender's address (null once linked to a Person)",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "senderUnverified": {
+            "type": "boolean",
+            "description": "The sender check failed on a message"
+          },
+          "assignee": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                },
+                "required": [
+                  "id",
+                  "name"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Who has it; null: unassigned"
+          },
+          "category": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "about": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "object": {
+                    "type": "string"
+                  },
+                  "id": {
+                    "type": "string"
+                  },
+                  "title": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                },
+                "required": [
+                  "object",
+                  "id"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The record it is about"
+          },
+          "private": {
+            "type": "boolean",
+            "description": "Only admins and whoever has it see it"
+          },
+          "privateAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "privateBy": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "openedAt": {
+            "type": "string"
+          },
+          "lastInboundAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "lastReplyAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "firstReplyAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "replyDueAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "snoozedUntil": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "closedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "closedBy": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "updatedAt": {
+            "type": "string"
+          },
+          "version": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991,
+            "description": "Pass back to a write to refuse it if this changed since"
+          }
+        },
+        "required": [
+          "id",
+          "channel",
+          "subject",
+          "status",
+          "person",
+          "unknownSender",
+          "senderUnverified",
+          "assignee",
+          "category",
+          "about",
+          "private",
+          "privateAt",
+          "privateBy",
+          "openedAt",
+          "lastInboundAt",
+          "lastReplyAt",
+          "firstReplyAt",
+          "replyDueAt",
+          "snoozedUntil",
+          "closedAt",
+          "closedBy",
+          "updatedAt",
+          "version"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "conversation.get"
+      ]
+    },
+    {
+      "name": "conversation.setCategory",
+      "description": "File a conversation under one of the inbox's categories (inbox.categories lists them), or under none (category null). Returns the conversation.",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "maxLength": 64,
+            "format": "starts_with",
+            "pattern": "^cnv_.*",
+            "description": "Conversation id (cnv_…)"
+          },
+          "category": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 40,
+                "description": "A category's name, as the admin wrote it"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "version": {
+            "description": "The version you read: the write is refused if the conversation changed since",
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": [
+          "id",
+          "category"
         ]
       },
       "output": {
@@ -43149,6 +43485,35 @@
       "invalidates": []
     },
     {
+      "name": "inbox.categories",
+      "description": "The categories an admin set for the shared inbox, in the order they are offered: what conversation.setCategory accepts and what inbox.list filters by. Read-only.",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "categories": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "categories"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
       "name": "inbox.list",
       "description": "The shared inbox: conversations with people by email and chat, most recent first, one page at a time. view: 'mine' (yours), 'unassigned' (nobody has it) or 'all'. Filter by status (default open and waiting), channel, category or a person. Each item says who it is with (or the unknown sender's address), who has it, its status and times. Private conversations are listed only for admins and whoever has them. Pass nextCursor back as cursor for the next page. Read-only.",
       "risk": "read",
@@ -43463,6 +43828,98 @@
         "additionalProperties": false
       },
       "invalidates": []
+    },
+    {
+      "name": "inbox.settings.get",
+      "description": "Read the shared inbox's settings: the categories conversations are filed under, in the order they are offered. A human admin in the app only.",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "categories": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The categories offered, in order"
+          }
+        },
+        "required": [
+          "categories"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
+      "name": "inbox.settings.update",
+      "description": "Change the shared inbox's settings: the categories conversations are filed under (the whole list, in order, at most 50; a name given twice is kept once). A conversation filed under a category taken off the list keeps it until someone changes it. Only what you pass changes. A human admin in the app only: AI assistants, MCP clients, automations and extensions are refused.",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "categories": {
+            "maxItems": 50,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 40,
+              "description": "A category's name, as the admin wrote it"
+            }
+          }
+        }
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "categories": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The categories offered, in order"
+          },
+          "previous": {
+            "type": "object",
+            "properties": {
+              "categories": {
+                "type": "array",
+                "items": {
+                  "type": "string"
+                },
+                "description": "The categories offered, in order"
+              }
+            },
+            "required": [
+              "categories"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "categories",
+          "previous"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "inbox.categories",
+        "inbox.list",
+        "inbox.settings.get"
+      ]
     },
     {
       "name": "integration.call",
@@ -55329,6 +55786,89 @@
         "additionalProperties": false
       },
       "invalidates": []
+    },
+    {
+      "name": "location.relocate",
+      "description": "Move a located record (a room) to another location together with every record that uses it (its classes and series, past and future, in the Trash too), in one change: the way to correct a record filed at the wrong location, since a used room's location never changes on its own. Times and zones are kept. A request from an AI always waits for a person to apply it. Returns how many records of each object moved.",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "object": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 81,
+            "description": "The record's object, e.g. bookings.room"
+          },
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "The record's id"
+          },
+          "location": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "The location to move it to"
+          }
+        },
+        "required": [
+          "object",
+          "id",
+          "location"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "object": {
+            "type": "string"
+          },
+          "id": {
+            "type": "string"
+          },
+          "location": {
+            "type": "string"
+          },
+          "moved": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "object": {
+                  "type": "string"
+                },
+                "count": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                }
+              },
+              "required": [
+                "object",
+                "count"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "object",
+          "id",
+          "location",
+          "moved"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "location.get",
+        "location.list"
+      ]
     },
     {
       "name": "location.reopen",
@@ -87387,6 +87927,698 @@
       "invalidates": []
     },
     {
+      "name": "savedReply.archive",
+      "description": "Archive a saved reply (archived: true, the default): it is kept, and no longer offered in the reply box; or bring an archived one back (archived: false). Who may: as for savedReply.update. People only. Returns the saved reply.",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "maxLength": 64,
+            "format": "starts_with",
+            "pattern": "^svr_.*",
+            "description": "Saved reply id (svr_…)"
+          },
+          "archived": {
+            "default": true,
+            "type": "boolean"
+          },
+          "version": {
+            "description": "The version you read: the write is refused if the saved reply changed since",
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "body": {
+            "type": "string",
+            "description": "Its words, with slots written {{person.firstName}}"
+          },
+          "channels": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "email",
+                "chat"
+              ]
+            },
+            "description": "The channels it fits"
+          },
+          "shared": {
+            "type": "boolean",
+            "description": "Shared by the whole inbox; false: the caller's own"
+          },
+          "owner": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                },
+                "required": [
+                  "id",
+                  "name"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Whose own it is; null for a shared one"
+          },
+          "slots": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "person.firstName",
+                "staff.firstName",
+                "business.name"
+              ]
+            }
+          },
+          "archived": {
+            "type": "boolean"
+          },
+          "archivedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "canEdit": {
+            "type": "boolean",
+            "description": "The caller may change or archive it"
+          },
+          "updatedAt": {
+            "type": "string"
+          },
+          "version": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991,
+            "description": "Pass back to a write to refuse it if this changed since"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "body",
+          "channels",
+          "shared",
+          "owner",
+          "slots",
+          "archived",
+          "archivedAt",
+          "canEdit",
+          "updatedAt",
+          "version"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "savedReply.fill",
+        "savedReply.list"
+      ]
+    },
+    {
+      "name": "savedReply.create",
+      "description": "Save a reply: a title, its words (plain text, with only the fixed slots {{person.firstName}}, {{staff.firstName}} and {{business.name}}) and the channels it fits. shared: true makes it the whole inbox's (admins only); otherwise it is the caller's own. People only. Returns the saved reply.",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "body": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 10000,
+            "description": "Its words, plain text. Slots: {{person.firstName}}, {{staff.firstName}}, {{business.name}}"
+          },
+          "channels": {
+            "default": [
+              "email",
+              "chat"
+            ],
+            "minItems": 1,
+            "maxItems": 2,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "email",
+                "chat"
+              ]
+            },
+            "description": "The channels it fits"
+          },
+          "shared": {
+            "default": false,
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "title",
+          "body"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "body": {
+            "type": "string",
+            "description": "Its words, with slots written {{person.firstName}}"
+          },
+          "channels": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "email",
+                "chat"
+              ]
+            },
+            "description": "The channels it fits"
+          },
+          "shared": {
+            "type": "boolean",
+            "description": "Shared by the whole inbox; false: the caller's own"
+          },
+          "owner": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                },
+                "required": [
+                  "id",
+                  "name"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Whose own it is; null for a shared one"
+          },
+          "slots": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "person.firstName",
+                "staff.firstName",
+                "business.name"
+              ]
+            }
+          },
+          "archived": {
+            "type": "boolean"
+          },
+          "archivedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "canEdit": {
+            "type": "boolean",
+            "description": "The caller may change or archive it"
+          },
+          "updatedAt": {
+            "type": "string"
+          },
+          "version": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991,
+            "description": "Pass back to a write to refuse it if this changed since"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "body",
+          "channels",
+          "shared",
+          "owner",
+          "slots",
+          "archived",
+          "archivedAt",
+          "canEdit",
+          "updatedAt",
+          "version"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "savedReply.fill",
+        "savedReply.list"
+      ]
+    },
+    {
+      "name": "savedReply.fill",
+      "description": "A saved reply's words for one conversation, its slots filled by the host: the person's first name, the caller's first name and the business's name. missing lists the slots that had no value (left empty, to fix before sending). Refused when it does not fit the conversation's channel, or is archived. Read-only: it sends nothing.",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "maxLength": 64,
+            "format": "starts_with",
+            "pattern": "^svr_.*",
+            "description": "Saved reply id (svr_…)"
+          },
+          "conversationId": {
+            "type": "string",
+            "maxLength": 64,
+            "format": "starts_with",
+            "pattern": "^cnv_.*",
+            "description": "Conversation id (cnv_…)"
+          }
+        },
+        "required": [
+          "id",
+          "conversationId"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string"
+          },
+          "body": {
+            "type": "string",
+            "description": "Plain text, slots filled"
+          },
+          "missing": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Slots with no value, left empty"
+          }
+        },
+        "required": [
+          "title",
+          "body",
+          "missing"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
+      "name": "savedReply.list",
+      "description": "The inbox's saved replies the caller may use: the shared ones and their own (never another staff member's own), by title, one page at a time. scope: 'all' (default), 'shared' or 'mine'. channel: only those that fit it. archived: true lists the archived ones instead. Each says its slots and whether the caller may change it. Pass nextCursor back as cursor for the next page. Read-only.",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "scope": {
+            "default": "all",
+            "type": "string",
+            "enum": [
+              "all",
+              "shared",
+              "mine"
+            ]
+          },
+          "channel": {
+            "type": "string",
+            "enum": [
+              "email",
+              "chat"
+            ]
+          },
+          "archived": {
+            "default": false,
+            "type": "boolean"
+          },
+          "cursor": {
+            "type": "string",
+            "maxLength": 1000
+          },
+          "limit": {
+            "default": 50,
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          }
+        }
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": "string"
+                },
+                "body": {
+                  "type": "string",
+                  "description": "Its words, with slots written {{person.firstName}}"
+                },
+                "channels": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "enum": [
+                      "email",
+                      "chat"
+                    ]
+                  },
+                  "description": "The channels it fits"
+                },
+                "shared": {
+                  "type": "boolean",
+                  "description": "Shared by the whole inbox; false: the caller's own"
+                },
+                "owner": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string"
+                        },
+                        "name": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "name"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "description": "Whose own it is; null for a shared one"
+                },
+                "slots": {
+                  "type": "array",
+                  "items": {
+                    "type": "string",
+                    "enum": [
+                      "person.firstName",
+                      "staff.firstName",
+                      "business.name"
+                    ]
+                  }
+                },
+                "archived": {
+                  "type": "boolean"
+                },
+                "archivedAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "canEdit": {
+                  "type": "boolean",
+                  "description": "The caller may change or archive it"
+                },
+                "updatedAt": {
+                  "type": "string"
+                },
+                "version": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991,
+                  "description": "Pass back to a write to refuse it if this changed since"
+                }
+              },
+              "required": [
+                "id",
+                "title",
+                "body",
+                "channels",
+                "shared",
+                "owner",
+                "slots",
+                "archived",
+                "archivedAt",
+                "canEdit",
+                "updatedAt",
+                "version"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "nextCursor": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "items",
+          "nextCursor"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
+      "name": "savedReply.update",
+      "description": "Change a saved reply's title, words or channels. One's own may be changed by its owner; a shared one by an admin. Only what you pass changes. People only. Returns the saved reply.",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "maxLength": 64,
+            "format": "starts_with",
+            "pattern": "^svr_.*",
+            "description": "Saved reply id (svr_…)"
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "body": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 10000,
+            "description": "Its words, plain text. Slots: {{person.firstName}}, {{staff.firstName}}, {{business.name}}"
+          },
+          "channels": {
+            "minItems": 1,
+            "maxItems": 2,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "email",
+                "chat"
+              ]
+            },
+            "description": "The channels it fits"
+          },
+          "version": {
+            "description": "The version you read: the write is refused if the saved reply changed since",
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "title": {
+            "type": "string"
+          },
+          "body": {
+            "type": "string",
+            "description": "Its words, with slots written {{person.firstName}}"
+          },
+          "channels": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "email",
+                "chat"
+              ]
+            },
+            "description": "The channels it fits"
+          },
+          "shared": {
+            "type": "boolean",
+            "description": "Shared by the whole inbox; false: the caller's own"
+          },
+          "owner": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                },
+                "required": [
+                  "id",
+                  "name"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Whose own it is; null for a shared one"
+          },
+          "slots": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "person.firstName",
+                "staff.firstName",
+                "business.name"
+              ]
+            }
+          },
+          "archived": {
+            "type": "boolean"
+          },
+          "archivedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "canEdit": {
+            "type": "boolean",
+            "description": "The caller may change or archive it"
+          },
+          "updatedAt": {
+            "type": "string"
+          },
+          "version": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991,
+            "description": "Pass back to a write to refuse it if this changed since"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "body",
+          "channels",
+          "shared",
+          "owner",
+          "slots",
+          "archived",
+          "archivedAt",
+          "canEdit",
+          "updatedAt",
+          "version"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "savedReply.fill",
+        "savedReply.list"
+      ]
+    },
+    {
       "name": "schema.objects",
       "description": "List every object in the field registry (core objects and extension objects) with their fields: name, label, type, filterability, sortability, whether computed, and type options (select choices, relation target, formula expression). Use it before record.* and list filters. Read-only.",
       "risk": "read",
@@ -111122,6 +112354,1051 @@
       "pack": "deals"
     },
     {
+      "name": "x.equipment.correctFault",
+      "description": "Correct a fault's report: how bad it is (safety_risk, not_working, worn) and what is wrong. Once reported these are fixed for everyone else, so a safety risk is never quietly lowered; a manager (equipment:manage) corrects them here. The assistant, an MCP client or an automation may ask, and it waits for a person to approve it. (Extension tool from Equipment 0.1.0.)",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "faultId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "severity": {
+            "type": "string",
+            "enum": [
+              "safety_risk",
+              "not_working",
+              "worn"
+            ]
+          },
+          "description": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 4000
+          }
+        },
+        "required": [
+          "faultId"
+        ],
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "faultId": {
+            "type": "string"
+          },
+          "severity": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "safety_risk",
+                  "not_working",
+                  "worn"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "faultId",
+          "severity",
+          "description"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "x.equipment.item",
+        "x.equipment.register"
+      ],
+      "pack": "equipment"
+    },
+    {
+      "name": "x.equipment.correctOutReason",
+      "description": "Correct why an item that is out of service must not be used. Only the tools that take it out write the reason, so nobody can change it to 'fine now' while it is out; a manager (equipment:manage) corrects it here. To put the item back, use putBack. The assistant, an MCP client or an automation may ask, and it waits for a person to approve it. (Extension tool from Equipment 0.1.0.)",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "itemId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 500
+          }
+        },
+        "required": [
+          "itemId",
+          "reason"
+        ],
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "itemId": {
+            "type": "string"
+          },
+          "outReason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "itemId",
+          "outReason"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "x.equipment.item",
+        "x.equipment.register"
+      ],
+      "pack": "equipment"
+    },
+    {
+      "name": "x.equipment.item",
+      "description": "One item of the register: its details, state (and why and since when it is out of service), keeper, who has it, supplier, purchase cost, warranty and renewal dates, and its faults newest first, each saying whether the item was under warranty when it was reported. Costs are for every staff member. Read-only. (Extension tool from Equipment 0.1.0.)",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "itemId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          }
+        },
+        "required": [
+          "itemId"
+        ],
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "tag": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "category": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "place": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "make": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "model": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "serial": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "state": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "in_service",
+                  "out_of_service",
+                  "retired"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "outSince": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "outReason": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "keeper": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "issuedTo": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "supplierId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "supplier": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "boughtOn": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "warrantyUntil": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "warrantyNotes": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "renewalDue": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "listForMembers": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "notes": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "costs": {
+            "type": "object",
+            "properties": {
+              "purchase": {
+                "description": "What it cost to buy, in the base currency",
+                "type": [
+                  "number",
+                  "null"
+                ]
+              }
+            },
+            "required": [
+              "purchase"
+            ],
+            "additionalProperties": false
+          },
+          "faults": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "description": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "severity": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "enum": [
+                        "safety_risk",
+                        "not_working",
+                        "worn"
+                      ]
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "state": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "enum": [
+                        "reported",
+                        "acknowledged",
+                        "fixed",
+                        "not_a_fault",
+                        "duplicate"
+                      ]
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "reportedBy": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "reportedByName": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "closedWhy": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "reportedAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "underWarranty": {
+                  "type": "boolean",
+                  "description": "The item's warranty had not ended on the day it was reported"
+                }
+              },
+              "required": [
+                "id",
+                "title",
+                "description",
+                "severity",
+                "state",
+                "reportedBy",
+                "reportedByName",
+                "closedWhy",
+                "reportedAt",
+                "underWarranty"
+              ],
+              "additionalProperties": false
+            },
+            "description": "Newest first, at most 50"
+          },
+          "moreFaults": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "tag",
+          "category",
+          "place",
+          "make",
+          "model",
+          "serial",
+          "state",
+          "outSince",
+          "outReason",
+          "keeper",
+          "issuedTo",
+          "supplierId",
+          "supplier",
+          "boughtOn",
+          "warrantyUntil",
+          "warrantyNotes",
+          "renewalDue",
+          "listForMembers",
+          "notes",
+          "costs",
+          "faults",
+          "moreFaults"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [],
+      "pack": "equipment"
+    },
+    {
+      "name": "x.equipment.putBack",
+      "description": "Put an item that is out of service back in service, once it is safe to use: a manager's own act (equipment:manage), never the assistant's or an automation's (decision 4). Its reason and time out of service are cleared; the state history keeps them. (Extension tool from Equipment 0.1.0.)",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "itemId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          }
+        },
+        "required": [
+          "itemId"
+        ],
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "itemId": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string",
+            "const": "in_service"
+          }
+        },
+        "required": [
+          "itemId",
+          "state"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "x.equipment.item",
+        "x.equipment.register"
+      ],
+      "pack": "equipment"
+    },
+    {
+      "name": "x.equipment.register",
+      "description": "The equipment register: items with their tag, category, place, state (in service, out of service with why and since when, retired), keeper, supplier, warranty end and how many faults are open. Out-of-service items and those with open safety risks come first. Retired items are left out unless state is retired. Narrow it with state, category, place or q (a name, tag, make, model or serial). Read-only. (Extension tool from Equipment 0.1.0.)",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "state": {
+            "type": "string",
+            "enum": [
+              "in_service",
+              "out_of_service",
+              "retired"
+            ]
+          },
+          "category": {
+            "type": "string",
+            "maxLength": 80
+          },
+          "place": {
+            "type": "string",
+            "maxLength": 200,
+            "description": "Only items whose place contains this"
+          },
+          "q": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          }
+        },
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "items": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "tag": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "category": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "place": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "state": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "enum": [
+                        "in_service",
+                        "out_of_service",
+                        "retired"
+                      ]
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "outSince": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "outReason": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "keeper": {
+                  "description": "The keeper's account id; empty means the managers",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "issuedTo": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "supplier": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "warrantyUntil": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "openFaults": {
+                  "type": "number",
+                  "description": "Faults reported or acknowledged, not yet closed"
+                },
+                "safetyRisks": {
+                  "type": "number",
+                  "description": "Of the open faults, those reported as a safety risk"
+                }
+              },
+              "required": [
+                "id",
+                "name",
+                "tag",
+                "category",
+                "place",
+                "state",
+                "outSince",
+                "outReason",
+                "keeper",
+                "issuedTo",
+                "supplier",
+                "warrantyUntil",
+                "openFaults",
+                "safetyRisks"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "truncated": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "items",
+          "truncated"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [],
+      "pack": "equipment"
+    },
+    {
+      "name": "x.equipment.reportFault",
+      "description": "Report a fault on an item and take it out of service in the same call: what is wrong (never an injury: that goes on the incident form), how bad (safety_risk, not_working, worn) and, in takeOut, why it must not be used. For a staff member who sees something unsafe (decision 3). To report without taking it out, use reportFaultOnly. The report is recorded as the caller's, once: a retry with the same requestId (or the same report while it is open) finds it. The answer says whether it was taken out, and why not if not. A fault on a retired item is refused. A person's act: the assistant, an MCP client or an automation may ask, and it waits for a person to approve it. (Extension tool from Equipment 0.1.0.)",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "itemId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "description": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 4000
+          },
+          "severity": {
+            "type": "string",
+            "enum": [
+              "safety_risk",
+              "not_working",
+              "worn"
+            ]
+          },
+          "requestId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "The caller's own id for this report, the same on every retry: a retry finds the report it made rather than making a second. Left out, a report by the same person on the same item with the same words and severity, still open, is the same report."
+          },
+          "takeOut": {
+            "type": "object",
+            "properties": {
+              "reason": {
+                "type": "string",
+                "minLength": 3,
+                "maxLength": 500
+              }
+            },
+            "required": [
+              "reason"
+            ],
+            "additionalProperties": {},
+            "description": "Take the item out of service, with why it must not be used"
+          }
+        },
+        "required": [
+          "itemId",
+          "description",
+          "severity"
+        ],
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "faultId": {
+            "type": "string"
+          },
+          "itemId": {
+            "type": "string"
+          },
+          "alreadyReported": {
+            "type": "boolean",
+            "description": "This report was made before (a retry, or the same report again): no second fault"
+          },
+          "takenOut": {
+            "type": "boolean",
+            "description": "This call took the item out of service"
+          },
+          "takeOutFailed": {
+            "description": "Why the take-out asked for did not happen, when it did not; the fault is recorded",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "itemState": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "in_service",
+                  "out_of_service",
+                  "retired"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "underWarranty": {
+            "type": "boolean"
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "faultId",
+          "itemId",
+          "alreadyReported",
+          "takenOut",
+          "takeOutFailed",
+          "itemState",
+          "underWarranty",
+          "message"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "x.equipment.item",
+        "x.equipment.register"
+      ],
+      "pack": "equipment"
+    },
+    {
+      "name": "x.equipment.reportFaultOnly",
+      "description": "Report a fault on an item without taking it out of service: what is wrong (never an injury: that goes on the incident form) and how bad (safety_risk, not_working, worn). The report is recorded as the caller's, once: a retry with the same requestId (or the same report while it is open) finds it. Nothing else changes: the item stays as it is, and a manager triages the fault. To take the item out too, use reportFault or takeOut. A fault on a retired item is refused. (Extension tool from Equipment 0.1.0.)",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "itemId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "description": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 4000
+          },
+          "severity": {
+            "type": "string",
+            "enum": [
+              "safety_risk",
+              "not_working",
+              "worn"
+            ]
+          },
+          "requestId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "The caller's own id for this report, the same on every retry: a retry finds the report it made rather than making a second. Left out, a report by the same person on the same item with the same words and severity, still open, is the same report."
+          }
+        },
+        "required": [
+          "itemId",
+          "description",
+          "severity"
+        ],
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "faultId": {
+            "type": "string"
+          },
+          "itemId": {
+            "type": "string"
+          },
+          "alreadyReported": {
+            "type": "boolean",
+            "description": "This report was made before (a retry, or the same report again): no second fault"
+          },
+          "takenOut": {
+            "type": "boolean",
+            "description": "This call took the item out of service"
+          },
+          "takeOutFailed": {
+            "description": "Why the take-out asked for did not happen, when it did not; the fault is recorded",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "itemState": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "in_service",
+                  "out_of_service",
+                  "retired"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "underWarranty": {
+            "type": "boolean"
+          },
+          "message": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "faultId",
+          "itemId",
+          "alreadyReported",
+          "takenOut",
+          "takeOutFailed",
+          "itemState",
+          "underWarranty",
+          "message"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "x.equipment.item",
+        "x.equipment.register"
+      ],
+      "pack": "equipment"
+    },
+    {
+      "name": "x.equipment.retire",
+      "description": "Retire an item for good (worn out, replaced, sold, lost), with why: it leaves the register's usual list, is no longer listed for members, and cannot come back. Its faults and history stay. A manager's (equipment:manage); the assistant, an MCP client or an automation may ask, and it waits for a person to approve it. (Extension tool from Equipment 0.1.0.)",
+      "risk": "destructive",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "itemId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 500
+          }
+        },
+        "required": [
+          "itemId",
+          "reason"
+        ],
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "itemId": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string",
+            "const": "retired"
+          }
+        },
+        "required": [
+          "itemId",
+          "state"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "x.equipment.item",
+        "x.equipment.register"
+      ],
+      "pack": "equipment"
+    },
+    {
+      "name": "x.equipment.takeOut",
+      "description": "Take an item out of service, with why it must not be used: any staff member may (decision 4). Only from in service; an item already out of service or retired is refused with its state. Only a manager puts it back (putBack). A person's act: the assistant, an MCP client or an automation may ask, and it waits for a person to approve it. (Extension tool from Equipment 0.1.0.)",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "itemId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 500
+          }
+        },
+        "required": [
+          "itemId",
+          "reason"
+        ],
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "itemId": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string",
+            "const": "out_of_service"
+          },
+          "outSince": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "itemId",
+          "state",
+          "outSince"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "x.equipment.item",
+        "x.equipment.register"
+      ],
+      "pack": "equipment"
+    },
+    {
+      "name": "x.equipment.triage",
+      "description": "Triage a fault: acknowledge it (seen, being dealt with), or close it as fixed, not a fault or a duplicate, with why (what fixed it, or which report it repeats). A manager's (equipment:manage); the assistant, an MCP client or an automation may ask, and it waits for a person to approve it. A closed fault stays closed. It does not put the item back in service: that is putBack. (Extension tool from Equipment 0.1.0.)",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "faultId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "action": {
+            "type": "string",
+            "enum": [
+              "acknowledge",
+              "fixed",
+              "not_a_fault",
+              "duplicate"
+            ]
+          },
+          "why": {
+            "type": "string",
+            "minLength": 3,
+            "maxLength": 1000,
+            "description": "Why it is closed. Needed to close one; optional to acknowledge"
+          }
+        },
+        "required": [
+          "faultId",
+          "action"
+        ],
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "faultId": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "reported",
+              "acknowledged",
+              "fixed",
+              "not_a_fault",
+              "duplicate"
+            ]
+          }
+        },
+        "required": [
+          "faultId",
+          "state"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "x.equipment.item",
+        "x.equipment.register"
+      ],
+      "pack": "equipment"
+    },
+    {
       "name": "x.forms.enter",
       "description": "Enter answers on someone's behalf (a phone call, a paper form) or fill in a staff form (an incident report), for any published form. The submission is marked as entered by staff, and the person is found or made from the email answered, filling only their empty fields. Staff cannot tick a 'keep me updated' line for someone: only the person can. (Extension tool from Forms 0.1.0.)",
       "risk": "write",
@@ -112375,6 +114652,1448 @@
         "x.memberships.holdings"
       ],
       "pack": "memberships"
+    },
+    {
+      "name": "x.offers.activateDiscount",
+      "description": "Make a draft or paused discount live: from now on the host applies it to every order it covers (by its code, or by itself for a member's price). A person's decision with offers:manage: the assistant may ask, and its call waits for a person to approve. Check the terms first with discounts. Returns the discount. (Extension tool from Offers 0.1.0.)",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "discountId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          }
+        },
+        "required": [
+          "discountId"
+        ],
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "state": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "kind": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "percent": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "amount": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "automatic": {
+            "type": "boolean"
+          },
+          "code": {
+            "description": "The shared promo code, if it has one",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "who": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "appliesTo": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "from": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "until": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "totalUses": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "perPerson": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "minSpend": {
+            "type": [
+              "number",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "state",
+          "kind",
+          "percent",
+          "amount",
+          "automatic",
+          "code",
+          "who",
+          "appliesTo",
+          "from",
+          "until",
+          "totalUses",
+          "perPerson",
+          "minSpend"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "x.offers.codeBatches",
+        "x.offers.discounts"
+      ],
+      "pack": "offers"
+    },
+    {
+      "name": "x.offers.changeDiscount",
+      "description": "Change a discount's terms: what is off, what it covers, who it is for, its dates, limits or its shared promo code (null clears one). Not its state: use activateDiscount, pauseDiscount or endDiscount. A change to a live discount changes what buyers are charged from the next order, so a person makes it: the assistant's call waits for a person. Orders already started keep the deal they were priced with. Returns the discount. (Extension tool from Offers 0.1.0.)",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "discountId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "percent",
+              "amount",
+              "price"
+            ],
+            "description": "percent: a percentage off; amount: money off the order; price: a set price each"
+          },
+          "percent": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 1,
+                "maximum": 100,
+                "description": "For percent: 1 to 100"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "amount": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0,
+                "description": "For amount: the money off, in the currency's major unit; for price: what each costs"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "automatic": {
+            "type": "boolean",
+            "description": "True: applies by itself with no code (a member's price, a customer rate)"
+          },
+          "code": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 64,
+                "description": "A shared promo code anyone may type, at least 6 letters or digits (the host keeps it in capitals without spaces and refuses one another discount has)"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "who": {
+            "type": "string",
+            "enum": [
+              "anyone",
+              "signed_in",
+              "members",
+              "new_customers",
+              "organisation",
+              "tag"
+            ],
+            "description": "Who it is for. Anything but anyone needs a signed-in buyer"
+          },
+          "organisations": {
+            "anyOf": [
+              {
+                "maxItems": 50,
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 64
+                },
+                "description": "Organisation ids, for who = organisation"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "tag": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 80,
+                "description": "The tag, for who = tag"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "appliesTo": {
+            "anyOf": [
+              {
+                "maxItems": 6,
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "bookings.booking",
+                    "ticketing.tickettype",
+                    "memberships.passtype",
+                    "courses.course",
+                    "courses.bundle",
+                    "shop.variant"
+                  ]
+                },
+                "description": "What it covers (drop-ins, tickets, passes, courses, goods). Empty: everything"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "from": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+                "description": "First day it applies (UTC)"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "until": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+                "description": "Last day it applies (UTC)"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "totalUses": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 9007199254740991,
+                "description": "Most orders in total"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "perPerson": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 9007199254740991,
+                "description": "Most orders per person"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "minSpend": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0,
+                "description": "Least the covered lines must cost"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 2000,
+                "description": "Why it exists, for staff"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "discountId"
+        ],
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "state": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "kind": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "percent": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "amount": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "automatic": {
+            "type": "boolean"
+          },
+          "code": {
+            "description": "The shared promo code, if it has one",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "who": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "appliesTo": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "from": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "until": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "totalUses": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "perPerson": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "minSpend": {
+            "type": [
+              "number",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "state",
+          "kind",
+          "percent",
+          "amount",
+          "automatic",
+          "code",
+          "who",
+          "appliesTo",
+          "from",
+          "until",
+          "totalUses",
+          "perPerson",
+          "minSpend"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "x.offers.codeBatches",
+        "x.offers.discounts"
+      ],
+      "pack": "offers"
+    },
+    {
+      "name": "x.offers.codeBatches",
+      "description": "The batches of single-use codes made for one discount: how many were made, how many still work and how many were used, who made them and when. Never the codes themselves, which were shown once to the person who made them. Read-only. (Extension tool from Offers 0.1.0.)",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "discountId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          }
+        },
+        "required": [
+          "discountId"
+        ],
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "batches": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "batch": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "made": {
+                  "type": "number"
+                },
+                "working": {
+                  "type": "number",
+                  "description": "Codes not voided"
+                },
+                "used": {
+                  "type": "number",
+                  "description": "Codes used on at least one paid order"
+                },
+                "usesPerCode": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "madeBy": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "madeAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "batch",
+                "made",
+                "working",
+                "used",
+                "usesPerCode",
+                "madeBy",
+                "madeAt"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "batches"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [],
+      "pack": "offers"
+    },
+    {
+      "name": "x.offers.discounts",
+      "description": "The business's discounts (promo codes, members' prices and customer rates): their terms, state (draft, active = live, paused, ended), and how often each was used and what it took off paid orders (in minor units, cents). Use state to narrow it ('which codes are live?'). Never shows single-use codes (they are kept as their hash). Read-only. (Extension tool from Offers 0.1.0.)",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "state": {
+            "type": "string",
+            "enum": [
+              "draft",
+              "active",
+              "paused",
+              "ended"
+            ]
+          },
+          "automatic": {
+            "type": "boolean",
+            "description": "Only prices that apply by themselves, or not"
+          }
+        },
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "discounts": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "state": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "kind": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "percent": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "amount": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "automatic": {
+                  "type": "boolean"
+                },
+                "code": {
+                  "description": "The shared promo code, if it has one",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "who": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "appliesTo": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "from": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "until": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "totalUses": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "perPerson": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "minSpend": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "used": {
+                  "type": "number",
+                  "description": "Orders paid with it"
+                },
+                "held": {
+                  "type": "number",
+                  "description": "Unpaid orders holding a use of it"
+                },
+                "given": {
+                  "type": "number",
+                  "description": "Money it took off paid orders, in the currency's minor unit"
+                }
+              },
+              "required": [
+                "id",
+                "name",
+                "state",
+                "kind",
+                "percent",
+                "amount",
+                "automatic",
+                "code",
+                "who",
+                "appliesTo",
+                "from",
+                "until",
+                "totalUses",
+                "perPerson",
+                "minSpend",
+                "used",
+                "held",
+                "given"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "truncated": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "discounts",
+          "truncated"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [],
+      "pack": "offers"
+    },
+    {
+      "name": "x.offers.draftDiscount",
+      "description": "Draft a discount: a promo code for a campaign (code = a word such as JANUARY26), a member's price (automatic = true, who = members, kind = price or percent, appliesTo = what it covers), a customer rate (automatic, who = organisation with organisations) or a discount for single-use codes (no code; a person then makes a batch). It is made as a draft and applies to nobody until a person makes it live with activateDiscount. The host refuses a code shorter than 6 characters or one another discount has. Returns the draft. (Extension tool from Offers 0.1.0.)",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "percent",
+              "amount",
+              "price"
+            ],
+            "description": "percent: a percentage off; amount: money off the order; price: a set price each"
+          },
+          "percent": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 100,
+            "description": "For percent: 1 to 100"
+          },
+          "amount": {
+            "type": "number",
+            "minimum": 0,
+            "description": "For amount: the money off, in the currency's major unit; for price: what each costs"
+          },
+          "automatic": {
+            "type": "boolean",
+            "description": "True: applies by itself with no code (a member's price, a customer rate)"
+          },
+          "code": {
+            "type": "string",
+            "maxLength": 64,
+            "description": "A shared promo code anyone may type, at least 6 letters or digits (the host keeps it in capitals without spaces and refuses one another discount has)"
+          },
+          "who": {
+            "type": "string",
+            "enum": [
+              "anyone",
+              "signed_in",
+              "members",
+              "new_customers",
+              "organisation",
+              "tag"
+            ],
+            "description": "Who it is for. Anything but anyone needs a signed-in buyer"
+          },
+          "organisations": {
+            "maxItems": 50,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            },
+            "description": "Organisation ids, for who = organisation"
+          },
+          "tag": {
+            "type": "string",
+            "maxLength": 80,
+            "description": "The tag, for who = tag"
+          },
+          "appliesTo": {
+            "maxItems": 6,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "bookings.booking",
+                "ticketing.tickettype",
+                "memberships.passtype",
+                "courses.course",
+                "courses.bundle",
+                "shop.variant"
+              ]
+            },
+            "description": "What it covers (drop-ins, tickets, passes, courses, goods). Empty: everything"
+          },
+          "from": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+            "description": "First day it applies (UTC)"
+          },
+          "until": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+            "description": "Last day it applies (UTC)"
+          },
+          "totalUses": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991,
+            "description": "Most orders in total"
+          },
+          "perPerson": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991,
+            "description": "Most orders per person"
+          },
+          "minSpend": {
+            "type": "number",
+            "minimum": 0,
+            "description": "Least the covered lines must cost"
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 2000,
+            "description": "Why it exists, for staff"
+          }
+        },
+        "required": [
+          "name",
+          "kind"
+        ],
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "state": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "kind": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "percent": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "amount": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "automatic": {
+            "type": "boolean"
+          },
+          "code": {
+            "description": "The shared promo code, if it has one",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "who": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "appliesTo": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "from": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "until": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "totalUses": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "perPerson": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "minSpend": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "open": {
+            "type": "object",
+            "properties": {
+              "object": {
+                "type": "string"
+              },
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "object",
+              "id"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "state",
+          "kind",
+          "percent",
+          "amount",
+          "automatic",
+          "code",
+          "who",
+          "appliesTo",
+          "from",
+          "until",
+          "totalUses",
+          "perPerson",
+          "minSpend",
+          "open"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "x.offers.codeBatches",
+        "x.offers.discounts"
+      ],
+      "pack": "offers"
+    },
+    {
+      "name": "x.offers.endDiscount",
+      "description": "End a discount for good: it applies to no new order and cannot be made live again (draft a new one instead). Orders already started keep their deal; its codes stop working. A person's decision with offers:manage (the assistant's call waits for a person). Returns the discount. (Extension tool from Offers 0.1.0.)",
+      "risk": "destructive",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "discountId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          }
+        },
+        "required": [
+          "discountId"
+        ],
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "state": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "kind": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "percent": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "amount": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "automatic": {
+            "type": "boolean"
+          },
+          "code": {
+            "description": "The shared promo code, if it has one",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "who": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "appliesTo": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "from": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "until": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "totalUses": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "perPerson": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "minSpend": {
+            "type": [
+              "number",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "state",
+          "kind",
+          "percent",
+          "amount",
+          "automatic",
+          "code",
+          "who",
+          "appliesTo",
+          "from",
+          "until",
+          "totalUses",
+          "perPerson",
+          "minSpend"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "x.offers.codeBatches",
+        "x.offers.discounts"
+      ],
+      "pack": "offers"
+    },
+    {
+      "name": "x.offers.generateCodes",
+      "description": "Make a batch of up to 500 random single-use codes for a discount, each good for usesPerCode orders (1 by default), and show them once, in this answer, to export or send. The host keeps only each code's hash, so they cannot be shown again: keep the list. A person only, with offers:manage, at the discount's page; the assistant cannot make codes. Not for an ended discount. The discount still applies only once it is live. If the batch stops part way, the answer says so and holds every code that was made. (Extension tool from Offers 0.1.0.)",
+      "risk": "bulk-write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "discountId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "count": {
+            "default": 50,
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 500
+          },
+          "usesPerCode": {
+            "default": 1,
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1000
+          },
+          "batch": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 60,
+            "description": "A name for the batch"
+          }
+        },
+        "required": [
+          "discountId"
+        ],
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "discountId": {
+            "type": "string"
+          },
+          "batch": {
+            "type": "string"
+          },
+          "made": {
+            "type": "number"
+          },
+          "complete": {
+            "type": "boolean",
+            "description": "False: the batch stopped part way; see problem"
+          },
+          "problem": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "codes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The codes, shown once: the host keeps only their hash"
+          }
+        },
+        "required": [
+          "discountId",
+          "batch",
+          "made",
+          "complete",
+          "problem",
+          "codes"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "x.offers.codeBatches",
+        "x.offers.discounts"
+      ],
+      "pack": "offers"
+    },
+    {
+      "name": "x.offers.pauseDiscount",
+      "description": "Pause a live discount: it applies to no new order until it is made live again. Orders already started keep their deal. A person's decision with offers:manage (the assistant's call waits for a person). Returns the discount. (Extension tool from Offers 0.1.0.)",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "discountId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          }
+        },
+        "required": [
+          "discountId"
+        ],
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "state": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "kind": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "percent": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "amount": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "automatic": {
+            "type": "boolean"
+          },
+          "code": {
+            "description": "The shared promo code, if it has one",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "who": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "appliesTo": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "from": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "until": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "totalUses": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "perPerson": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "minSpend": {
+            "type": [
+              "number",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "state",
+          "kind",
+          "percent",
+          "amount",
+          "automatic",
+          "code",
+          "who",
+          "appliesTo",
+          "from",
+          "until",
+          "totalUses",
+          "perPerson",
+          "minSpend"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "x.offers.codeBatches",
+        "x.offers.discounts"
+      ],
+      "pack": "offers"
+    },
+    {
+      "name": "x.offers.voidBatch",
+      "description": "Stop a whole batch of single-use codes working, by its name; at most 200 a call (call again while remaining is more than 0). Orders already started keep their deal. A person's decision with offers:manage (the assistant's call waits for a person). Returns how many were voided. (Extension tool from Offers 0.1.0.)",
+      "risk": "bulk-write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "discountId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "batch": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 60
+          }
+        },
+        "required": [
+          "discountId",
+          "batch"
+        ],
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "voided": {
+            "type": "number"
+          },
+          "remaining": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "voided",
+          "remaining"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "x.offers.codeBatches",
+        "x.offers.discounts"
+      ],
+      "pack": "offers"
+    },
+    {
+      "name": "x.offers.voidCodes",
+      "description": "Stop single-use codes working, typed as they were given out (a code that leaked). A person only, with offers:manage, at the screen: the codes are never kept, in the audit log or in a request waiting for approval, so the assistant cannot ask for this (it may ask to void the whole batch with voidBatch). Returns how many were voided. (Extension tool from Offers 0.1.0.)",
+      "risk": "bulk-write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "discountId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "codes": {
+            "minItems": 1,
+            "maxItems": 50,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 64
+            },
+            "description": "Codes as typed"
+          }
+        },
+        "required": [
+          "discountId",
+          "codes"
+        ],
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "voided": {
+            "type": "number"
+          },
+          "remaining": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "voided",
+          "remaining"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "x.offers.codeBatches",
+        "x.offers.discounts"
+      ],
+      "pack": "offers"
     },
     {
       "name": "x.programs.assign",

@@ -245,6 +245,59 @@ Say what a conversation is about: a record (a booking, a membership, a lead, a p
 | `updatedAt` | string | yes |   |   |
 | `version` | integer | yes | ≥ -9007199254740991, ≤ 9007199254740991 | Pass back to a write to refuse it if this changed since |
 
+## conversation.setCategory
+
+File a conversation under one of the inbox's categories (inbox.categories lists them), or under none (category null). Returns the conversation.
+
+|  |  |
+| --- | --- |
+| Permission | `inbox:work` |
+| Risk | `write` |
+| Audiences | `staff` |
+
+### Input
+
+| Field | Type | Required | Limits | Description |
+| --- | --- | --- | --- | --- |
+| `id` | string (starts_with) | yes | max length 64, pattern `^cnv_.*` | Conversation id (cnv_…) |
+| `category` | string or null | yes |   |   |
+| `version` | integer |   | ≥ 0, ≤ 9007199254740991 | The version you read: the write is refused if the conversation changed since |
+
+### Output
+
+| Field | Type | Required | Limits | Description |
+| --- | --- | --- | --- | --- |
+| `id` | string | yes |   |   |
+| `channel` | `"email"`, `"chat"` | yes |   |   |
+| `subject` | string or null | yes |   |   |
+| `status` | `"open"`, `"waiting"`, `"closed"` | yes |   |   |
+| `person` | object or null | yes |   | The Person it is with; null while the sender is unknown |
+| `person.id` | string | yes |   |   |
+| `person.name` | string or null | yes |   |   |
+| `unknownSender` | string or null | yes |   | An unknown sender's address (null once linked to a Person) |
+| `senderUnverified` | boolean | yes |   | The sender check failed on a message |
+| `assignee` | object or null | yes |   | Who has it; null: unassigned |
+| `assignee.id` | string | yes |   |   |
+| `assignee.name` | string or null | yes |   |   |
+| `category` | string or null | yes |   |   |
+| `about` | object or null | yes |   | The record it is about |
+| `about.object` | string | yes |   |   |
+| `about.id` | string | yes |   |   |
+| `about.title` | string or null |   |   |   |
+| `private` | boolean | yes |   | Only admins and whoever has it see it |
+| `privateAt` | string or null | yes |   |   |
+| `privateBy` | string or null | yes |   |   |
+| `openedAt` | string | yes |   |   |
+| `lastInboundAt` | string or null | yes |   |   |
+| `lastReplyAt` | string or null | yes |   |   |
+| `firstReplyAt` | string or null | yes |   |   |
+| `replyDueAt` | string or null | yes |   |   |
+| `snoozedUntil` | string or null | yes |   |   |
+| `closedAt` | string or null | yes |   |   |
+| `closedBy` | string or null | yes |   |   |
+| `updatedAt` | string | yes |   |   |
+| `version` | integer | yes | ≥ -9007199254740991, ≤ 9007199254740991 | Pass back to a write to refuse it if this changed since |
+
 ## conversation.setPrivate
 
 Mark a conversation private (only admins and whoever has it see it, its messages and notes: it leaves everyone else's inbox and timelines, and search, SQL views and AI summaries for everyone), or not private again. Anyone working the inbox may mark one; only an admin or whoever has it may unmark it. People only. Returns the conversation.

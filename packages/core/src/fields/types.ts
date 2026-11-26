@@ -199,6 +199,13 @@ export interface ObjectDefinition {
   /** Extension objects: a claim on a thing (a room) for the record's time (stage 49, ADR 0765). */
   occupies?: OccupiesDefinition;
   /**
+   * Extension objects: which location each record is at (stage 64, ADR 0911): a relation field of
+   * the record to one location, or (`via`) that field of the record a relation names.
+   */
+  located?: LocationPath;
+  /** Extension objects: pairs of paths that must name the same location (ADR 0911). */
+  agree?: readonly { a: LocationPath; b: LocationPath }[];
+  /**
    * Extension objects of a shipped pack: records that are events in their customer's calendar
    * feed (stage 62, ADR 0891), as declared: paths from this object, read as the customer.
    */
@@ -292,6 +299,12 @@ export interface PublishableDefinition {
    * version's content and slug through `content.staffGet`, `content.staffList` and `content.search`.
    */
   readonly staffRead?: boolean;
+  /**
+   * Staff read names (ADR 0708): single relation content fields to another object of the same
+   * pack whose related record's title a staff reader is given beside the values (a procedure's
+   * section), so a pack-role account need not read that object.
+   */
+  readonly staffNames?: readonly (string | { readonly field: string; readonly order: string })[];
 }
 
 /**
@@ -386,6 +399,8 @@ export interface DiscountDefinition {
         readonly word: string;
         readonly uses?: string | undefined;
         readonly active?: string | undefined;
+        /** Codes kept as their hash (`codeHash`), never the code: generated single-use codes. */
+        readonly hashed?: boolean | undefined;
       }
     | undefined;
   readonly who?: string | undefined;
@@ -735,6 +750,8 @@ export interface WaitlistDefinition {
 export interface UniqueDefinition {
   fields: readonly string[];
   states?: readonly string[] | undefined;
+  /** Its text fields kept trimmed and in upper case by the host: case and spaces never count (ADR 0864). */
+  fold?: boolean | undefined;
 }
 
 /**
@@ -815,6 +832,17 @@ export interface CalendarEntryDefinition {
   title: string;
   place?: string | undefined;
   live: readonly string[];
+}
+
+/**
+ * A path from a record to a location (ADR 0911): `field`, a relation to one location, of the
+ * record itself, or with `via` (a relation of the record to one record of `viaObject`, registry
+ * names) of the record it names.
+ */
+export interface LocationPath {
+  field: string;
+  via?: string | undefined;
+  viaObject?: string | undefined;
 }
 
 /** A margin of a claim on a thing, in minutes: a field of the record, or of what `via` names. */

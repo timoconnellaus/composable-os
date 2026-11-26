@@ -3,7 +3,7 @@ title: Knowledge
 summary: Staff procedures read in their published wording and confirmed as read and understood, with a review reminder, and help pages for customers on the business's website.
 stage: 38
 spec: docs/stages/38-knowledge-base.md
-adrs: [0440, 0442, 0446, 0480, 0700, 0701, 0702, 0706]
+adrs: [0440, 0442, 0446, 0480, 0660, 0700, 0701, 0702, 0706, 0708]
 ---
 
 ## What it is for
@@ -47,8 +47,11 @@ the assistant or by an MCP client, with a person publishing each. It requires no
 - **Staff read what was published.** A procedure declares staff read (ADR 0701): every staff
   account, pack roles included, reads its current published version with `content.staffGet`,
   `content.staffList` and `content.search` (each match with its section's anchor), and never the
-  working copy. A pack-role account reads nothing else of the pack. Its pictures are served to
-  staff with a full role; a pack-role account reads its words and not its pictures.
+  working copy, each with its section's id, name and order (`staffNames`, ADR 0708), so its
+  screens list sections in their order. A pack-role account reads
+  nothing else of the pack. Its pictures are served to staff with a full role; a pack-role account
+  reads its words and not its pictures, and `content.staffGet` says so (`pictures`), so its reader
+  asks for none.
 - **Read and understood is the host's** (ADR 0702): who must read, checked against each account's
   role, pack role and grants on the day; which confirmation counts; who may see who has confirmed
   (admins, and those granted `knowledge:manage`, never an AI or a pack-role account). Who must read,
@@ -65,6 +68,24 @@ the assistant or by an MCP client, with a person publishing each. It requires no
 - **Writing is every member's**: a member or an admin writes procedures and help pages. A coach or
   a cleaner writes them through the draft tools when an admin grants `knowledge:write`. Viewers do
   not write.
+- **The screens are blocks over the client hooks** (ADR 0708), in two skins that share the hooks
+  and not the screens: the help centre for the business's site and app, and for staff the
+  procedures, the reader with its confirm, To read and Read status. They show what the host
+  answers and decide nothing. Procedures, To read and Read status are declared as screens of the
+  product's admin (ADR 0660), so each person sees the ones the host lets them open: every staff
+  account, a coach or a cleaner in their small shell too, sees Procedures and To read; Read status
+  is for admins and those granted `knowledge:manage`. The reader is also a tab on a procedure's
+  record page (its published wording, beside the working copy being edited), and what a notice's
+  link opens for an account that cannot open the record page.
+- **The confirmation is a deliberate act.** The button sits at the end of the procedure and says
+  what it confirms: `I have read and understood "Injuries" (version 4)`, the version on screen. It
+  is there only when the host's list says that version is the person's to confirm; when a newer
+  version was published since the page was opened, it asks the person to read that one first. A
+  refusal (a newer version, already confirmed) is shown, never taken as done.
+- **Rich text is drawn by the Content pack's renderer** (`content-rich-text`,
+  `content-native-rich-text`), which Knowledge's blocks bring with them: React elements, never
+  HTML, with each heading's anchor as its id, so a search result opens at its section. Knowledge
+  still requires no other pack: the renderer calls no operation.
 
 ## Main flows
 
@@ -82,15 +103,32 @@ the assistant or by an MCP client, with a person publishing each. It requires no
 6. **Answer customers.** Staff write a help page in a topic (or the assistant drafts one with
    `draftHelpPage`) and a person publishes it; the site reads it by address, lists a topic's pages,
    and searches as the visitor types. `helpTopics` lists the topics for the help centre's menu.
+   On the site: `HelpCentre` (search and the topics with their pages, `knowledge-help-centre`)
+   and `HelpPage` (`knowledge-help-page`); in the app, `HelpCentreScreen` and `HelpPageScreen`
+   (`knowledge-native-help`). The site's operation route allows `x.knowledge.helpTopics`,
+   `content.list`, `content.search` and `content.get`, and passes each call with the visitor's
+   address, so the host limits a search box's calls per visitor.
+7. **Read in the admin or the app.** Staff open Procedures (by section, with search) or To read in
+   the admin; in the app, a role client shows `ProceduresScreen` and `ToReadScreen`
+   (`knowledge-native-procedures`, `knowledge-native-to-read`). Those who manage open Read status:
+   each procedure's count, then who has confirmed and who has not, exported as CSV from the answer
+   on screen.
 
 ## What is built
 
 The four objects, the tools above, the review reminder, the notices, the views (procedure drafts,
 published procedures, procedures by next review, help page drafts, published help pages), the
-procedures tab on a section and the pages tab on a help topic, and the client hooks
-(`@composable-os/pack-knowledge/client`) over staff read, the tools and the public content reads.
+procedures tab on a section and the pages tab on a help topic, the client hooks
+(`@composable-os/pack-knowledge/client`) over staff read, the tools and the public content reads,
+and the blocks: the help centre (`knowledge-help-centre`, `knowledge-help-page`,
+`knowledge-native-help`), the procedures and their reader with confirm (`knowledge-procedures`,
+`knowledge-native-procedures`), To read (`knowledge-to-read`, `knowledge-native-to-read`) and Read
+status (`knowledge-read-status`, web only), with the admin's screens Procedures, To read, Read
+status and the reader on a procedure's record page.
 
-Not in the code yet: the blocks and the admin screens (the help centre, the procedure reader, to
-read, confirm and read status), the roster's warning for a procedure still to read, the
-assistant's answers from published passages, a checklist's "how to", and training through
-Courses.
+A pack-role account (a coach, a cleaner) reads procedures with their section's name and is not
+served a procedure's pictures: the reader asks for none and says in each one's place that it
+cannot be shown. Its screens make no call the host refuses.
+
+Not in the code yet: the roster's warning for a procedure still to read, the assistant's answers
+from published passages, a checklist's "how to", and training through Courses.

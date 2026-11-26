@@ -209,3 +209,10 @@ declared in stage 47's shape and listed by the same rule: a person who could cal
 operation its gate names. The admin's build holds their components (`#/components/screens`). The
 first is Sign at the desk (gated by `agreement.desk.start` and `agreement.desk.find`), so a coach
 granted `agreements:desk` finds it in their small shell.
+
+**Amended 2026-11-26** (stage 38 step 6, [ADR 0708](0708-the-knowledge-packs-blocks-and-screens.md)):
+`/s/<pack>/<screen>?record=<id>` opens a record screen on that record, as its tab on the record
+page does (the route still takes ids only and renders only a listed screen). The fixed-role
+shell's layout sends a record's page (`/x/<object>/<id>`, what the host's notices link to) to the
+record screen `screens.mine` lists for the account on that object, before answering "not found":
+Knowledge's reader for a procedure, Bookings' Class list for a class.

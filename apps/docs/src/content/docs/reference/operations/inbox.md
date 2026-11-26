@@ -6,6 +6,26 @@ sidebar:
 editUrl: false
 ---
 
+## inbox.categories
+
+The categories an admin set for the shared inbox, in the order they are offered: what conversation.setCategory accepts and what inbox.list filters by. Read-only.
+
+|  |  |
+| --- | --- |
+| Permission | `inbox:read` |
+| Risk | `read` |
+| Audiences | `staff` |
+
+### Input
+
+No fields.
+
+### Output
+
+| Field | Type | Required | Limits | Description |
+| --- | --- | --- | --- | --- |
+| `categories` | array of string | yes |   |   |
+
 ## inbox.list
 
 The shared inbox: conversations with people by email and chat, most recent first, one page at a time. view: 'mine' (yours), 'unassigned' (nobody has it) or 'all'. Filter by status (default open and waiting), channel, category or a person. Each item says who it is with (or the unknown sender's address), who has it, its status and times. Private conversations are listed only for admins and whoever has them. Pass nextCursor back as cursor for the next page. Read-only.
@@ -64,3 +84,51 @@ The shared inbox: conversations with people by email and chat, most recent first
 | `items[].updatedAt` | string | yes |   |   |
 | `items[].version` | integer | yes | ≥ -9007199254740991, ≤ 9007199254740991 | Pass back to a write to refuse it if this changed since |
 | `nextCursor` | string or null | yes |   |   |
+
+## inbox.settings.get
+
+Read the shared inbox's settings: the categories conversations are filed under, in the order they are offered. A human admin in the app only.
+
+|  |  |
+| --- | --- |
+| Permission | `inbox:manage` |
+| Risk | `read` |
+| Audiences | `staff` |
+| Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
+
+### Input
+
+No fields.
+
+### Output
+
+| Field | Type | Required | Limits | Description |
+| --- | --- | --- | --- | --- |
+| `categories` | array of string | yes |   | The categories offered, in order |
+
+## inbox.settings.update
+
+Change the shared inbox's settings: the categories conversations are filed under (the whole list, in order, at most 50; a name given twice is kept once). A conversation filed under a category taken off the list keeps it until someone changes it. Only what you pass changes. A human admin in the app only: AI assistants, MCP clients, automations and extensions are refused.
+
+|  |  |
+| --- | --- |
+| Permission | `inbox:manage` |
+| Risk | `write` |
+| Audiences | `staff` |
+| Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
+
+### Input
+
+| Field | Type | Required | Limits | Description |
+| --- | --- | --- | --- | --- |
+| `categories` | array of string |   | at most 50 |   |
+
+### Output
+
+| Field | Type | Required | Limits | Description |
+| --- | --- | --- | --- | --- |
+| `categories` | array of string | yes |   | The categories offered, in order |
+| `previous` | object | yes |   |   |
+| `previous.categories` | array of string | yes |   | The categories offered, in order |

@@ -4,7 +4,7 @@
 // issues. The shipped extensions must pass unchanged.
 import { join } from "node:path";
 import { describe, expect, it } from "vitest";
-import { checkExtensionDir, locate } from "../src/node/check.ts";
+import { checkExtensionDir, discountObjectIssues, locate } from "../src/node/check.ts";
 import { type ExtIo, outsideSummary, rolesSummary, runExt } from "../src/node/cli.ts";
 import { readExtensionFiles } from "../src/node/evaluate.ts";
 import { untested } from "../src/node/test.ts";
@@ -111,10 +111,40 @@ describe("cos ext check on the shipped extensions", () => {
   it("leaves out one that requires the checked extension: it is installed after it (ADR 0764)", async () => {
     // Bookings names Memberships' holders as payers; Memberships requires Bookings (its passes
     // relate to bookings.service). Each passes, checked from either side.
-    for (const name of ["bookings", "memberships"]) {
-      const result = await checkExtensionDir(shipped(name));
-      expect(result.issues, name).toEqual([]);
-    }
+    const memberships = await checkExtensionDir(shipped("memberships"));
+    expect(memberships.issues).toEqual([]);
+    // Bookings through the command, which says it was checked without Memberships installed.
+    const out = io();
+    expect(await runExt(["check", shipped("bookings")], out)).toBe(0);
+    expect(out.lines.join("\n")).toContain(
+      "note: checked without ../memberships installed: it requires bookings, which is installed before it",
+    );
+  }, 180_000);
+
+  it("installs a pack another names in the middle, leaving out one that requires it (Offers)", async () => {
+    // Offers names Bookings' and Memberships' objects; Memberships requires Bookings. Memberships
+    // is left out while Bookings installs, then installed itself: nothing is left out in the end.
+    const result = await checkExtensionDir(shipped("offers"));
+    expect(result.issues).toEqual([]);
+    expect(result.leftOut).toEqual([]);
+  }, 180_000);
+
+  it("refuses what a discount covers when the pack beside it declares no such object", () => {
+    const manifest = {
+      objects: {
+        discount: {
+          discount: { objects: "on" },
+          fields: {
+            on: { options: [{ value: "memberships.passtype" }, { value: "memberships.passtpye" }] },
+          },
+        },
+      },
+    };
+    const issues = discountObjectIssues(manifest, {
+      objects: new Map([["memberships", ["plan", "passtype"]]]),
+    });
+    expect(issues.map((i) => i.path)).toEqual(["objects.discount.fields.on.options.1"]);
+    expect(issues[0]?.message).toContain('declares no object "passtpye"');
   });
 });
 

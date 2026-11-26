@@ -8,15 +8,15 @@
     ".": "./index.ts",
     "./client": "./client/index.ts"
   },
-  "description": "Knowledge: staff procedures read in their published wording and confirmed as read and understood, with a review reminder, and public help pages (stage 38, ADR 0706). Installed in every deployment of a product that lists it. Bundled as source into cos-runner.",
+  "description": "Knowledge: staff procedures read in their published wording and confirmed as read and understood, with a review reminder, and public help pages (stage 38, ADR 0706), and its screens as blocks for the web and the app (step 6, ADR 0708). Installed in every deployment of a product that lists it. Bundled as source into cos-runner.",
   "composableOs": {
     "optional": true,
     "label": "Knowledge",
     "description": "Staff procedures everyone reads in their published wording and confirms with one tap, and help pages for your customers on your website."
   },
   "scripts": {
-    "typecheck": "tsc --noEmit",
-    "test": "vitest run"
+    "typecheck": "tsc --noEmit && tsc --noEmit -p blocks/tsconfig.web.json && tsc --noEmit -p blocks/tsconfig.native.json && tsc --noEmit -p test/tsconfig.json",
+    "test": "vitest run && vitest run -c test/vitest.dom.config.ts"
   },
   "dependencies": {
     "@composable-os/client": "workspace:*",
@@ -26,6 +26,17 @@
     "@cloudflare/vitest-plugin": "1.5.1",
     "@cloudflare/workers-types": "5.20261104.1",
     "@composable-os/config": "workspace:*",
+    "@composable-os/pack-content": "workspace:*",
+    "@types/react": "19.3.0",
+    "@types/react-dom": "19.3.0",
+    "class-variance-authority": "0.7.1",
+    "happy-dom": "21.0.4",
+    "clsx": "2.1.1",
+    "radix-ui": "1.8.1",
+    "react": "19.3.1",
+    "react-dom": "19.3.1",
+    "react-native": "0.88.1",
+    "tailwind-merge": "3.7.0",
     "typescript": "6.0.3",
     "vitest": "5.1.0"
   }

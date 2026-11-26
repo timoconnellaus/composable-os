@@ -53,6 +53,7 @@ import { financeOperations } from "./finance.ts";
 import { importOperations } from "./import.ts";
 import { importRecordsOperations } from "./import-records.ts";
 import { inboxOperations } from "./inbox.ts";
+import { inboxSettingsOperations } from "./inbox-settings.ts";
 import { intakeOperations } from "./intake.ts";
 import { integrationOperations } from "./integration.ts";
 import { inviteOperations } from "./invite.ts";
@@ -96,6 +97,7 @@ import { retentionOperations } from "./retention.ts";
 import { roomsOperations } from "./rooms.ts";
 import { routineOperations } from "./routine.ts";
 import { routineMailOperations } from "./routine-mail.ts";
+import { savedReplyOperations } from "./saved-reply.ts";
 import { screenOperations } from "./screens.ts";
 import { searchOperations } from "./search.ts";
 import { settingsOperations } from "./settings.ts";
@@ -148,6 +150,8 @@ export const coreOperations = [
   ...importOperations,
   ...importRecordsOperations,
   ...inboxOperations,
+  ...inboxSettingsOperations,
+  ...savedReplyOperations,
   ...exportOperations,
   ...recordOperations,
   ...recordVersionOperations,

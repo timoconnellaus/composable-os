@@ -56,7 +56,7 @@ import { Executor, type ExecutorOptions } from "./executor/executor.ts";
 import { embedFromEvents } from "./extensions/embeddings.ts";
 import { packsProblem } from "./extensions/shipped-list.ts";
 import type { HelloOutput } from "./hello-workflow.ts";
-import { fakeProviderFetch } from "./integrations/fake.ts";
+import { fakeProviderFetch, seedInboxMessage } from "./integrations/fake.ts";
 import { runOrdersTick } from "./integrations/payments.ts";
 import { availableVendors, integrationRuntime } from "./integrations/runtime.ts";
 import { runNotificationCron } from "./notifications/deliver.ts";
@@ -233,6 +233,11 @@ export default class Runner extends WorkerEntrypoint<Env> implements RunnerRpc {
       // (local dev has no cron ticks), so a test can turn stored webhook events into runs.
       if (new URL(request.url).pathname === "/gatekeeper/fake/cron" && request.method === "POST") {
         return Response.json(await minuteTick(this.env, new Date()));
+      }
+      // A message to the shared inbox (stage 36), as the inbound email hook (step 2) will write
+      // one, so a test can open the inbox's screens on a real conversation.
+      if (new URL(request.url).pathname === "/gatekeeper/fake/inbox" && request.method === "POST") {
+        return seedInboxMessage(this.env, request);
       }
       return fakeProviderFetch(this.env, request);
     }

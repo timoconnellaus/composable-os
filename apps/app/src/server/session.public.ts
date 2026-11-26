@@ -2,13 +2,15 @@
 import { env } from "cloudflare:workers";
 import { awaitingFirstUser, createIdentityProvider, signInMethods } from "@composable-os/auth";
 import {
-  loadPackRole,
+  holdsPermission,
+  loadStaffRights,
   loadSupportGrant,
   resolveActingUser,
   SUPPORT_EMAIL_DOMAIN,
 } from "@composable-os/core";
 import { type CrmDb, createCrmDb } from "@composable-os/db";
 import { createServerFn } from "@tanstack/react-start";
+import { NAV_PERMISSIONS } from "../lib/nav-permissions.ts";
 
 /**
  * The signed-in Principal (or null), the CRM user it acts as (id and role, so the UI can hide
@@ -24,11 +26,19 @@ export const getSession = createServerFn({ method: "GET" }).handler(async ({ con
   // A fixed-role account (ADR 0436) gets the admin's small shell: its screens, its account, sign
   // out (stage 47, ADR 0660). Read from the account here, by the host, on every navigation; a
   // page that showed the full shell anyway would have every call it made refused by the host.
-  const packRole = user ? await loadPackRole(db.query, user.id) : null;
+  const rights = user ? await loadStaffRights(db.query, user.id) : null;
+  const packRole = rights?.packRole ?? null;
   return {
     principal,
     user: user ? { id: user.id, role: user.role } : null,
     packRole: packRole ? { name: packRole.name, label: packRole.label } : null,
+    // The nav items' permissions (NAV_PERMISSIONS) the account holds, so the shell offers only the
+    // sections it may open (the Inbox needs `inbox:read`). A pack role replaces the account's role
+    // and grants (ADR 0436): it holds none of them.
+    navPermissions:
+      user && rights && !packRole
+        ? NAV_PERMISSIONS.filter((p) => holdsPermission(user, rights.grants, p))
+        : [],
     // A support session (ADR 0212): the app shows a banner with when access ends.
     support: user ? await supportSession(db, user) : null,
     signOutUrl: provider.signOutUrl,

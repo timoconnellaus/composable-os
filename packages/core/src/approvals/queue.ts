@@ -4,6 +4,7 @@
 import type { CrmDb, ReviewSource } from "@composable-os/db";
 import type { Compilable } from "kysely";
 import { diffRecords, type FieldDiff } from "../diff.ts";
+import { describeDiscount, otherPendingFor, snapshotDiscounts } from "../discounts/terms.ts";
 import { ConflictError, NotFoundError, type PendingApproval, ValidationError } from "../errors.ts";
 import {
   findIds,
@@ -15,6 +16,7 @@ import {
   toProvisionalId,
 } from "../ids.ts";
 import type { AnyOperation, RecordChange, SimulatedRecord } from "../operation.ts";
+import { loadOrderCurrency } from "../orders/settings.ts";
 import { type Origin, type Permission, type Role, staffPrincipal } from "../principals.ts";
 import { capPreview, capSimulated, INPUT_MAX_BYTES } from "./caps.ts";
 import { toolOf } from "./describe.ts";
@@ -367,6 +369,28 @@ export async function prepareQueuedAction(req: QueueRequest): Promise<QueuedActi
   const touched = [...records.filter((r) => !provisional.some((p) => p.id === r.id)), ...mentioned];
   const dependsOn = dependencies(req.overlay, touched);
 
+  // A discount the call names (making one live, changing it): its terms as asked, kept for the
+  // approval and said in words in it; approving is refused if they change meanwhile (ADR 0699).
+  const discounts = await snapshotDiscounts(
+    req.db.query,
+    mentioned.map((m) => m.id).filter((id) => !isProvisionalId(id)),
+    req.op.name,
+  );
+  const [currency, others] = discounts.length
+    ? await Promise.all([
+        loadOrderCurrency(req.db.query),
+        otherPendingFor(
+          req.db.query,
+          discounts.map((d) => d.id),
+          req.now,
+        ),
+      ])
+    : [null, new Map<string, string[]>()];
+  const notes = [
+    ...(dry.notes ?? []),
+    ...discounts.map((d) => describeDiscount(d, currency, others.get(d.id) ?? [])),
+  ];
+
   const changeSet = await targetChangeSet(req);
   const actionId = newId("pendingAction");
   const expiresAt = addDays(req.now, req.expiryDays ?? DEFAULT_APPROVAL_EXPIRY_DAYS);
@@ -424,7 +448,8 @@ export async function prepareQueuedAction(req: QueueRequest): Promise<QueuedActi
         output: storedSim.output,
         records: storedSim.records,
         ...truncated,
-        ...(dry.notes?.length ? { notes: dry.notes } : {}),
+        ...(notes.length ? { notes } : {}),
+        ...(discounts.length ? { discounts } : {}),
         // Marks a tool queued by code that does not run it (migration 0600 tells the two apart).
         ...(dry.notRun ? { notRun: true } : {}),
       }),
@@ -459,7 +484,7 @@ export async function prepareQueuedAction(req: QueueRequest): Promise<QueuedActi
     (toolOf(req.op.name)
       ? " The tool has not run: it runs once, when a person approves it, and what it changes is decided then."
       : "") +
-    (dry.notes?.length ? ` ${dry.notes.join(" ")}` : "") +
+    (notes.length ? ` ${notes.join(" ")}` : "") +
     " Tell the user the change is waiting for approval.";
 
   return {

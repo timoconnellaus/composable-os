@@ -147,6 +147,37 @@ No fields.
 | `items[].createdAt` | string | yes |   |   |
 | `items[].updatedAt` | string | yes |   |   |
 
+## location.relocate
+
+Move a located record (a room) to another location together with every record that uses it (its classes and series, past and future, in the Trash too), in one change: the way to correct a record filed at the wrong location, since a used room's location never changes on its own. Times and zones are kept. A request from an AI always waits for a person to apply it. Returns how many records of each object moved.
+
+|  |  |
+| --- | --- |
+| Permission | `settings:manage` |
+| Risk | `write` |
+| Audiences | `staff` |
+| Actors | `human`, `assistant`, `mcp` |
+| Also | always reviewed when called by `assistant`, `mcp` (`alwaysReview`) |
+
+### Input
+
+| Field | Type | Required | Limits | Description |
+| --- | --- | --- | --- | --- |
+| `object` | string | yes | min length 1, max length 81 | The record's object, e.g. bookings.room |
+| `id` | string | yes | min length 1, max length 64 | The record's id |
+| `location` | string | yes | min length 1, max length 64 | The location to move it to |
+
+### Output
+
+| Field | Type | Required | Limits | Description |
+| --- | --- | --- | --- | --- |
+| `object` | string | yes |   |   |
+| `id` | string | yes |   |   |
+| `location` | string | yes |   |   |
+| `moved` | array of object | yes |   |   |
+| `moved[].object` | string | yes |   |   |
+| `moved[].count` | integer | yes | ≥ -9007199254740991, ≤ 9007199254740991 |   |
+
 ## location.reopen
 
 Open a closed location again: it takes new classes, appointments and shifts. A person only, never an AI. Returns the location.

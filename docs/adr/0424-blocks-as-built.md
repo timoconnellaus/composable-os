@@ -153,3 +153,14 @@ of `courses-my-courses`, which did not export it. The app stopped compiling and 
 
 Test: `packages/create-composable-os/test/client-repo.test.ts` (an upgrade over a client holding
 1.0.0's `courses-my-courses`).
+
+**Amended 2026-11-26** (stage 38 step 6, [ADR 0708](0708-the-knowledge-packs-blocks-and-screens.md)):
+a block may depend on a block of another pack (Knowledge's blocks on Content's rich text
+renderers). `cos add` copies such a block whatever `product.ts` lists when it calls no operation
+and a block being added, or one already copied, depends on it; asked for by name with nothing
+copied depending on it, or calling the host, it still needs its pack listed. "Calls no operation"
+rests on the block's own declaration (its `block.json` `operations`), which the block lint checks
+only for some operation names and review checks the rest of; nothing rests on it for safety: the
+host refuses any call the block makes to a pack that is not installed, whatever it declares. In
+this repository the admin's and the pictures' builds resolve the sibling import to that pack's
+`blocks/` (`apps/app/pack-blocks-plugin.ts`).

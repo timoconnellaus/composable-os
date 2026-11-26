@@ -9,12 +9,21 @@
 // extension's field, a formula of the working copy) fails as an unknown field does. A draft, an
 // unpublished record and a deleted one are not in the source: not found, as a record that never
 // existed. Only a staff caller has it; for anyone else the object does not exist.
+//
+// Names (stage 38 step 6, ADR 0708): an object may declare `publishable.staffNames`, single
+// relation content fields to another object of its own pack (a procedure's section). A record is
+// then given, beside its values, each related record's id, title and (when declared) order
+// (`names`), read from that object's live row: all a staff reader is told of it, so a pack-role
+// account, which reads nothing of the grouping object itself, need not ask for it. The related
+// object has no row rules of its own (no versions, no customer, no access holders) and a plain
+// text title: the contract refuses anything else at install, and `namedTarget` again here.
 import { sql } from "kysely";
-import { liveViewOf } from "../extensions/schema.ts";
+import { liveViewOf, objectTableOf } from "../extensions/schema.ts";
 import { getObject } from "../fields/index.ts";
 import type { ObjectDefinition, PublishableDefinition } from "../fields/types.ts";
 import { type ListInput, pageQuery } from "../list.ts";
 import { viewColumnOf } from "../records/columns.ts";
+import { jsonList } from "../records/common.ts";
 import { unknownObject } from "./customer.ts";
 import type { AnyRow, Reader, VisibleSource } from "./index.ts";
 import { toRecord, type VisibleRecord } from "./records.ts";
@@ -82,10 +91,106 @@ export function staffReadSource(
   );
 }
 
+/** What a staff reader is given of a related record a `staffNames` field names (ADR 0708). */
+export interface RelatedName {
+  /** The related record's id (the field's own value). */
+  id: string;
+  /** Its title. */
+  title: string;
+  /** Its value of the declared order field (`{ field, order }`), when one is declared. */
+  order?: number | null;
+}
+
 /** A record as a staff reader is given it: its content and slug, the version and when. */
 export interface PublishedRecord extends VisibleRecord {
   version: number;
   publishedAt: string;
+  /** For each `staffNames` field naming a live record: that record's id, title and order. */
+  names?: Record<string, RelatedName>;
+}
+
+/**
+ * The object a `staffNames` field may name, held at read time as the contract holds it at
+ * install (ADR 0708): another object of the same pack with no row rules of its own (not
+ * publishable, no customer, customerVia or access) whose title field is plain text, and the
+ * order field, when declared, a number. Null for anything else: no name is given.
+ */
+function namedTarget(object: StaffReadObject, entry: string | { field: string; order: string }) {
+  const name = typeof entry === "string" ? entry : entry.field;
+  const field = object.fields.find((f) => f.name === name);
+  const to = field?.options?.to;
+  const target = to ? getObject(to) : undefined;
+  if (!field || field.options?.many || !target || target.name === object.name) return null;
+  if (target.extension === undefined || target.extension !== object.extension) return null;
+  if (target.publishable || target.customer || target.customerVia || target.access) return null;
+  const title = target.fields.find((f) => f.name === target.titleField);
+  if (!title?.column || (title.fieldType ?? title.type) !== "text") return null;
+  const order =
+    typeof entry === "string" ? undefined : target.fields.find((f) => f.name === entry.order);
+  if (order && (!order.column || (order.fieldType ?? order.type) !== "number")) return null;
+  if (typeof entry !== "string" && !order) return null;
+  const table = objectTableOf(target.name);
+  if (!table) return null;
+  return { name, table, title: title.column, order: order?.column };
+}
+
+/**
+ * The related records the `staffNames` fields of `records` name: one read per field, live records
+ * only, their id, title and (when declared) order only. Each record is given `names` when the
+ * object declares any.
+ */
+async function withNames(
+  reader: Reader,
+  object: StaffReadObject,
+  records: PublishedRecord[],
+): Promise<PublishedRecord[]> {
+  const entries = object.publishable.staffNames ?? [];
+  if (!entries.length || !records.length) return records;
+  const found = new Map<string, Map<string, RelatedName>>();
+  for (const entry of entries) {
+    const target = namedTarget(object, entry);
+    if (!target) continue;
+    const ids = [
+      ...new Set(
+        records
+          .map((r) => r.values[target.name])
+          .filter((v): v is string => typeof v === "string" && v !== ""),
+      ),
+    ];
+    if (!ids.length) continue;
+    const order = target.order ? sql.ref(target.order) : sql`NULL`;
+    const rows = await sql<{ id: string; title: unknown; position: unknown }>`SELECT id,
+      ${sql.ref(target.title)} AS title, ${order} AS position
+      FROM ${sql.table(target.table)} WHERE id IN ${jsonList(ids)} AND deleted_at IS NULL`.execute(
+      reader.db,
+    );
+    found.set(
+      target.name,
+      new Map(
+        rows.rows
+          .filter((r) => typeof r.title === "string" && r.title !== "")
+          .map((r) => [
+            r.id,
+            {
+              id: r.id,
+              title: r.title as string,
+              ...(target.order
+                ? { order: typeof r.position === "number" ? r.position : null }
+                : {}),
+            },
+          ]),
+      ),
+    );
+  }
+  return records.map((record) => {
+    const names: Record<string, RelatedName> = {};
+    for (const [name, byId] of found) {
+      const id = record.values[name];
+      const related = typeof id === "string" ? byId.get(id) : undefined;
+      if (related !== undefined) names[name] = related;
+    }
+    return { ...record, names };
+  });
 }
 
 function published(view: ObjectDefinition, row: AnyRow, reader: Reader): PublishedRecord {
@@ -115,7 +220,9 @@ export async function getPublished(
     SELECT * FROM ${staffReadSource(reader, object)} WHERE ${sql.ref(column)} = ${value} LIMIT 1
   `.execute(reader.db);
   const found = row.rows[0];
-  return found ? published(view, found, reader) : null;
+  if (!found) return null;
+  const [record] = await withNames(reader, object, [published(view, found, reader)]);
+  return record ?? null;
 }
 
 /** One page of the published records, filtered and sorted on the fields a staff reader is given. */
@@ -129,7 +236,11 @@ export async function listPublished(
   const query = (reader.db as any).selectFrom(staffReadSource(reader, object)).selectAll();
   const page = await pageQuery<unknown, never, AnyRow & { id: string }>(query, view, input);
   return {
-    items: page.rows.map((row) => published(view, row, reader)),
+    items: await withNames(
+      reader,
+      object,
+      page.rows.map((row) => published(view, row, reader)),
+    ),
     nextCursor: page.nextCursor,
   };
 }

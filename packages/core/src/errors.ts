@@ -212,6 +212,14 @@ export function setDeclaredUniqueKeys(keys: ReadonlySet<string>): void {
 }
 
 /** Converts D1 constraint failures into typed errors; everything else becomes `internal`. */
+/**
+ * Why a record a live record agrees with (a room) cannot change location on its own (ADR 0911),
+ * and how it is done: with `location.relocate`, which moves what uses it in the same batch.
+ */
+export const ROOM_IN_USE_MESSAGE =
+  "This is used by a live record at another location, so its location cannot change on its own. " +
+  "Move it with everything that uses it (location.relocate).";
+
 export function toOperationError(error: unknown): OperationError {
   if (error instanceof OperationError) return error;
   // ai/client.ts's AiAllowanceError, matched by name so this module stays free of AI imports.
@@ -234,6 +242,18 @@ export function toOperationError(error: unknown): OperationError {
     return new ConflictError("A stock movement is never changed or removed", {
       rule: "stock",
       reason: "movement_immutable",
+    });
+  }
+  // A conversation (migration 1050) or a saved reply (migration 1051) written from a read that is
+  // no longer current: someone took it, filed it or changed it a moment before. Nothing was applied.
+  if (message.includes("core_conversation_stale")) {
+    return new ConflictError("The conversation changed since you read it. Read it again.", {
+      reason: "conversation_changed",
+    });
+  }
+  if (message.includes("core_saved_reply_stale")) {
+    return new ConflictError("The saved reply changed since you read it. Read it again.", {
+      reason: "saved_reply_changed",
     });
   }
   // An order written from a read that is no longer current (migration 0421): nothing was
@@ -692,6 +712,20 @@ export function toOperationError(error: unknown): OperationError {
     return new ConflictError("This is the only open location, so it cannot be closed.", {
       rule: "last_open_location",
     });
+  }
+  // Two paths of a live record that must name one location (ADR 0911), refused by the triggers
+  // the reconciler builds for every writer: a write the host read first names the fields itself;
+  // this is a race it could not see (a room moved meanwhile), or a path that does not read first.
+  if (message.includes("core_location_mismatch")) {
+    return new ValidationError(
+      "These name two different locations (a room is at one location, and what uses it must be there too), so nothing was changed.",
+      { rule: "location_mismatch" },
+    );
+  }
+  // A record a live record's path passes through (a room), moved from under it: the same words
+  // as the write path's read, for a write it could not see first (one earlier in the batch).
+  if (message.includes("core_location_in_use")) {
+    return new ValidationError(ROOM_IN_USE_MESSAGE, { rule: "location_mismatch" });
   }
   if (message.includes("core_location_main_kept")) {
     return new ConflictError("The main location stays the main location.", {

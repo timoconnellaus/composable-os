@@ -10,6 +10,7 @@ import {
   InboxIcon,
   LayoutDashboardIcon,
   type LucideIcon,
+  MessagesSquareIcon,
   OctagonXIcon,
   PlugIcon,
   PlugZapIcon,
@@ -27,12 +28,14 @@ import {
   UsersIcon,
   WorkflowIcon,
 } from "lucide-react";
+import type { NavPermission } from "./nav-permissions.ts";
 
 export interface NavItem {
   to:
     | "/"
     | "/dashboards"
     | "/assistant"
+    | "/inbox"
     | "/people"
     | "/organisations"
     | "/orders"
@@ -56,12 +59,23 @@ export interface NavItem {
     | "/settings/integrations"
     | "/settings/ai"
     | "/settings/duplicates"
-    | "/settings/orders";
+    | "/settings/orders"
+    | "/settings/inbox";
   label: string;
   icon: LucideIcon;
   /** Extra words the palette matches on. */
   keywords?: string[];
   adminOnly?: boolean;
+  /**
+   * The permission the section's page reads with: the item is shown only to an account holding
+   * it (the session's `navPermissions`), so nobody is offered a page the host would refuse.
+   */
+  permission?: NavPermission;
+}
+
+/** The item is for this account: its permission, if it names one, is among those it holds. */
+export function navItemShown(item: NavItem, held: readonly string[]): boolean {
+  return !item.permission || held.includes(item.permission);
 }
 
 export const MAIN_NAV: NavItem[] = [
@@ -71,6 +85,13 @@ export const MAIN_NAV: NavItem[] = [
     label: "Dashboards",
     icon: LayoutDashboardIcon,
     keywords: ["charts", "reports", "widgets", "overview"],
+  },
+  {
+    to: "/inbox",
+    label: "Inbox",
+    icon: MessagesSquareIcon,
+    keywords: ["conversations", "email", "chat", "messages", "replies", "support", "help desk"],
+    permission: "inbox:read",
   },
   { to: "/people", label: "People", icon: UsersIcon, keywords: ["contacts", "persons"] },
   { to: "/organisations", label: "Organisations", icon: Building2Icon, keywords: ["companies"] },
@@ -207,6 +228,13 @@ export const SETTINGS_NAV: NavItem[] = [
     label: "Order settings",
     icon: ShoppingBagIcon,
     keywords: ["currency", "payments", "expiry", "part payment", "return sites", "settings"],
+    adminOnly: true,
+  },
+  {
+    to: "/settings/inbox",
+    label: "Inbox settings",
+    icon: MessagesSquareIcon,
+    keywords: ["categories", "conversations", "shared inbox", "settings"],
     adminOnly: true,
   },
 ];

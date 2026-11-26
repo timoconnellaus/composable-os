@@ -1,0 +1,12 @@
+{
+  "name": "knowledge-native-help",
+  "pack": "knowledge",
+  "skin": "native",
+  "operations": ["x.knowledge.helpTopics", "content.list", "content.search", "content.get"],
+  "files": ["help-screen.tsx", "LICENSE"],
+  "dependsOn": ["native-base", "content-native-rich-text"],
+  "packages": {
+    "@composable-os/pack-knowledge": "*"
+  },
+  "noPurchase": true
+}

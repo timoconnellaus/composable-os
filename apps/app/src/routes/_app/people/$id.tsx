@@ -1,5 +1,5 @@
 // Person record page, layout B: header with actions, tabs (Overview, Timeline, Tasks, History,
-// Agreements),
+// Agreements, Conversations),
 // composer + timeline in the main column, and details, organisations and tasks in the side
 // panel. Deleted people stay viewable here with a Restore banner.
 import { personObject } from "@composable-os/core/client";
@@ -36,6 +36,7 @@ import {
 } from "#/components/automations/record-automations";
 import { EmptyState } from "#/components/empty-state";
 import { ExtensionFieldsCards } from "#/components/fields/fields-card";
+import { PersonConversations } from "#/components/inbox/person-conversations";
 import { useEnrichAction } from "#/components/integrations/enrich-action";
 import { useMergeAction } from "#/components/merge/merge-action";
 import { CustomerAccountCard } from "#/components/people/customer-account-card";
@@ -69,7 +70,7 @@ import { formatDate } from "#/lib/format";
 import { callOp, OperationCallError } from "#/lib/operations";
 import { errorMessage, opKey, useOp, useOpMutation } from "#/lib/query";
 
-const TABS = ["overview", "timeline", "tasks", "history", "agreements"] as const;
+const TABS = ["overview", "timeline", "tasks", "history", "agreements", "conversations"] as const;
 type Tab = (typeof TABS)[number] | `x:${string}`;
 
 export const Route = createFileRoute("/_app/people/$id")({
@@ -309,6 +310,11 @@ function PersonRecord({
                 readOnly={deleted}
               />
             ),
+          },
+          {
+            value: "conversations",
+            label: "Conversations",
+            content: <PersonConversations personId={person.id} />,
           },
           ...recordViews.tabs,
         ]}

@@ -168,19 +168,33 @@ extension declares it; it never implements it. Each behaviour the platform has i
   the order's batch; never compute a price or a discount in a tool or a block. Declare every move
   into a live state `by: ["host"], tools: [...]` (a person's tool) or `by: ["staff"]` with the
   state field `personApproves: true`, never `create.in` a live state; an AI's change to a live
-  discount, and any write of a promo code record by anyone but a person (your pack's tools
-  included), waits for a person. Not in a shipped pack until public operations have a
-  per-address rate limit (ADR 0693). See `DiscountSpec` in `packages/sdk/src/discount.ts` and ADR 0693.
+  discount (any state but the initial one, paused and ended too), and any write of a promo code
+  record by anyone but a person (your pack's tools included, unless the tool is `humanOnly` or
+  `personApproves` with a permission), waits for a person; an approval of a call naming a
+  discount shows its terms and is refused if they changed since (ADR 0699). Code words are kept folded, at least 6 characters, one per word (ADR 0940): show the
+  host's refusal, never check a word in a tool. Generated single-use codes go on a codes object
+  declared `hashed: true`: make them with `randomCodes`, write only `codeHash(code)` to `word`
+  (the host refuses anything else), and give the codes to the person who made them once, in a
+  `humanOnly` tool's answer under `redactResult` (ADR 0699); never store, log or notify them. Put
+  a word a person chooses on the discount's own `code`, never a hashed object. Name what a
+  discount covers in `objects` (a multi-select of `<pack>.<object>` values), not with relations to
+  packs you do not require. See `DiscountSpec` in `packages/sdk/src/discount.ts`, ADRs 0693 and
+  0699, and Offers: `packs/offers/index.ts`.
 - **`unique`** on an object: `unique: [{ fields: [<up to 4 fields>], states?: [<states>] }]`, no
   two live records in those states share the fields (one active booking per Person per class).
   The database refuses the second, however many write at once (`conflict`, `rule: "unique"`).
-  Never check for a duplicate in a tool instead. See `UniqueSpec` in `packages/sdk/src/unique.ts`
-  and ADR 0502.
+  Add `fold: true` for a code people type (a tag on a sticker): the rule's fields are then text
+  fields the host keeps trimmed and in upper case on every write, so case and outer spaces never
+  make a second one (ADR 0864). Never check for a duplicate, or fold a value, in a tool instead.
+  See `UniqueSpec` in `packages/sdk/src/unique.ts` and ADR 0502.
 - **Windows and staff-only rules** on `states`: a move's `window: { from?, until? }` and
   `staffOnly: "<boolean field>"`, and the same on `states.create` for every create, bind
   customers (staff and the host are not bound). A move only a person should make (voiding a pass)
   is `by: ["host"], tools: ["<tool>"]`: only the host and that tool make it, and the tool is
-  `humanOnly` with a `permission` (ADR 0513). An end is `"<datetime field>"` or
+  `humanOnly` with a `permission` (ADR 0513). A record in a state that only such tools (or the
+  host) leave is kept out of the Trash too: only those tools, or a person holding one of their
+  permissions, put it there, never an AI (ADR 0863), so give a record that others should remove a
+  way out of the state first. An end is `"<datetime field>"` or
   `{ at, daysBefore?, minutesBefore?, zone? }`, each a field of the record or
   `<relation>.<field>` (`klass.startsAt`), up to two relations away (`class.classType.lateMinutes`,
   every field on the way your own, including fields you add to another pack's object), or a
@@ -266,6 +280,20 @@ extension declares it; it never implements it. Each behaviour the platform has i
   `title: "<a text or select field, or relation.field of one of your objects>"` (never the
   client's name; left out, the object's label). See `OccupiesSpec` in
   `packages/sdk/src/occupies.ts` and ADRs 0765 and 0844.
+- **`located`** on an object whose records are each at one of the business's locations (a room, a
+  series, a class, a duty shift): `located: { field: "<a required relation to one location>" }`
+  (`{ type: "relation", to: "location", required: true }`), or `located: { path:
+  "<relation>.<field>" }` when the record is at its related record's location (a booking's
+  `klass.location`; one required relation away, to another of your objects). The host fills it while there
+  is one open location, gives an empty `timezone` the location's zone, and refuses a new record at
+  a closed location. Never filter by location in a tool: the host reads this declaration. Add
+  `agree: [{ a: "location", b: "room.location" }]` where two relations must name the same location
+  (a class and its room); the database refuses a write that would leave them apart
+  (`location_mismatch`), and a room's location changes only with everything using it
+  (`location.relocate`). Declare `agree` on a series as well as on what it makes: a series that
+  does not can be left naming a room elsewhere, and its generation then fails every hour. A
+  `located.path`'s relation must be required. See
+  `LocatedSpec` and `AgreeSpec` in `packages/sdk/src/located.ts` and ADR 0911.
 - **`calendarEntry`** (shipped packs only) on an object with a `customer` whose records are a
   customer's appointments (a booking, a ticket): `calendarEntry: { starts, ends: "<datetime
   paths>", title, place?: "<text paths>", live: [<states in which it shows>] }`. A path is a
@@ -440,7 +468,14 @@ extension declares it; it never implements it. Each behaviour the platform has i
   procedure): `publishable.staffRead: true` opens the current published version (the content and
   the slug, never the working copy) to every staff account, pack roles included, through
   `content.staffGet`, `content.staffList` and `content.search`; a block reads it with those, never
-  `record.get`. `publishable.acknowledge: { who, manage, managed?, owner?, notices? }` asks the
+  `record.get`. `publishable.staffNames: ["section"]` (or `[{ field: "section", order: "order" }]`,
+  ADR 0708) gives each published record, in `names`, the id, title and (with `order`, that number
+  field's value) of the record a single relation content field names, so a staff screen groups
+  and labels by it without reading that object, which a pack-role account may not. Every staff
+  reader, a coach's or a cleaner's included, is given that title as it is on the record: the
+  contract allows only another object of your pack with no row rules of its own (not
+  `publishable`, no `customer`, `customerVia` or `access`) whose title field is plain `text`; and
+  it needs `staffRead`. `publishable.acknowledge: { who, manage, managed?, owner?, notices? }` asks the
   staff a "must read" field names (`who`: a `document` field with `MUST_READ_SCHEMA`, outside the
   content: everyone, staff roles, pack roles, granted pack permissions) to confirm each version
   that asks again, with one tap; `manage` is a restricted, grantable permission of yours (who

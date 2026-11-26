@@ -88,12 +88,49 @@ export function randomCodes(count: number, length = 16): string[] {
   return [...codes];
 }
 
+/** What starts a code kept as its hash (`codeHash`), never the first character of a code word. */
+export const CODE_HASH_PREFIX = "#";
+const CODE_HASH_HEX = 56;
+const CODE_HASH_PATTERN = new RegExp(`^#[0-9A-F]{${CODE_HASH_HEX}}$`);
+
+/**
+ * What a codes object declared `hashed` keeps of a code (stage 34 step 5): `#` and the first 224
+ * bits of the SHA-256 of the folded code, in upper-case hex (57 characters). For codes made by
+ * `randomCodes` (80 bits or more), so nobody who reads the record, the audit log or a query over
+ * the views (an assistant, an MCP client) can work the code out from it; the host hashes what a
+ * buyer types the same way and looks the hash up by its index. Never for a word a person chose: a
+ * short word can be found from its hash by trying every word.
+ */
+export async function codeHash(code: string): Promise<string> {
+  // The Web Crypto and encoding globals (see randomCodes).
+  const { crypto, TextEncoder: Encoder } = globalThis as unknown as {
+    crypto: { subtle: { digest(algorithm: string, data: Uint8Array): Promise<ArrayBuffer> } };
+    TextEncoder: new () => { encode(text: string): Uint8Array };
+  };
+  const digest = new Uint8Array(
+    await crypto.subtle.digest("SHA-256", new Encoder().encode(foldCode(code))),
+  );
+  const hex = Array.from(digest, (b: number) => b.toString(16).padStart(2, "0"))
+    .join("")
+    .slice(0, CODE_HASH_HEX)
+    .toUpperCase();
+  return `${CODE_HASH_PREFIX}${hex}`;
+}
+
+/** Whether `value` is a code's hash as `codeHash` makes it. */
+export function isCodeHash(value: string): boolean {
+  return CODE_HASH_PATTERN.test(value);
+}
+
 /**
  * Codes kept as records of another object of this extension (a promo code belongs to a
  * discount): `discount` is that object's relation field (one record) to this object, `word` its
  * text field holding what the buyer types (compared without case), `uses` an optional number field
  * of the most orders one code may be used on (1: a single-use code), and `active` an optional
- * boolean field that, off, voids the code.
+ * boolean field that, off, voids the code. `hashed: true` keeps each code as its hash, never the
+ * code (`codeHash`): `word` then holds only hashes, which the host refuses anything else for, and
+ * the codes are shown once to the person who makes them (generated single-use codes, which no
+ * assistant may read).
  */
 export interface DiscountCodesSpec {
   object: string;
@@ -101,6 +138,7 @@ export interface DiscountCodesSpec {
   word: string;
   uses?: string;
   active?: string;
+  hashed?: boolean;
 }
 
 /**
@@ -169,6 +207,7 @@ export const discountManifestSchema = z
         word: fieldName,
         uses: fieldName.optional(),
         active: fieldName.optional(),
+        hashed: z.boolean().optional(),
       })
       .strict()
       .optional(),
@@ -405,4 +444,25 @@ export function checkObjectDiscount(
       );
     }
   }
+  // Past its first state a discount's terms are changed only by a person (ADR 0699): nothing but
+  // the host creates one past it, and nothing but the host (a person's tool) moves one back to it,
+  // so there is no way round that rule.
+  for (const [state, movers] of Object.entries(states.create?.in ?? {})) {
+    if (state === states.initial || liveSet.has(state)) continue;
+    if (movers.some((mover) => mover !== "host")) {
+      contract(
+        `objects.${name}.states.create.in.${state}`,
+        `A discount is made in "${states.initial}": past it, its terms are a person's to change, so only the host may create one in "${state}"`,
+      );
+    }
+  }
+  states.moves.forEach((move, i) => {
+    if (move.to !== states.initial) return;
+    if (move.by.some((mover) => mover !== "host")) {
+      contract(
+        `objects.${name}.states.moves.${i}.by`,
+        `Moving a discount back to "${states.initial}" would make its terms anyone's to change again: declare it by ["host"] with a person's tool, or leave it out`,
+      );
+    }
+  });
 }

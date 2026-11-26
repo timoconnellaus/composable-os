@@ -14,6 +14,7 @@ import type { DocumentPathSpec, DocumentSchema } from "./document.ts";
 import type { FieldTypeName } from "./field-types.ts";
 import type { IntakeSpec } from "./intake.ts";
 import type { JourneySignalSpec } from "./journey-signals.ts";
+import type { AgreeSpec, LocatedSpec } from "./located.ts";
 import type { MineSpec } from "./mine.ts";
 import type { OccupiesSpec } from "./occupies.ts";
 import type { RecurringScheduleSpec } from "./recurring.ts";
@@ -160,7 +161,7 @@ export type FieldSpec =
     })
   | (FieldBase & {
       type: "relation";
-      /** Target object: `person`, `organisation`, `task`, or `<extension>.<object>`. */
+      /** Target object: `person`, `organisation`, `task`, `location`, or `<extension>.<object>`. */
       to: string;
       /** Many records (stored as a JSON array of ids). Default one. */
       many?: boolean;
@@ -340,6 +341,17 @@ export interface ObjectSpec {
    * record on the same thing at an overlapping time, whatever object it is.
    */
   occupies?: OccupiesSpec;
+  /**
+   * Which location each record is at (see LocatedSpec, ADR 0911): a required relation to one
+   * location, or `relation.field` reaching one. The host fills it while there is one open
+   * location, gives an empty zone the location's, and refuses a new record at a closed one.
+   */
+  located?: LocatedSpec;
+  /**
+   * Relations that must name the same location (see AgreeSpec, ADR 0911): a class's location and
+   * its room's. Refused in the database for every writer (`location_mismatch`).
+   */
+  agree?: readonly AgreeSpec[];
   /**
    * Events in the customer's private calendar feed (see CalendarEntrySpec, ADR 0891): the record's
    * start, end, public title and place as paths the customer may read, and the states in which it
@@ -999,6 +1011,16 @@ export interface PublishableSpec {
    * working copy on the record's page.
    */
   staffRead?: boolean;
+  /**
+   * Staff read names (stage 38 step 6, ADR 0708): content fields, each a single relation to
+   * another object of this pack (a procedure's section), whose related record's id and title (and,
+   * given `{ field, order }`, its value of that number field) a staff reader is given beside the
+   * values (`names` in `content.staffGet` and `content.staffList`), so a pack-role account shows
+   * a procedure's section without reading sections. Needs `staffRead`. The related object must
+   * declare no row rules of its own (not publishable, no customer, customerVia or access), and
+   * its title field must be plain text.
+   */
+  staffNames?: readonly (string | { field: string; order: string })[];
 }
 
 /** An object's customer: see `ObjectSpec.customer`. */

@@ -46,7 +46,7 @@ Declared as `allowance: AllowanceSpec` on an object. Declared by: [`bookings.boo
 
 Records that are discounts (see DiscountSpec, ADR 0693): a code or a member's price, worked out by the host when it prices an order, one deal per order, limits kept by the database.
 
-Declared as `discount: DiscountSpec` on an object. Declared by: no shipped pack.
+Declared as `discount: DiscountSpec` on an object. Declared by: [`offers.discount`](/packs/offers/data-model/).
 
 ## agreements
 
@@ -64,7 +64,7 @@ Declared as `healthNotes: HealthNotesSpec` on an object. Declared by: [`bookings
 
 A fixed state machine (see StatesSpec, ADR 0425). An object has stages or states, not both.
 
-Declared as `states: StatesSpec` on an object. Declared by: [`bookings.series`](/packs/bookings/data-model/), [`bookings.class`](/packs/bookings/data-model/), [`bookings.booking`](/packs/bookings/data-model/), [`bookings.appointment`](/packs/bookings/data-model/), [`courses.enrolment`](/packs/courses/data-model/), [`forms.form`](/packs/forms/data-model/), [`forms.submission`](/packs/forms/data-model/), [`memberships.membership`](/packs/memberships/data-model/), [`memberships.pass`](/packs/memberships/data-model/), [`programs.assignment`](/packs/programs/data-model/), [`programs.session`](/packs/programs/data-model/), [`rostering.dutyseries`](/packs/rostering/data-model/), [`rostering.shift`](/packs/rostering/data-model/), [`shop.variant`](/packs/shop/data-model/), [`shop.shipment`](/packs/shop/data-model/), [`ticketing.event`](/packs/ticketing/data-model/), [`ticketing.ticket`](/packs/ticketing/data-model/).
+Declared as `states: StatesSpec` on an object. Declared by: [`bookings.series`](/packs/bookings/data-model/), [`bookings.class`](/packs/bookings/data-model/), [`bookings.booking`](/packs/bookings/data-model/), [`bookings.appointment`](/packs/bookings/data-model/), [`courses.enrolment`](/packs/courses/data-model/), [`equipment.item`](/packs/equipment/data-model/), [`equipment.fault`](/packs/equipment/data-model/), [`forms.form`](/packs/forms/data-model/), [`forms.submission`](/packs/forms/data-model/), [`memberships.membership`](/packs/memberships/data-model/), [`memberships.pass`](/packs/memberships/data-model/), [`offers.discount`](/packs/offers/data-model/), [`programs.assignment`](/packs/programs/data-model/), [`programs.session`](/packs/programs/data-model/), [`rostering.dutyseries`](/packs/rostering/data-model/), [`rostering.shift`](/packs/rostering/data-model/), [`shop.variant`](/packs/shop/data-model/), [`shop.shipment`](/packs/shop/data-model/), [`ticketing.event`](/packs/ticketing/data-model/), [`ticketing.ticket`](/packs/ticketing/data-model/).
 
 ## claims
 
@@ -76,7 +76,7 @@ Declared as `claims: ClaimsSpec` on an object. Declared by: [`bookings.booking`]
 
 Uniqueness among live records in some states (see UniqueSpec, ADR 0502): one active booking per Person per class. Refused by the database for every actor.
 
-Declared as `unique: readonly UniqueSpec[]` on an object. Declared by: [`bookings.coach`](/packs/bookings/data-model/), [`bookings.booking`](/packs/bookings/data-model/), [`programs.program`](/packs/programs/data-model/), [`programs.log`](/packs/programs/data-model/).
+Declared as `unique: readonly UniqueSpec[]` on an object. Declared by: [`bookings.coach`](/packs/bookings/data-model/), [`bookings.booking`](/packs/bookings/data-model/), [`equipment.item`](/packs/equipment/data-model/), [`equipment.fault`](/packs/equipment/data-model/), [`programs.program`](/packs/programs/data-model/), [`programs.log`](/packs/programs/data-model/).
 
 ## recurring
 
@@ -107,6 +107,18 @@ Declared as `team: TeamSpec` on an object. Declared by: [`programs.assignment`](
 A claim on a thing (see OccupiesSpec, ADR 0765): while live, the record takes the room (or chair, or hall) it names for its time. The host refuses, in the database, a second live record on the same thing at an overlapping time, whatever object it is.
 
 Declared as `occupies: OccupiesSpec` on an object. Declared by: [`bookings.class`](/packs/bookings/data-model/), [`bookings.appointment`](/packs/bookings/data-model/).
+
+## located
+
+Which location each record is at (see LocatedSpec, ADR 0911): a required relation to one location, or `relation.field` reaching one. The host fills it while there is one open location, gives an empty zone the location's, and refuses a new record at a closed one.
+
+Declared as `located: LocatedSpec` on an object. Declared by: no shipped pack.
+
+## agree
+
+Relations that must name the same location (see AgreeSpec, ADR 0911): a class's location and its room's. Refused in the database for every writer (`location_mismatch`).
+
+Declared as `agree: readonly AgreeSpec[]` on an object. Declared by: no shipped pack.
 
 ## calendarEntry
 

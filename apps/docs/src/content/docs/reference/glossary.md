@@ -243,6 +243,23 @@ path; it leaves search, the `rec_*` views, embeddings and summaries for everyone
 inbox may mark one; an admin or whoever has it unmarks it (ADR 0740).
 _Avoid_: private activity (that is one synced email or meeting only its mailbox's owner sees)
 
+### Saved reply
+
+(stage 36)
+
+Ready words for a reply in the **Inbox**: a staff member's own (theirs alone, an admin included) or
+shared by the whole inbox (written by admins, `inbox:manage`), with the channels it fits. Its words
+hold only fixed slots (`{{person.firstName}}`, `{{staff.firstName}}`, `{{business.name}}`), which the
+host fills for one conversation; never a free merge field. Written only by a person; archived ones
+are kept and no longer offered (ADR 0749).
+_Avoid_: template (stage 13's email templates, and a note kind's template), canned response, macro
+
+### Inbox category
+
+One of an admin's list of names a **Conversation** is filed under (bookings, payments, an injury),
+set in Settings → Inbox; the inbox filters by it (ADR 0749).
+_Avoid_: tag (that is a record's), note kind, label
+
 ### Note level
 
 Who may read a note (stage 56, ADR 0830): `staff` (every staff account, the default and every
@@ -1125,7 +1142,18 @@ _Avoid_: site (a site is a client app), branch (except in trades), the location 
 ### Main location
 
 The first location, made by migration 1390 from the organisation's name and zone. Its zone is the
-organisation's (pay periods and the books) and changes only with it, in Settings → General.
+organisation's (pay periods and the books) and changes only with it, in Settings → General. The
+reconciler fills it into records that existed before their object became located.
+
+### Located
+
+An object whose records are each at one location, by a declaration (`located`, ADR 0911): a
+required relation to one location (a room, a class), or `relation.field` reaching one (a booking's
+`class.location`). With one open location the host fills it; a located record's empty zone is its
+location's; a closed location takes no new located record. A pack never filters by location in
+its own code. **Agree**: two paths of a record that must name the same location (a class's and its
+room's), refused in the database for every writer (`location_mismatch`); a room's location changes
+only together with every record that uses it (`location.relocate`).
 
 ### Location hint
 
@@ -1302,7 +1330,9 @@ A shipped pack's staff screen in the product's admin (stage 47, ADR 0660): one o
 declared in its manifest (`screens`: a label, the block and export, where it sits in the
 navigation, the tools that gate it, and optionally the record whose page shows it as a tab),
 built into the admin and shown to whoever could call every tool in its gate (`screens.mine`).
-Runtime extensions declare none. A fixed-role account's admin shows its screens and nothing else.
+Runtime extensions declare none. A fixed-role account's admin shows its screens and nothing else;
+a record's link (a notice's) opens the record screen it is listed on that object, if any (ADR
+0708: a procedure's reader, a class's list).
 _Avoid_: page (an admin page is the host's own), view (a view is a saved spec), app screen (the
 app's screens are native blocks, not declared screens)
 
@@ -1788,7 +1818,8 @@ An **item** is a thing in the shop (a club hoodie), with its pictures, its categ
 sold (online, in person or both); only a published item is public. A **variant** is one version of
 it that is bought and counted (the large black one), with its price, stock, reorder level and usual
 supplier. An item with one version still has one variant. "Product" is not used for these: it is
-the platform's word for a composition (ADR 0400) (stage 37, ADR 0689).
+the platform's word for a composition (ADR 0400) (stage 37, ADR 0689). The Equipment pack's
+**item** is something owned and looked after, not sold (below).
 
 ### Shipment
 
@@ -2649,6 +2680,10 @@ of the pack belonging to a discount (one with one use is a single-use code). A c
 apply gets one answer, "not valid here", whatever the reason (ADR 0693). The host keeps the word
 folded (upper case, no spaces, non-ASCII letters matching), at least 6 characters and one per word,
 and refuses codes for 15 minutes to an account or guest order that gave 20 wrong ones (ADR 0940).
+A **single-use code** is one of a batch of random codes made for a discount (the Offers pack's
+`offers.code`), each good for a set number of orders; the host keeps only its hash, so it is shown
+once, to the person who made the batch, and never in a record, a query or the audit log (ADR 0699).
+A code a buyer types is never kept in the audit log either.
 _Avoid_: voucher (a gift voucher is something bought), coupon
 
 ### Deal
@@ -3248,8 +3283,10 @@ _Avoid_: search index (that is `core_search`, over working copies, for staff), F
 
 What an object that declares `publishable.staffRead` gives every staff account, pack roles (a
 cleaner, a coach, the door) included: its records' current published versions, their content and
-slug, through `content.staffGet`, `content.staffList` and `content.search`. Never the working copy
-being edited, never a draft or an unpublished record, never the public or a customer.
+slug, through `content.staffGet`, `content.staffList` and `content.search`, and the title of a
+related record of the same pack its `staffNames` fields name, with its id and declared order (a procedure's section, ADR
+0708). Never the working copy being edited, never a draft or an unpublished record, never the
+public or a customer.
 _Avoid_: staff view (a saved view of records), internal (a note's level)
 
 ### Procedure
@@ -3271,7 +3308,43 @@ _Avoid_: policy (an agreement's word), SOP, article, guide
 An answer to a customer's common question on the business's website (`knowledge.helppage`):
 "where do I park", "how do I pause my membership". Read by anyone, signed in or not, in its
 published wording, found by address, in its **help topic**, or by searching its published words.
+The **help centre** is the blocks a site or app shows them with: a search box, the topics with
+their pages, a page and its related pages (ADR 0708).
 _Avoid_: FAQ entry, article, knowledge base article, support doc
+
+### Item
+
+(the Equipment pack; stage 59, ADR 0862)
+
+One thing a business owns and looks after (`equipment.item`): a treadmill, a rack, the sauna, a
+drill, a van. It has a **tag**, the code on its sticker, which no other item in or out of service
+shares, whatever its case or outer spaces (kept upper case); a retired item gives it up. A place, a
+supplier (an Organisation), what it cost, when its warranty ends, and its **keeper**, the staff
+account who looks after it (empty means the managers). It is in service, **out of service** (why,
+and since when) or retired. Not the Shop's item, which is something sold.
+_Avoid_: asset (fine in prose), equipment (the pack's name, not one record), machine (only some are)
+
+### Out of service
+
+(stage 59, ADR 0862)
+
+An item's state while it must not be used. Any staff member who may report faults takes an item
+out, with why, on its own or in the same call as a fault report; only a manager
+(`equipment:manage`) puts it back, and only a person, never an AI. Nothing takes an item out by
+itself. While it is out, why is changed only by a manager, and the item is put in the Trash only
+by a manager in person (ADR 0863).
+_Avoid_: broken (a fault's word), out of order (what members are shown)
+
+### Fault
+
+(stage 59, ADR 0862)
+
+A report that something is wrong with an item (`equipment.fault`): what is wrong and how bad (a
+safety risk, not working, worn or cosmetic), by whom. Reported, then acknowledged, then closed by a
+manager as fixed, not a fault or a duplicate, each with why. What is wrong and how bad are the
+report's: only a manager corrects them. The same report again, or a retry, is the same fault while
+it is open. None is made on a retired item. An injury to a person is not a fault.
+_Avoid_: ticket (Ticketing's), issue, incident
 
 ### Confirmation
 
@@ -3282,7 +3355,9 @@ record of an **acknowledged** object (one whose `publishable` declares `acknowle
 procedure). Only the person makes it, for the current version, once; a row nobody changes
 (`core_publish_ack`). Who is asked is the record's **must read**: everyone, or staff roles, pack
 roles and granted pack permissions, checked on the day. A record is **to read** for a person it
-asks who has no confirmation that counts.
+asks who has no confirmation that counts. The reader's button says what it confirms, the title
+and the version on screen ("I have read and understood "Injuries" (version 4)"), and is drawn only
+when that version is the person's to confirm (ADR 0708).
 _Avoid_: acceptance (an agreement's, a customer's), acknowledgement in prose (the declaration's
 name), sign-off
 

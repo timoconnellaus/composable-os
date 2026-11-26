@@ -164,7 +164,12 @@ One **D1** database per deployment, with real tables ([ADR 0002](adr/0002-d1-rea
   assignee, through one rule every read path takes (the inbox's operations, timelines, activity
   reads); search, the `rec_*` views, embeddings and summaries leave it out for everyone. `inbox:*`
   permissions are core and never held by a pack role. An erase and the Trash purge delete a
-  Person's conversations whole; a merge moves them.
+  Person's conversations whole; a merge moves them. The admin's web screens (step 3,
+  [ADR 0749](adr/0749-saved-replies-inbox-categories-and-the-inbox-screens.md)) are core, not pack
+  screens: the inbox (`/inbox`, mine, unassigned and all), a conversation (`/inbox/<id>`), saved
+  replies (`core_saved_reply`, migration 1051: a staff member's own or shared, fixed slots the
+  host fills) and Settings → Inbox (the categories, in `core_settings` under `inbox`), and a
+  Person's Conversations tab. They show only what the operations return.
 - **Storage retention** ([ADR 0090](adr/0090-storage-retention.md)): D1 stops at 10 GB, so the same
   cron keeps growth bounded. Successful reads by AI, extensions and automations are counted per
   hour (`core_audit_read_counts`) rather than audited row by row. Write audits are kept forever by
@@ -1373,7 +1378,18 @@ such a tool may be named in a move's `tools` ([ADR 0552](adr/0552-a-tool-a-perso
 `packages/core/src/records/unique.ts`). `unique: [{ fields, states? }]` is a partial unique index
 the reconciler builds on the extension's table: no two live records in those states share the
 fields (one active booking per Person per class), whoever writes and however many at once. A
-read before the write gives the clear message and the dry run's answer.
+read before the write gives the clear message and the dry run's answer, and a restore whose
+values were taken while it was in the Trash is refused in words. `fold: true`
+([ADR 0864](adr/0864-uniqueness-that-folds-case-and-spaces.md)) keeps the rule's text fields
+trimmed and in upper case on every write, so case and outer spaces never make a second (an
+equipment tag).
+
+**The Trash and a guarded state** ([ADR 0863](adr/0863-a-state-only-tools-leave-keeps-its-record-out-of-the-trash.md),
+`packages/core/src/records/trash-states.ts`). A state that is not final and that only the host
+leaves (`by: ["host"]`, with or without `tools`) is guarded: a record in it is put in the Trash by
+a record write only from inside one of those tools, or by a person holding one of their
+permissions, never by an AI, an automation or other code, whatever the preset. The host's own
+removals (a series' records) are not held.
 
 **`recurring`** ([ADR 0500](adr/0500-recurring-a-weekly-rule-in-local-time.md),
 `packages/core/src/recurring/`, `packages/core/src/time/local.ts`). A series (a timetable line)
@@ -2059,7 +2075,30 @@ date-relative automation reminds the owner on) in sections, and help pages
 (`knowledge.helppage`, public as published) in help topics. Its tools compose `ack.*`,
 `public.list` and the record writes; it adds no rule. A formula of a publishable object's own
 fields may read `publishedAt` and `publishedVersion`, and a date-relative trigger may name a date
-formula.
+formula. Its blocks (step 6, [ADR 0708](adr/0708-the-knowledge-packs-blocks-and-screens.md)): the
+help centre for a site and an app (search through `content.search` asked for help pages, the
+topics with their pages, a page), and for staff the procedures with the reader and its confirm
+(the version on screen, drawn only when the host's list says it is the person's to confirm), To
+read, and Read status (web only); rich text through Content's renderers, which `cos add` brings
+whatever packs are listed because they call no operation. Its admin screens are Procedures, To
+read (every staff account, pack roles included), the reader as a record screen on a procedure,
+and Read status (`readStatus`). `publishable.staffNames` gives a staff reader the id, title and declared order of a
+related record of the same pack with each published record (`names`: a procedure's section), and
+`content.staffGet` says whether the caller is served its pictures (`pictures`), so a coach's
+screens ask for nothing the host refuses.
+
+**The Equipment pack** (stage 59 step 3, [ADR 0862](adr/0862-the-equipment-pack.md),
+`packs/equipment`). Items (`equipment.item`: a tag `unique` and folded among items in or out
+of service, a supplier Organisation, cost and warranty) and the faults staff report on them
+(`equipment.fault`, one open fault per report key, none on a retired item). An item is in service,
+out of service or retired, and each move is one only the pack's tools make (ADR 0513): `takeOut`
+and `reportFault` for anyone with `equipment:report` (a coach or cleaner by grant), an AI's call
+waiting for a person (`personApproves`); `putBack` a manager's own act (`equipment:manage`,
+restricted, `humanOnly`); `retire` a manager's. A fault is triaged by a manager through `triage`,
+each close with why; `reportFaultOnly` reports without taking anything out, which the assistant
+may do. Why an item is out and a fault's severity and words are read-only but to the tools
+(`correctOutReason`, `correctFault` for a manager), and the Trash is held to the moves (ADR 0863).
+The register is one `query.sql` statement whatever its size. It adds no rule.
 
 **Media** ([ADR 0444](adr/0444-media-the-editor-and-the-content-pack.md),
 `packages/core/src/operations/media.ts`, `packages/core/src/http/media.ts`). A base record,
@@ -2083,8 +2122,26 @@ never a tenant. The migration makes the main location (`main = 1`) from `org_nam
 `location.reopen` are a person's only, and a trigger refuses closing the last open location. The
 public reads a public open location's name, short name, address and zone through `public.list` and
 `public.get` from a pack's tool: the `rec_location` view's `listed` column is the public
-declaration's condition ([ADR 0916](adr/0916-public-reads-of-locations.md)). Located records, the
-location's zone as their default, coverage and staff limits are the stage's later steps.
+declaration's condition ([ADR 0916](adr/0916-public-reads-of-locations.md)).
+
+**Located records** ([ADR 0911](adr/0911-located-and-agree-and-the-located-zone-default.md),
+`packages/sdk/src/located.ts`, `packages/core/src/locations/`). `location` is a relation target for
+extension fields. An object declares `located: { field }` (a required relation to one location) or
+`{ path: "relation.field" }` (one relation away, through the extension's own objects). The record
+write path fills a new record's located field with the only open location, gives a located record's
+empty `timezone` its location's zone (so does `recurring` for a series' rule, and the reconciler for
+a zone added to records that exist), and refuses a new record at a closed location
+(`location_closed`); a series at a closed location makes nothing. The reconciler fills a new located
+column with the main location in its batch (one `UPDATE … WHERE … IS NULL` per field). `agree: [{ a,
+b }]` names two paths that must reach the same location: the reconciler builds triggers on the
+declaring table and on the table a path passes through (`locations/sql.ts`), so a live record that
+disagrees, or a used room moved, is refused for every writer (`location_mismatch`), after a read in
+the write path that gives the message; installing over records that already disagree is refused
+(`agree_conflict`). A located record moved to another location takes its new location's zone
+unless its zone was set by hand. A reconcile that fills on a host with more than one location
+says how many records it filed under the main location (`fill_main_location`, a warning on the
+approval and a notice to the admins), and `location.relocate` moves a room with every record that
+uses it in one batch. Coverage, the zone readers and staff limits are the stage's later steps.
 
 **Video and files** (stage 42, [ADR 0475](adr/0475-video-and-file-media-in-stream.md),
 `packages/core/src/operations/media-video.ts`, `packages/core/src/records/stream.ts`). A media
@@ -2671,7 +2728,21 @@ only by a person: by `["host"]` through a person's tool, or by staff writing a s
 `personApproves`; nothing is created live; and a non-person's change to a live discount, its
 restore from the Trash, and any write of a promo code record wait for a person
 (`records/person-approves.ts`). Not on a sellable, stocked or capacity
-object. A runtime extension may declare it.
+object. A runtime extension may declare it. `codes.hashed: true` (stage 34 step 5,
+[ADR 0699](adr/0699-the-offers-pack-and-single-use-codes-kept-as-their-hash.md)) keeps each code
+as its hash (`codeHash` in the SDK: `#` and 224 bits of SHA-256 of the folded code): the host
+refuses any other value in `word` and hashes what a buyer types before its indexed lookup, so a
+generated code is never in a record, a view, a query or the audit log; `order.start`,
+`order.startHeld`, `order.quote`, `order.applyCode` and `discount.check` keep a typed `code` out
+of the audit row (`auditRedact`). The **Offers pack** (`packs/offers`) declares the discounts
+(`offers.discount`: promo codes, members' prices, customer rates; live only through its
+`personApproves` tools with `offers:manage`) and the single-use codes (`offers.code`, hashed, made
+by a person's `humanOnly` `generateCodes` and shown once). A non-person's change to a discount in
+any state but its initial one waits for a person (`records/person-approves.ts`); a waiting call
+that names a discount keeps its terms as asked and says them in the approval, and approving it is
+refused if they changed since (`discounts/terms.ts`, `approval.approve`); a person's own tool's
+writes of its extension's records are not queued again by the approval policy (`pipeline.ts`,
+`personsOwnRun`), the deploy floor aside.
 
 **Low stock** (stage 37 step 2, ADR 0681, `packages/core/src/stock/low.ts`). When a write takes a
 stock record's on hand to or below its reorder level (`stock.reorderAt`), the staff who hold the
@@ -2967,7 +3038,9 @@ boundary, with its pack's hooks over the staff client on the app's own origin
 (`src/lib/staff-client.ts`), and its data is forgotten when it closes. An account with a pack role
 gets a small shell (its screens, its account, sign out) that makes no call its role is refused;
 every other server function and `/api/*` route refuses it, and MCP holds it to its role
-(ADR 0436).
+(ADR 0436). `/s/<pack>/<screen>?record=<id>` opens a record screen on that record, and the small
+shell sends a record's page (`/x/<object>/<id>`, a notice's link) to the record screen listed for
+it on that object (ADR 0708).
 
 **Today items** (stage 60, [ADR 0870](adr/0870-todays-items-and-the-today-items-declaration.md)): a
 shipped pack declares the numbers it adds to the owner's Today (`todayItems` in its manifest: a
@@ -3085,6 +3158,7 @@ client's copy of its block exports what the release declares, says which copy is
 | Daily checklists | no objects: screens and tools over the host's tool-only day-run operations (`checklist.today`, `.day`, `.dayTick`, `.dayDone`, `.days`), tools open to every staff account (`anyStaff`) or held to `checklists:write` (`corePermission`) | built (checklists on their own, [ADR 0651](adr/0651-checklists-on-their-own-a-schedule-a-run-a-day-and-who-may-do-it.md), [ADR 0652](adr/0652-a-tool-for-every-staff-account-and-a-tool-held-to-a-core-permission.md)): Today's checklists (web and the app) and Checklist history; requires nothing |
 | Forms | `publishable` with a slug and no public half, `intake` (form and submission), `states` (moves into and out of spam only by `personApproves` tools), a status, dates, cap and address a person approves, an old address that redirects, a setting a person approves, a low-rating automation, routine mail (the receipt) | stage 29: step 3 built (forms and submissions, the inbox's tools, views among them "Asked to hear from us", the hourly cap setting, the low-rating notice, the staff form kind, [ADR 0726](adr/0726-the-forms-pack-forms-submissions-and-who-reads-them.md)); step 5 built (personal links, answered with `link` or `linkId`, and the receipt, ADRs 0723 and 0724); step 4 built (the form page `/f/<slug>` and `/form` on the host and through the binding, the `forms-form` and `forms-native-form` blocks and the headless entry, ADR 0728); Leads as a destination, erase, and the screens and dashboard to come |
 | Shop | `sellable.goods` (sold where its item says) with `stock` and a reorder level told to `shop:stock`, `sellable.delivery` with seeded options and a shipment `grants`, `publishable` items, `public` with a list of conditions and `via` alone, a buyer's `customer` read of their shipments, prices a person approves, supplier fields on Organisation, a pack role (`shop.stockroom`), grantable permissions | stage 37: step 5 built (items, variants, delivery options, shipments, supplier fields, the stockroom role, the country setting, views, the Shop dashboard, the stock and shipment tools, [ADR 0689](adr/0689-the-shop-pack-and-public-reads-through-a-public-record.md)); purchase orders, receipts, counts and write-offs, recorded returns and routine mail, blocks and screens, and the import to come |
+| Equipment | `unique` (an item's tag), `states` whose moves only the pack's tools make (out of service by `takeOut` and `reportFault`, `personApproves`; back by `putBack`, `humanOnly`; retired by `retire`; a fault's triage), grantable and restricted permissions (`equipment:report`, `equipment:manage`) | stage 59: step 1 built (the interval rule in `recurring`, [ADR 0860](adr/0860-the-interval-rule-in-recurring.md)); step 3 built (items, faults, the tag, out of service and back, the staff tools, [ADR 0862](adr/0862-the-equipment-pack.md)); overseers, service plans, maintenance and inspections, the member's report, automations, the dashboard and the blocks to come |
 | Memberships | `allowance` (holders, paying for Bookings' classes and, when they say they pay for sessions, its appointments by service: stage 49, [ADR 0764](adr/0764-appointments-in-the-bookings-pack.md)), recurring billing with `recurring.grants` and `recurring.pause`, `sellable.onePerPerson`, `humanOnly` tools, `requires: ["programs", "bookings"]` | stage 32b: steps 5 to 7 built (the behaviour, the pack, plan changes and pauses, the dashboard, views and blocks); the import (step 8) to come |
 
 ### Client repos

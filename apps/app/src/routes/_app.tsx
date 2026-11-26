@@ -48,12 +48,37 @@ import { CreateTaskDialog } from "../components/tasks/create-task-dialog.tsx";
 import { UserMenu } from "../components/user-menu.tsx";
 import { formatDateTime } from "../lib/format.ts";
 import { useHotkey } from "../lib/hotkeys.ts";
+import { callOp } from "../lib/operations.ts";
 import { getSession } from "../server/session.public.ts";
+
+/**
+ * For a fixed-role account: where a record's page `/x/<object>/<id>` opens instead, the route of a
+ * record screen on that object that `screens.mine` lists for it (`/s/<pack>/<key>?record=<id>`),
+ * or null. It asks the host the one question such an account may ask (`screens.mine`); nothing
+ * here decides who may read the record: the screen's own calls are the host's to answer.
+ */
+async function recordScreenFor(pathname: string): Promise<string | null> {
+  const match = /^\/x\/([a-z][a-z0-9]*\.[a-z][a-z0-9]*)\/([A-Za-z0-9_-]{1,64})\/?$/.exec(pathname);
+  if (!match) return null;
+  const [, object, id] = match as unknown as [string, string, string];
+  const mine = await callOp("screens.mine", {}).catch(() => null);
+  const screen = mine?.screens.find((s) => s.record?.object === object);
+  if (!screen) return null;
+  return `/s/${encodeURIComponent(screen.pack)}/${encodeURIComponent(screen.key)}?record=${encodeURIComponent(id)}`;
+}
 
 export const Route = createFileRoute("/_app")({
   beforeLoad: async ({ location }) => {
-    const { principal, user, packRole, signOutUrl, setupOpen, identityProvider, support } =
-      await getSession();
+    const {
+      principal,
+      user,
+      packRole,
+      navPermissions,
+      signOutUrl,
+      setupOpen,
+      identityProvider,
+      support,
+    } = await getSession();
     if (!principal || !user) {
       throw redirect({ to: "/sign-in", search: { redirect: location.href } });
     }
@@ -61,6 +86,10 @@ export const Route = createFileRoute("/_app")({
     // and its screens only (stage 47, ADR 0660): every other page is "not found", before any of
     // its loaders asks the host for anything the role is refused.
     if (packRole && location.pathname !== "/" && !location.pathname.startsWith("/s/")) {
+      // A record's own page (a notice's link, `/x/<object>/<id>`) opens the record screen the host
+      // lists for this account on that object, if there is one (ADR 0708: a procedure's reader).
+      const opens = await recordScreenFor(location.pathname);
+      if (opens) throw redirect({ href: opens });
       throw notFound();
     }
     // First visit after install: the admin finishes setting up first (skippable, ADR 0167).
@@ -71,6 +100,7 @@ export const Route = createFileRoute("/_app")({
       principal,
       user,
       packRole,
+      navPermissions,
       signOutUrl,
       identityProvider,
       support,
@@ -247,7 +277,7 @@ function createKindFor(pathname: string): { kind: CreateKind; options?: CreateOp
 
 /** Dialogs controlled by AppCommands, plus the global shortcuts that open them. */
 function AppOverlays() {
-  const { isAdmin } = Route.useRouteContext();
+  const { isAdmin, navPermissions } = Route.useRouteContext();
   const state = useAppCommandsState();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
 
@@ -271,6 +301,7 @@ function AppOverlays() {
         onCreate={state.create}
         onShowShortcuts={() => state.setShortcuts(true)}
         isAdmin={isAdmin}
+        navPermissions={navPermissions}
       />
       <ShortcutSheet open={state.shortcuts} onOpenChange={state.setShortcuts} />
       <CreatePersonDialog

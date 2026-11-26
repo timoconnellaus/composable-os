@@ -8,6 +8,8 @@
 // Not a template for production gatekeepers: no PKCE, no credentials, a trivially simple journal.
 // See packages/gatekeeper-email-send and packages/gatekeeper-slack-post for real ones.
 import { DurableObject, RpcStub, RpcTarget, WorkerEntrypoint } from "cloudflare:workers";
+import { messageStatements, newConversationStatement } from "@composable-os/core";
+import { createCrmDb } from "@composable-os/db";
 import {
   AGREEMENT_FILENAME,
   agreementSummary,
@@ -448,6 +450,53 @@ function account(env: Env, accountId: string): DurableObjectStub<FakeAccount> {
 /** The connect page's public path; cos-app proxies /gatekeeper/fake/* to cos-runner. */
 function connectPath(accountId: string, nonce: string): string {
   return `/gatekeeper/fake/connect/${accountId}/${nonce}`;
+}
+
+/**
+ * Development and e2e only (cos-runner routes it only while the fake provider is on): an email to
+ * the shared inbox, written by the host's own writers as the inbound email hook (stage 36 step 2)
+ * will write one. POST { personId } or { sender } (an unknown address), with subject and text.
+ * A new open conversation each time; returns its id.
+ */
+export async function seedInboxMessage(env: Env, request: Request): Promise<Response> {
+  const body = (await request.json()) as {
+    personId?: string;
+    sender?: string;
+    subject?: string;
+    text?: string;
+  };
+  if (!body.personId && !body.sender) {
+    return Response.json({ error: "personId or sender" }, { status: 400 });
+  }
+  const db = createCrmDb(env.DB);
+  const now = new Date().toISOString();
+  const subject = body.subject ?? "A question";
+  const created = await newConversationStatement(db.query, {
+    channel: "email",
+    personId: body.personId ?? null,
+    senderAddress: body.personId ? null : (body.sender ?? null),
+    inboxAddress: "inbox@example.invalid",
+    subject,
+    now,
+  });
+  await db.batch([created.statement]);
+  const message = await messageStatements(db.query, {
+    conversation: {
+      id: created.id,
+      version: 0,
+      person_id: body.personId ?? null,
+      assignee_id: null,
+      status: "open",
+    },
+    type: "email",
+    direction: "inbound",
+    subject,
+    body: body.text ?? "",
+    externalKey: `email:<${crypto.randomUUID()}@fake.invalid>`,
+    now,
+  });
+  await db.batch(message.statements);
+  return Response.json({ conversationId: created.id });
 }
 
 /** Routes the fake provider's public pages (from cos-runner's fetch). */

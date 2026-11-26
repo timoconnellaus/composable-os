@@ -39,6 +39,7 @@ async function check(dir: string, json: boolean, io: ExtIo): Promise<number> {
           issues: result.issues,
           outside: outsideSummary(result.manifest),
           roles: rolesSummary(result.manifest),
+          leftOut: result.leftOut,
         },
         null,
         2,
@@ -47,6 +48,10 @@ async function check(dir: string, json: boolean, io: ExtIo): Promise<number> {
     return result.ok ? 0 : 1;
   }
   const shown = relative(process.cwd(), resolve(dir)) || ".";
+  // A pack beside it that it names but the check did not install is said, never left silent.
+  for (const { id, why } of result.leftOut) {
+    io.out(`note: checked without ../${id} installed: ${why}`);
+  }
   for (const issue of result.issues) io.out(`${formatIssue(shown, issue)}\n`);
   if (!result.ok) {
     const n = result.issues.length;

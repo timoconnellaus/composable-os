@@ -1,0 +1,30 @@
+{
+  "name": "@composable-os/pack-offers",
+  "version": "0.1.0",
+  "license": "FSL-1.1-ALv2",
+  "private": true,
+  "type": "module",
+  "exports": {
+    ".": "./index.ts"
+  },
+  "description": "Offers: money off, declared as discounts the host applies when it prices an order (stage 34 step 5, ADR 0699): promo codes, batches of single-use codes, members' prices and customer rates, with the limits staff set and a person making each one live. Bundled as source into cos-runner.",
+  "composableOs": {
+    "optional": true,
+    "label": "Offers",
+    "description": "Promo codes for a campaign, single-use codes for a newsletter, and members' prices that apply by themselves, with dates, limits and a person making each one live."
+  },
+  "scripts": {
+    "typecheck": "tsc --noEmit",
+    "test": "vitest run"
+  },
+  "dependencies": {
+    "@composable-os/sdk": "workspace:*"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-plugin": "1.5.1",
+    "@cloudflare/workers-types": "5.20261104.1",
+    "@composable-os/config": "workspace:*",
+    "typescript": "6.0.3",
+    "vitest": "5.1.0"
+  }
+}

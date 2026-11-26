@@ -30,7 +30,7 @@
 // two shifts at once; on the shift's table, an insert or a write of its link or its own times
 // copies them from the record again (a path that wrote them some other way is put right).
 import { CompiledQuery } from "kysely";
-import { ident } from "../extensions/naming.ts";
+import { fitName, ident } from "../extensions/naming.ts";
 
 /** The columns and tables one staffed object's claim is derived from. */
 export interface StaffedTables {
@@ -146,7 +146,7 @@ export function deriveClaims(t: StaffedTables, where: string): string {
 }
 
 /** The trigger names one staffed object owns: on its table, its account's and its kind's. */
-function staffedTriggerNames(
+function staffedTriggerNamesUnfitted(
   t: Pick<StaffedTables, "table" | "account" | "margins" | "required" | "times">,
 ): string[] {
   return [
@@ -167,29 +167,53 @@ function staffedTriggerNames(
   ];
 }
 
+/** staffedTriggerNames with each name fitted to an identifier (naming.ts `fitName`). */
+function staffedTriggerNames(
+  t: Pick<StaffedTables, "table" | "account" | "margins" | "required" | "times">,
+): string[] {
+  return staffedTriggerNamesUnfitted(t).map(fitName);
+}
+
 /** The triggers copying a shift's times from its record (ADR 0751): on its table and the record's. */
-function timesTriggerNames(t: Pick<StaffedTables, "table" | "times">): string[] {
+function timesTriggerNamesUnfitted(t: Pick<StaffedTables, "table" | "times">): string[] {
   if (!t.times) return [];
   const on = `${t.times.table}__times_${t.table}`;
   return [`${t.table}__times_ins`, `${t.table}__times_upd`, `${on}_ins`, `${on}_upd`];
 }
 
+/** timesTriggerNames with each name fitted to an identifier (naming.ts `fitName`). */
+function timesTriggerNames(t: Pick<StaffedTables, "table" | "times">): string[] {
+  return timesTriggerNamesUnfitted(t).map(fitName);
+}
+
 /** The triggers following a kind's minutes (ADR 0760), on the kind's table. */
-function marginTriggerNames(t: Pick<StaffedTables, "table" | "margins">): string[] {
+function marginTriggerNamesUnfitted(t: Pick<StaffedTables, "table" | "margins">): string[] {
   if (!t.margins) return [];
   const on = `${t.margins.table}__margins_${t.table}`;
   return [`${on}_ins`, `${on}_upd`, `${on}_del`];
 }
 
+/** marginTriggerNames with each name fitted to an identifier (naming.ts `fitName`). */
+function marginTriggerNames(t: Pick<StaffedTables, "table" | "margins">): string[] {
+  return marginTriggerNamesUnfitted(t).map(fitName);
+}
+
 /** The triggers keeping a required account (ADR 0760), on the account holder's table. */
-function requiredTriggerNames(t: Pick<StaffedTables, "table" | "account" | "required">): string[] {
+function requiredTriggerNamesUnfitted(
+  t: Pick<StaffedTables, "table" | "account" | "required">,
+): string[] {
   if (!t.required || !t.account) return [];
   const on = `${t.account.table}__requires_${t.table}`;
   return [`${on}_ins`, `${on}_upd`, `${on}_del`];
 }
 
+/** requiredTriggerNames with each name fitted to an identifier (naming.ts `fitName`). */
+function requiredTriggerNames(t: Pick<StaffedTables, "table" | "account" | "required">): string[] {
+  return requiredTriggerNamesUnfitted(t).map(fitName);
+}
+
 /** The pay lock's trigger names (ADR 0627): on the object's table, and on its account's table. */
-function payLockTriggerNames(t: Pick<StaffedTables, "table" | "account">): string[] {
+function payLockTriggerNamesUnfitted(t: Pick<StaffedTables, "table" | "account">): string[] {
   return [
     `${t.table}__paylock_ins`,
     `${t.table}__paylock_upd`,
@@ -203,6 +227,11 @@ function payLockTriggerNames(t: Pick<StaffedTables, "table" | "account">): strin
         ]
       : []),
   ];
+}
+
+/** payLockTriggerNames with each name fitted to an identifier (naming.ts `fitName`). */
+function payLockTriggerNames(t: Pick<StaffedTables, "table" | "account">): string[] {
+  return payLockTriggerNamesUnfitted(t).map(fitName);
 }
 
 /** Whether the datetime `expr` falls in a locked pay period (by its start, half-open). */

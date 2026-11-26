@@ -3,6 +3,7 @@
 import type { CoreDatabase } from "@composable-os/db";
 import {
   type AcknowledgeNotices,
+  type AgreeManifest,
   type AgreementsManifest,
   type AllowanceManifest,
   type CalendarEntryManifest,
@@ -21,6 +22,7 @@ import {
   type IntakeManifest,
   isDocumentType,
   isRestrictedField,
+  type LocatedManifest,
   type OccupiesManifest,
   RECURRING_HORIZON_DAYS,
   type RecurringScheduleManifest,
@@ -48,6 +50,7 @@ import { CORE_OBJECTS, setExtensionObjects } from "../fields/index.ts";
 import type {
   FieldDefinition,
   FieldType,
+  LocationPath,
   ObjectDefinition,
   ObjectSignal,
   RestrictedFieldDefinition,
@@ -117,6 +120,10 @@ export interface ObjectDefinitionJson {
   workedOn?: WorkedOnManifest;
   /** A claim on a thing (stage 49, ADR 0765), as declared. */
   occupies?: OccupiesManifest;
+  /** Which location each record is at (stage 64, ADR 0911), as declared. */
+  located?: LocatedManifest;
+  /** Paths that must name the same location (ADR 0911), as declared. */
+  agree?: AgreeManifest;
   /** Events in a customer's calendar feed (stage 62, ADR 0891), as declared. */
   calendarEntry?: CalendarEntryManifest;
   /** The public-write door (stage 29, ADR 0720), as declared. */
@@ -164,6 +171,7 @@ export interface ObjectDefinitionJson {
         }
       | undefined;
     staffRead?: boolean | undefined;
+    staffNames?: (string | { field: string; order: string })[] | undefined;
   };
   navigationOrder?: number;
   requireOneOf?: string[][];
@@ -1057,6 +1065,25 @@ function workedOnDefinition(
   };
 }
 
+/** `located` and `agree` (ADR 0911), each path with the object a relation names. */
+function locatedDefinition(
+  object: ObjectState,
+  own: readonly FieldState[],
+): Pick<ObjectDefinition, "located" | "agree"> {
+  const { located, agree } = object.definition;
+  const path = (declared: string): LocationPath => {
+    const [first, second] = declared.split(".") as [string, string | undefined];
+    if (second === undefined) return { field: first };
+    const viaObject = own.find((f) => f.localName === first)?.definition.to;
+    return { field: second, via: first, ...(viaObject ? { viaObject } : {}) };
+  };
+  const at = located?.field ?? located?.path;
+  return {
+    ...(at ? { located: path(at) } : {}),
+    ...(agree?.length ? { agree: agree.map((r) => ({ a: path(r.a), b: path(r.b) })) } : {}),
+  };
+}
+
 /** The occupies declaration (ADR 0765), with the thing's and the margins' registry names. */
 function occupiesDefinition(
   object: ObjectState,
@@ -1500,6 +1527,7 @@ export function buildRegistry(state: SchemaState): Map<string, ObjectDefinition>
       ...staffedDefinition(object, own),
       ...workedOnDefinition(object, own),
       ...occupiesDefinition(object, own),
+      ...locatedDefinition(object, own),
       ...(object.definition.calendarEntry
         ? {
             calendarEntry: {
@@ -1541,6 +1569,7 @@ export function buildRegistry(state: SchemaState): Map<string, ObjectDefinition>
                   }
                 : {}),
               ...(publishable.staffRead ? { staffRead: true } : {}),
+              ...(publishable.staffNames ? { staffNames: [...publishable.staffNames] } : {}),
             },
           }
         : {}),

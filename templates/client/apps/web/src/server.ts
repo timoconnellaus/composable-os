@@ -21,7 +21,11 @@ import {
  * (routes/before-you-go-on.tsx, routes/agreements.tsx) and the agreement blocks' (cos add
  * web-agree): a visitor reads what they are asked with agreement.guestVersions. The account ones
  * are My account's (routes/account.tsx, and the account blocks: cos add web-account), its
- * contact preferences included.
+ * contact preferences included. Knowledge's help centre (cos add knowledge-help-centre and
+ * knowledge-help-page, with "knowledge" in product.ts's packs and the client generated again)
+ * calls x.knowledge.helpTopics, content.list, content.search and content.get: add them here. Its
+ * search box calls as the visitor types; this route passes each call with the visitor's address
+ * (forVisitor), so the host's limit on public calls is per visitor.
  */
 const BROWSER_OPERATIONS = [
   "me.get",

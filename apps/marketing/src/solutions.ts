@@ -115,6 +115,11 @@ export const SOLUTIONS: readonly Solution[] = [
           status: "built",
         },
         {
+          title: "Procedures and help pages",
+          body: "How your gym does things, written down once: opening up, cleaning, what to do when someone is hurt. Your staff read each procedure on the web and in your app, always in the wording last published, never a draft. Whoever must read one (everyone, or some roles like your coaches or cleaners) confirms it with one tap, and is asked again when you publish a change that matters; you see who has confirmed and who has not, and anyone still to read one is reminded after a week. Help pages answer your members' common questions (parking, pausing a membership) on your own website and app, with a search box. Your staff use the screens in the product's admin, a coach or a cleaner too, though they see a procedure's words and not yet its pictures, and in your app (not yet tried on phones); the web screens are not yet tried on a live host. Not built yet: a warning on the roster for a coach still to read one, the assistant answering from your procedures, and training courses for staff.",
+          status: "built",
+        },
+        {
           title: "Events and camps",
           body: "Ticket types with their own places, paying in full or by deposit, tickets in your app, and scanning at the door.",
           status: "built",

@@ -162,6 +162,8 @@ export const ID_PREFIXES = {
   accountingMatch: "acm",
   /** A conversation in the shared inbox (stage 36, ADR 0740). */
   conversation: "cnv",
+  /** A saved reply in the shared inbox, a staff member's own or shared (stage 36, ADR 0749). */
+  savedReply: "svr",
   /** A journey: steps the host takes for one Person at a time (stage 53, ADR 0800). */
   journey: "jny",
   /** A published version of a journey, never changed (ADR 0800). */

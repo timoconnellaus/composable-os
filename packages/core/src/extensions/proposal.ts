@@ -346,6 +346,12 @@ export function computeImpact(input: {
       "Removed fields and objects are hidden and their data kept for 30 days; dropping it later is a separate destructive approval.",
     );
   }
+  // Records filed under the main location on a host with more than one (ADR 0911).
+  for (const change of changes) {
+    if (change.kind === "fill_main_location" && change.detail) {
+      warnings.push(`${change.object}: ${change.detail}.`);
+    }
+  }
   const typeChanges = of(["change_type"]);
   const labels = manifestSummaryContext(manifest);
   const schemaChanged = changes.length > 0;

@@ -47,6 +47,18 @@ it is the app's own; `cos diff <block>` shows upstream changes. A block holds no
 lint refuses one that does. Web and native share logic (the hooks), not screens. Every block is in
 the [reference](/reference/blocks/).
 
+A block may depend on another pack's block that calls no operation, such as Content's rich text
+renderers, which Knowledge's blocks draw with: `cos add` copies it whatever `product.ts` lists
+([ADR 0708](https://github.com/timoconnellaus/composable-os/blob/main/docs/adr/0708-the-knowledge-packs-blocks-and-screens.md)).
+
+**A search box on a public page** (Knowledge's help centre, `knowledge-help-centre`) calls the host
+as the visitor types: add its operations (`x.knowledge.helpTopics`, `content.list`,
+`content.search`, and `content.get` for `knowledge-help-page`) to the web app's operation route,
+which passes each call with the visitor's address, so the host's limit is per visitor. Search is
+`content.search` asked for help pages with the caller's own audience: a visitor never finds a
+procedure or a draft. The help page's address is `/help/<address>` unless the site passes
+`hrefOf`.
+
 ## My account
 
 `cos add web-account` (or `native-account`) copies the customer's own area: **Needs your
@@ -95,6 +107,10 @@ can only turn that one kind off ([ADR 0675](https://github.com/timoconnellaus/co
 
 A shipped pack may declare staff screens: web blocks the product's admin builds in and shows to
 whoever could call the tools that open them. Each pack's are on its Screens page.
+
+A record screen (a tab on a record page) also opens at `/s/<pack>/<screen>?record=<id>`, and a
+fixed-role account (a coach, a cleaner) following a record's link, such as a notice's, is sent to
+the record screen it may open on that object: Knowledge's reader for a procedure.
 
 ## Role clients
 

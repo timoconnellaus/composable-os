@@ -50,6 +50,12 @@ import { FIELD_TYPES, type FieldTypeName, formulaTypeOf } from "./field-types.ts
 import { checkFormula, type FormulaFieldRef, PUBLISHED_FORMULA_FIELDS } from "./formula/compile.ts";
 import { checkObjectIntake, intakeManifestSchema } from "./intake.ts";
 import { journeySignalIssues, journeySignalsManifestSchema } from "./journey-signals.ts";
+import {
+  agreeManifestSchema,
+  checkObjectLocated,
+  LOCATION_OBJECT,
+  locatedManifestSchema,
+} from "./located.ts";
 import { checkRoleMine, mineManifestSchema } from "./mine.ts";
 import { checkObjectOccupies, occupiesManifestSchema } from "./occupies.ts";
 import { checkObjectRecurring, recurringManifestSchema } from "./recurring.ts";
@@ -113,7 +119,7 @@ export const RESERVED_FIELD_NAMES = new Set([
 export const FORBIDDEN_OPERATION_PREFIXES = ["extension.", "policy.", "user.", "audit."] as const;
 const TEXT_LIKE: FieldTypeName[] = ["text", "email", "phone", "url", "select"];
 /** Objects relations may point at. */
-export const RELATION_CORE_TARGETS = ["person", "organisation", "task"] as const;
+export const RELATION_CORE_TARGETS = ["person", "organisation", "task", LOCATION_OBJECT] as const;
 
 const optionSchema = z.object({
   value: z.string().min(1).max(100),
@@ -267,6 +273,8 @@ const objectManifestSchema = z.object({
   workedOn: workedOnManifestSchema.optional(),
   team: teamManifestSchema.optional(),
   occupies: occupiesManifestSchema.optional(),
+  located: locatedManifestSchema.optional(),
+  agree: agreeManifestSchema.optional(),
   calendarEntry: calendarEntryManifestSchema.optional(),
   intake: intakeManifestSchema.optional(),
   checklists: checklistsManifestSchema.optional(),
@@ -364,6 +372,16 @@ const objectManifestSchema = z.object({
         .strict()
         .optional(),
       staffRead: z.boolean().optional(),
+      staffNames: z
+        .array(
+          z.union([
+            z.string().max(40),
+            z.object({ field: z.string().max(40), order: z.string().max(40) }).strict(),
+          ]),
+        )
+        .min(1)
+        .max(8)
+        .optional(),
     })
     .strict()
     .optional(),
@@ -1684,7 +1702,7 @@ export function validateManifest(
         ) {
           contract(
             `${path}.to`,
-            `Unknown relation target "${field.to}". Use person, organisation, task or <extension>.<object>`,
+            `Unknown relation target "${field.to}". Use person, organisation, task, location or <extension>.<object>`,
           );
         }
       } else if (field.to !== undefined || field.many !== undefined) {
@@ -1784,6 +1802,7 @@ export function validateManifest(
     checkObjectWorkedOn(m, name, object, contract);
     checkObjectTeam(m, name, object, contract);
     checkObjectOccupies(m, name, object, contract);
+    checkObjectLocated(m, name, object, contract);
     checkObjectCalendarEntry(m, name, object, contract);
     checkObjectIntake(m, name, object, contract);
     checkObjectChecklists(m, name, object, contract);
@@ -2020,6 +2039,63 @@ export function validateManifest(
         contract(`${path}.date`, `publishable.date must name a date or datetime field of ${name}`);
       } else if (!p.content.includes(p.date)) {
         contract(`${path}.date`, "publishable.date is content: list it in content too");
+      }
+    }
+    // Staff read names (ADR 0708): the title of a related record of the same pack, beside the
+    // values a staff reader is given; never a person, an organisation or another pack's record.
+    if (p.staffNames !== undefined) {
+      if (p.staffRead !== true) {
+        contract(`${path}.staffNames`, "publishable.staffNames needs staffRead");
+      }
+      for (const entry of p.staffNames) {
+        const fieldName = typeof entry === "string" ? entry : entry.field;
+        const orderName = typeof entry === "string" ? undefined : entry.order;
+        const field = object.fields[fieldName];
+        const to = field?.type === "relation" ? field.to : undefined;
+        const local = to?.startsWith(`${m.id}.`) ? to.slice(m.id.length + 1) : undefined;
+        if (!p.content.includes(fieldName) || !to || field?.many) {
+          contract(
+            `${path}.staffNames`,
+            `"${fieldName}" must be a single relation field listed in content`,
+          );
+        } else if (local === undefined || !m.objects[local] || local === name) {
+          contract(
+            `${path}.staffNames`,
+            `"${fieldName}" must relate to another object of this pack (${m.id}.*)`,
+          );
+        } else {
+          // Its title goes to every staff reader, pack roles included, read as it is on the
+          // record: so the target is a plain grouping object with no row rules of its own (no
+          // versions whose draft is not yet published, no customer, no access holders), and its
+          // title is plain text (never an email, a phone or a choice).
+          const target = m.objects[local] as (typeof m.objects)[string];
+          const rules = (
+            [
+              ["publishable", target.publishable],
+              ["customer", target.customer],
+              ["customerVia", target.customerVia],
+              ["access", target.access],
+            ] as const
+          )
+            .filter(([, declared]) => declared !== undefined)
+            .map(([key]) => key);
+          if (rules.length) {
+            contract(
+              `${path}.staffNames`,
+              `"${fieldName}" relates to ${m.id}.${local}, which declares ${rules.join(", ")}: staffNames names only an object with no row rules of its own`,
+            );
+          } else if (target.fields[target.titleField]?.type !== "text") {
+            contract(
+              `${path}.staffNames`,
+              `"${fieldName}" relates to ${m.id}.${local}, whose title field is not plain text`,
+            );
+          } else if (orderName !== undefined && target.fields[orderName]?.type !== "number") {
+            contract(
+              `${path}.staffNames`,
+              `"${fieldName}" orders by "${orderName}", which is not a number field of ${m.id}.${local}`,
+            );
+          }
+        }
       }
     }
     // The states a record may be published in (ADR 0810): values of the object's states field.

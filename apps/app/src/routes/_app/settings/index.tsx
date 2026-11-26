@@ -17,6 +17,7 @@ import {
   ListChecksIcon,
   ListOrderedIcon,
   MailCheckIcon,
+  MessagesSquareIcon,
   MicIcon,
   NotebookPenIcon,
   PlugIcon,
@@ -72,6 +73,7 @@ function Section({
     | "/settings/automations"
     | "/settings/duplicates"
     | "/settings/orders"
+    | "/settings/inbox"
     | "/settings/routine-email"
     | "/settings/plan"
     | "/settings/support-access";
@@ -278,6 +280,14 @@ function SettingsPage() {
               title="Orders"
               description="The order currency, how long an unpaid order lasts, part payments and where buyers come back to."
               to="/settings/orders"
+            />
+          )}
+          {isAdmin && (
+            <Section
+              icon={<MessagesSquareIcon className="size-5" />}
+              title="Inbox"
+              description="The categories the shared inbox files its conversations under."
+              to="/settings/inbox"
             />
           )}
           {isAdmin && (

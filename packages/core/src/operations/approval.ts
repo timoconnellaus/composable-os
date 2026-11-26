@@ -32,6 +32,7 @@ import {
 import { approvalDecidedMessages, emitEvents, eventOriginOf } from "../automations/events.ts";
 import { deliverOutbox, emitDurably, outboxEntries, outboxInserts } from "../automations/outbox.ts";
 import type { ApprovalDecidedMessage, EventSink } from "../automations/types.ts";
+import { assertDiscountsUnchanged, type DiscountSnapshot } from "../discounts/terms.ts";
 import {
   ForbiddenError,
   NeedsOwnApprovalError,
@@ -1067,6 +1068,12 @@ async function approveActions(
       );
     }
   }
+  // A discount the action names is approved as it was asked for (ADR 0699): one whose terms have
+  // changed since (the assistant asked to make 10% live, then wrote 90%) is refused, naming them.
+  for (const target of targets) {
+    const simulated = parse<{ discounts?: DiscountSnapshot[] }>(target.simulated, {});
+    await assertDiscountsUnchanged(ctx.db, simulated.discounts ?? []);
+  }
   // The claim (ADR 0345): commits with this batch, before anything applies. Of two approvals
   // arriving together, one claims each action, and only what it claimed is applied below.
   const execution = newId("execution");
@@ -1299,6 +1306,12 @@ async function approveActions(
         const granted = parse<string[] | null>(action.granted_permissions, null);
         const asked = replaceIds(parse<Record<string, unknown>>(action.input, {}), bindings);
         // The approver's read-again choice replaces the AI's suggestion (ADR 0702).
+        // Its discount's terms again, just before it applies (review of PR #479, S2): an action
+        // approved with it that changed them has applied by now, and this one is refused.
+        await assertDiscountsUnchanged(
+          ctx.db,
+          parse<{ discounts?: DiscountSnapshot[] }>(action.simulated, {}).discounts ?? [],
+        );
         const choice = input.readAgain?.[action.id];
         const applying =
           choice !== undefined && READ_AGAIN_OPERATIONS.has(action.operation)

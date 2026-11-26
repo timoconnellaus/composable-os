@@ -55,6 +55,12 @@ import {
   intakeHostFields,
 } from "../intake/declared.ts";
 import { listInputSchema, pageSchema, runListQuery } from "../list.ts";
+import {
+  assertLocationRules,
+  defaultZoneOf,
+  withLocationDefault,
+  withZoneFollowingMove,
+} from "../locations/index.ts";
 import type { RecordRef } from "../operation.ts";
 import { defineOperation, type HandlerContext, personsTool } from "../operation.ts";
 import { looksAfterWhere } from "../pack-role-looks-after.ts";
@@ -83,7 +89,8 @@ import {
 import type { StageCache } from "../records/stages.ts";
 import { resolveStateRequest } from "../records/states.ts";
 import { type Mover, type TransitionOutcome, transitionTimeline } from "../records/transitions.ts";
-import { assertUnique } from "../records/unique.ts";
+import { assertTrashLeavesState } from "../records/trash-states.ts";
+import { assertUnique, foldUniqueValues } from "../records/unique.ts";
 import { guardStatement } from "../recurring/bookkeeping.ts";
 import {
   assertRuleValues,
@@ -95,7 +102,6 @@ import {
   setRecurringWriter,
 } from "../recurring/index.ts";
 import { type ChangeMarks, CREATED, type MarkSource } from "../routine-mail/marks.ts";
-import { loadGeneralSettings } from "../settings.ts";
 import { hostRoomFor } from "../staffing/free.ts";
 import {
   assertFollowerRoom,
@@ -805,8 +811,9 @@ export async function createRecord(
     await prepareValues(
       ctx,
       object,
-      // A code word is kept folded, long enough and one of its kind (ADR 0940).
-      await foldCodeWords(ctx, object, null, withDefaults),
+      // A code word is kept folded, long enough and one of its kind (ADR 0940); a folded unique
+      // rule's text is trimmed and upper case (ADR 0864).
+      await foldCodeWords(ctx, object, null, foldUniqueValues(object, withDefaults)),
       "create",
       options,
     ),
@@ -855,6 +862,9 @@ export async function createRecord(
   prepared = withHostValues(prepared, withValues(outcome, spent.values), object);
   // One live record per declared key (ADR 0502); the database's index refuses a race.
   await assertUnique(ctx, object, id, valuesOf(prepared));
+  // Not at a closed location; two paths that agree name one location (ADR 0911). The database's
+  // triggers refuse a race.
+  await assertLocationRules(ctx, object, id, null, valuesOf(prepared));
   // Who works a shift, or a pattern's person: a rosterer's to say (ADR 0626).
   await assertRosterWrite(ctx, object, null, valuesOf(prepared), by);
   // A shift: never one person on two at once, refused naming the other; its warnings (ADR 0621).
@@ -1022,7 +1032,13 @@ async function applyDefaults(
   object: ObjectDefinition,
   values: Record<string, unknown>,
 ): Promise<Record<string, unknown>> {
-  const named = await withZoneDefaults(ctx, object, await withDefaultTitle(ctx, object, values));
+  // A located record given no location is at the only open one; its empty zone is its
+  // location's (ADR 0911).
+  const named = await withZoneDefaults(
+    ctx,
+    object,
+    await withLocationDefault(ctx, object, await withDefaultTitle(ctx, object, values)),
+  );
   const fields = object.fields.filter(
     (f) =>
       f.extension === object.extension &&
@@ -1051,7 +1067,7 @@ async function applyDefaults(
 /**
  * A `timezone` field left empty on a new record, with no default of its own, is the deployment's
  * zone (Settings → General, `timezone`; ADR 0460): an event created in Sydney is in Sydney until
- * someone says it is in Bangkok.
+ * someone says it is in Bangkok. A located record's is its location's zone (ADR 0911).
  */
 async function withZoneDefaults(
   ctx: HandlerContext,
@@ -1066,7 +1082,7 @@ async function withZoneDefaults(
       (values[f.name] === undefined || values[f.name] === null || values[f.name] === ""),
   );
   if (!empty.length) return values;
-  const { timezone } = await loadGeneralSettings(ctx.db);
+  const timezone = await defaultZoneOf(ctx, object, values);
   return { ...values, ...Object.fromEntries(empty.map((f) => [f.name, timezone])) };
 }
 
@@ -1217,7 +1233,14 @@ export async function updateRecord(
   if (!before) throw new NotFoundError(object.name, id);
   const by = options.by ?? callerMover(ctx);
   // A move asked for by name (`cancel`) becomes the state the host picks (ADR 0503).
-  const asked = await resolveStateRequest(ctx, object, before.values, values, by);
+  // A located record moved takes the new location's zone, unless its zone was set by hand or
+  // this write sets one (ADR 0911).
+  const asked = await withZoneFollowingMove(
+    ctx,
+    object,
+    before.values,
+    await resolveStateRequest(ctx, object, before.values, values, by),
+  );
   if (options.from !== undefined) assertMovesFrom(object, before.values, asked, options.from);
   assertMayChangeGatedStages(ctx, object, by);
   // Who must read a record staff confirm: a person's, and once published a manager's (ADR 0702).
@@ -1225,8 +1248,9 @@ export async function updateRecord(
   let prepared = await prepareValues(
     ctx,
     object,
-    // A code word is kept folded, long enough and one of its kind (ADR 0940).
-    await foldCodeWords(ctx, object, id, asked),
+    // A code word is kept folded, long enough and one of its kind (ADR 0940); a folded unique
+    // rule's text is trimmed and upper case (ADR 0864).
+    await foldCodeWords(ctx, object, id, foldUniqueValues(object, asked)),
     "update",
     options,
   );
@@ -1291,6 +1315,12 @@ export async function updateRecord(
   // One live record per declared key (ADR 0502); the database's index refuses a race.
   if (object.unique)
     await assertUnique(ctx, object, id, { ...before.values, ...valuesOf(prepared) });
+  // Not moved to a closed location; paths that agree still name one location; a room a live
+  // record agrees with keeps its location (ADR 0911). The database's triggers refuse a race.
+  await assertLocationRules(ctx, object, id, before.values, {
+    ...before.values,
+    ...valuesOf(prepared),
+  });
   // Who works a shift, a pattern's person or a profile's account: a rosterer's to say (ADR 0626).
   await assertRosterWrite(
     ctx,
@@ -1798,6 +1828,11 @@ async function trashRecord(ctx: HandlerContext, object: ObjectDefinition, id: st
   await checklistRecordWritten(ctx, object, id, before.values, null, undefined);
   await assertChecklistHolderMove(ctx, object, id, "put in the Trash", undefined);
   await assertHolderTrashable(ctx, object, id);
+  // A state only tools or the host leave is left by the Trash only by those hands (ADR 0863),
+  // after the rules above so each keeps its own words.
+  if (object.states) {
+    await assertTrashLeavesState(ctx, object, before.values[object.states.field]);
+  }
   const table = objectTableOf(object.name) as string;
   ctx.write(
     CompiledQuery.raw(`UPDATE ${table} SET deleted_at = ?, deleted_by = ? WHERE id = ?`, [
@@ -1857,6 +1892,25 @@ export const recordRestore = defineOperation({
     assertMayChangeGatedStages(ctx, object, undefined);
     // Its slug may have been taken while it was in the Trash (stage 28, ADR 0444).
     await assertRestorable(ctx, object, input.id);
+    // Its declared unique values may have been taken while it was in the Trash (ADR 0864): said
+    // so plainly here, and held at commit by the rule's index.
+    if (object.unique?.length) {
+      const named = new Set([
+        ...object.unique.flatMap((r) => r.fields),
+        ...(object.states ? [object.states.field] : []),
+      ]);
+      const stored = await sql<Record<string, unknown>>`
+        SELECT * FROM ${visibleTable(ctx, object)} WHERE id = ${input.id}
+      `.execute(ctx.db);
+      const row = stored.rows[0] ?? {};
+      const values = Object.fromEntries(
+        [...named].map((name) => {
+          const column = fieldStorage(object.name, name)?.column;
+          return [name, column ? (row[column] ?? null) : null];
+        }),
+      );
+      await assertUnique(ctx, object, input.id, values, { restoring: true });
+    }
     // Back with someone on it (a shift's person, a series' regular person): a rosterer's (ADR 0626).
     await assertRosterRestore(ctx, object, input.id);
     // A shift's time may have been given to its person meanwhile (ADR 0621): refused naming it.
