@@ -30,7 +30,7 @@
   "scripts": {
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
-    "test:two-clients": "COS_TEST_DB=two-clients vitest run",
+    "test:two-clients": "node scripts/test-two-clients.mjs",
     "open-operations": "node scripts/write-open-operations.mjs",
     "api-contract": "node scripts/write-api-contract.mjs",
     "relevance:real": "RELEVANCE_REAL=1 vitest run test/ai-relevance.test.ts --silent=false"

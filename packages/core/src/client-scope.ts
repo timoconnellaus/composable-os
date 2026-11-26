@@ -79,12 +79,10 @@ export function runInClientScope<T>(scope: ClientScope, run: () => T): T {
  */
 export function inDatabaseScope<T>(database: object, run: () => T): T {
   if (!store || store.getStore()) return run();
-  // The unscoped client's own database (the two-client tests' client) keeps its scope, id and all.
-  const scope =
-    unscopedScope !== "refuse" && unscopedScope.database === database
-      ? unscopedScope
-      : { database, client: null };
-  return store.run(scope, run);
+  // In the two-client tests, code outside every scope is the suite's own client, whatever handle
+  // it holds (a test's metering proxy of its database included): its scope, id and all.
+  if (unscopedScope !== "refuse") return store.run(unscopedScope, run);
+  return store.run({ database, client: null }, run);
 }
 
 /**

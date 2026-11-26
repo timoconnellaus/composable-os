@@ -81,11 +81,13 @@ made from another file are not seen: those are review's, and the two-client test
 ### The two-client tests
 - `packages/core/test/client-scope.test.ts`: a test per cache, two clients' databases in one
   isolate, their calls interleaved, and the refusal outside a scope.
-- `COS_TEST_DB=two-clients pnpm --filter @composable-os/core test:two-clients`: the whole core
+- `pnpm --filter @composable-os/core test:two-clients` (`COS_TEST_DB=two-clients`): the whole core
   suite, unchanged, as one client, with a second client (`test/other-client.ts`: its own D1
   database, an extension, a plan and a person of its own) taking its turn in its own scope before
   and after every test. Its turn fills every converted cache with its own and checks it reads only
-  its own records; around it the suite's client must see none of its schema.
+  its own records; around it the suite's client must see none of its schema. The script runs
+  vitest in batches of one file per worker: in this mode the pool's workerd exits when a worker
+  starts its second file (its setup file loads the whole of core).
 - `apps/app/test-two-clients/caches.test.ts`: through the app's real entries, one client with an
   extension the other lacks, their requests side by side.
 

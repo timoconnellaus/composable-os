@@ -4,7 +4,13 @@
 // only its own schema. And each client's video host is its own, stamping that client as the
 // creator of every upload.
 import { createExecutionContext, env, waitOnExecutionContext } from "cloudflare:test";
-import { applyPlan, issueDeviceSession, newId, planReconcile } from "@composable-os/core";
+import {
+  applyPlan,
+  getObject,
+  issueDeviceSession,
+  newId,
+  planReconcile,
+} from "@composable-os/core";
 import { createCrmDb } from "@composable-os/db";
 import { clientOf, environmentFor } from "@composable-os/db/client-environment";
 import { setUpTwoClients, TWO_CLIENTS } from "@composable-os/db/testing/two-clients";
@@ -121,6 +127,12 @@ describe("the extension schema each client's requests read (criterion 5)", () =>
       expect(await objectsA.text()).toContain(OBJECT);
       expect(await objectsB.text()).not.toContain(OBJECT);
     }
+    // What A's requests loaded stays A's: B's scope reads none of it, A's reads it.
+    const aEnv = await clientEnv(a.id);
+    const bEnv = await clientEnv(b.id);
+    await op(a.hostname, "schema.objects", {}, tokenA);
+    expect(runInClientEnv(bEnv, () => Boolean(getObject(OBJECT)))).toBe(false);
+    expect(runInClientEnv(aEnv, () => Boolean(getObject(OBJECT)))).toBe(true);
   });
 });
 
