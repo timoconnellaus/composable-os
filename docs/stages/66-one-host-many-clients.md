@@ -414,7 +414,7 @@ None open. Decisions 7 to 12 answer them.
 Spec agreed (owner, 2026-11-23; design confirmed 2026-11-25). No build step is built yet. Each
 build step adds a bullet of its own here (CONTRIBUTING.md, Working in parallel).
 
-- **Step 1** — not built — Prove it on Cloudflare: `ClientDb` carrying the app's and runner's suites, timed (the spike is first brought up to `main`)
+- **Step 1** — in progress — branch `feat/stage-66-client-db` — Prove it on Cloudflare: `ClientDb` carrying the app's and runner's suites, timed (the spike is first brought up to `main`). Done locally: `ClientDb` in `packages/db` (ADR 0612, its D1 differences table), the core, auth, app and runner suites passing on it with `COS_TEST_DB=client-db`, the probes against D1, and the proof Worker `apps/client-db-proof` with its timing harness, timed locally. Waits for the fleet's account: the workflow `client-db-proof.yml` run by hand (docs/deploying.md), the timing and the probes on Cloudflare, then the owner's decision on the timing before step 2. Deviation from criterion 1: the suites do not run deployed; on Cloudflare the proof runs the probes (D1 beside ClientDb, failing on any difference not allowed), the warm staff pages and checkout, a cold first page and the subrequest budget, which show the service's behaviour and its time but not every path the suites cover; those run on ClientDb locally only
 
 - **Step 2** — not built — needs: step 1 — `ClientDb` finished: migrations inside, bookmarks and restore, export and import, size, location hint
 

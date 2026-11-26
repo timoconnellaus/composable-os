@@ -1,0 +1,35 @@
+// The proof Worker of stage 66 step 1 (ADR 0612): ClientDb with one client beside a D1 database.
+// Deployed only by hand, by .github/workflows/client-db-proof.yml (scripts/deploy.mjs), which
+// renames cos-* to the product's names and fills in the D1 database's id; nothing here names an
+// account. See docs/deploying.md, "Proving a client's database on Cloudflare".
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "cos-client-db-proof",
+  "main": "src/worker.ts",
+  "compatibility_date": "2026-10-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": true,
+  "d1_databases": [
+    {
+      "binding": "DB",
+      "database_name": "cos-client-db-proof",
+      "migrations_dir": "../../packages/db/migrations",
+      "migrations_table": "core_migrations"
+    }
+  ],
+  "durable_objects": {
+    "bindings": [
+      { "name": "CLIENT_DB", "class_name": "ClientDb" },
+      // Times the scenarios from beside the databases (`/time?from=near`).
+      { "name": "PROOF_TIMER", "class_name": "ProofTimer" }
+    ]
+  },
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["ClientDb", "ProofTimer"] }],
+  // The one client's database, and where it and the D1 database are created (Oceania, stage 43).
+  // PROOF_KEY is a secret the workflow sets after each deploy (a fresh random value), never
+  // committed. Until it is set, the Worker refuses everything but /health.
+  "vars": {
+    "CLIENT_ID": "proof-gym",
+    "LOCATION_HINT": "oc"
+  }
+}

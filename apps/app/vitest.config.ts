@@ -2,6 +2,7 @@ import { existsSync, readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { readD1Migrations } from "@cloudflare/vitest-plugin";
 import { defineWorkersTestConfig } from "@composable-os/config/vitest";
+import { clientDbSetupFiles, withClientDb } from "@composable-os/db/testing/vitest";
 import { build } from "esbuild";
 import { mergeConfig } from "vitest/config";
 import { configuratorSpecs } from "./src/components/integrations/configurator/vite-plugin.ts";
@@ -63,7 +64,8 @@ export default mergeConfig(
       // tests do not load (they exercise src/server/* directly).
       wrangler: { configPath: "./wrangler.jsonc" },
       main: "./test/worker.ts",
-      miniflare: {
+      // COS_TEST_DB=client-db: env.DB is a client's database (stage 66, ADR 0612).
+      miniflare: await withClientDb({
         bindings: {
           TEST_MIGRATIONS: await readD1Migrations(migrationsDir),
           BETTER_AUTH_SECRET: "test-secret-test-secret-test-secret-123",
@@ -100,9 +102,9 @@ export default mergeConfig(
             serviceBindings: { HOST: { name: "vitest-plugin-runner-", entrypoint: "ClientApp" } },
           },
         ],
-      },
+      }),
     }),
-    setupFiles: ["./test/apply-migrations.ts"],
+    setupFiles: clientDbSetupFiles(["./test/apply-migrations.ts"]),
   }),
   {
     // Gatekeeper resource pickers: the vendored configurator specs, rendered with our runtime.

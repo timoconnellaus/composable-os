@@ -1,0 +1,31 @@
+{
+  "name": "@composable-os/client-db-proof",
+  "version": "0.0.0",
+  "license": "FSL-1.1-ALv2",
+  "private": true,
+  "description": "Stage 66 step 1: ClientDb with one client beside D1, timed and compared on Cloudflare. Deployed only by hand.",
+  "type": "module",
+  "scripts": {
+    "migrations": "node scripts/migrations.mjs",
+    "types": "wrangler types --strict-vars=false",
+    "typecheck": "node scripts/migrations.mjs && wrangler types --strict-vars=false --check && tsc --noEmit",
+    "test": "node scripts/migrations.mjs && vitest run",
+    "time:local": "node scripts/migrations.mjs && COS_TIMING_RUNS=30 vitest run test/timing.test.ts",
+    "time:remote": "node scripts/time.mjs",
+    "deploy": "node scripts/migrations.mjs && node scripts/deploy.mjs"
+  },
+  "dependencies": {
+    "@composable-os/core": "workspace:*",
+    "@composable-os/db": "workspace:*",
+    "@composable-os/sdk": "workspace:*"
+  },
+  "devDependencies": {
+    "@cloudflare/vitest-plugin": "1.5.1",
+    "@composable-os/config": "workspace:*",
+    "@composable-os/product": "workspace:*",
+    "@composable-os/products": "workspace:*",
+    "typescript": "6.0.3",
+    "vitest": "5.1.0",
+    "wrangler": "4.157.0"
+  }
+}
