@@ -192,9 +192,10 @@ request's Host header beyond step 3's exact lookup:
     secret the client set and the hook the client's integration host bound; the signature is
     verified with that secret before anything is stored or delivered.
   - Tests: `apps/runner/test/callbacks-one-address.test.ts` (two clients' connections on the one
-    address: A's state completes only A's connection and hands back to A's address, A's account
-    with B's nonce does nothing, A's ticket does nothing to B's connection, a state works once, B's
-    connection is untouched and its own state still works); the existing
+    address: each state hands back to its own client's address with a ticket for its own
+    connection, A's account with B's nonce does nothing, A's ticket is refused at B's connection
+    (which ends B's flow, failing closed, and B never holds A's account), A's connection completes
+    with its own ticket and nonce, a state works once); the existing
     `integrations.test.ts` (another user, another window's nonce), `gatekeeper-kit`'s
     `connect-nonce` and `gatekeeper-google`'s `oauth-flow` tests (expiry, single use).
 

@@ -86,11 +86,12 @@ describe("gatekeeper callbacks on one address", () => {
       vendor: "fake",
       scope: "personal",
     });
-    // Each state is unguessable: a 256-bit object id and a fresh random nonce, never the same.
+    // Each state is unguessable: a 256-bit object id and a fresh 144-bit nonce, never the same.
     const sa = stateOf(a.connect.url);
     const sb = stateOf(b.connect.url);
     expect(sa.account).toMatch(/^[0-9a-f]{64}$/);
-    expect(sa.nonce.length).toBeGreaterThanOrEqual(32);
+    // 18 random bytes (144 bits), base64url.
+    expect(sa.nonce).toMatch(/^[A-Za-z0-9_-]{24}$/);
     expect(sa.account).not.toBe(sb.account);
     expect(sa.nonce).not.toBe(sb.nonce);
 
@@ -107,7 +108,13 @@ describe("gatekeeper callbacks on one address", () => {
     expect(done.target).toBe(ORIGIN.a);
     expect(done.ticket.startsWith(`${a.connection.id}.`)).toBe(true);
 
-    // The ticket does nothing to B's connection, even with B's own nonce.
+    // B's own callback, on the same address, hands back to B's address with a ticket for B.
+    const doneB = await consentAt(b.connect.url, "b@fake.test");
+    expect(doneB.target).toBe(ORIGIN.b);
+    expect(doneB.ticket.startsWith(`${b.connection.id}.`)).toBe(true);
+
+    // A's ticket does nothing to B's connection, even with B's own nonce: it is refused, and the
+    // refusal ends B's flow (fail closed) without B ever holding A's account.
     await expect(
       op(member, ORIGIN.b, "connection.completeConnect", {
         connectionId: b.connection.id,
@@ -128,16 +135,12 @@ describe("gatekeeper callbacks on one address", () => {
     const replay = await runner.gatekeeperFetch("fake", new Request(`${CALLBACK}${a.connect.url}`));
     expect(replay.status).toBe(410);
 
-    // B's connection was never touched: still waiting, and its own state still works once.
-    const listed = await op<{ items: { id: string; status: string }[] }>(
-      member,
-      ORIGIN.b,
-      "connection.list",
-      {},
-    );
-    expect(listed.items.find((c) => c.id === b.connection.id)?.status).toBe("connecting");
-    const doneB = await consentAt(b.connect.url, "b@fake.test");
-    expect(doneB.target).toBe(ORIGIN.b);
-    expect(doneB.ticket.startsWith(`${b.connection.id}.`)).toBe(true);
+    // B's connection never became active with A's account.
+    const listed = await op<{
+      items: { id: string; status: string; accountLabel: string | null }[];
+    }>(member, ORIGIN.b, "connection.list", { scope: "mine" });
+    const bNow = listed.items.find((c) => c.id === b.connection.id);
+    expect(bNow?.status).not.toBe("active");
+    expect(bNow?.accountLabel).not.toBe("a@fake.test");
   });
 });
