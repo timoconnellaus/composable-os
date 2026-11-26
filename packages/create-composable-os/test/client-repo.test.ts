@@ -30,6 +30,7 @@ import { buildFixtureRelease } from "@composable-os/release/testing";
 import ts from "typescript";
 import { afterAll, afterEach, beforeEach, describe, expect, it } from "vitest";
 import { collectClientKit } from "../../../scripts/release/client-kit.ts";
+import { HOST_MODULES } from "../src/host-modules.ts";
 import { runIn, startWorld, type World } from "./world.ts";
 
 const here = import.meta.dirname;
@@ -956,7 +957,10 @@ describe("cos upgrade keeps the host modules current (ADR 0451, amended)", () =>
     await publish("1.1.0", newer);
     const dir = await created();
     const state = JSON.parse(read(dir, "composable-os.lock.json"));
-    expect(Object.keys(state.hostModules)).toEqual([HOST]);
+    expect(Object.keys(state.hostModules).sort()).toEqual([
+      HOST.replace("host.ts", "agreements.ts"),
+      HOST,
+    ]);
     const upgraded = await cos("upgrade", "--no-typecheck");
     expect(upgraded.output).toContain(`Host modules: ${HOST} replaced with 1.1.0's.`);
     expect(read(dir, HOST)).toContain("export const NEWER = true;");
@@ -991,6 +995,22 @@ describe("cos upgrade keeps the host modules current (ADR 0451, amended)", () =>
     expect(upgraded.output).toContain("+ export const NEWER = true;");
   });
 
+  it("lists every file a template host module imports beside it", () => {
+    // A file host.ts imports that cos does not write leaves an adopted repo unable to compile
+    // after cos upgrade (agreements.ts, 0.1.0-beta.13). The generated client is written apart.
+    const templates = join(here, "..", "..", "..", "templates", "client", "apps");
+    for (const [kind, files] of Object.entries(HOST_MODULES)) {
+      for (const file of files) {
+        const text = readFileSync(join(templates, kind, "src", file), "utf8");
+        const beside = [...text.matchAll(/from "\.\/([^"]+)"/g)]
+          .map((m) => m[1] as string)
+          .filter((name) => name !== "client/customer.ts");
+        for (const name of beside)
+          expect(files, `${kind}/${file} imports ./${name}`).toContain(name);
+      }
+    }
+  });
+
   it("adds a module the new template brings, in an adopted repo", async () => {
     await publish("1.0.0");
     const dir = join(scratch(), "movement");
@@ -1002,8 +1022,11 @@ describe("cos upgrade keeps the host modules current (ADR 0451, amended)", () =>
       "mobile/src/composable-os/host.ts",
       "mobile/src/composable-os/secure-random.ts",
       "mobile/src/composable-os/secure-store.ts",
+      "src/composable-os/agreements.ts",
       "src/composable-os/host.ts",
     ]);
+    // What an adopted repo gets compiles: the module beside the client, its import adjusted.
+    expect(read(dir, "src/composable-os/agreements.ts")).toContain('from "./customer.ts"');
     rmSync(join(dir, "mobile", "src", "composable-os", "secure-random.ts"));
     await publish("1.1.0");
     const upgraded = await cos("upgrade", "--no-typecheck");
