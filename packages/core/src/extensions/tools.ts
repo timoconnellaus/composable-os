@@ -79,7 +79,9 @@ export function toolOperation(
           (GRANTABLE_PERMISSIONS as readonly string[]).includes(tool.corePermission)
         ? (tool.corePermission as Permission)
         : "users:manage";
-  const key = `${opName}@${manifest.version}:${source}:${JSON.stringify(tool)}:${(manifest.grantable ?? []).join(",")}:${[...roleHeld].join(",")}:${(manifest.restricted ?? []).join(",")}`;
+  // A pure function of this key (the whole declaration the operation is made from), so one
+  // isolate may share it between clients that install the same thing (stage 66 step 5).
+  const key = `${opName}@${manifest.version}:${source}:${manifest.label ?? ""}:${JSON.stringify(tool)}:${(manifest.grantable ?? []).join(",")}:${[...roleHeld].join(",")}:${(manifest.restricted ?? []).join(",")}`;
   const hit = cache.get(key);
   if (hit) return hit;
   const op = defineOperation({

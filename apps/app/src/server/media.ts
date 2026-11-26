@@ -3,12 +3,15 @@
 // for, when the deployment binds it as `IMAGES`. Without `IMAGES` the original is served.
 import {
   createFakeStream,
+  creatorCheckedVideoHost,
   type MediaResizer,
   type MediaStore,
   type StreamEnv,
   streamHostFromEnv,
   type VideoHost,
 } from "@composable-os/core";
+import { clientStampOf } from "@composable-os/db/client-environment";
+import { requestEnv } from "./request-env.ts";
 
 /** The part of Cloudflare's Images binding this uses. */
 interface ImagesBinding {
@@ -67,6 +70,55 @@ export function videoHostFor(env: VideoEnv): VideoHost | undefined {
     env.CUSTOMER_AUTH_URL,
     env.API_ALLOWED_ORIGINS,
   ]);
+}
+
+/**
+ * One client's video host on a host that serves many (stage 66 step 5, ADR 0617): Stream on the
+ * account the operator's own token and signing key reach (`deployment`, the host's own env: a
+ * client's environment never holds them), playing only from the client's own addresses
+ * (`clientEnv`), with the client stamped as the creator of every upload and copy and every call
+ * for another creator's video refused. Undefined while Stream is not set up.
+ */
+export function clientVideoHost(
+  deployment: VideoEnv,
+  clientEnv: VideoEnv,
+  client: string,
+): VideoHost | undefined {
+  const shared = videoHostFor({
+    STREAM_FAKE: deployment.STREAM_FAKE,
+    STREAM_ACCOUNT_ID: deployment.STREAM_ACCOUNT_ID,
+    STREAM_CUSTOMER_CODE: deployment.STREAM_CUSTOMER_CODE,
+    STREAM_API_TOKEN: deployment.STREAM_API_TOKEN,
+    STREAM_SIGNING_KEY_ID: deployment.STREAM_SIGNING_KEY_ID,
+    STREAM_SIGNING_JWK: deployment.STREAM_SIGNING_JWK,
+    // The client's own: where its videos may play.
+    STREAM_ALLOWED_ORIGINS: clientEnv.STREAM_ALLOWED_ORIGINS,
+    BETTER_AUTH_URL: clientEnv.BETTER_AUTH_URL,
+    CUSTOMER_AUTH_URL: clientEnv.CUSTOMER_AUTH_URL,
+    API_ALLOWED_ORIGINS: clientEnv.API_ALLOWED_ORIGINS,
+  });
+  return shared && creatorCheckedVideoHost(shared, client);
+}
+
+/**
+ * How a many-client host finds the current client's video host (`setVideoHostResolver`): the
+ * request's client environment's, made once per environment from `deployment` (the host's own
+ * env, read at load by the entry module).
+ */
+export function clientVideoHosts(deployment: VideoEnv): () => VideoHost | undefined {
+  const hosts = new WeakMap<object, { host: VideoHost | undefined }>();
+  return () => {
+    const env = requestEnv();
+    let held = hosts.get(env);
+    if (!held) {
+      const client = clientStampOf(env);
+      held = {
+        host: client ? clientVideoHost(deployment, env as unknown as VideoEnv, client) : undefined,
+      };
+      hosts.set(env, held);
+    }
+    return held.host;
+  };
 }
 
 /** Pictures smaller than their original, from Cloudflare Images; the original's type kept. */

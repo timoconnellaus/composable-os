@@ -63,6 +63,7 @@ import {
   refreshOnEachCall,
 } from "@composable-os/db/client-objects";
 import { PROOF } from "@composable-os/db/client-proofs";
+import { inClientScope } from "../client-scope.ts";
 import { runnerJudge } from "../extensions/ai.ts";
 import { paymentEventDeps } from "./payments.ts";
 import { HostQueue, type QueueCaller, type QueueHost } from "./queue.ts";
@@ -248,6 +249,19 @@ class WebhookSink extends RpcTarget {
     payload?: unknown;
     headers?: Record<string, string>;
   }): Promise<void> {
+    // A gatekeeper's callback carries no client scope: enter this client's (stage 66 step 5).
+    await inClientScope(this.#env, () => this.#receive(event));
+  }
+
+  async #receive(event: {
+    id?: string;
+    endpointId?: string;
+    scheme?: string;
+    type?: string;
+    receivedAt?: string;
+    payload?: unknown;
+    headers?: Record<string, string>;
+  }): Promise<void> {
     await recordIntegrationEvents(createCrmDb(this.#env.DB), [
       {
         source: "webhook",
@@ -280,7 +294,12 @@ export class PaymentSink extends RpcTarget {
     this.#env = env;
     this.#connectionId = connectionId;
   }
-  async receiveEvent(event: unknown): Promise<void> {
+  receiveEvent(event: unknown): Promise<void> {
+    // A gatekeeper's callback carries no client scope: enter this client's (stage 66 step 5).
+    return inClientScope(this.#env, () => this.#receive(event));
+  }
+
+  async #receive(event: unknown): Promise<void> {
     const crm = createCrmDb(this.#env.DB);
     const key = await recordPaymentEvent(crm, event, this.#connectionId, new Date().toISOString());
     if (!key) {
@@ -307,7 +326,12 @@ export class TextSink extends RpcTarget {
     super();
     this.#env = env;
   }
-  async receiveEvent(event: unknown): Promise<void> {
+  receiveEvent(event: unknown): Promise<void> {
+    // A gatekeeper's callback carries no client scope: enter this client's (stage 66 step 5).
+    return inClientScope(this.#env, () => this.#receive(event));
+  }
+
+  async #receive(event: unknown): Promise<void> {
     const done = await applyTextEvent(createCrmDb(this.#env.DB).query, event);
     if (done === "ignored") console.warn("text: a delivered event was not one this host applies");
   }

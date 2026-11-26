@@ -1,9 +1,9 @@
 // cos-app's unit tests: the workerd suite (vitest.config.ts), then the Node-side tooling's
 // (vitest.node.config.ts), then the two-client suite (vitest.two-client.config.ts, stage 66 step
 // 4). Arguments go to the first two, so CI's `--shard=i/n` (scripts/ci-unit-shards.mjs) splits
-// each and every file still runs exactly once. The two-client suite is a single file, which a
-// shard split would leave some shard without (and vitest fails a run that finds no test file):
-// it runs whole, once, in the first shard, or in an unsharded run.
+// each and every file still runs exactly once. The two-client suite is a few files (step 4's
+// entries, step 5's caches), which a shard split could leave some shard without (and vitest fails
+// a run that finds no test file): it runs whole, once, in the first shard, or in an unsharded run.
 import { spawnSync } from "node:child_process";
 
 const args = process.argv.slice(2);

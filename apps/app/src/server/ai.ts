@@ -14,6 +14,7 @@ import {
   adjudicatePendingAction,
   backfillEmbeddingQueue,
   type CommitEvent,
+  clientScopesHeld,
   cloudflareAiAdmin,
   customerGateway,
   devJudge,
@@ -39,8 +40,9 @@ import {
   type VectorStore,
   vectorizeStore,
 } from "@composable-os/core";
-import { type CrmDb, createCrmDb } from "@composable-os/db";
+import { type CrmDb, createCrmDb, databaseOf } from "@composable-os/db";
 import { voiceContextFor } from "./assistant/voice.ts";
+import { clientKeyOf } from "./client-key.ts";
 
 export interface AiAppEnv extends AiEnv, HostedAiAdminEnv {
   /** "true": stand-in speech providers (local dev and e2e only), like AI_FAKE_MODEL. */
@@ -53,15 +55,24 @@ export interface AiAppEnv extends AiEnv, HostedAiAdminEnv {
   AI_SECRET_SCRIPTS?: string;
 }
 
-let devVectors: VectorStore | undefined;
+// The in-memory stand-in, one per environment (stage 66 step 5, ADR 0617): it holds records'
+// vectors, and on a many-client host each client's environment is its own object.
+const devVectors = new WeakMap<object, VectorStore>();
+/** What a per-environment value is kept under: a client's environment, or one for a single client. */
+/** The embedding drain's one slot on a deployment that serves one client. */
+const SINGLE_CLIENT = {};
 
 /** The vector store: Vectorize, or (local dev / e2e with AI_FAKE_MODEL) one in memory. */
 export function vectorStoreFor(env: AiAppEnv): VectorStore | undefined {
   const index = env.VECTORIZE as VectorizeLike | undefined;
   if (index && typeof index.query === "function") return vectorizeStore(index);
   if (env.AI_FAKE_MODEL === "true" && !env.AI) {
-    devVectors ??= memoryVectorStore();
-    return devVectors;
+    let store = devVectors.get(clientKeyOf(env));
+    if (!store) {
+      store = memoryVectorStore();
+      devVectors.set(clientKeyOf(env), store);
+    }
+    return store;
   }
   return undefined;
 }
@@ -138,8 +149,9 @@ export function aiEnvView(env: AiAppEnv): AiEnv {
   return view;
 }
 
-let draining: Promise<void> | null = null;
-let again = false;
+// One drain at a time per database (stage 66 step 5, ADR 0617): a client's writes schedule a
+// round of its own drain, never one of another client's.
+const drains = new WeakMap<object, { draining: Promise<void> | null; again: boolean }>();
 
 /**
  * The post-commit hook (ADR 0154): when a write queued records for embedding, drain the queue in
@@ -152,25 +164,32 @@ export function embeddingHook(
   vectors: VectorStore | undefined,
 ): ((event: CommitEvent) => void) | undefined {
   if (!models?.embed || !vectors) return undefined;
+  const database = clientScopesHeld() ? databaseOf(db) : SINGLE_CLIENT;
   return (event) => {
     if (!event.embeddingsQueued) return;
-    if (draining) {
-      again = true;
+    let drain = drains.get(database);
+    if (!drain) {
+      drain = { draining: null, again: false };
+      drains.set(database, drain);
+    }
+    const held = drain;
+    if (held.draining) {
+      held.again = true;
       return;
     }
     const run = async () => {
       do {
-        again = false;
+        held.again = false;
         await drainAllEmbeddings({ db, models, vectors }, 5);
-      } while (again);
+      } while (held.again);
     };
-    draining = run()
+    held.draining = run()
       .catch((error: unknown) => console.error("embedding drain failed", error))
       .finally(() => {
-        draining = null;
+        held.draining = null;
       });
     try {
-      waitUntil(draining);
+      waitUntil(held.draining);
     } catch {
       // Outside a request (tests): the promise still runs.
     }

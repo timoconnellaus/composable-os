@@ -1335,6 +1335,17 @@ a minted entrypoint's props, or `callAs` from the app to the runner; code below 
 handed no `env` reads it with `requestEnv()`.
 _Avoid_: tenant context
 
+### Client scope
+
+(stage 66; ADR 0617)
+
+Which client the code of a host that serves many clients runs for: the database that client's
+requests reach and its stamp (`<environment>:<client>`), held by an AsyncLocalStorage, set by each entry once it has decided the
+client (and by `invoke` where none did). What core keeps between requests is kept per scope
+(`clientState`), and code outside every scope is refused. A single-client deployment has none:
+its module-level values are as they always were.
+_Avoid_: tenant context
+
 ### Client stamp
 
 (stage 66; ADR 0615)

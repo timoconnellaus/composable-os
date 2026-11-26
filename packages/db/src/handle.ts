@@ -116,14 +116,41 @@ function compile(statement: Compilable | CompiledQuery): CompiledQuery {
   return "compile" in statement ? statement.compile() : statement;
 }
 
+/**
+ * The database each handle reaches: the D1 binding (or a client's database, stage 66) it was made
+ * over. A handle is made per request; the database it reaches is one object per client and
+ * isolate, so it is what a cache that must never serve one client's rows to another is keyed by
+ * (`databaseOf`, stage 66 step 5, ADR 0617). Weak: a handle and its entry go together.
+ */
+const databases = new WeakMap<object, object>();
+
+/** Records that `handle` reaches `database`. */
+export function reaches<T extends object>(handle: T, database: object): T {
+  databases.set(handle, databases.get(database) ?? database);
+  return handle;
+}
+
+/**
+ * The database a handle made here reaches (a `CrmDb`, its `query`, its read-only twin, or a
+ * Kysely from `createDb`): the binding it was made over, the same object for every handle of one
+ * database in an isolate. Anything else is its own database.
+ */
+export function databaseOf(handle: object): object {
+  return databases.get(handle) ?? handle;
+}
+
 export function createCrmDb(d1: D1Database): CrmDb {
   let readOnly: CrmDb | undefined;
-  return {
+  const handle: CrmDb = {
     readOnly: () => {
-      readOnly ??= { ...createCrmDb(readOnlyD1(d1)), readOnly: () => readOnly as CrmDb };
+      if (!readOnly) {
+        const twin = createCrmDb(reaches(readOnlyD1(d1), d1));
+        readOnly = { ...twin, readOnly: () => readOnly as CrmDb };
+        reaches(readOnly, d1);
+      }
       return readOnly;
     },
-    query: new Kysely<CoreDatabase>({ dialect: new D1Dialect(d1) }),
+    query: reaches(new Kysely<CoreDatabase>({ dialect: new D1Dialect(d1) }), d1),
     async batch(statements) {
       if (statements.length === 0) return;
       await d1.batch(
@@ -139,4 +166,5 @@ export function createCrmDb(d1: D1Database): CrmDb {
       return typeof size === "number" && size > 0 ? size : null;
     },
   };
+  return reaches(handle, d1);
 }

@@ -44,6 +44,7 @@ import {
   type FormulaFieldRef,
 } from "@composable-os/sdk/formula";
 import { type Kysely, sql } from "kysely";
+import { clientState } from "../client-scope.ts";
 import { setDeclaredUniqueKeys } from "../errors.ts";
 import { FIELD_TYPE_REGISTRY, formulaFilterType } from "../fields/field-types.ts";
 import { CORE_OBJECTS, setExtensionObjects } from "../fields/index.ts";
@@ -1601,21 +1602,25 @@ export interface FieldStorage {
   own: boolean;
 }
 
-let cached: {
-  stamp: string;
-  objects: Map<string, ObjectDefinition>;
-  storage: Map<string, FieldStorage>;
-  tables: Map<string, string>;
-} | null = null;
+// One client's registry each (stage 66 step 5, ADR 0617): kept in the client's scope, so two
+// clients' requests in one isolate, side by side, each read their own extensions' schema.
+const registry = clientState<{
+  cached: {
+    stamp: string;
+    objects: Map<string, ObjectDefinition>;
+    storage: Map<string, FieldStorage>;
+    tables: Map<string, string>;
+  } | null;
+}>(() => ({ cached: null }));
 
 /** Storage of an active extension field, by object and registry field name. */
 export function fieldStorage(object: string, field: string): FieldStorage | undefined {
-  return cached?.storage.get(`${object}|${field}`);
+  return registry.get().cached?.storage.get(`${object}|${field}`);
 }
 
 /** The x_* table of an active extension object. */
 export function objectTableOf(object: string): string | undefined {
-  return cached?.tables.get(object);
+  return registry.get().cached?.tables.get(object);
 }
 
 /**
@@ -1629,7 +1634,8 @@ export async function refreshSchemaRegistry(db: Kysely<CoreDatabase>): Promise<v
       || '/' || (SELECT count(*) || ':' || coalesce(max(updated_at), '') FROM core_field_options) AS stamp
   `.execute(db);
   const stamp = row.rows[0]?.stamp ?? "";
-  if (cached?.stamp === stamp) return;
+  const held = registry.get();
+  if (held.cached?.stamp === stamp) return;
   const loaded = await loadSchemaState(db);
   const overrides = await db.selectFrom("core_field_options").selectAll().execute();
   const state = withEditedOptions(loaded, overrides);
@@ -1651,7 +1657,7 @@ export async function refreshSchemaRegistry(db: Kysely<CoreDatabase>): Promise<v
   const tables = new Map(
     state.objects.filter((o) => o.status === "active").map((o) => [o.name, o.tableName]),
   );
-  cached = { stamp, objects, storage, tables };
+  held.cached = { stamp, objects, storage, tables };
   setExtensionObjects(objects);
   // How D1 names a declared uniqueness rule's columns when it refuses (ADR 0502).
   const keys = new Set<string>();
@@ -1737,6 +1743,6 @@ function withEditedOptions(
 
 /** Forgets the cache (tests that rebuild state by hand). */
 export function resetSchemaRegistry(): void {
-  cached = null;
+  registry.get().cached = null;
   setExtensionObjects(new Map());
 }

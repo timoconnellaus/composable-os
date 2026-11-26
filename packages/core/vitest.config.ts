@@ -5,6 +5,10 @@ import { clientDbSetupFiles, withClientDb } from "@composable-os/db/testing/vite
 
 const migrationsDir = fileURLToPath(new URL("../db/migrations", import.meta.url));
 
+// COS_TEST_DB=two-clients (`pnpm test:two-clients`, stage 66 step 5, ADR 0617): the whole suite
+// with a second client taking turns in the same isolate (test/two-clients-turns.ts).
+const twoClients = process.env.COS_TEST_DB === "two-clients";
+
 // `pnpm relevance:real` (RELEVANCE_REAL=1) runs the semantic search relevance set against the real
 // Workers AI embedding model with the caller's Cloudflare credentials (ADR 0155). Never in CI.
 const realRelevance =
@@ -23,7 +27,8 @@ export default defineWorkersTestConfig({
     miniflare: await withClientDb({
       compatibilityDate: "2026-10-01",
       compatibilityFlags: ["nodejs_compat"],
-      d1Databases: ["DB"],
+      // DB_OTHER_CLIENT: a second client's database (test/other-client.ts, stage 66 step 5).
+      d1Databases: ["DB", "DB_OTHER_CLIENT"],
       // The media library's originals (stage 28, ADR 0444): a real local R2 bucket.
       r2Buckets: ["MEDIA_TEST"],
       bindings: {
@@ -34,5 +39,7 @@ export default defineWorkersTestConfig({
       },
     }),
   }),
-  setupFiles: clientDbSetupFiles(["./test/apply-migrations.ts"]),
+  setupFiles: twoClients
+    ? ["./test/apply-migrations.ts", "./test/two-clients-turns.ts"]
+    : clientDbSetupFiles(["./test/apply-migrations.ts"]),
 });

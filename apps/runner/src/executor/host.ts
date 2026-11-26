@@ -43,6 +43,7 @@ import {
 } from "@composable-os/core";
 import { createCrmDb } from "@composable-os/db";
 import type { ExtensionManifest } from "@composable-os/sdk";
+import { inClientScope } from "../client-scope.ts";
 import { runModelRole } from "../extensions/ai.ts";
 import { CODE_MAX_CALLS } from "../extensions/code-mode.ts";
 import { embedsFromEvents } from "../extensions/embeddings.ts";
@@ -254,7 +255,16 @@ export class RunHost extends RpcTarget {
     this.#closed = true;
   }
 
-  async call(module: string, method: string, args: unknown[]): Promise<unknown> {
+  /**
+   * A host module's call from the extension's worker. Worker Loader calls back with no client
+   * scope (the runtime does not carry the run's AsyncLocalStorage into an RpcTarget's callback), so
+   * each call enters its client's scope again (stage 66 step 5, ADR 0617).
+   */
+  call(module: string, method: string, args: unknown[]): Promise<unknown> {
+    return inClientScope(this.#env, () => this.#call(module, method, args));
+  }
+
+  async #call(module: string, method: string, args: unknown[]): Promise<unknown> {
     const run = this.#run;
     if (this.#closed) throw new Error("This run has ended; the host no longer answers it");
     if (Date.now() > run.deadline) throw new Error("The run passed its deadline");
