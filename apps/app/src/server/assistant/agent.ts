@@ -83,6 +83,7 @@ import {
   type RoutineDelivered,
   type RoutineDelivery,
   rateLimit,
+  redactorForEnv,
   routineRunOf,
   scrubParts,
   scrubPattern,
@@ -1305,9 +1306,11 @@ export class AssistantAgent extends withAssistantVoice(Agent<Cloudflare.Env>) im
         await mcp.close();
       }
     } catch (caught) {
-      error = caught instanceof Error ? caught.message : "The assistant failed";
+      // Provider text may carry a key: redacted before it is shown, logged or stored (redact.ts).
+      const redact = redactorForEnv(env);
+      error = caught instanceof Error ? redact(caught.message) : "The assistant failed";
       if (!(caught instanceof ThreadError)) {
-        console.error("assistant turn failed", errorForLog(caught));
+        console.error("assistant turn failed", redact(errorForLog(caught)));
       }
       this.#emit({ type: "error", message: error });
     }

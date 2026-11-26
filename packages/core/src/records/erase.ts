@@ -18,6 +18,7 @@ import { conversationsOf, eraseConversationStatements } from "../inbox/index.ts"
 import { eraseJourneyStatements } from "../journeys/entries.ts";
 import { queueEraseSignals } from "../journeys/signals.ts";
 import type { HandlerContext } from "../operation.ts";
+import { type OutsideErased, outsideOf, queueEraseOutside } from "../outside/erase.ts";
 import { queueErasePersonCodes } from "../people-codes/people.ts";
 import { chunk, jsonList } from "./common.ts";
 import { drainAllBlobDeletions, writeEraseLog } from "./erase-log.ts";
@@ -79,6 +80,8 @@ export interface EraseCounts {
   eraseRequests: number;
   /** A person's agreements: what is kept, until when, and what went (ADR 0646). */
   agreements: AgreementsErased | null;
+  /** A person's copy from the booking system, removed and suppressed (stage 65, ADR 0926). */
+  outside: OutsideErased | null;
 }
 
 /** The counts person.erase and organisation.erase report beyond the audit and conversations. */
@@ -113,7 +116,62 @@ export const eraseCountsOutput = {
   bodiesDeleted: z
     .number()
     .describe("Synced email bodies deleted from blob storage now (the rest are retried)"),
+  bookingSystem: z
+    .object({
+      deletedLinked: z
+        .number()
+        .describe(
+          "Outside people linked to them (by address or by staff): deleted, their refs suppressed",
+        ),
+      deletedUnlinked: z
+        .number()
+        .describe(
+          "Outside people linked to nobody on an address only they held (their household's unmatched copies): deleted, no ref suppressed, as one may be a family member's: such a row comes back if the booking system later lists it under another address",
+        ),
+      coaches: z
+        .number()
+        .describe(
+          "Coaches on their address with no staff account: deleted, their refs suppressed unless someone else holds the address",
+        ),
+      keptLinkedToOthers: z
+        .number()
+        .describe(
+          "Outside people and coaches on their address kept, because linked to another Person or a staff account: kept at later loads too while that link holds, though their address is on the erased-address list",
+        ),
+      keptWaiting: z
+        .number()
+        .describe(
+          "Outside people on their address left waiting in To match, because another Person holds the address too: the next load drops them while they list an address of theirs on the erased-address list",
+        ),
+      keptNamedElsewhere: z
+        .number()
+        .describe(
+          "Outside people linked to nobody that list their full name on an address someone else holds (a child on a parent's mailbox): left, as they cannot be told from a namesake; staff decide",
+        ),
+      sharedAddresses: z
+        .number()
+        .describe(
+          "Their addresses another Person, customer account or kept outside person also holds: not suppressed in the copy (a count only). Their own live addresses are on the erased-address list and redacted from the audit whatever this says",
+        ),
+      textScrubbed: z
+        .number()
+        .describe(
+          "Classes and class types whose text named them (a full name of two words or more, whole words, any case), scrubbed. A later timetable scrubs an erased coach's name again; a member's name a later list writes into a title is not matched (no name is kept after the erase)",
+        ),
+      copyRemains: z
+        .literal(true)
+        .describe("The booking system itself still holds them: the host cannot remove it there"),
+      note: z.string(),
+    })
+    .optional()
+    .describe(
+      "Whenever the host holds a booking system's copy (stage 65): what the erase did to it. Present even when nothing of theirs was found. A copy remains in the booking system, for staff to deal with there",
+    ),
 };
+
+/** What an erase's result says of the booking system's copy. */
+export const BOOKING_SYSTEM_COPY_NOTE =
+  "A copy remains in the booking system: the host cannot remove it there, so staff deal with it in the booking system.";
 
 /**
  * After the commit: the reported counts, and the R2 bodies the erase queued for deletion are
@@ -132,6 +190,18 @@ export async function afterErase(
   eraseRequestsClosed: number;
   bodiesDeleted: number;
   agreementsKept?: { count: number; until: string | null; deleted: number };
+  bookingSystem?: {
+    deletedLinked: number;
+    deletedUnlinked: number;
+    coaches: number;
+    keptLinkedToOthers: number;
+    keptWaiting: number;
+    keptNamedElsewhere: number;
+    sharedAddresses: number;
+    textScrubbed: number;
+    copyRemains: true;
+    note: string;
+  };
 }> {
   let bodiesDeleted = 0;
   if (ctx.blobs && !ctx.simulation) {
@@ -151,6 +221,22 @@ export async function afterErase(
     }
   }
   return {
+    ...(counts.outside?.exists
+      ? {
+          bookingSystem: {
+            deletedLinked: counts.outside.deletedLinked,
+            deletedUnlinked: counts.outside.deletedUnlinked,
+            coaches: counts.outside.coaches,
+            keptLinkedToOthers: counts.outside.keptLinkedToOthers,
+            keptWaiting: counts.outside.keptWaiting,
+            keptNamedElsewhere: counts.outside.keptNamedElsewhere,
+            sharedAddresses: counts.outside.sharedAddresses,
+            textScrubbed: counts.outside.textScrubbed,
+            copyRemains: true as const,
+            note: BOOKING_SYSTEM_COPY_NOTE,
+          },
+        }
+      : {}),
     ...(counts.agreements
       ? {
           agreementsKept: {
@@ -182,9 +268,23 @@ export async function queueErase(ctx: HandlerContext, request: EraseRequest): Pr
   const signInEmails = object === "person" ? await customerAddresses(ctx, recordIds) : [];
   const heldByOthers = await addressesHeldByOthers(ctx.db, signInEmails, recordIds);
   const accountEmails = signInEmails.filter((email) => !heldByOthers.has(email));
+  // Their copy from the booking system (stage 65, ADR 0926): the addresses and names their own
+  // outside rows list are theirs too, so the audit, approvals and conversations lose them as well.
+  // Never the refs: a booking system's ids (often numbers) would blank unrelated text.
+  const outside =
+    object === "person"
+      ? await outsideOf(
+          ctx.db,
+          recordIds,
+          [...(request.addresses ?? []), ...accountEmails],
+          request.names ?? [],
+        )
+      : null;
   const terms = [
     ...new Set(
-      [...recordIds, ...request.terms, ...accountEmails].map((t) => t.trim().toLowerCase()),
+      [...recordIds, ...request.terms, ...accountEmails, ...(outside?.addresses ?? [])].map((t) =>
+        t.trim().toLowerCase(),
+      ),
     ),
   ]
     .filter((t) => t.length >= MIN_TERM_LENGTH)
@@ -353,17 +453,18 @@ export async function queueErase(ctx: HandlerContext, request: EraseRequest): Pr
   // 3d. Assistant conversations that referenced the records (ADR 0200): their objects redact
   // their stored history now (before the commit, so an unreachable one fails the erase), and
   // their list rows and the subject's refs follow in this batch.
+  const names = [...new Set([...(request.names ?? []), ...(outside?.names ?? [])])];
   const conversations = await queueScrubConversations(ctx, {
     recordIds,
     terms: request.terms,
-    names: request.names ?? [],
+    names,
   });
 
   // 3d'. Agents (ADR 0344): what their rows say, and what running ones still hold.
   await queueScrubAgentJobs(ctx, {
     recordIds,
     terms: request.terms,
-    names: request.names ?? [],
+    names,
   });
 
   // 3e. Everything else that copied the subject (ADR 0320): sync's suggestions, signatures and
@@ -374,7 +475,7 @@ export async function queueErase(ctx: HandlerContext, request: EraseRequest): Pr
     recordId,
     recordIds,
     terms,
-    names: request.names ?? [],
+    names,
     addresses: [...new Set([...(request.addresses ?? []), ...accountEmails])],
   };
   const suggestions = await queueEraseSync(ctx, subject);
@@ -409,10 +510,23 @@ export async function queueErase(ctx: HandlerContext, request: EraseRequest): Pr
   if (subject.object === "person") queueEraseSignals(ctx, [...recordIds]);
   // Their check-in codes, cards and PIN, and the dependants' codes on their app (stage 51, ADR 0783).
   if (subject.object === "person") queueErasePersonCodes(ctx, [...recordIds]);
+  // Their copy from the booking system, and its suppression (stage 65, ADR 0926).
+  const outsideErased = outside ? await queueEraseOutside(ctx, recordIds, outside) : null;
 
   // 3f. The erase log outside D1 (R2), so an erasure can be re-applied after a restore. Written
   // before the commit: if it cannot be written the erase fails and can be retried.
-  if (!ctx.simulation) await writeEraseLog(ctx, subject);
+  if (!ctx.simulation) {
+    await writeEraseLog(ctx, {
+      ...subject,
+      ...(outsideErased
+        ? {
+            outside: outsideErased.suppressed,
+            outsideErase: outsideErased.eraseId,
+            fingerprint: outsideErased.fingerprint,
+          }
+        : {}),
+    });
+  }
 
   // 3g. Duplicate pairs (ADR 0247): the subject's own, whatever their status, and any other pair
   // whose stored reason names them (a shared organisation, domain or number).
@@ -467,6 +581,7 @@ export async function queueErase(ctx: HandlerContext, request: EraseRequest): Pr
     memoryLines,
     eraseRequests,
     agreements,
+    outside: outsideErased,
   };
 }
 

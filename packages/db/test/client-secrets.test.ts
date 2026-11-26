@@ -13,17 +13,18 @@ import { ENV_NAMES } from "../src/client-env-names.ts";
 import { ClientDirectory, envNameUse } from "../src/client-environment.ts";
 import { buildClientEnvironment } from "../src/client-environment-build.ts";
 import { type ClientId, type ClientRecord, readRegistry } from "../src/registry.ts";
+import { base64url, hex, SEALING_SUITE } from "../src/registry-hpke.ts";
 import * as sealingModule from "../src/registry-sealing.ts";
 import {
-  base64url,
   DERIVED_SECRETS,
+  dropImportedSecrets,
   GIVEN_SECRET_NAMES,
   hostKeyBytes,
   isGivenSecretName,
   newHostKeys,
+  placeBytes,
   publicKeyOf,
   removeClientSecret,
-  SEALING_SUITE,
   type SealingPublicKey,
   sealClientSecret,
   sealingPublicKey,
@@ -155,14 +156,14 @@ describe("HPKE (RFC 9180), through @hpke/core", () => {
     expect([vector.mode, vector.kem_id, vector.kdf_id, vector.aead_id]).toEqual([0, 32, 1, 2]);
     const recipient = await SEALING_SUITE.kem.deriveKeyPair(fromHex(vector.ikmR).buffer);
     const pkR = new Uint8Array(await SEALING_SUITE.kem.serializePublicKey(recipient.publicKey));
-    expect(sealingModule.hex(pkR)).toBe(vector.pkRm);
+    expect(hex(pkR)).toBe(vector.pkRm);
     // The sender with the vector's ephemeral key: the same encapsulation and ciphertexts.
     const sender = await SEALING_SUITE.createSenderContext({
       recipientPublicKey: recipient.publicKey,
       info: fromHex(vector.info).buffer,
       ekm: fromHex(vector.ikmE).buffer,
     });
-    expect(sealingModule.hex(new Uint8Array(sender.enc))).toBe(vector.enc);
+    expect(hex(new Uint8Array(sender.enc))).toBe(vector.enc);
     const opener = await SEALING_SUITE.createRecipientContext({
       recipientKey: recipient.privateKey,
       enc: fromHex(vector.enc).buffer,
@@ -170,9 +171,9 @@ describe("HPKE (RFC 9180), through @hpke/core", () => {
     });
     for (const e of vector.encryptions) {
       const ct = await sender.seal(fromHex(e.pt).buffer, fromHex(e.aad).buffer);
-      expect(sealingModule.hex(new Uint8Array(ct))).toBe(e.ct);
+      expect(hex(new Uint8Array(ct))).toBe(e.ct);
       const pt = await opener.open(fromHex(e.ct).buffer, fromHex(e.aad).buffer);
-      expect(sealingModule.hex(new Uint8Array(pt))).toBe(e.pt);
+      expect(hex(new Uint8Array(pt))).toBe(e.pt);
     }
   });
 });
@@ -425,14 +426,44 @@ describe("given secrets, sealed to the host", () => {
       .bind(A)
       .run();
     expect((await readClientSecrets(real.REGISTRY, keyring, "live", A)).given).toEqual({});
-    await real.REGISTRY.prepare(
-      "UPDATE registry_secrets SET name = 'BETTER_AUTH_SECRET', kind = 'imported' WHERE client = ?",
-    )
-      .bind(A)
-      .run();
-    const relabelled = await readClientSecrets(real.REGISTRY, keyring, "live", A);
-    expect(relabelled.imported).toEqual({});
-    expect(relabelled.problems).toEqual([expect.stringMatching(/does not open here/)]);
+    // Relabelled as an imported auth secret: refused by the registry for a client not imported.
+    await expect(
+      real.REGISTRY.prepare(
+        "UPDATE registry_secrets SET name = 'BETTER_AUTH_SECRET', kind = 'imported' WHERE client = ?",
+      )
+        .bind(A)
+        .run(),
+    ).rejects.toThrow(/only for a client added as imported/);
+  });
+
+  it("bind the kind into the seal: the same place under the other kind does not open", async () => {
+    // Below the name checks (which alone already keep the two kinds apart): the suite itself,
+    // with the place string differing only in its kind.
+    const keyring = await openingKeyring(PRIVATE);
+    const place = (kind: string) =>
+      new TextEncoder().encode(`cos/registry-secret/v2/${kind}/live/gym-a/X_NAME/${PUBLIC.id}`);
+    const given = place("given");
+    const sealed = await SEALING_SUITE.seal(
+      { recipientPublicKey: PUBLIC.key, info: given.buffer },
+      new TextEncoder().encode("s66e-value").buffer,
+      given.buffer,
+    );
+    const imported = place("imported");
+    await expect(
+      SEALING_SUITE.open(
+        { recipientKey: keyring.current.privateKey, enc: sealed.enc, info: imported.buffer },
+        sealed.ct,
+        imported.buffer,
+      ),
+    ).rejects.toThrow();
+    // And the place the code seals with names the kind.
+    const real = new TextDecoder().decode(
+      placeBytes(
+        { environment: "live", client: A, name: "AI_KEY_OPENAI", kind: "given" },
+        PUBLIC.id,
+      ),
+    );
+    expect(real).toContain("/given/");
   });
 
   it("are replaced and removed by the operator's functions, moving the registry's stamp", async () => {
@@ -472,8 +503,74 @@ describe("given secrets, sealed to the host", () => {
 });
 
 describe("a deployment's own secrets, imported as a client's", () => {
-  it("override derivation for that client only, and only from the import path", async () => {
+  /** Client A added as an imported deployment (migration 0793); B as an ordinary client. */
+  async function seedImported() {
+    await real.REGISTRY.batch([
+      insertClient(real.REGISTRY, { id: A, imported: true }),
+      insertClient(real.REGISTRY, { id: B }),
+      insertHostname(real.REGISTRY, "gym-a-admin.fleet.example", A, "staff"),
+      insertHostname(real.REGISTRY, "gym-b-admin.fleet.example", B, "staff"),
+    ]);
+  }
+
+  it("are refused for a client not added as imported, so no auth secret can be pinned on it", async () => {
     await seedTwoClients();
+    await expect(
+      writeImportedSecret(real.REGISTRY, PUBLIC, live(B, "BETTER_AUTH_SECRET"), known("pinned")),
+    ).rejects.toThrow(/only for a client added as imported/);
+    // Nor can a client become imported after it was added.
+    await expect(
+      real.REGISTRY.prepare("UPDATE registry_clients SET imported = 1 WHERE id = ?").bind(B).run(),
+    ).rejects.toThrow(/set when it is added/);
+  });
+
+  it("are honoured only for a client the registry marks as imported, even where a row exists", async () => {
+    await seedImported();
+    const keyring = await openingKeyring(PRIVATE);
+    await writeImportedSecret(real.REGISTRY, PUBLIC, live(A, "DESK_SECRET"), known("desk"));
+    // The reading path, asked for a client not marked imported (as if the row had got in by
+    // another way), leaves it out.
+    const notImported = await readClientSecrets(real.REGISTRY, keyring, "live", A, false);
+    expect(notImported.imported).toEqual({});
+    expect(notImported.problems).toEqual([
+      expect.stringMatching(
+        /DESK_SECRET of gym-a left out: an imported secret of a client not added/,
+      ),
+    ]);
+    const asImported = await readClientSecrets(real.REGISTRY, keyring, "live", A, true);
+    expect(Object.keys(asImported.imported)).toEqual(["DESK_SECRET"]);
+  });
+
+  it("never take a secret generation an INSERT supplies", async () => {
+    await expect(
+      real.REGISTRY.prepare(
+        "INSERT INTO registry_clients (id, environment, tier, secret_generation) VALUES (?, 'live', 'standard', ?)",
+      )
+        .bind(A, "c".repeat(32))
+        .run(),
+    ).rejects.toThrow(/written by the registry, never supplied/);
+  });
+
+  it("can be dropped: then every secret of the client is derived again", async () => {
+    await seedImported();
+    const imported = known("imported-to-drop");
+    await writeImportedSecret(real.REGISTRY, PUBLIC, live(A, "BETTER_AUTH_SECRET"), imported);
+    let now = 0;
+    const directory = new ClientDirectory(manyClientEnv(), { refreshMs: 1_000, now: () => now });
+    expect(fields(served(await directory.environmentFor(A))).BETTER_AUTH_SECRET).toBe(imported);
+    expect(await dropImportedSecrets(real.REGISTRY, A)).toBe(1);
+    now = 2_000;
+    const derived = await deriveClientSecrets(
+      ROOT,
+      of(A, (await recordOf(A)).secretGeneration as string),
+    );
+    expect(fields(served(await directory.environmentFor(A))).BETTER_AUTH_SECRET).toBe(
+      derived.BETTER_AUTH_SECRET,
+    );
+  });
+
+  it("override derivation for that client only, and only from the import path", async () => {
+    await seedImported();
     const imported = known("imported-staff-secret");
     await writeImportedSecret(real.REGISTRY, PUBLIC, live(A, "BETTER_AUTH_SECRET"), imported);
     await expect(
@@ -491,7 +588,7 @@ describe("a deployment's own secrets, imported as a client's", () => {
   });
 
   it("go with a client that leaves: the export carries its derived (or imported) and given secrets", async () => {
-    await seedTwoClients();
+    await seedImported();
     const imported = known("imported-desk");
     const google = known("export-google");
     await writeImportedSecret(real.REGISTRY, PUBLIC, live(A, "DESK_SECRET"), imported);
@@ -806,6 +903,7 @@ describe("a client's environment (criterion 10)", () => {
           locationHint: null,
           schemaVersion: null,
           secretGeneration: GEN_A,
+          imported: false,
         },
         settings: {},
         given: { BETTER_AUTH_SECRET: "s66e-given-for-derived", COS_ROOT_KEY: "s66e-x" },
@@ -861,6 +959,7 @@ describe("a many-client host", () => {
             locationHint: null,
             schemaVersion: null,
             secretGeneration: GEN_A,
+            imported: false,
           },
           settings: {},
         },

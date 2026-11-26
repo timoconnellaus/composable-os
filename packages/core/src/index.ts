@@ -33,6 +33,7 @@ export * from "./ai/cache-review.ts";
 export * from "./ai/embedding.ts";
 export * from "./ai/hosted-admin.ts";
 export * from "./ai/hybrid.ts";
+export * from "./ai/redact.ts";
 export * from "./ai/summaries.ts";
 export * from "./ai/usage.ts";
 export * from "./ai/vectors.ts";
@@ -290,6 +291,7 @@ export {
   type WaitlistDueResult,
 } from "./operations/waitlist.ts";
 export * from "./orders/index.ts";
+export { finishOutsideRemoval } from "./outside/remove.ts";
 export {
   holdRoleLooksAfter,
   type LooksAfter,

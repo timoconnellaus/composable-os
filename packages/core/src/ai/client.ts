@@ -42,6 +42,7 @@ import {
   platformHeaders,
   type TenantTag,
 } from "./platform.ts";
+import { redactError, redactorForEnv } from "./redact.ts";
 import {
   assertCapable,
   capabilitiesOf,
@@ -115,6 +116,12 @@ export interface ModelRunner {
   /** Runs one role against an explicit model (Settings → AI "Test"), without fallback. */
   test?(role: ModelRole, ref?: ModelRef): Promise<ModelRunResult>;
   /**
+   * Cuts every credential this runner holds (in every form a provider may echo) out of `text`
+   * (redact.ts). Every error the runner throws is already redacted; a caller of `chatModels`
+   * applies this to the errors its own calls raise.
+   */
+  redact?(text: string): string;
+  /**
    * AI SDK language models for a role, primary first then its fallback, for callers that drive
    * the model themselves (the assistant's tool loop, stage 7b). Each carries the provider options
    * and gateway headers the runner would send.
@@ -146,6 +153,11 @@ export interface ChatModel {
   providerOptions?: Record<string, JSONObject>;
   /** Extra request headers (AI Gateway metadata and authorization). */
   headers?: Record<string, string>;
+  /**
+   * The runner's redactor (redact.ts): what a caller applies to this model's error text before
+   * it shows, logs, stores or sends it to a model again.
+   */
+  redact?: (text: string) => string;
 }
 
 export class AiNotConfiguredError extends Error {
@@ -856,12 +868,19 @@ export function createModelRunner(options: ModelRunnerOptions): ModelRunner {
       params,
       pricing: modelPricing(ref),
       contextTokens: capabilitiesOf(ref)?.contextTokens ?? 0,
+      redact: (text: string) => redact(text),
       ...(providerOptions ? { providerOptions } : {}),
       ...withHeaders(requestHeaders(options.env, ref, role, tag)),
     };
   };
 
+  // The one redactor of provider text for this runner's credentials (redact.ts): every error that
+  // leaves it, and each chat model it hands out, carries it.
+  const redact = redactorForEnv(options.env);
+  const clean = (error: unknown) => redactError(error, redact);
+
   return {
+    redact,
     roles: resolved,
     async chatModels(role) {
       assertTextRole(role);
@@ -893,25 +912,36 @@ export function createModelRunner(options: ModelRunnerOptions): ModelRunner {
       } catch (error) {
         // A primary blocked by the plan (AiAllowanceError) may still fall back to a BYOK model;
         // the fallback is checked the same way. Other "not configured" errors stop here.
-        if (!config.fallback) throw error;
+        if (!config.fallback) throw clean(error);
         if (error instanceof AiNotConfiguredError && !(error instanceof AiAllowanceError)) {
           throw error;
         }
-        console.warn(`model role ${role}: ${config.model} failed, trying the fallback`, error);
-        const result = await generate(role, config.fallback, messages, params, json);
-        return { ...result, fellBack: true };
+        console.warn(
+          `model role ${role}: ${config.model} failed, trying the fallback`,
+          clean(error).message,
+        );
+        try {
+          const result = await generate(role, config.fallback, messages, params, json);
+          return { ...result, fellBack: true };
+        } catch (fallbackError) {
+          throw clean(fallbackError);
+        }
       }
     },
     async embed(texts) {
       const config = (await resolved()).embed;
-      return embedWith(config, texts);
+      try {
+        return await embedWith(config, texts);
+      } catch (error) {
+        throw clean(error);
+      }
     },
     async test(role, ref) {
       try {
         return await testRole(role, ref);
       } catch (error) {
         // A provider (or a proxy) may echo the key it was sent in its error: never pass it on.
-        throw withoutKeys(error, options.env);
+        throw clean(error);
       }
     },
   };
@@ -954,27 +984,12 @@ export function createModelRunner(options: ModelRunnerOptions): ModelRunner {
   }
 }
 
-/** Env names whose values are credentials an error text must never carry. */
-const CREDENTIAL_NAME =
-  /^(?:AI_KEY_[A-Z0-9_]+|TYPESAFE_API_KEY|AI_GATEWAY_TOKEN|AI_PLATFORM_TOKEN|CLOUDFLARE_API_TOKEN)$/;
-
 /**
- * An error with every credential of `env` cut out of its message (wherever a provider or a proxy
- * echoed it), and any bearer token. Its class and name are kept where it has no credential.
+ * An error with every credential of `env` cut out of its message, in every form a provider or a
+ * proxy may echo it (redact.ts). Its class and name are kept where nothing was cut.
  */
 export function withoutKeys(error: unknown, env: AiEnv): Error {
-  const message = error instanceof Error ? error.message : String(error);
-  let out = message;
-  for (const [name, value] of Object.entries(env as Record<string, unknown>)) {
-    if (CREDENTIAL_NAME.test(name) && typeof value === "string" && value.length >= 8) {
-      out = out.split(value).join("…");
-    }
-  }
-  out = out.replace(/Bearer\s+[A-Za-z0-9._~+/=-]+/gi, "Bearer …");
-  if (out === message && error instanceof Error) return error;
-  const clean = new Error(out);
-  clean.name = error instanceof Error ? error.name : "Error";
-  return clean;
+  return redactError(error, redactorForEnv(env));
 }
 
 /**

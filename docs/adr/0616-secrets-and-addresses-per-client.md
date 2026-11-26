@@ -101,6 +101,15 @@ Every secret the host signs or encrypts with for itself, derived per client, sto
   path is the only way a derivable name is stored: `writeClientSecret` refuses one, a row of kind
   `given` with a derivable name is left out, and the builder takes an imported value only into a
   derivable name. A moved client that returns comes in the same way.
+- **Only for a client added as imported** (migration 0793, 2026-11-27): `registry_clients.imported`
+  is set when the client is added and never changed (a trigger), and the registry refuses an
+  `imported` row for any other client (triggers on insert and update); the directory honours one
+  only for an imported client besides. So an auth secret cannot be pinned on an existing client
+  by writing a row. An imported secret is only as secret as the old deployment was (its former
+  operator still holds it): `dropImportedSecrets(registry, client)` removes the overrides, after
+  which every secret of the client is derived (a planned sign-out, and cards, PINs, app codes and
+  desk enrolments issued again). The secret generation is the registry's own: an INSERT that
+  supplies one is refused, so a removed client id cannot come back with its old secrets.
 
 ### Given secrets (`GIVEN_SECRET_NAMES`, `AI_KEY_*`)
 What a client supplies and the host cannot derive, sealed in `registry_secrets`:
@@ -126,13 +135,21 @@ What a client supplies and the host cannot derive, sealed in `registry_secrets`:
   The row (migration 0792, which rebuilt the table nothing had written) holds the kind, `enc` (the
   32-byte encapsulated key), the ciphertext with its tag, and the key id. The library is checked
   against the CFRG's published vector for this suite (`test/fixtures/hpke-x25519-sha256-aes256gcm.json`).
-- **What a stolen operator machine can and cannot do.** With the public key and the registry's
-  write access it can **overwrite** (or remove) a client's given secrets: replace a client's AI key
-  with its own, so the client's calls go on its account, or plant a sign-in provider's client. It
-  **cannot read** any sealed value, nor any derived secret (the root key is never on it). The
-  operator notices an overwrite as a changed `updated_at` and a client whose provider stops working;
-  a signed audit of the operator's writes is step 7's to consider. The two private keys pass
-  through the machine that makes them once, at the deployment's creation, as any Worker secret does.
+- **Who can write the registry is root over every client's identity** (corrected 2026-11-27).
+  The public key is treated as public: base-mode HPKE has no sender authentication, so anyone who
+  holds it and can write the registry can seal any value for any client. They can replace a
+  client's sign-in provider (`GOOGLE_CLIENT_*`), its Cloudflare Access team and audience (and so
+  sign in as any of its staff), its Turnstile secret (switching bot checks off) and its AI keys;
+  for a client added as imported, its imported auth secrets too (and so forge its sessions). What
+  they **cannot** do is read a sealed value or a derived secret (the private key and the root key
+  are only in the host's environment). The integrity of `registry_secrets` therefore rests on who
+  can write the registry's D1 database, not on the seal; that holder (the Cloudflare token that
+  writes it) can in any case write each client's data and redeploy the host. **For step 7:**
+  authenticated sealing (an operator signature over the place, `enc` and ciphertext, or HPKE's
+  auth mode) is decided together with the signed audit of the operator's writes; it adds
+  something only once the signing key lives apart from the Cloudflare token. The two private keys
+  pass through the machine that makes them once, at the deployment's creation, as any Worker
+  secret does.
 - **Values** are 1 byte to 16 KiB of UTF-8, and well-formed text: a value with a lone surrogate
   is refused, never silently changed.
 - **Rotation of the secrets key** happens on the host. Set the new private key as
@@ -142,7 +159,9 @@ What a client supplies and the host cannot derive, sealed in `registry_secrets`:
   previous key is removed. The operator's command gets the new public key.
 - **Written only by the operator.** `writeClientSecret`, `writeImportedSecret` and
   `removeClientSecret` are in `@composable-os/db/registry-sealing`, the package's only secrets
-  export, which can seal and write and never open or read. No operation, route or tool writes or
+  export. It cannot open because only the host's environment holds the private key; it also
+  exports no opening function, no private-key helper and not the HPKE suite (those are internal:
+  `registry-hpke.ts`, `registry-secrets.ts`). No operation, route or tool writes or
   reads them: packages/core and the packs cannot name `@composable-os/db/registry*` (step 3's
   `registry-unreachable`), and the app's, the runner's and packages/auth's code does not
   (`secrets-unreachable`). A running host serves a removed or changed value for up to
@@ -159,13 +178,45 @@ What a client supplies and the host cannot derive, sealed in `registry_secrets`:
   and every environment is rebuilt) or the isolate ends. The registry snapshot holds no secret
   material at all, sealed or open. The keys are imported once per isolate as `CryptoKey`s.
   Nothing logs a value or puts one in an error: errors and warnings name the client and the
-  secret's name only. A provider that echoes a key in its error is cut out too: the model runner's
-  `test` (Settings → AI's Test, `ai.testRole`) removes every credential of its env and any bearer
-  token from the error it passes on (`withoutKeys`), as the judge already did.
+  secret's name only. A provider that echoes a key in its error is cut out too, by the one
+  redactor of provider text (packages/core `ai/redact.ts`, below).
 - **What stays the operator's** (stage 66, "Secrets"): the Stream token and signing key (kept
   apart by step 4's video-host wrapper), the Platform AI token, the AI Gateway token, and each
   gatekeeper's own OAuth app (`CLIENT_ID`/`CLIENT_SECRET` of the Google, Microsoft, Slack and
   ZoomInfo gatekeepers): shared Worker secrets, as before.
+
+### Provider text, redacted (every deployment, 2026-11-27)
+A provider, or a proxy in front of it, may echo the key it was sent in its error. Every place
+provider text leaves the model runner goes through one redactor, packages/core `ai/redact.ts`,
+before it is returned, logged, stored or sent to a model again. This holds on a single-client
+deployment as on a many-client host.
+
+- **What it cuts:** every credential the Worker holds (`credentialsOf(env)`: `AI_KEY_*`,
+  `*_TOKEN`, `*_SECRET`, `*_API_KEY`, `*_PRIVATE_KEY`, `AI_CUSTOMER_GATEWAY` and every string inside
+  a JSON credential value, such as the customer gateway's `token`), in each form it can come back
+  in: plain, URL-encoded, JSON-escaped (with `\/` too), base64 and base64url at any alignment (a
+  Basic `user:key` header), and any run of at least 12 characters from a key's start (a cut-short
+  echo); and any `Bearer` or `Basic` token, `x-api-key` and the like. A value shorter than 8
+  characters is not redacted, by rule: it would cut ordinary words, and no provider key is that
+  short.
+- **Where:**
+  - **The model runner** (`ai/client.ts`): every error `run`, `embed` and `test` throw, and the
+    fallback's warning, is redacted, so summaries, routines, the adjudicator, digests, dictation
+    clean-up, search indexing, hybrid search, dashboard building, extensions' AI and
+    `ai.testRole` all get clean text.
+  - **Each chat model** the runner hands out carries its `redact`. `runTurn` (packages/agent-core)
+    applies it to the error event, `result.error`, the stored note "(This answer failed: …)" and
+    its log line; the assistant's turns, its compaction and its jobs all run through `runTurn`.
+  - **The assistant's and the jobs' own failure paths** (`agent.ts`, `job.ts`) redact what they
+    show, log and store, with the env's redactor.
+  - **The judge's** `redactor` is the same code.
+  - **Gatekeepers** hold their own provider keys, which the host never sees. The payments
+    gatekeeper reports a Stripe error by HTTP status, type and code only, never its message; each
+    gatekeeper redacts its own.
+- **Notes already stored with a key in them** (on any existing deployment): no scrub is run. When
+  a stored conversation is read back into a turn, `runTurn` redacts every failure note before the
+  history is sent to a model, so an old stored key is never re-sent. The note stays in the stored
+  thread, where the person who saw it saw it before; erasing it is the thread's own deletion.
 
 ### Addresses
 Each client's addresses come from its **verified hostnames in the registry**, never from a
@@ -356,7 +407,10 @@ From `@composable-os/db/registry-sealing` (the operator's side, which cannot ope
 - `writeClientSecret(registry, publicKey, { environment, client, name }, value)`: was
   `(registry, keyring, place, value)`; now takes the public key.
 - `writeImportedSecret(registry, publicKey, { environment, client, name }, value)`: new, for
-  `cos client import` of a single-client deployment.
+  `cos client import` of a single-client deployment; only for a client added with
+  `imported = 1` (migration 0793).
+- `dropImportedSecrets(registry, client): Promise<number>`: removes a client's imported overrides.
+- Adding a client: `imported` set then, never after; `secret_generation` never supplied.
 - `removeClientSecret(registry, client, name)`, unchanged.
 - The registry's writes: `is_primary` only on a verified hostname; `secret_generation` is written
   by the registry itself and never by the command.

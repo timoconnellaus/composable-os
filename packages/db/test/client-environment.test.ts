@@ -98,6 +98,7 @@ const gymA: ClientRecord = {
   locationHint: "oc",
   schemaVersion: CORE_SCHEMA_VERSION,
   secretGeneration: "0123456789abcdef0123456789abcdef",
+  imported: false,
 };
 
 /** The environment of a served admission, or a failure naming why it was refused. */

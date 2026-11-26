@@ -2,7 +2,7 @@
 // a human admin's (`outside.settings.update`); every list's age is worked out when it is read, from
 // the date its file was exported, so no cron is needed for it.
 import type { CoreDatabase } from "@composable-os/db";
-import type { Kysely, Selectable } from "kysely";
+import { type Kysely, type Selectable, type SqlBool, sql } from "kysely";
 import { localDateAt } from "../finance/day.ts";
 import { loadGeneralSettings } from "../settings.ts";
 
@@ -85,6 +85,14 @@ export async function currentLists(db: Db): Promise<Map<ListKind, ListRow>> {
     .where("state", "=", "current")
     .execute();
   return new Map(rows.map((r) => [r.kind, r]));
+}
+
+/**
+ * Rows of a current list. A removed list's rows still waiting for the removal's next pass
+ * (`outside/remove.ts`) are no copy: every read of the copy holds to this (stage 65 step 10).
+ */
+export function onCurrentList(column: string) {
+  return sql<SqlBool>`${sql.ref(column)} IN (SELECT id FROM core_outside_list WHERE state = 'current')`;
 }
 
 /** Whole days from `from` to `to`, both `YYYY-MM-DD`. */

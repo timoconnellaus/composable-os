@@ -13,6 +13,7 @@
 // `Authorization: Bearer`. With neither, the judge is off.
 //
 // Free of Worker-only imports and erasable TypeScript: the eval runners import it in plain Node.
+import { redactorFor } from "../ai/redact.ts";
 import { type JudgePlacementId, placementInfo } from "./placements.ts";
 import { validateAnswers } from "./questions.ts";
 import type {
@@ -222,12 +223,9 @@ const RETRYABLE = new Set<string>(["rate-limited", "server-error", "timeout", "u
  * sends is cut out wherever it appears (a proxy may echo headers back), and so is any bearer token.
  */
 function redactor(secrets: string[]): (text: string) => string {
-  const known = secrets.filter((s) => s.length >= 8);
-  return (text) => {
-    let out = text;
-    for (const secret of known) out = out.split(secret).join("…");
-    return out.replace(/Bearer\s+[A-Za-z0-9._~+/=-]+/gi, "Bearer …").slice(0, 300);
-  };
+  // The one redactor of provider text (ai/redact.ts): every form of each credential.
+  const redact = redactorFor(secrets);
+  return (text) => redact(text).slice(0, 300);
 }
 
 /** The production judge. Never throws: every failure is an outcome. */

@@ -182,7 +182,8 @@ are redacted too (ADR 0019 amendment). It also reaches sync, extension data, run
 notifications, events and synced email bodies, and puts a person's addresses on the
 **erased-address list** (ADR 0320). A subscription the Person pays for or holds ends when the
 period already paid for ends, nothing refunded and nothing more charged, as when a member deletes
-their own account (ADR 0533).
+their own account (ADR 0533). Their copy from the booking system goes too, and its refs and
+addresses are **suppressed** so no later list brings them back (ADR 0926).
 
 ### Erased-address list
 
@@ -828,13 +829,35 @@ An outside person is kept only while they are a member, hold a live pass, are bo
 timetable, or are staff-linked. _Avoid_: synced member, imported member (an import makes records
 that stay)
 
+### Outside suppression
+
+`core_outside_suppressed`: keyed hashes (the deployment's salt, as the consent register's
+suppression list) of an erased Person's addresses (but one someone else holds) and of the refs of
+the outside rows linked to them (never of a row linked to nobody, which may be a family member's),
+never the values. A row linked to another Person or a staff account is never removed for them,
+at the erase or at a later load (one rule, `keptByLink`). Every load keeps nothing they name, a link by hand refuses them, the erase log carries
+them so a restore gets them back, `erasure.allowAddress` lifts an address with that erase's refs,
+and a person with `bookingSystem:manage` lifts a reused ref (`outside.suppression.lift`). A lost
+salt is refused, loudly (ADR 0926). Not the erased-address list (that is the Person's own
+addresses, for mail too) and not the contact suppression list (that is sending).
+
+### Removing a list
+
+`outside.lists.remove` (a person with `bookingSystem:manage`, never an AI): the current list of a
+kind, or both (what disconnecting the booking system means for a list), stops counting at once and
+its rows are deleted in bounded passes, only ever rows of no current list; a copy bigger than one
+call's is finished by the daily maintenance (or `finish: true`). The settings, the lists' log,
+suppressions, unlink decisions and the timeline stay (ADR 0926).
+_Avoid_: disconnect (there is no connection), purge
+
 ### Linked (by address)
 
 An outside person matched to exactly one live Person holding the same (folded) address, or an
 outside coach to one staff account: not a merge, and not proof that the Person is them. Nothing on
 the Person changes. Several candidates, or several outside people on one address, wait in **To
 match** for a person with `bookingSystem:manage` to link by hand (`outside.link`, with why), which
-is kept across loads by ref. _Avoid_: merged, synced
+is kept across loads by ref. A merge moves links to the survivor; a purge drops them; an erase
+removes the outside rows. _Avoid_: merged, synced
 
 ### Suggested contact
 
