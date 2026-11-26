@@ -32,6 +32,7 @@ const SHARED: EnvNameUse = { use: "shared" };
 export const ENV_NAMES: Readonly<Record<string, EnvNameUse>> = {
   // --- The host's own -----------------------------------------------------------------------
   REGISTRY: { use: "host", why: "the registry: the operator's only (stage 66)" },
+  // A namespace of `ClientDb` in its own Worker (`cos-client-db`), bound by script name.
   CLIENT_DB: { use: "host", why: "every client's database: a client's is its DB alone" },
   CLOUDFLARE_API_TOKEN: {
     use: "host",

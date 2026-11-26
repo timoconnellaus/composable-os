@@ -30,7 +30,12 @@ export interface HostBindings {
   DB: D1Database;
   /** The registry. Bound only on a host that serves many clients. */
   REGISTRY?: D1Database;
-  /** Every client's database, one object each (ADR 0612). Bound with REGISTRY. */
+  /**
+   * Every client's database, one object each (ADR 0612). Bound with REGISTRY, as a Durable
+   * Object namespace of the `ClientDb` class in its own rarely deployed Worker (`cos-client-db`,
+   * by script name): deploying a class's Worker restarts every live object of it, so neither the
+   * app nor the runner exports the class (ADR 0613).
+   */
   CLIENT_DB?: DurableObjectNamespace<ClientDb>;
 }
 

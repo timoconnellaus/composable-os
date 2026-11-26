@@ -65,7 +65,11 @@ the app's and the runner's entries is step 4.
 ### The client's environment
 - **`@composable-os/db/client-environment`.** `hostMode(env)` is `single` with no `REGISTRY`,
   `many` with one; `REGISTRY` without `CLIENT_DB` is refused, never served from the one D1
-  database. With no registry, `environmentFor(env, null)` and `clientForRequest(env, host)` give
+  database. **`CLIENT_DB` is the binding of every client's databases:** a Durable Object
+  namespace of `ClientDb`, which lives in a Worker of its own (`cos-client-db`, through the
+  product's names; added by stage 66 step 2) and is bound by script name. Deploying a class's
+  Worker restarts every live object of that class, so neither the app nor the runner exports
+  `ClientDb` or lists it in its migrations; that Worker is deployed rarely. With no registry, `environmentFor(env, null)` and `clientForRequest(env, host)` give
   the real `env` itself: the same object, `DB` its D1 binding, nothing read. Naming a client on a
   single-client deployment is refused.
 - **`buildClientEnvironment(env, { client, settings })`** builds a new object shaped like `env`
