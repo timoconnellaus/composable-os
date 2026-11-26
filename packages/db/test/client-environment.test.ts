@@ -20,6 +20,7 @@ import {
   keepRateLimitApart,
 } from "../src/client-environment.ts";
 import { buildClientEnvironment } from "../src/client-environment-build.ts";
+import { bindingProof, PROOF } from "../src/client-proofs.ts";
 import { CORE_SCHEMA_VERSION } from "../src/migrate.ts";
 import { type ClientId, type ClientRecord, readRegistry } from "../src/registry.ts";
 import {
@@ -36,6 +37,7 @@ const real = env as unknown as {
   REGISTRY: D1Database;
   CLIENT_DB: DurableObjectNamespace<ClientDb>;
   CLIENT_DB_QUERIES: ClientDbQueryService;
+  TEST_PROPS_KEY: string;
 };
 
 /** A rate limiter that records the keys it is asked about. */
@@ -59,6 +61,8 @@ function manyClientEnv(registry: D1Database = real.REGISTRY, environment = "live
     // the host's Workers bind (stage 66 step 2), which a client's DB goes through.
     CLIENT_DB: real.CLIENT_DB,
     CLIENT_DB_QUERIES: real.CLIENT_DB_QUERIES,
+    // The host's props key: each call on a client's database carries its proof (#515, S1).
+    COS_PROPS_KEY: real.TEST_PROPS_KEY,
     COS_HOST_ENVIRONMENT: environment,
     // Settings: the deployment's own values.
     APPROVAL_FLOOR: "medium",
@@ -265,7 +269,9 @@ describe("buildClientEnvironment", () => {
     await a.MCP_RATE_LIMIT.limit({ key: "app-1" });
     expect(host.MCP_RATE_LIMIT.keys).toEqual(["gym-a:app-1"]);
     const limiter = recordingRateLimit();
-    await keepRateLimitApart(limiter, "gym-b" as ClientId, {}).limit({ key: "gym-a:app-1" });
+    await keepRateLimitApart(limiter, "gym-b" as ClientId, {
+      objectNamer: () => "",
+    }).limit({ key: "gym-a:app-1" });
     expect(limiter.keys).toEqual(["gym-b:gym-a:app-1"]);
   });
 
@@ -326,7 +332,12 @@ describe("buildClientEnvironment", () => {
     await built.DB.prepare("SELECT 1")
       .all()
       .catch(() => undefined);
-    expect(calls[0]).toEqual({ client: "gym-a", locationHint: "oc" });
+    // Each call carries the host's proof of its client (#515, S1), made with the props key.
+    expect(calls[0]).toEqual({
+      client: "gym-a",
+      locationHint: "oc",
+      proof: bindingProof(real.TEST_PROPS_KEY, PROOF.clientDb, "gym-a"),
+    });
     const nowhere = buildClientEnvironment(host, {
       client: { ...gymA, locationHint: null },
       settings: {},
@@ -334,7 +345,10 @@ describe("buildClientEnvironment", () => {
     await nowhere.DB.prepare("SELECT 1")
       .all()
       .catch(() => undefined);
-    expect(calls.at(-1)).toEqual({ client: "gym-a" });
+    expect(calls.at(-1)).toEqual({
+      client: "gym-a",
+      proof: bindingProof(real.TEST_PROPS_KEY, PROOF.clientDb, "gym-a"),
+    });
   });
 
   it("refuses a client id the registry would not hold", () => {

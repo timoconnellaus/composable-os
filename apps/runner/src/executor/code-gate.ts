@@ -4,21 +4,15 @@
 // is idle (hibernated) between runs. The rate limit is separate: the Workers Rate Limiting binding
 // in cos-app (CODE_MODE_RATE_LIMIT).
 import { DurableObject } from "cloudflare:workers";
-import { CLIENT_OBJECT, ClientObject, refreshOnEachCall } from "@composable-os/db/client-entries";
+import { ClientDurableObject, refreshOnEachCall } from "@composable-os/db/client-entries";
 
 interface Lease {
   token: string;
   until: number;
 }
 
-export class CodeModeGate extends DurableObject<Env> {
-  /** One per client and user on a many-client host: named `<client>:<userId>` (ADR 0615). */
-  protected readonly owner = new ClientObject(this.ctx, this.env);
-
-  /** Its ClientObject, for `refreshOnEachCall` (below the class). */
-  get [CLIENT_OBJECT]() {
-    return this.owner;
-  }
+/** One per client and user on a many-client host: named `<client>:<proof>:<userId>` (ADR 0615). */
+export class CodeModeGate extends ClientDurableObject(DurableObject<Env>) {
 
   /** A lease token, or null while another run of this user holds an unexpired lease. */
   async acquire(ttlMs: number): Promise<string | null> {

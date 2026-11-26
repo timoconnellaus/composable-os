@@ -78,7 +78,14 @@ export const ENV_NAMES: Readonly<Record<string, EnvNameUse>> = {
   COS_HOST_ENVIRONMENT: HOST("which environment the deployment holds; read by the directory"),
   // Each Worker's own fan-out queue (stage 66 step 4): a cron's one message per client.
   CLIENT_FANOUT: HOST("the crons' fan-out: one message per client, sent by the host"),
-  COS_BINDING_KEY: HOST("signs what the host hands a client by a name or props (client-proofs.ts)"),
+  // Each Worker's own parking queue and its ledgers (stage 66 step 4; #515, S5): a paused
+  // client's messages wait apart from the crons' ticks, counted and capped per client.
+  CLIENT_PARKING: HOST("every client's parked messages: the host's queue, never a client's"),
+  CLIENT_PARKING_LEDGER: HOST("every client's parking ledger (client-parking.ts)"),
+  // The host's two proof keys (client-proofs.ts; #515, S4): never in a client's environment.
+  COS_BINDING_KEY: HOST("names every client's objects (client-proofs.ts): never rotated in place"),
+  COS_PROPS_KEY: HOST("signs props and calls on cos-client-db for every client (client-proofs.ts)"),
+  COS_PROPS_KEY_PREVIOUS: HOST("the props key before a rotation, still accepted, never used to sign"),
   CLOUDFLARE_API_TOKEN: HOST(
     "Settings → AI writes the deployment's Worker secrets with it, every client's at once (ADR 0151), and it can read AI Gateway's logs",
   ),
@@ -155,7 +162,7 @@ export const ENV_NAMES: Readonly<Record<string, EnvNameUse>> = {
 
   // --- The same for every client ------------------------------------------------------------
   LOADER: SHARED(
-    "Worker Loader itself; the client is part of every tool worker id it is asked for (ADR 0613, step 4)",
+    "Worker Loader itself; the client is part of every tool worker id it is asked for (stage 66 step 4, ADR 0615)",
   ),
   AI: SHARED("Workers AI inference: answers each call, keeps nothing of a client between calls"),
   IMAGES: SHARED("transforms the bytes it is given, keeps nothing"),

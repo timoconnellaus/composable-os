@@ -46,6 +46,11 @@ describe("the names of the host's environment", () => {
       "COS_HOST_ENVIRONMENT",
       "CLIENT_FANOUT",
       "COS_BINDING_KEY",
+      // Stage 66 step 4's hardening (#515): set by the deploy engine on a many-client deployment.
+      "COS_PROPS_KEY",
+      "COS_PROPS_KEY_PREVIOUS",
+      "CLIENT_PARKING",
+      "CLIENT_PARKING_LEDGER",
       // Stage 66 step 6 (ADR 0616): set by the deploy engine on a many-client deployment (step 7).
       "COS_ROOT_KEY",
       "COS_SECRETS_PRIVATE_KEY",

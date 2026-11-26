@@ -7,6 +7,7 @@ import { readFileSync, writeFileSync } from "node:fs";
 import { join } from "node:path";
 import { fileURLToPath } from "node:url";
 import { build } from "esbuild";
+import { type ClientDbCaller, clientDbCallerProps } from "../src/client-proofs.ts";
 
 /** The variable and the value that switch a suite to a client's database. */
 export const TEST_DB_VAR = "COS_TEST_DB";
@@ -14,6 +15,28 @@ export const CLIENT_DB_MODE = "client-db";
 
 /** The auxiliary Worker the suites' `ClientDb` runs in. */
 export const CLIENT_DB_TEST_WORKER = "cos-client-db-test";
+
+/**
+ * The suites' props key (a deployment's is a long random secret of the operator's, #515, S4): the
+ * host's Workers and cos-client-db hold the same one. The one before a rotation, still accepted.
+ */
+export const TEST_PROPS_KEY = "suites-props-key-0123456789abcdef-0123456789";
+export const TEST_PROPS_KEY_PREVIOUS = "suites-props-key-before-0123456789abcdef-01";
+
+/**
+ * A host Worker's binding to the query path of every client's database, as the deploy engine
+ * writes it (`CLIENT_DB_QUERIES`, with the caller's props and the host's proof; #515, S1).
+ */
+export function clientDbQueriesBinding(
+  caller: ClientDbCaller = "cos-app",
+  worker = CLIENT_DB_TEST_WORKER,
+) {
+  return {
+    name: worker,
+    entrypoint: "ClientDbQueries",
+    props: clientDbCallerProps(TEST_PROPS_KEY, caller),
+  };
+}
 
 export function usingClientDb(env: NodeJS.ProcessEnv = process.env): boolean {
   return env[TEST_DB_VAR] === CLIENT_DB_MODE;
@@ -67,6 +90,8 @@ export async function clientDbWorker(name = CLIENT_DB_TEST_WORKER) {
     compatibilityDate: "2026-10-01",
     compatibilityFlags: ["nodejs_compat"],
     durableObjects: { CLIENT_DB: { className: "ClientDb", useSQLite: true } },
+    // cos-client-db's own copy of the props key, and the one before (deploy engine, step 7).
+    bindings: { COS_PROPS_KEY: TEST_PROPS_KEY, COS_PROPS_KEY_PREVIOUS: TEST_PROPS_KEY_PREVIOUS },
   };
 }
 
@@ -94,7 +119,10 @@ export const OPERATOR_CLIENT_DB = "OPERATOR_CLIENT_DB";
  * query-only service `CLIENT_DB_QUERIES` (entrypoint `ClientDbQueries`), and for the suite's
  * operator stand-ins the raw namespace as `OPERATOR_CLIENT_DB`.
  */
-export async function addClientDbService<T extends MiniflareLike>(miniflare: T): Promise<T> {
+export async function addClientDbService<T extends MiniflareLike>(
+  miniflare: T,
+  caller: ClientDbCaller = "cos-app",
+): Promise<T> {
   const services = (miniflare as { serviceBindings?: Record<string, unknown> }).serviceBindings;
   return {
     ...miniflare,
@@ -108,7 +136,12 @@ export async function addClientDbService<T extends MiniflareLike>(miniflare: T):
     },
     serviceBindings: {
       ...services,
-      CLIENT_DB_QUERIES: { name: CLIENT_DB_TEST_WORKER, entrypoint: "ClientDbQueries" },
+      CLIENT_DB_QUERIES: clientDbQueriesBinding(caller),
+    },
+    bindings: {
+      ...(miniflare as { bindings?: Record<string, unknown> }).bindings,
+      // The host's props key: it signs each call's proof of its client (client-proofs.ts).
+      COS_PROPS_KEY: TEST_PROPS_KEY,
     },
     workers: [...(miniflare.workers ?? []), await clientDbWorker()],
   };

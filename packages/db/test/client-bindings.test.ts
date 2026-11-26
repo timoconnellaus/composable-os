@@ -9,8 +9,10 @@ import {
   ClientPartError,
   clientKey,
   clientObjectName,
+  clientObjectNamer,
   clientVectorId,
   clientWorkflowId,
+  isObjectName,
   keepBucketApart,
   keepKeyValueApart,
   keepObjectsApart,
@@ -521,8 +523,16 @@ describe("Workflows: the client in the instance id and beside the params", () =>
 });
 
 describe("Durable Object namespaces: the client in every name", () => {
-  const a = keepObjectsApart(real.CLIENT_DB, A, HOST);
-  const b = keepObjectsApart(real.CLIENT_DB, B, HOST);
+  const GEN_A = "a".repeat(32);
+  const GEN_B = "b".repeat(32);
+  const a = keepObjectsApart(real.CLIENT_DB, A, clientObjectNamer(HOST, A, GEN_A));
+  const b = keepObjectsApart(real.CLIENT_DB, B, clientObjectNamer(HOST, B, GEN_B));
+  const partsOf = (stored: string, generation: string | null, key: string | null = KEY) => {
+    const parts = objectNameParts(stored);
+    return parts && isObjectName(parts, generation, key)
+      ? { client: parts.client, name: parts.name }
+      : null;
+  };
 
   it("names every object <client>:<proof>:<name>, so the same name is two objects", async () => {
     const stubA = a.get(a.idFromName("workspace"));
@@ -534,7 +544,7 @@ describe("Durable Object namespaces: the client in every name", () => {
     const fromA = await a.getByName("workspace").query([{ sql: "SELECT v FROM mine", params: [] }]);
     // A reads its own table (the answer's shape is ClientDb's; that it answers is what counts).
     expect(fromA.ok).toBe(true);
-    const stored = clientObjectName(A, "workspace", KEY);
+    const stored = clientObjectName(A, GEN_A, "workspace", KEY);
     expect(stored).toMatch(/^gym-a:[0-9a-f]{32}:workspace$/);
     expect(a.idFromName("workspace").equals(real.CLIENT_DB.idFromName(stored))).toBe(true);
   });
@@ -546,14 +556,14 @@ describe("Durable Object namespaces: the client in every name", () => {
     // one hangs the file (review of #512, S2).
     expect(outcome(() => a.get(bId))).toBe("refused");
     expect(
-      outcome(() => a.get(real.CLIENT_DB.idFromName(clientObjectName(B, "workspace", KEY)))),
+      outcome(() => a.get(real.CLIENT_DB.idFromName(clientObjectName(B, GEN_B, "workspace", KEY)))),
     ).toBe("refused");
     expect(() => a.idFromString(bId.toString())).toThrow(ClientPartError);
     expect(() => a.newUniqueId()).toThrow(ClientPartError);
     // A name that looks like B's is only a name under A.
-    const looksLikeB = clientObjectName(B, "workspace", KEY);
+    const looksLikeB = clientObjectName(B, GEN_B, "workspace", KEY);
     expect(a.idFromName(looksLikeB).equals(bId)).toBe(false);
-    expect(objectNameParts(clientObjectName(A, looksLikeB, KEY), KEY)).toEqual({
+    expect(partsOf(clientObjectName(A, GEN_A, looksLikeB, KEY), GEN_A)).toEqual({
       client: "gym-a",
       name: looksLikeB,
     });
@@ -561,19 +571,40 @@ describe("Durable Object namespaces: the client in every name", () => {
   });
 
   it("reads a client back from a name only with the host's proof (review of #512, S1)", () => {
-    expect(objectNameParts("x:1", KEY)).toBeNull();
-    expect(objectNameParts("Admin:x", KEY)).toBeNull();
-    expect(objectNameParts("gym-a:", KEY)).toBeNull();
-    expect(objectNameParts(undefined, KEY)).toBeNull();
+    expect(objectNameParts("x:1")).toBeNull();
+    expect(objectNameParts("Admin:x")).toBeNull();
+    expect(objectNameParts("gym-a:")).toBeNull();
+    expect(objectNameParts(undefined)).toBeNull();
     // A name made with the raw namespace and no key: the plain `<client>:<name>` of before, a
     // made-up proof, another client's proof, or the right proof under another key.
-    expect(objectNameParts("gym-b:workspace", KEY)).toBeNull();
-    expect(objectNameParts(`gym-b:${"0".repeat(32)}:workspace`, KEY)).toBeNull();
-    const aProof = clientObjectName(A, "workspace", KEY).split(":")[1];
-    expect(objectNameParts(`gym-b:${aProof}:workspace`, KEY)).toBeNull();
-    expect(objectNameParts(clientObjectName(B, "workspace", `${KEY}-other`), KEY)).toBeNull();
-    expect(objectNameParts(clientObjectName(B, "workspace", KEY), null)).toBeNull();
-    expect(() => keepObjectsApart(real.CLIENT_DB, A).idFromName("x")).toThrow(/COS_BINDING_KEY/);
+    expect(partsOf("gym-b:workspace", GEN_B)).toBeNull();
+    expect(partsOf(`gym-b:${"0".repeat(32)}:workspace`, GEN_B)).toBeNull();
+    const aProof = clientObjectName(A, GEN_A, "workspace", KEY).split(":")[1];
+    expect(partsOf(`gym-b:${aProof}:workspace`, GEN_B)).toBeNull();
+    expect(partsOf(clientObjectName(B, GEN_B, "workspace", `${KEY}-other`), GEN_B)).toBeNull();
+    expect(partsOf(clientObjectName(B, GEN_B, "workspace", KEY), GEN_B, null)).toBeNull();
+    expect(partsOf(clientObjectName(B, GEN_B, "workspace", KEY), GEN_B)).toEqual({
+      client: "gym-b",
+      name: "workspace",
+    });
+    expect(() =>
+      keepObjectsApart(real.CLIENT_DB, A, clientObjectNamer({}, A, GEN_A)).idFromName("x"),
+    ).toThrow(/COS_BINDING_KEY/);
+  });
+
+  it("is no proof for a later client of the same id: the generation is in it (#515, S3)", () => {
+    const before = clientObjectName(A, GEN_A, "workspace", KEY);
+    expect(partsOf(before, GEN_A)).not.toBeNull();
+    // gym-a removed and added again gets another generation: its objects are new ones.
+    const LATER = "c".repeat(32);
+    expect(partsOf(before, LATER)).toBeNull();
+    expect(clientObjectName(A, LATER, "workspace", KEY)).not.toBe(before);
+  });
+
+  it("holds only one client's namer: no key, no host env (#515, S2)", () => {
+    // The wrapper is a plain object of closures over the namer; nothing in it is the host's env.
+    expectNoWayBack(a, HOST);
+    expect(() => keepObjectsApart(real.CLIENT_DB, A, HOST as never)).toThrow(ClientPartError);
   });
 });
 
@@ -625,7 +656,7 @@ describe("every method of every wrapper (review of #512, S2)", () => {
       vectors: keepVectorsApart(fakeIndex() as unknown as Vectorize, A),
       queue: keepQueueApart(recordingQueue() as unknown as Queue<unknown>, A),
       workflow: keepWorkflowApart(fakeWorkflow() as unknown as Workflow<unknown>, A),
-      objects: keepObjectsApart(real.CLIENT_DB, A, HOST),
+      objects: keepObjectsApart(real.CLIENT_DB, A, clientObjectNamer(HOST, A, null)),
       runner: keepRunnerApart(fakeRunner, A) as object,
     };
     const untested: string[] = [];

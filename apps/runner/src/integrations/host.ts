@@ -57,7 +57,8 @@ import {
 import { createCrmDb } from "@composable-os/db";
 import {
   CLIENT_OBJECT,
-  ClientObject,
+  ClientDurableObject,
+  type ClientObject,
   gatekeeperOffered,
   perClientMissing,
   refreshOnEachCall,
@@ -312,7 +313,7 @@ export class TextSink extends RpcTarget {
   }
 }
 
-export class IntegrationHost extends DurableObject<Env> {
+export class IntegrationHost extends ClientDurableObject(DurableObject<Env>) {
   /** Configurator `ui` capabilities by resource pattern, for this isolate's lifetime. */
   #configurators = new Map<string, Stub>();
   /**
@@ -320,19 +321,16 @@ export class IntegrationHost extends DurableObject<Env> {
    * `<client>:<connectionId>` by the INTEGRATION_HOST wrapper, it runs on that client's
    * environment, and every entrypoint it mints for a gatekeeper carries that client in its props.
    */
-  readonly #client = new ClientObject(this.ctx, this.env, (clientEnv) => {
-    this.env = clientEnv;
-  });
-
-  /** Its ClientObject, for `refreshOnEachCall` (below the class). */
-  get [CLIENT_OBJECT]() {
-    return this.#client;
+  get #client(): ClientObject<Env> {
+    return this[CLIENT_OBJECT] as unknown as ClientObject<Env>;
   }
 
-  /** The host's proof on what this object mints for a gatekeeper (review of #512, S1). */
+  /**
+   * The host's proof on what this object mints for a gatekeeper (review of #512, S1): of this
+   * object's own client, its generation and the connection; it can sign for no other client.
+   */
   #mintProof(connectionId: string): string | null {
-    const client = this.#client.client;
-    return client === null ? null : this.#client.proof(PROOF.callback, client, connectionId);
+    return this.#client.proof(PROOF.callback, connectionId);
   }
 
   // --- State ----------------------------------------------------------------------------------

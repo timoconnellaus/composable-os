@@ -8,9 +8,15 @@ export async function migrateRegistry(registry: D1Database = env.REGISTRY): Prom
   return applyMigrations(registry, env.REGISTRY_MIGRATIONS, { table: REGISTRY_MIGRATIONS_TABLE });
 }
 
-/** Every client gone (their hostnames, settings and secrets with them). */
+/**
+ * Every client gone (their hostnames, settings and secrets with them), and the removed ids
+ * forgotten (registry migration 0794 keeps them), so a test may add the same ids again.
+ */
 export async function emptyRegistry(registry: D1Database = env.REGISTRY): Promise<void> {
-  await registry.prepare("DELETE FROM registry_clients").run();
+  await registry.batch([
+    registry.prepare("DELETE FROM registry_clients"),
+    registry.prepare("DELETE FROM registry_removed_clients"),
+  ]);
 }
 
 export interface ClientFixture {

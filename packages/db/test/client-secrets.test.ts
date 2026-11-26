@@ -54,6 +54,7 @@ const real = env as unknown as {
   REGISTRY: D1Database;
   CLIENT_DB: DurableObjectNamespace<ClientDb>;
   CLIENT_DB_QUERIES: ClientDbQueryService;
+  TEST_PROPS_KEY: string;
 };
 
 const A = "gym-a" as ClientId;
@@ -79,6 +80,8 @@ function manyClientEnv(extra: Record<string, unknown> = {}) {
     CLIENT_DB: real.CLIENT_DB,
     // The query path a client's DB goes through (stage 66 step 2).
     CLIENT_DB_QUERIES: real.CLIENT_DB_QUERIES,
+    // The host's props key: each call on a client's database carries its proof (#515, S1).
+    COS_PROPS_KEY: real.TEST_PROPS_KEY,
     COS_HOST_ENVIRONMENT: "live",
     COS_ROOT_KEY: ROOT,
     COS_SECRETS_PRIVATE_KEY: PRIVATE,

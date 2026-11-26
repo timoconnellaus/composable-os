@@ -3,6 +3,8 @@
 // making. Only `ClientDirectory` (client-environment.ts) calls `buildClientEnvironment`, with a
 // record it read from the registry and admitted. Tests import this file by its path.
 import {
+  type ClientObjectNamer,
+  clientObjectNamer,
   keepBucketApart,
   keepKeyValueApart,
   keepObjectsApart,
@@ -13,6 +15,7 @@ import {
 } from "./client-bindings.ts";
 import { type ClientDb, clientDatabaseService } from "./client-db.ts";
 import type { ClientDbQueryService } from "./client-db-service.ts";
+import { bindingProof, hostPropsKey, PROOF, PROPS_KEY } from "./client-proofs.ts";
 
 /** The names a wrapper applies to. */
 const named =
@@ -59,6 +62,11 @@ export interface HostBindings {
   COS_SECRETS_PRIVATE_KEY_PREVIOUS?: string;
   /** The deployment's one callback hostname (ADR 0616). The host's own. */
   COS_CALLBACK_HOSTNAME?: string;
+  /** The key that names clients' objects (client-proofs.ts). The host's own. */
+  COS_BINDING_KEY?: string;
+  /** The key props and cos-client-db's calls are signed with, and the one before (#515, S4). */
+  COS_PROPS_KEY?: string;
+  COS_PROPS_KEY_PREVIOUS?: string;
 }
 
 /** What `name` of the host's environment becomes in a client's environment, or null: left out. */
@@ -84,7 +92,20 @@ export function envNameUse(name: string): EnvNameUse | null {
  *   id, and with empty, `..` and over-long input, client A never reaches client B's part. The
  *   property walk in client-environment.test.ts does not prove this; it cannot see closures.
  */
-export type BindingWrapper<B = unknown> = (binding: B, client: ClientId, host: object) => B;
+export type BindingWrapper<B = unknown> = (
+  binding: B,
+  client: ClientId,
+  context: WrapperContext,
+) => B;
+
+/**
+ * What the directory hands a wrapper beside the binding and the client: only what that client's
+ * part needs, made for that client (never the host's `env` or a key; #515, S2).
+ */
+export interface WrapperContext {
+  /** Names this client's objects (`keepObjectsApart`). */
+  objectNamer: ClientObjectNamer;
+}
 
 /**
  * Workers Rate Limiting, kept apart: the client in every key, so one client's callers never use
@@ -132,7 +153,8 @@ export const BINDING_WRAPPERS: ReadonlyArray<{
         "FAKE_ACCOUNT",
         "FAKE_PROVIDER",
       ),
-      wrap: keepObjectsApart as BindingWrapper,
+      wrap: ((namespace: DurableObjectNamespace, client: ClientId, context: WrapperContext) =>
+        keepObjectsApart(namespace, client, context.objectNamer)) as BindingWrapper,
     },
     { applies: named("RUNNER"), wrap: keepRunnerApart as BindingWrapper },
   ].map((entry) => Object.freeze(entry)),
@@ -209,8 +231,17 @@ function openClientDatabase(env: HostBindings, client: ClientRecord): D1Database
   if (!service) {
     throw new Error("No CLIENT_DB_QUERIES binding: a client's database cannot be opened");
   }
-  const hint = client.locationHint ? { locationHint: client.locationHint } : undefined;
-  return clientDatabaseService(service, client.id, hint);
+  // Each call carries the host's proof of the client, made here with the props key (#515, S1):
+  // cos-client-db answers a call for a client only with it, so the service binding alone, without
+  // the key, opens no client's database.
+  const key = hostPropsKey(env);
+  if (!key) {
+    throw new Error(`No ${PROPS_KEY}: a client's database cannot be opened`);
+  }
+  return clientDatabaseService(service, client.id, {
+    ...(client.locationHint ? { locationHint: client.locationHint } : {}),
+    proof: bindingProof(key, PROOF.clientDb, client.id),
+  });
 }
 
 /** A value made here for one client (its database, a wrapper's result): frozen. */
@@ -242,6 +273,9 @@ export function buildClientEnvironment<E extends HostBindings>(env: E, part: Cli
   const { client, settings } = part;
   if (!isClientId(client.id)) throw new RangeError("Not a client id");
   const out: Record<string, unknown> = {};
+  const context: WrapperContext = Object.freeze({
+    objectNamer: clientObjectNamer(env, client.id, client.secretGeneration),
+  });
   for (const name of Object.keys(env)) {
     const use = envNameUse(name);
     if (!use) continue;
@@ -253,7 +287,7 @@ export function buildClientEnvironment<E extends HostBindings>(env: E, part: Cli
       case "kept-apart": {
         const wrap = wrapperFor(name);
         if (wrap && value !== undefined && value !== null) {
-          out[name] = frozen(wrap(value, client.id, env));
+          out[name] = frozen(wrap(value, client.id, context));
         }
         break;
       }

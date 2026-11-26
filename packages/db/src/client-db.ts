@@ -1496,11 +1496,13 @@ export function clientDatabase(
 export function clientDatabaseService(
   service: ClientDbQueryService,
   client: string,
-  options?: { locationHint?: DurableObjectLocationHint },
+  options?: { locationHint?: DurableObjectLocationHint; proof?: string },
 ): D1Database {
-  const target: ClientDbTarget = options?.locationHint
-    ? { client, locationHint: options.locationHint }
-    : { client };
+  const target: ClientDbTarget = Object.freeze({
+    client,
+    ...(options?.locationHint ? { locationHint: options.locationHint } : {}),
+    ...(options?.proof ? { proof: options.proof } : {}),
+  });
   const counter = { calls: 0 };
   const call = () => {
     counter.calls += 1;

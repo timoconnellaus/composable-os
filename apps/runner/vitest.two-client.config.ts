@@ -19,15 +19,22 @@ export default defineWorkersTestConfig({
     wrangler: {
       configPath: manyClientWranglerConfig(fileURLToPath(new URL(".", import.meta.url))),
     },
-    miniflare: await addClientDbService({
-      d1Databases: ["REGISTRY"],
-      bindings: {
-        TEST_MIGRATIONS: await readD1Migrations(migrationsDir),
-        REGISTRY_MIGRATIONS: await readD1Migrations(registryMigrationsDir),
-        COS_HOST_ENVIRONMENT: "live",
-        COS_BINDING_KEY: "two-client-suite-binding-key-0123456789abcdef",
-        TURNSTILE_SECRET_KEY: "",
+    miniflare: await addClientDbService(
+      {
+        d1Databases: ["REGISTRY"],
+        // Each client's parked messages, counted and capped (client-parking.ts), as step 7 binds it.
+        durableObjects: {
+          CLIENT_PARKING_LEDGER: { className: "ParkingLedger", useSQLite: true },
+        },
+        bindings: {
+          TEST_MIGRATIONS: await readD1Migrations(migrationsDir),
+          REGISTRY_MIGRATIONS: await readD1Migrations(registryMigrationsDir),
+          COS_HOST_ENVIRONMENT: "live",
+          COS_BINDING_KEY: "two-client-suite-binding-key-0123456789abcdef",
+          TURNSTILE_SECRET_KEY: "",
+        },
       },
-    }),
+      "cos-runner",
+    ),
   }),
 });

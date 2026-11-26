@@ -1,7 +1,7 @@
 import { fileURLToPath } from "node:url";
 import { readD1Migrations } from "@cloudflare/vitest-plugin";
 import { defineWorkersTestConfig } from "@composable-os/config/vitest";
-import { addClientDb, CLIENT_DB_TEST_WORKER } from "./testing/vitest.ts";
+import { addClientDb, clientDbQueriesBinding, TEST_PROPS_KEY } from "./testing/vitest.ts";
 import { workerEnvNames } from "./testing/worker-env-names.ts";
 
 const migrationsDir = fileURLToPath(new URL("./migrations", import.meta.url));
@@ -22,7 +22,7 @@ export default defineWorkersTestConfig({
       kvNamespaces: ["OAUTH_KV"],
       // The query path of every client's database, as the host's Workers bind it (step 2).
       serviceBindings: {
-        CLIENT_DB_QUERIES: { name: CLIENT_DB_TEST_WORKER, entrypoint: "ClientDbQueries" },
+        CLIENT_DB_QUERIES: clientDbQueriesBinding("cos-app"),
       },
       bindings: {
         TEST_MIGRATIONS: await readD1Migrations(migrationsDir),
@@ -30,6 +30,8 @@ export default defineWorkersTestConfig({
         // Every name the app and the runner declare or read (test/client-env-names.test.ts).
         WORKER_ENV_NAMES: workerEnvNames(),
         PRINT_CONFORMANCE: process.env.PRINT_CONFORMANCE ?? "",
+        // The host's props key, for the many-client fixtures' own `env` (client-proofs.ts).
+        TEST_PROPS_KEY,
       },
     }),
   }),
