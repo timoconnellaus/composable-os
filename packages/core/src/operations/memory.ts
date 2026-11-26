@@ -45,6 +45,22 @@ import type { Judge } from "../judge/types.ts";
 import { defineOperation, type HandlerContext } from "../operation.ts";
 import { roleHasPermission } from "../principals.ts";
 
+/**
+ * When a line becomes active now: the operation's time, or a millisecond after the latest line's
+ * `active_since` when that is not earlier. The fold covers lines through the newest
+ * `active_since` (`memoryForTurn`), so a line made active in the same millisecond as a fold would
+ * otherwise count as folded and its edit be lost from the tail (review of #512, M6).
+ */
+async function activeSinceNow(ctx: Pick<HandlerContext, "db" | "now">): Promise<string> {
+  const row = await ctx.db
+    .selectFrom("core_memory")
+    .select((eb) => eb.fn.max("active_since").as("latest"))
+    .executeTakeFirst();
+  const latest = row?.latest ? Date.parse(String(row.latest)) : Number.NaN;
+  const now = Date.parse(ctx.now);
+  return Number.isFinite(latest) && latest >= now ? new Date(latest + 1).toISOString() : ctx.now;
+}
+
 const memoryId = z
   .string()
   .regex(/^mem_[0-9A-Za-z]{10,40}$/)
@@ -366,7 +382,7 @@ export const memoryPropose = defineOperation({
       }),
       author_id: ctx.user.id,
       history: null,
-      active_since: confirmed ? ctx.now : null,
+      active_since: confirmed ? await activeSinceNow(ctx) : null,
       created_at: ctx.now,
       updated_at: ctx.now,
     };
@@ -431,7 +447,7 @@ export const memoryUpdate = defineOperation({
       condition,
       condition_label: label,
       status,
-      active_since: nowActive ? ctx.now : row.active_since,
+      active_since: nowActive ? await activeSinceNow(ctx) : row.active_since,
       updated_at: ctx.now,
     };
     ctx.write(
@@ -520,7 +536,8 @@ export const memoryPause = defineOperation({
       throw new ValidationError("Save this line before pausing it");
     }
     const status = input.paused ? ("paused" as const) : ("active" as const);
-    const active_since = status === row.status || input.paused ? row.active_since : ctx.now;
+    const active_since =
+      status === row.status || input.paused ? row.active_since : await activeSinceNow(ctx);
     ctx.write(
       ctx.db
         .updateTable("core_memory")
@@ -649,7 +666,7 @@ export const teamMemoryPropose = defineOperation({
       checked: JSON.stringify(check.record),
       author_id: ctx.user.id,
       history: JSON.stringify([historyEntry(ctx, active ? "added" : "proposed", input.text)]),
-      active_since: active ? ctx.now : null,
+      active_since: active ? await activeSinceNow(ctx) : null,
       created_at: ctx.now,
       updated_at: ctx.now,
     };
@@ -684,17 +701,18 @@ export const teamMemoryApprove = defineOperation({
       return { line: null };
     }
     const history = JSON.stringify([...historyOf(row), historyEntry(ctx, "approved", row.text)]);
+    const activeSince = await activeSinceNow(ctx);
     ctx.write(
       ctx.db
         .updateTable("core_memory")
-        .set({ status: "active", active_since: ctx.now, history, updated_at: ctx.now })
+        .set({ status: "active", active_since: activeSince, history, updated_at: ctx.now })
         .where("id", "=", row.id),
     );
     return {
       line: lineFromRow({
         ...row,
         status: "active",
-        active_since: ctx.now,
+        active_since: activeSince,
         history,
         updated_at: ctx.now,
       }),
@@ -738,7 +756,8 @@ export const teamMemoryUpdate = defineOperation({
     if (status !== row.status) {
       entries.push(historyEntry(ctx, status === "paused" ? "paused" : "resumed", text));
     }
-    const active_since = status === "active" && entries.length ? ctx.now : row.active_since;
+    const active_since =
+      status === "active" && entries.length ? await activeSinceNow(ctx) : row.active_since;
     const history = JSON.stringify([...historyOf(row), ...entries]);
     ctx.write(
       ctx.db

@@ -2,11 +2,12 @@
 // stage 0 Workflow, and the extension host. Since ADR 0043 the host is split: code runs here, in
 // the stateless entrypoint (the executor: tools, manifest evaluation, type checks, Code Mode), so
 // runs proceed in parallel; git, working copies and the build cache stay in the workspace DO.
-import { WorkerEntrypoint, env as workerEnv } from "cloudflare:workers";
+import { WorkerEntrypoint } from "cloudflare:workers";
 import {
   type AutomationQueueMessage,
   type AutomationTestInput,
   type AutomationTestReport,
+  CATALOGUE,
   type CodeResult,
   type EvaluateResult,
   type ExtensionHost,
@@ -47,11 +48,26 @@ import {
   watchSubscriberSignup,
 } from "@composable-os/core";
 import { createCrmDb } from "@composable-os/db";
+import { RUNNER_METHODS } from "@composable-os/db/client-bindings";
+import {
+  clientEnvironment,
+  consumeByClient,
+  consumeDeadLetters,
+  consumeFanOut,
+  fanOutCron,
+  isDeadLetterQueue,
+  isFanOutQueue,
+  isRunnerCaller,
+  NoClientError,
+  servesManyClients,
+} from "@composable-os/db/client-entries";
+import { envNameUse, refuseFakeGatekeeper } from "@composable-os/db/client-environment";
 import { PRODUCT_LABEL_VAR, setProductLabel } from "@composable-os/product";
 import { dispatchAutomationMessages, runDeferredDue } from "./automations/dispatch.ts";
 import { automationHost } from "./automations/host.ts";
 import { pollIntegrationEvents } from "./automations/integration-events.ts";
 import { runAutomationCron } from "./automations/schedule.ts";
+import { deploymentEnv as workerEnv } from "./deployment-env.ts";
 import { Executor, type ExecutorOptions } from "./executor/executor.ts";
 import { embedFromEvents } from "./extensions/embeddings.ts";
 import { packsProblem } from "./extensions/shipped-list.ts";
@@ -130,9 +146,23 @@ export function extensionHost(env: Env, options: ExecutorOptions = {}): Extensio
   };
 }
 
-export default class Runner extends WorkerEntrypoint<Env> implements RunnerRpc {
+/**
+ * The runner's RPC methods, on one environment: the real `env` of a single-client deployment, or
+ * one client's on a many-client host (stage 66, ADR 0615). `Runner` serves them as itself on a
+ * single client, and through `callAs(<client>, …)` on many.
+ */
+export class ClientRunner implements RunnerRpc {
+  readonly #env: Env;
+  /** The runner's own `env`: only for the fake gatekeeper, which is a gatekeeper, not a client. */
+  readonly #host: Env;
+
+  constructor(env: Env, host: Env) {
+    this.#env = env;
+    this.#host = host;
+  }
+
   async ping(): Promise<PingResult> {
-    const problem = packsProblem(this.env.COS_PACKS);
+    const problem = packsProblem(this.#env.COS_PACKS);
     if (problem) {
       console.error(`cos-runner: ${problem}`);
       throw new Error(problem);
@@ -141,12 +171,12 @@ export default class Runner extends WorkerEntrypoint<Env> implements RunnerRpc {
   }
 
   async startHelloWorkflow(name: string): Promise<{ id: string }> {
-    const instance = await this.env.HELLO_WORKFLOW.create({ params: { name } });
+    const instance = await this.#env.HELLO_WORKFLOW.create({ params: { name } });
     return { id: instance.id };
   }
 
   async helloWorkflowStatus(id: string): Promise<WorkflowRunStatus> {
-    const instance = await this.env.HELLO_WORKFLOW.get(id);
+    const instance = await this.#env.HELLO_WORKFLOW.get(id);
     const status = await instance.status();
     return {
       id,
@@ -158,57 +188,57 @@ export default class Runner extends WorkerEntrypoint<Env> implements RunnerRpc {
 
   // ExtensionHost (ADR 0025, ADR 0043).
   commit(input: Parameters<ExtensionHost["commit"]>[0]) {
-    return extensionHost(this.env).commit(input);
+    return extensionHost(this.#env).commit(input);
   }
   shipped(): Promise<ShippedExtension[]> {
-    return extensionHost(this.env).shipped();
+    return extensionHost(this.#env).shipped();
   }
   commitShipped(id: string) {
-    return extensionHost(this.env).commitShipped(id);
+    return extensionHost(this.#env).commitShipped(id);
   }
   evaluate(input: Parameters<ExtensionHost["evaluate"]>[0]): Promise<EvaluateResult> {
-    return extensionHost(this.env).evaluate(input);
+    return extensionHost(this.#env).evaluate(input);
   }
   runTool(input: RunToolInput): Promise<RunToolResult> {
-    return extensionHost(this.env).runTool(input);
+    return extensionHost(this.#env).runTool(input);
   }
   versions(id: string): Promise<ExtensionVersion[]> {
-    return extensionHost(this.env).versions(id);
+    return extensionHost(this.#env).versions(id);
   }
   files(id: string, commit: string): Promise<Record<string, string>> {
-    return extensionHost(this.env).files(id, commit);
+    return extensionHost(this.#env).files(id, commit);
   }
   listWorkspace(): Promise<WorkspaceEntry[]> {
-    return extensionHost(this.env).listWorkspace();
+    return extensionHost(this.#env).listWorkspace();
   }
   workingCopy(id: string, options?: WorkingCopyOptions): Promise<WorkingCopy> {
-    return extensionHost(this.env).workingCopy(id, options);
+    return extensionHost(this.#env).workingCopy(id, options);
   }
   writeFiles(input: Parameters<ExtensionHost["writeFiles"]>[0]): Promise<WorkspaceWrite> {
-    return extensionHost(this.env).writeFiles(input);
+    return extensionHost(this.#env).writeFiles(input);
   }
   commitWorkingCopy(input: Parameters<ExtensionHost["commitWorkingCopy"]>[0]) {
-    return extensionHost(this.env).commitWorkingCopy(input);
+    return extensionHost(this.#env).commitWorkingCopy(input);
   }
   eject(id: string): Promise<WorkspaceWrite> {
-    return extensionHost(this.env).eject(id);
+    return extensionHost(this.#env).eject(id);
   }
   runCode(input: Parameters<ExtensionHost["runCode"]>[0]): Promise<CodeResult> {
-    return extensionHost(this.env).runCode(input);
+    return extensionHost(this.#env).runCode(input);
   }
   runProducer(input: ProducerRun): Promise<ProducerResult> {
-    return extensionHost(this.env).runProducer(input);
+    return extensionHost(this.#env).runProducer(input);
   }
   describeChange(input: Parameters<ExtensionHost["describeChange"]>[0]) {
-    return extensionHost(this.env).describeChange(input);
+    return extensionHost(this.#env).describeChange(input);
   }
 
   /** Installs or upgrades the shipped extensions bundled with this release (boot / deploy). */
   async installShipped(): Promise<ShippedInstallResult[]> {
     return installShippedExtensions({
-      db: createCrmDb(this.env.DB),
-      host: extensionHost(this.env),
-      floor: parseFloor(this.env.APPROVAL_FLOOR),
+      db: createCrmDb(this.#env.DB),
+      host: extensionHost(this.#env),
+      floor: parseFloor(this.#env.APPROVAL_FLOOR),
     });
   }
 
@@ -217,7 +247,7 @@ export default class Runner extends WorkerEntrypoint<Env> implements RunnerRpc {
     method: K,
     input: Parameters<NonNullable<IntegrationRuntime[K]>>[0],
   ): ReturnType<NonNullable<IntegrationRuntime[K]>> {
-    const runtime = integrationRuntime(this.env);
+    const runtime = integrationRuntime(this.#env);
     if (!Object.hasOwn(runtime, method)) throw new Error(`No integration method ${String(method)}`);
     return (runtime[method] as (i: typeof input) => ReturnType<NonNullable<IntegrationRuntime[K]>>)(
       input,
@@ -227,68 +257,269 @@ export default class Runner extends WorkerEntrypoint<Env> implements RunnerRpc {
   /** cos-app proxies /gatekeeper/<vendor>/* here: OAuth redirects, connect pages, pushes. */
   async gatekeeperFetch(vendor: string, request: Request): Promise<Response> {
     if (vendor === "fake") {
-      if (this.env.INTEGRATIONS_FAKE_PROVIDER !== "true")
+      if (this.#env.INTEGRATIONS_FAKE_PROVIDER !== "true")
         return new Response("Not found", { status: 404 });
       // Development and e2e only, like the rest of the fake provider: run the minute cron now
       // (local dev has no cron ticks), so a test can turn stored webhook events into runs.
       if (new URL(request.url).pathname === "/gatekeeper/fake/cron" && request.method === "POST") {
-        return Response.json(await minuteTick(this.env, new Date()));
+        return Response.json(await minuteTick(this.#env, new Date()));
       }
       // A message to the shared inbox (stage 36), as the inbound email hook (step 2) will write
       // one, so a test can open the inbox's screens on a real conversation.
       if (new URL(request.url).pathname === "/gatekeeper/fake/inbox" && request.method === "POST") {
-        return seedInboxMessage(this.env, request);
+        return seedInboxMessage(this.#env, request);
       }
-      return fakeProviderFetch(this.env, request);
+      // The fake provider's own pages are a gatekeeper's, on the runner's own environment.
+      return fakeProviderFetch(this.#host, request);
     }
-    if (!availableVendors(this.env).includes(vendor)) {
+    if (!availableVendors(this.#env).includes(vendor)) {
       return new Response("Not found", { status: 404 });
     }
-    const binding = (this.env as unknown as Record<string, Fetcher>)[vendorBinding(vendor)];
+    const binding = (this.#env as unknown as Record<string, Fetcher>)[vendorBinding(vendor)];
     return binding ? binding.fetch(request) : new Response("Not found", { status: 404 });
   }
 
   // AutomationHost (ADR 0130): automation.test, run, retry, replay and cancel from cos-app.
   testAutomation(input: AutomationTestInput): Promise<AutomationTestReport> {
-    return automationHost(this.env).testAutomation(input);
+    return automationHost(this.#env).testAutomation(input);
   }
   startManualRun(input: StartRunInput): Promise<{ runIds: string[]; skipped: number }> {
-    return automationHost(this.env).startManualRun(input);
+    return automationHost(this.#env).startManualRun(input);
   }
   retryRun(runId: string): Promise<{ runId: string }> {
-    return automationHost(this.env).retryRun(runId);
+    return automationHost(this.#env).retryRun(runId);
   }
   replayRun(runId: string): Promise<{ runId: string }> {
-    return automationHost(this.env).replayRun(runId);
+    return automationHost(this.#env).replayRun(runId);
   }
   cancelRun(runId: string): Promise<{ runId: string }> {
-    return automationHost(this.env).cancelRun(runId);
+    return automationHost(this.#env).cancelRun(runId);
+  }
+}
+
+/** The queue of automation events (wrangler.jsonc's consumer). */
+const AUTOMATION_EVENTS_QUEUE = "cos-automation-events";
+
+/**
+ * The automation events consumer (ADR 0130) on one environment: a batch at a time. A failed
+ * batch is retried (and dead-lettered after max_retries); run creation is idempotent, so a retry
+ * never doubles.
+ */
+async function consumeAutomationEvents(
+  env: Env,
+  batch: MessageBatch<AutomationQueueMessage>,
+): Promise<void> {
+  try {
+    const messages = batch.messages.map((m) => m.body);
+    await dispatchAutomationMessages(env, messages);
+    // Semantic search: embed the records this batch changed (ADR 0154). Never throws.
+    await embedFromEvents(env, messages);
+    batch.ackAll();
+  } catch (error) {
+    console.error("automation events: batch failed, retrying", errorForLog(error));
+    batch.retryAll({ delaySeconds: 10 });
+  }
+}
+
+/**
+ * cos-runner's entry. Only the host's own Workers reach it: it has no public route (`workers_dev`
+ * off, no routes), and cos-app is bound to it. On a single-client deployment its methods run on
+ * its own `env`, as always. On a many-client host (stage 66, ADR 0615) every call names the
+ * client, `callAs(<client>, <method>, args)` (cos-app's RUNNER wrapper does it), and the methods
+ * on the runner itself refuse: there is no client to run them as. Its crons fan out, one message
+ * per client, and its queues and Workflows act as the client stamped on each message and instance.
+ */
+export default class Runner extends WorkerEntrypoint<Env> implements RunnerRpc {
+  constructor(ctx: ExecutionContext, env: Env) {
+    super(ctx, env);
+    // Every entry of the runner on a many-client host refuses the fake gatekeeper, whether or not
+    // the call reaches the directory (which refuses it too): `gatekeeperCallback` and the fake's
+    // own routes do not (ADR 0616, step 6's second review).
+    if (servesManyClients(env)) refuseFakeGatekeeper(env);
   }
 
   /**
-   * The automation events consumer (ADR 0130): a batch at a time. A failed batch is retried
-   * (and dead-lettered after max_retries); run creation is idempotent, so a retry never doubles.
+   * One of the runner's methods (`RUNNER_METHODS`, and no other) as `client`, in that client's
+   * environment: a many-client host's only. The client is its own argument, never read from the
+   * method's arguments.
    */
-  override async queue(batch: MessageBatch<AutomationQueueMessage>): Promise<void> {
-    try {
-      const messages = batch.messages.map((m) => m.body);
-      await dispatchAutomationMessages(this.env, messages);
-      // Semantic search: embed the records this batch changed (ADR 0154). Never throws.
-      await embedFromEvents(this.env, messages);
-      batch.ackAll();
-    } catch (error) {
-      console.error("automation events: batch failed, retrying", errorForLog(error));
-      batch.retryAll({ delaySeconds: 10 });
+  async callAs(client: string, method: string, args: unknown[]): Promise<unknown> {
+    if (!servesManyClients(this.env)) {
+      throw new NoClientError("A client was named on a single-client deployment");
     }
+    // Only cos-app's own binding, whose props the deploy fixes (review of #512, S4): a Worker
+    // that binds cos-runner itself, a namespace Worker among them, has no such props, and a
+    // binding's caller cannot set them.
+    if (!isRunnerCaller((this.ctx as { props?: unknown }).props, this.env)) {
+      throw new NoClientError("callAs is offered only to the host's own app");
+    }
+    if (!(RUNNER_METHODS as readonly string[]).includes(method)) {
+      throw new NoClientError(`${method} is not one of the runner's methods`);
+    }
+    const target = new ClientRunner(await clientEnvironment(this.env, client), this.env);
+    const run = (target as unknown as Record<string, (...a: unknown[]) => unknown>)[method];
+    if (typeof run !== "function") throw new NoClientError(`${method} is not offered`);
+    return run.apply(target, Array.isArray(args) ? args : []);
+  }
+
+  /**
+   * A gatekeeper's request at the deployment's callback address (a many-client host's only, from
+   * the app's binding): its own `fetch`, whose state says whose connection it is for. Never one of
+   * the gatekeepers that hold one account for every client (`ENV_NAMES`), which are offered to no
+   * client; the fake one only when it is on.
+   */
+  async gatekeeperCallback(vendor: string, request: Request): Promise<Response> {
+    if (
+      !servesManyClients(this.env) ||
+      !isRunnerCaller((this.ctx as { props?: unknown }).props, this.env)
+    ) {
+      throw new NoClientError("gatekeeperCallback is offered only to the host's own app");
+    }
+    const notFound = () => new Response("Not found", { status: 404 });
+    if (!CATALOGUE.some((entry) => entry.vendor === vendor)) return notFound();
+    const binding = vendorBinding(vendor);
+    const use = envNameUse(binding);
+    if (use?.use !== "shared") return notFound();
+    if (vendor === "fake") {
+      return this.env.INTEGRATIONS_FAKE_PROVIDER === "true"
+        ? fakeProviderFetch(this.env, request)
+        : notFound();
+    }
+    const gatekeeper = (this.env as unknown as Record<string, Fetcher | undefined>)[binding];
+    return gatekeeper ? gatekeeper.fetch(request) : notFound();
+  }
+
+  /** The methods on the runner's own `env`: a single-client deployment's only. */
+  #self(): ClientRunner {
+    if (servesManyClients(this.env)) {
+      throw new NoClientError("A many-client host's runner is called as a client: callAs(<id>, …)");
+    }
+    return new ClientRunner(this.env, this.env);
+  }
+  ping() {
+    return this.#self().ping();
+  }
+  startHelloWorkflow(name: string) {
+    return this.#self().startHelloWorkflow(name);
+  }
+  helloWorkflowStatus(id: string) {
+    return this.#self().helloWorkflowStatus(id);
+  }
+  commit(input: Parameters<ExtensionHost["commit"]>[0]) {
+    return this.#self().commit(input);
+  }
+  shipped() {
+    return this.#self().shipped();
+  }
+  commitShipped(id: string) {
+    return this.#self().commitShipped(id);
+  }
+  evaluate(input: Parameters<ExtensionHost["evaluate"]>[0]) {
+    return this.#self().evaluate(input);
+  }
+  runTool(input: RunToolInput) {
+    return this.#self().runTool(input);
+  }
+  versions(id: string) {
+    return this.#self().versions(id);
+  }
+  files(id: string, commit: string) {
+    return this.#self().files(id, commit);
+  }
+  listWorkspace() {
+    return this.#self().listWorkspace();
+  }
+  workingCopy(id: string, options?: WorkingCopyOptions) {
+    return this.#self().workingCopy(id, options);
+  }
+  writeFiles(input: Parameters<ExtensionHost["writeFiles"]>[0]) {
+    return this.#self().writeFiles(input);
+  }
+  commitWorkingCopy(input: Parameters<ExtensionHost["commitWorkingCopy"]>[0]) {
+    return this.#self().commitWorkingCopy(input);
+  }
+  eject(id: string) {
+    return this.#self().eject(id);
+  }
+  runCode(input: Parameters<ExtensionHost["runCode"]>[0]) {
+    return this.#self().runCode(input);
+  }
+  runProducer(input: ProducerRun) {
+    return this.#self().runProducer(input);
+  }
+  describeChange(input: Parameters<ExtensionHost["describeChange"]>[0]) {
+    return this.#self().describeChange(input);
+  }
+  installShipped() {
+    return this.#self().installShipped();
+  }
+  integration<K extends keyof IntegrationRuntime>(
+    method: K,
+    input: Parameters<NonNullable<IntegrationRuntime[K]>>[0],
+  ): ReturnType<NonNullable<IntegrationRuntime[K]>> {
+    return this.#self().integration(method, input);
+  }
+  gatekeeperFetch(vendor: string, request: Request) {
+    return this.#self().gatekeeperFetch(vendor, request);
+  }
+  testAutomation(input: AutomationTestInput) {
+    return this.#self().testAutomation(input);
+  }
+  startManualRun(input: StartRunInput) {
+    return this.#self().startManualRun(input);
+  }
+  retryRun(runId: string) {
+    return this.#self().retryRun(runId);
+  }
+  replayRun(runId: string) {
+    return this.#self().replayRun(runId);
+  }
+  cancelRun(runId: string) {
+    return this.#self().cancelRun(runId);
+  }
+
+  /**
+   * The runner's queues: automation events (ADR 0130) and, on a many-client host, its crons'
+   * fan-out. Each automation event acts as the client its sender's wrapper stamped on it; one
+   * client's failing batch is retried and nobody else's.
+   */
+  override async queue(batch: MessageBatch<unknown>): Promise<void> {
+    if (!servesManyClients(this.env)) {
+      await consumeAutomationEvents(this.env, batch as MessageBatch<AutomationQueueMessage>);
+      return;
+    }
+    // By the queue the batch came from, never by what a message looks like (review of #512, M1).
+    if (isFanOutQueue(batch.queue)) {
+      await consumeFanOut(this.env, batch, {
+        tick: async (clientEnv, tick) => {
+          await minuteTick(clientEnv, new Date(tick.scheduledTime));
+        },
+        parked: {
+          [AUTOMATION_EVENTS_QUEUE]: (clientEnv, share) =>
+            consumeAutomationEvents(clientEnv, share as MessageBatch<AutomationQueueMessage>),
+        },
+      });
+      return;
+    }
+    if (isDeadLetterQueue(batch.queue)) {
+      consumeDeadLetters(batch);
+      return;
+    }
+    await consumeByClient<Env, AutomationQueueMessage>(this.env, batch, consumeAutomationEvents);
   }
 
   /**
    * `* * * * *`: schedules and the daily date-relative scan (ADR 0130), the automation events
    * outbox retry (ADR 0171), integration events (webhooks, sync) as triggers (ADR 0173) and
    * notification delivery (ADR 0172) and the duplicate scan (ADR 0247). Each
-   * step is independent: one failing is logged and does not stop the others.
+   * step is independent: one failing is logged and does not stop the others. On a many-client
+   * host the tick fans out, one message per client served, and each runs as it is consumed.
    */
   override async scheduled(controller: ScheduledController): Promise<void> {
+    if (servesManyClients(this.env)) {
+      await fanOutCron(this.env, controller);
+      return;
+    }
     await minuteTick(this.env, new Date(controller.scheduledTime));
   }
 

@@ -18,6 +18,7 @@ import type {
   WorkspaceEntry,
   WorkspaceWrite,
 } from "@composable-os/core";
+import { CLIENT_OBJECT, ClientObject, refreshOnEachCall } from "@composable-os/db/client-entries";
 import type { BuildRecord } from "../executor/build-cache.ts";
 import { buildKey, contentHash } from "../executor/worker-code.ts";
 import { shippedExtensions } from "./shipped-list.ts";
@@ -59,9 +60,23 @@ export type CommitSource =
 export class ExtensionWorkspace extends DurableObject<Env> {
   readonly workspace: Workspace;
   #queue: Promise<unknown> = Promise.resolve();
+  /**
+   * Whose workspace this is on a many-client host (stage 66, ADR 0615): one per client, named
+   * `<client>:workspace` by the EXTENSION_WORKSPACE wrapper, on that client's environment (its
+   * packs and its own extensions).
+   */
+  protected readonly owner: ClientObject<Env>;
+
+  /** Its ClientObject, for `refreshOnEachCall` (below the class). */
+  get [CLIENT_OBJECT]() {
+    return this.owner;
+  }
 
   constructor(ctx: DurableObjectState, env: Env) {
     super(ctx, env);
+    this.owner = new ClientObject(ctx, env, (clientEnv) => {
+      this.env = clientEnv;
+    });
     // No execution backend: code runs in the stateless executor (ADR 0043).
     this.workspace = new Workspace({
       storage: ctx.storage,
@@ -433,3 +448,6 @@ export class ExtensionWorkspace extends DurableObject<Env> {
     });
   }
 }
+
+// Every async method re-reads the client's admission first (stage 66, review of #512, M2).
+refreshOnEachCall(ExtensionWorkspace);

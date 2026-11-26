@@ -24,6 +24,7 @@ import {
   toolRunStanding,
 } from "@composable-os/core";
 import { createCrmDb } from "@composable-os/db";
+import { clientOf } from "@composable-os/db/client-environment";
 import {
   type AutomationRunRequest,
   type ExtensionManifest,
@@ -224,6 +225,20 @@ export class Executor {
     this.#toolTimeoutMs = options.toolTimeoutMs ?? TOOL_TIMEOUT_MS;
     this.#manifestTimeoutMs = options.manifestTimeoutMs ?? MANIFEST_TIMEOUT_MS;
     this.#codeTimeoutMs = options.codeTimeoutMs ?? CODE_TIMEOUT_MS;
+    this.#client = clientOf(env);
+  }
+
+  /** The client whose environment this executor runs on, or null on a single-client host. */
+  readonly #client: string | null;
+
+  /**
+   * A Worker Loader id as this client's (stage 66, ADR 0615, the coordinator's amendment of
+   * "Worker Loader ids are not per client"): on a many-client host the client is part of every
+   * id the executor loads, so a pack's warm isolate, and any module-level state its code keeps,
+   * is never shared between two clients. A single-client deployment's ids are unchanged.
+   */
+  #clientWorkerId(id: string): string {
+    return this.#client ? `client:${this.#client}:${id}` : id;
   }
 
   /**
@@ -248,7 +263,9 @@ export class Executor {
     const { build } = prepared;
     if (!build.ok) return { ok: false, commit, issues: build.issues };
     const id = await manifestWorkerId({ extensionId: input.id, sourceHash: prepared.sourceHash });
-    const worker = this.#loader.get(id, () => extensionWorkerCode(build.modules, []));
+    const worker = this.#loader.get(this.#clientWorkerId(id), () =>
+      extensionWorkerCode(build.modules, []),
+    );
     const outcome = await invoke<ExtensionEntrypoint, RunResponse>(
       worker,
       this.#manifestTimeoutMs,
@@ -314,7 +331,9 @@ export class Executor {
     }
     const manifest = JSON.parse(row.manifest) as ExtensionManifest;
     const modules = moduleSet(manifest.permissions.modules);
-    const workerId = await toolWorkerId({ extensionId: input.id, commit: input.commit, modules });
+    const workerId = this.#clientWorkerId(
+      await toolWorkerId({ extensionId: input.id, commit: input.commit, modules }),
+    );
     let buildIssues: SourceIssue[] | null = null;
     // The callback runs only when no isolate with this id is warm: then the build comes from the
     // cache (or is built once) and the code is the same for this id every time.
@@ -567,11 +586,13 @@ export class Executor {
     }
     const manifest = JSON.parse(row.manifest) as ExtensionManifest;
     const modules = moduleSet(manifest.permissions.modules);
-    const workerId = await toolWorkerId({
-      extensionId: input.extensionId,
-      commit: input.commit,
-      modules,
-    });
+    const workerId = this.#clientWorkerId(
+      await toolWorkerId({
+        extensionId: input.extensionId,
+        commit: input.commit,
+        modules,
+      }),
+    );
     let buildIssues: SourceIssue[] | null = null;
     const worker = this.#loader.get(workerId, async () => {
       const prepared = await prepare(this.#env, this.#loader, {
@@ -756,7 +777,7 @@ export class Executor {
    */
   async runProducer(input: ProducerRun): Promise<ProducerResult> {
     const started = Date.now();
-    const workerId = await producerWorkerId(input.ref, input.source);
+    const workerId = this.#clientWorkerId(await producerWorkerId(input.ref, input.source));
     let buildError: string | null = null;
     const worker = this.#loader.get(workerId, () => {
       const built = buildProducer(input.source);

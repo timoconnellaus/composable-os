@@ -3,7 +3,6 @@
 // its grant is checked against what an automation may do, and it runs in the background. A brief
 // names no records, so nothing it does applies without review; the default profile only reads.
 
-import { env } from "cloudflare:workers";
 import {
   type CoreOutput,
   cardOf,
@@ -15,6 +14,7 @@ import { createCrmDb } from "@composable-os/db";
 import { actingUserOf } from "../acting-user.ts";
 import { aiContextFor } from "../ai.ts";
 import { agentJobsFor, type OperationsEnv } from "../operations.ts";
+import { requestEnv } from "../request-env.ts";
 
 /** A routine's brief is one person's words: its first line names the agent. */
 function titleOf(brief: string): string {
@@ -23,7 +23,7 @@ function titleOf(brief: string): string {
 }
 
 registerRoutineAgentStarter(async ({ userId, brief, profile }) => {
-  const appEnv = env as unknown as OperationsEnv;
+  const appEnv = requestEnv() as unknown as OperationsEnv;
   const db = createCrmDb(appEnv.DB);
   const row = await db.query
     .selectFrom("core_user")

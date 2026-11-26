@@ -2,7 +2,24 @@
 // not in the package's exports, so no entry can build an environment for a record of its own
 // making. Only `ClientDirectory` (client-environment.ts) calls `buildClientEnvironment`, with a
 // record it read from the registry and admitted. Tests import this file by its path.
-import { type ClientDb, clientDatabase } from "./client-db.ts";
+import {
+  keepBucketApart,
+  keepKeyValueApart,
+  keepObjectsApart,
+  keepQueueApart,
+  keepRunnerApart,
+  keepVectorsApart,
+  keepWorkflowApart,
+} from "./client-bindings.ts";
+import { type ClientDb, clientDatabaseService } from "./client-db.ts";
+import type { ClientDbQueryService } from "./client-db-service.ts";
+
+/** The names a wrapper applies to. */
+const named =
+  (...names: string[]) =>
+  (name: string) =>
+    names.includes(name);
+
 import { ENV_NAME_PATTERNS, ENV_NAMES, type EnvNameUse } from "./client-env-names.ts";
 import {
   CLIENT_SETTINGS,
@@ -24,6 +41,12 @@ export interface HostBindings {
    * app nor the runner exports the class (ADR 0613).
    */
   CLIENT_DB?: DurableObjectNamespace<ClientDb>;
+  /**
+   * The query path of every client's database (stage 66 step 2): a service binding to
+   * `cos-client-db`'s `ClientDbQueries`, which serves queries only. What the app and the runner
+   * bind on a many-client host; the raw namespace (`CLIENT_DB`) is the operator's (step 7).
+   */
+  CLIENT_DB_QUERIES?: ClientDbQueryService;
   /**
    * Which environment of its clients this deployment holds (`live` or `staging`). Required with
    * REGISTRY: the one source of the deployment's environment; a client of the other is unknown.
@@ -61,7 +84,7 @@ export function envNameUse(name: string): EnvNameUse | null {
  *   id, and with empty, `..` and over-long input, client A never reaches client B's part. The
  *   property walk in client-environment.test.ts does not prove this; it cannot see closures.
  */
-export type BindingWrapper<B = unknown> = (binding: B, client: ClientId) => B;
+export type BindingWrapper<B = unknown> = (binding: B, client: ClientId, host: object) => B;
 
 /**
  * Workers Rate Limiting, kept apart: the client in every key, so one client's callers never use
@@ -81,12 +104,44 @@ export const keepRateLimitApart: BindingWrapper<RateLimit> = (binding, client) =
 export const BINDING_WRAPPERS: ReadonlyArray<{
   applies: (name: string) => boolean;
   wrap: BindingWrapper;
-}> = Object.freeze([
-  Object.freeze({
-    applies: (name: string) => /^[A-Z0-9_]+_RATE_LIMIT$/.test(name),
-    wrap: keepRateLimitApart as BindingWrapper,
-  }),
-]);
+}> = Object.freeze(
+  [
+    {
+      applies: (name: string) => /^[A-Z0-9_]+_RATE_LIMIT$/.test(name),
+      wrap: keepRateLimitApart as BindingWrapper,
+    },
+    // Stage 66 step 4 (client-bindings.ts, ADR 0615).
+    { applies: named("BLOBS"), wrap: keepBucketApart as BindingWrapper },
+    { applies: named("OAUTH_KV"), wrap: keepKeyValueApart as BindingWrapper },
+    { applies: named("VECTORIZE"), wrap: keepVectorsApart as BindingWrapper },
+    {
+      applies: named("AUTOMATION_EVENTS", "ROUTINE_DELIVERY"),
+      wrap: keepQueueApart as BindingWrapper,
+    },
+    {
+      applies: named("AUTOMATION_WORKFLOW", "HELLO_WORKFLOW"),
+      wrap: keepWorkflowApart as BindingWrapper,
+    },
+    {
+      applies: named(
+        "ASSISTANT",
+        "AGENT_JOB",
+        "EXTENSION_WORKSPACE",
+        "CODE_MODE_GATE",
+        "INTEGRATION_HOST",
+        "FAKE_ACCOUNT",
+        "FAKE_PROVIDER",
+      ),
+      wrap: keepObjectsApart as BindingWrapper,
+    },
+    { applies: named("RUNNER"), wrap: keepRunnerApart as BindingWrapper },
+  ].map((entry) => Object.freeze(entry)),
+);
+
+/** Whether a kept-apart `name` has a wrapper (packages/db/test/client-bindings.test.ts). */
+export function hasBindingWrapper(name: string): boolean {
+  return wrapperFor(name) !== null;
+}
 
 function wrapperFor(name: string): BindingWrapper | null {
   return BINDING_WRAPPERS.find((wrapper) => wrapper.applies(name))?.wrap ?? null;
@@ -145,6 +200,19 @@ function perClientUse(name: string): Extract<EnvNameUse, { use: "per-client" }> 
   return use?.use === "per-client" ? use : null;
 }
 
+/**
+ * A client's database, the one place it is opened: through `cos-client-db`'s query-only service
+ * (`CLIENT_DB_QUERIES`, stage 66 step 2), never the raw namespace, which is the operator's.
+ */
+function openClientDatabase(env: HostBindings, client: ClientRecord): D1Database {
+  const service = env.CLIENT_DB_QUERIES;
+  if (!service) {
+    throw new Error("No CLIENT_DB_QUERIES binding: a client's database cannot be opened");
+  }
+  const hint = client.locationHint ? { locationHint: client.locationHint } : undefined;
+  return clientDatabaseService(service, client.id, hint);
+}
+
 /** A value made here for one client (its database, a wrapper's result): frozen. */
 function frozen<T>(value: T): T {
   return value !== null && typeof value === "object" ? Object.freeze(value) : value;
@@ -154,7 +222,7 @@ function frozen<T>(value: T): T {
  * The client's environment on a host that serves many clients: a new, frozen object shaped like
  * `env`, holding only what `envNameUse` lets through.
  *
- * - `DB` is `clientDatabase(CLIENT_DB, client)`, created at the client's location hint.
+ * - `DB` is `clientDatabaseService(CLIENT_DB_QUERIES, client)`, at the client's location hint.
  * - Each setting in `CLIENT_SETTINGS` is the client's from the registry; with no row, the
  *   deployment's own value (`inherit`) or nothing (`empty`).
  * - A shared value (`shared`) is the same object as in `env`, so a cache keyed by it (a WeakMap
@@ -173,8 +241,6 @@ function frozen<T>(value: T): T {
 export function buildClientEnvironment<E extends HostBindings>(env: E, part: ClientPart): E {
   const { client, settings } = part;
   if (!isClientId(client.id)) throw new RangeError("Not a client id");
-  const namespace = env.CLIENT_DB;
-  if (!namespace) throw new Error("No CLIENT_DB binding: a client's database cannot be opened");
   const out: Record<string, unknown> = {};
   for (const name of Object.keys(env)) {
     const use = envNameUse(name);
@@ -187,7 +253,7 @@ export function buildClientEnvironment<E extends HostBindings>(env: E, part: Cli
       case "kept-apart": {
         const wrap = wrapperFor(name);
         if (wrap && value !== undefined && value !== null) {
-          out[name] = frozen(wrap(value, client.id));
+          out[name] = frozen(wrap(value, client.id, env));
         }
         break;
       }
@@ -236,14 +302,25 @@ export function buildClientEnvironment<E extends HostBindings>(env: E, part: Cli
       if (value !== undefined) out[name] = value;
     }
   }
-  out.DB = frozen(
-    clientDatabase(
-      namespace,
-      client.id,
-      client.locationHint ? { locationHint: client.locationHint } : undefined,
-    ),
-  );
+  out.DB = frozen(openClientDatabase(env, client));
   Object.freeze(out);
   clientOfEnvironment.set(out, client.id);
   return out as unknown as E;
+}
+
+/**
+ * A client's environment with the OAuth library's helpers beside it (stage 66 step 4, ADR 0615).
+ * `@cloudflare/workers-oauth-provider` puts its helpers on the `env` it is handed
+ * (`env.OAUTH_PROVIDER = ...`) when there are none, which a frozen environment refuses; the app
+ * makes them for the client (over the client's own OAUTH_KV) and hands the library this copy:
+ * frozen too, the same client, and nothing else added. The helpers reach only what the client's
+ * environment already reaches.
+ */
+export function withOAuthHelpers<E extends object>(env: E, helpers: unknown): E {
+  const client = clientOf(env);
+  if (!client) throw new Error("Not a client's environment");
+  if ("OAUTH_PROVIDER" in env) throw new Error("This environment has OAuth helpers already");
+  const out = Object.freeze({ ...env, OAUTH_PROVIDER: helpers });
+  clientOfEnvironment.set(out, client);
+  return out as E;
 }

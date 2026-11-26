@@ -1,4 +1,5 @@
 import type { RateLimitBinding } from "@composable-os/core";
+import { perClientMissing } from "@composable-os/db/client-entries";
 import {
   type BetterAuthInstance,
   betterAuthProvider,
@@ -33,6 +34,8 @@ export {
   clientAddressSecret,
   codeRequestRefusal,
   createBetterAuth,
+  hostOnlyCookies,
+  isSessionCookie,
   requestStaffCode,
   STAFF_CODE_ATTEMPTS,
   STAFF_CODE_LENGTH,
@@ -128,7 +131,12 @@ export function getBetterAuth(env: IdentityEnv): BetterAuthInstance | null {
   if (identityProviderKind(env) !== "better-auth") return null;
   let auth = betterAuthCache.get(env);
   if (!auth) {
-    if (!env.BETTER_AUTH_SECRET) throw new IdentityConfigError("BETTER_AUTH_SECRET is not set");
+    if (!env.BETTER_AUTH_SECRET) {
+      // A client's environment on a many-client host has none until stage 66 step 6.
+      throw new IdentityConfigError(
+        perClientMissing(env, "BETTER_AUTH_SECRET") ?? "BETTER_AUTH_SECRET is not set",
+      );
+    }
     auth = createBetterAuth({
       db: env.DB,
       secret: env.BETTER_AUTH_SECRET,
@@ -227,7 +235,11 @@ export function getCustomerIdentity(
   let identity = customerIdentityCache.get(env);
   if (!identity) {
     const secret = env.CUSTOMER_AUTH_SECRET;
-    if (!secret) throw new IdentityConfigError("CUSTOMER_AUTH_SECRET is not set");
+    if (!secret) {
+      throw new IdentityConfigError(
+        perClientMissing(env, "CUSTOMER_AUTH_SECRET") ?? "CUSTOMER_AUTH_SECRET is not set",
+      );
+    }
     if (secret === env.BETTER_AUTH_SECRET) {
       throw new IdentityConfigError("CUSTOMER_AUTH_SECRET must differ from BETTER_AUTH_SECRET");
     }
@@ -266,7 +278,11 @@ export function getPractitionerIdentity(
   let identity = practitionerIdentityCache.get(env);
   if (!identity) {
     const secret = env.CUSTOMER_AUTH_SECRET;
-    if (!secret) throw new IdentityConfigError("CUSTOMER_AUTH_SECRET is not set");
+    if (!secret) {
+      throw new IdentityConfigError(
+        perClientMissing(env, "CUSTOMER_AUTH_SECRET") ?? "CUSTOMER_AUTH_SECRET is not set",
+      );
+    }
     if (secret === env.BETTER_AUTH_SECRET) {
       throw new IdentityConfigError("CUSTOMER_AUTH_SECRET must differ from BETTER_AUTH_SECRET");
     }

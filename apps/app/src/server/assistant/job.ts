@@ -56,6 +56,7 @@ import {
   scrubText,
 } from "@composable-os/core";
 import { type CrmDb, createCrmDb } from "@composable-os/db";
+import { CLIENT_OBJECT, ClientObject, refreshOnEachCall } from "@composable-os/db/client-entries";
 import { activeUser } from "../acting-user.ts";
 import { aiContextFor } from "../ai.ts";
 import { approvalExpiryDays } from "../approval-expiry.ts";
@@ -106,9 +107,16 @@ export class AgentJob extends DurableObject<Cloudflare.Env> {
   #abort: AbortController | null = null;
   #waiters = new Set<() => void>();
   #ready = false;
+  /** Whose agent this is on a many-client host: its name is `<client>:job:<id>` (ADR 0615). */
+  readonly #client = new ClientObject(this.ctx, this.env as unknown as AgentJobEnv);
+
+  /** Its ClientObject, for `refreshOnEachCall` (below the class). */
+  get [CLIENT_OBJECT]() {
+    return this.#client;
+  }
 
   get #env(): AgentJobEnv {
-    return this.env as unknown as AgentJobEnv;
+    return this.#client.env;
   }
 
   get #sql() {
@@ -630,3 +638,6 @@ export class AgentJob extends DurableObject<Cloudflare.Env> {
     this.#ready = false;
   }
 }
+
+// Every async method re-reads the client's admission first (stage 66, review of #512, M2).
+refreshOnEachCall(AgentJob);

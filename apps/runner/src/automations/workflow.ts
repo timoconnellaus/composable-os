@@ -15,6 +15,7 @@ import {
   type WorkflowStepConfig,
 } from "cloudflare:workers";
 import { NonRetryableError } from "cloudflare:workflows";
+import { workflowRun } from "@composable-os/db/client-entries";
 import type { AutomationEvent, AutomationJournalEntry } from "@composable-os/sdk";
 import { Executor } from "../executor/executor.ts";
 import { type AutomationRunParams, reviewEventType } from "./dispatch.ts";
@@ -66,8 +67,9 @@ type Decision = "approved" | "rejected" | "failed" | "expired";
 
 export class AutomationWorkflow extends WorkflowEntrypoint<Env, AutomationRunParams> {
   override async run(event: WorkflowEvent<AutomationRunParams>, step: WorkflowStep) {
-    const params = event.payload;
-    const env = this.env;
+    // The client the instance was created for (stage 66, ADR 0615): its id `<client>_<id>` and
+    // its stamped params must agree, or it refuses; a single-client deployment's, as given.
+    const { env, params } = await workflowRun<Env, AutomationRunParams>(this.env, event);
     try {
       if (params.delaySeconds) {
         // Debounce: later updates in the window land on this same instance id (coalesced).

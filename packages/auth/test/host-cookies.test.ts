@@ -12,6 +12,7 @@ import {
   createIdentityProvider,
   createPractitionerAuth,
   type IdentityEnv,
+  isSessionCookie,
   PRACTITIONER_COOKIE_PREFIX,
 } from "../src/index.ts";
 
@@ -145,5 +146,24 @@ describe("the client-address key on a many-client host", () => {
     expect(clientAddressSecret({ BETTER_AUTH_SECRET: STAFF_SECRET })).toBe(
       `client-address\n${STAFF_SECRET}`,
     );
+  });
+});
+
+describe("which cookie names are sessions (isSessionCookie)", () => {
+  it("on a many-client host, only the `__Host-` name: a planted unprefixed one is not", () => {
+    expect(isSessionCookie("__Host-cos-customer.session_token=a", "cos-customer", true)).toBe(true);
+    expect(isSessionCookie("cos-customer.session_token=a", "cos-customer", true)).toBe(false);
+    expect(isSessionCookie("__Secure-cos-customer.x=a", "cos-customer", true)).toBe(false);
+  });
+
+  it("elsewhere, with or without `__Secure-` or `__Host-`, and never a look-alike", () => {
+    for (const name of [
+      "cos-customer.x=1",
+      "__Secure-cos-customer.x=1",
+      "__Host-cos-customer.x=1",
+    ]) {
+      expect(isSessionCookie(name, "cos-customer", false), name).toBe(true);
+    }
+    expect(isSessionCookie("cos-customers.x=1", "cos-customer", false)).toBe(false);
   });
 });

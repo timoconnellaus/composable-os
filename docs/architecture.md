@@ -147,7 +147,7 @@ One **D1** database per deployment, with real tables ([ADR 0002](adr/0002-d1-rea
   encrypted secrets' columns, a version stamp moved by triggers). Only the operator writes it;
   `@composable-os/db/registry` reads it in one batch whatever the number of clients, and nothing
   in packages/core or a pack names it. `@composable-os/db/client-environment` turns the real `env`
-  and a client into that client's environment: `DB` is `clientDatabase(CLIENT_DB, client)`, the
+  and a client into that client's environment: `DB` is `clientDatabaseService(CLIENT_DB_QUERIES, client)` (the query path; the raw namespace is the operator's), the
   settings in `CLIENT_SETTINGS` are the client's (or the deployment's), the operator's shared
   values pass through, a shared binding is in only through its wrapper (`BindingWrapper`; rate
   limits have one), and everything else, the host's own names and the secrets and addresses step 6
@@ -159,7 +159,24 @@ One **D1** database per deployment, with real tables ([ADR 0002](adr/0002-d1-rea
   a refusal with its reason (`unknown`, `unverified`, `paused`, `moving`, `schema-behind`) and no
   environment, and a failed registry read fails the call. The account's Stream credentials are
   kept apart (left out until step 4's video-host wrapper). With no `REGISTRY` bound, the client's environment is the real
-  `env`: a single-client deployment is unchanged. No entry calls it yet (step 4).
+  `env`: a single-client deployment is unchanged.
+
+- **Every entry decides the client** (stage 66 step 4,
+  [ADR 0615](adr/0615-every-entry-decides-the-client.md)): on a many-client host each entry of
+  the app and the runner decides the client before anything else and runs as before on its
+  environment, or refuses. A request: its verified staff hostname (anything else is one plain 404;
+  a client paused, moving or behind gets "being updated"), held for TanStack Start's code by
+  AsyncLocalStorage (`requestEnv()`). A queue message: the client stamp its sender's wrapper put
+  beside it. A Workflow: its id `<client>_<id>` and stamped params. A Durable Object: its name
+  `<client>:<name>`. An entrypoint the host mints for a gatekeeper or a web app: its props. The
+  runner: `callAs(<client>, <method>, args)` from the app's RUNNER wrapper. Crons fan out
+  through each Worker's queue, one message per client. The shared bindings are wrapped
+  (`@composable-os/db/client-bindings`: files and OAuth's key-value by a key prefix, search by a
+  namespace and client-hashed ids, queues and Workflows by the stamp, Durable Objects by name,
+  the runner by `callAs`), and Worker Loader ids carry the client. `scripts/check-module-env.mjs`
+  refuses the module-level `env` and `CLIENT_DB` in the app's and the runner's code. The two-client
+  suites (`apps/app/test-two-clients`, `apps/runner/test-two-clients`) run through the real
+  entries with a registry and every client's database.
 
 - **Secrets and addresses per client** (stage 66 step 6,
   [ADR 0616](adr/0616-secrets-and-addresses-per-client.md)): on a many-client host the staff,
