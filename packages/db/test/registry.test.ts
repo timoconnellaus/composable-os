@@ -196,6 +196,31 @@ describe("what the registry refuses", () => {
       registry.prepare("UPDATE registry_clients SET id = 'gym-c' WHERE id = 'gym-b'").run(),
     ).rejects.toThrow(/id never changes/);
   });
+
+  it("refuses INSERT OR REPLACE of a client it has: no new generation, no other environment (review of #520, S1)", async () => {
+    await registry.batch([insertClient(registry, { id: "gym-a" })]);
+    const read = () =>
+      registry
+        .prepare("SELECT environment, secret_generation FROM registry_clients WHERE id = 'gym-a'")
+        .first<{ environment: string; secret_generation: string }>();
+    const before = await read();
+    for (const environment of ["live", "staging"]) {
+      await expect(
+        registry
+          .prepare(
+            "INSERT OR REPLACE INTO registry_clients (id, environment, tier) VALUES ('gym-a', ?, 'standard')",
+          )
+          .bind(environment)
+          .run(),
+        environment,
+      ).rejects.toThrow(/never used again, nor added twice/);
+    }
+    expect(await read()).toEqual(before);
+    expect(
+      (await registry.prepare("SELECT count(*) AS n FROM registry_removed_clients").first("n")) ??
+        0,
+    ).toBe(0);
+  });
 });
 
 describe("client ids", () => {

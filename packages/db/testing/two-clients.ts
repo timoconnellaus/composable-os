@@ -20,15 +20,11 @@ export const TWO_CLIENTS = {
 /**
  * The trigger of registry migration 0793 that keeps a client's secret generation the registry's
  * own. The suites' clients are added with known generations (so their web apps' props, set in the
- * vitest config, can carry the host's proof of them): the stand-in drops the trigger for its
- * inserts and puts it back as the migration made it. No deployment's registry is written so.
+ * vitest config, can carry the host's proof of them): the stand-in reads the trigger as the
+ * migration made it, drops it for its inserts and puts the same text back. No deployment's
+ * registry is written so.
  */
-const GENERATION_TRIGGER = `CREATE TRIGGER registry_clients_secret_generation_ours
-BEFORE INSERT ON registry_clients
-WHEN NEW.secret_generation IS NOT NULL
-BEGIN
-  SELECT RAISE(ABORT, 'a client''s secret generation is written by the registry, never supplied');
-END`;
+const GENERATION_TRIGGER = "registry_clients_secret_generation_ours";
 
 /** Hostnames that reach no client: an unverified one and gym-a's web and desk hostnames. */
 export const NOT_STAFF_HOSTNAMES = {
@@ -71,14 +67,19 @@ async function setUp(env: TwoClientBindings): Promise<void> {
       )
       .bind(name, id, surface, verified);
   const { a, b, paused, moving, behind } = TWO_CLIENTS;
+  const trigger = await registry
+    .prepare("SELECT sql FROM sqlite_master WHERE type = 'trigger' AND name = ?")
+    .bind(GENERATION_TRIGGER)
+    .first<{ sql: string }>();
+  if (!trigger) throw new Error(`no ${GENERATION_TRIGGER} trigger: migration 0793 changed`);
   await registry.batch([
-    registry.prepare("DROP TRIGGER registry_clients_secret_generation_ours"),
+    registry.prepare(`DROP TRIGGER ${GENERATION_TRIGGER}`),
     client(a, "active", CORE_SCHEMA_VERSION),
     client(b, "active", CORE_SCHEMA_VERSION),
     client(paused, "paused", CORE_SCHEMA_VERSION),
     client(moving, "moving", CORE_SCHEMA_VERSION),
     client(behind, "active", null),
-    registry.prepare(GENERATION_TRIGGER),
+    registry.prepare(trigger.sql),
     ...[a, b, paused, moving, behind].map((c) => hostname(c.hostname, c.id, "staff")),
     hostname(NOT_STAFF_HOSTNAMES.unverified, b.id, "staff", 0),
     hostname(NOT_STAFF_HOSTNAMES.web, a.id, "web"),

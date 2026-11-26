@@ -29,10 +29,15 @@ BEGIN
   VALUES (OLD.id, OLD.environment, OLD.secret_generation);
 END;
 
+-- Also refused: an id a client has now. A plain duplicate fails on the primary key anyway, but
+-- `INSERT OR REPLACE` would delete the row without firing its DELETE triggers (no tombstone) and
+-- add it again with a new generation, or in the other environment (review of #520, S1). A BEFORE
+-- INSERT trigger runs before REPLACE resolves the conflict, so this aborts it.
 CREATE TRIGGER registry_clients_id_not_reused BEFORE INSERT ON registry_clients
 WHEN EXISTS (SELECT 1 FROM registry_removed_clients WHERE id = NEW.id)
+  OR EXISTS (SELECT 1 FROM registry_clients WHERE id = NEW.id)
 BEGIN
-  SELECT RAISE(ABORT, 'a removed client''s id is never used again');
+  SELECT RAISE(ABORT, 'a client''s id is never used again, nor added twice');
 END;
 
 CREATE TRIGGER registry_clients_id_fixed BEFORE UPDATE OF id ON registry_clients
