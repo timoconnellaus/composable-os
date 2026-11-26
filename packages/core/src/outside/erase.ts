@@ -31,6 +31,7 @@ import { CompiledQuery, type Kysely, type SqlBool, sql } from "kysely";
 import { normaliseCustomerEmail } from "../customers/accounts.ts";
 import type { HandlerContext } from "../operation.ts";
 import { jsonList } from "../records/common.ts";
+import { addressesHeldByOthers } from "../records/erase-subject.ts";
 import {
   foldOutside,
   linkActivityStatements,
@@ -143,21 +144,17 @@ export async function outsideOf(
           .where("address_folded", "in", jsonList(candidateFolded))
           .groupBy("address_folded")
           .execute(),
-        db
-          .selectFrom("core_person_emails")
-          .select("email")
-          .where("live", "=", 1)
-          .where(
-            "email",
-            "in",
-            jsonList(unlinked.map((r) => r.address).filter((a): a is string => a !== null)),
-          )
-          .where("person_id", "not in", ids)
-          .execute(),
+        // Another identified Person, or a customer account not theirs, holding it (the erase's own
+        // rule for an address that is someone else's, #302).
+        addressesHeldByOthers(
+          db,
+          unlinked.map((r) => r.address).filter((a): a is string => a !== null),
+          recordIds,
+        ),
       ])
-    : [[], []];
+    : [[], new Set<string>()];
   const crowded = new Set(onAddress.filter((r) => Number(r.n) > 1).map((r) => r.address_folded));
-  const others = new Set(heldByOthers.map((r) => r.email.trim().toLowerCase()));
+  const others = new Set([...heldByOthers].map((a) => a.trim().toLowerCase()));
   const people = [
     ...linked,
     ...unlinked.filter(
