@@ -166,6 +166,12 @@ export class ClientDirectory<E extends HostBindings = HostBindings> {
     // The fake gatekeepers keep one deployment's fake books and accept a fixed signing secret on
     // localhost: never on a host of many clients (ADR 0616).
     refuseFakeGatekeeper(env);
+    // Two keys for two purposes (#515, S4): one value for both is a deployment that rotated
+    // neither apart, refused where the directory is made (review of #520).
+    const keys = env as { COS_BINDING_KEY?: string; COS_PROPS_KEY?: string };
+    if (keys.COS_BINDING_KEY && keys.COS_BINDING_KEY === keys.COS_PROPS_KEY) {
+      throw new Error("COS_PROPS_KEY must not be COS_BINDING_KEY: they sign different things");
+    }
     this.#refreshMs = options.refreshMs ?? REGISTRY_REFRESH_MS;
     this.#now = options.now ?? Date.now;
     this.#codeSchemaVersion = options.codeSchemaVersion ?? CORE_SCHEMA_VERSION;

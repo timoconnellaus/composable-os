@@ -83,12 +83,14 @@ every method (`packages/db/test/client-bindings.test.ts`). The builder freezes e
   Params go as `{ cosClient, params }`. Returned instances carry the caller's id.
 - **Durable Object namespaces (ASSISTANT, AGENT_JOB, EXTENSION_WORKSPACE, CODE_MODE_GATE,
   INTEGRATION_HOST, FAKE_ACCOUNT, FAKE_PROVIDER):** `idFromName` and `getByName` name
-  `<client>:<proof>:<name>` (the proof the host's HMAC of the client and the name, under
-  `COS_BINDING_KEY`, held in the wrapper's closure); `get` opens only an id a wrapper made for the
-  same client; `idFromString` and
-  `newUniqueId` are refused, `jurisdiction()` is left out. Inside the object `this.env` is the
-  real `env`: each class makes a `ClientObject` from its own `ctx.id.name`, which holds every
-  event until the client's environment is read and refuses a name with no served client.
+  `<client>:<proof>:<name>` (the proof the host's HMAC of the client, its secret generation and
+  the name, under `COS_BINDING_KEY`; the wrapper holds only a namer for its client); `get` opens
+  only an id a wrapper made for the same client; `idFromString` and `newUniqueId` are refused,
+  `jurisdiction()` is left out. *Amended 2026-11-27 (#515, review of #520):* every object class
+  extends `ClientDurableObject(Base)`, whose `ClientObject` reads its client from its own
+  `ctx.id.name`, holds every event until the client's environment is read and the name's proof
+  checked against the client's generation, and refuses a name with no served client; `this.env`
+  is a view of the client's environment, never the real one (see "Hardening").
 - **The runner (RUNNER):** exactly the methods of `RUNNER_METHODS`, each `callAs(<client>,
   <method>, args)`; no `fetch`, no `connect`, nothing forwarded by name. apps/runner's suite fails
   when the runner has a method the list lacks.
@@ -117,9 +119,12 @@ every method (`packages/db/test/client-bindings.test.ts`). The builder freezes e
 
 ### Worker Loader ids per client
 The coordinator amended "Worker Loader ids are not per client": on a many-client host every id
-the executor loads (tool, manifest and producer workers) is `client:<client>:<id>`, so a pack's
-warm isolate and its module-level state are never shared between clients. Single-client ids are
-unchanged. Code Mode loads a fresh worker each run; the type checker stays shared (our code,
+asked of Worker Loader (tool, manifest and producer workers) is `client:<client>:<id>`, so a
+pack's warm isolate and its module-level state are never shared between clients. *Amended
+2026-11-27 (review of #520, M3):* the client's environment's `LOADER` is a wrapper
+(`keepLoaderApart`) that prefixes every `get` id, whatever code asks, and an id that already names
+another client is only a name under this one; the executor no longer prefixes. Single-client ids
+are unchanged. Code Mode loads a fresh worker each run; the type checker stays shared (our code,
 handed source per call).
 
 ### The crons fan out through a queue
@@ -146,24 +151,55 @@ queues' `-dlq` on a fleet deployment, step 7), is reported as a log line
 Tested with a 10-minute pause (apps/runner's suite).
 
 ### What a many-client deployment binds, and where it comes from
-`REGISTRY`, `CLIENT_DB_QUERIES`, `COS_HOST_ENVIRONMENT`, `CLIENT_FANOUT`, `COS_BINDING_KEY` (a long random
-secret of the operator's) and `COS_CALLBACK_HOSTNAME` are added by the deploy engine for a fleet
-deployment (step 7) and never to the committed `wrangler.jsonc`, which self-hosted installs use;
-so are the props of the app's binding to the runner (`runnerCallerProps(key)`) and, at each web
-app's upload (step 8), the props of its binding to `ClientApp` (`clientAppProps(key, client)`).
+*Amended 2026-11-27 (review of #520, M6): the complete list, which step 7 is built from.* The
+deploy engine adds all of this for a fleet deployment and never to the committed `wrangler.jsonc`,
+which self-hosted installs use. Live and staging are separate deployments, each with every item
+below of its own (its own cos-client-db Worker and its own keys); the proofs bind the environment
+too, so one environment's proof is refused by the other's even if a key were shared.
+
+On **cos-app** and **cos-runner**, each:
+- `REGISTRY` (D1, the registry), `COS_HOST_ENVIRONMENT` (`live` or `staging`), `COS_CALLBACK_HOSTNAME`;
+- `COS_ROOT_KEY`, `COS_SECRETS_PRIVATE_KEY` and, during a rotation, `COS_SECRETS_PRIVATE_KEY_PREVIOUS`
+  (ADR 0616);
+- `COS_BINDING_KEY` (names objects; never rotated in place) and `COS_PROPS_KEY`, with
+  `COS_PROPS_KEY_PREVIOUS` during a rotation; the two keys differ (the directory refuses one value
+  for both);
+- `CLIENT_DB_QUERIES`: service `cos-client-db`, entrypoint `ClientDbQueries`, props
+  `clientDbCallerProps(propsKey, environment, "cos-app")` on cos-app and `…, "cos-runner")` on
+  cos-runner;
+- `CLIENT_FANOUT`: the Worker's own fan-out queue (`cos-app-fanout`, `cos-runner-fanout`), producer
+  and consumer, the consumer with `FANOUT_CONSUMER` (`max_batch_size` 1, `max_batch_timeout` 1,
+  `max_retries` 3);
+- `CLIENT_PARKING`: the Worker's own parking queue (`cos-app-parking`, `cos-runner-parking`),
+  producer and consumer, the consumer with the same settings;
+- `CLIENT_PARKING_LEDGER`: a Durable Object binding to the Worker's own `ParkingLedger` class, with a
+  migration adding it as a new SQLite class;
+- each queue's dead-letter queue (`<queue>-dlq`) consumed by the same Worker.
+
+On **cos-app** only: the props of its binding to cos-runner, `runnerCallerProps(propsKey,
+environment)`. At each web app's upload (step 8), the props of its binding to `ClientApp`,
+`clientAppProps(propsKey, environment, client, generation)`.
+
+On **cos-client-db**: `COS_PROPS_KEY` (and the previous one during a rotation), the same value as
+the host's, and `COS_HOST_ENVIRONMENT`; with neither it refuses every call.
+
 The suites that run as a many-client host have their own vitest configurations
 (`apps/app/vitest.two-client.config.ts`, `apps/runner/vitest.two-client.config.ts`).
 
 ### Proofs on names and props, and who may mint them (review of #512, S1, S4)
 Anything the host hands a client by a name or by props carries the host's proof: an HMAC-SHA256
-under `COS_BINDING_KEY` (`@composable-os/db/client-proofs`, synchronous, checked against
-WebCrypto), one purpose each so a proof of one is never another's. A Durable Object's name is
-`<client>:<proof>:<name>` and the object checks it when it is built; `ClientApp`'s props are
-`{ client, proof }`; the integration host's minted callbacks carry a proof of the client and the
-connection (`ClientObject.proof`, made with the object's real env); the app's binding to the
-runner carries `{ caller: "cos-app", proof }`, and `callAs` and `gatekeeperCallback` refuse
-without it. The key is the host's: in no client's environment, held by a wrapper only in its
-closure. So code below an entry that reaches `exports`, `ctx.exports` or a raw namespace cannot
+(`@composable-os/db/client-proofs`, synchronous, checked against WebCrypto), one purpose each so a
+proof of one is never another's. *Amended 2026-11-27 (#515, review of #520): which key signs what.*
+- Under `COS_BINDING_KEY`, of the client, its generation and the name: a Durable Object's name
+  `<client>:<proof>:<name>`, which the object checks when it is built; a parking ledger's name
+  (`<client>:<proof>:parking-ledger`), which the ledger checks.
+- Under `COS_PROPS_KEY` (or the previous one, accepted, never used to sign), each with the host's
+  environment first: `ClientApp`'s props `{ client, proof }` (client, generation); the integration
+  host's minted callbacks (client, generation, connection; `ClientObject.proof`, which signs only
+  that purpose and only for its own client); the app's binding to the runner
+  `{ caller: "cos-app", proof }`, without which `callAs` and `gatekeeperCallback` refuse; each host
+  Worker's binding to cos-client-db `{ caller, proof }`; and each call on cos-client-db (client).
+The keys are the host's: in no client's environment. So code below an entry that reaches `exports`, `ctx.exports` or a raw namespace cannot
 mint a name or props the receiving side accepts as another client's: a two-client test mints
 `ClientApp` for gym-b through `exports` (404) and opens gym-b's assistant object through the raw
 namespace (refused), and the runner's suite forges each kind.
@@ -174,13 +210,26 @@ uploads into the `cos-clients` namespace are made only by the operator's code (n
 client's repository holds), and a namespace Worker's one binding is `HOST`, to `ClientApp`, with its
 client and proof fixed.
 
-`scripts/check-module-env.mjs` (in `pnpm lint`) scans `apps/app/src`, `apps/runner/src`, the packs
-and every package bundled into the two Workers (packages/core, auth, sdk, product, the agent
-packages and the rest it lists), and fails when a file outside its allow-list imports `env` or
-`exports` from `cloudflare:workers` (an alias, a namespace import, a re-export, a dynamic import
-with a string or template literal), uses `ctx.exports` (allowed: the integration host and the fake
-gatekeeper), imports `deploymentEnv` (allowed: `server.ts`, the runner's `index.ts` and the two
-modules that define it), or names `CLIENT_DB` or `ClientDb`.
+`scripts/check-module-env.mjs` (in `pnpm lint`). *Amended 2026-11-27 (#515, review of #520,
+M2): as it is now.* It reads every source file of `apps/app/src`, `apps/runner/src` and the
+packs, and every workspace file they import, followed through their imports (relative paths, and
+workspace packages by their `exports`), so packages/db, packages/release and the rest are read
+wherever the Workers reach them; third-party packages are not read. It parses each file with
+TypeScript and fails when a file outside its allow-list (the header of the script lists each):
+- imports `env` or `exports` from `cloudflare:workers` (any alias, the module whole, a re-export,
+  a dynamic import), or imports or re-exports a Worker's env module whole or in part;
+- imports by a computed specifier, calls `require`, or uses `createRequire`;
+- reads `exports` of anything but `module` (`ctx.exports` through parentheses, `!`, casts, aliases;
+  `state.exports`; `["exports"]`), or destructures `{ exports }`;
+- imports `deploymentEnv`;
+- names `CLIENT_DB`, `CLIENT_DB_QUERIES` or `ClientDb`, or imports cos-client-db's modules
+  (packages/db, which defines them, excepted);
+- declares a Durable Object class (on `DurableObject`, `Agent` or `Server`, under any import or
+  local alias, or through a class of the same file) not on `ClientDurableObject(...)`;
+- in a `ClientDurableObject(...)` class, uses its constructor's env parameter other than by passing
+  it straight to `super`;
+- reads `this.env` (or by key), binds `this` to a name or destructures it, or passes `this` to
+  `Reflect`/`Object`, in a class that is neither an entry nor a client's object.
 
 **What remains convention** (amended 2026-11-27, #515): what the code can hold is enforced as
 above; these are kept by review alone.
@@ -191,8 +240,16 @@ above; these are kept by review alone.
 - Dependencies are not scanned: the Agents SDK imports `exports` from `cloudflare:workers` itself
   (sub-agents, `parentAgent`), which the host never calls. Since #515 it is handed the client's
   environment, never the real one.
-- The lint parses the Workers' own code. Code it cannot read (a dependency, a string evaluated at
-  run time, which the Workers runtime refuses anyway) is not checked.
+- The lint reads the Workers' code and what of the workspace they import. It cannot be made
+  sound for everything, and does not claim to: a computed property name (`env["CLIENT" + "_DB"]`)
+  is not followed, nor a value handed through a function (code in an entry that passes the real
+  `env` to a helper gives the helper the host's env), nor code evaluated at run time (which the
+  Workers runtime refuses anyway). What makes these harmless below an entry is that object code
+  never holds the real env (S2 of the review of #520: its constructor parameter may only be passed
+  to `super`) and the raw namespaces it can reach check proofs it cannot make.
+- A client object's constructor receives the host's real `env` from the runtime: the language puts
+  it there before the mixin can. The lint holds the constructor to passing it straight to `super`;
+  that rule is what keeps it out of the object's code.
 - The proofs are as strong as the keys' secrecy: the operator holds `COS_BINDING_KEY` and
   `COS_PROPS_KEY` (step 7 stores them as Worker secrets, never in the registry); see "Hardening"
   for rotation and a leak.
@@ -314,6 +371,36 @@ is closed here, with a test that fails when the fix is taken out.
   paused: the turn ends on its own, and the next event is refused. The MCP providers are kept
   per environment and origin, at most 16 origins (`OAUTH_ORIGINS_KEPT`), least recently used
   dropped first.
+
+### After the review of #520 (2026-11-27)
+- **S1.** Registry migration 0794 also refuses an INSERT of an id the registry has now, so
+  `INSERT OR REPLACE` (which deletes the old row without firing its DELETE triggers) cannot give a
+  client a new generation or move it to the other environment.
+- **S2.** The runtime constructs an object's class with `(ctx, realEnv)`, so a subclass
+  constructor's env parameter is the host's real env; the mixin can only swap the view into its
+  own `super` call. Where the earlier text says "the real `env` stays in the ClientObject's private
+  field", read: it stays there and in that parameter, which the lint lets a constructor only pass
+  straight to `super` (every class of the app and the runner does). Object code past its
+  constructor never holds it.
+- **S3.** A parking ledger is named as a client's objects are and checks its name's proof against
+  its client's generation, so code that reaches `ctx.exports.ParkingLedger` opens no client's
+  ledger. Every class of the fake gatekeeper refuses to be built on a host of many clients.
+  Tested: from gym-a's integration host, gym-b's ledger by id, by a made-up proof, by gym-a's proof
+  and by an earlier generation's is refused, and the fake's objects refuse.
+- **M1.** The view an object holds answers `clientOf` as its client's environment (registered in
+  packages/db, resolving only to an environment the directory built), so `perClientMissing`,
+  `gatekeeperOffered` and the executor see a client's environment inside an object.
+- **M3.** Worker Loader is kept apart (above, "Worker Loader ids per client").
+- **M4.** Every props proof and every call proof binds the host's environment; cos-client-db holds
+  its own (`COS_HOST_ENVIRONMENT`) and refuses a staging proof on a live host.
+- **M5.** Parking sends to the queue first and records in the ledger after, so a failed send
+  leaves no row; a delivery whose row is missing (its record failed) is handled and logged
+  (`cos.queue.parked_unrecorded`); a duplicate is logged as a dead letter is, without its body;
+  rows older than `PARKING_HORIZON_MS` (8 days) are forgotten on the next admit, so a row whose
+  delivery never came stops counting. "Duplicates dropped" covers only the copies parking itself
+  could make (a redelivery of the parking queue's message): a message its first queue delivered
+  twice is two parked messages, each handled once. On a host of many clients a queue entry with
+  no parking bindings fails at once, saying which are missing, before anything is acked.
 
 ### What is accepted
 - The memory fix of M6 reads the latest `active_since` and writes in two statements: two writes to

@@ -922,6 +922,13 @@ describe("a client's environment (criterion 10)", () => {
 });
 
 describe("a many-client host", () => {
+  it("refuses to start with one value for its object key and its props key (review of #520)", () => {
+    const key = "the-same-key-for-both-0123456789-0123456789";
+    expect(
+      () => new ClientDirectory(manyClientEnv({ COS_BINDING_KEY: key, COS_PROPS_KEY: key })),
+    ).toThrow(/COS_PROPS_KEY must not be COS_BINDING_KEY/);
+  });
+
   it("refuses to start with the fake gatekeeper", () => {
     expect(
       () => new ClientDirectory(manyClientEnv({ INTEGRATIONS_FAKE_PROVIDER: "true" })),
