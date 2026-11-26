@@ -25,7 +25,7 @@ import { newId } from "../ids.ts";
 import { usersOf } from "../locations/index.ts";
 import { defineOperation, type HandlerContext } from "../operation.ts";
 import { isTimezone, loadGeneralSettings } from "../settings.ts";
-import { type Reader, visibleSource } from "../visibility/index.ts";
+import { type Reader, visibleSource, visibleTable } from "../visibility/index.ts";
 
 /** At most this many locations on one host: the list is one page, never a cursor. */
 export const LOCATION_MAX = 100;
@@ -506,12 +506,13 @@ export const locationRelocate = defineOperation({
     }));
     const moved = await Promise.all(
       users.map(async (u) => {
-        const counted = await sql<{
-          n: number;
-        }>`SELECT count(*) AS n FROM ${sql.table(u.table)} WHERE ${sql.ref(u.linkColumn)} = ${input.id}`.execute(
-          ctx.db,
-        );
-        return { object: u.user.name, count: Number(counted.rows[0]?.n ?? 0) };
+        // Through the seam's table: every record naming it, in the Trash too.
+        const counted = await ctx.db
+          .selectFrom(visibleTable(ctx, u.user, "r"))
+          .select(sql<number>`count(*)`.as("n"))
+          .where(sql.ref(`r.${u.linkColumn}`), "=", input.id)
+          .executeTakeFirst();
+        return { object: u.user.name, count: Number(counted?.n ?? 0) };
       }),
     );
     // A mark no record's id can be: while it stands in the relation, the record names nothing.

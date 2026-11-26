@@ -21,7 +21,7 @@ import {
   isRestrictedField,
   type ObjectManifest,
 } from "@composable-os/sdk";
-import { CompiledQuery, type Kysely, type SqlBool, sql } from "kysely";
+import { CompiledQuery, type Kysely, sql } from "kysely";
 import { dropAllowanceStatements, termsSyncStatements } from "../allowance/index.ts";
 import { releaseAllClaimsStatements } from "../capacity/claimants.ts";
 import { backfillCounters, dropCapacityStatements } from "../capacity/records.ts";
@@ -60,7 +60,7 @@ import {
   syncTimes,
 } from "../staffing/sql.ts";
 import { backfillStockCounters } from "../stock/index.ts";
-import { orgReader, visibleSource } from "../visibility/index.ts";
+import { orgReader, visibleSource, visibleTable } from "../visibility/index.ts";
 import {
   columnName,
   ident,
@@ -1972,16 +1972,15 @@ async function locationFillNotices(
   const main = locations[0]?.name ?? "the main location";
   const out: SchemaChange[] = [];
   for (const fill of fills) {
-    const table = await db
-      .selectFrom("sqlite_master" as never)
-      .select(sql<string>`name`.as("name"))
-      .where(sql<SqlBool>`type = 'table' AND name = ${fill.table}`)
+    // A new object has no records; an installed one is read through the seam, org-wide.
+    const installed = getObject(fill.object);
+    if (!installed) continue;
+    const counted = await db
+      .selectFrom(visibleTable(orgReader(db), installed, "r"))
+      .select(sql<number>`count(*)`.as("n"))
+      .$if(!fill.added, (q) => q.where(sql.ref(`r.${fill.column}`), "is", null))
       .executeTakeFirst();
-    if (!table) continue; // A new object has no records.
-    const counted = await sql<{ n: number }>`SELECT count(*) AS n FROM ${sql.table(fill.table)}${
-      fill.added ? sql`` : sql` WHERE ${sql.ref(fill.column)} IS NULL`
-    }`.execute(db);
-    const n = Number(counted.rows[0]?.n ?? 0);
+    const n = Number(counted?.n ?? 0);
     if (!n) continue;
     const label = getObject(fill.object)?.plural ?? fill.object;
     out.push({

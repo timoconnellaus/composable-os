@@ -9,13 +9,14 @@
 // and however many write at once (errors.ts answers `location_mismatch`). The reads here only give
 // the common case a clear message, and the approval queue's dry run (whose writes are discarded)
 // its answer.
-import { type Kysely, sql } from "kysely";
+import { type Kysely, type SqlBool, sql } from "kysely";
 import { ROOM_IN_USE_MESSAGE, ValidationError } from "../errors.ts";
 import { objectTableOf } from "../extensions/schema.ts";
 import { getObject, listObjects } from "../fields/index.ts";
 import type { LocationPath, ObjectDefinition } from "../fields/types.ts";
 import type { HandlerContext } from "../operation.ts";
 import { loadGeneralSettings } from "../settings.ts";
+import { type Reader, visibleTable } from "../visibility/index.ts";
 import { type AgreeSide, sideExpr } from "./sql.ts";
 
 // biome-ignore lint/suspicious/noExplicitAny: x_* tables are not in CoreDatabase; names come from the registry.
@@ -132,7 +133,7 @@ export async function withLocationDefault(
  * by the database).
  */
 export async function assertLocationRules(
-  ctx: Ctx,
+  ctx: Reader,
   object: ObjectDefinition,
   id: string,
   before: Record<string, unknown> | null,
@@ -206,7 +207,7 @@ function sideOf(object: ObjectDefinition, path: LocationPath): AgreeSide | null 
  * (`location.relocate`).
  */
 async function assertPassedThrough(
-  ctx: Ctx,
+  ctx: Reader,
   object: ObjectDefinition,
   id: string,
   before: Record<string, unknown>,
@@ -226,12 +227,16 @@ async function assertPassedThrough(
       const theirs = sideOf(user, other);
       if (!link || !theirs) continue;
       const expr = sql.raw(sideExpr(theirs, undefined, table));
-      const found = await sql<{
-        x: number;
-      }>`SELECT 1 AS x FROM ${sql.table(table)} r WHERE r.${sql.ref(link)} = ${id} AND r.deleted_at IS NULL AND ${expr} IS NOT NULL AND ${expr} <> ${moved} LIMIT 1`.execute(
-        ctx.db,
-      );
-      if (found.rows.length)
+      // Through the seam's table (in or out of the Trash), the caller's scope; the live ones.
+      const found = await (ctx.db as AnyDb)
+        .selectFrom(visibleTable(ctx, user, "r"))
+        .select(sql<number>`1`.as("x"))
+        .where(sql.ref(`r.${link}`), "=", id)
+        .where(sql.ref("r.deleted_at"), "is", null)
+        .where(sql<SqlBool>`${expr} IS NOT NULL AND ${expr} <> ${moved}`)
+        .limit(1)
+        .execute();
+      if (found.length)
         throw new ValidationError(ROOM_IN_USE_MESSAGE, {
           field: side.field,
           rule: "location_mismatch",
