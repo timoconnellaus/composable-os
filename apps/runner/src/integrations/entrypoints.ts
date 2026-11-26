@@ -19,8 +19,7 @@ interface Minted {
 
 /** The minting connection's object, in its client's environment. */
 async function mintedHost(env: Env, props: Minted) {
-  // A gatekeeper's callback carries on for a client that is paused (its flow began before).
-  const clientEnv = await propsClientEnvironment(env, props, { served: false });
+  const clientEnv = await propsClientEnvironment(env, props);
   return hostFor(clientEnv, props.connectionId);
 }
 

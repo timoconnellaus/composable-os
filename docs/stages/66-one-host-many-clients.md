@@ -238,7 +238,8 @@ Each is wrapped in the client's environment so the code below it does not change
 | The cache | Already keyed by a random value per database |
 
 Worker Loader ids stay as they are: the same extension at the same commit is the same code for
-every client, and a dynamic Worker holds nothing of a client between runs.
+every client, and a dynamic Worker holds nothing of a client between runs. _Amended 2026-11-26
+(see "Decided by this spec"): the client is part of every tool worker id on a many-client host._
 
 **Stream:** the host stamps each upload with the client as its `creator` and refuses any call for
 a video with another creator. With one host there is one holder of the token and no broker.
@@ -399,7 +400,10 @@ Steps 2 and 3 can run side by side; 4 and 6 after 3.
 - **The registry is a D1 database of the host,** written only by the operator.
 - **Auth secrets are derived, not stored.**
 - **Crons fan out through a queue,** one message per client, from the start.
-- **Worker Loader ids are not per client.**
+- **Worker Loader ids are not per client.** _Amended 2026-11-26 (coordinator, after the review
+  of step 3; open to the owner's override, ADR 0613): on a many-client host the client is part of
+  every tool worker id, since a warm isolate and a pack's module-level variables would otherwise
+  carry one client's data into another's run. Isolation wins over cold starts. Step 4 builds it._
 - **Gatekeeper callbacks use one address per deployment.**
 - **The host refuses requests for a client whose schema is behind.**
 - **Packs are the product's:** every client of a deployment has the product's packs, or a subset
@@ -414,11 +418,11 @@ None open. Decisions 7 to 12 answer them.
 Spec agreed (owner, 2026-11-23; design confirmed 2026-11-25). No build step is built yet. Each
 build step adds a bullet of its own here (CONTRIBUTING.md, Working in parallel).
 
-- **Step 1** — in progress — branch `feat/stage-66-client-db` — Prove it on Cloudflare: `ClientDb` carrying the app's and runner's suites, timed (the spike is first brought up to `main`). Done locally: `ClientDb` in `packages/db` (ADR 0612, its D1 differences table), the core, auth, app and runner suites passing on it with `COS_TEST_DB=client-db`, the probes against D1, and the proof Worker `apps/client-db-proof` with its timing harness, timed locally. Waits for the fleet's account: the workflow `client-db-proof.yml` run by hand (docs/deploying.md), the timing and the probes on Cloudflare, then the owner's decision on the timing before step 2
+- **Step 1** — in progress — branch `feat/stage-66-client-db` — Prove it on Cloudflare: `ClientDb` carrying the app's and runner's suites, timed (the spike is first brought up to `main`). Done locally: `ClientDb` in `packages/db` (ADR 0612, its D1 differences table), the core, auth, app and runner suites passing on it with `COS_TEST_DB=client-db`, the probes against D1, and the proof Worker `apps/client-db-proof` with its timing harness, timed locally. Waits for the fleet's account: the workflow `client-db-proof.yml` run by hand (docs/deploying.md), the timing and the probes on Cloudflare, then the owner's decision on the timing before step 2. Deviation from criterion 1: the suites do not run deployed; on Cloudflare the proof runs the probes (D1 beside ClientDb, failing on any difference not allowed), the warm staff pages and checkout, a cold first page and the subrequest budget, which show the service's behaviour and its time but not every path the suites cover; those run on ClientDb locally only
 
 - **Step 2** — not built — needs: step 1 — `ClientDb` finished: migrations inside, bookmarks and restore, export and import, size, location hint
 
-- **Step 3** — built — PR #509 — The registry and the client's environment, single-client mode unchanged: the registry's own D1 database (`REGISTRY`) and migrations (`packages/db/registry-migrations`, 0790: clients, verified hostnames, settings, the encrypted secrets' columns, a version stamp moved by triggers), read in one batch whatever the number of clients (`@composable-os/db/registry`: client ids, exact hostnames, `isSchemaBehind`); the client's environment (`@composable-os/db/client-environment`: the real `env` with no registry; otherwise the client's database, its settings, shared values and wrapped bindings only, by `ENV_NAMES`, with rate limits as the worked wrapper) and `ClientDirectory`, one per isolate, keyed by client. ADR 0613. No entry wired (step 4); secrets and addresses left out (step 6); the registry's writes and its deployment table are step 7's
+- **Step 3** — built — PR #509 — The registry and the client's environment, single-client mode unchanged: the registry's own D1 database (`REGISTRY`) and migrations (`packages/db/registry-migrations`, 0790: clients, verified hostnames, settings, the encrypted secrets' columns, a version stamp moved by triggers), read in one batch whatever the number of clients (`@composable-os/db/registry`: client ids, exact hostnames, `isSchemaBehind`); the client's environment (`@composable-os/db/client-environment`: the real `env` with no registry; otherwise the client's database, its settings, shared values and wrapped bindings only, by `ENV_NAMES`, with rate limits as the worked wrapper) and `ClientDirectory`, one per isolate, keyed by client, serving only an active, current client of the deployment's environment (`COS_HOST_ENVIRONMENT`) and refusing every other with its reason, its environments frozen. ADR 0613. No entry wired (step 4); secrets and addresses left out (step 6); the registry's writes and its deployment table are step 7's
 
 - **Step 4** — not built — needs: step 3 — The app's entries, then the runner's, with their wrappers
 

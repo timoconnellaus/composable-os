@@ -10,6 +10,7 @@
 
 import { provideStaffCodes } from "@composable-os/auth";
 import { setVideoHost } from "@composable-os/core";
+import { servesManyClients } from "@composable-os/db/client-entries";
 import { PRODUCT_LABEL_VAR, setProductLabel } from "@composable-os/product";
 import handler from "@tanstack/react-start/server-entry";
 import { type AppParts, hostFetch, hostQueue, hostScheduled } from "./server/entry.ts";
@@ -27,7 +28,12 @@ setProductLabel(
 
 // Videos in Cloudflare Stream (stage 42, ADR 0475): the account, its token and signing key are
 // this Worker's own vars and secrets, read once per isolate.
-setVideoHost(videoHostFor(deploymentEnv as unknown as VideoEnv));
+// On a many-client host there is none yet: the token is every client's videos, and the host that
+// stamps each upload with its client and refuses another creator is stage 66 step 5's (ADR 0615),
+// so until then video is not configured for any client rather than shared by all of them.
+if (!servesManyClients(deploymentEnv)) {
+  setVideoHost(videoHostFor(deploymentEnv as unknown as VideoEnv));
+}
 
 // Staff sign-in codes go out as the host's own mail (ADR 0455). Given for the module env that
 // TanStack Start's routes read (/api/auth/*) as well as the fetch handler's own; a client's

@@ -35,9 +35,55 @@ describe("the proof Worker", () => {
     });
   });
 
-  it("finds no difference between the probes' answers", async () => {
-    const report = (await (await call("/conformance")).json()) as { differ: unknown[] };
+  it("refuses parameters it cannot use", async () => {
+    for (const path of [
+      "/time?db=d1&scenario=checkout&runs=abc",
+      "/time?db=d1&scenario=checkout&runs=0",
+      "/time?db=d1&scenario=checkout&runs=51",
+      "/time?db=nope&scenario=checkout",
+      "/cold/time?run=BAD!&i=0",
+      "/subrequests?db=d1&max=99999",
+    ]) {
+      expect((await call(path)).status, path).toBe(400);
+    }
+  });
+
+  it("finds no difference between the probes' answers but the allowed ones", async () => {
+    const report = (await (await call("/conformance")).json()) as {
+      differ: unknown[];
+      allowed: { name: string }[];
+      all: { name: string; same: boolean }[];
+    };
     expect(report.differ).toEqual([]);
+    // Locally only ClientDb's 32 MiB result limit shows (review of PR #507, S1).
+    expect(report.allowed.map((p) => p.name)).toEqual(["read-over-32mib"]);
+    expect(report.all.find((p) => p.name === "batch-in-parts")?.same).toBe(true);
+  });
+
+  it("times a fresh client's first page, and says whether its object was cold", async () => {
+    const setup = await call("/cold/setup?run=t1&i=0", { method: "POST" });
+    expect(setup.status).toBe(200);
+    const { instance } = (await setup.json()) as { instance: string };
+    const path = `/cold/time?run=t1&i=0&order=client-first&instance=${instance}`;
+    const sample = (await (await call(path)).json()) as {
+      d1Ms: number;
+      clientDbMs: number;
+      clientWasCold: boolean;
+    };
+    expect(sample.clientDbMs).toBeGreaterThan(0);
+    expect(sample.d1Ms).toBeGreaterThan(0);
+    // Locally nothing is evicted between setup and the sample: the object is warm.
+    expect(sample.clientWasCold).toBe(false);
+  });
+
+  it("counts the calls one request makes, up to a limit", async () => {
+    for (const db of ["d1", "client-db"]) {
+      const result = (await (await call(`/subrequests?db=${db}&max=200&fetches=0`)).json()) as {
+        queries: number;
+        error: string | null;
+      };
+      expect(result).toMatchObject({ queries: 200, error: null });
+    }
   });
 
   it("runs every scenario on both databases", { timeout: 600_000 }, async () => {

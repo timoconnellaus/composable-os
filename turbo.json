@@ -74,7 +74,11 @@
         "$TURBO_ROOT$/apps/app/src/**",
         "$TURBO_ROOT$/apps/runner/src/**",
         "$TURBO_ROOT$/packages/auth/src/**",
-        "$TURBO_ROOT$/packages/core/src/**"
+        "$TURBO_ROOT$/packages/core/src/**",
+        "$TURBO_ROOT$/packages/product/src/**",
+        "$TURBO_ROOT$/packages/create-composable-os/src/**",
+        "$TURBO_ROOT$/packages/release/src/**",
+        "$TURBO_ROOT$/scripts/**"
       ]
     },
     "@composable-os/release-scripts#test": {

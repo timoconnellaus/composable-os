@@ -1031,8 +1031,11 @@ What an entry of a host that serves many clients hands everything below it: an o
 like the Worker's `env` for one client, with `DB` that client's database, its settings from the
 registry, the operator's shared values, and each shared binding through a wrapper that reaches
 only that client's part. What has no wrapper or value yet, the host's own names and anything
-unlisted are left out (`ENV_NAMES`). On a single-client deployment it is the real `env` itself.
-`@composable-os/db/client-environment`; no entry uses it yet (step 4).
+unlisted are left out (`ENV_NAMES`). It is frozen, and handed out only for a client that is
+served: active, of the deployment's environment (`COS_HOST_ENVIRONMENT`), its schema not behind;
+otherwise the answer is a refusal with its reason and no environment. On a single-client
+deployment it is the real `env` itself. `@composable-os/db/client-environment`; no entry uses it
+yet (step 4).
 _Avoid_: tenant context
 
 **Control plane**

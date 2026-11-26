@@ -42,8 +42,8 @@ const as = (client: string) =>
 
 async function clientEnv(id: string): Promise<Env> {
   const found = await environmentFor(env as unknown as Env, id);
-  if (!found) throw new Error(`no environment for ${id}`);
-  return found;
+  if (!found.served) throw new Error(`no environment for ${id}`);
+  return found.env;
 }
 
 async function adminIn(clientEnvironment: Env): Promise<ActingUser> {
@@ -192,7 +192,8 @@ describe("automation events", () => {
       },
     } as unknown as Env;
     const aEnv = await environmentFor(host, a.id);
-    await aEnv?.AUTOMATION_EVENTS.send({ kind: "record" } as never);
+    if (!aEnv.served) throw new Error("gym-a is served");
+    await aEnv.env.AUTOMATION_EVENTS.send({ kind: "record" } as never);
     expect(stampOf(sent[0])).toEqual({ client: a.id, body: { kind: "record" } });
   });
 });

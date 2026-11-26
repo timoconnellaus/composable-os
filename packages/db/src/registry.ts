@@ -19,6 +19,7 @@ export type ClientStatus = "active" | "paused" | "moving";
 export type ClientTier = "standard" | "bespoke";
 /** Which of a client's environments a deployment holds (staging is a second deployment). */
 export type ClientEnvironmentName = "live" | "staging";
+export const CLIENT_ENVIRONMENTS: readonly ClientEnvironmentName[] = ["live", "staging"];
 /** What a hostname serves: the staff app, the client's web app, or its desk. */
 export type HostnameSurface = "staff" | "web" | "desk";
 
@@ -50,56 +51,92 @@ export const CLIENT_ID_LENGTH = { min: 3, max: 30 } as const;
 /**
  * Words no client may be called. A client id becomes a Durable Object name, the first label of
  * its hostnames on the fleet's domain and a key prefix, so it must not stand for the host, a
- * surface, an environment or a name the platform uses.
+ * surface, an environment or a name the platform uses, nor for a label the fleet's own domain is
+ * likely to need (gatekeeper callbacks and webhooks, sign-in, files and media, billing). Step 8
+ * checks the labels it picks against this list.
  */
 export const RESERVED_CLIENT_IDS: ReadonlySet<string> = new Set([
+  "account",
+  "accounts",
   "admin",
   "api",
   "app",
   "apps",
   "assets",
   "auth",
+  "billing",
+  "callback",
+  "callbacks",
   "cdn",
   "client",
   "clients",
   "composable",
   "composableos",
+  "connect",
   "control",
   "cos",
   "customer",
+  "dashboard",
   "default",
   "desk",
   "dev",
   "docs",
+  "download",
+  "downloads",
   "email",
+  "files",
   "fleet",
   "front",
   "help",
   "host",
+  "images",
+  "img",
   "internal",
+  "link",
+  "links",
   "live",
   "localhost",
+  "login",
+  "logout",
   "mail",
   "mcp",
+  "media",
   "null",
   "oauth",
+  "oidc",
   "operator",
+  "pay",
+  "payments",
   "platform",
+  "portal",
   "preview",
   "public",
   "registry",
   "root",
   "runner",
+  "saml",
+  "share",
+  "signin",
+  "signup",
   "smtp",
+  "sso",
   "staff",
   "staging",
   "static",
   "status",
+  "store",
+  "stream",
   "support",
   "system",
   "test",
   "undefined",
+  "upload",
+  "uploads",
+  "video",
+  "videos",
   "web",
+  "webhook",
+  "webhooks",
   "www",
 ]);
 
@@ -150,23 +187,25 @@ const LABEL = /^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$/;
 
 /**
  * A request's hostname as the registry holds hostnames, or null when it is not a hostname. From
- * a Host header (or a URL's host), chosen by whoever sent the request: lowercased, the port and
- * one trailing dot removed, and refused unless it is a plain DNS name of ASCII labels. An IP
- * address, a bracketed IPv6 literal, an empty label, a character outside `a-z0-9.-` (a non-ASCII
- * name arrives as punycode or not at all) or more than 253 characters is not one. The result is
- * looked up exactly; nothing here derives a client from it.
+ * a Host header (or a URL's hostname), chosen by whoever sent the request: lowercased and one
+ * trailing dot removed, and refused unless it is a plain DNS name of ASCII labels. Refused: any
+ * port (pass `new URL(request.url).hostname`, which has none); anything numeric-looking (a last
+ * label of digits only, as in `127.0.0.1`, `127.1` or `0x7f.1`, since no top-level domain is
+ * numeric, or a single label in hex, as in `0x7f000001`); a bracketed or bare IPv6 literal; an
+ * empty or over-long label; a character outside `a-z0-9.-` (a non-ASCII name arrives as punycode
+ * or not at all); more than 253 characters. The result is looked up exactly; nothing here
+ * derives a client from it.
  */
 export function canonicalHostname(host: string | null | undefined): string | null {
   if (typeof host !== "string") return null;
   let name = host.trim().toLowerCase();
-  const port = /:(\d{1,5})$/.exec(name);
-  if (port) name = name.slice(0, port.index);
   if (name.endsWith(".")) name = name.slice(0, -1);
   if (name.length === 0 || name.length > 253) return null;
   const labels = name.split(".");
   if (!labels.every((label) => LABEL.test(label))) return null;
-  // A dotted quad is an address, not a name: no client is reached by one.
-  if (labels.length === 4 && labels.every((label) => /^\d+$/.test(label))) return null;
+  // An address, not a name: no client is reached by one.
+  if (/^\d+$/.test(labels.at(-1) as string)) return null;
+  if (labels.length === 1 && /^0x[0-9a-f]+$/.test(name)) return null;
   return name;
 }
 
@@ -205,22 +244,49 @@ export function isClientSetting(name: string): boolean {
 
 /** Every client of the registry, as one consistent read. */
 export interface RegistrySnapshot {
-  /** The registry's version stamp when this was read. */
+  /** The registry's change counter when this was read. */
   version: number;
+  /**
+   * The registry's stamp: the counter and a random value every change writes (`<n>:<nonce>`).
+   * After a restore the counter can come back with other rows; the nonce does not, so a stamp
+   * that is equal means rows that are equal.
+   */
+  stamp: string;
   clients: ReadonlyMap<ClientId, ClientRecord>;
   /** Each client's settings that are in `CLIENT_SETTINGS`, by name. */
   settings: ReadonlyMap<ClientId, Readonly<Record<string, string>>>;
-  /** Verified hostnames only, by hostname. */
+  /** Verified hostnames, by hostname. */
   hostnames: ReadonlyMap<string, HostnameRecord>;
+  /** Hostnames the registry holds but has not verified: refused as such, never served. */
+  unverified: ReadonlySet<string>;
+  /**
+   * Rows the code would not accept and so left out, one line each, for the operator: an id
+   * `validateClientId` refuses, a setting not in `CLIENT_SETTINGS`, a hostname that is not
+   * canonical. A host logs them once per stamp; `cos` (step 7) shows them.
+   */
+  problems: readonly string[];
 }
 
-const VERSION_SQL = "SELECT value FROM registry_meta WHERE key = 'version'";
+const STAMP_SQL = "SELECT value, nonce FROM registry_meta WHERE key = 'version'";
 
-/** The registry's version stamp: one row read. */
+const NO_STAMP = "The registry has no version stamp: its migrations have not run";
+
+function stampOf(row: { value: number; nonce: string } | null | undefined): {
+  version: number;
+  stamp: string;
+} {
+  if (!row) throw new Error(NO_STAMP);
+  return { version: Number(row.value), stamp: `${Number(row.value)}:${row.nonce}` };
+}
+
+/** The registry's change counter: one row read. */
 export async function readRegistryVersion(registry: D1Database): Promise<number> {
-  const row = await registry.prepare(VERSION_SQL).first<{ value: number }>();
-  if (!row) throw new Error("The registry has no version stamp: its migrations have not run");
-  return Number(row.value);
+  return stampOf(await registry.prepare(STAMP_SQL).first()).version;
+}
+
+/** The registry's stamp (`RegistrySnapshot.stamp`): one row read. */
+export async function readRegistryStamp(registry: D1Database): Promise<string> {
+  return stampOf(await registry.prepare(STAMP_SQL).first()).stamp;
 }
 
 interface ClientRow {
@@ -238,28 +304,32 @@ interface ClientRow {
  * statement binds a parameter or joins a compound SELECT, so D1's limits (100 bound parameters,
  * 5 terms a compound SELECT, 1,000 statements an invocation) hold with any number. A batch is one
  * transaction, so the stamp is the stamp of the rows read with it. A row the code would not
- * accept (an id `validateClientId` refuses, a setting not in `CLIENT_SETTINGS`, a hostname that
- * is not canonical, one of a client not on this registry) is left out.
+ * accept is left out and named in `problems`.
  */
 export async function readRegistry(registry: D1Database): Promise<RegistrySnapshot> {
-  const [version, clients, settings, hostnames] = await registry.batch([
-    registry.prepare(VERSION_SQL),
+  const [meta, clients, settings, hostnames] = await registry.batch([
+    registry.prepare(STAMP_SQL),
     registry.prepare(
       "SELECT id, environment, status, tier, repository, location_hint, schema_version FROM registry_clients",
     ),
     registry.prepare("SELECT client, name, value FROM registry_settings"),
-    registry.prepare("SELECT hostname, client, surface FROM registry_hostnames WHERE verified = 1"),
+    registry.prepare("SELECT hostname, client, surface, verified FROM registry_hostnames"),
   ]);
-  const stamp = (version?.results[0] as { value: number } | undefined)?.value;
-  if (stamp === undefined) {
-    throw new Error("The registry has no version stamp: its migrations have not run");
-  }
+  const { version, stamp } = stampOf(
+    meta?.results[0] as { value: number; nonce: string } | undefined,
+  );
+  const problems: string[] = [];
 
   const clientMap = new Map<ClientId, ClientRecord>();
   for (const row of (clients?.results ?? []) as unknown as ClientRow[]) {
-    if (!isClientId(row.id)) continue;
-    clientMap.set(row.id, {
-      id: row.id,
+    const problem = clientIdProblem(row.id);
+    if (problem) {
+      problems.push(`client ${JSON.stringify(row.id)} left out: ${problem}`);
+      continue;
+    }
+    const id = row.id as ClientId;
+    clientMap.set(id, {
+      id,
       environment: row.environment as ClientEnvironmentName,
       status: row.status as ClientStatus,
       tier: row.tier as ClientTier,
@@ -276,20 +346,34 @@ export async function readRegistry(registry: D1Database): Promise<RegistrySnapsh
     value: string;
   }[]) {
     if (!isClientId(row.client) || !clientMap.has(row.client)) continue;
-    if (!isClientSetting(row.name)) continue;
+    if (!isClientSetting(row.name)) {
+      problems.push(`setting ${row.name} of ${row.client} left out: not a client setting`);
+      continue;
+    }
     const own = settingMap.get(row.client) ?? {};
     own[row.name] = String(row.value);
     settingMap.set(row.client, own);
   }
 
   const hostnameMap = new Map<string, HostnameRecord>();
+  const unverified = new Set<string>();
   for (const row of (hostnames?.results ?? []) as {
     hostname: string;
     client: string;
     surface: string;
+    verified: number;
   }[]) {
     if (!isClientId(row.client) || !clientMap.has(row.client)) continue;
-    if (canonicalHostname(row.hostname) !== row.hostname) continue;
+    if (canonicalHostname(row.hostname) !== row.hostname) {
+      problems.push(
+        `hostname ${JSON.stringify(row.hostname)} of ${row.client} left out: not canonical`,
+      );
+      continue;
+    }
+    if (Number(row.verified) !== 1) {
+      unverified.add(row.hostname);
+      continue;
+    }
     hostnameMap.set(row.hostname, {
       hostname: row.hostname,
       client: row.client,
@@ -298,10 +382,13 @@ export async function readRegistry(registry: D1Database): Promise<RegistrySnapsh
   }
 
   return {
-    version: Number(stamp),
+    version,
+    stamp,
     clients: clientMap,
     settings: settingMap,
     hostnames: hostnameMap,
+    unverified,
+    problems,
   };
 }
 
@@ -310,10 +397,10 @@ export async function readRegistry(registry: D1Database): Promise<RegistrySnapsh
 /**
  * Whether a client's database is behind the code: its schema version as the registry last
  * recorded it is lower than the version this code expects, or was never recorded (the client
- * has not been migrated). The host refuses such a client's requests with a "being updated" page
- * (stage 66, "Adding, updating and removing"; the refusal is at the entries, step 4). A database
- * ahead of the code is not behind: during an update every client is migrated before the new
- * Workers are uploaded, and the old code goes on serving it.
+ * has not been migrated). The directory refuses such a client (`refused: "schema-behind"`); the
+ * entries answer with a "being updated" page (step 4). A database ahead of the code is not
+ * behind: during an update every client is migrated before the new Workers are uploaded, and the
+ * old code goes on serving it.
  */
 export function isSchemaBehind(
   client: Pick<ClientRecord, "schemaVersion">,

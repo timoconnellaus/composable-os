@@ -28,6 +28,7 @@ import {
   touchConnection,
 } from "@composable-os/core";
 import { createCrmDb } from "@composable-os/db";
+import { clientOf, withOAuthHelpers } from "@composable-os/db/client-environment";
 import { productName } from "@composable-os/product";
 import { product } from "@composable-os/products/active";
 import { createMcpHandler } from "agents/mcp/server";
@@ -231,6 +232,30 @@ export async function deleteGrantTokens(
   }
 }
 
+/** A client's environment with its OAuth helpers, one per client environment and origin. */
+const oauthEnvs = new WeakMap<object, Map<string, McpEnv>>();
+
+/**
+ * The `env` the OAuth library is handed. A single-client deployment's own `env`, on which the
+ * library sets its helpers itself, as before; a client's environment on a many-client host is
+ * frozen, so its helpers (over its own OAUTH_KV) are made here and set beside it (stage 66,
+ * ADR 0615).
+ */
+function oauthEnv(env: McpEnv, origin: string, fallback: Fallback): McpEnv {
+  if (clientOf(env) === null) return env;
+  let byOrigin = oauthEnvs.get(env);
+  if (!byOrigin) {
+    byOrigin = new Map();
+    oauthEnvs.set(env, byOrigin);
+  }
+  let withHelpers = byOrigin.get(origin);
+  if (!withHelpers) {
+    withHelpers = withOAuthHelpers(env, getOAuthApi(oauthOptions(origin, env, fallback), env));
+    byOrigin.set(origin, withHelpers);
+  }
+  return withHelpers;
+}
+
 /** Wraps the app's fetch handler with OAuth and /mcp. One provider per origin, per isolate. */
 export function createAppHandler(fallback: Fallback) {
   const providers = new Map<string, OAuthProvider<McpEnv>>();
@@ -242,7 +267,7 @@ export function createAppHandler(fallback: Fallback) {
         provider = new OAuthProvider<McpEnv>(oauthOptions(origin, env, fallback));
         providers.set(origin, provider);
       }
-      return provider.fetch(request, env, ctx);
+      return provider.fetch(request, oauthEnv(env, origin, fallback), ctx);
     },
   };
 }

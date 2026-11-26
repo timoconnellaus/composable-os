@@ -6,7 +6,8 @@
 // The app's and the runner's code reads its environment from its entry (the client decided there)
 // or, in the app, from `requestEnv()` (src/server/request-env.ts), the one module allowed to import
 // it. This check, run by `pnpm lint`, fails when any other source file of apps/app/src or
-// apps/runner/src imports `env` from `cloudflare:workers` (under any alias, or as a namespace).
+// apps/runner/src imports `env` from `cloudflare:workers` (under any alias, or as a namespace),
+// and when any of them names CLIENT_DB or ClientDb (`reachesClientDb`).
 import { readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative, sep } from "node:path";
 import { fileURLToPath } from "node:url";
@@ -51,16 +52,35 @@ export function importsModuleEnv(text) {
   return /\bimport\s*\(\s*["']cloudflare:workers["']\s*\)/.test(code);
 }
 
-/** Every file under `root` that imports the module `env` where it may not. */
+/**
+ * Whether `text` reaches every client's databases directly: the `CLIENT_DB` binding, the
+ * `ClientDb` class or `@composable-os/db/client-db`. The app and the runner reach a client's
+ * database only as the `DB` of its environment (`clientDatabase`, inside packages/db), so that
+ * `CLIENT_DB` can become a service binding to `cos-client-db`'s query-only entrypoint (stage 66
+ * step 2) without touching them, and no code of theirs can call an operator's method (restore,
+ * migrate, a bookmark) on a client's object.
+ */
+export function reachesClientDb(text) {
+  const code = stripComments(text);
+  return /\bCLIENT_DB\b|\bClientDb\b|["']@composable-os\/db\/client-db["']/.test(code);
+}
+
+/** Every file under `root` that imports the module `env`, or reaches CLIENT_DB, where it may not. */
 export function checkModuleEnv(root) {
   const problems = [];
   for (const { dir, allowed } of WORKERS) {
     for (const path of files(join(root, dir))) {
       const file = relative(root, path).split(sep).join("/");
       if (allowed.includes(file)) continue;
-      if (importsModuleEnv(readFileSync(path, "utf8"))) {
+      const text = readFileSync(path, "utf8");
+      if (importsModuleEnv(text)) {
         problems.push(
           `${file}: imports the module-level env from cloudflare:workers; read the entry's env, or requestEnv() in the app (ADR 0615)`,
+        );
+      }
+      if (reachesClientDb(text)) {
+        problems.push(
+          `${file}: reaches CLIENT_DB or ClientDb; a client's database is its environment's DB (ADR 0615)`,
         );
       }
     }

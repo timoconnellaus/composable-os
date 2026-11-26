@@ -17,12 +17,16 @@
 
 CREATE TABLE registry_meta (
   key TEXT PRIMARY KEY,
-  value INTEGER NOT NULL
+  value INTEGER NOT NULL,
+  nonce TEXT NOT NULL
 ) WITHOUT ROWID;
 
--- The version stamp: every write to a table below adds one (the triggers at the end), so a host
--- that holds registry rows in memory reads one row to know whether they are still current.
-INSERT INTO registry_meta (key, value) VALUES ('version', 1);
+-- The version stamp: every write to a table below adds one to `value` and writes a new random
+-- `nonce` (the triggers at the end), so a host that holds registry rows in memory reads one row
+-- to know whether they are still current. The nonce is what makes a stamp never recur: after a
+-- restore of this database the counter can come back to a number it had, with other rows, but
+-- not with the same nonce.
+INSERT INTO registry_meta (key, value, nonce) VALUES ('version', 1, lower(hex(randomblob(8))));
 
 -- One row per client on this deployment. `environment` says which of the client's environments
 -- this deployment holds (staging is a second deployment, stage 66 decision 10). `schema_version`
@@ -63,7 +67,17 @@ CREATE TABLE registry_hostnames (
     AND hostname NOT GLOB '.*'
     AND hostname NOT GLOB '*.'
     AND hostname NOT GLOB '*..*'
+    AND hostname NOT GLOB '-*'
+    AND hostname NOT GLOB '*-'
+    AND hostname NOT GLOB '*.-*'
+    AND hostname NOT GLOB '*-.*'
+    AND hostname NOT GLOB '*.[0-9]'
+    AND hostname NOT GLOB '*.[0-9][0-9]'
+    AND hostname NOT GLOB '*.[0-9][0-9][0-9]'
   ),
+  -- What this check cannot say (a label over 63 characters, a longer numeric last label) the
+  -- code refuses on read and reports as a problem (`readRegistry`); `cos` validates with
+  -- `canonicalHostname` before it writes (step 7).
   client TEXT NOT NULL REFERENCES registry_clients (id) ON DELETE CASCADE,
   surface TEXT NOT NULL CHECK (surface IN ('staff', 'web', 'desk')),
   verified INTEGER NOT NULL DEFAULT 0 CHECK (verified IN (0, 1)),
@@ -100,60 +114,72 @@ CREATE TABLE registry_secrets (
 
 CREATE TRIGGER registry_clients_stamp_insert AFTER INSERT ON registry_clients
 BEGIN
-  UPDATE registry_meta SET value = value + 1 WHERE key = 'version';
+  UPDATE registry_meta SET value = value + 1, nonce = lower(hex(randomblob(8)))
+  WHERE key = 'version';
 END;
 
 CREATE TRIGGER registry_clients_stamp_update AFTER UPDATE ON registry_clients
 BEGIN
-  UPDATE registry_meta SET value = value + 1 WHERE key = 'version';
+  UPDATE registry_meta SET value = value + 1, nonce = lower(hex(randomblob(8)))
+  WHERE key = 'version';
 END;
 
 CREATE TRIGGER registry_clients_stamp_delete AFTER DELETE ON registry_clients
 BEGIN
-  UPDATE registry_meta SET value = value + 1 WHERE key = 'version';
+  UPDATE registry_meta SET value = value + 1, nonce = lower(hex(randomblob(8)))
+  WHERE key = 'version';
 END;
 
 CREATE TRIGGER registry_hostnames_stamp_insert AFTER INSERT ON registry_hostnames
 BEGIN
-  UPDATE registry_meta SET value = value + 1 WHERE key = 'version';
+  UPDATE registry_meta SET value = value + 1, nonce = lower(hex(randomblob(8)))
+  WHERE key = 'version';
 END;
 
 CREATE TRIGGER registry_hostnames_stamp_update AFTER UPDATE ON registry_hostnames
 BEGIN
-  UPDATE registry_meta SET value = value + 1 WHERE key = 'version';
+  UPDATE registry_meta SET value = value + 1, nonce = lower(hex(randomblob(8)))
+  WHERE key = 'version';
 END;
 
 CREATE TRIGGER registry_hostnames_stamp_delete AFTER DELETE ON registry_hostnames
 BEGIN
-  UPDATE registry_meta SET value = value + 1 WHERE key = 'version';
+  UPDATE registry_meta SET value = value + 1, nonce = lower(hex(randomblob(8)))
+  WHERE key = 'version';
 END;
 
 CREATE TRIGGER registry_settings_stamp_insert AFTER INSERT ON registry_settings
 BEGIN
-  UPDATE registry_meta SET value = value + 1 WHERE key = 'version';
+  UPDATE registry_meta SET value = value + 1, nonce = lower(hex(randomblob(8)))
+  WHERE key = 'version';
 END;
 
 CREATE TRIGGER registry_settings_stamp_update AFTER UPDATE ON registry_settings
 BEGIN
-  UPDATE registry_meta SET value = value + 1 WHERE key = 'version';
+  UPDATE registry_meta SET value = value + 1, nonce = lower(hex(randomblob(8)))
+  WHERE key = 'version';
 END;
 
 CREATE TRIGGER registry_settings_stamp_delete AFTER DELETE ON registry_settings
 BEGIN
-  UPDATE registry_meta SET value = value + 1 WHERE key = 'version';
+  UPDATE registry_meta SET value = value + 1, nonce = lower(hex(randomblob(8)))
+  WHERE key = 'version';
 END;
 
 CREATE TRIGGER registry_secrets_stamp_insert AFTER INSERT ON registry_secrets
 BEGIN
-  UPDATE registry_meta SET value = value + 1 WHERE key = 'version';
+  UPDATE registry_meta SET value = value + 1, nonce = lower(hex(randomblob(8)))
+  WHERE key = 'version';
 END;
 
 CREATE TRIGGER registry_secrets_stamp_update AFTER UPDATE ON registry_secrets
 BEGIN
-  UPDATE registry_meta SET value = value + 1 WHERE key = 'version';
+  UPDATE registry_meta SET value = value + 1, nonce = lower(hex(randomblob(8)))
+  WHERE key = 'version';
 END;
 
 CREATE TRIGGER registry_secrets_stamp_delete AFTER DELETE ON registry_secrets
 BEGIN
-  UPDATE registry_meta SET value = value + 1 WHERE key = 'version';
+  UPDATE registry_meta SET value = value + 1, nonce = lower(hex(randomblob(8)))
+  WHERE key = 'version';
 END;

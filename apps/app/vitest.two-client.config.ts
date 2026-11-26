@@ -51,6 +51,8 @@ export default mergeConfig(
         bindings: {
           TEST_MIGRATIONS: await readD1Migrations(migrationsDir),
           REGISTRY_MIGRATIONS: await readD1Migrations(registryMigrationsDir),
+          // Which of its clients' environments this deployment holds (ADR 0613).
+          COS_HOST_ENVIRONMENT: "live",
           // The deployment's own: a client's environment never holds it (step 6 derives each
           // client's). The suite shows a client's sign-in refuses without its own.
           BETTER_AUTH_SECRET: "the-host-wide-secret-the-host-wide-secret",

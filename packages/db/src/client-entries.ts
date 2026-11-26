@@ -18,10 +18,10 @@ import {
 } from "./client-bindings.ts";
 import {
   clientOf,
-  environmentFor,
   type HostBindings,
   hostDirectory,
   hostMode,
+  type Refusal,
 } from "./client-environment.ts";
 import { type ClientId, type ClientRecord, isClientId, isSchemaBehind } from "./registry.ts";
 
@@ -92,10 +92,22 @@ export type RequestDecision<E> =
   | { response: Response };
 
 /**
+ * How an entry answers a refusal of the directory (ADR 0613's `Refusal`): a client paused, moving
+ * or whose schema is behind the code gets "being updated" (stage 66 step 4, ADR 0615: the brief's
+ * "a client that is paused, moving or whose schema is behind gets the 'being updated' answer");
+ * an unknown or unverified hostname, or a client of another environment, the plain 404.
+ */
+export function refusalAnswer(refused: Refusal, request?: Request): Response {
+  return refused === "unknown" || refused === "unverified"
+    ? unknownHostResponse()
+    : beingUpdatedResponse(request);
+}
+
+/**
  * The client a request reached, from its URL's hostname (the Host header the edge routed on),
  * and the environment to run it with. Single-client: the real `env`, nothing read. Many-client:
- * an unknown hostname is a plain 404; a hostname of a surface this Worker does not serve is the
- * same 404; a client not served right now is "being updated".
+ * only a served client's environment (the directory refuses by default); a hostname of a surface
+ * this Worker does not serve is the same 404 as an unknown one.
  */
 export async function decideRequest<E extends HostBindings>(
   env: E,
@@ -104,12 +116,10 @@ export async function decideRequest<E extends HostBindings>(
 ): Promise<RequestDecision<E>> {
   const directory = hostDirectory(env);
   if (!directory) return { env, client: null, surface: null };
-  const match = await directory.clientForHostname(new URL(request.url).hostname);
-  if (!match || !surfaces.includes(match.surface)) return { response: unknownHostResponse() };
-  if (clientRefusal(match.client)) return { response: beingUpdatedResponse(request) };
-  const clientEnv = await directory.environmentFor(match.client.id);
-  if (!clientEnv) return { response: unknownHostResponse() };
-  return { env: clientEnv, client: match.client, surface: match.surface };
+  const admission = await directory.clientForHostname(new URL(request.url).hostname);
+  if (!admission.served) return { response: refusalAnswer(admission.refused, request) };
+  if (!surfaces.includes(admission.surface)) return { response: unknownHostResponse() };
+  return { env: admission.env, client: admission.client, surface: admission.surface };
 }
 
 // --- An entry that is told the client --------------------------------------------------------
@@ -136,14 +146,12 @@ export function refusalResponse(error: unknown, request?: Request): Response {
 /**
  * The environment for a client an entry was told (the runner by the app, a message's stamp, a
  * Workflow's params, an object's name, an entrypoint's props). Single-client: the real `env`, and
- * `client` must be null. Many-client: refused when the client is missing, unknown, or not served
- * right now (`served: true`, the default; a Durable Object passes false to carry on with work it
- * already holds for a paused client, never for an unknown one).
+ * `client` must be null. Many-client: only a served client's (the directory's admission); any
+ * refusal throws, unknown and unverified as "unknown", the others as "updating".
  */
 export async function clientEnvironment<E extends HostBindings>(
   env: E,
   client: string | null | undefined,
-  options: { served?: boolean } = {},
 ): Promise<E> {
   const directory = hostDirectory(env);
   if (!directory) {
@@ -153,14 +161,12 @@ export async function clientEnvironment<E extends HostBindings>(
     return env;
   }
   if (!isClientId(client)) throw new NoClientError("No client: this entry refuses to run");
-  const record = await directory.client(client);
-  if (!record) throw new NoClientError("Not a client of this host");
-  if ((options.served ?? true) && clientRefusal(record)) {
-    throw new NoClientError("This client is not served right now (being updated)", "updating");
+  const admission = await directory.environmentFor(client);
+  if (admission.served) return admission.env;
+  if (admission.refused === "unknown" || admission.refused === "unverified") {
+    throw new NoClientError("Not a client of this host");
   }
-  const clientEnv = await environmentFor(env, client);
-  if (!clientEnv) throw new NoClientError("Not a client of this host");
-  return clientEnv;
+  throw new NoClientError(`This client is not served now (${admission.refused})`, "updating");
 }
 
 // --- Queue messages ------------------------------------------------------------------------
@@ -418,7 +424,7 @@ export async function workflowRun<E extends HostBindings, Params>(
   const found = workflowClientOf<Params>(event.instanceId, event.payload);
   if (!found) throw new NoClientError("This Workflow instance names no client: refused");
   return {
-    env: await clientEnvironment(env, found.client, { served: false }),
+    env: await clientEnvironment(env, found.client),
     params: found.params,
   };
 }
@@ -467,16 +473,16 @@ export class ClientObject<E extends HostBindings> {
   /**
    * Reads the client's environment again (a long-lived object, such as the assistant's thread
    * with its sockets, calls it on each message): the registry's latest, so settings changed and a
-   * client removed reach an object that outlives a version stamp. An object carries on with work
-   * it holds for a paused client (an alarm, a socket), but never for one the registry no longer
-   * has: then this throws and the message is refused. Single-client: the real `env`.
+   * client removed reach an object that outlives a version stamp. A client the registry no longer
+   * serves (removed, paused, moving, behind) is refused: this throws and the message, alarm or
+   * call fails. Single-client: the real `env`.
    */
   async refresh(): Promise<E> {
     if (this.client === null) {
       if (this.#env) return this.#env;
       throw new NoClientError("This object's name carries no client: refused");
     }
-    const clientEnv = await clientEnvironment(this.#host, this.client, { served: false });
+    const clientEnv = await clientEnvironment(this.#host, this.client);
     this.#env = clientEnv;
     this.#adopt?.(clientEnv);
     return clientEnv;
@@ -500,10 +506,9 @@ export class ClientObject<E extends HostBindings> {
 export function propsClientEnvironment<E extends HostBindings>(
   env: E,
   props: { client?: string | null } | undefined,
-  options: { served?: boolean } = {},
 ): Promise<E> {
   if (!servesManyClients(env)) return Promise.resolve(env);
-  return clientEnvironment(env, props?.client ?? null, options);
+  return clientEnvironment(env, props?.client ?? null);
 }
 
 // --- Secrets and addresses: each client's own, step 6 ----------------------------------------

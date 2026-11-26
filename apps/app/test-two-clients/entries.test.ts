@@ -70,8 +70,8 @@ function op(hostname: string, name: string, input: unknown, token?: string) {
 
 async function clientEnv(id: string): Promise<Env> {
   const found = await environmentFor(host, id);
-  if (!found) throw new Error(`no environment for ${id}`);
-  return found;
+  if (!found.served) throw new Error(`no environment for ${id}`);
+  return found.env;
 }
 
 interface Client {
