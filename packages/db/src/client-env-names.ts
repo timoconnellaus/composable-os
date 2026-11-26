@@ -85,7 +85,9 @@ export const ENV_NAMES: Readonly<Record<string, EnvNameUse>> = {
   // The host's two proof keys (client-proofs.ts; #515, S4): never in a client's environment.
   COS_BINDING_KEY: HOST("names every client's objects (client-proofs.ts): never rotated in place"),
   COS_PROPS_KEY: HOST("signs props and calls on cos-client-db for every client (client-proofs.ts)"),
-  COS_PROPS_KEY_PREVIOUS: HOST("the props key before a rotation, still accepted, never used to sign"),
+  COS_PROPS_KEY_PREVIOUS: HOST(
+    "the props key before a rotation, still accepted, never used to sign",
+  ),
   CLOUDFLARE_API_TOKEN: HOST(
     "Settings → AI writes the deployment's Worker secrets with it, every client's at once (ADR 0151), and it can read AI Gateway's logs",
   ),

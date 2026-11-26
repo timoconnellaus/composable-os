@@ -89,7 +89,10 @@ const TEST_FILE = /\.test\.tsx?$/;
 const WORKERS_MODULE = "cloudflare:workers";
 const ENV_MODULE = /(^|\/)(request-env|deployment-env)(\.ts)?$/;
 const CLIENT_DB_NAMES = new Set(["CLIENT_DB", "CLIENT_DB_QUERIES", "ClientDb"]);
-const CLIENT_DB_MODULES = new Set(["@composable-os/db/client-db", "@composable-os/db/client-db-service"]);
+const CLIENT_DB_MODULES = new Set([
+  "@composable-os/db/client-db",
+  "@composable-os/db/client-db-service",
+]);
 
 function* files(dir) {
   if (!existsSync(dir)) return;
@@ -118,7 +121,10 @@ export function findings(text, file = "file.ts") {
   const source = parse(text, file);
   const found = [];
   const add = (rule, node) =>
-    found.push({ rule, line: source.getLineAndCharacterOfPosition(node.getStart(source)).line + 1 });
+    found.push({
+      rule,
+      line: source.getLineAndCharacterOfPosition(node.getStart(source)).line + 1,
+    });
 
   walk(source, (node) => {
     // import … from "…", export … from "…"

@@ -13,7 +13,6 @@ interface Lease {
 
 /** One per client and user on a many-client host: named `<client>:<proof>:<userId>` (ADR 0615). */
 export class CodeModeGate extends ClientDurableObject(DurableObject<Env>) {
-
   /** A lease token, or null while another run of this user holds an unexpired lease. */
   async acquire(ttlMs: number): Promise<string | null> {
     const now = Date.now();

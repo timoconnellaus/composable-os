@@ -40,15 +40,15 @@ if (!servesManyClients(deploymentEnv)) {
 // environment is given them at its entry (src/server/entry.ts).
 provideStaffCodes(deploymentEnv, staffCodesFor(deploymentEnv as unknown as ApiEnv));
 
+// Each client's parked messages, counted and capped (stage 66, ADR 0615): bound only on a
+// many-client host, by the deploy engine (step 7).
+export { ParkingLedger } from "@composable-os/db/client-parking";
 // Each person's assistant thread (ADR 0340), bound as ASSISTANT in wrangler.jsonc.
 export { AssistantAgent } from "./server/assistant/agent.ts";
 // One object per agent (ADR 0344), bound as AGENT_JOB.
 export { AgentJob } from "./server/assistant/job.ts";
 // The door a company's web app binds to (stage 24, ADR 0421): customers and the public only.
 export { ClientApp } from "./server/http/bound.ts";
-// Each client's parked messages, counted and capped (stage 66, ADR 0615): bound only on a
-// many-client host, by the deploy engine (step 7).
-export { ParkingLedger } from "@composable-os/db/client-parking";
 
 const parts: AppParts = {
   app: createAppHandler({ fetch: (request) => handler.fetch(request) }),

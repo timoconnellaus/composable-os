@@ -90,6 +90,7 @@ const bootPacksProblem = packsProblem(
 );
 if (bootPacksProblem) console.error(`cos-runner: ${bootPacksProblem}`);
 
+export { ParkingLedger } from "@composable-os/db/client-parking";
 export {
   type AutomationRunParams,
   type CandidateOrigin,
@@ -99,7 +100,6 @@ export {
   startRuns,
 } from "./automations/dispatch.ts";
 export { AutomationWorkflow } from "./automations/workflow.ts";
-export { ParkingLedger } from "@composable-os/db/client-parking";
 export { CodeModeGate } from "./executor/code-gate.ts";
 export { ExtensionWorkspace } from "./extensions/workspace.ts";
 export { HelloWorkflow } from "./hello-workflow.ts";
