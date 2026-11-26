@@ -76,6 +76,14 @@
 - [Forms: settings](https://docs.composableos.dev/packs/forms/settings/)
 - [Forms: operations and tools](https://docs.composableos.dev/packs/forms/tools/)
 - [Packs](https://docs.composableos.dev/packs/)
+- [Jobs: data model](https://docs.composableos.dev/packs/jobs/data-model/)
+- [Jobs: decisions](https://docs.composableos.dev/packs/jobs/decisions/)
+- [Jobs](https://docs.composableos.dev/packs/jobs/): Jobs and projects moving through pipelines of stages, with sites, visits booked with a crew who are never in two places at once, lines of what is quoted, added and used, variations, charge-out rates and a download of what is unbilled.
+- [Jobs: messages](https://docs.composableos.dev/packs/jobs/messages/)
+- [Jobs: permissions and roles](https://docs.composableos.dev/packs/jobs/permissions/)
+- [Jobs: screens](https://docs.composableos.dev/packs/jobs/screens/)
+- [Jobs: settings](https://docs.composableos.dev/packs/jobs/settings/)
+- [Jobs: operations and tools](https://docs.composableos.dev/packs/jobs/tools/)
 - [Knowledge: data model](https://docs.composableos.dev/packs/knowledge/data-model/)
 - [Knowledge: decisions](https://docs.composableos.dev/packs/knowledge/decisions/)
 - [Knowledge](https://docs.composableos.dev/packs/knowledge/): Staff procedures read in their published wording and confirmed as read and understood, with a review reminder, and help pages for customers on the business's website.

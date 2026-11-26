@@ -15,6 +15,7 @@ A company's own product lives in its own repository, made with `cos create` or a
 | [Deals](/packs/deals/) | Deals moving through pipelines of stages, with stage rules, probabilities, stage history and the people involved. |
 | [Equipment](/packs/equipment/) | A register of what the business owns and looks after, with tags, suppliers, costs and warranties; faults reported by staff; items taken out of service by any staff member and put back by a manager. |
 | [Forms](/packs/forms/) | Forms the business builds and publishes (enquiries, sign-ups, surveys, feedback, staff reports), and every answer in one inbox, linked to the person who sent it. |
+| [Jobs](/packs/jobs/) | Jobs and projects moving through pipelines of stages, with sites, visits booked with a crew (each place a shift on the roster), lines of what is quoted, added and used, variations, charge-out rates and a download of what is unbilled. |
 | [Knowledge](/packs/knowledge/) | Staff procedures read in their published wording and confirmed as read and understood, with a review reminder, and help pages for customers on the business's website. |
 | [Leads](/packs/leads/) | Inbound interest linked to a person and an organisation, worked from a leads inbox, qualified or disqualified, and converted into deals. |
 | [Lifecycle stage](/packs/lifecycle/) | A lifecycle stage on every person (subscriber, lead, marketing qualified, sales qualified, opportunity, customer, evangelist, other), tracked on the timeline, with a board of people by stage. |

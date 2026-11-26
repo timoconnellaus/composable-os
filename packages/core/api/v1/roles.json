@@ -33,6 +33,39 @@
       ]
     },
     {
+      "name": "jobs.crew",
+      "pack": "jobs",
+      "label": "Crew",
+      "description": "Works on customers' jobs: sees the jobs, visits and sites they have a place on, from a week before the visit to a week after, marks a visit on the way, on site and done, records materials and proposes extra work. Sees no prices.",
+      "read": ["jobs.assignment", "jobs.job", "jobs.visit", "jobs.visittype"],
+      "operations": [
+        "ack.confirm",
+        "ack.mine",
+        "content.search",
+        "content.staffGet",
+        "content.staffList",
+        "record.get",
+        "record.list",
+        "screens.mine",
+        "today.get",
+        "today.rows",
+        "x.dailychecks.day",
+        "x.dailychecks.done",
+        "x.dailychecks.tick",
+        "x.dailychecks.today",
+        "x.jobs.addMaterial",
+        "x.jobs.markDone",
+        "x.jobs.markMissed",
+        "x.jobs.markOnSite",
+        "x.jobs.markOnTheWay",
+        "x.jobs.myJob",
+        "x.jobs.myVisits",
+        "x.jobs.proposeVariation",
+        "x.knowledge.confirm",
+        "x.knowledge.toRead"
+      ]
+    },
+    {
       "name": "programs.coach",
       "pack": "programs",
       "label": "Coach",
@@ -229,6 +262,20 @@
         "x.equipment.reportFault",
         "x.equipment.reportFaultOnly",
         "x.equipment.takeOut"
+      ]
+    },
+    {
+      "permission": "jobs:prices",
+      "pack": "jobs",
+      "label": "Jobs: see and set prices, costs and rates on jobs, approve and void lines, and download what is unbilled",
+      "restricted": true,
+      "operations": [
+        "x.jobs.addLine",
+        "x.jobs.approveLine",
+        "x.jobs.editLine",
+        "x.jobs.exportUnbilled",
+        "x.jobs.unbilled",
+        "x.jobs.voidLine"
       ]
     },
     {

@@ -10,7 +10,7 @@ A behaviour is a declarative rule set an object opts into in its manifest, enfor
 
 A pipeline-like stage behaviour (see StagesSpec).
 
-Declared as `stages: StagesSpec` on an object. Declared by: [`deals.deal`](/packs/deals/data-model/).
+Declared as `stages: StagesSpec` on an object. Declared by: [`deals.deal`](/packs/deals/data-model/), [`jobs.job`](/packs/jobs/data-model/).
 
 ## capacity
 
@@ -64,7 +64,7 @@ Declared as `healthNotes: HealthNotesSpec` on an object. Declared by: [`bookings
 
 A fixed state machine (see StatesSpec, ADR 0425). An object has stages or states, not both.
 
-Declared as `states: StatesSpec` on an object. Declared by: [`bookings.series`](/packs/bookings/data-model/), [`bookings.class`](/packs/bookings/data-model/), [`bookings.booking`](/packs/bookings/data-model/), [`bookings.appointment`](/packs/bookings/data-model/), [`courses.enrolment`](/packs/courses/data-model/), [`equipment.item`](/packs/equipment/data-model/), [`equipment.fault`](/packs/equipment/data-model/), [`forms.form`](/packs/forms/data-model/), [`forms.submission`](/packs/forms/data-model/), [`memberships.membership`](/packs/memberships/data-model/), [`memberships.pass`](/packs/memberships/data-model/), [`offers.discount`](/packs/offers/data-model/), [`programs.assignment`](/packs/programs/data-model/), [`programs.session`](/packs/programs/data-model/), [`rostering.dutyseries`](/packs/rostering/data-model/), [`rostering.shift`](/packs/rostering/data-model/), [`shop.variant`](/packs/shop/data-model/), [`shop.shipment`](/packs/shop/data-model/), [`ticketing.event`](/packs/ticketing/data-model/), [`ticketing.ticket`](/packs/ticketing/data-model/).
+Declared as `states: StatesSpec` on an object. Declared by: [`bookings.series`](/packs/bookings/data-model/), [`bookings.class`](/packs/bookings/data-model/), [`bookings.booking`](/packs/bookings/data-model/), [`bookings.appointment`](/packs/bookings/data-model/), [`courses.enrolment`](/packs/courses/data-model/), [`equipment.item`](/packs/equipment/data-model/), [`equipment.fault`](/packs/equipment/data-model/), [`forms.form`](/packs/forms/data-model/), [`forms.submission`](/packs/forms/data-model/), [`jobs.visit`](/packs/jobs/data-model/), [`jobs.assignment`](/packs/jobs/data-model/), [`jobs.line`](/packs/jobs/data-model/), [`jobs.variation`](/packs/jobs/data-model/), [`memberships.membership`](/packs/memberships/data-model/), [`memberships.pass`](/packs/memberships/data-model/), [`offers.discount`](/packs/offers/data-model/), [`programs.assignment`](/packs/programs/data-model/), [`programs.session`](/packs/programs/data-model/), [`rostering.dutyseries`](/packs/rostering/data-model/), [`rostering.shift`](/packs/rostering/data-model/), [`shop.variant`](/packs/shop/data-model/), [`shop.shipment`](/packs/shop/data-model/), [`ticketing.event`](/packs/ticketing/data-model/), [`ticketing.ticket`](/packs/ticketing/data-model/).
 
 ## claims
 
@@ -76,7 +76,7 @@ Declared as `claims: ClaimsSpec` on an object. Declared by: [`bookings.booking`]
 
 Uniqueness among live records in some states (see UniqueSpec, ADR 0502): one active booking per Person per class. Refused by the database for every actor.
 
-Declared as `unique: readonly UniqueSpec[]` on an object. Declared by: [`bookings.coach`](/packs/bookings/data-model/), [`bookings.booking`](/packs/bookings/data-model/), [`equipment.item`](/packs/equipment/data-model/), [`equipment.fault`](/packs/equipment/data-model/), [`programs.program`](/packs/programs/data-model/), [`programs.log`](/packs/programs/data-model/).
+Declared as `unique: readonly UniqueSpec[]` on an object. Declared by: [`bookings.coach`](/packs/bookings/data-model/), [`bookings.booking`](/packs/bookings/data-model/), [`equipment.item`](/packs/equipment/data-model/), [`equipment.fault`](/packs/equipment/data-model/), [`jobs.job`](/packs/jobs/data-model/), [`jobs.visit`](/packs/jobs/data-model/), [`jobs.assignment`](/packs/jobs/data-model/), [`jobs.line`](/packs/jobs/data-model/), [`jobs.variation`](/packs/jobs/data-model/), [`programs.program`](/packs/programs/data-model/), [`programs.log`](/packs/programs/data-model/).
 
 ## recurring
 
@@ -88,7 +88,7 @@ Declared as `recurring: RecurringScheduleSpec` on an object. Declared by: [`book
 
 A shift (see StaffedSpec, ADR 0621): who works the record, when, and on what kind of work. The host refuses, in the database, one account on two overlapping shifts, and answers each write with its warnings (away, not qualified, no one on it).
 
-Declared as `staffed: StaffedSpec` on an object. Declared by: [`bookings.class`](/packs/bookings/data-model/), [`bookings.appointment`](/packs/bookings/data-model/), [`rostering.shift`](/packs/rostering/data-model/).
+Declared as `staffed: StaffedSpec` on an object. Declared by: [`bookings.class`](/packs/bookings/data-model/), [`bookings.appointment`](/packs/bookings/data-model/), [`jobs.assignment`](/packs/jobs/data-model/), [`rostering.shift`](/packs/rostering/data-model/).
 
 ## workedOn
 
@@ -136,7 +136,7 @@ Declared as `intake: IntakeSpec` on an object. Declared by: [`forms.form`](/pack
 
 A checklist the record's person ticks off (see ChecklistsSpec, ADR 0650): a run of the template its `template` field names, made by the host, ticked by the person (or by someone who rosters, for them), never changed once done, read only by the person and those who roster.
 
-Declared as `checklists: ChecklistsSpec` on an object. Declared by: [`rostering.shift`](/packs/rostering/data-model/).
+Declared as `checklists: ChecklistsSpec` on an object. Declared by: [`jobs.assignment`](/packs/jobs/data-model/), [`rostering.shift`](/packs/rostering/data-model/).
 
 ## customer
 

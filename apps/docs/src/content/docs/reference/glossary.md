@@ -3078,9 +3078,10 @@ _Avoid_: role (alone, it means admin, member or viewer), team, scope
 A pack role's limit to the records of its pack that name its holder (`mine`, ADR 0755): by object,
 the record naming the account (`through`, its user field `who`), the relations from it to the
 object (`path`), the states in which it counts (`live`) and a window around its datetimes
-(`within`); any other record is not found. Made for Jobs' crew (stage 39; the pack is not built
-yet): the jobs, visits and sites of its own crew places, from a week before the visit to a week
-after. The fields that decide it are a person's to change.
+(`within`); any other record is not found. Jobs' crew (stage 39, ADR 0756) reaches the jobs,
+visits and crew places of its own booked crew places, from a week before the visit to a week
+after, and sees a job's site through the pack's tools. The fields that decide it, and the times
+the host copies onto them (a visit's start and end), are a person's to change.
 _Avoid_: my jobs (a screen's words), assigned to (a task's), looks after (a team's, ADR 0889)
 
 ### Owner's client
@@ -3311,6 +3312,39 @@ published wording, found by address, in its **help topic**, or by searching its 
 The **help centre** is the blocks a site or app shows them with: a search box, the topics with
 their pages, a page and its related pages (ADR 0708).
 _Avoid_: FAQ entry, article, knowledge base article, support doc
+
+### Job
+
+(the Jobs pack; stage 39, ADR 0756)
+
+A piece of work for a customer, or an internal project (`jobs.job`), moving through the stages of
+its pipeline (seeded Trades and Projects). Charged at a **fixed price** (its accepted estimate and
+approved variations) or by **time and materials** (the labour and materials used). Its
+**accepted**, **signed off** and **invoiced** facts are the host's: the Accepted, Signed off and
+Invoiced stages need them, and only the act they record sets them (ADR 0750). A plain project is a
+job with no site or visits. Not an **agent**'s job (an `AgentJob` in code).
+_Avoid_: ticket, work order, project record (say job)
+
+### Visit
+
+and **crew place** (the Jobs pack; stage 39, ADR 0756)
+
+A visit is one booked time at a job's site (`jobs.visit`): booked, on the way, on site, then done,
+missed or cancelled, each move a tool's. A crew place is one person's place on it
+(`jobs.assignment`): a **shift** at the visit's time, copied by the host (times that follow), so the
+crew moves with its visit and nobody is in two places at once; cancelled with its visit.
+_Avoid_: appointment (Bookings'), booking, job (the visit is part of one)
+
+### Line
+
+and **variation** (the Jobs pack; stage 39, ADR 0756)
+
+A line is something quoted, added, used or owed on a job (`jobs.line`): an estimate, variation,
+material or labour line with a quantity and a unit price. Its words and numbers never change once
+written (a draft is corrected by a replacement); it is draft, approved, billed or void. A
+**variation** is a change to agreed work (`jobs.variation`), decided before the work is done; its
+lines are approved or voided with it.
+_Avoid_: invoice line (stage 35's), item (the Shop's or Equipment's)
 
 ### Item
 

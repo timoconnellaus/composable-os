@@ -113595,6 +113595,2881 @@
       "pack": "forms"
     },
     {
+      "name": "x.jobs.addLine",
+      "description": "Adds a priced draft line to a job: an estimate line (what is quoted) or a material line. Prices are in the base currency, before tax. Approving an estimate is the customer's acceptance; a material line is approved with approveLine. Pass requestId to make it safe to send again. (Extension tool from Jobs 0.1.0.)",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "jobId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "estimate",
+              "material"
+            ]
+          },
+          "description": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "quantity": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1000000
+          },
+          "unit": {
+            "type": "string",
+            "maxLength": 20
+          },
+          "unitPrice": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 10000000
+          },
+          "cost": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 10000000
+          },
+          "taxCode": {
+            "type": "string",
+            "maxLength": 40
+          },
+          "itemCode": {
+            "type": "string",
+            "maxLength": 100
+          },
+          "requestId": {
+            "type": "string",
+            "minLength": 8,
+            "maxLength": 64,
+            "description": "A key the caller makes once per action and sends again on a retry (a phone with poor signal): the same request finds what the first made instead of making it twice"
+          }
+        },
+        "required": [
+          "jobId",
+          "kind",
+          "description",
+          "quantity"
+        ],
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "lineId": {
+            "type": "string"
+          },
+          "existing": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "lineId",
+          "existing"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "x.jobs.exportUnbilled",
+        "x.jobs.jobSummary",
+        "x.jobs.myJob",
+        "x.jobs.myVisits",
+        "x.jobs.unbilled"
+      ],
+      "pack": "jobs"
+    },
+    {
+      "name": "x.jobs.addMaterial",
+      "description": "Records a material used on a job: what, how many and in what unit (and a catalogue item's code if it has one), as a draft line the office prices. By someone with a place on the job, or the office. No price is asked or shown. Pass requestId to make it safe to send again. (Extension tool from Jobs 0.1.0.)",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "jobId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "description": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "quantity": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1000000
+          },
+          "unit": {
+            "type": "string",
+            "maxLength": 20
+          },
+          "itemCode": {
+            "type": "string",
+            "maxLength": 100
+          },
+          "requestId": {
+            "type": "string",
+            "minLength": 8,
+            "maxLength": 64,
+            "description": "A key the caller makes once per action and sends again on a retry (a phone with poor signal): the same request finds what the first made instead of making it twice"
+          }
+        },
+        "required": [
+          "jobId",
+          "description",
+          "quantity"
+        ],
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "lineId": {
+            "type": "string"
+          },
+          "existing": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "lineId",
+          "existing"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "x.jobs.exportUnbilled",
+        "x.jobs.jobSummary",
+        "x.jobs.myJob",
+        "x.jobs.myVisits",
+        "x.jobs.unbilled"
+      ],
+      "pack": "jobs"
+    },
+    {
+      "name": "x.jobs.approveLine",
+      "description": "Approves a draft material or labour line: it then counts as owed on a time and materials job (and as cost on a fixed-price one) and cannot be changed. An estimate line is approved by the customer's acceptance and a variation's lines with the variation, not here. An assistant's call waits for a person. (Extension tool from Jobs 0.1.0.)",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "lineId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          }
+        },
+        "required": [
+          "lineId"
+        ],
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "job": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "kind": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "estimate",
+                  "variation",
+                  "material",
+                  "labour"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "quantity": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "unit": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "unitPrice": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "cost": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "taxCode": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "state": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "draft",
+                  "approved",
+                  "billed",
+                  "void"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "job",
+          "kind",
+          "description",
+          "quantity",
+          "unit",
+          "unitPrice",
+          "cost",
+          "taxCode",
+          "state"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "x.jobs.exportUnbilled",
+        "x.jobs.jobSummary",
+        "x.jobs.myJob",
+        "x.jobs.myVisits",
+        "x.jobs.unbilled"
+      ],
+      "pack": "jobs"
+    },
+    {
+      "name": "x.jobs.approveVariation",
+      "description": "Records that the customer approved a proposed variation, on their word (a phone call, an email): recorded as the office's, never as the customer's own. Its lines are approved with it. A person's own act; the assistant cannot do it. (Extension tool from Jobs 0.1.0.)",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "variationId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "note": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500,
+            "description": "How the customer said so"
+          }
+        },
+        "required": [
+          "variationId",
+          "note"
+        ],
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "variationId": {
+            "type": "string"
+          },
+          "state": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "proposed",
+                  "approved",
+                  "declined",
+                  "withdrawn"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "decidedBy": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "variationId",
+          "state",
+          "decidedBy"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "x.jobs.exportUnbilled",
+        "x.jobs.jobSummary",
+        "x.jobs.myJob",
+        "x.jobs.myVisits",
+        "x.jobs.unbilled"
+      ],
+      "pack": "jobs"
+    },
+    {
+      "name": "x.jobs.assignCrew",
+      "description": "Puts a staff member on a visit (a crew place: a shift at the visit's time). Answers their warnings (away, not qualified for the visit type), which never stop it; being on another shift at that time does, and the refusal names it. With Rostering installed only someone who rosters may do it. An assistant's call waits for a person. (Extension tool from Jobs 0.1.0.)",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "visitId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "staffId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "lead": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "visitId",
+          "staffId"
+        ],
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "staff": {
+            "type": "string"
+          },
+          "warnings": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "type": "string"
+                },
+                "account": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "message": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "code",
+                "account",
+                "message"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "id",
+          "staff",
+          "warnings"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "x.jobs.exportUnbilled",
+        "x.jobs.jobSummary",
+        "x.jobs.myJob",
+        "x.jobs.myVisits",
+        "x.jobs.unbilled"
+      ],
+      "pack": "jobs"
+    },
+    {
+      "name": "x.jobs.bookVisit",
+      "description": "Books a visit to a job's site at a time, with its crew (each person a crew place, a shift on the roster). The end defaults to the visit type's usual length. Answers each crew member's warnings (away, not qualified for the visit type); if anyone would be in two places at once, nothing is booked and the refusal names them. An assistant's booking waits for a person. Pass requestId to make it safe to send again. (Extension tool from Jobs 0.1.0.)",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "jobId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "visitTypeId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "starts": {
+            "type": "string",
+            "allOf": [
+              {
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+              },
+              {
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+              }
+            ]
+          },
+          "ends": {
+            "type": "string",
+            "allOf": [
+              {
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+              },
+              {
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+              }
+            ]
+          },
+          "zone": {
+            "type": "string",
+            "maxLength": 64,
+            "description": "An IANA time zone; the deployment's if left out"
+          },
+          "arrivalWindow": {
+            "type": "string",
+            "maxLength": 100
+          },
+          "crewNotes": {
+            "type": "string",
+            "maxLength": 2000
+          },
+          "crew": {
+            "default": [],
+            "maxItems": 10,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "staffId": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 64
+                },
+                "lead": {
+                  "type": "boolean"
+                }
+              },
+              "required": [
+                "staffId"
+              ],
+              "additionalProperties": {}
+            }
+          },
+          "requestId": {
+            "type": "string",
+            "minLength": 8,
+            "maxLength": 64,
+            "description": "A key the caller makes once per action and sends again on a retry (a phone with poor signal): the same request finds what the first made instead of making it twice"
+          }
+        },
+        "required": [
+          "jobId",
+          "visitTypeId",
+          "starts"
+        ],
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "visitId": {
+            "type": "string"
+          },
+          "existing": {
+            "type": "boolean"
+          },
+          "crew": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "staff": {
+                  "type": "string"
+                },
+                "warnings": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "code": {
+                        "type": "string"
+                      },
+                      "account": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "message": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "code",
+                      "account",
+                      "message"
+                    ],
+                    "additionalProperties": false
+                  }
+                }
+              },
+              "required": [
+                "id",
+                "staff",
+                "warnings"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "open": {
+            "type": "object",
+            "properties": {
+              "object": {
+                "type": "string",
+                "const": "jobs.visit"
+              },
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "object",
+              "id"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "visitId",
+          "existing",
+          "crew",
+          "open"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "x.jobs.exportUnbilled",
+        "x.jobs.jobSummary",
+        "x.jobs.myJob",
+        "x.jobs.myVisits",
+        "x.jobs.unbilled"
+      ],
+      "pack": "jobs"
+    },
+    {
+      "name": "x.jobs.cancelVisit",
+      "description": "Cancels a visit that has not happened: its crew places are cancelled with it, off the roster. An assistant's cancel waits for a person. (Extension tool from Jobs 0.1.0.)",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "visitId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          }
+        },
+        "required": [
+          "visitId"
+        ],
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "visitId": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "changed": {
+            "type": "boolean",
+            "description": "False when it was already in that state"
+          }
+        },
+        "required": [
+          "visitId",
+          "state",
+          "changed"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "x.jobs.exportUnbilled",
+        "x.jobs.jobSummary",
+        "x.jobs.myJob",
+        "x.jobs.myVisits",
+        "x.jobs.unbilled"
+      ],
+      "pack": "jobs"
+    },
+    {
+      "name": "x.jobs.declineVariation",
+      "description": "Records that the customer declined a proposed variation, on their word (a phone call, an email): recorded as the office's, never as the customer's own. Its lines are voided with it. A person's own act; the assistant cannot do it. (Extension tool from Jobs 0.1.0.)",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "variationId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "note": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500,
+            "description": "How the customer said so"
+          }
+        },
+        "required": [
+          "variationId",
+          "note"
+        ],
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "variationId": {
+            "type": "string"
+          },
+          "state": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "proposed",
+                  "approved",
+                  "declined",
+                  "withdrawn"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "decidedBy": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "variationId",
+          "state",
+          "decidedBy"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "x.jobs.exportUnbilled",
+        "x.jobs.jobSummary",
+        "x.jobs.myJob",
+        "x.jobs.myVisits",
+        "x.jobs.unbilled"
+      ],
+      "pack": "jobs"
+    },
+    {
+      "name": "x.jobs.editLine",
+      "description": "Changes a draft line (its description, quantity, unit, price, cost, tax code or item; how the office prices a material the crew recorded): the draft is voided as replaced and a corrected draft made in its place, which this answers. A line's words and numbers never change once written, so an approved, billed or void line is never changed (the host refuses the void of anything but a draft). Safe to send again. (Extension tool from Jobs 0.1.0.)",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "lineId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "description": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "quantity": {
+            "type": "number",
+            "minimum": 0,
+            "maximum": 1000000
+          },
+          "unit": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 20
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "unitPrice": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 10000000
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "cost": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0,
+                "maximum": 10000000
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "taxCode": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 40
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "itemCode": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 100
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "lineId"
+        ],
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "job": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "kind": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "estimate",
+                  "variation",
+                  "material",
+                  "labour"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "quantity": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "unit": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "unitPrice": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "cost": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "taxCode": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "state": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "draft",
+                  "approved",
+                  "billed",
+                  "void"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "job",
+          "kind",
+          "description",
+          "quantity",
+          "unit",
+          "unitPrice",
+          "cost",
+          "taxCode",
+          "state"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "x.jobs.exportUnbilled",
+        "x.jobs.jobSummary",
+        "x.jobs.myJob",
+        "x.jobs.myVisits",
+        "x.jobs.unbilled"
+      ],
+      "pack": "jobs"
+    },
+    {
+      "name": "x.jobs.enquire",
+      "description": "Takes an enquiry: a new job at the first stage of its pipeline (Trades unless another is named), for a customer (a Person id) and at a site (an existing site's id, or a new site's address, made for the same customer). A plain project names no site and the Projects pipeline. Pass requestId to make it safe to send again. Opens the new job. (Extension tool from Jobs 0.1.0.)",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "customerId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "The Person the work is for"
+          },
+          "organisationId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "siteId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "site": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200,
+                "description": "How the office knows it; the street address by default"
+              },
+              "line1": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 200
+              },
+              "line2": {
+                "type": "string",
+                "maxLength": 200
+              },
+              "suburb": {
+                "type": "string",
+                "maxLength": 100
+              },
+              "region": {
+                "type": "string",
+                "maxLength": 100
+              },
+              "postcode": {
+                "type": "string",
+                "maxLength": 20
+              },
+              "country": {
+                "type": "string",
+                "maxLength": 100
+              },
+              "hazards": {
+                "type": "string",
+                "maxLength": 2000
+              }
+            },
+            "required": [
+              "line1"
+            ],
+            "additionalProperties": {},
+            "description": "A new site, when siteId is not given"
+          },
+          "pipelineId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "billing": {
+            "type": "string",
+            "enum": [
+              "fixed",
+              "time_and_materials"
+            ]
+          },
+          "description": {
+            "type": "string",
+            "maxLength": 5000
+          },
+          "requestId": {
+            "type": "string",
+            "minLength": 8,
+            "maxLength": 64,
+            "description": "A key the caller makes once per action and sends again on a retry (a phone with poor signal): the same request finds what the first made instead of making it twice"
+          }
+        },
+        "required": [
+          "title"
+        ],
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "jobId": {
+            "type": "string"
+          },
+          "siteId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "stageId": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "existing": {
+            "type": "boolean",
+            "description": "True when this request had already made the job"
+          },
+          "open": {
+            "type": "object",
+            "properties": {
+              "object": {
+                "type": "string",
+                "const": "jobs.job"
+              },
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "object",
+              "id"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "jobId",
+          "siteId",
+          "stageId",
+          "existing",
+          "open"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "x.jobs.exportUnbilled",
+        "x.jobs.jobSummary",
+        "x.jobs.myJob",
+        "x.jobs.myVisits",
+        "x.jobs.unbilled"
+      ],
+      "pack": "jobs"
+    },
+    {
+      "name": "x.jobs.exportUnbilled",
+      "description": "What is owed and not yet billed, as a CSV file for the accounting system: one row per approved line that is owed (unbilled's), amounts in minor units of the base currency before tax. At most 500 lines; truncated says when there were more. A person only, and every download is in the audit log. (Extension tool from Jobs 0.1.0.)",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "jobId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          }
+        },
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "filename": {
+            "type": "string"
+          },
+          "contentType": {
+            "type": "string",
+            "const": "text/csv"
+          },
+          "csv": {
+            "type": "string"
+          },
+          "lines": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "truncated": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "filename",
+          "contentType",
+          "csv",
+          "lines",
+          "truncated"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [],
+      "pack": "jobs"
+    },
+    {
+      "name": "x.jobs.jobSummary",
+      "description": "One job for the office: its stage, customer, site, billing basis, the facts the host keeps (accepted, signed off, invoiced), its visits with their crew, its variations and how many lines it has of each kind and state. No prices: what is owed is unbilled's, for those who see prices. Read-only. (Extension tool from Jobs 0.1.0.)",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "jobId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          }
+        },
+        "required": [
+          "jobId"
+        ],
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "title": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "stage": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "status": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "pipeline": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "customer": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "organisation": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "owner": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "billing": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "site": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "address": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "hazards": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                },
+                "required": [
+                  "id",
+                  "name",
+                  "address",
+                  "hazards"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "acceptedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "acceptedBy": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "signedOffAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "invoicedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "visits": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "visitType": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "starts": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "ends": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "zone": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "arrivalWindow": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "state": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "enum": [
+                        "booked",
+                        "on_the_way",
+                        "on_site",
+                        "done",
+                        "missed",
+                        "cancelled"
+                      ]
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "crew": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string"
+                      },
+                      "staff": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "lead": {
+                        "type": "boolean"
+                      },
+                      "state": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "staff",
+                      "lead",
+                      "state"
+                    ],
+                    "additionalProperties": false
+                  }
+                }
+              },
+              "required": [
+                "id",
+                "title",
+                "visitType",
+                "starts",
+                "ends",
+                "zone",
+                "arrivalWindow",
+                "state",
+                "crew"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "moreVisits": {
+            "type": "boolean"
+          },
+          "variations": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "state": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "title",
+                "state"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "moreVariations": {
+            "type": "boolean"
+          },
+          "lines": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "kind": {
+                  "type": "string"
+                },
+                "state": {
+                  "type": "string"
+                },
+                "count": {
+                  "type": "number"
+                }
+              },
+              "required": [
+                "kind",
+                "state",
+                "count"
+              ],
+              "additionalProperties": false
+            },
+            "description": "How many lines of each kind and state, at most the first 200 lines counted"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "stage",
+          "status",
+          "pipeline",
+          "customer",
+          "organisation",
+          "owner",
+          "billing",
+          "site",
+          "acceptedAt",
+          "acceptedBy",
+          "signedOffAt",
+          "invoicedAt",
+          "visits",
+          "moreVisits",
+          "variations",
+          "moreVariations",
+          "lines"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [],
+      "pack": "jobs"
+    },
+    {
+      "name": "x.jobs.markDone",
+      "description": "Marks a visit done: the work of the day is finished. A person's own act, by someone on the visit or the office; the assistant cannot do it. (Extension tool from Jobs 0.1.0.)",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "visitId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          }
+        },
+        "required": [
+          "visitId"
+        ],
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "visitId": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "changed": {
+            "type": "boolean",
+            "description": "False when it was already in that state"
+          }
+        },
+        "required": [
+          "visitId",
+          "state",
+          "changed"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "x.jobs.exportUnbilled",
+        "x.jobs.jobSummary",
+        "x.jobs.myJob",
+        "x.jobs.myVisits",
+        "x.jobs.unbilled"
+      ],
+      "pack": "jobs"
+    },
+    {
+      "name": "x.jobs.markMissed",
+      "description": "Marks a visit missed: nobody could get in, or the crew could not come. A person's own act, by someone on the visit or the office; the assistant cannot do it. (Extension tool from Jobs 0.1.0.)",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "visitId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          }
+        },
+        "required": [
+          "visitId"
+        ],
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "visitId": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "changed": {
+            "type": "boolean",
+            "description": "False when it was already in that state"
+          }
+        },
+        "required": [
+          "visitId",
+          "state",
+          "changed"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "x.jobs.exportUnbilled",
+        "x.jobs.jobSummary",
+        "x.jobs.myJob",
+        "x.jobs.myVisits",
+        "x.jobs.unbilled"
+      ],
+      "pack": "jobs"
+    },
+    {
+      "name": "x.jobs.markOnSite",
+      "description": "Marks a visit on site: the crew has arrived. A person's own act, by someone on the visit or the office; the assistant cannot do it. (Extension tool from Jobs 0.1.0.)",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "visitId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          }
+        },
+        "required": [
+          "visitId"
+        ],
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "visitId": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "changed": {
+            "type": "boolean",
+            "description": "False when it was already in that state"
+          }
+        },
+        "required": [
+          "visitId",
+          "state",
+          "changed"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "x.jobs.exportUnbilled",
+        "x.jobs.jobSummary",
+        "x.jobs.myJob",
+        "x.jobs.myVisits",
+        "x.jobs.unbilled"
+      ],
+      "pack": "jobs"
+    },
+    {
+      "name": "x.jobs.markOnTheWay",
+      "description": "Marks a booked visit on the way. A person's own act, by someone on the visit or the office; the assistant cannot do it. (Extension tool from Jobs 0.1.0.)",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "visitId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          }
+        },
+        "required": [
+          "visitId"
+        ],
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "visitId": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          },
+          "changed": {
+            "type": "boolean",
+            "description": "False when it was already in that state"
+          }
+        },
+        "required": [
+          "visitId",
+          "state",
+          "changed"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "x.jobs.exportUnbilled",
+        "x.jobs.jobSummary",
+        "x.jobs.myJob",
+        "x.jobs.myVisits",
+        "x.jobs.unbilled"
+      ],
+      "pack": "jobs"
+    },
+    {
+      "name": "x.jobs.moveVisit",
+      "description": "Moves a visit to another time. Its whole crew moves with it in the same write; if anyone would then be in two places at once, nothing moves and the refusal names them. Answers each crew member's warnings. The end keeps the visit's length unless given. An assistant's move waits for a person. (Extension tool from Jobs 0.1.0.)",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "visitId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "starts": {
+            "type": "string",
+            "allOf": [
+              {
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+              },
+              {
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+              }
+            ]
+          },
+          "ends": {
+            "type": "string",
+            "allOf": [
+              {
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+              },
+              {
+                "pattern": "^(?:(?:\\d\\d[2468][048]|\\d\\d[13579][26]|\\d\\d0[48]|[02468][048]00|[13579][26]00)-02-29|\\d{4}-(?:(?:0[13578]|1[02])-(?:0[1-9]|[12]\\d|3[01])|(?:0[469]|11)-(?:0[1-9]|[12]\\d|30)|(?:02)-(?:0[1-9]|1\\d|2[0-8])))T(?:(?:[01]\\d|2[0-3]):[0-5]\\d:[0-5]\\d(?:\\.\\d+)?(?:Z|([+-](?:[01]\\d|2[0-3]):[0-5]\\d)))$"
+              }
+            ]
+          },
+          "zone": {
+            "type": "string",
+            "maxLength": 64
+          },
+          "arrivalWindow": {
+            "type": "string",
+            "maxLength": 100
+          }
+        },
+        "required": [
+          "visitId",
+          "starts"
+        ],
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "visitId": {
+            "type": "string"
+          },
+          "starts": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "ends": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "warnings": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "code": {
+                  "type": "string"
+                },
+                "account": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "message": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "code",
+                "account",
+                "message"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "visitId",
+          "starts",
+          "ends",
+          "warnings"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "x.jobs.exportUnbilled",
+        "x.jobs.jobSummary",
+        "x.jobs.myJob",
+        "x.jobs.myVisits",
+        "x.jobs.unbilled"
+      ],
+      "pack": "jobs"
+    },
+    {
+      "name": "x.jobs.myJob",
+      "description": "A job as the crew sees it: its title and description, the site's address and hazards, its visits, the materials recorded on it and its variations. Quantities, never prices. Read-only. (Extension tool from Jobs 0.1.0.)",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "jobId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          }
+        },
+        "required": [
+          "jobId"
+        ],
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "title": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "site": {
+            "anyOf": [
+              {
+                "type": "object",
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "name": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "address": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  },
+                  "hazards": {
+                    "type": [
+                      "string",
+                      "null"
+                    ]
+                  }
+                },
+                "required": [
+                  "id",
+                  "name",
+                  "address",
+                  "hazards"
+                ],
+                "additionalProperties": false
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "visits": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "visitType": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "starts": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "ends": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "zone": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "arrivalWindow": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "state": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "enum": [
+                        "booked",
+                        "on_the_way",
+                        "on_site",
+                        "done",
+                        "missed",
+                        "cancelled"
+                      ]
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "title",
+                "visitType",
+                "starts",
+                "ends",
+                "zone",
+                "arrivalWindow",
+                "state"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "materials": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "description": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "quantity": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "unit": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "state": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "enum": [
+                        "draft",
+                        "approved",
+                        "billed",
+                        "void"
+                      ]
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "recordedByName": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "description",
+                "quantity",
+                "unit",
+                "state",
+                "recordedByName"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "variations": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "state": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "enum": [
+                        "proposed",
+                        "approved",
+                        "declined",
+                        "withdrawn"
+                      ]
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "title",
+                "state"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "truncated": {
+            "type": "boolean",
+            "description": "More visits, materials or variations than shown (50 each)"
+          }
+        },
+        "required": [
+          "id",
+          "title",
+          "description",
+          "site",
+          "visits",
+          "materials",
+          "variations",
+          "truncated"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [],
+      "pack": "jobs"
+    },
+    {
+      "name": "x.jobs.myVisits",
+      "description": "The caller's own visits from today for the next days (7 by default, at most 14), soonest first: each visit's time, arrival window, state, notes for the crew, the job and the site's address and hazards. No prices. Read-only. (Extension tool from Jobs 0.1.0.)",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "days": {
+            "default": 7,
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 14
+          }
+        },
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "visits": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "visitType": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "starts": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "ends": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "zone": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "arrivalWindow": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "state": {
+                  "anyOf": [
+                    {
+                      "type": "string",
+                      "enum": [
+                        "booked",
+                        "on_the_way",
+                        "on_site",
+                        "done",
+                        "missed",
+                        "cancelled"
+                      ]
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "placeId": {
+                  "type": "string"
+                },
+                "lead": {
+                  "type": "boolean"
+                },
+                "crewNotes": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "job": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string"
+                        },
+                        "title": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "title"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "site": {
+                  "anyOf": [
+                    {
+                      "type": "object",
+                      "properties": {
+                        "id": {
+                          "type": "string"
+                        },
+                        "name": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "address": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        },
+                        "hazards": {
+                          "type": [
+                            "string",
+                            "null"
+                          ]
+                        }
+                      },
+                      "required": [
+                        "id",
+                        "name",
+                        "address",
+                        "hazards"
+                      ],
+                      "additionalProperties": false
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "title",
+                "visitType",
+                "starts",
+                "ends",
+                "zone",
+                "arrivalWindow",
+                "state",
+                "placeId",
+                "lead",
+                "crewNotes",
+                "job",
+                "site"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "truncated": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "visits",
+          "truncated"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [],
+      "pack": "jobs"
+    },
+    {
+      "name": "x.jobs.proposeVariation",
+      "description": "Proposes extra work on a job (a variation): what, why and who asked, with its lines (what and how many; the office prices them). It is approved before the work is done. By someone with a place on the job, or the office. Pass requestId to make it safe to send again. (Extension tool from Jobs 0.1.0.)",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "jobId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "title": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200
+          },
+          "why": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 2000
+          },
+          "askedBy": {
+            "type": "string",
+            "enum": [
+              "customer",
+              "crew",
+              "office"
+            ]
+          },
+          "lines": {
+            "minItems": 1,
+            "maxItems": 20,
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "description": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 200
+                },
+                "quantity": {
+                  "type": "number",
+                  "minimum": 0,
+                  "maximum": 1000000
+                },
+                "unit": {
+                  "type": "string",
+                  "maxLength": 20
+                }
+              },
+              "required": [
+                "description",
+                "quantity"
+              ],
+              "additionalProperties": {}
+            }
+          },
+          "requestId": {
+            "type": "string",
+            "minLength": 8,
+            "maxLength": 64,
+            "description": "A key the caller makes once per action and sends again on a retry (a phone with poor signal): the same request finds what the first made instead of making it twice"
+          }
+        },
+        "required": [
+          "jobId",
+          "title",
+          "why",
+          "lines"
+        ],
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "variationId": {
+            "type": "string"
+          },
+          "lineIds": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "existing": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "variationId",
+          "lineIds",
+          "existing"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "x.jobs.exportUnbilled",
+        "x.jobs.jobSummary",
+        "x.jobs.myJob",
+        "x.jobs.myVisits",
+        "x.jobs.unbilled"
+      ],
+      "pack": "jobs"
+    },
+    {
+      "name": "x.jobs.recordAcceptance",
+      "description": "Records that the customer accepted the work, on their word or a paper estimate, before quotes are built: sets the job's Accepted fact as the office's (never the customer's), approves exactly the estimate lines named (what the customer accepted), and moves the job to a stage when one is named. A person's own act; the assistant cannot do it. (Extension tool from Jobs 0.1.0.)",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "jobId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "how": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500,
+            "description": "How the customer accepted: a signed paper estimate, a phone call"
+          },
+          "estimateLines": {
+            "maxItems": 200,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            },
+            "description": "The estimate lines the customer accepted; other drafts stay drafts"
+          },
+          "stageId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "A stage to move the job to in the same write (Accepted)"
+          }
+        },
+        "required": [
+          "jobId",
+          "how",
+          "estimateLines"
+        ],
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "jobId": {
+            "type": "string"
+          },
+          "acceptedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "stage": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "approvedLines": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          }
+        },
+        "required": [
+          "jobId",
+          "acceptedAt",
+          "stage",
+          "approvedLines"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "x.jobs.exportUnbilled",
+        "x.jobs.jobSummary",
+        "x.jobs.myJob",
+        "x.jobs.myVisits",
+        "x.jobs.unbilled"
+      ],
+      "pack": "jobs"
+    },
+    {
+      "name": "x.jobs.removeCrew",
+      "description": "Takes a staff member off a visit: their crew place is cancelled, off the roster. An assistant's call waits for a person. (Extension tool from Jobs 0.1.0.)",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "placeId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          }
+        },
+        "required": [
+          "placeId"
+        ],
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "placeId": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "placeId",
+          "state"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "x.jobs.exportUnbilled",
+        "x.jobs.jobSummary",
+        "x.jobs.myJob",
+        "x.jobs.myVisits",
+        "x.jobs.unbilled"
+      ],
+      "pack": "jobs"
+    },
+    {
+      "name": "x.jobs.unbilled",
+      "description": "What is owed and not yet billed, by job: on a fixed-price job its approved estimate and variation lines, on a time and materials job its approved labour and material lines. Each line's amount and each job's total are integers in minor units of the base currency (cents), before tax. One job with jobId, else every job, at most 500 lines (truncated says when there were more). Read-only. (Extension tool from Jobs 0.1.0.)",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "jobId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          }
+        },
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "jobs": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "jobId": {
+                  "type": "string"
+                },
+                "title": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "billing": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "total": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                "lines": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "lineId": {
+                        "type": "string"
+                      },
+                      "kind": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "description": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "quantity": {
+                        "type": [
+                          "number",
+                          "null"
+                        ]
+                      },
+                      "unit": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      },
+                      "unitPrice": {
+                        "type": [
+                          "number",
+                          "null"
+                        ]
+                      },
+                      "amount": {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      },
+                      "taxCode": {
+                        "type": [
+                          "string",
+                          "null"
+                        ]
+                      }
+                    },
+                    "required": [
+                      "lineId",
+                      "kind",
+                      "description",
+                      "quantity",
+                      "unit",
+                      "unitPrice",
+                      "amount",
+                      "taxCode"
+                    ],
+                    "additionalProperties": false
+                  }
+                }
+              },
+              "required": [
+                "jobId",
+                "title",
+                "billing",
+                "total",
+                "lines"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "total": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "truncated": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "jobs",
+          "total",
+          "truncated"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [],
+      "pack": "jobs"
+    },
+    {
+      "name": "x.jobs.voidLine",
+      "description": "Voids a draft or approved line: it no longer counts. A billed line is given back only when its invoice is voided. An assistant's call waits for a person. (Extension tool from Jobs 0.1.0.)",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "lineId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          }
+        },
+        "required": [
+          "lineId"
+        ],
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "job": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "kind": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "estimate",
+                  "variation",
+                  "material",
+                  "labour"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "description": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "quantity": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "unit": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "unitPrice": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "cost": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "taxCode": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "state": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "draft",
+                  "approved",
+                  "billed",
+                  "void"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "job",
+          "kind",
+          "description",
+          "quantity",
+          "unit",
+          "unitPrice",
+          "cost",
+          "taxCode",
+          "state"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "x.jobs.exportUnbilled",
+        "x.jobs.jobSummary",
+        "x.jobs.myJob",
+        "x.jobs.myVisits",
+        "x.jobs.unbilled"
+      ],
+      "pack": "jobs"
+    },
+    {
+      "name": "x.jobs.withdrawVariation",
+      "description": "Withdraws a proposed variation nobody wants any more: its lines are voided with it. An assistant's call waits for a person. (Extension tool from Jobs 0.1.0.)",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "variationId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          }
+        },
+        "required": [
+          "variationId"
+        ],
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "variationId": {
+            "type": "string"
+          },
+          "state": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "proposed",
+                  "approved",
+                  "declined",
+                  "withdrawn"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "decidedBy": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "variationId",
+          "state",
+          "decidedBy"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "x.jobs.exportUnbilled",
+        "x.jobs.jobSummary",
+        "x.jobs.myJob",
+        "x.jobs.myVisits",
+        "x.jobs.unbilled"
+      ],
+      "pack": "jobs"
+    },
+    {
       "name": "x.knowledge.confirm",
       "description": "Confirm that I have read and understood a procedure's current published version: one tap, by the person themselves. Refused for a version that is not the current one (read it again and confirm that), a procedure I am not asked to read, and a second time for the same version. A confirmation is kept for good and never changed. Not for an AI. (Extension tool from Knowledge 0.1.0.)",
       "risk": "write",
