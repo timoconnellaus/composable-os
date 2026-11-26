@@ -39,6 +39,7 @@ import {
   type ExportCursor,
   type ExportPart,
   exportPart,
+  importedExtensionObjects,
   importPart,
   migrationsSchema,
   type SchemaRow,
@@ -135,11 +136,6 @@ async function sha256Hex(bytes: ArrayBuffer): Promise<string> {
   return Array.from(digest, (b) => b.toString(16).padStart(2, "0")).join("");
 }
 
-/** Objects named `x_…` or `rec_…` (and their indexes and triggers): an extension's, not core's. */
-function extensionOwned(row: SchemaRow): boolean {
-  return /^(x_|rec_)/.test(row.name) || /^(x_|rec_)/.test(row.tbl_name);
-}
-
 /**
  * What an import into a client's database expects: the core schema the code's migrations make
  * (`migrationsSchema`, on a reference database of its own, erased after), and the extension
@@ -154,8 +150,7 @@ async function importExpectation(env: OperatorEnv, migrations: Migration[]) {
         migrations,
         source.migrations,
       );
-      const extension = (await schemaRows(db)).filter(extensionOwned);
-      return [...core, ...extension];
+      return [...core, ...importedExtensionObjects(await schemaRows(db), core)];
     } finally {
       await stubOf(env, name)
         .erase()

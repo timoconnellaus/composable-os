@@ -46,6 +46,7 @@ import {
 } from "../main.ts";
 import {
   addClient,
+  canonicalDomain,
   exportClient,
   type FleetContext,
   FleetError,
@@ -58,8 +59,16 @@ import {
   setSecret,
 } from "./clients.ts";
 import { d1OverRest } from "./d1-rest.ts";
-import { type KeysFile, newFleetKeys, readKeysFile, writeKeysFile } from "./keys.ts";
+import {
+  type KeysFile,
+  keysFingerprint,
+  keysMismatch,
+  newFleetKeys,
+  readKeysFile,
+  writeKeysFile,
+} from "./keys.ts";
 import { openOperator } from "./operator-client.ts";
+import { lazyOperator } from "./session.ts";
 import { fleetUpdate } from "./update.ts";
 
 export const CLIENT_COMMANDS = [
@@ -85,7 +94,8 @@ cos client: the clients of a host of many clients (each takes --env <live|stagin
   cos client export <id> [--out <dir>] [--leaving]
   cos client import <id> --from <dir> [--without-secrets] [--staff-hostname h] [--web-hostname h]
   cos client remove <id>
-Every command that removes or overwrites asks for the client's id (or --yes); --dry-run changes nothing.`;
+Every command that removes or overwrites asks for the client's id (or --yes); --dry-run changes nothing.
+One command at a time uses the operator's Worker; --take-over takes it from one that was killed.`;
 
 function environmentOf(flags: Flags): FleetEnvironment {
   const env = str(flags, "env") ?? "live";
@@ -104,7 +114,7 @@ export function registryMigrations(): Migration[] {
   const dir = candidates.find((c) => existsSync(c));
   if (!dir) throw new CliError("the registry's migrations are not with this cos");
   return readdirSync(dir)
-    .filter((name) => /^\d+_.*\.sql$/.test(name))
+    .filter((name) => /^d+_.*.sql$/.test(name))
     .sort()
     .map((name) => migrationOf(name, readFileSync(join(dir, name), "utf8")));
 }
@@ -185,6 +195,10 @@ async function fleetInstall(flags: Flags, deps: Deps): Promise<number> {
   if (!callbackHostname || !domain) {
     throw new CliError("--callback-hostname <h> and --domain <d> are needed for a fleet");
   }
+  // The fleet's domain in the registry's one form (case, a trailing dot, an IDN), so no other
+  // spelling of it can turn off the rule that keeps clients' web apps off it (S3).
+  const fleetDomain = canonicalDomain(domain);
+  if (!fleetDomain) throw new CliError(`--domain ${domain} is not a hostname`);
   const { callbackHostname: canonical } = await import("@composable-os/db/callbacks");
   if (canonical({ COS_CALLBACK_HOSTNAME: callbackHostname }) !== callbackHostname) {
     throw new CliError(`${callbackHostname} is not a canonical hostname`);
@@ -219,7 +233,22 @@ async function fleetInstall(flags: Flags, deps: Deps): Promise<number> {
     bundleDigest: digest,
     installedAt: new Date().toISOString(),
   };
-  state.fleet = { environment, callbackHostname, domain, secretsPublicKey: keys.secretsPublicKey };
+  // The keys file must be the one this deployment was installed with (S2): never re-keyed here.
+  if (state.fleet) {
+    const mismatch = keysMismatch(state.fleet, keys);
+    if (mismatch) {
+      throw new CliError(
+        `The keys file is not this ${environment} deployment's: ${mismatch}. Nothing was changed. Use the file it was installed with.`,
+      );
+    }
+  }
+  state.fleet = {
+    environment,
+    callbackHostname,
+    domain: fleetDomain,
+    secretsPublicKey: state.fleet?.secretsPublicKey ?? keys.secretsPublicKey,
+    keysFingerprint: state.fleet?.keysFingerprint ?? keysFingerprint(keys),
+  };
   const log = (l: string) => deps.io.out(l);
   deps.io.out(`Installing a ${environment} host of many clients of ${s.product.label} ${version}:`);
   // The registry first, migrated before any Worker binds it.
@@ -266,6 +295,12 @@ async function fleetUpgrade(flags: Flags, deps: Deps): Promise<number> {
   const keys = await readKeys(flags, deps, environment);
   const s = await session(flags, deps);
   const { databaseId, state } = await locateFleet(s, environment);
+  const mismatch = keysMismatch(state.fleet as NonNullable<typeof state.fleet>, keys);
+  if (mismatch) {
+    throw new CliError(
+      `The keys file is not this ${environment} deployment's: ${mismatch}. Nothing was changed. Use the file it was installed with.`,
+    );
+  }
   const to = str(flags, "version") ?? (await latestVersion(s, state.channel));
   if (compareVersions(to, state.version) <= 0) {
     deps.io.out(`${state.version} is installed; nothing newer.`);
@@ -283,7 +318,7 @@ async function fleetUpgrade(flags: Flags, deps: Deps): Promise<number> {
   const target = await verified(s, to, deps);
   let previous: ReleaseBundle | null = null;
   const fleet = fleetInput(keys, environment);
-  return withContext(flags, deps, s, state, async (ctx) => {
+  return withContext(`fleet upgrade ${environment}`, flags, deps, s, state, async (ctx) => {
     const outcome = await fleetUpdate(ctx, {
       from: state.version,
       to,
@@ -333,6 +368,7 @@ async function fleetUpgrade(flags: Flags, deps: Deps): Promise<number> {
 
 /** Runs `body` with a fleet context: the registry over REST and an operator session. */
 async function withContext(
+  command: string,
   flags: Flags,
   deps: Deps,
   s: Session,
@@ -350,17 +386,24 @@ async function withContext(
   const script = state.workerNames[operatorWorker.name] ?? operatorWorker.name;
   const subdomain = await s.api.workersSubdomain(s.accountId);
   const origin = deps.env.COS_OPERATOR_ORIGIN ?? `https://${script}.${subdomain}.workers.dev`;
-  const operator = await openOperator({
-    api: s.api,
-    accountId: s.accountId,
-    script,
-    origin,
-    ...(deps.fetch ? { fetch: deps.fetch } : {}),
-    redact: (v) => deps.redactor.add(v),
-  });
+  const registry = d1OverRest(s.api, s.accountId, registryId);
+  // Opened (and the operator's session taken) only on the command's first call to it (S1).
+  const operator = lazyOperator(
+    registry,
+    () =>
+      openOperator({
+        api: s.api,
+        accountId: s.accountId,
+        script,
+        origin,
+        ...(deps.fetch ? { fetch: deps.fetch } : {}),
+        redact: (v) => deps.redactor.add(v),
+      }),
+    { command, ...(flags["take-over"] ? { takeOver: true } : {}) },
+  );
   try {
     return await body({
-      registry: d1OverRest(s.api, s.accountId, registryId),
+      registry,
       operator,
       fleet,
       migrations: bundleMigrations(installed.bundle),
@@ -427,7 +470,7 @@ export async function runClientCommand(argv: string[], deps: Deps): Promise<numb
     const environment = environmentOf(flags);
     const s = await session(flags, deps);
     const { state } = await locateFleet(s, environment);
-    return await withContext(flags, deps, s, state, async (ctx) => {
+    return await withContext(`client ${command}`, flags, deps, s, state, async (ctx) => {
       switch (command) {
         case "add":
           return addClient(ctx, {

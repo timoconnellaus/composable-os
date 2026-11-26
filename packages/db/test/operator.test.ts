@@ -9,7 +9,7 @@ import { type OperatorEnv, operatorFetch } from "../src/operator.ts";
 import type { ClientId } from "../src/registry.ts";
 import { newHostKeys } from "../src/registry-sealing.ts";
 import { addClientRows, readClient } from "../src/registry-writes.ts";
-import type { ExportPart } from "../src/sql-export.ts";
+import { type ExportPart, importedExtensionObjects } from "../src/sql-export.ts";
 import { emptyRegistry, migrateRegistry } from "./registry-fixtures.ts";
 
 const real = env as unknown as {
@@ -267,5 +267,83 @@ describe("export, import and remove through the operator", () => {
       more: false,
     });
     expect([...index.vectors.keys()]).toEqual(["c:b1"]);
+  });
+});
+
+describe("what an import accepts beside the core schema (review of #526, S4)", () => {
+  const row = (type: string, name: string, tbl_name: string) => ({
+    type,
+    name,
+    tbl_name,
+    sql: `-- ${type} ${name}`,
+  });
+  it("takes an extension's tables, indexes, triggers and views, and nothing on core tables", () => {
+    const core = [
+      row("table", "core_settings", "core_settings"),
+      row("view", "rec_person", "rec_person"),
+    ];
+    const actual = [
+      ...core,
+      row("table", "x_shop_item", "x_shop_item"),
+      row("index", "x_shop_item_name", "x_shop_item"),
+      row("trigger", "x_shop_item_ai", "x_shop_item"),
+      row("view", "rec_shop_item", "rec_shop_item"),
+      row("view", "rec_person", "rec_person"),
+      // Named like an extension's, attached to a core table: not taken.
+      row("trigger", "x_hook", "core_settings"),
+      row("index", "x_idx", "core_settings"),
+      row("table", "core_settings", "core_settings"),
+      row("table", "other", "other"),
+    ];
+    expect(importedExtensionObjects(actual, core).map((r) => `${r.type} ${r.name}`)).toEqual([
+      "view rec_person",
+      "table x_shop_item",
+      "index x_shop_item_name",
+      "trigger x_shop_item_ai",
+      "view rec_shop_item",
+      "view rec_person",
+    ]);
+  });
+
+  it("refuses, and empties the database, an export that hooks a core table with a trigger", async () => {
+    await newClient("op-hook-src");
+    await newClient("op-hook-dst");
+    await call({ action: "migrate", client: "op-hook-src", migrations: real.TEST_MIGRATIONS });
+    await real.CLIENT_DB.get(real.CLIENT_DB.idFromName("op-hook-src")).query(
+      [
+        {
+          sql: "CREATE TRIGGER x_hook AFTER INSERT ON core_settings BEGIN SELECT 1; END",
+          params: [],
+        },
+      ],
+      crypto.randomUUID(),
+    );
+    const record = await readClient(real.REGISTRY, "op-hook-src" as ClientId);
+    const exportKey = `op-hook-src/${record?.secretGeneration}/20261128T010203Z`;
+    let cursor: unknown = null;
+    const paths: string[] = [];
+    do {
+      const step = await call({
+        action: "export-db-part",
+        client: "op-hook-src",
+        exportKey,
+        cursor,
+      });
+      paths.push(step.body.path as string);
+      cursor = step.body.next;
+    } while (cursor);
+    let refused = "";
+    for (const path of paths) {
+      const part = JSON.parse(await ((await real.EXPORTS.get(path)) as R2ObjectBody).text());
+      const step = await call({
+        action: "import-db-part",
+        client: "op-hook-dst",
+        part,
+        migrations: real.TEST_MIGRATIONS,
+      });
+      if (step.status !== 200) refused = String(step.body.error);
+    }
+    expect(refused).toMatch(/refused and the database emptied/);
+    expect((await call({ action: "level", client: "op-hook-dst" })).body.applied).toBe(0);
   });
 });

@@ -11,8 +11,8 @@
 import {
   type ExportSource,
   importDatabase,
+  importedExtensionObjects,
   migrationsSchema,
-  type SchemaRow,
   schemaRows,
 } from "@composable-os/db/sql-export";
 import type { CloudflareClient, Log, ReleaseBundle, ReleaseManifest } from "@composable-os/release";
@@ -57,10 +57,6 @@ export function exportedAppSecrets(folder: ExportFolder): {
   return { secrets, leftOut };
 }
 
-/** Objects named `x_…` or `rec_…`, and their indexes and triggers: an extension's. */
-const extensionOwned = (row: SchemaRow) =>
-  /^(x_|rec_)/.test(row.name) || /^(x_|rec_)/.test(row.tbl_name);
-
 /** Imports the export's database into the install's empty D1 database. */
 export async function importIntoD1(input: {
   api: CloudflareClient;
@@ -77,7 +73,7 @@ export async function importIntoD1(input: {
       const reference = nodeD1();
       try {
         const core = await migrationsSchema(reference, migrations, source.migrations);
-        return [...core, ...(await schemaRows(imported)).filter(extensionOwned)];
+        return [...core, ...importedExtensionObjects(await schemaRows(imported), core)];
       } finally {
         reference.close();
       }

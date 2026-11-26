@@ -409,3 +409,50 @@ export async function finishOperation<S>(
     .bind(JSON.stringify(state), outcome, id)
     .run();
 }
+
+// --- The operator's Worker, one command at a time (migration 0795; review of #526, S1) -----------
+
+/** Who holds the operator's Worker now, when another command does. */
+export interface OperatorSessionHeld {
+  command: string;
+  until: number;
+}
+
+/**
+ * Takes the operator's Worker for one command's run (`holder`), until `now + ttlMs`: refused while
+ * another run holds it and its time has not run out, unless `takeOver` (the operator's deliberate
+ * choice, when a command was killed). The run that holds it renews it with the same call.
+ */
+export async function takeOperatorSession(
+  registry: D1Database,
+  holder: string,
+  command: string,
+  ttlMs: number,
+  options: { now?: number; takeOver?: boolean } = {},
+): Promise<{ taken: true } | { taken: false; held: OperatorSessionHeld }> {
+  const now = options.now ?? Date.now();
+  await registry
+    .prepare(
+      `INSERT INTO registry_operator_session (id, holder, command, until) VALUES ('operator', ?, ?, ?)
+       ON CONFLICT (id) DO UPDATE SET holder = excluded.holder, command = excluded.command, until = excluded.until
+       WHERE registry_operator_session.holder = excluded.holder OR registry_operator_session.until < ? OR ? = 1`,
+    )
+    .bind(holder, command, now + ttlMs, now, options.takeOver ? 1 : 0)
+    .run();
+  const row = await registry
+    .prepare("SELECT holder, command, until FROM registry_operator_session WHERE id = 'operator'")
+    .first<{ holder: string; command: string; until: number }>();
+  if (row?.holder === holder) return { taken: true };
+  return {
+    taken: false,
+    held: { command: row?.command ?? "another command", until: Number(row?.until ?? 0) },
+  };
+}
+
+/** Gives the operator's Worker back, if `holder` still holds it. */
+export async function releaseOperatorSession(registry: D1Database, holder: string): Promise<void> {
+  await registry
+    .prepare("DELETE FROM registry_operator_session WHERE id = 'operator' AND holder = ?")
+    .bind(holder)
+    .run();
+}

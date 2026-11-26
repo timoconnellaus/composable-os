@@ -41,6 +41,7 @@ import { type AssistantHttpEnv, handleSocket, SOCKET_PATH } from "./assistant/ht
 import { runAgentJobCron } from "./assistant/job-cron.ts";
 import { handleRoutineDeliveries } from "./assistant/routines.ts";
 import { isDeskRequest } from "./desk.ts";
+import { HOST_HEALTH_PATH, hostHealthResponse } from "./health.ts";
 import { staffCodesFor } from "./host-mail.ts";
 import { handleAgreementPdf, isAgreementPdfPath } from "./http/agreement-pdf.ts";
 import {
@@ -190,6 +191,10 @@ export async function hostFetch(
   if (!servesManyClients(env)) return dispatch(request, env, ctx, parts);
   // The deployment's callback address first: no client's, and decided before any client is.
   if (isCallbackHostname(env as never, new URL(request.url).hostname)) {
+    // The host's own health (stage 66 step 7): what an update smoke-checks while clients are paused.
+    if (request.method === "GET" && new URL(request.url).pathname === HOST_HEALTH_PATH) {
+      return hostHealthResponse(env as never);
+    }
     return callbackFetch(request, env);
   }
   const decided = await decideRequest(env, request, APP_SURFACES);

@@ -13,6 +13,11 @@ export interface Operator {
   op<T = Record<string, unknown>>(action: string, body?: Record<string, unknown>): Promise<T>;
   putFile(client: string, key: string, bytes: Uint8Array, contentType?: string): Promise<void>;
   getExport(path: string): Promise<Uint8Array>;
+  /**
+   * Takes the operator's session for this command before it changes anything (session.ts), so a
+   * command refused because another holds it has written nothing. Absent on a test's stand-in.
+   */
+  claim?(): Promise<void>;
 }
 
 export class OperatorError extends Error {}

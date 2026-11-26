@@ -8,7 +8,8 @@
 //            version recorded. One that fails is restored to its bookmark, and so is every client
 //            migrated before it; nothing is uploaded
 //   upload   the Workers, once
-//   smoke    the new version answers at a client's staff address; on failure the previous
+//   smoke    the new version answers at the host's own health address (the callback hostname,
+//            answered before any client is decided, so it works while every client is paused); on failure the previous
 //            Workers are uploaded again and every client is restored to its bookmark
 //   resume   the clients the update paused (a client the operator had paused stays paused)
 //
@@ -19,7 +20,7 @@
 // does the same; after the upload it runs the smoke check and goes on from there; while resuming it
 // resumes the rest. Then it says so, and the operator runs the update again.
 import type { Migration, MigrationLevel } from "@composable-os/db";
-import { type ClientId, readRegistry } from "@composable-os/db/registry";
+import type { ClientId } from "@composable-os/db/registry";
 import {
   beginOperation,
   finishOperation,
@@ -63,10 +64,15 @@ interface UpdateState {
 /** What a run of the update ended as. */
 export type FleetUpdateOutcome = "succeeded" | "rolled-back" | "undone" | "blocked" | "nothing";
 
+/**
+ * Every client with a bookmark recorded, back to it, its schema version as it was. Not only those
+ * whose migration answered: one whose call was lost after the object applied its migrations has
+ * the new schema with no `after` recorded (review of #526, M2), and restoring a database that did
+ * not change to its bookmark changes nothing.
+ */
 async function restoreMigrated(ctx: FleetContext, state: UpdateState): Promise<string[]> {
   const restored: string[] = [];
   for (const [id, client] of Object.entries(state.clients)) {
-    if (client.after === undefined) continue;
     await ctx.operator.op("restore", { client: id, bookmark: client.bookmark });
     await recordSchemaVersion(ctx.registry, id as ClientId, client.before);
     delete client.after;
@@ -81,26 +87,16 @@ async function resumePaused(ctx: FleetContext, state: UpdateState): Promise<void
   }
 }
 
-/** The staff hostname the smoke check asks: the first active client's that has one. */
-async function smokeHostname(ctx: FleetContext, state: UpdateState): Promise<string | null> {
-  const snapshot = await readRegistry(ctx.registry);
-  for (const id of [...state.paused].sort()) {
-    const staff = snapshot.addresses.get(id as ClientId)?.staff;
-    if (staff) return staff;
-  }
-  return null;
-}
-
 async function smokeAndFinish(
   ctx: FleetContext,
   input: FleetUpdateInput,
   op: { id: string },
   state: UpdateState,
 ): Promise<FleetUpdateOutcome> {
-  const hostname = await smokeHostname(ctx, state);
+  // The host's own health on its callback hostname, answered before any client is decided: every
+  // client is paused now, and a client's address would answer "being updated" (review of #526, M1).
   try {
-    if (hostname) await input.smoke(hostname);
-    else ctx.io.out("  smoke: no active client with a staff address to ask: skipped");
+    await input.smoke(ctx.fleet.callbackHostname);
   } catch (error) {
     ctx.io.err(`  smoke check failed: ${(error as Error).message}`);
     await input.uploadPrevious();
@@ -155,6 +151,7 @@ export async function fleetUpdate(
   ctx: FleetContext,
   input: FleetUpdateInput,
 ): Promise<FleetUpdateOutcome> {
+  if (!ctx.dryRun) await ctx.operator.claim?.();
   const unfinished = await unfinishedOperation<UpdateState>(ctx.registry, "update", null);
   if (unfinished) {
     if (ctx.dryRun) {

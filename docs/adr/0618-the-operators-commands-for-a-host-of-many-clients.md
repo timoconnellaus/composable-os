@@ -113,8 +113,8 @@ Check every client's own extensions against the new release's contracts (one tha
 working stops the update with nothing changed, decision 7); pause every active client; for each
 client a bookmark, then its migrations, its schema version recorded; one that fails is restored to
 its bookmark, and so is every client migrated before it, and nothing is uploaded; the Workers
-uploaded once; a smoke check at a client's staff address; on failure the previous Workers again and
-every client restored; then the clients it paused resumed (one the operator had paused stays so).
+uploaded once; a smoke check at the host's own health address (below); on failure the previous
+Workers again and every client restored; then the clients it paused resumed (one the operator had paused stays so).
 Live takes a release only once staging runs it (`--skip-staging` deliberately). The host's
 "being updated" answer for a client paused or behind is step 4's.
 
@@ -155,6 +155,44 @@ host; today the operator holds both, so a signature would be made by the same ha
 check. The familiar, safer course is to keep one secret (the token) and protect it, and to add a
 signed audit of the operator's writes together with a signing key held apart (a hardware key or
 the control plane), as one later step. Recorded in ADR 0616 too.
+
+### After the review of #526 (2026-11-28)
+- **M1, the smoke check.** Every client is paused while the update runs, so a client's address
+  answers "being updated". The app now answers `GET /api/health` on the deployment's callback
+  hostname before any client is decided (`hostHealthResponse`): the version these Workers run and
+  whether the registry's stamp reads; nothing of any client's. The update smoke-checks there,
+  always, whether or not a client was active. Tested through the app's real entry and the real
+  `healthSmoke`, with a paused client.
+- **M2, a lost answer.** On a failure or a re-run every client with a bookmark recorded is restored
+  to it, not only those whose migration answered: a call that applied its migrations and then lost
+  its answer is undone too (restoring an unchanged database to its bookmark changes nothing).
+- **S1, one command at a time.** Opening the operator's Worker sets its token, which would cut off
+  another command. A command that needs the Worker first takes the registry's one session row
+  (`registry_operator_session`, migration 0795), before it changes anything, renewed with each call
+  and given back at its end; while another holds it, it is refused. One killed holds it for 30
+  minutes, or until `--take-over`. `list`, `pause`, `resume` and `secret` touch only the registry and
+  never open the Worker, so they are safe beside a running command.
+- **S2, the keys file and its deployment.** The state keeps a SHA-256 of the root, binding and props
+  keys (`keysFingerprint`) beside the sealing public key; `cos fleet install` (re-run) and `cos
+  fleet upgrade` refuse any other keys file before a key is set, and a re-run never replaces the
+  stored public key.
+- **S3, web hostnames.** `--domain` is put in its one form at install (case, a trailing dot, an IDN as
+  punycode), and a client's web or desk hostname is refused anywhere under the fleet domain's
+  registrable domain (two labels, three under a country's `co`, `com`, `org` and the like; no Public
+  Suffix listing is assumed). A client's code runs only on the client's own domain (the owner's
+  decision: no Public Suffix List submission).
+- **S4, what an import accepts.** Beside the core schema the code's migrations make, only: tables
+  and indexes of extension tables (`x_…`), views named `rec_…` or `x_…`, and triggers on extension
+  tables. Never a trigger or index on a core table, never another object with a core object's name;
+  anything else is a difference, and the import is refused and the database emptied
+  (`importedExtensionObjects`). The text of those extension objects is the export's own.
+- **S5, what an export's checks are.** The hashes in `manifest.json` catch a part or file damaged or
+  cut short; the manifest carries no signature, so they do not catch a folder someone edited on
+  purpose: an import trusts the folder it is given. `secrets.json` is plain JSON, unencrypted, mode
+  0600: keep it as a password. An imported derivable secret must be at least 32 characters with 10
+  distinct ones (`importedSecretProblem`), checked before anything is written.
+- **F-d.** `cos client add` and `import` are refused while an update is unfinished.
+- Later work from the review is issue #528.
 
 ## What is left out, and why
 - **Videos are not copied.** Step 5 (#522, merged) stamps each video with its client's creator

@@ -748,6 +748,38 @@ async function connectMcp(hostname: string, cookie: string) {
   };
 }
 
+describe("the host's own health, what an update smoke-checks (review of #526, M1)", () => {
+  it("answers on the callback hostname while a client is paused, through the real entry and the real smoke check", async () => {
+    // A paused client's own address answers "being updated", which is no health answer at all.
+    const atPaused = await fetchAt(paused.hostname, "/api/health");
+    expect(atPaused.status).toBe(503);
+    expect(atPaused.headers.get("content-type") ?? "").not.toContain("json");
+    // The host's own: decided before any client, reading the registry's stamp only.
+    const own = await fetchAt("callbacks.test", "/api/health");
+    expect(own.status).toBe(200);
+    const body = (await own.json()) as { status: string; version: string; host: boolean };
+    expect(body).toMatchObject({ status: "ok", host: true });
+    // `cos fleet upgrade`'s smoke check itself (packages/release `healthSmoke`), unstubbed.
+    const { healthSmoke } = await import("@composable-os/release");
+    await healthSmoke("callbacks.test", body.version, {
+      attempts: 1,
+      delayMs: 0,
+      fetch: (async (input: RequestInfo | URL) =>
+        fetchAt("callbacks.test", new URL(String(input)).pathname)) as typeof fetch,
+    });
+    await expect(
+      healthSmoke(paused.hostname, body.version, {
+        attempts: 1,
+        delayMs: 0,
+        fetch: (async (input: RequestInfo | URL) =>
+          fetchAt(paused.hostname, new URL(String(input)).pathname)) as typeof fetch,
+      }),
+    ).rejects.toThrow(/smoke check failed/);
+    // Only GET of that one path: anything else there is still the gatekeepers' door or a 404.
+    expect((await fetchAt("callbacks.test", "/api/health/x")).status).toBe(404);
+  });
+});
+
 describe("erase on a host of many clients (criterion 14, ADR 0320)", () => {
   it("reaches every store of the erasing client and touches nothing of the other's", async () => {
     // The same person, the same email with its body under the same key, in each client.

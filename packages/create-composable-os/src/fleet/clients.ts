@@ -15,10 +15,12 @@ import type { Migration, MigrationLevel } from "@composable-os/db";
 import {
   type ClientId,
   type ClientStatus,
+  canonicalHostname,
   clientStamp,
   validateClientId,
 } from "@composable-os/db/registry";
 import {
+  importedSecretProblem,
   isDerivedSecretName,
   isGivenSecretName,
   removeClientSecret,
@@ -110,6 +112,23 @@ export function schemaVersionOf(migrations: Migration[]): number {
   return highest;
 }
 
+/**
+ * Refuses a command that adds a client while an update is unfinished (review of #526, F-d): the
+ * new client would be migrated to one release while the update moves the rest to another.
+ */
+async function refuseDuringUpdate(ctx: FleetContext, what: string): Promise<void> {
+  const update = await unfinishedOperation<{ from: string; to: string }>(
+    ctx.registry,
+    "update",
+    null,
+  );
+  if (update) {
+    throw new FleetError(
+      `Cannot ${what}: an update ${update.state.from} → ${update.state.to} started ${update.startedAt} has not finished. Run cos fleet upgrade again to finish or undo it first.`,
+    );
+  }
+}
+
 // --- add -------------------------------------------------------------------------------------------
 
 export interface AddInput {
@@ -130,9 +149,56 @@ export interface AddInput {
  * the fleet's domain beside the staff hostnames: with no Public Suffix listing for that domain, a
  * page on one of its hostnames can set cookies for all of them (ADR 0616, "Cookies").
  */
-/** What is wrong with a client's hostnames for this fleet, beyond the registry's own rules. */
+/**
+ * A domain in the registry's one form: an IDN as punycode, lowercase, no trailing dot (the form
+ * `canonicalHostname` holds hostnames in), or null when it is not a hostname.
+ */
+export function canonicalDomain(domain: string): string | null {
+  let ascii: string;
+  try {
+    ascii = new URL(`http://${domain.trim()}/`).hostname;
+  } catch {
+    return null;
+  }
+  return canonicalHostname(ascii);
+}
+
+/**
+ * Second-level labels under which a country's names are registered (`example.co.uk`), so the
+ * registrable domain there is three labels. A short list, not the Public Suffix List; where it
+ * misses one, the rule below compares two labels, which refuses more, never less.
+ */
+const COUNTRY_SECOND_LEVELS = new Set([
+  "co",
+  "com",
+  "net",
+  "org",
+  "gov",
+  "edu",
+  "ac",
+  "id",
+  "or",
+  "ne",
+  "go",
+]);
+
+/** The registrable domain of a hostname, as near as this can tell without the Public Suffix List. */
+export function registrableDomain(hostname: string): string {
+  const labels = hostname.split(".");
+  const tld = labels.at(-1) ?? "";
+  const second = labels.at(-2) ?? "";
+  const take = tld.length === 2 && COUNTRY_SECOND_LEVELS.has(second) && labels.length >= 3 ? 3 : 2;
+  return labels.slice(-take).join(".");
+}
+
+/**
+ * What is wrong with a client's hostnames for this fleet, beyond the registry's own rules. A web or
+ * desk hostname (code the client controls, or its devices) is refused anywhere under the fleet
+ * domain's registrable domain, where a page can set cookies for the staff hostnames: no Public
+ * Suffix listing is assumed (review of #526, S3).
+ */
 export function fleetHostnameProblems(ctx: FleetContext, client: NewClient): string[] {
-  const domain = ctx.fleet.domain;
+  const domain = registrableDomain(canonicalDomain(ctx.fleet.domain) ?? ctx.fleet.domain);
   return client.hostnames
     .filter(
       (h) => h.surface !== "staff" && (h.hostname === domain || h.hostname.endsWith(`.${domain}`)),
@@ -179,12 +245,14 @@ interface AddState {
 export async function addClient(ctx: FleetContext, input: AddInput): Promise<number> {
   const started = Date.now();
   const id = idOf(input.id);
+  if (!ctx.dryRun) await ctx.operator.claim?.();
   const client = plannedClient(ctx, { ...input, id });
   const problems = [
     ...newClientProblems(client, { callbackHostname: ctx.fleet.callbackHostname }),
     ...fleetHostnameProblems(ctx, client),
   ];
   if (problems.length) throw new FleetError(`Cannot add ${id}: ${problems.join("; ")}`);
+  await refuseDuringUpdate(ctx, `add ${id}`);
   const unfinished = await unfinishedOperation<AddState>(ctx.registry, "add", id);
   const existing = await readClient(ctx.registry, id);
   if (!unfinished) {
@@ -444,6 +512,7 @@ export interface ExportInput {
  */
 export async function exportClient(ctx: FleetContext, input: ExportInput): Promise<number> {
   const id = idOf(input.id);
+  if (!ctx.dryRun) await ctx.operator.claim?.();
   const client = await readClient(ctx.registry, id);
   if (!client) throw new FleetError(`No client ${id}`);
   if (!client.secretGeneration) throw new FleetError(`${id} has no secret generation`);
@@ -684,6 +753,7 @@ export interface ImportInput extends Omit<AddInput, "imported"> {
  */
 export async function importClient(ctx: FleetContext, input: ImportInput): Promise<number> {
   const id = idOf(input.id);
+  if (!ctx.dryRun) await ctx.operator.claim?.();
   const folder = readExportFolder(input.from);
   const client = plannedClient(ctx, { ...input, id, imported: true });
   const problems = [
@@ -691,6 +761,16 @@ export async function importClient(ctx: FleetContext, input: ImportInput): Promi
     ...fleetHostnameProblems(ctx, client),
   ];
   if (problems.length) throw new FleetError(`Cannot import ${id}: ${problems.join("; ")}`);
+  await refuseDuringUpdate(ctx, `import ${id}`);
+  // Every derivable secret it brings must be strong enough to sign the client's sessions: checked
+  // whole before anything is written (S5).
+  if (folder.secrets && !input.withoutSecrets) {
+    for (const [name, value] of Object.entries(folder.secrets.derived ?? {})) {
+      if (!isDerivedSecretName(name)) continue;
+      const weak = importedSecretProblem(value);
+      if (weak) throw new FleetError(`Cannot import ${id}: its ${name} is too weak (${weak})`);
+    }
+  }
   let op = await unfinishedOperation<ImportState>(ctx.registry, "import", id);
   const existing = await readClient(ctx.registry, id);
   if (!op) {
@@ -846,6 +926,7 @@ interface RemoveState {
  */
 export async function removeClient(ctx: FleetContext, raw: string): Promise<number> {
   const id = idOf(raw);
+  if (!ctx.dryRun) await ctx.operator.claim?.();
   const client = await readClient(ctx.registry, id);
   let op = await unfinishedOperation<RemoveState>(ctx.registry, "remove", id);
   if (!client) {

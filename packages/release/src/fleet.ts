@@ -38,6 +38,12 @@ export interface FleetState {
   domain: string;
   /** The public key given secrets are sealed to (ADR 0616): public, the operator's command's. */
   secretsPublicKey: string;
+  /**
+   * A SHA-256 of the root, binding and props keys the fleet was installed with (keys.ts
+   * `keysFingerprint`), so a deploy refuses any other keys file before it sets a key (review of
+   * #526, S2). It says nothing of the keys: each is 32 random bytes.
+   */
+  keysFingerprint?: string;
 }
 
 /** The host's keys, from the operator's keys file: each 32 random bytes as base64url. */

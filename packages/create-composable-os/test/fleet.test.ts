@@ -12,18 +12,28 @@ import { readClient, unfinishedOperation, wasRemoved } from "@composable-os/db/r
 import { beforeEach, describe, expect, it } from "vitest";
 import {
   addClient,
+  canonicalDomain,
   exportClient,
   type FleetContext,
   importClient,
+  listClientsCommand,
   pauseClient,
+  registrableDomain,
   removeClient,
   resumeClient,
   setSecret,
 } from "../src/fleet/clients.ts";
-import { newFleetKeys, readKeysFile, writeKeysFile } from "../src/fleet/keys.ts";
+import {
+  keysFingerprint,
+  keysMismatch,
+  newFleetKeys,
+  readKeysFile,
+  writeKeysFile,
+} from "../src/fleet/keys.ts";
 import { nodeD1 } from "../src/fleet/node-d1.ts";
 import type { Operator } from "../src/fleet/operator-client.ts";
 import { registryMigrations } from "../src/fleet/run.ts";
+import { lazyOperator } from "../src/fleet/session.ts";
 import { type FleetUpdateInput, fleetUpdate } from "../src/fleet/update.ts";
 import type { Io } from "../src/io.ts";
 
@@ -46,6 +56,8 @@ class FakeOperator implements Operator {
   failOn: { client: string; migration: string } | null = null;
   /** A client whose next migrate throws (a lost connection). */
   throwOn: string | null = null;
+  /** A client whose next migrate applies every migration, then throws (its answer lost). */
+  applyThenThrowOn: string | null = null;
   extensions: Record<string, { id: string; source: string; status: string; contract: number }[]> =
     {};
   secrets: Record<string, Record<string, string>> = {};
@@ -87,6 +99,13 @@ class FakeOperator implements Operator {
           throw new Error("connection lost");
         }
         const db = this.db(client);
+        if (this.applyThenThrowOn === client) {
+          this.applyThenThrowOn = null;
+          for (const m of body.migrations as Migration[]) {
+            if (!db.applied.includes(m.name)) db.applied.push(m.name);
+          }
+          throw new Error("the answer was lost after the migrations applied");
+        }
         const applied: string[] = [];
         let failed = null;
         for (const m of body.migrations as Migration[]) {
@@ -283,6 +302,27 @@ describe("cos client add (criterion 11)", () => {
     expect((await readRegistry(registry)).addresses.get(id("gym-a"))?.web).toBeNull();
   });
 
+  it("refuses a web hostname anywhere under the fleet domain's registrable domain, whatever the domain's spelling (review of #526, S3)", async () => {
+    // P2: a sibling under the same registrable domain.
+    const sibling = ctx({ fleet: { ...ctx().fleet, domain: "clients.fleet.example" } });
+    await expect(
+      addClient(sibling, { id: "gym-a", webHostname: "www.fleet.example" }),
+    ).rejects.toThrow(/never on the fleet's domain/);
+    // P3: a fleet domain written in another case, with a trailing dot.
+    const spelled = ctx({ fleet: { ...ctx().fleet, domain: "Fleet.Example." } });
+    await expect(
+      addClient(spelled, { id: "gym-a", webHostname: "shop.fleet.example" }),
+    ).rejects.toThrow(/never on the fleet's domain/);
+    expect(await readClient(registry, id("gym-a"))).toBeNull();
+    expect(canonicalDomain("Fleet.Example.")).toBe("fleet.example");
+    expect(canonicalDomain("bücher.example")).toBe("xn--bcher-kva.example");
+    expect(canonicalDomain("not a domain")).toBeNull();
+    expect(registrableDomain("clients.fleet.example")).toBe("fleet.example");
+    expect(registrableDomain("a.fleet.co.uk")).toBe("fleet.co.uk");
+    // Its own domain is fine.
+    expect(await addClient(sibling, { id: "gym-a", webHostname: "gym-a.example" })).toBe(0);
+  });
+
   it("changes nothing on a dry run", async () => {
     await addClient(ctx({ dryRun: true }), { id: "gym-a" });
     expect(await readClient(registry, id("gym-a"))).toBeNull();
@@ -368,7 +408,8 @@ describe("cos fleet upgrade with three clients (criterion 12)", () => {
     await three();
     const { input, log } = update();
     expect(await fleetUpdate(ctx({ yes: true }), input)).toBe("succeeded");
-    expect(log).toEqual(["upload", "smoke gym-a-admin.fleet.example", "version 1.1.0"]);
+    // Smoke-checked at the host's own health address: every client is paused then (M1).
+    expect(log).toEqual(["upload", "smoke callback.fleet.example", "version 1.1.0"]);
     for (const c of ["gym-a", "gym-b", "gym-c"]) {
       expect(await readClient(registry, id(c))).toMatchObject({
         status: "active",
@@ -448,12 +489,144 @@ describe("cos fleet upgrade with three clients (criterion 12)", () => {
     expect(log.filter((l) => l === "upload")).toEqual(["upload"]);
   });
 
+  it("refuses to add or import a client while an update is unfinished (review of #526, F-d)", async () => {
+    await three();
+    operator.throwOn = "gym-b";
+    const { input } = update();
+    await expect(fleetUpdate(ctx({ yes: true }), input)).rejects.toThrow(/connection lost/);
+    await expect(addClient(ctx(), { id: "gym-d" })).rejects.toThrow(/has not finished/);
+    expect(await readClient(registry, id("gym-d"))).toBeNull();
+    expect(await fleetUpdate(ctx({ yes: true }), input)).toBe("undone");
+    expect(await addClient(ctx(), { id: "gym-d" })).toBe(0);
+  });
+
+  it("smoke-checks the new Workers even when no client is active", async () => {
+    await three();
+    for (const c of ["gym-a", "gym-b", "gym-c"]) await pauseClient(ctx(), c);
+    const { input, log } = update();
+    expect(await fleetUpdate(ctx({ yes: true }), input)).toBe("succeeded");
+    expect(log).toContain("smoke callback.fleet.example");
+  });
+
+  it("undoes a client whose migrations applied but whose answer was lost (review of #526, M2)", async () => {
+    await three();
+    operator.applyThenThrowOn = "gym-b";
+    const { input } = update();
+    await expect(fleetUpdate(ctx({ yes: true }), input)).rejects.toThrow(/answer was lost/);
+    expect(operator.db("gym-b").applied.length).toBe(5);
+    expect(await fleetUpdate(ctx({ yes: true }), input)).toBe("undone");
+    for (const c of ["gym-a", "gym-b", "gym-c"]) {
+      expect(operator.db(c).applied.length, c).toBe(3);
+      expect(await readClient(registry, id(c))).toMatchObject({
+        status: "active",
+        schemaVersion: 3,
+      });
+    }
+  });
+
   it("asks before pausing every client, and a dry run changes nothing", async () => {
     await three();
     const { input } = update();
     await expect(fleetUpdate(ctx(), input)).rejects.toThrow(/pass --yes/);
     expect(await fleetUpdate(ctx({ dryRun: true }), input)).toBe("nothing");
     expect(await statusOf("gym-a")).toBe("active");
+  });
+});
+
+describe("one operator's command at a time (review of #526, S1)", () => {
+  /** Opens the operator as `cos` does: each open sets a new token, which cuts off the last one. */
+  function rotatingOpener(target: FakeOperator) {
+    let current = 0;
+    let opens = 0;
+    return {
+      opens: () => opens,
+      open: async () => {
+        opens += 1;
+        current += 1;
+        const mine = current;
+        const live = () => {
+          if (mine !== current) throw new Error("401: not the operator");
+        };
+        return {
+          op: async <T>(action: string, body?: Record<string, unknown>) => {
+            live();
+            return target.op<T>(action, body);
+          },
+          putFile: async (client: string, key: string, bytes: Uint8Array) => {
+            live();
+            return target.putFile(client, key, bytes);
+          },
+          getExport: async (path: string) => {
+            live();
+            return target.getExport(path);
+          },
+          close: async () => {
+            current += 1;
+          },
+        };
+      },
+    };
+  }
+
+  it("lets `list` run during an upgrade without cutting it off, and refuses a second command that would", async () => {
+    for (const c of ["gym-a", "gym-b"]) await addClient(ctx(), { id: c });
+    const opener = rotatingOpener(operator);
+    const upgrade = lazyOperator(registry, opener.open, { command: "fleet upgrade live" });
+    let refused = "";
+    const outcome = await fleetUpdate(ctx({ operator: upgrade, yes: true }), {
+      from: "1.0.0",
+      to: "1.1.0",
+      migrations: migrations(5),
+      supportedContracts: [1],
+      upload: async () => {
+        // A second terminal, mid-upgrade: `list` reads the registry only.
+        const listing = lazyOperator(registry, opener.open, { command: "client list" });
+        expect(await listClientsCommand(ctx({ operator: listing }))).toBe(0);
+        await listing.close();
+        // A command that needs the operator's Worker is refused before it changes anything.
+        const adding = lazyOperator(registry, opener.open, { command: "client add" });
+        refused = await addClient(ctx({ operator: adding }), { id: "gym-c" }).then(
+          () => "",
+          (e: Error) => e.message,
+        );
+        await adding.close();
+      },
+      uploadPrevious: async () => {},
+      smoke: async () => {},
+      recordVersion: async () => {},
+    });
+    expect(outcome).toBe("succeeded");
+    expect(opener.opens()).toBe(1);
+    expect(refused).toMatch(/holds the operator's Worker/);
+    expect(await readClient(registry, id("gym-c"))).toBeNull();
+    // Given back at the end: the next command takes it.
+    await upgrade.close();
+    const next = lazyOperator(registry, opener.open, { command: "client add" });
+    expect(await addClient(ctx({ operator: next }), { id: "gym-c" })).toBe(0);
+    await next.close();
+  });
+
+  it("takes over a session a killed command left only when its time ran out, or deliberately", async () => {
+    const opener = rotatingOpener(operator);
+    const killed = lazyOperator(registry, opener.open, { command: "client export", now: () => 0 });
+    await killed.op("health");
+    // Still held: refused.
+    const early = lazyOperator(registry, opener.open, { command: "client add", now: () => 1_000 });
+    await expect(early.op("health")).rejects.toThrow(/until/);
+    // Its time ran out: taken.
+    const late = lazyOperator(registry, opener.open, {
+      command: "client add",
+      now: () => 31 * 60_000,
+    });
+    await late.op("health");
+    // Taken over deliberately, however recent.
+    const over = lazyOperator(registry, opener.open, {
+      command: "client remove",
+      now: () => 31 * 60_000 + 1,
+      takeOver: true,
+    });
+    await over.op("health");
+    expect(opener.opens()).toBe(3);
   });
 });
 
@@ -508,6 +681,27 @@ describe("export, import and remove (criterion 13)", () => {
     await expect(importClient(ctx(), { id: "gym-b", from: dir })).rejects.toThrow(
       /already a client/,
     );
+  });
+
+  it("refuses a database part that is not what was exported, before writing anything", async () => {
+    await addClient(ctx(), { id: "gym-a" });
+    const dir = join(mkdtempSync(join(tmpdir(), "s66s7-")), "export");
+    await exportClient(ctx(), { id: "gym-a", out: dir });
+    const part = join(dir, "database", "000000.json");
+    writeFileSync(part, readFileSync(part, "utf8").replace("applied", "applieD"));
+    await expect(importClient(ctx(), { id: "gym-b", from: dir })).rejects.toThrow(
+      /database\/000000.json is not what was exported/,
+    );
+    expect(await readClient(registry, id("gym-b"))).toBeNull();
+  });
+
+  it("refuses an export whose staff secret is too weak to sign sessions, before writing anything (S5)", async () => {
+    await addClient(ctx(), { id: "gym-a" });
+    operator.secrets["gym-a"] = { BETTER_AUTH_SECRET: "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" };
+    const dir = join(mkdtempSync(join(tmpdir(), "s66s7-")), "export");
+    await exportClient(ctx(), { id: "gym-a", out: dir });
+    await expect(importClient(ctx(), { id: "gym-b", from: dir })).rejects.toThrow(/too weak/);
+    expect(await readClient(registry, id("gym-b"))).toBeNull();
   });
 
   it("refuses an export folder that was changed after it was made, before writing anything", async () => {
@@ -597,6 +791,25 @@ describe("the keys file", () => {
     expect(made.bindingKey).not.toBe(made.propsKey);
   });
 
+  it("is tied to its deployment: another file is refused by its public key or its keys' fingerprint (review of #526, S2)", async () => {
+    const mine = await newFleetKeys("live");
+    const other = await newFleetKeys("live");
+    const fleet = {
+      secretsPublicKey: mine.secretsPublicKey,
+      keysFingerprint: keysFingerprint(mine),
+    };
+    expect(keysMismatch(fleet, mine)).toBeNull();
+    expect(keysMismatch(fleet, other)).toMatch(/public key/);
+    // The same sealing key with other binding or props keys.
+    expect(keysMismatch(fleet, { ...mine, propsKey: other.propsKey })).toMatch(
+      /root, binding or props/,
+    );
+    expect(keysMismatch(fleet, { ...mine, bindingKey: other.bindingKey })).toMatch(
+      /root, binding or props/,
+    );
+    expect(keysFingerprint(mine)).not.toContain(mine.propsKey);
+  });
+
   it("is made by cos fleet keys, which prints the public key and no key material", async () => {
     const { runIn, startWorld } = await import("./world.ts");
     const world = await startWorld();
@@ -665,6 +878,30 @@ describe("cos fleet install", () => {
       const again = await runIn(world, ...args);
       expect(again.code, again.output).toBe(0);
       expect([...world.cf.d1.values()].filter((d) => d.name === "demo-registry").length).toBe(1);
+      // Another keys file is refused, on install and on upgrade, before any key is set (S2).
+      const otherPath = join(mkdtempSync(join(tmpdir(), "s66s7-keys-")), "other.json");
+      expect((await runIn(world, "fleet", "keys", "--env", "live", "--out", otherPath)).code).toBe(
+        0,
+      );
+      const swapped = args.map((a) => (a === keysPath ? otherPath : a));
+      const refused = await runIn(world, ...swapped);
+      expect(refused.code).toBe(1);
+      expect(refused.output).toContain("is not this live deployment's");
+      const upgrade = await runIn(
+        world,
+        "fleet",
+        "upgrade",
+        "--env",
+        "live",
+        "--keys-file",
+        otherPath,
+        "--yes",
+      );
+      expect(upgrade.code).toBe(1);
+      expect(upgrade.output).toContain("is not this live deployment's");
+      expect(world.cf.scripts.get("demo-app")?.secrets.get("COS_PROPS_KEY")).toBe(
+        keysFile.propsKey,
+      );
     } finally {
       world.server.close();
     }

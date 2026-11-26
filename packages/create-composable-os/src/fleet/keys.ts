@@ -3,6 +3,7 @@
 // Worker's bindings carry are signed with the props key. Written only where the operator says,
 // with mode 0600, never inside a git working tree (a repository is the one place a key must not
 // end up), and never printed: the redactor is given every value as it is read.
+import { createHash } from "node:crypto";
 import { existsSync, mkdirSync, readFileSync, statSync, writeFileSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
 import { newHostKeys, publicKeyOf } from "@composable-os/db/registry-sealing";
@@ -74,6 +75,33 @@ export function writeKeysFile(path: string, keys: KeysFile): void {
   }
   mkdirSync(dirname(resolve(path)), { recursive: true, mode: 0o700 });
   writeFileSync(path, `${JSON.stringify(keys, null, 2)}\n`, { mode: 0o600, flag: "wx" });
+}
+
+/** A SHA-256 of the root, binding and props keys, kept in the deployment's state. */
+export function keysFingerprint(
+  keys: Pick<FleetKeys, "rootKey" | "bindingKey" | "propsKey">,
+): string {
+  return createHash("sha256")
+    .update(`cos/fleet-keys/v1\n${keys.rootKey}\n${keys.bindingKey}\n${keys.propsKey}`)
+    .digest("hex");
+}
+
+/**
+ * Why `keys` is not the keys file the deployment was installed with, or null when it is: its
+ * sealing public key and its keys' fingerprint must be the state's. A different file would set new
+ * keys on every Worker: every client's objects unreachable, every sealed secret unopenable.
+ */
+export function keysMismatch(
+  fleet: { secretsPublicKey: string; keysFingerprint?: string },
+  keys: KeysFile,
+): string | null {
+  if (keys.secretsPublicKey !== fleet.secretsPublicKey) {
+    return "its sealing public key is not the one the deployment was installed with";
+  }
+  if (fleet.keysFingerprint && keysFingerprint(keys) !== fleet.keysFingerprint) {
+    return "its root, binding or props key is not the one the deployment was installed with";
+  }
+  return null;
 }
 
 /** Reads and checks a keys file; every value goes to `redact` before anything else is done. */

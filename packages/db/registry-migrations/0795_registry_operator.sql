@@ -32,6 +32,21 @@ CREATE TABLE registry_operations (
   outcome TEXT CHECK (outcome IS NULL OR outcome IN ('succeeded', 'undone', 'failed'))
 ) WITHOUT ROWID;
 
+-- 3. `registry_operator_session`: which command holds the operator's Worker now. Each command
+--    that reaches the operator's Worker sets that Worker's token for itself, which cuts off any
+--    other command still using it (review of #526, S1); so a command takes this one row first and
+--    is refused while another holds it (until its time runs out, renewed with each call, or the
+--    operator takes it over deliberately). Commands that touch only the registry take nothing.
+
+CREATE TABLE registry_operator_session (
+  id TEXT PRIMARY KEY NOT NULL CHECK (id = 'operator'),
+  -- A random id of the command's run, and which command it is, for the refusal's message.
+  holder TEXT NOT NULL CHECK (length(holder) BETWEEN 8 AND 64),
+  command TEXT NOT NULL,
+  -- Until when (ms since the epoch) it holds, unless it renews.
+  until INTEGER NOT NULL
+) WITHOUT ROWID;
+
 -- At most one unfinished run of each kind for a client (and one unfinished update), so two
 -- operators cannot run the same command side by side.
 CREATE UNIQUE INDEX registry_operations_unfinished

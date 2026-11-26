@@ -300,6 +300,7 @@ export function parseArgs(argv: string[]): { command: string; flags: Flags } {
       "leaving",
       "without-secrets",
       "skip-staging",
+      "take-over",
     ].includes(key);
     let value: string | boolean = true;
     if (takesValue) {

@@ -277,7 +277,23 @@ export function writeImportedSecret(
   place: Omit<SecretPlace, "kind">,
   value: string,
 ): Promise<{ keyId: string }> {
+  const weak = isDerivedSecretName(place.name) ? importedSecretProblem(value) : null;
+  if (weak) return Promise.reject(new RangeError(`${place.name} for ${place.client}: ${weak}`));
   return writeSealed(registry, publicKey, { ...place, kind: "imported" }, value);
+}
+
+/**
+ * Why `value` is too weak to stand in for a derived secret (it signs the client's sessions), or
+ * null: at least 32 characters and 10 distinct ones (a deployment's own are 64 hex characters).
+ * An export can carry any value, so an import holds it to this (review of #526, S5). The message
+ * never holds the value.
+ */
+export function importedSecretProblem(value: unknown): string | null {
+  if (typeof value !== "string" || value.length < 32) {
+    return "an imported secret is at least 32 characters";
+  }
+  if (new Set(value).size < 10) return "an imported secret has at least 10 distinct characters";
+  return null;
 }
 
 /**

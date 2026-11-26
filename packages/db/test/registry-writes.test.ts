@@ -12,6 +12,7 @@ import {
   newHostKeys,
   publicKeyOf,
   writeClientSecret,
+  writeImportedSecret,
 } from "../src/registry-sealing.ts";
 import { exportClientSecrets, openingKeyring, readClientSecrets } from "../src/registry-secrets.ts";
 import {
@@ -182,6 +183,25 @@ describe("operations a re-run carries on", () => {
     const op = await beginOperation(registry, "remove", "gym-one", {});
     await finishOperation(registry, op.id, "undone", {});
     expect((await readRegistry(registry)).stamp).toBe(before);
+  });
+});
+
+describe("an imported client's own secrets (review of #526, S5)", () => {
+  it("are refused when too weak to sign its sessions, the value never in the message", async () => {
+    await addClientRows(registry, gym("gym-imp", { imported: true }));
+    const keys = await newHostKeys();
+    const publicKey = await publicKeyOf(keys.secretsPrivateKey);
+    const place = {
+      environment: "live" as const,
+      client: "gym-imp" as ClientId,
+      name: "BETTER_AUTH_SECRET",
+    };
+    const weak = "abcabcabcabcabcabcabcabcabcabcabcabc";
+    const error = await writeImportedSecret(registry, publicKey, place, weak).catch((e) => e);
+    expect(String(error)).toMatch(/distinct/);
+    expect(String(error)).not.toContain(weak);
+    await expect(writeImportedSecret(registry, publicKey, place, "short")).rejects.toThrow(/32/);
+    await writeImportedSecret(registry, publicKey, place, "0123456789abcdef".repeat(4));
   });
 });
 
