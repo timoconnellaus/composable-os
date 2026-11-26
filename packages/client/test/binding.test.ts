@@ -22,6 +22,17 @@ describe("customerSession", () => {
     expect(customerSession(undefined)).toEqual({});
   });
 
+  it("forwards only `__Host-` customer cookies when the browser holds one (stage 66)", () => {
+    // A many-client host sets `__Host-` names; an unprefixed one beside it was planted on the
+    // parent domain by a sibling hostname, and is not passed on.
+    const header =
+      "cos-customer.session_token=planted; __Host-cos-customer.session_token=abc.sig; " +
+      "__Host-cos-customer.session_data=xyz; theme=dark";
+    expect(customerCookies(header)).toBe(
+      "__Host-cos-customer.session_token=abc.sig; __Host-cos-customer.session_data=xyz",
+    );
+  });
+
   it("does not take a look-alike name", () => {
     expect(customerCookies("cos-customers.x=1; xcos-customer.y=2; cos-customer=3")).toBe("");
   });

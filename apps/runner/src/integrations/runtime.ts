@@ -7,6 +7,7 @@ import {
   OperationError,
   vendorBinding,
 } from "@composable-os/core";
+import { gatekeeperOffered } from "@composable-os/db/client-entries";
 
 export function hostFor(env: Env, connectionId: string) {
   return env.INTEGRATION_HOST.getByName(connectionId);
@@ -17,7 +18,12 @@ export function availableVendors(env: Env): string[] {
   const bindings = env as unknown as Record<string, unknown>;
   return CATALOGUE.filter((entry) => {
     if (entry.vendor === "fake" && env.INTEGRATIONS_FAKE_PROVIDER !== "true") return false;
-    return Boolean(bindings[vendorBinding(entry.vendor)]);
+    // On a many-client host, never a gatekeeper that holds one account for every client
+    // (`ENV_NAMES`, stage 66, ADR 0615): it is not in a client's environment at all.
+    return (
+      Boolean(bindings[vendorBinding(entry.vendor)]) &&
+      gatekeeperOffered(env, vendorBinding(entry.vendor)).offered
+    );
   }).map((entry) => entry.vendor);
 }
 

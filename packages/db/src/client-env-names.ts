@@ -73,8 +73,12 @@ export const ENV_NAMES: Readonly<Record<string, EnvNameUse>> = {
   // --- The host's own -----------------------------------------------------------------------
   REGISTRY: HOST("the registry: the operator's only (stage 66)"),
   // A namespace of `ClientDb` in its own Worker (`cos-client-db`), bound by script name.
-  CLIENT_DB: HOST("every client's database: a client's is its DB alone"),
+  CLIENT_DB: HOST("every client's database, the operator's raw namespace (step 7)"),
+  CLIENT_DB_QUERIES: HOST("every client's database's query path: a client's is its DB alone"),
   COS_HOST_ENVIRONMENT: HOST("which environment the deployment holds; read by the directory"),
+  // Each Worker's own fan-out queue (stage 66 step 4): a cron's one message per client.
+  CLIENT_FANOUT: HOST("the crons' fan-out: one message per client, sent by the host"),
+  COS_BINDING_KEY: HOST("signs what the host hands a client by a name or props (client-proofs.ts)"),
   CLOUDFLARE_API_TOKEN: HOST(
     "Settings → AI writes the deployment's Worker secrets with it, every client's at once (ADR 0151), and it can read AI Gateway's logs",
   ),

@@ -23,7 +23,9 @@ import {
   clientOf,
   envNameUse,
   type HostBindings,
+  hasBindingWrapper,
   keepRateLimitApart,
+  withOAuthHelpers,
 } from "./client-environment-build.ts";
 import { CORE_SCHEMA_VERSION } from "./migrate.ts";
 import {
@@ -49,11 +51,18 @@ import {
 } from "./registry-secrets.ts";
 
 export type { BindingWrapper, HostBindings };
-export { BINDING_WRAPPERS, clientOf, envNameUse, keepRateLimitApart };
+export {
+  BINDING_WRAPPERS,
+  clientOf,
+  envNameUse,
+  hasBindingWrapper,
+  keepRateLimitApart,
+  withOAuthHelpers,
+};
 
 type ManyClientBindings = HostBindings & {
   REGISTRY: D1Database;
-  CLIENT_DB: NonNullable<HostBindings["CLIENT_DB"]>;
+  CLIENT_DB_QUERIES: NonNullable<HostBindings["CLIENT_DB_QUERIES"]>;
 };
 
 /** One client, or many: whether REGISTRY is bound. */
@@ -64,8 +73,10 @@ export function hostMode(env: object): HostMode {
   if (!bindings.REGISTRY) return "single";
   // Fail closed: a registry with nowhere to open clients' databases is a broken deployment,
   // never a reason to serve every client from the one D1 database.
-  if (!bindings.CLIENT_DB) {
-    throw new Error("REGISTRY is bound without CLIENT_DB: no client's database can be opened");
+  if (!bindings.CLIENT_DB_QUERIES) {
+    throw new Error(
+      "REGISTRY is bound without CLIENT_DB_QUERIES: no client's database can be opened",
+    );
   }
   return "many";
 }
@@ -154,12 +165,7 @@ export class ClientDirectory<E extends HostBindings = HostBindings> {
     callbackHostname(env);
     // The fake gatekeepers keep one deployment's fake books and accept a fixed signing secret on
     // localhost: never on a host of many clients (ADR 0616).
-    const flags = env as unknown as Record<string, unknown>;
-    if (flags.INTEGRATIONS_FAKE_PROVIDER === "true" || flags.GATEKEEPER_FAKE !== undefined) {
-      throw new Error(
-        "A host of many clients cannot run the fake gatekeeper: unset INTEGRATIONS_FAKE_PROVIDER and the GATEKEEPER_FAKE binding",
-      );
-    }
+    refuseFakeGatekeeper(env);
     this.#refreshMs = options.refreshMs ?? REGISTRY_REFRESH_MS;
     this.#now = options.now ?? Date.now;
     this.#codeSchemaVersion = options.codeSchemaVersion ?? CORE_SCHEMA_VERSION;
@@ -326,6 +332,20 @@ export class ClientDirectory<E extends HostBindings = HostBindings> {
     return [...snapshot.clients.values()]
       .filter((client) => this.#ofThisDeployment(client) && client.status === "active")
       .map((client) => client.id);
+  }
+}
+
+/**
+ * The fake gatekeepers keep one deployment's fake books and accept a fixed signing secret on
+ * localhost: never on a host of many clients (ADR 0616). Thrown where the directory is made, and
+ * at the runner's entry, where a fake gatekeeper's call may reach no directory (stage 66 step 4).
+ */
+export function refuseFakeGatekeeper(env: object): void {
+  const flags = env as Record<string, unknown>;
+  if (flags.INTEGRATIONS_FAKE_PROVIDER === "true" || flags.GATEKEEPER_FAKE !== undefined) {
+    throw new Error(
+      "A host of many clients cannot run the fake gatekeeper: unset INTEGRATIONS_FAKE_PROVIDER and the GATEKEEPER_FAKE binding",
+    );
   }
 }
 

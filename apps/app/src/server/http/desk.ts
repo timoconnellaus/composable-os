@@ -27,7 +27,12 @@
 // customer) session as a matter of hygiene, and is limited per client address. The operations
 // themselves decide everything else (`deskOnly`, ADR 0649): what the credential and the token may
 // do, the limits, the lock-outs.
-import { createIdentityProvider, type IdentityEnv } from "@composable-os/auth";
+import {
+  createIdentityProvider,
+  hostOnlyCookies,
+  type IdentityEnv,
+  isSessionCookie,
+} from "@composable-os/auth";
 import {
   type DeskRequest,
   type DeviceCaller,
@@ -141,8 +146,9 @@ async function carriesSession(request: Request, env: DeskHandlerEnv): Promise<bo
   if (request.headers.get("authorization")) return true;
   if (await supportPrincipal(request, env)) return true;
   if (await createIdentityProvider(env).resolve(request)) return true;
+  const hostOnly = hostOnlyCookies(env);
   return [...cookies(request).keys()].some((name) =>
-    name.replace(/^__(Secure|Host)-/, "").startsWith("cos-customer."),
+    isSessionCookie(name, "cos-customer", hostOnly),
   );
 }
 

@@ -1,5 +1,5 @@
 // Server functions anonymous callers may use (see PUBLIC_SERVER_FN_FILE in identity.ts).
-import { env } from "cloudflare:workers";
+
 import { awaitingFirstUser, createIdentityProvider, signInMethods } from "@composable-os/auth";
 import {
   holdsPermission,
@@ -11,6 +11,7 @@ import {
 import { type CrmDb, createCrmDb } from "@composable-os/db";
 import { createServerFn } from "@tanstack/react-start";
 import { NAV_PERMISSIONS } from "../lib/nav-permissions.ts";
+import { requestEnv } from "./request-env.ts";
 
 /**
  * The signed-in Principal (or null), the CRM user it acts as (id and role, so the UI can hide
@@ -19,9 +20,9 @@ import { NAV_PERMISSIONS } from "../lib/nav-permissions.ts";
  * every navigation.
  */
 export const getSession = createServerFn({ method: "GET" }).handler(async ({ context }) => {
-  const provider = createIdentityProvider(env);
+  const provider = createIdentityProvider(requestEnv());
   const principal = context.principal ?? null;
-  const db = createCrmDb(env.DB);
+  const db = createCrmDb(requestEnv().DB);
   const user = principal ? await resolveActingUser(db, principal) : null;
   // A fixed-role account (ADR 0436) gets the admin's small shell: its screens, its account, sign
   // out (stage 47, ADR 0660). Read from the account here, by the host, on every navigation; a
@@ -68,7 +69,7 @@ async function supportSession(
 
 async function setupOpen(): Promise<boolean> {
   try {
-    const row = await env.DB.prepare("SELECT status FROM core_setup WHERE id = 1").first<{
+    const row = await requestEnv().DB.prepare("SELECT status FROM core_setup WHERE id = 1").first<{
       status: string;
     }>();
     return row?.status === "pending" || row?.status === "in_progress";
@@ -80,6 +81,6 @@ async function setupOpen(): Promise<boolean> {
 
 /** Which sign-in methods the sign-in page should offer, and whether to create the first account. */
 export const getSignInMethods = createServerFn({ method: "GET" }).handler(async () => {
-  const methods = signInMethods(env);
-  return { ...methods, firstAccount: methods.email && (await awaitingFirstUser(env.DB)) };
+  const methods = signInMethods(requestEnv());
+  return { ...methods, firstAccount: methods.email && (await awaitingFirstUser(requestEnv().DB)) };
 });

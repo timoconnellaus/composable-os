@@ -13,6 +13,8 @@ declare global {
     interface Env {
       DB: D1Database;
       REGISTRY: D1Database;
+      BLOBS: R2Bucket;
+      OAUTH_KV: KVNamespace;
       TEST_MIGRATIONS: Migration[];
       REGISTRY_MIGRATIONS: Migration[];
       WORKER_ENV_NAMES: string[];

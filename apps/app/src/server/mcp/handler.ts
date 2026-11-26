@@ -28,6 +28,8 @@ import {
   touchConnection,
 } from "@composable-os/core";
 import { createCrmDb } from "@composable-os/db";
+import { perClientMissing } from "@composable-os/db/client-entries";
+import { clientOf, withOAuthHelpers } from "@composable-os/db/client-environment";
 import { productName } from "@composable-os/product";
 import { product } from "@composable-os/products/active";
 import { createMcpHandler } from "agents/mcp/server";
@@ -231,18 +233,70 @@ export async function deleteGrantTokens(
   }
 }
 
+/** The paths the OAuth provider answers itself (and /mcp), whose issuer and resource matter. */
+function isOAuthPath(pathname: string): boolean {
+  return (
+    pathname === MCP_PATH ||
+    pathname.startsWith(`${MCP_PATH}/`) ||
+    pathname.startsWith("/oauth/") ||
+    pathname.startsWith("/.well-known/oauth-")
+  );
+}
+
+/** A client's environment with its OAuth helpers, one per client environment and origin. */
+const oauthEnvs = new WeakMap<object, Map<string, McpEnv>>();
+
+/**
+ * The `env` the OAuth library is handed. A single-client deployment's own `env`, on which the
+ * library sets its helpers itself, as before; a client's environment on a many-client host is
+ * frozen, so its helpers (over its own OAUTH_KV) are made here and set beside it (stage 66,
+ * ADR 0615).
+ */
+function oauthEnv(env: McpEnv, origin: string, fallback: Fallback): McpEnv {
+  if (clientOf(env) === null) return env;
+  let byOrigin = oauthEnvs.get(env);
+  if (!byOrigin) {
+    byOrigin = new Map();
+    oauthEnvs.set(env, byOrigin);
+  }
+  let withHelpers = byOrigin.get(origin);
+  if (!withHelpers) {
+    withHelpers = withOAuthHelpers(env, getOAuthApi(oauthOptions(origin, env, fallback), env));
+    byOrigin.set(origin, withHelpers);
+  }
+  return withHelpers;
+}
+
 /** Wraps the app's fetch handler with OAuth and /mcp. One provider per origin, per isolate. */
 export function createAppHandler(fallback: Fallback) {
   const providers = new Map<string, OAuthProvider<McpEnv>>();
   return {
     fetch(request: Request, env: McpEnv, ctx: ExecutionContext): Promise<Response> {
       const origin = new URL(request.url).origin;
-      let provider = providers.get(origin);
+      // On a many-client host the MCP issuer and resource are the client's own address, from its
+      // environment (MCP_RESOURCE, from its staff hostname, ADR 0616), never the request's: a
+      // client with none has OAuth and /mcp answer that they are not available. Every other path
+      // goes on as before.
+      if (clientOf(env) !== null && isOAuthPath(new URL(request.url).pathname)) {
+        const missing = perClientMissing(env, "MCP_RESOURCE");
+        if (missing) {
+          return Promise.resolve(
+            Response.json(
+              { error: "temporarily_unavailable", error_description: missing },
+              { status: 503 },
+            ),
+          );
+        }
+      }
+      // By client and origin (review of #512, M4): a hostname the registry gives another client
+      // gets that client's token lifetime and resource address, never the first one's.
+      const cacheKey = `${clientOf(env) ?? ""} ${origin}`;
+      let provider = providers.get(cacheKey);
       if (!provider) {
         provider = new OAuthProvider<McpEnv>(oauthOptions(origin, env, fallback));
-        providers.set(origin, provider);
+        providers.set(cacheKey, provider);
       }
-      return provider.fetch(request, env, ctx);
+      return provider.fetch(request, oauthEnv(env, origin, fallback), ctx);
     },
   };
 }
