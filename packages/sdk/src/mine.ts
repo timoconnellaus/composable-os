@@ -155,6 +155,33 @@ export function checkRoleMine(
           // Moving the times moves the window: a place twenty days out brought into reach.
           contract(`${at}.within.${key}`, `"${value}" ${PERSON}`);
         }
+        // Times the host copies from another record (ADR 0751, a crew place's from its visit):
+        // that record's field of the same name moves the window too (ADR 0756).
+        const staffed = through.staffed;
+        const link = staffed?.timesFrom ? fieldOf(through, staffed.timesFrom) : undefined;
+        const source = link?.to ? own(link.to) : undefined;
+        if (source && staffed && (value === staffed.starts || value === staffed.ends)) {
+          const copied = fieldOf(source, value);
+          if (copied && !approved(copied)) {
+            contract(
+              `${at}.within.${key}`,
+              `"${value}" of ${link?.to}, copied onto ${spec.through} by staffed.timesFrom, ${PERSON}`,
+            );
+          }
+        }
+      }
+    }
+    // A cascade into a live state widens the reach without anyone writing `through` (ADR 0756):
+    // a follow may move a record out of the live states, never into them from outside.
+    const follows = through.states?.follows;
+    if (spec.live && follows) {
+      const live = new Set(spec.live);
+      const into = Object.values(follows.when).some((state) => live.has(state));
+      if (into && follows.from.some((state) => !live.has(state))) {
+        contract(
+          `${at}.live`,
+          `${spec.through}'s states.follows moves a record from a state outside live into one in it: who reaches whose records is a person's to change`,
+        );
       }
     }
   }

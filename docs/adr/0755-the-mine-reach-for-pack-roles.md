@@ -158,3 +158,12 @@ job directly, through its pack's tools, and through another pack's tool one of t
 refused a tool its role does not hold. Without the carry in the executor, or in the tool call, all
 four of its tests fail.
 `packages/extension-check/test/check.test.ts`: `cos ext check` names the reach.
+
+## Amended 2026-11-26 (stage 39 step 5, ADR 0756)
+The Consequences' open point on a host copy or follow onto `through` is closed: the contract
+requires the datetimes of the record a `staffed.timesFrom` names, copied onto the window, to be
+`personApproves`, and refuses a `through` whose `states.follows` could move a record from a state
+outside `live` into one in it; under the limit the host refuses a write of those copied-from
+datetimes as it refuses one of the window's own (`timesFromSources` in `pack-role-mine.ts`). Jobs'
+crew reaches jobs, visits and crew places; sites are read through Jobs' tools for a reached job
+rather than through the reach (ADR 0756 says why).

@@ -2100,6 +2100,22 @@ may do. Why an item is out and a fault's severity and words are read-only but to
 (`correctOutReason`, `correctFault` for a manager), and the Trash is held to the moves (ADR 0863).
 The register is one `query.sql` statement whatever its size. It adds no rule.
 
+**The Jobs pack** (stage 39 step 5, [ADR 0756](adr/0756-the-jobs-pack.md), `packs/jobs`). A job
+(`jobs.job`) on `stages` (seeded Trades and Projects pipelines), whose Accepted, Signed off and
+Invoiced stages need host facts (`acceptedAt`, `signedOffAt`, `invoicedAt`, ADR 0750; the office
+records an acceptance with `recordAcceptance`, `humanOnly`); sites; visit types (with a checklist);
+visits (`states` whose every move is a tool's); crew places (`jobs.assignment`: `staffed` with
+`timesFrom: "visit"`, ADR 0751, `private`, following the visit's cancel, one live place a person a
+visit); lines (estimate, variation, material, labour) whose words and numbers are read-only and
+written only when a line is made (`editLine` replaces a draft), approved, voided and billed only by
+tools or the host, a variation's lines following it; variations decided by the office on the
+customer's word (`humanOnly`); rates. The `jobs.crew` role reaches jobs, visits and crew places
+through `mine` (ADR 0755) and reads sites only through `myVisits` and `myJob`. Booking and crewing
+are `jobs:schedule` and `personApproves`; prices are `jobs:prices`, restricted. `unbilled` and
+`exportUnbilled` read what is owed in one statement, in integer minor units; the CSV is audited on
+every call (`auditReads` on a read tool). It adds no rule. Time (stage 58 step 7), the customer's
+acceptance and link (steps 4 and 6), screens (step 7) and `billable` (step 8) are to come.
+
 **Media** ([ADR 0444](adr/0444-media-the-editor-and-the-content-pack.md),
 `packages/core/src/operations/media.ts`, `packages/core/src/http/media.ts`). A base record,
 `media` (`core_media`, migration 0461): one original in R2 (`BLOBS`, `media/<id>`), its type read
@@ -3159,6 +3175,7 @@ client's copy of its block exports what the release declares, says which copy is
 | Forms | `publishable` with a slug and no public half, `intake` (form and submission), `states` (moves into and out of spam only by `personApproves` tools), a status, dates, cap and address a person approves, an old address that redirects, a setting a person approves, a low-rating automation, routine mail (the receipt) | stage 29: step 3 built (forms and submissions, the inbox's tools, views among them "Asked to hear from us", the hourly cap setting, the low-rating notice, the staff form kind, [ADR 0726](adr/0726-the-forms-pack-forms-submissions-and-who-reads-them.md)); step 5 built (personal links, answered with `link` or `linkId`, and the receipt, ADRs 0723 and 0724); step 4 built (the form page `/f/<slug>` and `/form` on the host and through the binding, the `forms-form` and `forms-native-form` blocks and the headless entry, ADR 0728); Leads as a destination, erase, and the screens and dashboard to come |
 | Shop | `sellable.goods` (sold where its item says) with `stock` and a reorder level told to `shop:stock`, `sellable.delivery` with seeded options and a shipment `grants`, `publishable` items, `public` with a list of conditions and `via` alone, a buyer's `customer` read of their shipments, prices a person approves, supplier fields on Organisation, a pack role (`shop.stockroom`), grantable permissions | stage 37: step 5 built (items, variants, delivery options, shipments, supplier fields, the stockroom role, the country setting, views, the Shop dashboard, the stock and shipment tools, [ADR 0689](adr/0689-the-shop-pack-and-public-reads-through-a-public-record.md)); purchase orders, receipts, counts and write-offs, recorded returns and routine mail, blocks and screens, and the import to come |
 | Equipment | `unique` (an item's tag), `states` whose moves only the pack's tools make (out of service by `takeOut` and `reportFault`, `personApproves`; back by `putBack`, `humanOnly`; retired by `retire`; a fault's triage), grantable and restricted permissions (`equipment:report`, `equipment:manage`) | stage 59: step 1 built (the interval rule in `recurring`, [ADR 0860](adr/0860-the-interval-rule-in-recurring.md)); step 3 built (items, faults, the tag, out of service and back, the staff tools, [ADR 0862](adr/0862-the-equipment-pack.md)); overseers, service plans, maintenance and inspections, the member's report, automations, the dashboard and the blocks to come |
+| Jobs | `stages` with host facts (ADR 0750), `staffed` with `timesFrom` (ADR 0751), `states` whose moves only the pack's tools or the host make (visits, crew places, lines, variations) with `follows`, `checklists`, `unique`, read-only fields only the tools write, a pack role with `mine` (`jobs.crew`, ADR 0755), restricted and grantable `jobs:prices`, a read tool audited on every call | stage 39: steps 1 to 3 built (host facts, times that follow, the mine reach); step 5 built (the pack's spine, [ADR 0756](adr/0756-the-jobs-pack.md)); time, the acceptance of a record, the customer's link, screens and `billable` to come |
 | Memberships | `allowance` (holders, paying for Bookings' classes and, when they say they pay for sessions, its appointments by service: stage 49, [ADR 0764](adr/0764-appointments-in-the-bookings-pack.md)), recurring billing with `recurring.grants` and `recurring.pause`, `sellable.onePerPerson`, `humanOnly` tools, `requires: ["programs", "bookings"]` | stage 32b: steps 5 to 7 built (the behaviour, the pack, plan changes and pauses, the dashboard, views and blocks); the import (step 8) to come |
 
 ### Client repos

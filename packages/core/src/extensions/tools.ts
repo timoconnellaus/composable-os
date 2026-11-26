@@ -116,6 +116,11 @@ export function toolOperation(
     // A secret its answer carries once (a calendar feed's address, ADR 0628): never kept.
     // A shipped pack's only (a runtime extension's is refused by check and install, and ignored
     // here if one is in the database anyway), and never the audit summary's own keys.
+    // A read audited on every call, a person's too (ADR 0756: a download of what is owed). It only
+    // adds to the trail; its row holds the input and names nothing the read answered.
+    ...(tool.auditReads === true && tool.risk === "read"
+      ? { auditReads: true as const, auditSummary: () => ({ audited: "read" }) }
+      : {}),
     ...(source === "shipped" && tool.redactResult?.length
       ? {
           redactResult: tool.redactResult.filter((k) => !AUDIT_SUMMARY_KEYS.includes(k)),

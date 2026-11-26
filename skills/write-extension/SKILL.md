@@ -535,6 +535,16 @@ it to a staff account; while it is held it, and the pack permissions granted to 
 all that account may do, on every operation. Use a role only for that; ordinary staff need none. Only a pack or the org's own extension may declare
 one. See Ticketing: `roles` in `packs/ticketing/index.ts`.
 
+A role may be held to some records of an object: `today` (ADR 0553), `looksAfter` (ADR 0889) or
+`mine` (ADR 0755), one per object. `mine: { "<id>.<object>": { through, who, path?, live?, within?
+} }` reaches only the records a live record of `through` naming the holder leads to (Jobs' crew:
+the jobs on which it has a booked crew place, a week either side). Every field deciding it is
+`personApproves`: `who`, each relation of the path, the states field and the window's datetimes,
+and, when `through` takes its times from another record (`staffed.timesFrom`), that record's start
+and end too; and `through`'s `states.follows` may move a record out of the live states, never into
+them. Under the limit nothing else runs, so read what the role needs through your tools from the
+records it reaches. See Jobs: `roles.crew` in `packs/jobs/index.ts`.
+
 A shipped pack may also declare **device roles** (`deviceRoles`, `DeviceRoleSpec` in
 `contract.ts`, ADR 0781) for the business's own enrolled device, signed in as nobody (a check-in
 tablet by the door): `{ label, description, permissions, screen: { block, export } }`. Its
