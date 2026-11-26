@@ -25,6 +25,8 @@ function hostWith(
         queries.push(input);
         return sql(input);
       },
+      // What is left after a void (the real host counts; apps/runner/test/offers.test.ts).
+      "record.count": () => ({ count: 0, capped: false }),
     },
   });
   return { host, queries };
@@ -96,7 +98,7 @@ describe("the Offers pack (test host)", () => {
       "pauseDiscount",
       "endDiscount",
       "changeDiscount",
-      "voidCodes",
+      "voidBatch",
     ]) {
       expect(tools[name]?.personApproves, name).toBe(true);
       expect(tools[name]?.permission, name).toBe("offers:manage");
@@ -108,7 +110,8 @@ describe("the Offers pack (test host)", () => {
       risk: "bulk-write",
       redactResult: ["codes"],
     });
-    expect(tools.voidCodes?.redact).toEqual(["codes"]);
+    // Codes typed to void are a person's at the screen: never in a request waiting for approval.
+    expect(tools.voidCodes).toMatchObject({ humanOnly: true, redact: ["codes"] });
     // Drafting is anyone's: a draft applies to nobody.
     expect(tools.draftDiscount?.personApproves).toBeFalsy();
     expect(tools.draftDiscount?.humanOnly).toBeFalsy();
@@ -234,6 +237,51 @@ describe("the Offers pack (test host)", () => {
     expect(out.problem).toMatch(/Stopped after 50 codes/);
   });
 
+  it("gives the person the codes of a write that failed after the database kept it", async () => {
+    let writes = 0;
+    const kept = new Set<string>();
+    const host = createTestHost(extension, {
+      records: { [DISCOUNT]: [{ id: "dis_1", name: "Promo", kind: "percent", state: "draft" }] },
+      operations: {
+        "record.createMany": (input) => {
+          writes++;
+          for (const r of input.records as { word: string }[]) kept.add(r.word);
+          // The second chunk is kept, and the answer is lost on the way back.
+          if (writes === 2)
+            throw Object.assign(new Error("The call timed out"), { code: "timeout" });
+          return { ids: (input.records as unknown[]).map((_, i) => `cod_${writes}_${i}`) };
+        },
+        "record.list": (input) => {
+          const words = ((input.filter as { and: { field: string; value: unknown }[] }).and.find(
+            (f) => f.field === "word",
+          )?.value ?? []) as string[];
+          return {
+            items: words.filter((w) => kept.has(w)).map((word) => ({ id: word, values: { word } })),
+            nextCursor: null,
+          };
+        },
+      },
+    });
+    const out = await host.runTool<{ made: number; complete: boolean; codes: string[] }>(
+      "generateCodes",
+      { discountId: "dis_1", count: 150 },
+    );
+    // Every code the database holds is in the answer: none is left that nobody holds.
+    expect(out).toMatchObject({ made: 2 * WRITE_CHUNK, complete: false });
+    expect(kept.size).toBe(2 * WRITE_CHUNK);
+    expect(new Set(await Promise.all(out.codes.map((c) => codeHash(c))))).toEqual(kept);
+  });
+
+  it("refuses codes for an ended discount", async () => {
+    const { host } = hostWith({
+      [DISCOUNT]: [{ id: "dis_1", name: "Old", kind: "percent", state: "ended" }],
+    });
+    await expect(host.runTool("generateCodes", { discountId: "dis_1", count: 5 })).rejects.toThrow(
+      /has ended/,
+    );
+    expect(host.calls.some((c) => c.operation === "record.createMany")).toBe(false);
+  });
+
   it("voids codes by batch, or the codes a person types", async () => {
     const leaked = "ABCDEFGHJKLMNPQR";
     const { host } = hostWith({
@@ -258,11 +306,11 @@ describe("the Offers pack (test host)", () => {
     expect(
       await host.runTool("voidCodes", { discountId: "dis_1", codes: [leaked.toLowerCase()] }),
     ).toEqual({ voided: 1, remaining: 0 });
-    expect(await host.runTool("voidCodes", { discountId: "dis_1", batch: "A" })).toEqual({
+    expect(await host.runTool("voidBatch", { discountId: "dis_1", batch: "A" })).toEqual({
       voided: 1,
       remaining: 0,
     });
-    await expect(host.runTool("voidCodes", { discountId: "dis_1" })).rejects.toThrow(/Name the/);
+    await expect(host.runTool("voidCodes", { discountId: "dis_1" })).rejects.toThrow();
   });
 
   it("lists discounts and code batches from the host's records of their uses", async () => {

@@ -488,11 +488,19 @@ describe("the assistant drafts; a person decides (criterion 20)", () => {
     );
     expect(back.code).toBe("pending_approval");
     const voided = await run(
-      "x.offers.voidCodes",
+      "x.offers.voidBatch",
       { discountId: draft.id, batch: "x" },
       assistant(),
     ).catch((e: { code?: string }) => e.code);
     expect(voided).toBe("pending_approval");
+    // Codes typed to void are a person's at the screen (review of PR #479, item 4): the
+    // assistant's request is refused, so no code waits in clear in a pending action.
+    const typed = await refusal(
+      run("x.offers.voidCodes", { discountId: draft.id, codes: [voidCode] }, assistant()),
+    );
+    expect(typed.code).toBe("forbidden");
+    const pending = await env.DB.prepare("SELECT input, simulated FROM core_pending_action").all();
+    expect(JSON.stringify(pending.results)).not.toContain(voidCode);
 
     // A person approves the assistant's request: it is live, and the code works.
     const approve = (confirm?: string) =>
@@ -546,5 +554,147 @@ describe("what a discount covers", () => {
       guest,
     );
     expect(answer).toMatchObject({ valid: false, message: NOT_VALID });
+  });
+});
+
+// --- The review of PR #479 ----------------------------------------------------------------------
+
+/** A person approves `actionId`, answering the confirmation it may ask for. */
+async function approveAs(actionId: string) {
+  const approve = (confirm?: string) =>
+    run<{ results: { status: string }[] }>(
+      "approval.approve",
+      { actionIds: [actionId], ...(confirm ? { confirm } : {}) },
+      staff(),
+    );
+  return approve().catch(async (error: { details?: { confirmLabel?: string } }) => {
+    const label = error.details?.confirmLabel;
+    if (!label) throw error;
+    return approve(label);
+  });
+}
+
+describe("a person approves the terms they were shown (review item 1)", () => {
+  it("approving the assistant's make live is refused once it changed the terms after asking", async () => {
+    const code = word("BAITSWITCH");
+    const draft = await run<{ id: string }>(
+      "x.offers.draftDiscount",
+      { name: "Ten off", kind: "percent", percent: 10, code },
+      assistant(),
+    );
+    const asked = await refusal(
+      run("x.offers.activateDiscount", { discountId: draft.id }, assistant()),
+    );
+    expect(asked.code).toBe("pending_approval");
+    const actionId = String(asked.details?.actionId);
+    // The approval says the terms in words.
+    const row = await env.DB.prepare("SELECT simulated FROM core_pending_action WHERE id = ?")
+      .bind(actionId)
+      .first<{ simulated: string }>();
+    const notes = (JSON.parse(row?.simulated ?? "{}") as { notes?: string[] }).notes ?? [];
+    expect(notes.join(" ")).toContain('It names the discount "Ten off" as it is now');
+    expect(notes.join(" ")).toContain("Percentage off: 10");
+    // A draft is anyone's to edit: the assistant raises it to 90% after asking.
+    await run(
+      "record.update",
+      { object: DISCOUNT, id: draft.id, values: { percent: 90 } },
+      assistant(),
+    );
+    const refused = await refusal(approveAs(actionId));
+    expect(refused).toMatchObject({ code: "conflict", details: { rule: "discount_changed" } });
+    expect(refused.message).toContain("Percentage off 10 → 90");
+    expect(await stateOf(draft.id)).toBe("draft");
+    expect((await refusal(buyTicket(code))).message).toBe(NOT_VALID);
+  });
+
+  it("approving it with the terms unchanged makes those terms live", async () => {
+    const code = word("STEADY");
+    const draft = await run<{ id: string }>(
+      "x.offers.draftDiscount",
+      { name: "Twenty off", kind: "percent", percent: 20, code },
+      assistant(),
+    );
+    const asked = await refusal(
+      run("x.offers.activateDiscount", { discountId: draft.id }, assistant()),
+    );
+    expect((await approveAs(String(asked.details?.actionId))).results[0]?.status).toBe("applied");
+    expect(await buyTicket(code)).toMatchObject({ discount: 900 });
+  });
+});
+
+describe("a discount past its draft is changed only by a person (review item 2)", () => {
+  it("the assistant's change to a paused or an ended discount waits for a person", async () => {
+    const code = word("PAUSEDTEN");
+    const id = await liveDiscount({ kind: "percent", percent: 10, code });
+    await run("x.offers.pauseDiscount", { discountId: id }, staff());
+    const asked = await refusal(
+      run("record.update", { object: DISCOUNT, id, values: { percent: 90 } }, assistant()),
+    );
+    expect(asked.code).toBe("pending_approval");
+    // A person resumes it: the terms are the ones a person approved.
+    await run("x.offers.activateDiscount", { discountId: id }, staff());
+    expect(await buyTicket(code)).toMatchObject({ discount: 450 });
+    await run("x.offers.endDiscount", { discountId: id }, staff());
+    const ended = await refusal(
+      run("record.update", { object: DISCOUNT, id, values: { until: "2099-01-01" } }, assistant()),
+    );
+    expect(ended.code).toBe("pending_approval");
+    // A draft stays anyone's to edit.
+    const draft = await run<{ id: string }>(
+      "x.offers.draftDiscount",
+      { name: "Idea", kind: "percent", percent: 5 },
+      assistant(),
+    );
+    await run(
+      "record.update",
+      { object: DISCOUNT, id: draft.id, values: { percent: 6 } },
+      assistant(),
+    );
+  });
+});
+
+describe("a person's tools under every approval policy (review item 3)", () => {
+  for (const preset of ["cautious", "balanced", "autonomous"] as const) {
+    it(`a person makes codes and makes a discount live (${preset})`, async () => {
+      await setPreset(preset);
+      try {
+        const before = await env.DB.prepare(
+          "SELECT count(*) AS n FROM core_pending_action WHERE status = 'pending'",
+        ).first<{ n: number }>();
+        const id = await liveDiscount({ kind: "amount", amount: 5 });
+        const batch = await run<{ made: number; complete: boolean; codes: string[] }>(
+          "x.offers.generateCodes",
+          { discountId: id, count: 60 },
+          staff(),
+        );
+        expect(batch).toMatchObject({ made: 60, complete: true });
+        expect(await buyTicket(batch.codes[59] as string)).toMatchObject({ discount: 500 });
+        const after = await env.DB.prepare(
+          "SELECT count(*) AS n FROM core_pending_action WHERE status = 'pending'",
+        ).first<{ n: number }>();
+        // Nothing of a person's own tools was left waiting.
+        expect(after?.n).toBe(before?.n);
+      } finally {
+        await setPreset("balanced");
+      }
+    });
+  }
+
+  it("an assistant's call of a person's tool still waits under autonomous", async () => {
+    await setPreset("autonomous");
+    try {
+      const draft = await run<{ id: string }>(
+        "x.offers.draftDiscount",
+        { name: "Autonomous idea", kind: "percent", percent: 5 },
+        assistant(),
+      );
+      expect(
+        (await refusal(run("x.offers.activateDiscount", { discountId: draft.id }, assistant())))
+          .code,
+      ).toBe("pending_approval");
+      expect(await stateOf(draft.id)).toBe("draft");
+    } finally {
+      await setPreset("balanced");
+    }
   });
 });

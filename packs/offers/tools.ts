@@ -467,14 +467,32 @@ export const endDiscount = defineTool({
 /** A batch's default name: when it was made. */
 const batchName = (at: Date) => `Batch ${at.toISOString().slice(0, 16).replace("T", " ")}`;
 
+/** The codes among `codes` whose records exist (a write that failed after it committed). */
+async function written(ctx: ExtensionContext, discountId: string, codes: readonly string[]) {
+  const hashes = await Promise.all(codes.map((c) => codeHash(c)));
+  const page = await ctx.ops.call<{ items: HostRecord[] }>("record.list", {
+    object: CODE,
+    filter: {
+      and: [
+        { field: "discount", op: "eq", value: discountId },
+        { field: "word", op: "in", value: hashes },
+      ],
+    },
+    limit: WRITE_CHUNK,
+    fields: ["word"],
+  });
+  const found = new Set(page.items.map((r) => String(r.values.word)));
+  return codes.filter((_, i) => found.has(hashes[i] as string));
+}
+
 export const generateCodes = defineTool({
   description:
     `Make a batch of up to ${BATCH_MAX} random single-use codes for a discount, each good for ` +
     "usesPerCode orders (1 by default), and show them once, in this answer, to export or send. " +
     "The host keeps only each code's hash, so they cannot be shown again: keep the list. A " +
     "person only, with offers:manage, at the discount's page; the assistant cannot make codes. " +
-    "The discount still applies only once it is live. If the batch stops part way, the answer " +
-    "says so and holds the codes that were made.",
+    "Not for an ended discount. The discount still applies only once it is live. If the batch " +
+    "stops part way, the answer says so and holds every code that was made.",
   input: z.object({
     discountId: id,
     count: z.coerce.number().int().min(1).max(BATCH_MAX).default(50),
@@ -511,8 +529,16 @@ export const generateCodes = defineTool({
     hideWhen: { field: "state", values: ["ended"] },
   },
   async handler(input, ctx) {
-    // The discount is read first: an unknown id is refused before any code is made.
-    await getDiscount(ctx, input.discountId);
+    // The discount is read first: an unknown id is refused before any code is made, and an ended
+    // one too (its codes would never work, and nobody would know why).
+    const discount = await getDiscount(ctx, input.discountId);
+    if (discount.values.state === "ended") {
+      throw new OpsCallError(
+        "invalid_input",
+        "This discount has ended: its codes would never work. Draft a new discount for them.",
+        { field: "discountId", reason: "ended" },
+      );
+    }
     const batch = input.batch ?? batchName(new Date());
     const madeBy = callerName(ctx);
     const codes = randomCodes(input.count);
@@ -549,10 +575,12 @@ export const generateCodes = defineTool({
             chunk = randomCodes(chunk.length);
             continue;
           }
-          problem =
-            error instanceof Error
-              ? `Stopped after ${made.length} codes: ${error.message}`
-              : `Stopped after ${made.length} codes`;
+          // A write can fail after the database kept it (a call that timed out on the way back):
+          // the codes it made are given to the person with the rest, never left unheld.
+          const kept = await written(ctx, input.discountId, chunk).catch(() => []);
+          made.push(...kept);
+          const why = error instanceof Error ? error.message : "the host refused it";
+          problem = `Stopped after ${made.length} codes: ${why}`;
           break;
         }
       }
@@ -571,66 +599,75 @@ export const generateCodes = defineTool({
   },
 });
 
-export const voidCodes = defineTool({
+/** Switches off the working codes of a discount matching `filters`: at most VOID_MAX a call. */
+async function voidMatching(ctx: ExtensionContext, discountId: string, filters: unknown[]) {
+  const where = {
+    and: [
+      { field: "discount", op: "eq", value: discountId },
+      { field: "active", op: "eq", value: true },
+      ...filters,
+    ],
+  };
+  let voided = 0;
+  while (voided < VOID_MAX) {
+    const page = await ctx.ops.call<{ items: HostRecord[] }>("record.list", {
+      object: CODE,
+      filter: where,
+      limit: Math.min(200, VOID_MAX - voided),
+      fields: ["active"],
+    });
+    if (!page.items.length) break;
+    for (const code of page.items) {
+      await ctx.ops.call("record.update", {
+        object: CODE,
+        id: code.id,
+        values: { active: false },
+      });
+      voided++;
+    }
+  }
+  const left = await ctx.ops.call<{ count: number }>("record.count", {
+    object: CODE,
+    filter: where,
+  });
+  return { voided, remaining: Number(left.count ?? 0) };
+}
+
+const voidOut = z.object({ voided: z.number(), remaining: z.number() });
+
+export const voidBatch = defineTool({
   description:
-    "Stop single-use codes working: the codes given (as typed, for a code that leaked), or a " +
-    `whole batch, of one discount; at most ${VOID_MAX} a call (call again while remaining is ` +
-    "more than 0). Orders already started keep their deal. A person's decision with " +
-    "offers:manage (the assistant's call waits for a person). Returns how many were voided.",
-  input: z.object({
-    discountId: id,
-    batch: z.string().trim().min(1).max(60).optional(),
-    codes: z.array(z.string().max(64)).min(1).max(50).optional().describe("Codes as typed"),
-  }),
-  output: z.object({ voided: z.number(), remaining: z.number() }),
+    `Stop a whole batch of single-use codes working, by its name; at most ${VOID_MAX} a call ` +
+    "(call again while remaining is more than 0). Orders already started keep their deal. A " +
+    "person's decision with offers:manage (the assistant's call waits for a person). Returns how " +
+    "many were voided.",
+  input: z.object({ discountId: id, batch: z.string().trim().min(1).max(60) }),
+  output: voidOut,
   risk: "bulk-write",
   permission: "offers:manage",
   personApproves: true,
+  handler: (input, ctx) =>
+    voidMatching(ctx, input.discountId, [{ field: "batch", op: "eq", value: input.batch }]),
+});
+
+export const voidCodes = defineTool({
+  description:
+    "Stop single-use codes working, typed as they were given out (a code that leaked). A person " +
+    "only, with offers:manage, at the screen: the codes are never kept, in the audit log or in a " +
+    "request waiting for approval, so the assistant cannot ask for this (it may ask to void the " +
+    "whole batch with voidBatch). Returns how many were voided.",
+  input: z.object({
+    discountId: id,
+    codes: z.array(z.string().max(64)).min(1).max(50).describe("Codes as typed"),
+  }),
+  output: voidOut,
+  risk: "bulk-write",
+  permission: "offers:manage",
+  humanOnly: true,
   // The codes a person types are never kept in the audit log.
   redact: ["codes"],
   async handler(input, ctx) {
-    if (!input.batch && !input.codes) {
-      throw new OpsCallError("invalid_input", "Name the batch or the codes to void", {
-        field: "batch",
-      });
-    }
-    const filters: unknown[] = [
-      { field: "discount", op: "eq", value: input.discountId },
-      { field: "active", op: "eq", value: true },
-    ];
-    if (input.batch) filters.push({ field: "batch", op: "eq", value: input.batch });
-    if (input.codes) {
-      const hashes = await Promise.all(input.codes.map((c) => codeHash(foldCode(c))));
-      filters.push({ field: "word", op: "in", value: hashes });
-    }
-    let voided = 0;
-    let remaining = 0;
-    let cursor: string | null = null;
-    do {
-      const page: { items: HostRecord[]; nextCursor: string | null } = await ctx.ops.call(
-        "record.list",
-        {
-          object: CODE,
-          filter: { and: filters },
-          limit: 200,
-          fields: ["active"],
-          ...(cursor ? { cursor } : {}),
-        },
-      );
-      for (const code of page.items) {
-        if (voided >= VOID_MAX) {
-          remaining++;
-          continue;
-        }
-        await ctx.ops.call("record.update", {
-          object: CODE,
-          id: code.id,
-          values: { active: false },
-        });
-        voided++;
-      }
-      cursor = page.nextCursor;
-    } while (cursor);
-    return { voided, remaining };
+    const hashes = await Promise.all(input.codes.map((c) => codeHash(foldCode(c))));
+    return voidMatching(ctx, input.discountId, [{ field: "word", op: "in", value: hashes }]);
   },
 });

@@ -44,9 +44,11 @@ that is not installed covers nothing.
   price.
 - **A person makes it live.** A discount is made as a draft and applies to nobody. Making it live,
   pausing, ending it, changing its terms and voiding codes are tools a person with `offers:manage`
-  calls; when the assistant asks for one, the call waits in Approvals for a person. A change to a
-  live discount by the assistant, an MCP client, an automation or code waits for a person by any
-  path.
+  calls; when the assistant asks for one, the call waits in Approvals for a person, who sees the
+  discount's terms in words, and approving it is refused if they changed after it was asked. A
+  change to a discount past its draft (live, paused or ended) by the assistant, an MCP client, an
+  automation or code waits for a person by any path. A person's own tools are never held up by the
+  approval policy.
 - **Single-use codes are shown once.** A person makes a batch at the discount's page; the answer
   holds the codes, to export or send, and nothing else ever does: the host keeps only each code's
   hash, refuses anything else in its place, and hashes what a buyer types to find it. Codes are in
@@ -68,7 +70,8 @@ that is not installed covers nothing.
    using their address pays the full one.
 3. **Codes for a newsletter.** Draft a discount with no code, make it live, then `generateCodes`
    (up to 500 a batch, written 50 at a time) and keep the list it answers with. `codeBatches` shows
-   how many were made, still work and were used; `voidCodes` stops a batch, or a code typed in.
+   how many were made, still work and were used; `voidBatch` stops a batch, and `voidCodes` (a
+   person at the screen) the codes typed in. No codes are made for an ended discount.
 4. **Stop it.** `pauseDiscount` until it is made live again, or `endDiscount` for good. Orders
    already started keep their deal.
 5. **See what it did.** `discounts` lists each discount's uses and the money it took off; the Offers
@@ -80,7 +83,7 @@ that is not installed covers nothing.
 Discounts and single-use codes, the views (live, drafts, members' prices and customer rates, promo
 codes), the single-use codes tab, the Offers dashboard, `offers:manage`, and the tools `discounts`,
 `codeBatches`, `draftDiscount`, `changeDiscount`, `activateDiscount`, `pauseDiscount`,
-`endDiscount`, `generateCodes` and `voidCodes`.
+`endDiscount`, `generateCodes`, `voidBatch` and `voidCodes`.
 
 Not in the code yet: discounts on memberships for a number of payments, gift vouchers, gift cards
 and credit, referrals, loyalty, the code fields on the buy pages, the staff screens and a discount

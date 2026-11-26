@@ -36,6 +36,7 @@ import {
   generateCodes,
   pauseDiscount,
   SOLD_OBJECTS,
+  voidBatch,
   voidCodes,
 } from "./tools.ts";
 
@@ -261,7 +262,7 @@ export default defineExtension({
           type: "boolean",
           label: "Works",
           default: true,
-          description: "Off: the code is void. Switched off by voidCodes or by a person.",
+          description: "Off: the code is void. Switched off by voidBatch, voidCodes or a person.",
         },
         madeBy: { type: "text", label: "Made by", readOnly: true },
       },
@@ -332,6 +333,7 @@ export default defineExtension({
     pauseDiscount,
     endDiscount,
     generateCodes,
+    voidBatch,
     voidCodes,
   },
 });
