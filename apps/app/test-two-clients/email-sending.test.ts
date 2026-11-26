@@ -121,7 +121,7 @@ describe("gym-a's host mail", () => {
     const before = (await recorded()).length;
     const customerUrl = (aEnv as unknown as { CUSTOMER_AUTH_URL?: string }).CUSTOMER_AUTH_URL;
     expect(customerUrl).toBe("https://shop.gym-a.test");
-    await hostMailFor(aEnv, `https://${b.hostname}`).sendPractitionerInvite({
+    await hostMailFor(aEnv, `https://${b.hostname}`).sendPractitionerInvite?.({
       to: "physio@outside.test",
       invitedBy: "Admin",
       discipline: "Physiotherapy",
