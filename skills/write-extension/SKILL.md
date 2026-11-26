@@ -270,12 +270,15 @@ extension declares it; it never implements it. Each behaviour the platform has i
   series, a class, a duty shift): `located: { field: "<a required relation to one location>" }`
   (`{ type: "relation", to: "location", required: true }`), or `located: { path:
   "<relation>.<field>" }` when the record is at its related record's location (a booking's
-  `klass.location`; one relation away, to another of your objects). The host fills it while there
+  `klass.location`; one required relation away, to another of your objects). The host fills it while there
   is one open location, gives an empty `timezone` the location's zone, and refuses a new record at
   a closed location. Never filter by location in a tool: the host reads this declaration. Add
   `agree: [{ a: "location", b: "room.location" }]` where two relations must name the same location
   (a class and its room); the database refuses a write that would leave them apart
-  (`location_mismatch`), and a room's location is fixed while a live record names it. See
+  (`location_mismatch`), and a room's location changes only with everything using it
+  (`location.relocate`). Declare `agree` on a series as well as on what it makes: a series that
+  does not can be left naming a room elsewhere, and its generation then fails every hour. A
+  `located.path`'s relation must be required. See
   `LocatedSpec` and `AgreeSpec` in `packages/sdk/src/located.ts` and ADR 0911.
 - **`calendarEntry`** (shipped packs only) on an object with a `customer` whose records are a
   customer's appointments (a booking, a ticket): `calendarEntry: { starts, ends: "<datetime

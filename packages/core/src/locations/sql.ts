@@ -13,7 +13,7 @@
 //
 // A side that is empty (no location, or no room) agrees with anything. A record in the Trash is
 // not read; restoring it is an update of `deleted_at`, and checked.
-import { ident } from "../extensions/naming.ts";
+import { fitName, ident } from "../extensions/naming.ts";
 
 /** A side of a rule: a column of the row, or (`via`) a column of the row its relation names. */
 export interface AgreeSide {
@@ -33,8 +33,13 @@ export interface AgreeTables {
  */
 export type Presence = (table: string, column: string) => "exists" | "filled" | "main" | "absent";
 
-/** The message every refusal raises (errors.ts answers it as `location_mismatch`). */
+/** The message a declaring row's refusal raises (errors.ts answers it as `location_mismatch`). */
 export const LOCATION_MISMATCH = "core_location_mismatch";
+/**
+ * The message a passed-through row's refusal raises (a room moved from under a live class):
+ * errors.ts answers it as `location_mismatch` too, with the words of the write path's own read.
+ */
+export const LOCATION_IN_USE = "core_location_in_use";
 
 /**
  * A side as SQL over the row `r`. `present` says whether a column holds data yet: a column this
@@ -86,12 +91,17 @@ export function agreeVias(t: AgreeTables): { table: string; links: string[]; col
 }
 
 /** The trigger names one declaring object owns: on its table, and on each table it passes through. */
-export function agreeTriggerNames(t: AgreeTables): string[] {
+function agreeTriggerNamesUnfitted(t: AgreeTables): string[] {
   return [
     `${t.table}__agree_ins`,
     `${t.table}__agree_upd`,
     ...agreeVias(t).map((v) => `${v.table}__agreed_${t.table}`),
   ];
+}
+
+/** agreeTriggerNames with each name fitted to an identifier (naming.ts `fitName`). */
+export function agreeTriggerNames(t: AgreeTables): string[] {
+  return agreeTriggerNamesUnfitted(t).map(fitName);
 }
 
 /** DROP TRIGGER statements for an object's agree triggers (safe when they do not exist). */
@@ -107,9 +117,9 @@ export function agreeIndexColumns(t: AgreeTables): string[] {
 /** CREATE TRIGGER statements keeping an object's rules (run after its columns exist). */
 export function createAgreeTriggers(t: AgreeTables): string[] {
   const table = ident(t.table);
-  const [ins, upd] = agreeTriggerNames(t).map(ident);
-  const refuse = (where: string) =>
-    `SELECT RAISE(ABORT, '${LOCATION_MISMATCH}') FROM ${table} r WHERE ${where} AND r.deleted_at IS NULL AND (${disagrees(t)}) LIMIT 1;`;
+  const [ins, upd, ...vias] = agreeTriggerNames(t).map(ident);
+  const refuse = (where: string, message = LOCATION_MISMATCH) =>
+    `SELECT RAISE(ABORT, '${message}') FROM ${table} r WHERE ${where} AND r.deleted_at IS NULL AND (${disagrees(t)}) LIMIT 1;`;
   const columns = [
     ...new Set([
       "id",
@@ -121,14 +131,13 @@ export function createAgreeTriggers(t: AgreeTables): string[] {
     `CREATE TRIGGER ${ins} AFTER INSERT ON ${table} BEGIN ${refuse("r.id = NEW.id")} END`,
     `CREATE TRIGGER ${upd} AFTER UPDATE OF ${columns.join(", ")} ON ${table} BEGIN ${refuse("r.id = NEW.id")} END`,
   ];
-  for (const via of agreeVias(t)) {
-    const name = ident(`${via.table}__agreed_${t.table}`);
+  agreeVias(t).forEach((via, i) => {
     const naming = via.links.map((c) => `r.${ident(c)} = NEW.id`).join(" OR ");
     const watched = via.columns.map(ident).join(", ");
     out.push(
-      `CREATE TRIGGER ${name} AFTER UPDATE OF ${watched} ON ${ident(via.table)} BEGIN ${refuse(`(${naming})`)} END`,
+      `CREATE TRIGGER ${vias[i]} AFTER UPDATE OF ${watched} ON ${ident(via.table)} BEGIN ${refuse(`(${naming})`, LOCATION_IN_USE)} END`,
     );
-  }
+  });
   return out;
 }
 

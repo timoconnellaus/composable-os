@@ -12,6 +12,7 @@ import { calendarEntryHostIssues } from "../customers/calendar-entry-check.ts";
 import { dashboardSpecSchema } from "../dashboards/spec.ts";
 import { ConfigError, ValidationError } from "../errors.ts";
 import { listObjects } from "../fields/index.ts";
+import { notifyStatements } from "../notifications/send.ts";
 import type { HandlerContext } from "../operation.ts";
 import { schemaObjectNames } from "../operations/query.ts";
 import { CORE_PERMISSION_NAMESPACES } from "../principals.ts";
@@ -759,6 +760,24 @@ export async function installExtension(
     ctx.write(
       ...(await routineMailAvailableNotice(ctx.db, input.id, manifest.label ?? input.id, ctx.now)),
     );
+  }
+  // Records filed under the main location on a host with more than one (ADR 0911): the admins
+  // are told which and how many, so they move any that belong elsewhere (location.relocate).
+  const filed = plan.changes.filter((c) => c.kind === "fill_main_location");
+  if (filed.length) {
+    const notice = await notifyStatements(
+      ctx.db,
+      {
+        to: [{ role: "admin" }],
+        type: "system.message",
+        title: `${manifest.label ?? input.id}: existing records were filed under the main location`,
+        body: filed.map((c) => c.detail).join(" "),
+        dedupeKey: `location-fill:${input.id}:${input.commit}`,
+        source: { actor: "system" },
+      },
+      ctx.now,
+    );
+    ctx.write(...notice.statements);
   }
   // The extension's automations join the registry (ADR 0130); enabled flags and pauses persist.
   ctx.write(

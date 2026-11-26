@@ -212,6 +212,14 @@ export function setDeclaredUniqueKeys(keys: ReadonlySet<string>): void {
 }
 
 /** Converts D1 constraint failures into typed errors; everything else becomes `internal`. */
+/**
+ * Why a record a live record agrees with (a room) cannot change location on its own (ADR 0911),
+ * and how it is done: with `location.relocate`, which moves what uses it in the same batch.
+ */
+export const ROOM_IN_USE_MESSAGE =
+  "This is used by a live record at another location, so its location cannot change on its own. " +
+  "Move it with everything that uses it (location.relocate).";
+
 export function toOperationError(error: unknown): OperationError {
   if (error instanceof OperationError) return error;
   // ai/client.ts's AiAllowanceError, matched by name so this module stays free of AI imports.
@@ -701,6 +709,11 @@ export function toOperationError(error: unknown): OperationError {
       "These name two different locations (a room is at one location, and what uses it must be there too), so nothing was changed.",
       { rule: "location_mismatch" },
     );
+  }
+  // A record a live record's path passes through (a room), moved from under it: the same words
+  // as the write path's read, for a write it could not see first (one earlier in the batch).
+  if (message.includes("core_location_in_use")) {
+    return new ValidationError(ROOM_IN_USE_MESSAGE, { rule: "location_mismatch" });
   }
   if (message.includes("core_location_main_kept")) {
     return new ConflictError("The main location stays the main location.", {

@@ -55,7 +55,12 @@ import {
   intakeHostFields,
 } from "../intake/declared.ts";
 import { listInputSchema, pageSchema, runListQuery } from "../list.ts";
-import { assertLocationRules, defaultZoneOf, withLocationDefault } from "../locations/index.ts";
+import {
+  assertLocationRules,
+  defaultZoneOf,
+  withLocationDefault,
+  withZoneFollowingMove,
+} from "../locations/index.ts";
 import type { RecordRef } from "../operation.ts";
 import { defineOperation, type HandlerContext, personsTool } from "../operation.ts";
 import { looksAfterWhere } from "../pack-role-looks-after.ts";
@@ -1226,7 +1231,14 @@ export async function updateRecord(
   if (!before) throw new NotFoundError(object.name, id);
   const by = options.by ?? callerMover(ctx);
   // A move asked for by name (`cancel`) becomes the state the host picks (ADR 0503).
-  const asked = await resolveStateRequest(ctx, object, before.values, values, by);
+  // A located record moved takes the new location's zone, unless its zone was set by hand or
+  // this write sets one (ADR 0911).
+  const asked = await withZoneFollowingMove(
+    ctx,
+    object,
+    before.values,
+    await resolveStateRequest(ctx, object, before.values, values, by),
+  );
   if (options.from !== undefined) assertMovesFrom(object, before.values, asked, options.from);
   assertMayChangeGatedStages(ctx, object, by);
   // Who must read a record staff confirm: a person's, and once published a manager's (ADR 0702).

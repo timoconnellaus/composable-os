@@ -21,7 +21,7 @@ import {
   isRestrictedField,
   type ObjectManifest,
 } from "@composable-os/sdk";
-import { CompiledQuery, type Kysely, sql } from "kysely";
+import { CompiledQuery, type Kysely, type SqlBool, sql } from "kysely";
 import { dropAllowanceStatements, termsSyncStatements } from "../allowance/index.ts";
 import { releaseAllClaimsStatements } from "../capacity/claimants.ts";
 import { backfillCounters, dropCapacityStatements } from "../capacity/records.ts";
@@ -35,6 +35,7 @@ import {
   agreeIndexColumns,
   createAgreeTriggers,
   dropAgreeTriggers,
+  type Presence,
 } from "../locations/sql.ts";
 import {
   createOccupiesTriggers,
@@ -98,7 +99,8 @@ export type SchemaChangeKind =
   | "add_index"
   | "drop_index"
   | "seed_records"
-  | "skip_claims";
+  | "skip_claims"
+  | "fill_main_location";
 
 export interface SchemaChange {
   kind: SchemaChangeKind;
@@ -142,6 +144,21 @@ export interface ReconcilePlan {
   issues: ReconcileIssue[];
   /** The schema state after the plan. */
   next: SchemaState;
+  /**
+   * The located columns this plan fills with the main location (ADR 0911): `added` when the
+   * column is new in this plan (every row is filled), else a field newly declared located (its
+   * empty rows are).
+   */
+  locationFills?: LocationFill[];
+}
+
+/** A located column a plan fills with the main location (ADR 0911). */
+export interface LocationFill {
+  object: string;
+  field: string;
+  table: string;
+  column: string;
+  added: boolean;
 }
 
 /**
@@ -221,6 +238,7 @@ export async function planReconcile(
   const current = await loadSchemaState(db);
   const plan = planFromState(db, current, manifest, options.now, timezone);
   plan.issues.push(...(await dataIssues(db, current, plan.next, manifest.id, options.now, plan)));
+  plan.changes.push(...(await locationFillNotices(db, plan)));
   // Promo code words already there, before their unique index is built (ADR 0940, review of PR
   // #459 F4): folded in place first; two that fold to one word stop the plan, naming them.
   const words = await codeWordData(db, current, plan.next, manifest.id);
@@ -371,7 +389,7 @@ async function dataIssues(
   next: SchemaState,
   ext: string,
   at: string,
-  plan: { changes: SchemaChange[] },
+  plan: { changes: SchemaChange[]; locationFills?: LocationFill[] | undefined },
 ): Promise<ReconcileIssue[]> {
   const issues: ReconcileIssue[] = [];
   // Org-wide, through the seam: the installed object's view as the registry has it now.
@@ -488,11 +506,12 @@ async function dataIssues(
     }
     // Two paths that must agree (ADR 0911) over live records that already name two locations,
     // once the plan's located fields are filled: refused, naming them, before the triggers exist.
+    // Read only when the rule, its tables or the plan's fills of them change: otherwise the
+    // triggers have held it all along.
     const agree = agreeTables(next, object);
-    if (agree) {
-      const clash = await sql
-        .raw<{ id: string }>(agreeClashQuery(agree, presence(current, next)))
-        .execute(db);
+    const present = presence(current, plan.locationFills ?? []);
+    if (agree && agreeChanged(agreeTables(current, before), agree, present)) {
+      const clash = await sql.raw<{ id: string }>(agreeClashQuery(agree, present)).execute(db);
       if (clash.rows.length) {
         issues.push({
           code: "agree_conflict",
@@ -595,6 +614,7 @@ export function planFromState(
   const next = clone(current);
   const tableDdl: string[] = [];
   const dataStatements: CompiledQuery[] = [];
+  const fills: LocationFill[] = [];
   const changes: SchemaChange[] = [];
   const issues: ReconcileIssue[] = [];
   const seedWrites: CompiledQuery[] = [];
@@ -941,6 +961,7 @@ export function planFromState(
         // every record is at a location from the start, as a new one is while there is one.
         if (declaring?.located?.field === local) {
           dataStatements.push(locationFill(table, column));
+          fills.push({ object: target, field: name, table, column, added: true });
         }
       }
       next.fields.push({
@@ -972,6 +993,13 @@ export function planFromState(
     );
     if (!was || !column?.columnName || was.definition.located?.field === field) continue;
     dataStatements.push(locationFill(column.tableName, column.columnName));
+    fills.push({
+      object: name,
+      field,
+      table: column.tableName,
+      column: column.columnName,
+      added: false,
+    });
   }
   for (const field of next.fields) {
     if (field.extensionId !== ext || field.status !== "active") continue;
@@ -1106,6 +1134,17 @@ export function planFromState(
       changes.push({ kind: "add_index", object: object.name, detail: name });
     }
   }
+  // An object hidden keeps its table, but not the index its agree triggers read by (ADR 0911):
+  // the triggers go with the declaration.
+  for (const object of next.objects) {
+    if (object.extensionId !== ext || object.status !== "hidden") continue;
+    for (const index of current.indexes ?? []) {
+      if (index.table !== object.tableName) continue;
+      if (!index.name.startsWith(`${object.tableName}__agree_`)) continue;
+      tableDdl.push(`DROP INDEX IF EXISTS ${ident(index.name)}`);
+      changes.push({ kind: "drop_index", object: object.name, detail: index.name });
+    }
+  }
 
   // The time claim (ADR 0621): the triggers keeping each shift's claim are dropped before the
   // table changes and built again after them, and every claim is derived again from the records.
@@ -1114,7 +1153,7 @@ export function planFromState(
   const occupies = occupiesPlan(current, next, ext, now);
   // The agree rules (ADR 0911) the same way: dropped before, built after, the table changes.
   const agree = agreePlan(current, next, ext);
-  return finishPlan(
+  const plan = finishPlan(
     db,
     ext,
     current,
@@ -1141,6 +1180,8 @@ export function planFromState(
     changes,
     issues,
   );
+  if (fills.length) plan.locationFills = fills;
+  return plan;
 }
 
 /**
@@ -1877,24 +1918,80 @@ function agreeTables(state: SchemaState, object: ObjectState): AgreeTables | nul
 
 /**
  * Whether a column holds data before a reconcile, for the agree check (ADR 0911): a column that
- * exists (`exists`, or `filled` when it is a located field, whose empty rows the plan fills), or
- * one this plan adds (`main` when it is a located field, `absent` otherwise).
+ * exists (`exists`, or `filled` when the plan fills its empty rows with the main location), or one
+ * this plan adds (`main` when the plan fills it, `absent` otherwise).
  */
-function presence(current: SchemaState, next: SchemaState) {
-  const located = (table: string, column: string) => {
-    const f = next.fields.find((x) => x.tableName === table && x.columnName === column);
-    const o = f
-      ? next.objects.find((x) => x.name === f.object && x.status === "active")
-      : undefined;
-    return Boolean(f && o && o.definition.located?.field === f.localName);
-  };
-  return (table: string, column: string): "exists" | "filled" | "main" | "absent" => {
+function presence(current: SchemaState, fills: readonly LocationFill[]): Presence {
+  const filled = (table: string, column: string) =>
+    fills.some((f) => f.table === table && f.column === column);
+  return (table, column) => {
     const exists = current.fields.some(
       (f) => f.tableName === table && f.columnName === column && f.status === "active",
     );
-    if (exists) return located(table, column) ? "filled" : "exists";
-    return located(table, column) ? "main" : "absent";
+    if (exists) return filled(table, column) ? "filled" : "exists";
+    return filled(table, column) ? "main" : "absent";
   };
+}
+
+/** Whether an agree rule's check must read the records: new, changed, or over filled columns. */
+function agreeChanged(was: AgreeTables | null, now: AgreeTables, present: Presence): boolean {
+  if (JSON.stringify(was) !== JSON.stringify(now)) return true;
+  const columns = now.rules.flatMap((r) =>
+    [r.a, r.b].flatMap((side) =>
+      side.via
+        ? [
+            [now.table, side.via.column],
+            [side.via.table, side.column],
+          ]
+        : [[now.table, side.column]],
+    ),
+  ) as [string, string][];
+  return columns.some(([table, column]) => present(table, column) !== "exists");
+}
+
+/**
+ * What a plan's fills mean on a host that already has more than one location (ADR 0911): the
+ * records are filed under the main location, which may not be where they belong. One change per
+ * filled field, naming the object and how many records, for the plan's readers (the approval of
+ * an extension, `extension.install`'s answer) and the admins' notice when it is installed. With one
+ * location there is nothing to say.
+ */
+async function locationFillNotices(
+  db: Kysely<CoreDatabase>,
+  plan: ReconcilePlan,
+): Promise<SchemaChange[]> {
+  const fills = plan.locationFills ?? [];
+  if (!fills.length) return [];
+  const locations = await db
+    .selectFrom("core_location")
+    .select(["name", "main"])
+    .orderBy("main", "desc")
+    .limit(2)
+    .execute();
+  if (locations.length < 2) return [];
+  const main = locations[0]?.name ?? "the main location";
+  const out: SchemaChange[] = [];
+  for (const fill of fills) {
+    const table = await db
+      .selectFrom("sqlite_master" as never)
+      .select(sql<string>`name`.as("name"))
+      .where(sql<SqlBool>`type = 'table' AND name = ${fill.table}`)
+      .executeTakeFirst();
+    if (!table) continue; // A new object has no records.
+    const counted = await sql<{ n: number }>`SELECT count(*) AS n FROM ${sql.table(fill.table)}${
+      fill.added ? sql`` : sql` WHERE ${sql.ref(fill.column)} IS NULL`
+    }`.execute(db);
+    const n = Number(counted.rows[0]?.n ?? 0);
+    if (!n) continue;
+    const label = getObject(fill.object)?.plural ?? fill.object;
+    out.push({
+      kind: "fill_main_location",
+      object: fill.object,
+      field: fill.field,
+      detail: `${n} existing ${label.toLowerCase()} filed under the main location, ${main}, though this host has more than one location: move any that belong elsewhere with location.relocate (a record with everything that uses it)`,
+    });
+  }
+  return out;
 }
 
 /**

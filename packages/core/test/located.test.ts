@@ -22,7 +22,7 @@ import {
   runRecurringDue,
 } from "../src/index.ts";
 import { extId, manifest, plan, reconcile } from "./extension-helpers.ts";
-import { context, createUser, db, setPreset, unique } from "./helpers.ts";
+import { auditChanges, context, createUser, db, setPreset, unique } from "./helpers.ts";
 
 const WEEKDAYS = ["mon", "tue", "wed", "thu", "fri", "sat", "sun"].map((value) => ({
   value,
@@ -118,7 +118,7 @@ const fixture = (id: string) =>
         titleField: "name",
         fields: {
           name: { type: "text", label: "Name" },
-          klass: { type: "relation", label: "Class", to: `${id}.klass` },
+          klass: { type: "relation", label: "Class", to: `${id}.klass`, required: true },
           timezone: { type: "timezone", label: "Time zone" },
         },
         located: { path: "klass.location" },
@@ -533,7 +533,9 @@ describe("two locations", () => {
     });
     const moved = await refusal(update(ROOM, room.id, { location: harbour }));
     expect(moved).toMatchObject(mismatch);
-    expect(moved.message).toContain("Make a new room instead");
+    expect(moved.message).toContain("location.relocate");
+    // Read before the batch (the dry run gets it too), naming what uses the room.
+    expect(moved.details).toMatchObject({ field: "location", usedBy: KLASS });
     // Past the host's code: the room's trigger, and the class's.
     const R = table(ROOM);
     const K = table(KLASS);
@@ -541,7 +543,7 @@ describe("two locations", () => {
       env.DB.prepare(`UPDATE ${R} SET ${column(ROOM, "location")} = ? WHERE id = ?`)
         .bind(harbour, room.id)
         .run(),
-    ).rejects.toThrow(/core_location_mismatch/);
+    ).rejects.toThrow(/core_location_in_use/);
     await expect(
       env.DB.prepare(`UPDATE ${K} SET ${column(KLASS, "location")} = ? WHERE id = ?`)
         .bind(harbour, klass.id)
@@ -634,6 +636,230 @@ describe("two locations", () => {
     // Put right, it installs.
     await update(`${id}.visit`, visit.id, { location: harbour });
     expect((await reconcile(manifest(id, { objects: objects(true) }))).issues).toEqual([]);
+  });
+});
+
+describe("moving a record to another location", () => {
+  const MONDAYS = {
+    weekdays: ["mon"],
+    time: "06:00",
+    length: 60,
+    firstDate: "2031-07-07",
+    lastDate: "2031-07-28",
+  };
+
+  it("takes the new location's zone for a series whose zone was its location's, and its future classes follow", async () => {
+    const here = await create(ROOM, { name: unique("Here "), location: MAIN_LOCATION_ID });
+    const there = await create(ROOM, { name: unique("There "), location: harbour });
+    const series = await create(SERIES, {
+      name: "Moving",
+      room: here.id,
+      location: MAIN_LOCATION_ID,
+      ...MONDAYS,
+    });
+    expect(series.values.timezone).toBe(SYDNEY);
+    await tick("2031-07-01T00:00:00.000Z");
+    const before = await classesOf("series", series.id);
+    expect(before.map((r) => wallClock(r.starts, SYDNEY).time)).toEqual([
+      "06:00",
+      "06:00",
+      "06:00",
+      "06:00",
+    ]);
+    await update(SERIES, series.id, { location: harbour, room: there.id });
+    const moved = (await invoke("record.get", { object: SERIES, id: series.id }, as())) as {
+      values: Record<string, unknown>;
+    };
+    expect(moved.values).toMatchObject({ location: harbour, timezone: LONDON });
+    const after = await classesOf("series", series.id);
+    expect(after).toHaveLength(4);
+    for (const row of after) {
+      expect(row).toMatchObject({ location: harbour, zone: LONDON });
+      expect(wallClock(row.starts, LONDON).time).toBe("06:00");
+    }
+  });
+
+  it("keeps a zone set by hand, and a zone the same write sets", async () => {
+    const here = await create(ROOM, { name: unique("Here "), location: MAIN_LOCATION_ID });
+    const there = await create(ROOM, { name: unique("There "), location: harbour });
+    const byHand = await create(SERIES, {
+      name: "Tokyo time",
+      room: here.id,
+      location: MAIN_LOCATION_ID,
+      timezone: "Asia/Tokyo",
+    });
+    await update(SERIES, byHand.id, { location: harbour, room: there.id });
+    const kept = (await invoke("record.get", { object: SERIES, id: byHand.id }, as())) as {
+      values: Record<string, unknown>;
+    };
+    expect(kept.values).toMatchObject({ location: harbour, timezone: "Asia/Tokyo" });
+    const given = await create(SERIES, {
+      name: "Given",
+      room: here.id,
+      location: MAIN_LOCATION_ID,
+    });
+    await update(SERIES, given.id, {
+      location: harbour,
+      room: there.id,
+      timezone: "Pacific/Auckland",
+    });
+    const set = (await invoke("record.get", { object: SERIES, id: given.id }, as())) as {
+      values: Record<string, unknown>;
+    };
+    expect(set.values.timezone).toBe("Pacific/Auckland");
+  });
+});
+
+describe("records filed under the main location", () => {
+  it("says so when a field is filled on a host with more than one location", async () => {
+    const id = extId("told");
+    const hall = (located: boolean) =>
+      manifest(id, {
+        objects: {
+          hall: {
+            label: "Hall",
+            plural: "Halls",
+            titleField: "name",
+            fields: {
+              name: { type: "text", label: "Name", required: true },
+              ...(located ? { location: where } : {}),
+            },
+            ...(located ? { located: { field: "location" } } : {}),
+          },
+        },
+      });
+    await reconcile(hall(false));
+    for (const name of ["A", "B", "C"]) await create(`${id}.hall`, { name });
+    const planned = await plan(hall(true));
+    expect(planned.issues).toEqual([]);
+    expect(planned.changes).toContainEqual({
+      kind: "fill_main_location",
+      object: `${id}.hall`,
+      field: "location",
+      detail: expect.stringMatching(/^3 existing halls filed under the main location/),
+    });
+    // Installed again with nothing to fill, it says nothing.
+    await reconcile(hall(true));
+    expect((await plan(hall(true))).changes.filter((c) => c.kind === "fill_main_location")).toEqual(
+      [],
+    );
+  });
+
+  it("moves a room with every record that uses it, past and future and in the Trash, in one change", async () => {
+    const room = await create(ROOM, { name: unique("Filed "), location: MAIN_LOCATION_ID });
+    const series = await create(SERIES, {
+      name: "Filed series",
+      room: room.id,
+      location: MAIN_LOCATION_ID,
+    });
+    const klass = (day: string) =>
+      create(KLASS, {
+        name: `Filed ${day}`,
+        room: room.id,
+        startsAt: `2031-0${day}T08:00:00.000Z`,
+        endsAt: `2031-0${day}T09:00:00.000Z`,
+        location: MAIN_LOCATION_ID,
+      });
+    const past = await klass("2-01");
+    const future = await klass("8-01");
+    const trashed = await klass("8-02");
+    await invoke("record.delete", { object: KLASS, id: trashed.id }, as());
+    // On its own, refused.
+    expect(await refusal(update(ROOM, room.id, { location: harbour }))).toMatchObject(mismatch);
+    // An AI only asks.
+    await setPreset("autonomous");
+    try {
+      const mcp = context(admin, { actor: "mcp", clock: () => new Date(NOW) });
+      const asked = await invoke(
+        "location.relocate",
+        { object: ROOM, id: room.id, location: harbour },
+        mcp,
+      ).catch((e: unknown) => e);
+      expect(asked).toBeInstanceOf(PendingApprovalError);
+    } finally {
+      await setPreset("balanced");
+    }
+    const result = await invoke(
+      "location.relocate",
+      { object: ROOM, id: room.id, location: harbour },
+      as(),
+    );
+    expect(result).toMatchObject({
+      moved: expect.arrayContaining([
+        { object: SERIES, count: 1 },
+        { object: KLASS, count: 3 },
+      ]),
+    });
+    const at = async (object: string, rid: string) => {
+      const row = await env.DB.prepare(`SELECT * FROM ${table(object)} WHERE id = ?`)
+        .bind(rid)
+        .first<Record<string, unknown>>();
+      return {
+        location: row?.[column(object, "location")],
+        ...(object === ROOM ? {} : { room: row?.[column(object, "room")] }),
+      };
+    };
+    expect((await at(ROOM, room.id))?.location).toBe(harbour);
+    for (const rid of [past.id, future.id, trashed.id]) {
+      expect(await at(KLASS, rid)).toEqual({ location: harbour, room: room.id });
+    }
+    expect(await at(SERIES, series.id)).toEqual({ location: harbour, room: room.id });
+    // Times and zones are kept: it files records, it does not move when they happen.
+    const kept = (await invoke("record.get", { object: KLASS, id: future.id }, as())) as {
+      values: Record<string, unknown>;
+    };
+    expect(kept.values).toMatchObject({ startsAt: "2031-08-01T08:00:00.000Z", timezone: SYDNEY });
+    // The one in the Trash comes back where its room is now.
+    await invoke("record.restore", { object: KLASS, id: trashed.id }, as());
+    // Audited on the room, by the operation, with what moved with it.
+    const changes = await auditChanges(room.id);
+    expect(changes.at(-1)).toMatchObject({ operation: "location.relocate", action: "update" });
+  });
+});
+
+describe("long names", () => {
+  it("installs an extension whose names are as long as the contract allows", async () => {
+    const id = `l${"o".repeat(26)}${Date.now().toString(36).slice(-3)}`;
+    const long = "r".repeat(30);
+    const other = "c".repeat(30);
+    const m = manifest(id, {
+      objects: {
+        [long]: {
+          label: "Room",
+          plural: "Rooms",
+          titleField: "name",
+          fields: { name: { type: "text", label: "Name", required: true }, location: where },
+          located: { field: "location" },
+        },
+        [other]: {
+          label: "Class",
+          plural: "Classes",
+          titleField: "name",
+          fields: {
+            name: { type: "text", label: "Name" },
+            room: { type: "relation", label: "Room", to: `${id}.${long}` },
+            location: where,
+          },
+          located: { field: "location" },
+          agree: [{ a: "location", b: "room.location" }],
+        },
+      },
+    });
+    expect(validateManifest(m).issues).toEqual([]);
+    expect((await reconcile(m)).issues).toEqual([]);
+    const room = await create(`${id}.${long}`, { name: "Long", location: MAIN_LOCATION_ID });
+    expect(
+      await refusal(create(`${id}.${other}`, { name: "Far", room: room.id, location: harbour })),
+    ).toMatchObject(mismatch);
+    // Its room's trigger, with a fitted name, refuses a raw move too.
+    await create(`${id}.${other}`, { name: "Near", room: room.id, location: MAIN_LOCATION_ID });
+    await expect(
+      env.DB.prepare(
+        `UPDATE ${table(`${id}.${long}`)} SET ${column(`${id}.${long}`, "location")} = ? WHERE id = ?`,
+      )
+        .bind(harbour, room.id)
+        .run(),
+    ).rejects.toThrow(/core_location_in_use/);
   });
 });
 

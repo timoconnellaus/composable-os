@@ -10,12 +10,13 @@
 // the common case a clear message, and the approval queue's dry run (whose writes are discarded)
 // its answer.
 import { type Kysely, sql } from "kysely";
-import { ValidationError } from "../errors.ts";
+import { ROOM_IN_USE_MESSAGE, ValidationError } from "../errors.ts";
 import { objectTableOf } from "../extensions/schema.ts";
 import { getObject, listObjects } from "../fields/index.ts";
 import type { LocationPath, ObjectDefinition } from "../fields/types.ts";
 import type { HandlerContext } from "../operation.ts";
 import { loadGeneralSettings } from "../settings.ts";
+import { type AgreeSide, sideExpr } from "./sql.ts";
 
 // biome-ignore lint/suspicious/noExplicitAny: x_* tables are not in CoreDatabase; names come from the registry.
 type AnyDb = Kysely<any>;
@@ -67,7 +68,7 @@ interface LocationRow {
   state: string;
 }
 
-async function loadLocation(ctx: Ctx, id: string): Promise<LocationRow | undefined> {
+export async function loadLocation(ctx: Ctx, id: string): Promise<LocationRow | undefined> {
   return ctx.db
     .selectFrom("core_location")
     .select(["id", "name", "timezone", "state"])
@@ -185,10 +186,24 @@ function agreeingThrough(object: string) {
   );
 }
 
+/** A path as the triggers' SQL reads it (locations/sql.ts), from the registry; null if unknown. */
+function sideOf(object: ObjectDefinition, path: LocationPath): AgreeSide | null {
+  if (!path.via) {
+    const column = columnOf(object.name, path.field);
+    return column ? { column } : null;
+  }
+  const link = columnOf(object.name, path.via);
+  const table = path.viaObject ? objectTableOf(path.viaObject) : undefined;
+  const column = path.viaObject ? columnOf(path.viaObject, path.field) : undefined;
+  return link && table && column ? { column, via: { column: link, table } } : null;
+}
+
 /**
  * A record an `agree` path passes through (a room), its location field changed: refused while a
- * live record of the declaring object (a class) names it and would then disagree. So a room's
- * location is fixed while anything live uses it (make a new room instead).
+ * live record of the declaring object (a class) names it and would then disagree, read as one
+ * `EXISTS` over every such record. The triggers refuse what this cannot see (a write earlier in
+ * the same batch) with the same words. A room's location changes only with what uses it
+ * (`location.relocate`).
  */
 async function assertPassedThrough(
   ctx: Ctx,
@@ -207,34 +222,93 @@ async function assertPassedThrough(
       if (side.viaObject !== object.name || !side.via) continue;
       const moved = text(after[side.field]);
       if (!moved || text(before[side.field]) === moved) continue;
-      const viaColumn = columnOf(user.name, side.via);
-      if (!viaColumn) continue;
-      const rows = (await (ctx.db as AnyDb)
-        .selectFrom(table)
-        .selectAll()
-        .where(viaColumn, "=", id)
-        .where("deleted_at", "is", null)
-        .limit(50)
-        .execute()) as Record<string, unknown>[];
-      for (const row of rows) {
-        const values = valuesOfRow(user, row);
-        const theirs = await locationAt(ctx, other, values);
-        if (theirs && theirs !== moved) {
-          throw new ValidationError(
-            `This ${object.label.toLowerCase()} is used by a live ${user.label.toLowerCase()} at another location, so its location cannot change. Make a new ${object.label.toLowerCase()} instead.`,
-            { field: side.field, rule: "location_mismatch", usedBy: user.name },
-          );
-        }
-      }
+      const link = columnOf(user.name, side.via);
+      const theirs = sideOf(user, other);
+      if (!link || !theirs) continue;
+      const expr = sql.raw(sideExpr(theirs, undefined, table));
+      const found = await sql<{
+        x: number;
+      }>`SELECT 1 AS x FROM ${sql.table(table)} r WHERE r.${sql.ref(link)} = ${id} AND r.deleted_at IS NULL AND ${expr} IS NOT NULL AND ${expr} <> ${moved} LIMIT 1`.execute(
+        ctx.db,
+      );
+      if (found.rows.length)
+        throw new ValidationError(ROOM_IN_USE_MESSAGE, {
+          field: side.field,
+          rule: "location_mismatch",
+          usedBy: user.name,
+        });
     }
   }
 }
 
-/** A stored row's values by registry field name (only the columns a path reads matter). */
-function valuesOfRow(object: ObjectDefinition, row: Record<string, unknown>) {
-  return Object.fromEntries(
-    object.fields
-      .filter((f) => f.column && f.column in row)
-      .map((f) => [f.name, row[f.column as string]]),
+/**
+ * A located record moved to another location takes the new location's zone (ADR 0911, after the
+ * spec's "moving a series to another location changes its future classes as any series change
+ * does"): each `timezone` field the write does not set, holding the old location's zone (the
+ * default it was given, or the same by choice) or nothing, becomes the new location's. A zone
+ * that differs from the old location's was chosen by hand and is kept.
+ */
+export async function withZoneFollowingMove(
+  ctx: Ctx,
+  object: ObjectDefinition,
+  before: Record<string, unknown>,
+  asked: Record<string, unknown>,
+): Promise<Record<string, unknown>> {
+  const located = object.located;
+  if (!located || !Object.hasOwn(asked, located.via ?? located.field)) return asked;
+  const zones = object.fields.filter(
+    (f) =>
+      f.fieldType === "timezone" &&
+      f.options?.default === undefined &&
+      !f.options?.defaultSetting &&
+      !Object.hasOwn(asked, f.name),
   );
+  if (!zones.length) return asked;
+  const [from, to] = await Promise.all([
+    locationOfRecord(ctx, object, before),
+    locationOfRecord(ctx, object, { ...before, ...asked }),
+  ]);
+  if (!to || from === to) return asked;
+  const [was, now] = await Promise.all([
+    from ? loadLocation(ctx, from) : undefined,
+    loadLocation(ctx, to),
+  ]);
+  if (!now) return asked;
+  const out = { ...asked };
+  for (const field of zones) {
+    const zone = text(before[field.name]);
+    if (zone === null || zone === was?.timezone) out[field.name] = now.timezone;
+  }
+  return out;
+}
+
+/**
+ * What `location.relocate` moves with a record (ADR 0911): every object whose `agree` passes
+ * through it, by the relation naming it (`link`) and the object's own location field. An object
+ * that reaches its other side through another relation is refused: move that record instead.
+ */
+export function usersOf(object: string): {
+  user: ObjectDefinition;
+  link: string;
+  location: string;
+}[] {
+  const out: { user: ObjectDefinition; link: string; location: string }[] = [];
+  for (const { object: user, rule } of agreeingThrough(object)) {
+    for (const [side, other] of [
+      [rule.a, rule.b],
+      [rule.b, rule.a],
+    ] as const) {
+      if (side.viaObject !== object || !side.via) continue;
+      if (other.via) {
+        throw new ValidationError(
+          `A ${user.label.toLowerCase()} reaches its other location through ${other.via}: move that instead`,
+          { rule: "relocate_through", object: user.name },
+        );
+      }
+      if (!out.some((u) => u.user.name === user.name && u.link === side.via)) {
+        out.push({ user, link: side.via, location: other.field });
+      }
+    }
+  }
+  return out;
 }

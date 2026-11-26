@@ -2098,7 +2098,11 @@ b }]` names two paths that must reach the same location: the reconciler builds t
 declaring table and on the table a path passes through (`locations/sql.ts`), so a live record that
 disagrees, or a used room moved, is refused for every writer (`location_mismatch`), after a read in
 the write path that gives the message; installing over records that already disagree is refused
-(`agree_conflict`). Coverage, the zone readers and staff limits are the stage's later steps.
+(`agree_conflict`). A located record moved to another location takes its new location's zone
+unless its zone was set by hand. A reconcile that fills on a host with more than one location
+says how many records it filed under the main location (`fill_main_location`, a warning on the
+approval and a notice to the admins), and `location.relocate` moves a room with every record that
+uses it in one batch. Coverage, the zone readers and staff limits are the stage's later steps.
 
 **Video and files** (stage 42, [ADR 0475](adr/0475-video-and-file-media-in-stream.md),
 `packages/core/src/operations/media-video.ts`, `packages/core/src/records/stream.ts`). A media

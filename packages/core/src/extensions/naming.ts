@@ -12,6 +12,24 @@ export function ident(name: string): string {
   return name;
 }
 
+/** The longest identifier `ident` takes. */
+export const IDENT_MAX = 121;
+
+/**
+ * A name built from table names (a trigger on one table about another), fitted to `ident`: kept
+ * as it is when it fits, so every name already in a database stays the same, else cut and ended
+ * with eight hex digits of a hash of the whole name (FNV-1a), stable and distinct per name.
+ */
+export function fitName(name: string): string {
+  if (name.length <= IDENT_MAX) return name;
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < name.length; i += 1) {
+    hash ^= name.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+  }
+  return `${name.slice(0, IDENT_MAX - 9)}_${hash.toString(16).padStart(8, "0")}`;
+}
+
 /** Core objects that extension fields can extend, with their base and read views. */
 export const CORE_TARGETS = {
   person: { base: "core_base_people", view: "rec_person" },
