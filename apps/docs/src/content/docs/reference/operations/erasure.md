@@ -57,6 +57,7 @@ Take an email address off the erased-address list, so mail and calendar sync can
 | `bookingSystem` | object | yes |   | The booking system's copy (stage 65): the address and the refs the same erase suppressed are matched again from the next list |
 | `bookingSystem.addresses` | number | yes |   | The address's suppression in the booking system's copy, lifted |
 | `bookingSystem.refs` | number | yes |   | Outside refs the same erase suppressed (the Person's own), lifted with it |
+| `bookingSystem.refsLeft` | number | yes |   | Refs left suppressed because several erases suppressed this address and whose consent this is cannot be told: a person with records:erase lifts the right one with outside.suppression.lift |
 
 ## erasure.reapply
 

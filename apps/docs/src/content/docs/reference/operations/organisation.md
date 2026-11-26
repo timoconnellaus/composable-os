@@ -165,11 +165,14 @@ Permanently delete an organisation now (admins only), live or in Trash, together
 | `agreementsKept.until` | string or null | yes |   | When the retention purge deletes them (agreement.retention); null: none kept, or the setting keeps them |
 | `agreementsKept.deleted` | number | yes |   | A buyer's acceptances on an unpaid order or unconfirmed checkout, deleted |
 | `bodiesDeleted` | number | yes |   | Synced email bodies deleted from blob storage now (the rest are retried) |
-| `bookingSystem` | object |   |   | A person's copy from the booking system's lists (stage 65): their memberships, passes, bookings, links and matches are deleted and their outside refs and addresses suppressed, so no later list brings them back. A copy remains in the booking system, for staff to deal with there |
-| `bookingSystem.people` | number | yes |   | Outside people of theirs removed from the booking system's copy |
-| `bookingSystem.coaches` | number | yes |   | Coaches with their address and no staff account removed from the copy |
-| `bookingSystem.coachesOfStaff` | number | yes |   | Coaches with their address linked to a staff account: kept, as that account's (the staff account is not erased) |
-| `bookingSystem.textScrubbed` | number | yes |   | Classes and class types whose text (a title naming them) was scrubbed; a later list brings back what the booking system still says |
+| `bookingSystem` | object |   |   | Whenever the host holds a booking system's copy (stage 65): what the erase did to it. Present even when nothing of theirs was found. A copy remains in the booking system, for staff to deal with there |
+| `bookingSystem.deletedLinked` | number | yes |   | Outside people linked to them (by address or by staff): deleted, their refs suppressed |
+| `bookingSystem.deletedUnlinked` | number | yes |   | Outside people linked to nobody on an address only they held (their household's unmatched copies): deleted, no ref suppressed |
+| `bookingSystem.coaches` | number | yes |   | Coaches on their address with no staff account: deleted |
+| `bookingSystem.keptLinkedToOthers` | number | yes |   | Outside people and coaches on their address kept, because linked to another Person or a staff account |
+| `bookingSystem.keptWaiting` | number | yes |   | Outside people on their address left waiting in To match, because another Person holds the address too |
+| `bookingSystem.sharedAddresses` | number | yes |   | Their addresses another Person, customer account or kept outside person also holds: not suppressed, not redacted (a count only) |
+| `bookingSystem.textScrubbed` | number | yes |   | Classes and class types whose text named them (a full name, whole words), scrubbed; a later list brings back what the booking system still says |
 | `bookingSystem.copyRemains` | `true` | yes |   | The booking system itself still holds them: the host cannot remove it there |
 | `bookingSystem.note` | string | yes |   |   |
 

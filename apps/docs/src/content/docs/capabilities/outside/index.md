@@ -38,8 +38,9 @@ linked and what a customer may see are rules of the host.
 - **Suppressed**: the refs and addresses of an erased Person's own outside rows, kept as hashes
   keyed with the deployment's salt, never the values. No later list keeps anything they name, and
   nobody can link them by hand, until an admin allows the address back on consent or a person
-  lifts a ref the booking system gave to someone new. A plus-tag or dotted spelling of an erased
-  address is a different address.
+  lifts a ref the booking system gave to someone new (it needs records:erase too). A plus-tag or
+  dotted spelling of an erased address is the same address to the matching, a different one to
+  mail sync's erased-address list.
 
 ## How the pieces fit
 
@@ -62,11 +63,12 @@ linked and what a customer may see are rules of the host.
 3. Staff open To match (`outside.matches`) and link (`outside.link`) or say "nobody here"
    (`outside.unlink`), with why.
 4. `outside.status` shows each list's date, its age, and whether it still counts.
-5. A Person is erased (`person.erase`): their own outside rows go (linked to them, or on their
-   address where only they can be; a coach on their address with no staff account), with their
-   memberships, passes, bookings and To match, and their names leave class titles; their refs and
-   addresses are suppressed, and the result says a copy remains in the booking system. A family
-   member's row on the same address, or a row linked to anyone else, stays.
+5. A Person is erased (`person.erase`): rows linked to them go, and rows linked to nobody on an
+   address only they hold (a household's unmatched copies), and coaches on their address with no
+   staff account, with their memberships, passes, bookings and To match. Their addresses are
+   suppressed unless someone else holds one; refs and names only of the rows linked to them. A row
+   linked to anyone else, or waiting because another Person holds the address, stays. The result
+   always says what happened, and that a copy remains in the booking system.
 6. Two People are merged: links move to the survivor, and someone who waited only because the two
    were two People is linked to the survivor. A purge drops a purged Person's links.
 7. A person removes a list, or both (`outside.lists.remove`): it stops counting at once and its

@@ -203,7 +203,7 @@ No fields.
 
 ## outside.suppression.lift
 
-Lift the suppression of an outside ref an erase left: when the booking system has given an erased person's old ref to someone new, every load drops that ref (counted as previously erased) until a person lifts it. The new person is then kept and matched as anyone is. The erased person's addresses stay suppressed. A person with bookingSystem:manage only, never an AI, an MCP client, an extension or an automation.
+Lift the suppression of an outside ref an erase left: when the booking system has given an erased person's old ref to someone new, every load drops that ref (counted as previously erased) until a person lifts it. The new person is then kept and matched as anyone is. The erased person's addresses stay suppressed. This undoes an erase's protection for that ref: if the booking system still lists the erased person under it, they come back. Needs both bookingSystem:manage and records:erase (the erase's own permission), a person only, never an AI, an MCP client, an extension or an automation.
 
 |  |  |
 | --- | --- |
