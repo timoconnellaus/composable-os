@@ -114,7 +114,7 @@ export function registryMigrations(): Migration[] {
   const dir = candidates.find((c) => existsSync(c));
   if (!dir) throw new CliError("the registry's migrations are not with this cos");
   return readdirSync(dir)
-    .filter((name) => /^d+_.*.sql$/.test(name))
+    .filter((name) => /^\d+_.*\.sql$/.test(name))
     .sort()
     .map((name) => migrationOf(name, readFileSync(join(dir, name), "utf8")));
 }
