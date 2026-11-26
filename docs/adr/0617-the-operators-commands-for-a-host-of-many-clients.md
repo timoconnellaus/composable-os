@@ -64,6 +64,14 @@ printed (the redactor holds every value as it is read). Every fleet deploy reads
 props each host Worker's bindings carry are signed with the props key. The deployment state holds
 only the public sealing key. Rotating a key is not built as a command (below).
 
+This departs from ADR 0616's "the two private keys pass through the machine that makes them once":
+the keys file keeps the root key and the sealing private key beside the binding and props keys, and
+each fleet deploy sets them again (with the same values), so a re-run of an install that stopped
+part-way, or a new Worker of the fleet, gets them. What seals a client's secret (`cos client secret
+set`) still holds only the public key, from the deployment's state, and never reads the file's
+private key. The operator may keep the file offline between deploys. A file that needs only the
+props key per deploy (the others set once) is a later change.
+
 ### What a fleet deployment binds (ADR 0615's list, built)
 `DeploymentState.fleet` (environment, callback hostname, the fleet's domain, the sealing public key)
 makes a deployment a fleet's; `packages/release/src/fleet.ts` adds, and the committed

@@ -1231,7 +1231,8 @@ cos client remove gym-a                      # export kept 90 days, then erased;
   is every client migrated before it; nothing is uploaded. A client's own extension on a contract
   the new release does not run stops the update before anything changes.
 - **Export and import** carry the database, files and secrets, not videos yet (stage 66 step 5).
-  `cos client import <id> --from <dir>` adds a new client only; an existing id is refused.
+  `cos client import <id> --from <dir>` adds a new client only; an existing id is refused. Until
+  issue #525, an imported client's videos must be re-stamped with its creator once step 5 does.
 - **Payments, text, inbound webhooks and email** are off for every client of a host of many clients
   until their gatekeepers are made per client (ADR 0616). A client's Stripe keys can already be
   stored (`cos client secret set <id> STRIPE_SECRET_KEY`), unused until then.
