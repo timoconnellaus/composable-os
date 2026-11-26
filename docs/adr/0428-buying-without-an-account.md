@@ -115,7 +115,8 @@ it. See [ADR 0682](0682-goods-on-an-order-where-sold-the-channel-and-the-deliver
 ## Amendment, 2026-11-26 (stage 66 step 6, ADR 0616): payment secrets on a many-client host
 Payment secrets stay env-only on a single-client deployment. On a host that serves many clients
 they are a client's given secrets (sealed in the registry, opened only into that client's
-environment, [ADR 0616](0616-secrets-and-addresses-per-client.md)), and the payments gatekeeper
-must hold each client's keys in that client's account: until it does, the payments gatekeeper is
-left out of every client's environment, so no client takes money into another's (or the
+environment, [ADR 0616](0616-secrets-and-addresses-per-client.md)), passed to the payments gatekeeper
+per call sealed to it and never stored there in plaintext; or the host uses Stripe Connect and holds
+no client's Stripe secret at all (the owner's decision). Until one is built the payments gatekeeper
+is left out of every client's environment, so no client takes money into another's (or the
 operator's) Stripe account. The work it needs is listed in ADR 0616, "Gatekeepers".

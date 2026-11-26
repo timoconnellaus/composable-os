@@ -15,7 +15,7 @@
 // Exported as `@composable-os/db/client-environment`, never from `@composable-os/db`. Building an
 // environment (client-environment-build.ts) is internal: only the directory does it.
 
-import { isCallbackHostname } from "./callbacks.ts";
+import { callbackHostname, isCallbackHostname } from "./callbacks.ts";
 import {
   BINDING_WRAPPERS,
   type BindingWrapper,
@@ -40,12 +40,12 @@ import {
   readRegistry,
   readRegistryStamp,
 } from "./registry.ts";
+import { ROOT_KEY_VAR } from "./registry-sealing.ts";
 import {
   deriveClientSecrets,
-  ROOT_KEY_VAR,
+  type OpeningKeyring,
+  openingKeyringOf,
   readClientSecrets,
-  type SecretsKeyring,
-  secretsKeyringOf,
 } from "./registry-secrets.ts";
 
 export type { BindingWrapper, HostBindings };
@@ -142,13 +142,24 @@ export class ClientDirectory<E extends HostBindings = HostBindings> {
   #applied = 0;
   readonly #environments = new Map<ClientId, E>();
   /** The sealing keys, imported once (non-extractable `CryptoKey`s). */
-  #keyring: SecretsKeyring | null | undefined;
+  #keyring: OpeningKeyring | null | undefined;
   #warnedNoRoot = false;
 
   constructor(env: E, options: ClientDirectoryOptions = {}) {
     if (hostMode(env) !== "many") throw new Error("No REGISTRY binding: one client, no directory");
     this.#env = env as E & ManyClientBindings;
     this.#environment = hostEnvironment(env);
+    // One clear failure where the directory is made, not one per request: a callback hostname
+    // that is not canonical (upper case, a port) is a broken deployment (step 7 checks it first).
+    callbackHostname(env);
+    // The fake gatekeepers keep one deployment's fake books and accept a fixed signing secret on
+    // localhost: never on a host of many clients (ADR 0616).
+    const flags = env as unknown as Record<string, unknown>;
+    if (flags.INTEGRATIONS_FAKE_PROVIDER === "true" || flags.GATEKEEPER_FAKE !== undefined) {
+      throw new Error(
+        "A host of many clients cannot run the fake gatekeeper: unset INTEGRATIONS_FAKE_PROVIDER and the GATEKEEPER_FAKE binding",
+      );
+    }
     this.#refreshMs = options.refreshMs ?? REGISTRY_REFRESH_MS;
     this.#now = options.now ?? Date.now;
     this.#codeSchemaVersion = options.codeSchemaVersion ?? CORE_SCHEMA_VERSION;
@@ -239,9 +250,11 @@ export class ClientDirectory<E extends HostBindings = HostBindings> {
    * keeps until the registry's stamp changes (a secret written, changed or removed moves it).
    * The snapshot holds none of it: a client's sealed rows are read now, for that client alone.
    */
-  async #secretsOf(
-    record: ClientRecord,
-  ): Promise<{ derived?: Record<string, string>; given: Record<string, string> }> {
+  async #secretsOf(record: ClientRecord): Promise<{
+    derived?: Record<string, string>;
+    given: Record<string, string>;
+    imported: Record<string, string>;
+  }> {
     const root = this.#env.COS_ROOT_KEY;
     if (!root && !this.#warnedNoRoot) {
       this.#warnedNoRoot = true;
@@ -249,21 +262,29 @@ export class ClientDirectory<E extends HostBindings = HostBindings> {
         `${ROOT_KEY_VAR} is not set: no client's auth or desk secret can be derived, so none can sign in`,
       );
     }
-    const derived = root
-      ? await deriveClientSecrets(root, record.environment, record.id)
-      : undefined;
+    const problems: string[] = [];
+    if (root && !record.secretGeneration) {
+      problems.push("it has no secret generation, so no secret of it is derived");
+    }
+    const derived =
+      root && record.secretGeneration
+        ? await deriveClientSecrets(root, {
+            environment: record.environment,
+            client: record.id,
+            generation: record.secretGeneration,
+          })
+        : undefined;
     // Kept as the keys, never as a promise: one request's promise is not another's to await.
-    if (this.#keyring === undefined) this.#keyring = await secretsKeyringOf(this.#env);
+    if (this.#keyring === undefined) this.#keyring = await openingKeyringOf(this.#env);
     const opened = await readClientSecrets(
       this.#env.REGISTRY,
       this.#keyring,
       record.environment,
       record.id,
     );
-    if (opened.problems.length > 0) {
-      console.warn(`client ${record.id}: ${opened.problems.join("; ")}`);
-    }
-    return { ...(derived ? { derived } : {}), given: opened.values };
+    problems.push(...opened.problems);
+    if (problems.length > 0) console.warn(`client ${record.id}: ${problems.join("; ")}`);
+    return { ...(derived ? { derived } : {}), given: opened.given, imported: opened.imported };
   }
 
   /**

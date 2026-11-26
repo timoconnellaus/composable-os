@@ -2,7 +2,8 @@
 // never impersonation. Support staff open `/support/enter?token=<JWT>` with a short-lived token
 // the control plane signs (Ed25519) for one approved grant; this checks it, records the session
 // start in the customer's audit log (support.session.start) and sets the `cos_support` cookie,
-// `<grantId>.<expiresAt epoch s>.<HMAC-SHA256 over "grantId.exp" keyed by BETTER_AUTH_SECRET>`.
+// `<grantId>.<expiresAt epoch s>.<HMAC-SHA256 over "grantId.exp" keyed by BETTER_AUTH_SECRET>` (on a many-client host
+// `__Host-cos_support`, keyed by the client's derived SUPPORT_COOKIE_SECRET, ADR 0616).
 // While the grant stays approved and unexpired, `authorize()` turns that cookie into the grant's
 // support user. Without COS_SUPPORT_PUBLIC_KEY (every self-hosted install) none of this exists.
 import type { Principal } from "@composable-os/auth";
@@ -33,6 +34,10 @@ const CLOCK_SKEW = 60;
 export interface SupportEnv {
   DB: D1Database;
   BETTER_AUTH_SECRET?: string;
+  /** Set in a client's environment on a host of many clients (ADR 0616). */
+  COS_CLIENT_ID?: string;
+  /** A many-client host's derived key for the support cookie (ADR 0616). */
+  SUPPORT_COOKIE_SECRET?: string;
   /** The control plane's Ed25519 public key: raw 32 bytes, base64url. Unset: no support access. */
   COS_SUPPORT_PUBLIC_KEY?: string;
   APPROVAL_FLOOR?: string;
@@ -183,11 +188,25 @@ export function readCookie(request: Request, name: string): string | null {
   return null;
 }
 
-function supportEnabled(env: SupportEnv): env is SupportEnv & {
-  COS_SUPPORT_PUBLIC_KEY: string;
-  BETTER_AUTH_SECRET: string;
-} {
-  return Boolean(env.COS_SUPPORT_PUBLIC_KEY?.trim() && env.BETTER_AUTH_SECRET);
+/**
+ * The key the support cookie is MACed with. On a host that serves many clients (`COS_CLIENT_ID`
+ * set, stage 66, ADR 0616) it is the client's own derived `SUPPORT_COOKIE_SECRET`, never the
+ * staff sessions' key; a single-client deployment keeps BETTER_AUTH_SECRET, as before.
+ */
+export function supportCookieKey(env: SupportEnv): string | undefined {
+  return env.COS_CLIENT_ID ? env.SUPPORT_COOKIE_SECRET : env.BETTER_AUTH_SECRET;
+}
+
+/**
+ * The support cookie's name: `__Host-cos_support` on a many-client host (Secure, Path=/, no
+ * Domain: a sibling hostname cannot plant it), `cos_support` on a single-client deployment.
+ */
+export function supportCookieName(env: SupportEnv): string {
+  return env.COS_CLIENT_ID ? `__Host-${SUPPORT_COOKIE}` : SUPPORT_COOKIE;
+}
+
+function supportEnabled(env: SupportEnv): env is SupportEnv & { COS_SUPPORT_PUBLIC_KEY: string } {
+  return Boolean(env.COS_SUPPORT_PUBLIC_KEY?.trim() && supportCookieKey(env));
 }
 
 function principalFor(grant: SupportGrant): Principal {
@@ -210,9 +229,13 @@ export async function supportPrincipal(
   now: number = Date.now(),
 ): Promise<Principal | null> {
   if (!supportEnabled(env)) return null;
-  const cookie = readCookie(request, SUPPORT_COOKIE);
+  const cookie = readCookie(request, supportCookieName(env));
   if (!cookie) return null;
-  const grantId = await verifySupportCookie(cookie, env.BETTER_AUTH_SECRET, Math.floor(now / 1000));
+  const grantId = await verifySupportCookie(
+    cookie,
+    supportCookieKey(env) as string,
+    Math.floor(now / 1000),
+  );
   if (!grantId) return null;
   const grant = await loadSupportGrant(createCrmDb(env.DB).query, grantId);
   if (!grant?.user_id || !isGrantActive(grant, now)) return null;
@@ -241,7 +264,7 @@ export async function handleSupportRoute(
       status: 302,
       headers: {
         location: "/",
-        "set-cookie": `${SUPPORT_COOKIE}=; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=0`,
+        "set-cookie": `${supportCookieName(env)}=; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=0`,
       },
     });
   }
@@ -286,13 +309,13 @@ export async function handleSupportRoute(
   }
 
   const exp = Math.floor(Date.parse(grant.expires_at as string) / 1000);
-  const cookie = await signSupportCookie(grant.id, exp, env.BETTER_AUTH_SECRET);
+  const cookie = await signSupportCookie(grant.id, exp, supportCookieKey(env) as string);
   return new Response(null, {
     status: 302,
     headers: {
       location: "/",
       "cache-control": "no-store",
-      "set-cookie": `${SUPPORT_COOKIE}=${cookie}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=${Math.max(0, exp - nowSeconds)}`,
+      "set-cookie": `${supportCookieName(env)}=${cookie}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=${Math.max(0, exp - nowSeconds)}`,
     },
   });
 }

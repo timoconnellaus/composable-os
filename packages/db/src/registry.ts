@@ -35,6 +35,11 @@ export interface ClientRecord {
   locationHint: DurableObjectLocationHint | null;
   /** The client database's schema version as the operator's update last saw it. */
   schemaVersion: number | null;
+  /**
+   * Written once when the client is added (migration 0792), never changed: bound into every
+   * derived secret of the client (ADR 0616). Null only for a row the registry has not given one.
+   */
+  secretGeneration: string | null;
 }
 
 export interface HostnameRecord {
@@ -317,6 +322,7 @@ interface ClientRow {
   repository: string | null;
   location_hint: string | null;
   schema_version: number | null;
+  secret_generation: string | null;
 }
 
 /**
@@ -330,7 +336,7 @@ export async function readRegistry(registry: D1Database): Promise<RegistrySnapsh
   const [meta, clients, settings, hostnames] = await registry.batch([
     registry.prepare(STAMP_SQL),
     registry.prepare(
-      "SELECT id, environment, status, tier, repository, location_hint, schema_version FROM registry_clients",
+      "SELECT id, environment, status, tier, repository, location_hint, schema_version, secret_generation FROM registry_clients",
     ),
     registry.prepare("SELECT client, name, value FROM registry_settings"),
     registry.prepare(
@@ -358,6 +364,10 @@ export async function readRegistry(registry: D1Database): Promise<RegistrySnapsh
       repository: row.repository,
       locationHint: row.location_hint as DurableObjectLocationHint | null,
       schemaVersion: row.schema_version === null ? null : Number(row.schema_version),
+      secretGeneration:
+        typeof row.secret_generation === "string" && /^[0-9a-f]{32}$/.test(row.secret_generation)
+          ? row.secret_generation
+          : null,
     });
   }
 

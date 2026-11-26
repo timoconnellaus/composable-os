@@ -13,9 +13,12 @@ Core D1 schema for a deployment.
   reads it (client ids, exact hostnames, settings, the version stamp, `isSchemaBehind`), and
   `@composable-os/db/client-environment` builds a client's environment from it (`DB` from
   `@composable-os/db/client-db`). Neither is exported from `@composable-os/db`.
-  `@composable-os/db/registry-secrets` (stage 66 step 6, ADR 0616) derives a client's auth and
-  desk secrets from the host's `COS_ROOT_KEY` and seals and opens its given secrets in
-  `registry_secrets` under `COS_SECRETS_KEY` (`writeClientSecret` is the operator's command's);
+  `@composable-os/db/registry-sealing` (stage 66 step 6, ADR 0616) is the operator's side: the
+  host's keys (`newHostKeys`) and sealing a client's given secrets to the host's public key with
+  HPKE (`@hpke/core`), `writeClientSecret` and `writeImportedSecret`; it cannot open. The host's
+  side, deriving a client's secrets from `COS_ROOT_KEY` and opening its given ones with
+  `COS_SECRETS_PRIVATE_KEY`, is `src/registry-secrets.ts`, not exported. Migration 0792 seals the
+  table to HPKE and adds each client's secret generation.
   `@composable-os/db/callbacks` is the deployment's one gatekeeper callback hostname.
   Migration 0791 marks which verified hostname is a surface's address.
 - `getMigrationLevel(db)`: the applied level, reported by `/api/health`.

@@ -93,6 +93,56 @@ describe("a client's secrets in no operation's output", () => {
       expect(database.includes(needle), "the database").toBe(false);
     }
   }, 120_000);
+
+  it("shows no key in the provider error text an operation passes on (ai.testRole, judge.test)", async () => {
+    // A provider that echoes the key it was sent, in the worst place: its error message.
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      const headers = new Headers(
+        (init?.headers as HeadersInit | undefined) ??
+          (input instanceof Request ? input.headers : undefined),
+      );
+      const sent = [...headers.entries()].map(([k, v]) => `${k}: ${v}`).join("; ");
+      return new Response(
+        JSON.stringify({ error: { message: `Incorrect API key provided: ${sent}` } }),
+        { status: 401, headers: { "content-type": "application/json" } },
+      );
+    });
+    try {
+      const withSecrets = {
+        ...env,
+        ...values,
+        AI_PROVIDERS: "openai,google,deepseek",
+        AI_KEY_DEEPSEEK: values.AI_KEY_OPENAI,
+      } as typeof env;
+      const outputs: string[] = [];
+      const calls = [
+        { name: "judge.test", input: {} },
+        ...[
+          ["openai", "gpt-4.1-mini"],
+          ["google", "gemini-2.5-flash"],
+          ["deepseek", "deepseek-flash"],
+        ].map(([provider, model]) => ({
+          name: "ai.testRole",
+          input: { role: "summarise", target: { provider, model } },
+        })),
+      ];
+      for (const call of calls) {
+        const result = await runOperation(withSecrets, admin, call).catch((error: unknown) => ({
+          thrown: error instanceof Error ? error.message : String(error),
+        }));
+        outputs.push(`${call.name} ${safeText(result)}`);
+      }
+      // The stub was reached, so the key was sent and could have come back.
+      expect(fetchSpy).toHaveBeenCalled();
+      for (const needle of needles) {
+        for (const output of outputs)
+          expect(output.includes(needle), output.slice(0, 300)).toBe(false);
+        for (const line of lines) expect(line.includes(needle), line.slice(0, 300)).toBe(false);
+      }
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  }, 120_000);
 });
 
 /** Every row of every table, as text. */

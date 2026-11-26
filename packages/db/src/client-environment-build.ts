@@ -31,9 +31,9 @@ export interface HostBindings {
   COS_HOST_ENVIRONMENT?: string;
   /** The root key of every client's derived secrets (ADR 0616). The host's own. */
   COS_ROOT_KEY?: string;
-  /** The key every client's given secrets are sealed under, and the one before (ADR 0616). */
-  COS_SECRETS_KEY?: string;
-  COS_SECRETS_KEY_PREVIOUS?: string;
+  /** The private key every client's given secrets are sealed to, and the one before (ADR 0616). */
+  COS_SECRETS_PRIVATE_KEY?: string;
+  COS_SECRETS_PRIVATE_KEY_PREVIOUS?: string;
   /** The deployment's one callback hostname (ADR 0616). The host's own. */
   COS_CALLBACK_HOSTNAME?: string;
 }
@@ -112,6 +112,8 @@ export interface ClientPart {
   settings: Readonly<Record<string, string>>;
   derived?: Readonly<Record<string, string>>;
   given?: Readonly<Record<string, string>>;
+  /** Derivable secrets a deployment imported as this client brought: they override `derived`. */
+  imported?: Readonly<Record<string, string>>;
   addresses?: ClientAddresses;
 }
 
@@ -194,6 +196,7 @@ export function buildClientEnvironment<E extends HostBindings>(env: E, part: Cli
       case "database":
       case "host":
       case "per-client":
+      case "client":
         break;
     }
   }
@@ -206,8 +209,11 @@ export function buildClientEnvironment<E extends HostBindings>(env: E, part: Cli
   // The client's own secrets: each only into a name `ENV_NAMES` says that kind fills, so a
   // derived name never takes a given value (auth secrets are derived, not stored) and the other
   // way round. Never the host's own value of the name, which is not read here at all.
+  // An imported value (a deployment imported as a client brought its own) wins over the derived
+  // one for a derivable name, and is taken for no other name.
   for (const [kind, values] of [
     ["derived", part.derived],
+    ["derived", part.imported],
     ["given", part.given],
   ] as const) {
     for (const [name, value] of Object.entries(values ?? {})) {
@@ -217,6 +223,9 @@ export function buildClientEnvironment<E extends HostBindings>(env: E, part: Cli
       }
     }
   }
+  // Which client this environment is for, so code below an entry can tell a many-client host
+  // (its session cookies are `__Host-` prefixed, ADR 0616) without the registry.
+  out.COS_CLIENT_ID = client.id;
   // The client's own addresses, from its verified hostnames: every address name `ENV_NAMES`
   // lists, whether or not the host's env has it.
   if (part.addresses) {

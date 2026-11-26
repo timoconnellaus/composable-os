@@ -1234,17 +1234,20 @@ write moves. Built in steps 3 and 6; nothing but the tests writes it yet (step 7
 (stage 66; ADR 0616)
 
 A secret the host signs or encrypts with for itself, made for one client from the host's root key
-(`COS_ROOT_KEY`) with HKDF, for one purpose, and stored nowhere: the staff, customer and desk
-secrets of a client on a host that serves many. A single-client deployment keeps them as Worker
-secrets.
+(`COS_ROOT_KEY`) with HKDF, for one purpose and the client's secret generation, and stored
+nowhere: the staff, customer and desk secrets, the support cookie's key and the client-address key
+of a client on a host that serves many. A deployment imported as a client keeps its own instead
+(stored sealed); a client that leaves takes its own. A single-client deployment keeps them as
+Worker secrets.
 
 ### Given secret
 
 (stage 66; ADR 0616)
 
 A secret a client supplies that the host cannot derive (its own sign-in provider, Turnstile, judge
-and AI keys), sealed with AES-256-GCM in the registry under the host's `COS_SECRETS_KEY`, written
-only by the operator's command and opened only into that client's environment.
+and AI keys), sealed in the registry to the host's public key (HPKE), so only the private key in
+the host's environment (`COS_SECRETS_PRIVATE_KEY`) opens it; written only by the operator's
+command, which can overwrite but never read, and opened only into that client's environment.
 
 ### Callback address
 

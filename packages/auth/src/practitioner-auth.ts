@@ -34,7 +34,7 @@ import { createCrmDb } from "@composable-os/db";
 import { betterAuth } from "better-auth";
 import { APIError, createAuthMiddleware } from "better-auth/api";
 import { emailOTP } from "better-auth/plugins/email-otp";
-import { beforeCodeRequest, randomId, uniformCodeSignIn } from "./better-auth.ts";
+import { beforeCodeRequest, cookieOptions, randomId, uniformCodeSignIn } from "./better-auth.ts";
 
 export const PRACTITIONER_AUTH_BASE_PATH = "/api/practitioner-auth";
 /** Practitioner cookies are `cos-practitioner.*`; customers' `cos-customer.*`; staff `better-auth.*`. */
@@ -89,6 +89,8 @@ export interface PractitionerAuthOptions {
   codeAddressRateLimit?: RateLimitBinding | undefined;
   /** What the address is keyed with (`clientAddressSecret`): one count for every kind of sign-in. */
   addressSecret?: string | undefined;
+  /** A many-client host: every cookie `__Host-` prefixed (`cookieOptions`, ADR 0616). */
+  hostOnlyCookies?: boolean | undefined;
   /** Whether codes can be sent at all: null when they can, or why not. */
   ready?: (() => Promise<string | null>) | undefined;
 }
@@ -123,7 +125,7 @@ export function createPractitionerAuth(options: PractitionerAuthOptions) {
     emailAndPassword: { enabled: false },
     socialProviders: {},
     advanced: {
-      cookiePrefix: PRACTITIONER_COOKIE_PREFIX,
+      ...cookieOptions(PRACTITIONER_COOKIE_PREFIX, options.hostOnlyCookies),
       ipAddress: { disableIpTracking: true },
       database: {
         // The tables are migration 0730's: no image, no session client address or user agent, no

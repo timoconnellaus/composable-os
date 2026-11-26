@@ -146,13 +146,16 @@ One **D1** database per deployment, with real tables ([ADR 0002](adr/0002-d1-rea
 
 - **Secrets and addresses per client** (stage 66 step 6,
   [ADR 0616](adr/0616-secrets-and-addresses-per-client.md)): on a many-client host the staff,
-  customer and desk secrets of a client (and so its person-code and practitioner keys) are
-  derived with HKDF from the host's `COS_ROOT_KEY` for that client, purpose and environment, and
-  stored nowhere; a client's given secrets (its own Google sign-in, Cloudflare Access, Turnstile,
-  judge and AI keys) are sealed with AES-256-GCM in `registry_secrets` under `COS_SECRETS_KEY`,
-  bound to the environment, client, name and key id, written only by the operator's command
-  (`@composable-os/db/registry-secrets`, which no Worker code, operation or pack names) and opened
-  only by the directory into that client's environment, never into the cached snapshot. Each
+  customer and desk secrets of a client (and so its person-code and practitioner keys), its
+  support cookie's key and its client-address key are derived with HKDF from the host's
+  `COS_ROOT_KEY` for that client, purpose, environment and secret generation, and stored nowhere
+  (a deployment imported as a client keeps its own, stored sealed; a leaving client takes its
+  own). A client's given secrets (its own Google sign-in, Cloudflare Access, Turnstile, judge and
+  AI keys) are sealed with HPKE (X25519, AES-256-GCM) to the host's public key in
+  `registry_secrets`, bound to the environment, kind, client, name and key id, written only by
+  the operator's command (`@composable-os/db/registry-sealing`, which can seal but never open) and
+  opened only by the directory, with `COS_SECRETS_PRIVATE_KEY`, into that client's environment,
+  never into the cached snapshot. Its session cookies are `__Host-` prefixed. Each
   address (`BETTER_AUTH_URL`, `APP_ORIGIN`, `MCP_RESOURCE`, `CUSTOMER_AUTH_URL`, `DESK_HOSTNAME`,
   `STREAM_ALLOWED_ORIGINS`) comes from the client's verified hostnames, one marked per surface;
   `NATIVE_REDIRECT_URIS` is a registry setting. Gatekeeper callbacks arrive on the deployment's

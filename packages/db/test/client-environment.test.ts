@@ -92,6 +92,7 @@ const gymA: ClientRecord = {
   repository: null,
   locationHint: "oc",
   schemaVersion: CORE_SCHEMA_VERSION,
+  secretGeneration: "0123456789abcdef0123456789abcdef",
 };
 
 /** The environment of a served admission, or a failure naming why it was refused. */
@@ -167,6 +168,7 @@ describe("buildClientEnvironment", () => {
     expect(Object.keys(built).sort()).toEqual(
       [
         "APPROVAL_FLOOR",
+        "COS_CLIENT_ID",
         "COS_ORG_EXTENSIONS",
         "COS_PACKS",
         "DB",

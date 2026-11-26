@@ -13,6 +13,8 @@
 export type EnvNameUse =
   /** The host's own: never in a client's environment. */
   | { use: "host"; why: string }
+  /** The client's id (`COS_CLIENT_ID`), set by the builder: a many-client host's marker. */
+  | { use: "client" }
   /** The client's database: `clientDatabase(CLIENT_DB, client)`. */
   | { use: "database" }
   /** A deploy-time setting, per client, from the registry (`CLIENT_SETTINGS`). */
@@ -87,19 +89,27 @@ export const ENV_NAMES: Readonly<Record<string, EnvNameUse>> = {
   // Stage 66 step 6 (ADR 0616): the host's two keys, set by the deploy engine on a many-client
   // deployment only (step 7), different on staging and live. Read by the directory alone.
   COS_ROOT_KEY: HOST("every client's derived secrets come from it (registry-secrets.ts)"),
-  COS_SECRETS_KEY: HOST("every client's given secrets are sealed under it (registry-secrets.ts)"),
-  COS_SECRETS_KEY_PREVIOUS: HOST("the secrets key before a rotation, while rows are re-sealed"),
+  COS_SECRETS_PRIVATE_KEY: HOST(
+    "opens every client's given secrets, sealed to its public key (registry-sealing.ts)",
+  ),
+  COS_SECRETS_PRIVATE_KEY_PREVIOUS: HOST(
+    "the private key before a rotation, while the host re-seals every row",
+  ),
   // The one address of the deployment's gatekeeper callbacks (OAuth redirects, webhooks): every
   // gatekeeper's BASE_URL is under it. Read by the app's entry (`isCallbackHostname`), no client's.
   COS_CALLBACK_HOSTNAME: HOST("the deployment's one callback address, no client's (callbacks.ts)"),
 
   // --- The client's database ----------------------------------------------------------------
   DB: { use: "database" },
+  // Which client the environment is for: set by the builder alone, never from the host's env.
+  COS_CLIENT_ID: { use: "client" },
 
   // --- Secrets, per client (ADR 0616: derived, or given and stored sealed) -------------------
   BETTER_AUTH_SECRET: DERIVED("staff sessions, and the person-code keys derived from it"),
   CUSTOMER_AUTH_SECRET: DERIVED("customer sessions, and the practitioner key derived from it"),
   DESK_SECRET: DERIVED("the desk's codes, device credentials and session tokens"),
+  SUPPORT_COOKIE_SECRET: DERIVED("the support cookie's MAC, not the staff secret"),
+  CLIENT_ADDRESS_SECRET: DERIVED("the HMAC of a client address for rate limits"),
   GOOGLE_CLIENT_ID: GIVEN("the client's own Google sign-in"),
   GOOGLE_CLIENT_SECRET: GIVEN("the client's own Google sign-in"),
   CF_ACCESS_TEAM_DOMAIN: GIVEN("the client's own Cloudflare Access"),

@@ -52,8 +52,38 @@ export interface BetterAuthOptions {
   codeAddressRateLimit?: RateLimitBinding | undefined;
   /** What the address is keyed with (`clientAddressSecret`): one count for every kind of sign-in. */
   addressSecret?: string | undefined;
+  /** A many-client host: every cookie `__Host-` prefixed (`cookieOptions`). */
+  hostOnlyCookies?: boolean | undefined;
   clock?: () => Date;
 }
+
+/**
+ * Better Auth's cookie options for one sign-in (staff, customer, practitioner). On a host that
+ * serves many clients (stage 66, ADR 0616) every cookie it sets is `__Host-` prefixed: Secure,
+ * `Path=/` and no `Domain`, so a page on a sibling hostname of the fleet's domain can never plant
+ * one (a cookie it sets with `Domain=` cannot carry the prefix, and a cookie without the prefix is
+ * not read). A single-client deployment keeps its names (`__Secure-<prefix>.*` on https), so
+ * nobody is signed out.
+ */
+export function cookieOptions(
+  prefix: string,
+  hostOnly: boolean | undefined,
+): {
+  cookiePrefix: string;
+  useSecureCookies?: boolean;
+  defaultCookieAttributes?: { secure: boolean; path: string };
+} {
+  if (!hostOnly) return { cookiePrefix: prefix };
+  // Better Auth would add `__Secure-` itself; the prefix is ours instead, and Secure is set here.
+  return {
+    cookiePrefix: `__Host-${prefix}`,
+    useSecureCookies: false,
+    defaultCookieAttributes: { secure: true, path: "/" },
+  };
+}
+
+/** Better Auth's own cookie prefix for staff sessions (`better-auth.session_token`). */
+export const STAFF_COOKIE_PREFIX = "better-auth";
 
 export const BETTER_AUTH_BASE_PATH = "/api/auth";
 /** A staff code is six digits, lives five minutes and allows three tries, as a customer's. */
@@ -146,12 +176,20 @@ let isolateSecret: string | null = null;
  * Derived from the staff secret, or the customer one on a host without it. A host with neither
  * gets a random key for the isolate's life, logged: never an empty one, which would let a key be
  * reversed to its IPv4 address by trying them all.
+ *
+ * On a host that serves many clients (`COS_CLIENT_ID` set, ADR 0616) it is the client's own
+ * derived `CLIENT_ADDRESS_SECRET`, never the staff or customer secret: one key, one purpose.
  */
 export function clientAddressSecret(env: {
   BETTER_AUTH_SECRET?: string | undefined;
   CUSTOMER_AUTH_SECRET?: string | undefined;
+  CLIENT_ADDRESS_SECRET?: string | undefined;
+  COS_CLIENT_ID?: string | undefined;
 }): string {
-  const secret = env.BETTER_AUTH_SECRET || env.CUSTOMER_AUTH_SECRET;
+  if (env.COS_CLIENT_ID) {
+    if (env.CLIENT_ADDRESS_SECRET) return `client-address\n${env.CLIENT_ADDRESS_SECRET}`;
+  }
+  const secret = env.COS_CLIENT_ID ? undefined : env.BETTER_AUTH_SECRET || env.CUSTOMER_AUTH_SECRET;
   if (secret) return `client-address\n${secret}`;
   if (!isolateSecret) {
     const bytes = crypto.getRandomValues(new Uint8Array(32));
@@ -271,6 +309,7 @@ export function createBetterAuth(options: BetterAuthOptions) {
     basePath: BETTER_AUTH_BASE_PATH,
     telemetry: { enabled: false },
     advanced: {
+      ...cookieOptions(STAFF_COOKIE_PREFIX, options.hostOnlyCookies),
       database: {
         // Users get CRM ids (`usr_…`, ADR 0015) so audit rows, owners and assignees all use one id
         // format. Sessions, accounts and verifications are Better Auth's own and keep its default
