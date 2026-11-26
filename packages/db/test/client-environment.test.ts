@@ -227,13 +227,17 @@ describe("buildClientEnvironment", () => {
     } as unknown as DurableObjectNamespace<ClientDb>;
     const host = { ...manyClientEnv(), CLIENT_DB: namespace };
     const built = buildClientEnvironment(host, { client: gymA, settings: {} });
-    await built.DB.prepare("SELECT 1").all().catch(() => undefined);
+    await built.DB.prepare("SELECT 1")
+      .all()
+      .catch(() => undefined);
     expect(calls).toEqual([{ name: "gym-a", options: { locationHint: "oc" } }]);
     const nowhere = buildClientEnvironment(host, {
       client: { ...gymA, locationHint: null },
       settings: {},
     });
-    await nowhere.DB.prepare("SELECT 1").all().catch(() => undefined);
+    await nowhere.DB.prepare("SELECT 1")
+      .all()
+      .catch(() => undefined);
     expect(calls[1]).toEqual({ name: "gym-a", options: undefined });
   });
 

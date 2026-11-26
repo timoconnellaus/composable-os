@@ -418,7 +418,7 @@ build step adds a bullet of its own here (CONTRIBUTING.md, Working in parallel).
 
 - **Step 2** — not built — needs: step 1 — `ClientDb` finished: migrations inside, bookmarks and restore, export and import, size, location hint
 
-- **Step 3** — not built — needs: step 1 — The registry and the client's environment, single-client mode unchanged
+- **Step 3** — built — PR #509 — The registry and the client's environment, single-client mode unchanged: the registry's own D1 database (`REGISTRY`) and migrations (`packages/db/registry-migrations`, 0790: clients, verified hostnames, settings, the encrypted secrets' columns, a version stamp moved by triggers), read in one batch whatever the number of clients (`@composable-os/db/registry`: client ids, exact hostnames, `isSchemaBehind`); the client's environment (`@composable-os/db/client-environment`: the real `env` with no registry; otherwise the client's database, its settings, shared values and wrapped bindings only, by `ENV_NAMES`, with rate limits as the worked wrapper) and `ClientDirectory`, one per isolate, keyed by client. ADR 0613. No entry wired (step 4); secrets and addresses left out (step 6); the registry's writes and its deployment table are step 7's
 
 - **Step 4** — not built — needs: step 3 — The app's entries, then the runner's, with their wrappers
 

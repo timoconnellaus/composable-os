@@ -14,10 +14,12 @@ const sources = import.meta.glob("../src/**/*.{ts,tsx,json,sql}", {
   eager: true,
 }) as Record<string, string>;
 
-const packs = import.meta.glob(
-  ["../../../packs/*/**/*.{ts,tsx,json,sql}", "!**/node_modules/**", "!**/package.json"],
-  { query: "?raw", import: "default", eager: true },
-) as Record<string, string>;
+// Vite's glob leaves node_modules out (checked below).
+const packs = import.meta.glob("../../../packs/*/**/*.{ts,tsx,sql}", {
+  query: "?raw",
+  import: "default",
+  eager: true,
+}) as Record<string, string>;
 
 const FORBIDDEN: ReadonlyArray<{ what: string; pattern: RegExp }> = [
   { what: "the registry's binding", pattern: /(?<![A-Za-z0-9_])REGISTRY(?![A-Za-z0-9_])/ },
@@ -38,6 +40,7 @@ describe("no operation reaches the registry", () => {
   it("reads packages/core's sources and the packs'", () => {
     expect(Object.keys(sources).length).toBeGreaterThan(100);
     expect(Object.keys(packs).some((file) => file.includes("/packs/deals/"))).toBe(true);
+    expect(Object.keys(packs).filter((file) => file.includes("node_modules"))).toEqual([]);
   });
 
   it("no file of packages/core or a pack names the registry, its tables or every client's databases", () => {
