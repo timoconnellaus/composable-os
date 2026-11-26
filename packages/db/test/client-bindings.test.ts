@@ -15,6 +15,7 @@ import {
   isObjectName,
   keepBucketApart,
   keepKeyValueApart,
+  keepLoaderApart,
   keepObjectsApart,
   keepQueueApart,
   keepRunnerApart,
@@ -608,6 +609,46 @@ describe("Durable Object namespaces: the client in every name", () => {
   });
 });
 
+describe("Worker Loader: the client in every worker id (review of #520, M3)", () => {
+  const recordingLoader = () => {
+    const asked: (string | null)[] = [];
+    let loads = 0;
+    return {
+      asked,
+      loads: () => loads,
+      loader: {
+        get: (id: string | null) => {
+          asked.push(id);
+          return { id } as unknown as WorkerStub;
+        },
+        load: () => {
+          loads += 1;
+          return {} as unknown as WorkerStub;
+        },
+      } as unknown as WorkerLoader,
+    };
+  };
+
+  it("asks for client:<id>:<id> only: another client's prefixed id is only a name under A", () => {
+    covers("loader", "get", "load");
+    const real = recordingLoader();
+    const a = keepLoaderApart(real.loader, A);
+    const code = () => ({ compatibilityDate: "2026-10-01", mainModule: "m.js", modules: {} });
+    a.get("ext:counter:tool", code);
+    a.get("client:gym-b:ext:counter:tool", code);
+    a.get(null, code);
+    a.load(code());
+    expect(real.asked).toEqual([
+      "client:gym-a:ext:counter:tool",
+      "client:gym-a:client:gym-b:ext:counter:tool",
+      null,
+    ]);
+    expect(real.loads()).toBe(1);
+    expect(() => a.get("", code)).toThrow(ClientPartError);
+    expectNoWayBack(a, real.loader);
+  });
+});
+
 describe("the runner: the client named on every call", () => {
   it("offers each listed method as callAs(<client>, <method>, args), and nothing else", async () => {
     covers("runner", ...RUNNER_METHODS);
@@ -658,6 +699,7 @@ describe("every method of every wrapper (review of #512, S2)", () => {
       workflow: keepWorkflowApart(fakeWorkflow() as unknown as Workflow<unknown>, A),
       objects: keepObjectsApart(real.CLIENT_DB, A, clientObjectNamer(HOST, A, null)),
       runner: keepRunnerApart(fakeRunner, A) as object,
+      loader: keepLoaderApart({ get: () => null, load: () => null } as unknown as WorkerLoader, A),
     };
     const untested: string[] = [];
     for (const [kind, wrapper] of Object.entries(wrappers)) {

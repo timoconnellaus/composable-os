@@ -7,6 +7,7 @@ import {
   clientObjectNamer,
   keepBucketApart,
   keepKeyValueApart,
+  keepLoaderApart,
   keepObjectsApart,
   keepQueueApart,
   keepRunnerApart,
@@ -157,6 +158,8 @@ export const BINDING_WRAPPERS: ReadonlyArray<{
         keepObjectsApart(namespace, client, context.objectNamer)) as BindingWrapper,
     },
     { applies: named("RUNNER"), wrap: keepRunnerApart as BindingWrapper },
+    // Review of #520, M3: the client in every Worker Loader id.
+    { applies: named("LOADER"), wrap: keepLoaderApart as BindingWrapper },
   ].map((entry) => Object.freeze(entry)),
 );
 
@@ -172,9 +175,33 @@ function wrapperFor(name: string): BindingWrapper | null {
 /** Which client an environment built here is for. Keyed by the environment object itself. */
 const clientOfEnvironment = new WeakMap<object, ClientId>();
 
-/** The client an environment was built for, or null for a single-client deployment's `env`. */
+/**
+ * The views of a client's environment an object's base class holds (client-objects.ts), each with
+ * how to read the environment it shows now. Registered only by packages/db's own modules: this
+ * file is not in the package's exports, and a view resolves only to an environment built here.
+ */
+const environmentOfView = new WeakMap<object, () => object>();
+
+/** Registers `view` as showing `current()`, an environment built here (client-objects.ts). */
+export function registerEnvironmentView(view: object, current: () => object): void {
+  environmentOfView.set(view, current);
+}
+
+/**
+ * The client an environment was built for, or null for a single-client deployment's `env`. A
+ * view an object holds answers as the environment it shows (review of #520, M1), and as no
+ * client before that is decided or after a refusal.
+ */
 export function clientOf(env: object): ClientId | null {
-  return clientOfEnvironment.get(env) ?? null;
+  const own = clientOfEnvironment.get(env);
+  if (own) return own;
+  const current = environmentOfView.get(env);
+  if (!current) return null;
+  try {
+    return clientOfEnvironment.get(current()) ?? null;
+  } catch {
+    return null;
+  }
 }
 
 /**

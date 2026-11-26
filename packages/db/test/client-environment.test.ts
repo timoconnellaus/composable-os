@@ -193,6 +193,8 @@ describe("buildClientEnvironment", () => {
     );
     expect(built.BLOBS).not.toBe(host.BLOBS);
     expect(built.RUNNER).not.toBe(host.RUNNER);
+    // Worker Loader is kept apart too (review of #520, M3): the client in every worker id.
+    expect(built.LOADER).not.toBe(host.LOADER);
     // The client's own settings, else the deployment's (`inherit`), else nothing (`empty`).
     expect(built.APPROVAL_FLOOR).toBe("high");
     expect(built.COS_ORG_EXTENSIONS).toBe("gym-a-hash");
@@ -202,7 +204,6 @@ describe("buildClientEnvironment", () => {
     expect("STREAM_API_TOKEN" in built).toBe(false);
     expect("STREAM_SIGNING_JWK" in built).toBe(false);
     // Shared values are the same objects.
-    expect(built.LOADER).toBe(host.LOADER);
     expect(built.GATEKEEPER_GOOGLE).toBe(host.GATEKEEPER_GOOGLE);
     expect("GATEKEEPER_PAYMENTS" in built).toBe(false);
     // DB is a client's database, not the D1 binding.

@@ -13,7 +13,11 @@ import {
 } from "cloudflare:test";
 import { type ActingUser, invokeByName, newId, vendorBinding } from "@composable-os/core";
 import { createCrmDb } from "@composable-os/db";
-import { clientObjectName, RUNNER_METHODS } from "@composable-os/db/client-bindings";
+import {
+  clientObjectName,
+  keepLoaderApart,
+  RUNNER_METHODS,
+} from "@composable-os/db/client-bindings";
 import {
   consumeByClient,
   consumeFanOut,
@@ -23,6 +27,7 @@ import {
   isRunnerCaller,
   PARKING,
   type ParkedConsumer,
+  perClientMissing,
   propsClientEnvironment,
   RUNNER_CALLER,
   runnerCallerProps,
@@ -286,6 +291,27 @@ export default defineExtension({
 `,
   });
 
+  it("a worker id named through one client's LOADER is never another client's warm worker (review of #520, M3)", async () => {
+    const code = () => ({
+      compatibilityDate: "2026-10-01",
+      mainModule: "m.js",
+      modules: {
+        "m.js":
+          "let n = 0; export default { fetch() { n += 1; return new Response(String(n)); } };",
+      },
+    });
+    const count = async (loader: WorkerLoader, id: string) =>
+      Number(await (await loader.get(id, code).getEntrypoint().fetch("https://w/")).text());
+    const aLoader = (await clientEnv(a.id)).LOADER;
+    const bLoader = (await clientEnv(b.id)).LOADER;
+    expect(await count(bLoader, "probe-m3")).toBe(1);
+    expect(await count(bLoader, "probe-m3")).toBe(2);
+    // gym-b's worker as the real Worker Loader knows it, asked for through gym-a's: a new one.
+    expect(await count(aLoader, "client:gym-b:probe-m3")).toBe(1);
+    expect(await count(aLoader, "probe-m3")).toBe(1);
+    expect(await count(bLoader, "probe-m3")).toBe(3);
+  });
+
   it("are each client's own: same pack, two workspaces, two Worker Loader ids, no shared state", async () => {
     const id = "counter";
     const seen: string[] = [];
@@ -301,7 +327,10 @@ export default defineExtension({
     for (const client of [a.id, b.id]) {
       const clientEnvironment = await clientEnv(client);
       const admin = await adminIn(clientEnvironment);
-      const host = extensionHost(clientEnvironment, { loader: counting(env.LOADER) });
+      // The client's own LOADER (keepLoaderApart) over a recorder of what the real one is asked.
+      const host = extensionHost(clientEnvironment, {
+        loader: keepLoaderApart(counting(env.LOADER), client as ClientId),
+      });
       const installed = (await invokeByName(
         "extension.install",
         { id, files: files(id) },
@@ -526,6 +555,9 @@ describe("Durable Objects, Workflows and minted entrypoints decide their client 
       }
       expect(Object.keys(objectEnv)).toEqual(Object.keys(await clientEnv(a.id)));
       expect(objectEnv.COS_CLIENT_ID).toBe(a.id);
+      // It answers as gym-a's environment to the checks that tell one (review of #520, M1).
+      expect(clientOf(objectEnv)).toBe(a.id);
+      expect(perClientMissing(objectEnv, "MCP_RESOURCE_NOT_A_NAME")).toMatch(/each client's own/);
       // Its namespaces are gym-a's wrappers: the same name through them is gym-a's object.
       const viaObject = (objectEnv.CODE_MODE_GATE as DurableObjectNamespace).idFromName("user-s2");
       const viaA = (await clientEnv(a.id)).CODE_MODE_GATE.idFromName("user-s2");

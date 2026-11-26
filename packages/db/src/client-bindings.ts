@@ -618,6 +618,33 @@ export function keepObjectsApart<N extends DurableObjectNamespace<never> | Durab
   return wrap(real) as unknown as N;
 }
 
+// --- Worker Loader: the client in every worker id -----------------------------------------
+
+/** The prefix of every Worker Loader id a client's environment asks for: `client:<id>:`. */
+export function clientWorkerIdPrefix(client: ClientId): string {
+  return `client:${client}:`;
+}
+
+/**
+ * Worker Loader (LOADER), kept apart (review of #520, M3): `get(id, code)` asks for the worker
+ * `client:<client>:<id>`, so a pack's warm isolate, and any module-level state its code keeps, is
+ * never another client's, and an id a caller passes (even another client's prefixed id) is only a
+ * name under this client. `get(null, …)` names no warm worker and goes through as it is; `load`
+ * takes no id. A single-client deployment's LOADER is the real one, its ids unchanged.
+ */
+export function keepLoaderApart(loader: WorkerLoader, client: ClientId): WorkerLoader {
+  const prefix = clientWorkerIdPrefix(client);
+  return {
+    get: (id: string | null, getCode: Parameters<WorkerLoader["get"]>[1]) => {
+      if (id !== null && (typeof id !== "string" || id.length === 0)) {
+        refuse("A Worker Loader id is a non-empty string, or null");
+      }
+      return loader.get(id === null ? null : `${prefix}${id}`, getCode);
+    },
+    load: (code: Parameters<WorkerLoader["load"]>[0]) => loader.load(code),
+  } as WorkerLoader;
+}
+
 // --- The runner: the app names the client on every call --------------------------------------
 
 /** What the runner offers the app on a many-client host: its methods, as one client. */

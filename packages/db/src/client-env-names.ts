@@ -161,11 +161,10 @@ export const ENV_NAMES: Readonly<Record<string, EnvNameUse>> = {
   STREAM_API_TOKEN: APART("the client as creator; another creator's video refused"),
   STREAM_SIGNING_JWK: APART("the client as creator; another creator's video refused"),
   STREAM_SIGNING_KEY_ID: APART("goes with STREAM_SIGNING_JWK"),
+  // Review of #520, M3: every worker id asked for is `client:<id>:<id asked for>`.
+  LOADER: APART("the client in every Worker Loader id (keepLoaderApart)"),
 
   // --- The same for every client ------------------------------------------------------------
-  LOADER: SHARED(
-    "Worker Loader itself; the client is part of every tool worker id it is asked for (stage 66 step 4, ADR 0615)",
-  ),
   AI: SHARED("Workers AI inference: answers each call, keeps nothing of a client between calls"),
   IMAGES: SHARED("transforms the bytes it is given, keeps nothing"),
   AI_GATEWAY_ID: SHARED("the operator's gateway's name, not a credential"),

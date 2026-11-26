@@ -9,6 +9,7 @@ import { AsyncLocalStorage } from "node:async_hooks";
 import { isObjectName, OBJECT_NAME_SEPARATOR, objectNameParts } from "./client-bindings.ts";
 import { admissionOf, NoClientError, servesManyClients, waitsForClient } from "./client-entries.ts";
 import { type HostBindings, REGISTRY_REFRESH_MS } from "./client-environment.ts";
+import { registerEnvironmentView } from "./client-environment-build.ts";
 import {
   generationPart,
   hostBindingKey,
@@ -153,7 +154,7 @@ export const CLIENT_OBJECT: unique symbol = Symbol.for("cos.client-object");
  */
 function clientEnvView<E extends HostBindings>(owner: ClientObject<E>): E {
   const current = () => owner.env as unknown as Record<string | symbol, unknown>;
-  return new Proxy({} as Record<string | symbol, unknown>, {
+  const view = new Proxy({} as Record<string | symbol, unknown>, {
     get: (_target, name) => current()[name],
     has: (_target, name) => name in current(),
     ownKeys: () => Reflect.ownKeys(current()),
@@ -167,7 +168,11 @@ function clientEnvView<E extends HostBindings>(owner: ClientObject<E>): E {
     deleteProperty: () => false,
     setPrototypeOf: () => false,
     getPrototypeOf: () => Object.prototype,
-  }) as unknown as E;
+  });
+  // `clientOf(view)` is the client's, as for the environment itself (review of #520, M1): the
+  // checks that tell a client's environment from a single-client deployment's see it.
+  registerEnvironmentView(view, current);
+  return view as unknown as E;
 }
 
 /** A Durable Object base class: constructed with `(ctx, env)`, keeping both. */
