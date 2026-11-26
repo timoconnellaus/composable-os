@@ -10,6 +10,7 @@
 // host, the same for every address.
 import type { CoreDatabase } from "@composable-os/db";
 import { type Kysely, sql } from "kysely";
+import { clientState } from "../client-scope.ts";
 import { ValidationError } from "../errors.ts";
 import { refreshSchemaRegistry } from "../extensions/schema.ts";
 import { listObjects } from "../fields/index.ts";
@@ -45,11 +46,14 @@ export type PlanOnSale =
   /** Not answered: too many candidates, or the plans could not be read. */
   | { state: "unknown"; reason: string };
 
-let memo: { at: number; value: PlanOnSale } | null = null;
+// One client's each (stage 66 step 5, ADR 0617): what is on sale is its own.
+const memos = clientState<{ memo: { at: number; value: PlanOnSale } | null }>(() => ({
+  memo: null,
+}));
 
 /** Forgets the memoised answer (tests, and after a change this isolate made itself). */
 export function forgetPlanOnSale(): void {
-  memo = null;
+  memos.reset();
 }
 
 /**
@@ -63,6 +67,8 @@ export async function findPlanOnSale(
   options: { memo?: boolean } = {},
 ): Promise<PlanOnSale> {
   const at = Date.now();
+  const held = memos.get();
+  const memo = held.memo;
   if (options.memo && memo && at - memo.at < PLAN_ON_SALE_MEMO_MS) return memo.value;
   let value: PlanOnSale;
   try {
@@ -70,7 +76,7 @@ export async function findPlanOnSale(
   } catch (error) {
     value = { state: "unknown", reason: error instanceof Error ? error.message : String(error) };
   }
-  memo = { at, value };
+  held.memo = { at, value };
   return value;
 }
 

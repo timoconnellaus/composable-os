@@ -17,6 +17,7 @@ import {
 import { NonRetryableError } from "cloudflare:workflows";
 import { workflowRun } from "@composable-os/db/client-entries";
 import type { AutomationEvent, AutomationJournalEntry } from "@composable-os/sdk";
+import { inClientScope } from "../client-scope.ts";
 import { Executor } from "../executor/executor.ts";
 import { type AutomationRunParams, reviewEventType } from "./dispatch.ts";
 import { checkRoutineRun, isRoutineRun, queueRoutineDelivery } from "./routine.ts";
@@ -70,23 +71,29 @@ export class AutomationWorkflow extends WorkflowEntrypoint<Env, AutomationRunPar
     // The client the instance was created for (stage 66, ADR 0615): its id `<client>_<id>` and
     // its stamped params must agree, or it refuses; a single-client deployment's, as given.
     const { env, params } = await workflowRun<Env, AutomationRunParams>(this.env, event);
+    // Its work is all in steps, and each step enters the client's scope itself (`durable`): the
+    // runtime does not carry a scope set here into a step's callback (stage 66 step 5, ADR 0617).
+    return this.#run(env, params, step);
+  }
+
+  async #run(env: Env, params: AutomationRunParams, step: WorkflowStep) {
     try {
       if (params.delaySeconds) {
         // Debounce: later updates in the window land on this same instance id (coalesced).
         await step.sleep("debounce", params.delaySeconds * 1000);
       }
-      const started = await durable(step, "start", BOOKKEEPING, () => startRun(env, params));
+      const started = await durable(env, step, "start", BOOKKEEPING, () => startRun(env, params));
       if ("stopped" in started) return { status: started.stopped };
       const runEvent = started.event as AutomationEvent;
       // A routine has no extension code: its checks, then "message me in my chat" (ADR 0343).
       if (isRoutineRun(params)) {
-        const checked = await durable(step, "checks", ADVANCE_RETRIES, () =>
+        const checked = await durable(env, step, "checks", ADVANCE_RETRIES, () =>
           checkRoutineRun(env, params),
         );
         if (checked.deliver) {
-          await durable(step, "deliver", BOOKKEEPING, () => queueRoutineDelivery(env, params));
+          await durable(env, step, "deliver", BOOKKEEPING, () => queueRoutineDelivery(env, params));
         }
-        await durable(step, "finish", BOOKKEEPING, () =>
+        await durable(env, step, "finish", BOOKKEEPING, () =>
           finishRun(
             env,
             params.runId,
@@ -102,6 +109,7 @@ export class AutomationWorkflow extends WorkflowEntrypoint<Env, AutomationRunPar
         let outcome: Awaited<ReturnType<typeof advanceRun>> | { held: string } | undefined;
         for (let held = 0; ; held++) {
           outcome = await durable(
+            env,
             step,
             held ? `advance:${i}:held:${held}` : `advance:${i}`,
             ADVANCE_RETRIES,
@@ -121,10 +129,10 @@ export class AutomationWorkflow extends WorkflowEntrypoint<Env, AutomationRunPar
           if (!("held" in outcome)) break;
           const wait = HOLD_WAITS[held];
           if (!wait) {
-            await durable(step, `held-out:${i}`, BOOKKEEPING, () =>
+            await durable(env, step, `held-out:${i}`, BOOKKEEPING, () =>
               notifyHeld(env, params, "gave_up"),
             );
-            await durable(step, `held-fail:${i}`, BOOKKEEPING, () =>
+            await durable(env, step, `held-fail:${i}`, BOOKKEEPING, () =>
               finishRun(env, params.runId, "failed", {
                 error: {
                   code: "held_back",
@@ -137,11 +145,11 @@ export class AutomationWorkflow extends WorkflowEntrypoint<Env, AutomationRunPar
             return { status: "failed" };
           }
           if (held === 0) {
-            await durable(step, `held-notice:${i}`, BOOKKEEPING, () =>
+            await durable(env, step, `held-notice:${i}`, BOOKKEEPING, () =>
               notifyHeld(env, params, "held"),
             );
           }
-          await durable(step, `holding:${i}:${held}`, BOOKKEEPING, () =>
+          await durable(env, step, `holding:${i}:${held}`, BOOKKEEPING, () =>
             markWaiting(env, params.runId, {
               status: "waiting",
               until: new Date(Date.now() + 15 * 60_000).toISOString(),
@@ -149,7 +157,7 @@ export class AutomationWorkflow extends WorkflowEntrypoint<Env, AutomationRunPar
             }),
           );
           await step.sleep(`held:${i}:${held}`, wait);
-          await durable(step, `unheld:${i}:${held}`, BOOKKEEPING, () =>
+          await durable(env, step, `unheld:${i}:${held}`, BOOKKEEPING, () =>
             markRunning(env, params.runId),
           );
         }
@@ -158,7 +166,7 @@ export class AutomationWorkflow extends WorkflowEntrypoint<Env, AutomationRunPar
         const advance = outcome.advance;
 
         if (advance.kind === "done") {
-          await durable(step, "finish", BOOKKEEPING, () =>
+          await durable(env, step, "finish", BOOKKEEPING, () =>
             finishRun(env, params.runId, "completed"),
           );
           return { status: "completed" };
@@ -168,7 +176,7 @@ export class AutomationWorkflow extends WorkflowEntrypoint<Env, AutomationRunPar
           journal.push({ name: advance.name, kind: "do", value: advance.value ?? null });
           // Review pause: each action the step queued waits for a person's decision.
           for (const [k, pending] of outcome.pending.entries()) {
-            await durable(step, `review:${i}:${k}`, BOOKKEEPING, () =>
+            await durable(env, step, `review:${i}:${k}`, BOOKKEEPING, () =>
               markWaiting(env, params.runId, {
                 status: "review",
                 until: pending.expiresAt,
@@ -186,7 +194,7 @@ export class AutomationWorkflow extends WorkflowEntrypoint<Env, AutomationRunPar
               decision = "expired";
             }
             if (decision === "expired") {
-              await durable(step, `expired:${i}`, BOOKKEEPING, () =>
+              await durable(env, step, `expired:${i}`, BOOKKEEPING, () =>
                 finishRun(env, params.runId, "expired", {
                   reason: "The change it queued was not approved before it expired",
                 }),
@@ -194,7 +202,7 @@ export class AutomationWorkflow extends WorkflowEntrypoint<Env, AutomationRunPar
               return { status: "expired" };
             }
             if (decision === "failed") {
-              await durable(step, `failed:${i}`, BOOKKEEPING, () =>
+              await durable(env, step, `failed:${i}`, BOOKKEEPING, () =>
                 finishRun(env, params.runId, "failed", {
                   error: { code: "apply_failed", message: "The approved change failed to apply" },
                 }),
@@ -202,17 +210,17 @@ export class AutomationWorkflow extends WorkflowEntrypoint<Env, AutomationRunPar
               return { status: "failed" };
             }
             if (decision === "rejected") {
-              const spec = await durable(step, `rejected:${i}:${k}`, BOOKKEEPING, () =>
+              const spec = await durable(env, step, `rejected:${i}:${k}`, BOOKKEEPING, () =>
                 loadRunSpec(env, params.automationId),
               );
               const rule = spec?.onRejected ?? "stop";
               if (rule !== "continue") {
                 if (typeof rule === "object" && spec) {
-                  await durable(step, `notify:${i}:${k}`, BOOKKEEPING, () =>
+                  await durable(env, step, `notify:${i}:${k}`, BOOKKEEPING, () =>
                     notifyRejected(env, params, { spec }, pending.actionId),
                   );
                 }
-                await durable(step, `cancel:${i}`, BOOKKEEPING, () =>
+                await durable(env, step, `cancel:${i}`, BOOKKEEPING, () =>
                   finishRun(env, params.runId, "cancelled", {
                     reason: "A change it queued was rejected",
                   }),
@@ -220,7 +228,7 @@ export class AutomationWorkflow extends WorkflowEntrypoint<Env, AutomationRunPar
                 return { status: "cancelled" };
               }
             }
-            await durable(step, `resume:${i}:${k}`, BOOKKEEPING, () =>
+            await durable(env, step, `resume:${i}:${k}`, BOOKKEEPING, () =>
               markRunning(env, params.runId),
             );
           }
@@ -228,7 +236,7 @@ export class AutomationWorkflow extends WorkflowEntrypoint<Env, AutomationRunPar
         }
 
         if (advance.kind === "sleep") {
-          await durable(step, `sleeping:${i}`, BOOKKEEPING, () =>
+          await durable(env, step, `sleeping:${i}`, BOOKKEEPING, () =>
             markWaiting(env, params.runId, {
               status: "waiting",
               step: { name: advance.name, kind: "sleep" },
@@ -236,13 +244,13 @@ export class AutomationWorkflow extends WorkflowEntrypoint<Env, AutomationRunPar
             }),
           );
           await step.sleep(`sleep:${i}`, advance.ms);
-          await durable(step, `woke:${i}`, BOOKKEEPING, () => markRunning(env, params.runId));
+          await durable(env, step, `woke:${i}`, BOOKKEEPING, () => markRunning(env, params.runId));
           journal.push({ name: advance.name, kind: "sleep", value: null });
           continue;
         }
 
         // waitForEvent: the declared event, or null on timeout.
-        await durable(step, `waiting:${i}`, BOOKKEEPING, () =>
+        await durable(env, step, `waiting:${i}`, BOOKKEEPING, () =>
           markWaiting(env, params.runId, {
             status: "waiting",
             step: { name: advance.name, kind: "waitForEvent" },
@@ -259,10 +267,10 @@ export class AutomationWorkflow extends WorkflowEntrypoint<Env, AutomationRunPar
         } catch {
           value = null;
         }
-        await durable(step, `woke:${i}`, BOOKKEEPING, () => markRunning(env, params.runId));
+        await durable(env, step, `woke:${i}`, BOOKKEEPING, () => markRunning(env, params.runId));
         journal.push({ name: advance.name, kind: "waitForEvent", value });
       }
-      await durable(step, "too-long", BOOKKEEPING, () =>
+      await durable(env, step, "too-long", BOOKKEEPING, () =>
         finishRun(env, params.runId, "failed", {
           error: { code: "too_many_steps", message: `More than ${MAX_ADVANCES} steps` },
         }),
@@ -271,7 +279,7 @@ export class AutomationWorkflow extends WorkflowEntrypoint<Env, AutomationRunPar
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       const code = /^([a-z_]+): /.exec(message)?.[1] ?? "step_failed";
-      await durable(step, "fail", BOOKKEEPING, () =>
+      await durable(env, step, "fail", BOOKKEEPING, () =>
         finishRun(env, params.runId, "failed", { error: { code, message } }),
       );
       return { status: "failed", error: message };
@@ -284,11 +292,15 @@ export class AutomationWorkflow extends WorkflowEntrypoint<Env, AutomationRunPar
  * (journaled step results), so results are typed by the callback instead.
  */
 function durable<T>(
+  env: Env,
   step: WorkflowStep,
   name: string,
   config: WorkflowStepConfig,
   fn: () => Promise<T>,
 ): Promise<T> {
+  // The step's callback runs with no client scope: the runtime does not carry the run's
+  // AsyncLocalStorage into it, so each step enters its client's scope again (stage 66 step 5,
+  // ADR 0617).
   // biome-ignore lint/suspicious/noExplicitAny: see above; every value here is plain JSON.
-  return (step.do as any)(name, config, fn) as Promise<T>;
+  return (step.do as any)(name, config, () => inClientScope(env, fn)) as Promise<T>;
 }

@@ -8,7 +8,12 @@
 //
 // The Cache API is a no-op on `*.workers.dev` hostnames and when no `caches` global exists
 // (Node tests): every call is then a miss, which is correct, only slower.
+//
+// The Cache API is the zone's, shared by every client of a host that serves many (stage 66 step 5,
+// ADR 0617): there the key also holds the client, and code whose scope names no client caches
+// nothing.
 
+import { clientScopesHeld, currentClientId } from "../client-scope.ts";
 import { sha256Hex } from "../digest.ts";
 
 export const WIDGET_CACHE_TTL_SECONDS = 60;
@@ -24,7 +29,10 @@ export interface WidgetCache {
   put<T>(key: string, value: T, cachedAt: string): Promise<void>;
 }
 
-/** The cache key for one query run: SQL, positional params, row limit, scope and zone. */
+/**
+ * The cache key for one query run: SQL, positional params, row limit, scope and zone, and on a
+ * host that serves many clients the client's id (a single client's keys are as they were).
+ */
 export async function widgetCacheKey(parts: {
   sql: string;
   params: readonly unknown[];
@@ -32,9 +40,22 @@ export async function widgetCacheKey(parts: {
   scope: string;
   zone: string;
 }): Promise<string> {
+  const client = currentClientId();
   return sha256Hex(
-    JSON.stringify([parts.sql, parts.params, parts.maxRows, parts.scope, parts.zone]),
+    JSON.stringify([
+      parts.sql,
+      parts.params,
+      parts.maxRows,
+      parts.scope,
+      parts.zone,
+      ...(client === null ? [] : [client]),
+    ]),
   );
+}
+
+/** Whether the shared cache may be used here: not where scopes are held and none names a client. */
+function sharedCacheUsable(): boolean {
+  return !clientScopesHeld() || currentClientId() !== null;
 }
 
 /**
@@ -56,7 +77,7 @@ function defaultCache(): Cache | null {
 export function cacheApiWidgetCache(cache: Cache | null = defaultCache()): WidgetCache {
   return {
     async get<T>(key: string) {
-      if (!cache) return null;
+      if (!cache || !sharedCacheUsable()) return null;
       try {
         const response = await cache.match(`${CACHE_ORIGIN}${key}`);
         if (!response) return null;
@@ -66,7 +87,7 @@ export function cacheApiWidgetCache(cache: Cache | null = defaultCache()): Widge
       }
     },
     async put<T>(key: string, value: T, cachedAt: string) {
-      if (!cache) return;
+      if (!cache || !sharedCacheUsable()) return;
       const body: CachedResult<T> = { value, cachedAt };
       try {
         await cache.put(

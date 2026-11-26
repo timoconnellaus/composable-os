@@ -1,5 +1,7 @@
 // Typed errors every adapter (server functions now, MCP and host modules later) maps to its own
 // wire format. `code` is stable and safe to show; `details` is JSON-serialisable.
+// It imports only client-scope.ts, which imports nothing.
+import { clientState } from "./client-scope.ts";
 
 export type OperationErrorCode =
   | "unknown_operation"
@@ -205,10 +207,11 @@ export class ConfigError extends OperationError {
  * kept by the field registry (ADR 0502), so a declared rule is told apart from a slug or any
  * other unique index, which keep the general message.
  */
-let declaredUniqueKeys: ReadonlySet<string> = new Set();
+// One client's each (stage 66 step 5, ADR 0617): its extensions' rules are its own.
+const declaredUniqueKeys = clientState<{ keys: ReadonlySet<string> }>(() => ({ keys: new Set() }));
 
 export function setDeclaredUniqueKeys(keys: ReadonlySet<string>): void {
-  declaredUniqueKeys = keys;
+  declaredUniqueKeys.get().keys = keys;
 }
 
 /** Converts D1 constraint failures into typed errors; everything else becomes `internal`. */
@@ -997,7 +1000,7 @@ export function toOperationError(error: unknown): OperationError {
   const unique = /UNIQUE constraint failed: ([\w.]+(?:, [\w.]+)*)/.exec(message);
   // A declared uniqueness rule on an extension's table (ADR 0502): another write made the same
   // record a moment before, and this one's batch failed on the rule's index.
-  if (unique?.[1] && declaredUniqueKeys.has(unique[1])) {
+  if (unique?.[1] && declaredUniqueKeys.get().keys.has(unique[1])) {
     return new ConflictError(
       "A record like this one was made at the same moment, so this one was not",
       {
@@ -1153,7 +1156,7 @@ interface CapacityRefusalPayload {
 
 const CAPACITY_REFUSED = /core_capacity_refused (\{[^{}]*\})/;
 
-/** Whether an object has stock (ADR 0680), set by stock/index.ts so this module imports nothing. */
+/** Whether an object has stock (ADR 0680), set by stock/index.ts so this module imports no records code. */
 let hasStock: (object: string) => boolean = () => false;
 export function setStockLookup(lookup: (object: string) => boolean): void {
   hasStock = lookup;

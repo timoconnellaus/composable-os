@@ -11,6 +11,7 @@
 // to the database every time.
 import type { CoreDatabase } from "@composable-os/db";
 import { CompiledQuery, type Kysely } from "kysely";
+import { clientScopesHeld, currentClientId } from "../client-scope.ts";
 import { sha256Hex } from "../digest.ts";
 import { getObject } from "../fields/index.ts";
 import type { RecordChange } from "../operation.ts";
@@ -75,13 +76,20 @@ export async function cachedContent<T>(
 ): Promise<T> {
   const cache = contentCacheStore();
   if (!cache) return read();
+  // The zone's cache is every client's on a many-client host (review of #522, M3): the key holds
+  // the client's stamp as well as its database's epoch, which a copied database would share; code
+  // whose scope names no client caches nothing.
+  const client = currentClientId();
+  if (client === null && clientScopesHeld()) return read();
   const row = await db
     .selectFrom("core_content_generation")
     .select(["generation", "epoch"])
     .where("object_type", "=", object)
     .executeTakeFirst();
   if (!row) return read();
-  const hash = await sha256Hex(JSON.stringify([object, key]));
+  const hash = await sha256Hex(
+    JSON.stringify(client === null ? [object, key] : [object, key, client]),
+  );
   const request = new Request(
     `https://content-cache.invalid/${row.epoch}/${Number(row.generation)}/${hash}`,
   );

@@ -4,6 +4,7 @@
 // Date windows and `:today` are the business's day, in the organisation's time zone (ADR 0871).
 import type { CoreDatabase } from "@composable-os/db";
 import type { Kysely } from "kysely";
+import { clientState } from "../client-scope.ts";
 import { ValidationError } from "../errors.ts";
 import { getObject } from "../fields/index.ts";
 import type { Filter } from "../filter.ts";
@@ -43,16 +44,21 @@ export interface WidgetResult {
 // object name, and reading it on every widget run would cost a D1 query each time. A name
 // created in the last minute is caught anyway by the reserved-prefix rule (core_, x_, …). Today's
 // items read it too (ADR 0874).
-let schemaMemo: { names: Set<string>; at: number } | null = null;
+// One client's each (stage 66 step 5, ADR 0617): its extensions' views are its own.
+const schemaMemos = clientState<{ memo: { names: Set<string>; at: number } | null }>(() => ({
+  memo: null,
+}));
 export async function schemaNames(db: Kysely<CoreDatabase>): Promise<Set<string>> {
-  if (schemaMemo && Date.now() - schemaMemo.at < 60_000) return schemaMemo.names;
+  const held = schemaMemos.get();
+  const memo = held.memo;
+  if (memo && Date.now() - memo.at < 60_000) return memo.names;
   const names = await schemaObjectNames(db);
-  schemaMemo = { names, at: Date.now() };
+  held.memo = { names, at: Date.now() };
   return names;
 }
 /** Forgets the memoised schema names (tests that create views). */
 export function forgetSchemaNames(): void {
-  schemaMemo = null;
+  schemaMemos.reset();
 }
 
 function maxRowsFor(widget: WidgetSpec): number {

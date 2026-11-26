@@ -9,7 +9,8 @@
 //   it verifies (RS256 with the signing key's public half, its `kid`, `sub` a ready video, `exp`
 //   not passed, `nbf` reached); the video's id in place of a token is refused while the video
 //   requires signed URLs; a download (`/downloads/default.mp4`) needs `downloadable: true`;
-// - captions per language; deleting a video deletes it and its captions, and is idempotent.
+// - captions per language; deleting a video deletes it and its captions, and is idempotent;
+// - a video's `creator`, as an upload or copy named it, in its details (stage 66 step 5).
 //
 // Its state is in memory, in the isolate that made it: a test makes its own, and `vite dev` keeps
 // one for the dev server's life. Never configured in a deployment (STREAM_FAKE is for dev).
@@ -39,6 +40,7 @@ interface FakeVideo {
   allowedOrigins: string[];
   duration: number | null;
   captions: Map<string, StreamCaption>;
+  creator: string | null;
 }
 
 /** What a test or the dev server can do to the fake beside what the host does. */
@@ -106,6 +108,7 @@ export function createFakeStream(options: FakeStreamOptions): VideoHost & {
         allowedOrigins: [...input.allowedOrigins],
         duration: null,
         captions: new Map(),
+        creator: input.creator ?? null,
       });
       return {
         uid,
@@ -130,6 +133,7 @@ export function createFakeStream(options: FakeStreamOptions): VideoHost & {
         allowedOrigins: [...input.allowedOrigins],
         duration: null,
         captions: new Map(),
+        creator: input.creator ?? null,
       });
       return { uid };
     },
@@ -146,6 +150,7 @@ export function createFakeStream(options: FakeStreamOptions): VideoHost & {
         width: video.state === "ready" ? 1920 : null,
         height: video.state === "ready" ? 1080 : null,
         requireSignedURLs: video.requireSignedURLs,
+        creator: video.creator,
       };
     },
     async secure(uid, allowedOrigins) {

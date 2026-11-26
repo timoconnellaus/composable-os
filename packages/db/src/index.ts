@@ -1,9 +1,16 @@
 import { Kysely } from "kysely";
 import { D1Dialect } from "./dialect.ts";
+import { reaches } from "./handle.ts";
 import type { CoreDatabase } from "./schema.ts";
 
 export { D1Dialect } from "./dialect.ts";
-export { type CrmDb, createCrmDb, isReadOnlySql, ReadOnlyDatabaseError } from "./handle.ts";
+export {
+  type CrmDb,
+  createCrmDb,
+  databaseOf,
+  isReadOnlySql,
+  ReadOnlyDatabaseError,
+} from "./handle.ts";
 export {
   applyMigrations,
   CORE_SCHEMA_VERSION,
@@ -27,5 +34,5 @@ export const RECORD_VIEW_PREFIX = "rec_";
 
 /** Typed Kysely access to the core tables of a deployment's D1 database. */
 export function createDb(d1: D1Database): Kysely<CoreDatabase> {
-  return new Kysely<CoreDatabase>({ dialect: new D1Dialect(d1) });
+  return reaches(new Kysely<CoreDatabase>({ dialect: new D1Dialect(d1) }), d1);
 }
