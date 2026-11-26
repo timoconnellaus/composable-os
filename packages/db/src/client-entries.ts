@@ -11,7 +11,7 @@
 //
 // Exported as `@composable-os/db/client-entries`, never from `@composable-os/db`.
 import type { StampedMessage, StampedParams } from "./client-bindings.ts";
-import { WORKFLOW_ID_SEPARATOR } from "./client-bindings.ts";
+import { clientObjectName, WORKFLOW_ID_SEPARATOR } from "./client-bindings.ts";
 import {
   type ClientAdmission,
   clientOf,
@@ -23,7 +23,13 @@ import {
   type Refusal,
 } from "./client-environment.ts";
 import type { ParkingLedger } from "./client-parking.ts";
-import { generationPart, isPropsProof, PROOF, RUNNER_CALLER } from "./client-proofs.ts";
+import {
+  generationPart,
+  hostBindingKey,
+  isPropsProof,
+  PROOF,
+  RUNNER_CALLER,
+} from "./client-proofs.ts";
 import { type ClientId, type ClientRecord, isClientId, isSchemaBehind } from "./registry.ts";
 
 /** Whether `env` is a many-client host's: one constant check, no read. */
@@ -264,6 +270,9 @@ export const PARKING_BINDING = "CLIENT_PARKING";
 /** The binding of a Worker's parking ledgers (`ParkingLedger`, one per client), the host's own. */
 export const PARKING_LEDGER_BINDING = "CLIENT_PARKING_LEDGER";
 
+/** The name a client's parking ledger is given under its client (`<client>:<proof>:parking-ledger`). */
+export const PARKING_LEDGER_NAME = "parking-ledger";
+
 /** The parking queues, one per Worker: a batch of one is recognised by its queue's name. */
 export const PARKING_QUEUES = Object.freeze({
   app: "cos-app-parking",
@@ -318,33 +327,68 @@ function parkingOf(env: HostBindings): ParkingBindings | null {
   return queue && ledgers ? { queue, ledgers } : null;
 }
 
-function ledgerOf(parking: ParkingBindings, client: ClientId) {
-  return parking.ledgers.get(parking.ledgers.idFromName(client));
+/**
+ * A Worker's parking on a many-client host, or a clear failure: a fleet deployment binds both
+ * (step 7), and without them a paused client's messages would use up their queue's retries and
+ * be lost during an update (review of #520, M5). Called first by every queue entry that parks.
+ */
+export function requireParking(env: HostBindings): ParkingBindings {
+  const parking = parkingOf(env);
+  if (!parking) {
+    throw new Error(
+      `A host of many clients binds ${PARKING_BINDING} and ${PARKING_LEDGER_BINDING}: neither, or only one, is bound`,
+    );
+  }
+  return parking;
 }
 
 /**
- * Parks one stamped message: recorded in its client's ledger (which may give up the client's
- * oldest, each reported), then sent to the parking queue. False when the Worker has no parking.
+ * A client's ledger, named as its objects are: `<client>:<proof>:parking-ledger`, the proof
+ * under the host's object key for the client's generation, which the ledger checks (review of
+ * #520, S3). Only the host's parking code names it; object code has no key to.
+ */
+function ledgerOf(
+  env: HostBindings,
+  parking: ParkingBindings,
+  client: Pick<ClientRecord, "id" | "secretGeneration">,
+) {
+  const name = clientObjectName(
+    client.id,
+    generationPart(client.secretGeneration),
+    PARKING_LEDGER_NAME,
+    hostBindingKey(env),
+  );
+  return parking.ledgers.get(parking.ledgers.idFromName(name));
+}
+
+/**
+ * Parks one stamped message: sent to the parking queue, then recorded in its client's ledger
+ * (which may give up the client's oldest, each reported). Sent first, so a failed send leaves no
+ * row counting towards the cap (review of #520, M5); a failed record leaves a message with no row,
+ * which its delivery handles and reports (`unrecorded`).
  */
 async function park(
   env: HostBindings,
   parked: Omit<ParkedMessage, "cosParked">,
-  client: ClientId,
-): Promise<boolean> {
-  const parking = parkingOf(env);
-  if (!parking) return false;
-  const ledger = ledgerOf(parking, client);
-  const givenUp = await ledger.admit(parked.id, parked.parkedAt, PARKING.maxPerClient);
+  client: Pick<ClientRecord, "id" | "secretGeneration">,
+  now: number,
+): Promise<void> {
+  const parking = requireParking(env);
+  await parking.queue.send({ cosParked: 1, ...parked }, { delaySeconds: parked.delaySeconds });
+  const givenUp = await ledgerOf(env, parking, client).admit(
+    parked.id,
+    parked.parkedAt,
+    PARKING.maxPerClient,
+    now,
+  );
   for (const id of givenUp) {
     reportDeadLetter(
       parked.queue,
       { id, body: null },
       `its client had more than ${PARKING.maxPerClient} messages parked: the oldest are given up`,
-      client,
+      client.id,
     );
   }
-  await parking.queue.send({ cosParked: 1, ...parked }, { delaySeconds: parked.delaySeconds });
-  return true;
 }
 
 /** A dead letter, said where the operator's logs and alerts read it (stage 66, ADR 0615). */
@@ -424,6 +468,8 @@ export async function consumeByClient<E extends HostBindings, Body>(
   const failed: ClientId[] = [];
   let refused = unstamped.length;
   let parked = 0;
+  // Fails closed, before anything is acked: a fleet without parking would lose messages.
+  if (servesManyClients(env)) requireParking(env);
   await Promise.all(
     [...byClient].map(async ([client, entries]) => {
       const admission = await admissionOf(env, client);
@@ -432,24 +478,27 @@ export async function consumeByClient<E extends HostBindings, Body>(
           // In the batch's order, one at a time: parked messages come back in about this order,
           // which no consumer here depends on (queues do not keep order; ADR 0615).
           for (const { message } of entries) {
-            const sent = await park(
-              env,
-              {
-                id: crypto.randomUUID(),
-                queue: batch.queue,
-                stamped: message.body as StampedMessage<unknown>,
-                generation: generationPart(admission.client.secretGeneration),
-                parkedAt: now(),
-                delaySeconds: PARKING.firstDelaySeconds,
-                failures: 0,
-              },
-              client,
-            );
-            if (sent) {
+            try {
+              await park(
+                env,
+                {
+                  id: crypto.randomUUID(),
+                  queue: batch.queue,
+                  stamped: message.body as StampedMessage<unknown>,
+                  generation: generationPart(admission.client.secretGeneration),
+                  parkedAt: now(),
+                  delaySeconds: PARKING.firstDelaySeconds,
+                  failures: 0,
+                },
+                admission.client,
+                now(),
+              );
               parked += 1;
               message.ack();
-            } else {
-              message.retry({ delaySeconds: PARKING.maxDelaySeconds });
+            } catch (error) {
+              // Not parked: retried on its own queue, which keeps it until it can be.
+              console.error(`${batch.queue}: a message could not be parked`, String(error));
+              message.retry({ delaySeconds: PARKING.firstDelaySeconds });
             }
           }
           return;
@@ -501,12 +550,12 @@ export async function consumeParked<E extends HostBindings>(
   options: { now?: () => number } = {},
 ): Promise<void> {
   const now = options.now ?? Date.now;
-  const parking = parkingOf(env);
+  const parking = requireParking(env);
   for (const message of batch.messages) {
     const parked = parkedMessageOf(message.body);
     const stamp = parked ? stampOf(parked.stamped) : null;
     const consumer = parked ? consumers[parked.queue] : undefined;
-    if (!parked || !stamp || !consumer || !parking) {
+    if (!parked || !stamp || !consumer) {
       reportDeadLetter(
         batch.queue,
         message,
@@ -515,10 +564,24 @@ export async function consumeParked<E extends HostBindings>(
       message.ack();
       continue;
     }
-    const ledger = ledgerOf(parking, stamp.client);
-    const claim = await ledger.claim(parked.id, message.id);
+    const admission = await admissionOf(env, stamp.client);
+    if (!admission.client) {
+      // Its client is gone (removed, or of the other environment): so is its ledger's use.
+      reportDeadLetter(parked.queue, message, "its client is gone", stamp.client);
+      message.ack();
+      continue;
+    }
+    const ledger = ledgerOf(env, parking, admission.client);
+    const claim = await ledger.claim(parked.id, message.id, parked.parkedAt);
     if (claim === "duplicate") {
-      console.warn(`${batch.queue}: a parked message delivered again was dropped`);
+      // Logged as a dead letter is, without its body: handled already, or held by another
+      // delivery (review of #520, M5).
+      reportDeadLetter(
+        parked.queue,
+        message,
+        "a parked message delivered again after it was handled, or while another delivery holds it: dropped",
+        stamp.client,
+      );
       message.ack();
       continue;
     }
@@ -526,6 +589,17 @@ export async function consumeParked<E extends HostBindings>(
       // Reported when the cap gave it up; nothing more to say.
       message.ack();
       continue;
+    }
+    if (claim === "unrecorded") {
+      console.warn(
+        JSON.stringify({
+          event: "cos.queue.parked_unrecorded",
+          queue: parked.queue,
+          client: stamp.client,
+          message: message.id,
+          why: "its ledger had no row (recording it failed after it was sent): handled as parked",
+        }),
+      );
     }
     const giveUp = async (why: string) => {
       reportDeadLetter(parked.queue, message, why, stamp.client);
@@ -538,7 +612,6 @@ export async function consumeParked<E extends HostBindings>(
       await parking.queue.send(again, { delaySeconds: again.delaySeconds });
       message.ack();
     };
-    const admission = await admissionOf(env, stamp.client);
     if (!admission.served) {
       if (!waitsForClient(admission)) {
         await giveUp("its client is gone");

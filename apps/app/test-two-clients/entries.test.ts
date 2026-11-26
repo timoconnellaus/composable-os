@@ -575,6 +575,11 @@ describe("the crons and the queue (criterion 7)", () => {
   });
 
   it("each client's tick and each routine delivery runs as its client, acked or retried alone", async () => {
+    // A fleet binds the parking queue (step 7): the suite holds it.
+    const withParking = {
+      ...host,
+      CLIENT_PARKING: { send: async () => undefined },
+    } as unknown as Env;
     const tick = (client: string) => ({
       cosFanOut: 1,
       client,
@@ -588,7 +593,7 @@ describe("the crons and the queue (criterion 7)", () => {
       { id: "t-p", timestamp: new Date(), attempts: 1, body: tick(paused.id) },
     ]);
     const tickCtx = createExecutionContext();
-    await hostQueue(ticks, host);
+    await hostQueue(ticks, withParking);
     const ticked = await getQueueResult(ticks, tickCtx);
     expect(ticked.explicitAcks.sort()).toEqual(["t-a", "t-b", "t-p"]);
     // The delivery queue's batch: a tick-shaped body here is only a message with no stamp.
@@ -610,7 +615,7 @@ describe("the crons and the queue (criterion 7)", () => {
       { id: "r-tick", timestamp: new Date(), attempts: 1, body: tick(a.id) },
     ]);
     const ctx = createExecutionContext();
-    await hostQueue(batch, host);
+    await hostQueue(batch, withParking);
     const result = await getQueueResult(batch, ctx);
     expect(result.explicitAcks).toEqual([]);
     expect(result.retryMessages.map((m) => m.msgId).sort()).toEqual(["r-a", "r-none", "r-tick"]);
