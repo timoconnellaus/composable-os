@@ -921,17 +921,19 @@ describe("a client not served for a while (review of #512, S3 and S5; #515)", ()
       warn.mockRestore();
       await setStatus(moving.id, "moving");
     }
-    // A row older than the horizon (its delivery never came) is forgotten on the next admit.
+    // A row older than the horizon (its delivery never came) is forgotten on the next admit
+    // (on a ledger no other test counts).
+    const aside = ledgerOf(behind.id);
     const old = crypto.randomUUID();
-    await ledger.admit(old, 0, PARKING.maxPerClient, 0);
-    const counted = (await ledger.stats()).parked;
-    await ledger.admit(
+    await aside.admit(old, 0, PARKING.maxPerClient, 0);
+    const counted = (await aside.stats()).parked;
+    await aside.admit(
       crypto.randomUUID(),
       PARKING_HORIZON_MS + 10,
       PARKING.maxPerClient,
       PARKING_HORIZON_MS + 10,
     );
-    expect((await ledger.stats()).parked).toBe(counted);
+    expect((await aside.stats()).parked).toBe(counted);
   });
 
   it("retries a parked message as its own queue would, then gives it up (#515)", async () => {
