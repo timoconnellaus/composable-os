@@ -6,6 +6,7 @@
 // rejection (401), throttling, a refusal, and an unknown outcome (a timeout or dropped connection).
 
 import { ResponseTooLargeError, readBytesCapped, readTextCapped } from "@composable-os/gatekeeper-kit/response-body";
+import { scrubSent } from "@composable-os/gatekeeper-kit/upstream-error";
 import { GRAPH_BASE, VENDOR_ID } from "./microsoft-env";
 import { obsContext } from "./observability";
 
@@ -153,7 +154,9 @@ function retryAtOf(response: Response): number | undefined {
 }
 
 /** Maps a failed response onto this gatekeeper's error classes. */
-export function errorForResponse(response: Response, body: unknown): GraphApiError {
+export function errorForResponse(
+  response: Response, body: unknown, sent: readonly (string | null | undefined)[] = [],
+): GraphApiError {
   const requestId = response.headers.get("request-id") ?? undefined;
   if (response.status === 429 || (response.status === 503 && response.headers.has("retry-after"))) {
     return new GraphThrottledError(response.status, retryAtOf(response), requestId);
@@ -161,7 +164,8 @@ export function errorForResponse(response: Response, body: unknown): GraphApiErr
   const error = (body !== null && typeof body === "object" ? (body as GraphErrorBody).error : undefined);
   const code = typeof error?.code === "string" ? error.code : undefined;
   const innerCode = innermostCode(error);
-  const graphMessage = typeof error?.message === "string" ? error.message.trim() : "";
+  // Graph's own message, scrubbed of the token this request sent (a proxy may echo it back).
+  const graphMessage = typeof error?.message === "string" ? scrubSent(error.message, sent).trim() : "";
   // Graph's messages for 401/403/404 name nothing useful ("The resource could not be found."), and
   // some carry server-relative paths, so those statuses get fixed wording.
   const message = graphMessage && response.status !== 404 && response.status !== 403 && response.status !== 401
@@ -290,7 +294,7 @@ export class GraphApi {
       const parsed = await this.#readJson(response);
       if (response.ok) return parsed as T;
       if (options.allow?.includes(response.status)) return null;
-      const error = errorForResponse(response, parsed);
+      const error = errorForResponse(response, parsed, [this.#token]);
       const retryable = error instanceof GraphThrottledError
         || (method === "GET" && (response.status === 503 || response.status === 504));
       const wait = error instanceof GraphThrottledError && error.retryAt !== undefined
@@ -325,7 +329,7 @@ export class GraphApi {
     }).catch(error => {
       throw new GraphTransportError("Microsoft Graph did not answer in time.", { cause: error });
     });
-    if (response.status !== 202) throw errorForResponse(response, await this.#readJson(response));
+    if (response.status !== 202) throw errorForResponse(response, await this.#readJson(response), [this.#token]);
     const location = response.headers.get("location");
     if (location === null || !isDownloadHost(location)) {
       throw new GraphApiError(502, "Microsoft Graph sent no usable progress link for the copy.");
@@ -433,7 +437,7 @@ export class GraphApi {
       throw new GraphTransportError("Microsoft 365 did not send the file in time.", { cause: error });
     }
     if (!response.ok) {
-      throw errorForResponse(response, await this.#readJson(response).catch(() => null));
+      throw errorForResponse(response, await this.#readJson(response).catch(() => null), [this.#token]);
     }
     const declared = Number(response.headers.get("content-length"));
     if (Number.isFinite(declared) && declared > maxBytes) {

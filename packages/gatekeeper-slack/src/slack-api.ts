@@ -209,7 +209,7 @@ export async function refreshAccessToken(
         data.error === "invalid_grant" || data.error === "token_revoked") {
       return null;
     }
-    throw new Error(`Slack token refresh failed: ${data.error ?? response.status}`);
+    throw new Error(`Slack token refresh failed: ${slackCode(data.error) ?? `HTTP ${response.status}`}`);
   }
 
   // On refresh, the user-token fields come back at the top level (token_type "user").
@@ -247,7 +247,7 @@ async function postToken(body: URLSearchParams): Promise<any> {
   });
   let data = await response.json<any>();
   if (!data.ok) {
-    throw new Error(`Slack OAuth exchange failed: ${data.error ?? response.status}`);
+    throw new Error(`Slack OAuth exchange failed: ${slackCode(data.error) ?? `HTTP ${response.status}`}`);
   }
   return data;
 }
@@ -327,8 +327,16 @@ export class SlackApiError extends Error {
   }
 }
 
-function slackApiError(code: string | undefined, status: number): SlackApiError {
-  return new SlackApiError(code, status);
+function slackApiError(code: unknown, status: number): SlackApiError {
+  return new SlackApiError(slackCode(code), status);
+}
+
+/**
+ * Slack's `error` field, quoted only when it is an error code (`channel_not_found`): anything else
+ * a proxy or Slack put there could quote the request, its token or the client secret.
+ */
+export function slackCode(code: unknown): string | undefined {
+  return typeof code === "string" && /^[a-z0-9_.]{1,64}$/.test(code) ? code : undefined;
 }
 
 // ── API client ──────────────────────────────────────────────────────

@@ -10,6 +10,7 @@ import type {
   GoogleCalendarInfo,
   PersonAvailability,
 } from "./calendar-types";
+import { upstreamFailure } from "@composable-os/gatekeeper-kit/upstream-error";
 import { AccessTokenProvider, fetchWithAuthRetry } from "./auth-retry";
 
 const CALENDAR_API_BASE = "https://www.googleapis.com/calendar/v3";
@@ -197,8 +198,8 @@ export function validateCalendarTimeWindow(timeMin: Date, timeMax: Date, maxDays
 }
 
 class GoogleCalendarApiError extends Error {
-  constructor(readonly status: number, body: string) {
-    super(`Google Calendar API request failed: ${status} ${body}`);
+  constructor(readonly status: number, message: string) {
+    super(message);
   }
 }
 
@@ -220,8 +221,9 @@ export class GoogleCalendarApi {
     }, this.getAccessToken);
 
     if (!response.ok) {
-      let text = await response.text();
-      throw new GoogleCalendarApiError(response.status, text);
+      // Google's error code and message only, never the raw body (it may quote the request).
+      throw new GoogleCalendarApiError(
+          response.status, await upstreamFailure("Google Calendar API request", response, []));
     }
 
     if (response.status === 204) return undefined as T;

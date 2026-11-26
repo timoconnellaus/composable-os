@@ -148,8 +148,10 @@ function turnRedactor(models: readonly TurnModel[]): (text: string) => string {
 const FAILED_NOTE = /^\(This answer failed/;
 
 /**
- * The history as the model is sent it: a failure note stored before redaction existed (or under
- * another key) is redacted again, so an old stored key is never re-sent to a model.
+ * The history as the model is sent it: a failure note stored before redaction existed is redacted
+ * again, so an old stored key is never re-sent to a model. Only credentials still in the
+ * environment are known to the redactor: a note quoting a key since rotated keeps that key (except
+ * where the bearer and header rules catch it), which a rotation has made dead.
  */
 function withRedactedNotes(
   messages: readonly ModelMessage[],
@@ -195,11 +197,22 @@ function toolSet<X extends object>(input: TurnInput<X>, attempt: { emitted: bool
         attempt.emitted = true;
         input.emit({ type: "tool-call", id: options.toolCallId, tool: t.name, input: callArgs });
         let result: Awaited<ReturnType<TurnTool["call"]>>;
+        // A tool's error text (a thrown error, an MCP `isError` result) may quote a credential it
+        // sent: redacted before the model, the event and the stored response see it. A successful
+        // result is the tool's own data and is passed on as it is.
+        const redact = turnRedactor(input.models);
         try {
           result = await t.call(callArgs);
+          if (result.isError) {
+            result = {
+              ...result,
+              text: redact(result.text),
+              ...(result.modelText !== undefined ? { modelText: redact(result.modelText) } : {}),
+            };
+          }
         } catch (error) {
           result = {
-            text: JSON.stringify({ error: { message: errorMessage(error) } }),
+            text: JSON.stringify({ error: { message: redact(errorMessage(error)) } }),
             isError: true,
           };
         }

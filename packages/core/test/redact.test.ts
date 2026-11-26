@@ -6,6 +6,7 @@ import { describe, expect, it } from "vitest";
 import {
   credentialsOf,
   MIN_PREFIX_CHARS,
+  MIN_RUN_CHARS,
   MIN_SECRET_CHARS,
   redactError,
   redactorFor,
@@ -111,5 +112,97 @@ describe("the provider-text redactor", () => {
     const redact = redactorFor(["short1"]);
     expect(redact("a short1 value")).toBe("a short1 value");
     expect(credentialsOf({ AI_KEY_X: "abc" })).toEqual([]);
+  });
+
+  it(`cuts any run of ${MIN_RUN_CHARS} or more characters of a credential: start, middle, end, and a split key's remainder`, () => {
+    const key = "sk-proj-Ab3dEf6hIj9kLm2nOp5qRs8tUv1wXy4zA7bC0dE";
+    const redact = redactorFor([key]);
+    const echoes = {
+      start: key.slice(0, 20),
+      middle: key.slice(10, 30),
+      end: `sk-proj-****${key.slice(-16)}`,
+      "split by a line break": `${key.slice(0, 18)}\n    ${key.slice(18)}`,
+      "split by a space": `${key.slice(0, 25)} ${key.slice(25)}`,
+    };
+    for (const [where, echo] of Object.entries(echoes)) {
+      const out = redact(`Incorrect API key provided: ${echo} (401)`);
+      // No 12 characters of the key survive anywhere, and no more than its last 4 stand alone.
+      for (let at = 0; at + MIN_RUN_CHARS <= key.length; at++) {
+        expect(out, where).not.toContain(key.slice(at, at + MIN_RUN_CHARS));
+      }
+      expect(out, where).toContain("Incorrect API key provided:");
+      expect(out, where).toContain("(401)");
+    }
+    // A provider's own short form, its last 4 characters, may stay.
+    expect(redact(`key sk-...${key.slice(-4)} is wrong`)).toBe(
+      `key sk-...${key.slice(-4)} is wrong`,
+    );
+  });
+
+  it("never blanks ordinary text for a credential holding an ordinary word or a URL", () => {
+    const redact = redactorFor([
+      "production-gateway-token-only",
+      "https://example.com/hooks/AbC3dE5fG7hI9jK1",
+    ]);
+    const text =
+      "A production-grade setup: see https://example.com/docs and https://example.com/hooks for more.";
+    expect(redact(text)).toBe(text);
+    // The credential itself, or a long piece of its secret part, is still cut.
+    expect(redact("hook https://example.com/hooks/AbC3dE5fG7hI9jK1 failed")).not.toContain(
+      "AbC3dE5fG7hI9jK1",
+    );
+    expect(redact("token production-gateway-token-only expired")).not.toContain(
+      "production-gateway-token-only",
+    );
+  });
+
+  it("cuts a scheme only before a token-shaped value", () => {
+    const redact = redactorFor([]);
+    for (const text of ["Basic auth is disabled", "Bearer realm=api", "Use Bearer tokens"]) {
+      expect(redact(text)).toBe(text);
+    }
+    expect(redact("Authorization: Bearer abcDEF123456xyz")).toBe("Authorization: Bearer …");
+    expect(redact("Authorization: Basic dXNlcjpwYXNzd29yZA==")).toBe("Authorization: Basic …");
+  });
+
+  it("collects *_KEY and *_PASSWORD names, never public ones, and only the gateway's token", () => {
+    const secret = "s66e-Ab3dEf6hIj9kLm2n";
+    const found = credentialsOf({
+      COS_CONTROL_KEY: `${secret}1`,
+      COS_ROOT_KEY: `${secret}2`,
+      SUPPORT_SIGNING_KEY: `${secret}3`,
+      SMTP_PASSWORD: `${secret}4`,
+      COS_SUPPORT_PUBLIC_KEY: `${secret}5`,
+      TURNSTILE_SITE_KEY: `${secret}6`,
+      STREAM_SIGNING_KEY_ID: `${secret}7`,
+      AI_CUSTOMER_GATEWAY: JSON.stringify({
+        accountId: "a".repeat(32),
+        gatewayId: "production",
+        token: `${secret}8`,
+      }),
+    });
+    expect(found.sort()).toEqual([1, 2, 3, 4, 8].map((n) => `${secret}${n}`).sort());
+    const redact = redactorFor(found);
+    expect(redact("gateway production is down")).toBe("gateway production is down");
+  });
+
+  it("stays fast on large adversarial text", () => {
+    const keys = Array.from({ length: 30 }, (_, n) => `s66e-${n}-${crypto.randomUUID()}-Zx9`);
+    const redact = redactorFor(keys);
+    const inputs = [
+      `Bearer ${"a".repeat(200_000)}`,
+      `api_key=${"=".repeat(200_000)}`,
+      "api_key ".repeat(25_000),
+      `api_key${" ".repeat(200_000)}`,
+      (keys[0] as string).slice(0, 11).repeat(18_000),
+      (keys[1] as string).slice(3, 15).repeat(16_000),
+      "x".repeat(200_000),
+    ];
+    for (const input of inputs) {
+      const started = performance.now();
+      redact(input);
+      // About 1 to 3 ms on a laptop; room for a loaded CI machine, none for a quadratic regression.
+      expect(performance.now() - started, input.slice(0, 20)).toBeLessThan(40);
+    }
   });
 });
