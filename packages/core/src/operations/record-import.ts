@@ -23,11 +23,14 @@ import { CompiledQuery } from "kysely";
 import { z } from "zod";
 import { ValidationError } from "../errors.ts";
 import { defineOperation } from "../operation.ts";
+import { callerMover } from "../records/lifecycle.ts";
 import { slugsForCreate } from "../records/slug.ts";
+import { foldUniqueValues } from "../records/unique.ts";
 import {
   checkRecordValues,
   createRecord,
   loadRecord,
+  lockedChange,
   requireExtensionObject,
   updateRecord,
 } from "./record.ts";
@@ -127,9 +130,13 @@ export const recordImport = defineOperation({
         results.push({ key, id, outcome: o, fields: [], problems: [], ...more });
       let normalized: Record<string, unknown>;
       try {
-        normalized = await checkRecordValues(ctx, object, values, prior ? "update" : "create", {
-          checkReferences,
-        });
+        // As the host keeps them (ADR 0864): a tag differing only by case or spaces is the same.
+        normalized = foldUniqueValues(
+          object,
+          await checkRecordValues(ctx, object, values, prior ? "update" : "create", {
+            checkReferences,
+          }),
+        );
       } catch (error) {
         if (!(error instanceof ValidationError)) throw error;
         result("invalid", prior?.record_id ?? null, { problems: [error.message] });
@@ -168,7 +175,10 @@ export const recordImport = defineOperation({
         });
         continue;
       }
-      const written = JSON.parse(prior.written) as Record<string, unknown>;
+      const written = foldUniqueValues(
+        object,
+        JSON.parse(prior.written) as Record<string, unknown>,
+      );
       // Changed here since the import wrote it: a person's edit is never overwritten.
       const edited = Object.keys(written).filter((f) => !same(record.values[f], written[f]));
       if (edited.length) {
@@ -183,7 +193,17 @@ export const recordImport = defineOperation({
         result("unchanged", record.id);
         continue;
       }
+      // A field locked in the record's state (ADR 0865) is refused for this row, in the dry run
+      // as in the real one, and the other rows go on (the review of PR #502).
+      const changes = Object.fromEntries(changed.map((f) => [f, normalized[f]]));
+      const locked = lockedChange(ctx, object, record.values, changes, callerMover(ctx));
+      if (locked) {
+        result("invalid", record.id, { fields: [locked.field], problems: [locked.message] });
+        continue;
+      }
       if (!input.dryRun) {
+        // Any other refusal refuses the call whole, as before: some count every row of the call
+        // together (the follower limit, ADR 0841), so one row's answer is not theirs to give.
         await updateRecord(
           ctx,
           object,

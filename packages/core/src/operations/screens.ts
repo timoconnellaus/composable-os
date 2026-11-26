@@ -20,11 +20,10 @@ import {
   screenGateFingerprint,
 } from "@composable-os/sdk";
 import { z } from "zod";
-import { allowsAudience } from "../audiences.ts";
 import { toolOperation } from "../extensions/tools.ts";
 import { type AnyOperation, defineOperation } from "../operation.ts";
-import { loadStaffRights, type StaffRights, staffAuthority } from "../pack-roles.ts";
-import { type Role, staffPrincipal } from "../principals.ts";
+import { loadStaffRights, personMayCall, type StaffRights } from "../pack-roles.ts";
+import type { Role } from "../principals.ts";
 import { agreementDeskFind, agreementDeskStart } from "./agreement-desk.ts";
 import { recordUpdate } from "./record.ts";
 
@@ -149,20 +148,9 @@ export const screensMine = defineOperation({
   },
 });
 
-/**
- * Whether a person with these rights could call `op` (with `input`), by the pipeline's own
- * checks for a person's call: the operation's audience, its actors and `staffAuthority`.
- */
-export function personMayCall(
-  op: AnyOperation,
-  user: { id: string; role: Role },
-  rights: StaffRights,
-  input: unknown = {},
-): boolean {
-  if (!allowsAudience(op, staffPrincipal(user))) return false;
-  if (op.actors && !op.actors.includes("human")) return false;
-  return staffAuthority(user, rights, op, input) !== null;
-}
+// Whether a person could call an operation: the pipeline's own checks, kept with the rights
+// (pack-roles.ts) so the Trash's rule (ADR 0863) asks the same question.
+export { personMayCall };
 
 /**
  * Whether the caller passes the screen's gate: every tool in `opens` (an unknown one opens

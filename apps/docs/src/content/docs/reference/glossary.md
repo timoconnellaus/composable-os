@@ -3331,7 +3331,8 @@ _Avoid_: FAQ entry, article, knowledge base article, support doc
 
 One thing a business owns and looks after (`equipment.item`): a treadmill, a rack, the sauna, a
 drill, a van. It has a **tag**, the code on its sticker, which no other item in or out of service
-shares, whatever its case or outer spaces (kept upper case); a retired item gives it up. A place, a
+shares, whatever its case or outer spaces (kept upper case); it is given when the item is added
+and changed afterwards only by a manager, and a retired item gives it up. A place, a
 supplier (an Organisation), what it cost, when its warranty ends, and its **keeper**, the staff
 account who looks after it (empty means the managers). It is in service, **out of service** (why,
 and since when) or retired. Not the Shop's item, which is something sold.
@@ -3355,8 +3356,9 @@ _Avoid_: broken (a fault's word), out of order (what members are shown)
 A report that something is wrong with an item (`equipment.fault`): what is wrong and how bad (a
 safety risk, not working, worn or cosmetic), by whom. Reported, then acknowledged, then closed by a
 manager as fixed, not a fault or a duplicate, each with why. What is wrong and how bad are the
-report's: only a manager corrects them. The same report again, or a retry, is the same fault while
-it is open. None is made on a retired item. An injury to a person is not a fault.
+report's: only a manager corrects them, while it is open. It stays on its item, and while open it
+keeps the item out of the Trash but for a manager. The same report again, or a retry with the same
+request id on the same item, is the same fault while it is open. None is made on a retired item. An injury to a person is not a fault.
 _Avoid_: ticket (Ticketing's), issue, incident
 
 ### Confirmation

@@ -44,7 +44,7 @@ them): decisions 1 to 10 below. Nothing waits for an interview. Roadmap stage 59
 
 - **Step 2** — not built — P2 to P4: overseers, a move that needs its checklist done, the wording
 
-- **Step 3** — built — PR #491 — The pack's spine: items, faults, states, uniqueness, permissions, staff tools, out of service
+- **Step 3** — built — PRs #491, #502 — The pack's spine: items, faults, states, uniqueness, permissions, staff tools, out of service
   (`feat/stage-59-equipment-pack`): `packs/equipment` with `equipment.item` (the tag `unique`)
   and `equipment.fault`; the item's moves only tools make (out of service by `takeOut` and
   `reportFault`, `personApproves`, requiring why; back by `putBack`, `equipment:manage` and
@@ -57,7 +57,10 @@ them): decisions 1 to 10 below. Nothing waits for an interview. Roadmap stage 59
   up by a retired item. Platform: a record in a state only tools leave stays out of the Trash but
   for those tools or a person holding their permission (ADR 0863), and uniqueness that folds case
   and spaces (`fold`, ADR 0864). Tests in `packs/equipment/test/`, `packages/sdk/test/unique.test.ts`
-  and `apps/runner/test/equipment.test.ts`. No migration; ADRs 0862 to 0864. Left: the keeper
+  and `apps/runner/test/equipment.test.ts`. #502 (issue #498): the tag locked out of service
+  (`lockedIn`, ADR 0865), an open fault holds its item out of the Trash (`states.holds`), the
+  fault's item read-only, the item in the report key, `record.update { while }`. No migration;
+  ADRs 0862 to 0865. Left: the keeper
   triaging (needs a behaviour: a move by a record's user field, which step 4's "the assignee or a
   manager" needs too); the repair link on `fixed`, `costs` and `equipment:work` (step 4); the
   member's report and reads, and who may change `listForMembers` (step 5); the notices (step 6).

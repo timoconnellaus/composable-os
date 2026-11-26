@@ -1021,6 +1021,14 @@ export function toOperationError(error: unknown): OperationError {
   if (/FOREIGN KEY constraint failed/.test(message)) {
     return new ValidationError("A referenced record does not exist");
   }
+  // A location closed while a relocate into it was being made (operations/location.ts,
+  // `locationOpenGuard`): its CHECK refuses the guard's state.
+  if (/CHECK constraint failed: state IN \('open', 'closed'\)/.test(message)) {
+    return new ConflictError(
+      "That location was closed while this was being made, so nothing was moved. Look again.",
+      { rule: "location_closed", reason: "closed_meanwhile" },
+    );
+  }
   if (/CHECK constraint failed/.test(message)) {
     return new ValidationError("A value is not allowed", { reason: message });
   }

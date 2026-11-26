@@ -18,5 +18,6 @@ The decisions this pack rests on, as recorded in the repository's ADRs.
 | [ADR 0862](https://github.com/timoconnellaus/composable-os/blob/main/docs/adr/0862-the-equipment-pack.md) | The Equipment pack: items, faults, out of service by a tool and back by a person |
 | [ADR 0863](https://github.com/timoconnellaus/composable-os/blob/main/docs/adr/0863-a-state-only-tools-leave-keeps-its-record-out-of-the-trash.md) | A state only tools leave keeps its record out of the Trash |
 | [ADR 0864](https://github.com/timoconnellaus/composable-os/blob/main/docs/adr/0864-uniqueness-that-folds-case-and-spaces.md) | Uniqueness that folds case and spaces |
+| [ADR 0865](https://github.com/timoconnellaus/composable-os/blob/main/docs/adr/0865-a-field-locked-in-some-states-and-a-write-while-in-one.md) | A field locked in some states, and a write made only while in one |
 
 The specification is stage 59's, [59-equipment.md](https://github.com/timoconnellaus/composable-os/blob/main/docs/stages/59-equipment.md).

@@ -329,6 +329,31 @@ Correct why an item that is out of service must not be used. Only the tools that
 | `itemId` | string | yes |   |   |
 | `outReason` | string or null | yes |   |   |
 
+### correctTag
+
+Change an item's tag (the code on its sticker), when a sticker is replaced or was entered wrong. Once an item is added its tag is changed only here, by a manager (equipment:manage), and only while the item is in service: the sticker of a machine out of service stays with it. The tag is unique in the register, whatever its case or spaces. The assistant, an MCP client or an automation may ask, and it waits for a person to approve it.
+
+|  |  |
+| --- | --- |
+| Risk | `write` |
+| Audiences | `staff` |
+| Permission | `equipment:manage` |
+| Approval | a person approves anyone else's call (`personApproves`) |
+
+#### Input
+
+| Field | Type | Required | Limits | Description |
+| --- | --- | --- | --- | --- |
+| `itemId` | string | yes | min length 1, max length 64 |   |
+| `tag` | string | yes | min length 1, max length 100 |   |
+
+#### Output
+
+| Field | Type | Required | Limits | Description |
+| --- | --- | --- | --- | --- |
+| `itemId` | string | yes |   |   |
+| `tag` | string or null | yes |   |   |
+
 ## Automations
 
 None.
