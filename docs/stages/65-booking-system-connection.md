@@ -107,9 +107,39 @@ business, and its lawyer or the booking system's support, to confirm. The load s
   statements is refused. **Gate: step 4 does not merge before step 10** (erase reaching the copy),
   because from step 4 on a list can be loaded and `person.erase` would leave its copy behind.
 
-- **Step 4** — not built — needs: step 3, step 10 — The file source: column mapping and value maps, the
-  dry run, the staff-only load, replace on load, the list's age, the notices (must not merge before
-  step 10).
+- **Step 4** — built — PR #519 — The file source (built 2026-11-27, branch
+  `feat/stage-65-file-source`; ADR 0923; migration 1413): `outside/file.ts` decodes an exported
+  file by its content (UTF-8 with or without a mark, UTF-16 either order, Windows-1252; a
+  workbook, old Excel, PDF, zip, gzip, web page, XML, JSON or binary refused), bounds it before and
+  while parsing (10 MB, 20,000 rows, 100 columns, 10,000 characters a cell, 500 types, coaches or
+  locations), maps columns (given, the saved mapping of a file of the same shape, or suggested from
+  the headers) and value maps (member, membership and booking states, kinds, a plan's name to its
+  kind), refuses duplicate headers, a missing header row and a value map holding a person's name,
+  address or id, and reads the file through the contract's file session into step 3's ingest, so
+  step 10's rules hold every load. `outside.file.preview` (writes nothing: refused rows with why,
+  new, changed, unchanged, removed, not kept, dropped as erased with `previouslyErased`, who would
+  link and who would wait) and `outside.file.load` (the same input and the dry run's keyed
+  fingerprint, else refused `outside_preview_stale`; one batch; saves the mapping); both staff,
+  `bookingSystem:manage`, a person only, not on MCP. The file is never kept: it lives only in the
+  request, and the browser sends it again for the load. A timetable file may be one row per
+  booking (who by id or address, the state, the coach's address). The minute cron
+  (`runOutsideListsDue`) tells the holders of `bookingSystem:manage` once 3 days before a members
+  list stops counting and once when it does (a quiet minute two reads), and removes log rows after
+  30 days. After the review of PR #519: every address is cleaned (hidden characters, compatibility
+  forms, quotes, brackets) and checked by the host's own normalisation before anything of its row
+  is kept, and a row whose address it does not take is left out; a booking's address beside its id
+  is checked against erased people; the load's batch starts with a guard on the copy's version
+  (migration 1413's `core_outside_version` and `core_load_guard`), so an erase, link or other load
+  between its plan and its write fails it (`outside_preview_stale`); both operations are
+  `neverQueued` (a new operation property: refused, never queued, where approval would apply); a
+  first row that is data, and a mapping copying people's data into plan names or class titles, are
+  refused; a saved mapping keeps a keyed hash of its columns, and `outside.settings.update`'s
+  `clearMappings` forgets one; cells are sliced and the file parsed once (about 20 MB at the
+  largest file, measured in V8); every read binds at most 90 KB. Statements: 51 for the 3,000-row
+  fixture, 836 at the largest file (20,000 members, all linking). Tests: `outside-file.test.ts`,
+  `outside-file-review.test.ts`, `outside-file-bounds.test.ts`, the package's `file-source.test.ts`.
+  `outside.lists.remove` was step 10's. Not done here: the screens (step 5), the daily To match
+  digest line (issue #521), editing a saved mapping through `outside.settings.update`.
 
 - **Step 5** — not built — needs: step 4 — Admin screens and the Person panel.
 

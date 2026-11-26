@@ -37,11 +37,13 @@ import { newId } from "../ids.ts";
 import { chunk, jsonList } from "../records/common.ts";
 import { orgReader, visibleTable } from "../visibility/index.ts";
 import {
+  boundedChunks,
   decideMatches,
   droppedOf,
   foldOutside,
   type HeldOutsideLink,
   linkActivityStatements,
+  MAX_JSON_PARAM,
   normaliseStaff,
   type OutsideOutcome,
   personsByFolded,
@@ -89,6 +91,11 @@ export interface TimetableData {
   classes: BookingSystemClass[];
   bookings: BookingSystemBooking[];
   staff: BookingSystemStaff[];
+  /**
+   * The address a source gave for a booking's person beside their id, by booking ref (a file of
+   * bookings): checked against erased people as the id is (stage 65 step 4's review, S2).
+   */
+  bookingAddresses?: Readonly<Record<string, string>>;
 }
 
 /** Who loaded the list and what it was: never a name or an address. */
@@ -132,6 +139,11 @@ export interface IngestPlan {
   counts: IngestCounts;
   /** The Persons linked now by address (each gets one timeline activity). */
   linkedPersons: string[];
+  /**
+   * The rows the statements write, by table (no ids made here): what a file's dry run compares
+   * with the current copy, and what its fingerprint is taken over (stage 65 step 4).
+   */
+  rows: Record<string, readonly Record<string, unknown>[]>;
 }
 
 const cut = (value: string | null | undefined): string | null =>
@@ -150,7 +162,8 @@ function insertJson(
     ...columns.map((c) => `json_extract(value, '$.${c}')`),
   ].join(", ");
   const sqlText = `INSERT INTO ${table} (${[...fixedCols, ...columns].join(", ")}) SELECT ${select} FROM json_each(?)`;
-  return chunk(rows, INGEST_CHUNK).map((part) =>
+  // At most 100 rows, and at most 90 KB of JSON, a statement (D1's 100 KB statement, the review M2).
+  return boundedChunks(rows, MAX_JSON_PARAM, INGEST_CHUNK).map((part) =>
     CompiledQuery.raw(sqlText, [...Object.values(fixed), JSON.stringify(part)]),
   );
 }
@@ -353,16 +366,20 @@ export async function planMembers(db: Db, data: MembersData, meta: ListMeta): Pr
     ...new Set(heldRows.map((r) => r.to).filter((id): id is string => id !== null)),
   ];
   const livePersons = new Set(
-    linkedTo.length
-      ? (
-          await db
+    (
+      await Promise.all(
+        boundedChunks(linkedTo).map((part) =>
+          db
             .selectFrom(visibleTable(orgReader(db), "person"))
             .select("id")
-            .where("id", "in", jsonList(linkedTo))
+            .where("id", "in", jsonList(part))
             .where("deleted_at", "is", null)
-            .execute()
-        ).map((r) => r.id)
-      : [],
+            .execute(),
+        ),
+      )
+    )
+      .flat()
+      .map((r) => r.id),
   );
   const held = heldLinks(
     heldRows.map((r) => ({ ...r, exists: r.to !== null && livePersons.has(r.to) ? 1 : 0 })),
@@ -404,6 +421,13 @@ export async function planMembers(db: Db, data: MembersData, meta: ListMeta): Pr
       continue;
     }
     const address = person.email === null ? null : normaliseCustomerEmail(person.email);
+    // An address the host does not take keeps nothing of the person: kept without it, an erased
+    // person's address written so it no longer matches would bring them back (stage 65 step 4's
+    // review, S1). The file source leaves such a row out before this; any other source too.
+    if (person.email !== null && address === null) {
+      notKept += 1;
+      continue;
+    }
     candidates.push({ person, address, why });
   }
 
@@ -547,6 +571,13 @@ export async function planMembers(db: Db, data: MembersData, meta: ListMeta): Pr
     kind: "members",
     statements,
     linkedPersons: persons,
+    rows: {
+      person: personRows,
+      membership: membershipRows,
+      membershipType: typeRows,
+      match: matchRows,
+      linked: persons.map((id) => ({ id })),
+    },
     counts: {
       kept: personRows.length,
       notKept,
@@ -606,18 +637,21 @@ export async function planTimetable(
     s.email === null ? null : normaliseStaff(s.email);
   const addresses = staff.map(staffAddress).filter((a): a is string => a !== null);
   const bookingPeople = [...new Set(data.bookings.map((b) => b.person))];
+  // A booking's address, from an `email:` ref or given beside the id: null when the source gave
+  // one the host does not take (the booking is then kept by nothing).
+  const given = data.bookingAddresses ?? {};
+  const bookingAddress = (b: BookingSystemBooking): string | null | undefined => {
+    const raw = b.person.startsWith("email:") ? b.person.slice(6) : given[b.ref];
+    return raw === undefined ? undefined : normaliseCustomerEmail(raw);
+  };
+  const bookingAddresses = [
+    ...new Set(data.bookings.map(bookingAddress).filter((a): a is string => typeof a === "string")),
+  ];
   const [holders, droppedPeople, droppedStaff] = await Promise.all([
     usersByAddress(db, addresses),
     // A list with no ids of its own names a person by their address (`email:<address>`): one on
     // the erased-address list keeps no booking either.
-    droppedOf(
-      db,
-      bookingPeople,
-      bookingPeople.flatMap((ref) => {
-        const address = ref.startsWith("email:") ? normaliseCustomerEmail(ref.slice(6)) : null;
-        return address ? [address] : [];
-      }),
-    ),
+    droppedOf(db, bookingPeople, bookingAddresses),
     // A coach who is an erased Person (their ref or address suppressed, their address erased)
     // keeps nothing either (stage 65 step 10): no row, no name, and their classes name no coach.
     droppedOf(
@@ -641,7 +675,8 @@ export async function planTimetable(
   const matchRows: Record<string, unknown>[] = [];
   outcomes.forEach((o, i) => {
     const s = staff[i] as BookingSystemStaff;
-    if (o.outcome === "dropped") {
+    // A coach whose address the host does not take keeps nothing either (the review, S1).
+    if (o.outcome === "dropped" || (s.email !== null && staffAddress(s) === null)) {
       goneStaff.add(s.ref);
       return;
     }
@@ -687,9 +722,9 @@ export async function planTimetable(
       (b) =>
         classRefs.has(b.class) &&
         !droppedPeople.refs.has(b.person) &&
-        !(
-          b.person.startsWith("email:") &&
-          droppedPeople.addresses.has(normaliseCustomerEmail(b.person.slice(6)) ?? "")
+        ((address) =>
+          address === undefined || (address !== null && !droppedPeople.addresses.has(address)))(
+          bookingAddress(b),
         ),
     )
     .map((b) => ({ ref: b.ref, class_ref: b.class, person_ref: b.person, state: b.state }));
@@ -787,6 +822,13 @@ export async function planTimetable(
     kind: "timetable",
     statements,
     linkedPersons: [],
+    rows: {
+      classType: typeRows,
+      class: classRows,
+      booking: bookingRows,
+      staff: staffRows,
+      match: matchRows,
+    },
     counts: {
       kept: staffRows.length,
       notKept: 0,

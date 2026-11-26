@@ -6,6 +6,137 @@ sidebar:
 editUrl: false
 ---
 
+## outside.file.load
+
+Load a list exported from the booking system, as its dry run showed: the same file, mapping and export date, and the dry run's fingerprint. The host plans again and refuses, writing nothing, unless the plan is the one the dry run showed (the file, the copy, an erase or a Person's address changed since). The list replaces the current one of its kind in one batch: rows not in the new file go, with their links and matches; nothing of an erased person is kept. The mapping is saved for the next export of the same shape. The file itself is not kept; the audit records counts only. A person with bookingSystem:manage only, never an AI, an MCP client, Code Mode, an extension or an automation; never queued for approval (where it would wait, it is refused). An erase, link or other load landing between its plan and its write fails the whole write (conflict), so nothing an erase removed comes back.
+
+|  |  |
+| --- | --- |
+| Permission | `bookingSystem:manage` |
+| Risk | `write` |
+| Audiences | `staff` |
+| Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
+
+### Input
+
+| Field | Type | Required | Limits | Description |
+| --- | --- | --- | --- | --- |
+| `kind` | `"members"`, `"timetable"` | yes |   | members (people and their memberships and passes) or timetable |
+| `file` | string | yes | min length 1, max length 13333340 | The exported file's bytes, base64 (at most 10 MB): CSV, semicolon or tab separated, in UTF-8, UTF-16 or Windows-1252, read by its content |
+| `mapping` | object |   |   | Omit to use the saved mapping (when the file has its columns) or the suggestion |
+| `mapping.columns` | map of string | yes |   | Field → the column header that holds it, e.g. { email: "E-mail" } |
+| `mapping.values` | map of map of string |   |   | The export's own words for values, per value map: members' memberStatus, membershipStatus, membershipKind, membershipType (a plan's name → membership or pass); timetable's bookingState |
+| `mapping.dateFormat` | `"YYYY-MM-DD"`, `"DD/MM/YYYY"`, `"MM/DD/YYYY"` |   |   |   |
+| `exportedOn` | string |   | pattern `^\d{4}-\d{2}-\d{2}$` | The date the file was exported (what the list's age counts from); default today |
+| `fingerprint` | string | yes | min length 1, max length 200 | The dry run's fingerprint |
+| `saveMapping` | boolean |   |   | Default true: save the mapping for next time |
+
+### Output
+
+| Field | Type | Required | Limits | Description |
+| --- | --- | --- | --- | --- |
+| `kind` | `"members"`, `"timetable"` | yes |   |   |
+| `exportedOn` | string | yes |   |   |
+| `rows` | object | yes |   |   |
+| `rows.read` | integer | yes | ≥ -9007199254740991, ≤ 9007199254740991 |   |
+| `rows.refused` | integer | yes | ≥ -9007199254740991, ≤ 9007199254740991 |   |
+| `issueCount` | integer | yes | ≥ -9007199254740991, ≤ 9007199254740991 |   |
+| `outcome` | object | yes |   |   |
+| `outcome.changes` | object | yes |   | People (members) or classes (timetable) against the current list |
+| `outcome.changes.new` | integer | yes | ≥ -9007199254740991, ≤ 9007199254740991 |   |
+| `outcome.changes.changed` | integer | yes | ≥ -9007199254740991, ≤ 9007199254740991 |   |
+| `outcome.changes.unchanged` | integer | yes | ≥ -9007199254740991, ≤ 9007199254740991 |   |
+| `outcome.changes.removed` | integer | yes | ≥ -9007199254740991, ≤ 9007199254740991 | In the current list and not in this file: they go |
+| `outcome.kept` | integer | yes | ≥ -9007199254740991, ≤ 9007199254740991 |   |
+| `outcome.notKept` | integer | yes | ≥ -9007199254740991, ≤ 9007199254740991 | Not a member, no live pass, not booked, not staff-linked |
+| `outcome.dropped` | integer | yes | ≥ -9007199254740991, ≤ 9007199254740991 | Of an erased person: nothing of them is kept |
+| `outcome.previouslyErased` | integer | yes | ≥ -9007199254740991, ≤ 9007199254740991 | Of those, dropped by a ref an erase suppressed |
+| `outcome.linked` | integer | yes | ≥ -9007199254740991, ≤ 9007199254740991 |   |
+| `outcome.links` | integer | yes | ≥ -9007199254740991, ≤ 9007199254740991 |   |
+| `outcome.toMatch` | integer | yes | ≥ -9007199254740991, ≤ 9007199254740991 |   |
+| `outcome.unlinked` | integer | yes | ≥ -9007199254740991, ≤ 9007199254740991 |   |
+| `outcome.items` | map of integer | yes |   |   |
+
+## outside.file.preview
+
+The dry run of a list exported from the booking system: decodes the file by its content, maps its columns (the given mapping, else the saved one, else a suggestion from the headers), and says what the load would do against the current list (new, changed, unchanged, removed; not kept; dropped because the person was erased; who would link by address and who would wait in To match) and every refused row with why. Writes nothing and keeps nothing of the file. Pass its fingerprint, with the same file, mapping and export date, to outside.file.load. A person with bookingSystem:manage only, never an AI; never queued for approval (where it would wait, it is refused: a waiting call would keep the file).
+
+|  |  |
+| --- | --- |
+| Permission | `bookingSystem:manage` |
+| Risk | `read` |
+| Audiences | `staff` |
+| Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
+
+### Input
+
+| Field | Type | Required | Limits | Description |
+| --- | --- | --- | --- | --- |
+| `kind` | `"members"`, `"timetable"` | yes |   | members (people and their memberships and passes) or timetable |
+| `file` | string | yes | min length 1, max length 13333340 | The exported file's bytes, base64 (at most 10 MB): CSV, semicolon or tab separated, in UTF-8, UTF-16 or Windows-1252, read by its content |
+| `mapping` | object |   |   | Omit to use the saved mapping (when the file has its columns) or the suggestion |
+| `mapping.columns` | map of string | yes |   | Field → the column header that holds it, e.g. { email: "E-mail" } |
+| `mapping.values` | map of map of string |   |   | The export's own words for values, per value map: members' memberStatus, membershipStatus, membershipKind, membershipType (a plan's name → membership or pass); timetable's bookingState |
+| `mapping.dateFormat` | `"YYYY-MM-DD"`, `"DD/MM/YYYY"`, `"MM/DD/YYYY"` |   |   |   |
+| `exportedOn` | string |   | pattern `^\d{4}-\d{2}-\d{2}$` | The date the file was exported (what the list's age counts from); default today |
+
+### Output
+
+| Field | Type | Required | Limits | Description |
+| --- | --- | --- | --- | --- |
+| `kind` | `"members"`, `"timetable"` | yes |   |   |
+| `ready` | boolean | yes |   | False when a required field has no column: map it and ask again |
+| `missing` | array of string | yes |   |   |
+| `headers` | array of string | yes |   |   |
+| `mapping` | object | yes |   |   |
+| `mapping.columns` | map of string | yes |   |   |
+| `mapping.values` | map of map of string |   |   |   |
+| `mapping.dateFormat` | `"YYYY-MM-DD"`, `"DD/MM/YYYY"`, `"MM/DD/YYYY"` |   |   |   |
+| `mappingFrom` | `"given"`, `"saved"`, `"suggested"` | yes |   |   |
+| `suggested` | object | yes |   |   |
+| `suggested.columns` | map of string | yes |   |   |
+| `suggested.values` | map of map of string |   |   |   |
+| `suggested.dateFormat` | `"YYYY-MM-DD"`, `"DD/MM/YYYY"`, `"MM/DD/YYYY"` |   |   |   |
+| `encoding` | `"utf-8"`, `"utf-16le"`, `"utf-16be"`, `"windows-1252"` | yes |   |   |
+| `exportedOn` | string | yes |   |   |
+| `rows` | object | yes |   |   |
+| `rows.read` | integer | yes | ≥ -9007199254740991, ≤ 9007199254740991 |   |
+| `rows.refused` | integer | yes | ≥ -9007199254740991, ≤ 9007199254740991 |   |
+| `issueCount` | integer | yes | ≥ -9007199254740991, ≤ 9007199254740991 |   |
+| `issues` | array of object | yes |   |   |
+| `issues[].file` | `"people"`, `"timetable"` | yes |   |   |
+| `issues[].row` | integer | yes | ≥ -9007199254740991, ≤ 9007199254740991 |   |
+| `issues[].column` | string |   |   |   |
+| `issues[].problem` | string | yes |   |   |
+| `formulaLike` | integer | yes | ≥ -9007199254740991, ≤ 9007199254740991 | Cells kept as text that start as a formula would |
+| `outcome` | object | yes |   |   |
+| `outcome.changes` | object | yes |   | People (members) or classes (timetable) against the current list |
+| `outcome.changes.new` | integer | yes | ≥ -9007199254740991, ≤ 9007199254740991 |   |
+| `outcome.changes.changed` | integer | yes | ≥ -9007199254740991, ≤ 9007199254740991 |   |
+| `outcome.changes.unchanged` | integer | yes | ≥ -9007199254740991, ≤ 9007199254740991 |   |
+| `outcome.changes.removed` | integer | yes | ≥ -9007199254740991, ≤ 9007199254740991 | In the current list and not in this file: they go |
+| `outcome.kept` | integer | yes | ≥ -9007199254740991, ≤ 9007199254740991 |   |
+| `outcome.notKept` | integer | yes | ≥ -9007199254740991, ≤ 9007199254740991 | Not a member, no live pass, not booked, not staff-linked |
+| `outcome.dropped` | integer | yes | ≥ -9007199254740991, ≤ 9007199254740991 | Of an erased person: nothing of them is kept |
+| `outcome.previouslyErased` | integer | yes | ≥ -9007199254740991, ≤ 9007199254740991 | Of those, dropped by a ref an erase suppressed |
+| `outcome.linked` | integer | yes | ≥ -9007199254740991, ≤ 9007199254740991 |   |
+| `outcome.links` | integer | yes | ≥ -9007199254740991, ≤ 9007199254740991 |   |
+| `outcome.toMatch` | integer | yes | ≥ -9007199254740991, ≤ 9007199254740991 |   |
+| `outcome.unlinked` | integer | yes | ≥ -9007199254740991, ≤ 9007199254740991 |   |
+| `outcome.items` | map of integer | yes |   |   |
+| `linking` | array of object | yes |   |   |
+| `linking[].ref` | string | yes |   |   |
+| `linking[].name` | string | yes |   |   |
+| `linking[].to` | string | yes |   |   |
+| `waiting` | array of object | yes |   |   |
+| `waiting[].ref` | string | yes |   |   |
+| `waiting[].name` | string | yes |   |   |
+| `waiting[].why` | string | yes |   |   |
+| `statements` | integer | yes | ≥ -9007199254740991, ≤ 9007199254740991 |   |
+| `fingerprint` | string | yes |   |   |
+
 ## outside.link
 
 Link an outside person from the members list to a Person, or a coach from the timetable list to a staff account, by hand, with why. A link made by a person is kept across loads by ref, whatever the address. It changes nothing on the Person: no name, address or phone, no customer account, nothing sent. Removes them from To match. A person with bookingSystem:manage only, never an AI.
@@ -122,10 +253,19 @@ No fields.
 | `types[].kind` | `"membership"`, `"pass"` | yes |   |   |
 | `types[].active` | boolean | yes |   |   |
 | `types[].counts` | boolean | yes |   | It makes a Person a member |
+| `mappings` | object | yes |   | The column mapping, value maps and date format saved by the last load of each kind (the export's own column names and words, never a person's) |
+| `mappings.members` | object |   |   |   |
+| `mappings.members.columns` | map of string | yes |   |   |
+| `mappings.members.values` | map of map of string |   |   |   |
+| `mappings.members.dateFormat` | `"YYYY-MM-DD"`, `"DD/MM/YYYY"`, `"MM/DD/YYYY"` |   |   |   |
+| `mappings.timetable` | object |   |   |   |
+| `mappings.timetable.columns` | map of string | yes |   |   |
+| `mappings.timetable.values` | map of map of string |   |   |   |
+| `mappings.timetable.dateFormat` | `"YYYY-MM-DD"`, `"DD/MM/YYYY"`, `"MM/DD/YYYY"` |   |   |   |
 
 ## outside.settings.update
 
-Change the booking-system settings: on or off, the outside types that make a Person a member (null for the default: every membership type, no pass), the two links (each an https address, or null), and the largest age a members list counts for (1 to 90 days). Leave a setting out to keep it. A human admin in the app only.
+Change the booking-system settings: on or off, the outside types that make a Person a member (null for the default: every membership type, no pass), the two links (each an https address, or null), and the largest age a members list counts for (1 to 90 days). Leave a setting out to keep it; clearMappings forgets the saved column mapping of a kind. A human admin in the app only.
 
 |  |  |
 | --- | --- |
@@ -144,6 +284,7 @@ Change the booking-system settings: on or off, the outside types that make a Per
 | `manageUrl` | string or null |   |   |   |
 | `bookUrl` | string or null |   |   |   |
 | `largestAgeDays` | integer |   | ≥ 1, ≤ 90 |   |
+| `clearMappings` | array of `"members"`, `"timetable"` |   | at most 2 | Forget the saved column mapping of these kinds: the next file is mapped afresh |
 
 ### Output
 
