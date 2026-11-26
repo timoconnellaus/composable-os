@@ -52,7 +52,8 @@ that is not installed covers nothing.
   discount's terms in words, and approving it is refused if they changed after it was asked. A
   change to a discount past its draft (live, paused or ended) by the assistant, an MCP client, an
   automation or code waits for a person by any path. A person's own tools are never held up by the
-  approval policy.
+  approval policy. A draft, live or paused discount goes in the Trash only by a person with
+  `offers:manage`, never by the assistant or an automation; an ended one like any other record.
 - **Single-use codes are shown once.** A person makes a batch at the discount's page; the answer
   holds the codes, to export or send, and nothing else ever does: the host keeps only each code's
   hash, refuses anything else in its place, and hashes what a buyer types to find it. Codes are in
