@@ -10,6 +10,7 @@
 // only when typing pauses (Cmd-K), never per keystroke.
 import type { CoreDatabase } from "@composable-os/db";
 import { type Kysely, sql } from "kysely";
+import { clientState } from "../client-scope.ts";
 import { listObjects } from "../fields/index.ts";
 import {
   ftsQuery,
@@ -46,13 +47,15 @@ export interface HybridDeps extends Reader {
   vectors?: VectorStore | undefined;
 }
 
-const queryCache = new Map<string, number[]>();
+// One client's each (stage 66 step 5, ADR 0617): each client's model makes its own vectors.
+const queryCaches = clientState(() => new Map<string, number[]>());
 const QUERY_CACHE_SIZE = 200;
 
 /** The query's embedding, cached per isolate (LRU by insertion order). */
 async function embedQuery(models: ModelRunner, query: string): Promise<number[] | null> {
   if (!models.embed) return null;
   const key = query.trim().toLowerCase();
+  const queryCache = queryCaches.get();
   const hit = queryCache.get(key);
   if (hit) {
     queryCache.delete(key);
@@ -70,7 +73,7 @@ async function embedQuery(models: ModelRunner, query: string): Promise<number[] 
 
 /** Test hook: forget cached query embeddings. */
 export function clearQueryEmbeddingCache(): void {
-  queryCache.clear();
+  queryCaches.reset();
 }
 
 interface Ranked {

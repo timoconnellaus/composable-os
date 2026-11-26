@@ -22,6 +22,7 @@
 // An item that fails when read is left out for FAILED_ITEM_MS (in the isolate), its error logged
 // once, and listed for admins (`host.unreadable`): one bad item costs one failed statement.
 import type { ExtensionManifest } from "@composable-os/sdk";
+import { clientState } from "../client-scope.ts";
 import { cacheApiWidgetCache, visibilityScope, widgetCacheKey } from "../dashboards/cache.ts";
 import { schemaNames, WIDGET_LIMITS } from "../dashboards/run.ts";
 import { viewOf } from "../extensions/naming.ts";
@@ -371,12 +372,16 @@ export const FAILED_ITEM_MS = 60_000;
  * every call). One failed statement then costs nothing more for FAILED_ITEM_MS; its error is
  * logged once, and admins see the item listed as unreadable (`host.unreadable`).
  */
-const failed = new Map<string, number>();
-const logged = new Set<string>();
+// One client's each (stage 66 step 5, ADR 0617): an item fails on one client's schema.
+const failures = clientState(() => ({
+  failed: new Map<string, number>(),
+  logged: new Set<string>(),
+}));
 const failureKey = (item: VisiblePackItem) => `${item.key}\u0000${item.today}`;
 
 /** Whether `item` failed within FAILED_ITEM_MS. */
 export function itemFailed(item: VisiblePackItem, now = Date.now()): boolean {
+  const { failed } = failures.get();
   const until = failed.get(failureKey(item));
   if (until === undefined) return false;
   if (until > now) return true;
@@ -386,12 +391,13 @@ export function itemFailed(item: VisiblePackItem, now = Date.now()): boolean {
 
 /** Forgets the failed items (tests). */
 export function forgetFailedItems(): void {
-  failed.clear();
-  logged.clear();
+  failures.reset();
 }
 
-function markFailed(item: VisiblePackItem, error: unknown): void {
+/** Leaves `item` out for FAILED_ITEM_MS (exported for tests). */
+export function markFailed(item: VisiblePackItem, error: unknown): void {
   const key = failureKey(item);
+  const { failed, logged } = failures.get();
   failed.set(key, Date.now() + FAILED_ITEM_MS);
   if (logged.has(key)) return;
   logged.add(key);

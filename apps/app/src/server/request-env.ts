@@ -13,9 +13,21 @@
 
 import { env as workerEnv } from "cloudflare:workers";
 import { AsyncLocalStorage } from "node:async_hooks";
+import { type ClientScope, provideClientScope, runInClientScope } from "@composable-os/core";
 import { servesManyClients } from "@composable-os/db/client-entries";
+import { clientStampOf } from "@composable-os/db/client-environment";
+import { provideObjectScope } from "@composable-os/db/client-objects";
 
 const current = new AsyncLocalStorage<Env>();
+
+// On a host that serves many clients (stage 66 step 5, ADR 0617), what core keeps at module level
+// is kept per client: each entry runs its client's code in that client's scope (`runInClientEnv`),
+// and code outside every client's scope is refused rather than given another client's.
+if (servesManyClients(workerEnv)) {
+  provideClientScope(new AsyncLocalStorage<ClientScope>(), { unscoped: "refuse" });
+  // Every call that enters one of the app's client objects, in that client's scope.
+  provideObjectScope((env, run) => runInClientEnv(env as Env, run));
+}
 
 /**
  * The deployment's own environment, for what a Worker reads once at load (the product's label,
@@ -24,9 +36,14 @@ const current = new AsyncLocalStorage<Env>();
  */
 export const deploymentEnv: Env = workerEnv;
 
-/** Runs `run` with `env` as the request's environment: what the entries do once they decide. */
+/**
+ * Runs `run` with `env` as the request's environment: what the entries do once they decide. It
+ * runs in the client's scope too (stage 66 step 5, ADR 0617), so what core keeps at module level
+ * for it is its own: the scope is its database, one object per client environment.
+ */
 export function runInClientEnv<T>(env: Env, run: () => T): T {
-  return current.run(env, run);
+  const scope = { database: env.DB as object, client: clientStampOf(env) };
+  return current.run(env, () => runInClientScope(scope, run));
 }
 
 /**

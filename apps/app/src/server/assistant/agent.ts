@@ -1172,7 +1172,12 @@ export class AssistantAgent
     return out.estimate;
   }
 
-  async #runTurn(request: TurnRequest, running: RunningTurn): Promise<void> {
+  /** A turn, in its client's scope (stage 66 step 5, ADR 0617): what core keeps is its own. */
+  #runTurn(request: TurnRequest, running: RunningTurn): Promise<void> {
+    return runInClientEnv(this.#env as unknown as Env, () => this.#turn(request, running));
+  }
+
+  async #turn(request: TurnRequest, running: RunningTurn): Promise<void> {
     const env = this.#env;
     const db = createCrmDb(env.DB);
     const store = this.#messages;

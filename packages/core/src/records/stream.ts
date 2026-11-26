@@ -28,6 +28,11 @@ export interface StreamVideoDetails {
   height: number | null;
   /** Whether a token is needed to play it. The host makes every video so. */
   requireSignedURLs: boolean;
+  /**
+   * Who the video is for, as its upload or copy named it: on a host that serves many clients, the
+   * client (stage 66 step 5, ADR 0617). Null, or absent, when none was named.
+   */
+  creator?: string | null;
 }
 
 /** One caption track as Stream lists it. */
@@ -61,12 +66,15 @@ export interface StreamProvider {
     maxDurationSeconds: number;
     allowedOrigins: readonly string[];
     expiresAt: string;
+    /** Stamped on the video as its creator: the client, on a many-client host. */
+    creator?: string;
   }): Promise<StreamUpload>;
   /** Stream copies the video from an address (the import's way in). */
   copyFromUrl(input: {
     url: string;
     name: string;
     allowedOrigins: readonly string[];
+    creator?: string;
   }): Promise<{ uid: string }>;
   /** The video's state, or null when Stream has no such video. */
   details(uid: string): Promise<StreamVideoDetails | null>;
@@ -116,7 +124,10 @@ export const BASIC_UPLOAD_MAX_BYTES = 200 * 1000 * 1000;
 /** tus chunks: a multiple of 256 KiB, at least 5 MiB (Stream's rule). 50 MiB. */
 export const TUS_CHUNK_BYTES = 200 * 256 * 1024;
 
+// The deployment's video host (one client's), or how to find the current client's (many clients):
+// set once per isolate by the Worker's entry, from its own env. Neither holds a client's data.
 let host: VideoHost | undefined;
+let resolve: (() => VideoHost | undefined) | null = null;
 
 /**
  * Sets the deployment's video host for this isolate: once, from the Worker's env, in each
@@ -126,13 +137,23 @@ export function setVideoHost(value: VideoHost | undefined): void {
   host = value;
 }
 
+/**
+ * On a host that serves many clients (stage 66 step 5, ADR 0617): how to find the video host of
+ * the client the code runs for, one per client, each stamping that client as the creator of what
+ * it uploads and refusing another creator's video (`creatorCheckedVideoHost`). Null takes it away.
+ */
+export function setVideoHostResolver(value: (() => VideoHost | undefined) | null): void {
+  resolve = value;
+}
+
 /** The video host, or undefined where Stream is not configured. */
 export function videoHost(): VideoHost | undefined {
-  return host;
+  return resolve ? resolve() : host;
 }
 
 /** The video host, or the configuration error. */
 export function requireVideoHost(): VideoHost {
+  const host = videoHost();
   if (!host) {
     throw new OperationError("config", "Video is not configured here: set up Cloudflare Stream", {
       reason: "stream_not_configured",
@@ -238,6 +259,7 @@ interface ApiVideo {
   duration?: number;
   input?: { width?: number; height?: number };
   requireSignedURLs?: boolean;
+  creator?: string | null;
 }
 
 interface ApiCaption {
@@ -266,6 +288,7 @@ function toDetails(uid: string, video: ApiVideo): StreamVideoDetails {
     width: known(video.input?.width),
     height: known(video.input?.height),
     requireSignedURLs: video.requireSignedURLs === true,
+    creator: typeof video.creator === "string" && video.creator ? video.creator : null,
   };
 }
 
@@ -338,6 +361,7 @@ export function streamApiProvider(options: StreamApiOptions): StreamProvider {
             allowedOrigins: input.allowedOrigins,
             expiry: input.expiresAt,
             meta: { name: input.name },
+            ...(input.creator ? { creator: input.creator } : {}),
           }),
         });
         if (!result?.uid || !result.uploadURL) {
@@ -358,6 +382,7 @@ export function streamApiProvider(options: StreamApiOptions): StreamProvider {
           ...auth,
           "Tus-Resumable": "1.0.0",
           "Upload-Length": String(input.bytes),
+          ...(input.creator ? { "Upload-Creator": input.creator } : {}),
           "Upload-Metadata": tusMetadata([
             ["name", input.name],
             ["requiresignedurls", true],
@@ -390,6 +415,7 @@ export function streamApiProvider(options: StreamApiOptions): StreamProvider {
           meta: { name: input.name },
           requireSignedURLs: true,
           allowedOrigins: input.allowedOrigins,
+          ...(input.creator ? { creator: input.creator } : {}),
         }),
       });
       if (!result?.uid)
@@ -495,5 +521,95 @@ export function streamHostFromEnv(
     signer: streamSigner(STREAM_SIGNING_KEY_ID, STREAM_SIGNING_JWK),
     playback: (token) => streamPlayback(STREAM_CUSTOMER_CODE, token),
     allowedOrigins: allowed,
+  };
+}
+
+// --- One client's videos on a shared account (stage 66 step 5, ADR 0617) ----------------------
+
+/** How many videos one client's host remembers it has checked, for signing without a call. */
+export const CHECKED_VIDEOS_MAX = 1000;
+
+/** A call for a video another client created: refused, as if there were no such video. */
+function notThisClients(): OperationError {
+  return new OperationError("not_found", "No such video", { reason: "stream_creator" });
+}
+
+/**
+ * `shared` (the account's video host, its token and signing key every client's) as one client's:
+ * every upload and copy is stamped with `creator`, and every call that names a video (its
+ * details, securing it, deleting it, its captions, a playback token) is refused unless Stream
+ * says `creator` made it. Signing costs no call once a video was checked: the video host is one
+ * client's, so what it remembers is that client's (`CHECKED_VIDEOS_MAX` of them, the oldest
+ * forgotten first).
+ */
+export function creatorCheckedVideoHost(shared: VideoHost, creator: string): VideoHost {
+  if (!creator) throw new Error("A client's video host needs the client");
+  const inner = shared.provider;
+  const checked = new Set<string>();
+  const remember = (uid: string) => {
+    checked.delete(uid);
+    checked.add(uid);
+    if (checked.size > CHECKED_VIDEOS_MAX) checked.delete(checked.values().next().value as string);
+  };
+  /** The video's details if it is this client's; null if there is none; refused if another's. */
+  const owned = async (uid: string): Promise<StreamVideoDetails | null> => {
+    const details = await inner.details(uid);
+    if (!details) {
+      checked.delete(uid);
+      return null;
+    }
+    if (details.creator !== creator) {
+      checked.delete(uid);
+      throw notThisClients();
+    }
+    remember(uid);
+    return details;
+  };
+  const mustOwn = async (uid: string): Promise<void> => {
+    if (!(await owned(uid))) throw notThisClients();
+  };
+  const provider: StreamProvider = {
+    name: inner.name,
+    createUpload: (input) => inner.createUpload({ ...input, creator }),
+    copyFromUrl: (input) => inner.copyFromUrl({ ...input, creator }),
+    details: (uid) => owned(uid),
+    async secure(uid, allowedOrigins) {
+      await mustOwn(uid);
+      await inner.secure(uid, allowedOrigins);
+    },
+    async delete(uid) {
+      // One that is gone already is not a failure (as the provider's own delete).
+      if (!(await owned(uid))) return;
+      checked.delete(uid);
+      await inner.delete(uid);
+    },
+    async uploadCaption(uid, language, vtt) {
+      await mustOwn(uid);
+      await inner.uploadCaption(uid, language, vtt);
+    },
+    async generateCaption(uid, language) {
+      await mustOwn(uid);
+      return inner.generateCaption(uid, language);
+    },
+    async deleteCaption(uid, language) {
+      await mustOwn(uid);
+      await inner.deleteCaption(uid, language);
+    },
+    async listCaptions(uid) {
+      await mustOwn(uid);
+      return inner.listCaptions(uid);
+    },
+  };
+  const signer: StreamSigner = {
+    async sign(input) {
+      if (!checked.has(input.uid)) await mustOwn(input.uid);
+      return shared.signer.sign(input);
+    },
+  };
+  return {
+    provider,
+    signer,
+    playback: (token) => shared.playback(token),
+    allowedOrigins: shared.allowedOrigins,
   };
 }

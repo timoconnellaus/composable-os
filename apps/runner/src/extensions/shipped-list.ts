@@ -15,6 +15,7 @@
 //   anything else fails closed. Its extensions are shipped extensions: they arrived by a deploy
 //   a person ran, as packs do, and install without approval (ADR 0414's `shipped` source).
 import { sha256Hex } from "@composable-os/core";
+import { clientKeyOf } from "../client-scope.ts";
 import { PRODUCT_PACKS, SHIPPED_EXTENSIONS } from "../generated/shipped.ts";
 
 export type ShippedSource = (typeof SHIPPED_EXTENSIONS)[number];
@@ -80,13 +81,21 @@ export function packsProblem(value: string | undefined): string | null {
   }
 }
 
-const orgCache = new Map<string, ShippedSource[]>();
+// By environment, then content hash (stage 66 step 5, ADR 0617): a client's own extensions are
+// read from its own files, and never handed to another client that names the same hash.
+const orgCache = new WeakMap<object, Map<string, ShippedSource[]>>();
 
 /** The org's own extensions this deployment pins, read from BLOBS and checked. */
 export async function orgExtensions(env: ShippedListEnv): Promise<ShippedSource[]> {
   const hash = env.COS_ORG_EXTENSIONS?.trim();
   if (!hash) return [];
-  const cached = orgCache.get(hash);
+  const key = clientKeyOf(env);
+  let byHash = orgCache.get(key);
+  if (!byHash) {
+    byHash = new Map();
+    orgCache.set(key, byHash);
+  }
+  const cached = byHash.get(hash);
   if (cached) return cached;
   if (!/^[0-9a-f]{64}$/.test(hash)) throw new Error("COS_ORG_EXTENSIONS is not a sha256");
   if (!env.BLOBS) throw new Error("COS_ORG_EXTENSIONS is set and there is no BLOBS bucket");
@@ -112,7 +121,7 @@ export async function orgExtensions(env: ShippedListEnv): Promise<ShippedSource[
     ...(e.optional === true ? { optional: true } : {}),
     files: e.files,
   }));
-  orgCache.set(hash, list);
+  byHash.set(hash, list);
   return list;
 }
 

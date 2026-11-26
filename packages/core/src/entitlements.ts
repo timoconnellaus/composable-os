@@ -10,6 +10,7 @@ import type { CoreDatabase } from "@composable-os/db";
 import { product } from "@composable-os/products/active";
 import type { Kysely } from "kysely";
 import { z } from "zod";
+import { clientState } from "./client-scope.ts";
 import { PlanLimitError } from "./errors.ts";
 
 export const PLANS = ["free", "team", "business", "enterprise"] as const;
@@ -37,11 +38,14 @@ const PLAN_LABELS: Record<Plan, string> = {
   enterprise: "Enterprise",
 };
 
-let cache: { value: Entitlements | null; at: number } | null = null;
+// One client's each (stage 66 step 5, ADR 0617): its plan is its own.
+const entitlements = clientState<{ cache: { value: Entitlements | null; at: number } | null }>(
+  () => ({ cache: null }),
+);
 
 /** Test hook (and after a known change): forget the cached entitlements. */
 export function clearEntitlementsCache(): void {
-  cache = null;
+  entitlements.reset();
 }
 
 /**
@@ -67,6 +71,8 @@ export async function loadEntitlements(
   options: { fresh?: boolean; now?: number } = {},
 ): Promise<Entitlements | null> {
   const now = options.now ?? Date.now();
+  const held = entitlements.get();
+  const cache = held.cache;
   if (!options.fresh && cache && now - cache.at < ENTITLEMENTS_TTL_MS) return cache.value;
   const row = await db
     .selectFrom("core_entitlements")
@@ -74,7 +80,7 @@ export async function loadEntitlements(
     .where("key", "=", ENTITLEMENTS_KEY)
     .executeTakeFirst();
   const value = row ? parseEntitlements(row.value) : null;
-  cache = { value, at: now };
+  held.cache = { value, at: now };
   return value;
 }
 

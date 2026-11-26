@@ -213,6 +213,21 @@ const NOT_WRAPPED = new Set<string | symbol>(["constructor"]);
 /** Whether a call is already inside a checked one (its own code calling its methods). */
 const insideCall = new AsyncLocalStorage<true>();
 
+/** Runs an object's call in its client's scope: given by the host Worker (`provideObjectScope`). */
+type EnterScope = <T>(env: object, run: () => T) => T;
+// Set once per isolate by the host Worker's entry module, on a many-client host only.
+let enterScope: EnterScope | null = null;
+
+/**
+ * How each call that enters a client's object runs in that client's scope (stage 66 step 5,
+ * ADR 0617): core's client scope, which this package cannot import, so the app and the runner
+ * give it at load. The call gets the client's environment the object was admitted with. Null takes
+ * it away (tests); unset, calls run as they are.
+ */
+export function provideObjectScope(enter: EnterScope | null): void {
+  enterScope = enter;
+}
+
 /**
  * The entry points the runtime calls on a Durable Object, checked even when the class inherits
  * them from a framework base (the Agents SDK's `fetch`, `alarm` and socket handlers).
@@ -261,8 +276,10 @@ export function refreshOnEachCall(
         const owner = this?.[CLIENT_OBJECT] as ClientObject<HostBindings> | undefined;
         const run = () => original.apply(this, args);
         if (!owner || owner.client === null || insideCall.getStore()) return run();
-        if (owner.fresh) return insideCall.run(true, run);
-        return owner.refresh().then(() => insideCall.run(true, run));
+        // In the client's scope (stage 66 step 5): what core keeps for the call is its own.
+        const scoped = () => (enterScope ? enterScope(owner.env, run) : run());
+        if (owner.fresh) return insideCall.run(true, scoped);
+        return owner.refresh().then(() => insideCall.run(true, scoped));
       };
       Object.defineProperty(checked, "name", { value: original.name });
       Object.defineProperty(prototype, name, { ...descriptor, value: checked });
