@@ -111,6 +111,8 @@ export interface IngestCounts {
   notKept: number;
   /** Kept nothing of them: an erased Person's ref or address. */
   dropped: number;
+  /** Of those, dropped by a ref an erase suppressed ("dropped: previously erased"). */
+  previouslyErased: number;
   /** Linked now by address. */
   linked: number;
   /** A link already held, kept. */
@@ -256,6 +258,11 @@ function tally(outcomes: readonly OutsideOutcome[]) {
   const n = (o: OutsideOutcome["outcome"]) => outcomes.filter((x) => x.outcome === o).length;
   return {
     dropped: n("dropped"),
+    // Dropped by a suppressed ref: a ref the booking system reuses for someone new stays dropped
+    // until a person lifts it (outside.suppression.lift), so staff are told how many.
+    previouslyErased: outcomes.filter(
+      (x) => x.outcome === "dropped" && "why" in x && x.why === "suppressed",
+    ).length,
     linked: n("linked"),
     links: n("kept"),
     waiting: n("waiting"),

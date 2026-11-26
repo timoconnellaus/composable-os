@@ -35,6 +35,10 @@ export interface EraseLogEntry {
    * them back.
    */
   outside?: { hash: string; kind: "ref" | "address" }[];
+  /** The erase those suppressions came from (lifted together on consent to come back). */
+  outsideErase?: string;
+  /** The deployment salt's fingerprint the hashes were keyed with (never the salt). */
+  fingerprint?: string;
 }
 
 /** `sha256:` and the hex digest of `value` (an id as is; an address lower-cased and trimmed). */
@@ -63,6 +67,8 @@ export async function writeEraseLog(
     recordIds: readonly string[];
     addresses: readonly string[];
     outside?: readonly { hash: string; kind: "ref" | "address" }[];
+    outsideErase?: string;
+    fingerprint?: string;
   },
 ): Promise<void> {
   if (!ctx.blobs) return;
@@ -77,7 +83,13 @@ export async function writeEraseLog(
     object: subject.object,
     records,
     addresses,
-    ...(subject.outside?.length ? { outside: [...subject.outside] } : {}),
+    ...(subject.outside?.length
+      ? {
+          outside: [...subject.outside],
+          ...(subject.outsideErase ? { outsideErase: subject.outsideErase } : {}),
+          ...(subject.fingerprint ? { fingerprint: subject.fingerprint } : {}),
+        }
+      : {}),
   });
 }
 
@@ -114,22 +126,36 @@ export async function planReapply(
   people: string[];
   organisations: string[];
   addresses: string[];
-  outside: { hash: string; kind: "ref" | "address" }[];
+  outside: {
+    hash: string;
+    kind: "ref" | "address";
+    eraseId: string | null;
+    fingerprint: string | null;
+  }[];
 }> {
   const records = { person: new Set<string>(), organisation: new Set<string>() };
   const addresses = new Set<string>();
-  const outside = new Map<string, "ref" | "address">();
+  const outside = new Map<
+    string,
+    { kind: "ref" | "address"; eraseId: string | null; fingerprint: string | null }
+  >();
   for (const entry of entries) {
     if (entry.kind === "erase") {
       for (const r of entry.records ?? []) records[entry.object ?? "person"].add(r);
       for (const a of entry.addresses) addresses.add(a);
       for (const o of entry.outside ?? []) {
         if (typeof o?.hash === "string" && (o.kind === "ref" || o.kind === "address")) {
-          outside.set(o.hash, o.kind);
+          outside.set(o.hash, {
+            kind: o.kind,
+            eraseId: entry.outsideErase ?? null,
+            fingerprint: entry.fingerprint ?? null,
+          });
         }
       }
     } else {
       for (const a of entry.addresses) addresses.delete(a);
+      // Consent to come back, or a person lifting a ref: those suppressions stay lifted.
+      for (const o of entry.outside ?? []) outside.delete(o.hash);
     }
   }
   // Ids are stored hashed, so live records are hashed to compare: a scan, run only after a
@@ -157,7 +183,7 @@ export async function planReapply(
     people: await match("core_person", records.person),
     organisations: await match("core_organisation", records.organisation),
     addresses: [...addresses],
-    outside: [...outside].map(([hash, kind]) => ({ hash, kind })),
+    outside: [...outside].map(([hash, o]) => ({ hash, ...o })),
   };
 }
 

@@ -16,9 +16,9 @@
 // list); staff's "nobody here" decisions (`core_outside_unlinked`: a keyed hash of a ref, no
 // person); the timeline's "Linked to the booking system's list" activities (a Person's history,
 // naming no address); the audit.
-import type { CoreDatabase } from "@composable-os/db";
+import type { CoreDatabase, CrmDb } from "@composable-os/db";
 import { CompiledQuery, type Kysely } from "kysely";
-import type { ListKind } from "./settings.ts";
+import { LIST_KINDS, type ListKind } from "./settings.ts";
 
 type Db = Kysely<CoreDatabase>;
 
@@ -55,42 +55,52 @@ export interface RemovalPlan {
 }
 
 /**
- * The batch that removes `kinds` from the copy: marks their current lists removed and deletes
- * their rows, at most `maxStatements` deletes of `passRows` rows each. Reads two statements.
+ * The batch that removes `kinds` from the copy: marks their current lists removed (unless
+ * `markLists` is false: finishing a removal already made, as the daily maintenance does) and
+ * deletes rows of no current list, at most `maxStatements` deletes of `passRows` rows each. Every
+ * pass is scoped to rows of a list that is not current, so a list loaded since is never touched.
+ * Reads two statements.
  */
 export async function planRemoval(
   db: Db,
   kinds: readonly ListKind[],
   now: string,
-  opts: { passRows?: number; maxStatements?: number } = {},
+  opts: { passRows?: number; maxStatements?: number; markLists?: boolean } = {},
 ): Promise<RemovalPlan> {
   const passRows = opts.passRows ?? REMOVE_PASS_ROWS;
   const maxStatements = opts.maxStatements ?? REMOVE_MAX_STATEMENTS;
+  const markLists = opts.markLists ?? true;
   const parts = kinds.flatMap((kind) => TABLES[kind]);
   const key = (p: { table: string; match?: string }) => `${p.table}:${p.match ?? ""}`;
-  // One SELECT of scalar subqueries: no compound SELECT, nothing bound.
-  // The table names are this file's own constants: nothing from a caller reaches the text.
+  const current = await db
+    .selectFrom("core_outside_list")
+    .select(["id", "kind"])
+    .where("state", "=", "current")
+    .execute();
+  const lists = markLists ? current.filter((l) => kinds.includes(l.kind)).map((l) => l.kind) : [];
+  // The lists whose rows stay: every current list but those this call removes.
+  const keep = JSON.stringify(current.filter((l) => !lists.includes(l.kind)).map((l) => l.id));
+  // Which rows a pass may take, as SQL over this file's own constants (nothing from a caller
+  // reaches the text; `keep` is bound): a table's rows of no kept list; To match's rows whose
+  // outside row is on no kept list.
+  const scope = (p: { table: string; match?: "person" | "staff" }) =>
+    p.match
+      ? `t.kind = '${p.match}' AND NOT EXISTS (SELECT 1 FROM ${
+          p.match === "person" ? "core_outside_person" : "core_outside_staff"
+        } o WHERE o.ref = t.ref AND o.list_id IN (SELECT value FROM json_each(?1)))`
+      : "t.list_id NOT IN (SELECT value FROM json_each(?1))";
+  // One SELECT of scalar subqueries: no compound SELECT, one bound parameter.
   const counted = await db.executeQuery<Record<string, number>>(
     CompiledQuery.raw(
       `SELECT ${parts
-        .map(
-          (p, i) =>
-            `(SELECT count(*) FROM ${p.table}${p.match ? ` WHERE kind = '${p.match}'` : ""}) AS n${i}`,
-        )
+        .map((p, i) => `(SELECT count(*) FROM ${p.table} t WHERE ${scope(p)}) AS n${i}`)
         .join(", ")}`,
+      [keep],
     ),
   );
   const counts = new Map(
     parts.map((p, i) => [key(p), Number(counted.rows[0]?.[`n${i}`] ?? 0)] as const),
   );
-  const lists = (
-    await db
-      .selectFrom("core_outside_list")
-      .select("kind")
-      .where("state", "=", "current")
-      .where("kind", "in", [...kinds])
-      .execute()
-  ).map((r) => r.kind);
 
   const statements: CompiledQuery[] = [];
   if (lists.length) {
@@ -108,15 +118,10 @@ export async function planRemoval(
     let left = counts.get(key(p)) ?? 0;
     while (left > 0 && deletes < maxStatements) {
       statements.push(
-        p.match
-          ? CompiledQuery.raw(
-              `DELETE FROM ${p.table} WHERE rowid IN (SELECT rowid FROM ${p.table} WHERE kind = ? LIMIT ?)`,
-              [p.match, passRows],
-            )
-          : CompiledQuery.raw(
-              `DELETE FROM ${p.table} WHERE rowid IN (SELECT rowid FROM ${p.table} LIMIT ?)`,
-              [passRows],
-            ),
+        CompiledQuery.raw(
+          `DELETE FROM ${p.table} WHERE rowid IN (SELECT t.rowid FROM ${p.table} t WHERE ${scope(p)} LIMIT ?2)`,
+          [keep, passRows],
+        ),
       );
       deletes += 1;
       const n = Math.min(left, passRows);
@@ -126,4 +131,17 @@ export async function planRemoval(
     remaining += left;
   }
   return { statements, lists, rows, remaining };
+}
+
+/**
+ * The daily maintenance's step: finishes a removal a call left unfinished (rows of no current
+ * list), within the same bounds as one call. With nothing to do it costs two reads.
+ */
+export async function finishOutsideRemoval(
+  db: CrmDb,
+  now: string,
+): Promise<{ rows: number; remaining: number }> {
+  const plan = await planRemoval(db.query, LIST_KINDS, now, { markLists: false });
+  if (plan.statements.length) await db.batch(plan.statements);
+  return { rows: plan.rows, remaining: plan.remaining };
 }

@@ -126,24 +126,28 @@ business, and its lawyer or the booking system's support, to confirm. The load s
   moot without amending the spec — The roster (migration 1411).
 
 - **Step 10** — built — PR #508 — Erase, merge, removal (built 2026-11-26, branch
-  `feat/stage-65-erase-merge`; ADR 0926; no migration): `packages/core/src/outside/erase.ts`:
-  `person.erase` (through `queueErase`) deletes every outside person linked to the Person or listed
-  with their address, coaches with their address, their memberships, passes, bookings, To match
-  rows, their id in others' candidates and staff's unlink decisions on their refs, in the erase's
-  batch (about ten set-based statements whatever the copy holds); the copy's refs, addresses and
-  names join the erase's terms; the refs and the addresses the copy held (not one another outside
-  person still holds) go into `core_outside_suppressed` by keyed hash (the deployment's salt, as
-  ADR 0675's suppression list), carried in the erase log and put back by `erasure.reapply`; the
-  result's `bookingSystem` says a copy remains in the booking system. Loads drop a suppressed coach
-  too, and `outside.link` refuses a suppressed ref or address. `person.merge` moves links to the
-  survivor and reconciles To match; `trash.purge` drops a purged Person's links.
-  `outside.lists.remove` (`outside/remove.ts`; a person with `bookingSystem:manage`, never an AI,
-  MCP, Code Mode, an extension or an automation): a kind or `all`, stops counting at once, rows go
-  in passes of 2,000, at most 100 a call, resumed by calling again; every read holds to the
-  current lists (`onCurrentList`). Step 3's unlink hash moved to the same keyed hash. Built here
-  though the spec lists it under step 4: `outside.lists.remove`. Tests: `outside-erase.test.ts`,
-  `outside-bounds.test.ts`, the copy in `erase-stores.test.ts`'s every-store erase (criterion 12,
-  the removal part of 3). Step 4 may now merge.
+  `feat/stage-65-erase-merge`; ADR 0926; migration 1412): `packages/core/src/outside/erase.ts`:
+  `person.erase` (through `queueErase`) deletes the Person's own outside rows (linked to them, or
+  on their address where only they can be; a coach on their address linked to no staff account;
+  never a row linked to another Person or a staff account), their memberships, passes, bookings,
+  To match rows, their id in others' candidates and staff's unlink decisions on their refs, and
+  their names in class titles, in the erase's batch; those rows' addresses and names join the
+  erase's terms (never their refs); their refs and unshared addresses go into
+  `core_outside_suppressed` by keyed hash (the deployment's salt, as ADR 0675's suppression list)
+  with the erase id and the salt's fingerprint, carried in the erase log and put back by
+  `erasure.reapply`, which with every load and link refuses a changed salt; the result's
+  `bookingSystem` says a copy remains in the booking system. Loads drop a suppressed coach too and
+  count what a suppressed ref drops (`previouslyErased`); `outside.link` refuses a suppressed ref
+  or address; `outside.suppression.lift` (a person) lifts a reused ref; `erasure.allowAddress`
+  lifts an address with that erase's refs. `person.merge` moves links to the survivor and
+  reconciles To match; `trash.purge` drops a purged Person's links. `outside.lists.remove`
+  (`outside/remove.ts`; a person with `bookingSystem:manage`, never an AI, MCP, Code Mode, an
+  extension or an automation): a kind or `all`, stops counting at once, rows of no current list go
+  in passes of 2,000, at most 100 a call, finished by the daily maintenance or `finish: true`;
+  every read holds to the current lists (`onCurrentList`). Step 3's unlink hash moved to the same
+  keyed hash. Built here though the spec lists it under step 4: `outside.lists.remove`. Tests:
+  `outside-erase.test.ts`, `outside-bounds.test.ts`, the copy in `erase-stores.test.ts`'s
+  every-store erase (criterion 12, the removal part of 3). Step 4 may now merge.
 
 ## Goal
 

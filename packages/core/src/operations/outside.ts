@@ -31,6 +31,7 @@ import {
   MAX_LARGEST_AGE_DAYS,
   onCurrentList,
 } from "../outside/settings.ts";
+import { putEraseLog } from "../records/erase-log.ts";
 import { visibleTable } from "../visibility/index.ts";
 
 const httpsLink = z
@@ -217,12 +218,10 @@ export const outsideStatus = defineOperation({
         (SELECT count(*) FROM core_outside_staff WHERE list_id IN current) AS staff,
         (SELECT count(*) FROM core_outside_staff s JOIN core_user u ON u.id = s.user_id
           AND u.deactivated_at IS NULL WHERE s.list_id IN current) AS staffLinked,
-        (SELECT count(*) FROM core_outside_match m LEFT JOIN core_outside_person o ON o.ref = m.ref
-          WHERE m.kind = 'person' AND (o.list_id IS NULL OR o.list_id IN current)) AS waitingPeople,
-        (SELECT count(*) FROM core_outside_match m LEFT JOIN core_outside_staff s ON s.ref = m.ref
-          WHERE m.kind = 'staff' AND (s.list_id IS NULL OR s.list_id IN current)) AS waitingStaff`.execute(
-        ctx.db,
-      ),
+        (SELECT count(*) FROM core_outside_match m JOIN core_outside_person o ON o.ref = m.ref
+          WHERE m.kind = 'person' AND o.list_id IN current) AS waitingPeople,
+        (SELECT count(*) FROM core_outside_match m JOIN core_outside_staff s ON s.ref = m.ref
+          WHERE m.kind = 'staff' AND s.list_id IN current) AS waitingStaff`.execute(ctx.db),
       // Linked to a live Person: a link to one in the Trash, erased or merged away is no link.
       ctx.db
         .selectFrom("core_outside_person as o")
@@ -631,8 +630,9 @@ export const outsideListsRemove = defineOperation({
     "class types, bookings, coaches and their To match), or all of it, which is what " +
     "disconnecting the booking system means for a loaded list. The list stops counting at once " +
     `and its rows are deleted at once, ${REMOVE_PASS_ROWS} a statement and at most ` +
-    `${REMOVE_MAX_STATEMENTS * REMOVE_PASS_ROWS} a call: when done is false, call again for the ` +
-    "rest (nothing reads it meanwhile). Kept: the settings, the lists' log (counts only, 30 " +
+    `${REMOVE_MAX_STATEMENTS * REMOVE_PASS_ROWS} a call: when done is false, the daily maintenance ` +
+    "finishes the rest, or call again with finish: true (nothing reads it meanwhile, and a list " +
+    "loaded since is never touched). Kept: the settings, the lists' log (counts only, 30 " +
     "days), erased people's suppressions (so no later list brings them back), staff's unlink " +
     "decisions (a hash, no person) and the timeline. Nothing is written to the booking system. A " +
     "person with bookingSystem:manage only, never an AI, an MCP client, an extension or an " +
@@ -641,6 +641,12 @@ export const outsideListsRemove = defineOperation({
     kind: z
       .enum([...LIST_KINDS, "all"])
       .describe("members, timetable, or all (disconnect the booking system's lists)"),
+    finish: z
+      .boolean()
+      .optional()
+      .describe(
+        "Only finish a removal already made (after done: false): removes no current list, so a list loaded since stays",
+      ),
   }),
   output: z.object({
     removed: z.array(z.enum(LIST_KINDS)).describe("The kinds whose current list was removed"),
@@ -655,7 +661,7 @@ export const outsideListsRemove = defineOperation({
   auditSummary: (output) => output,
   async handler(input, ctx) {
     const kinds = input.kind === "all" ? [...LIST_KINDS] : [input.kind];
-    const plan = await planRemoval(ctx.db, kinds, ctx.now);
+    const plan = await planRemoval(ctx.db, kinds, ctx.now, { markLists: !input.finish });
     if (plan.statements.length) ctx.write(...plan.statements);
     return {
       removed: plan.lists,
@@ -663,6 +669,47 @@ export const outsideListsRemove = defineOperation({
       remaining: plan.remaining,
       done: plan.remaining === 0,
     };
+  },
+});
+
+export const outsideSuppressionLift = defineOperation({
+  name: "outside.suppression.lift",
+  description:
+    "Lift the suppression of an outside ref an erase left: when the booking system has given an " +
+    "erased person's old ref to someone new, every load drops that ref (counted as previously " +
+    "erased) until a person lifts it. The new person is then kept and matched as anyone is. The " +
+    "erased person's addresses stay suppressed. A person with bookingSystem:manage only, never " +
+    "an AI, an MCP client, an extension or an automation.",
+  input: z.object({ kind: z.enum(["person", "staff"]), ref, why }),
+  output: z.object({ lifted: z.boolean() }),
+  permission: "bookingSystem:manage",
+  risk: "write",
+  actors: ["human"],
+  mcp: { expose: false },
+  // A ref may be the address itself (a list with no ids of its own): never in the audit log.
+  redact: ["ref"],
+  auditSummary: (output) => output,
+  async handler(input, ctx) {
+    const hash = await outsideRefHash(ctx.db, input.kind, input.ref);
+    const row = await ctx.db
+      .selectFrom("core_outside_suppressed")
+      .select("hash")
+      .where("kind", "=", "ref")
+      .where("hash", "=", hash)
+      .executeTakeFirst();
+    if (!row) return { lifted: false };
+    // Kept in the erase log, so a re-apply after a restore keeps the decision.
+    if (ctx.blobs && !ctx.simulation) {
+      await putEraseLog(ctx.blobs, {
+        v: 1,
+        kind: "allow",
+        at: ctx.now,
+        addresses: [],
+        outside: [{ hash, kind: "ref" }],
+      });
+    }
+    ctx.write(ctx.db.deleteFrom("core_outside_suppressed").where("hash", "=", hash));
+    return { lifted: true };
   },
 });
 
@@ -674,4 +721,5 @@ export const outsideOperations = [
   outsideLink,
   outsideUnlink,
   outsideListsRemove,
+  outsideSuppressionLift,
 ];

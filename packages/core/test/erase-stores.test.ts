@@ -582,6 +582,7 @@ describe("person.erase reaches every store", () => {
     });
     expect(await invoke("erasure.allowAddress", { email }, context(admin))).toEqual({
       removed: true,
+      bookingSystem: { addresses: 0, refs: 0 },
     });
     await ingest(member, conn, [mail({ email }, [{ email: keeperEmail }])]);
     expect(

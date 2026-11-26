@@ -121,7 +121,19 @@ export const eraseCountsOutput = {
       people: z
         .number()
         .describe("Outside people of theirs removed from the booking system's copy"),
-      coaches: z.number().describe("Coaches with their address removed from the copy"),
+      coaches: z
+        .number()
+        .describe("Coaches with their address and no staff account removed from the copy"),
+      coachesOfStaff: z
+        .number()
+        .describe(
+          "Coaches with their address linked to a staff account: kept, as that account's (the staff account is not erased)",
+        ),
+      textScrubbed: z
+        .number()
+        .describe(
+          "Classes and class types whose text (a title naming them) was scrubbed; a later list brings back what the booking system still says",
+        ),
       copyRemains: z
         .literal(true)
         .describe("The booking system itself still holds them: the host cannot remove it there"),
@@ -154,7 +166,14 @@ export async function afterErase(
   eraseRequestsClosed: number;
   bodiesDeleted: number;
   agreementsKept?: { count: number; until: string | null; deleted: number };
-  bookingSystem?: { people: number; coaches: number; copyRemains: true; note: string };
+  bookingSystem?: {
+    people: number;
+    coaches: number;
+    coachesOfStaff: number;
+    textScrubbed: number;
+    copyRemains: true;
+    note: string;
+  };
 }> {
   let bodiesDeleted = 0;
   if (ctx.blobs && !ctx.simulation) {
@@ -174,11 +193,14 @@ export async function afterErase(
     }
   }
   return {
-    ...(counts.outside && counts.outside.people + counts.outside.coaches > 0
+    ...(counts.outside &&
+    counts.outside.people + counts.outside.coaches + counts.outside.coachesOfStaff > 0
       ? {
           bookingSystem: {
             people: counts.outside.people,
             coaches: counts.outside.coaches,
+            coachesOfStaff: counts.outside.coachesOfStaff,
+            textScrubbed: counts.outside.textScrubbed,
             copyRemains: true as const,
             note: BOOKING_SYSTEM_COPY_NOTE,
           },
@@ -215,20 +237,18 @@ export async function queueErase(ctx: HandlerContext, request: EraseRequest): Pr
   const signInEmails = object === "person" ? await customerAddresses(ctx, recordIds) : [];
   const heldByOthers = await addressesHeldByOthers(ctx.db, signInEmails, recordIds);
   const accountEmails = signInEmails.filter((email) => !heldByOthers.has(email));
-  // Their copy from the booking system (stage 65, ADR 0926): its refs, the addresses and names it
-  // lists them by are theirs too, so the audit, approvals and conversations lose them as well.
+  // Their copy from the booking system (stage 65, ADR 0926): the addresses and names their own
+  // outside rows list are theirs too, so the audit, approvals and conversations lose them as well.
+  // Never the refs: a booking system's ids (often numbers) would blank unrelated text.
   const outside =
     object === "person"
       ? await outsideOf(ctx.db, recordIds, [...(request.addresses ?? []), ...accountEmails])
       : null;
   const terms = [
     ...new Set(
-      [
-        ...recordIds,
-        ...request.terms,
-        ...accountEmails,
-        ...(outside ? [...outside.addresses, ...outside.refs, ...outside.staffRefs] : []),
-      ].map((t) => t.trim().toLowerCase()),
+      [...recordIds, ...request.terms, ...accountEmails, ...(outside?.addresses ?? [])].map((t) =>
+        t.trim().toLowerCase(),
+      ),
     ),
   ]
     .filter((t) => t.length >= MIN_TERM_LENGTH)
@@ -460,7 +480,16 @@ export async function queueErase(ctx: HandlerContext, request: EraseRequest): Pr
   // 3f. The erase log outside D1 (R2), so an erasure can be re-applied after a restore. Written
   // before the commit: if it cannot be written the erase fails and can be retried.
   if (!ctx.simulation) {
-    await writeEraseLog(ctx, { ...subject, outside: outsideErased?.suppressed ?? [] });
+    await writeEraseLog(ctx, {
+      ...subject,
+      ...(outsideErased
+        ? {
+            outside: outsideErased.suppressed,
+            outsideErase: outsideErased.eraseId,
+            fingerprint: outsideErased.fingerprint,
+          }
+        : {}),
+    });
   }
 
   // 3g. Duplicate pairs (ADR 0247): the subject's own, whatever their status, and any other pair

@@ -7,7 +7,7 @@ import { env } from "cloudflare:workers";
 import { createCrmDb } from "@composable-os/db";
 import { beforeAll, describe, expect, it } from "vitest";
 import { type ActingUser, invokeByName } from "../src/index.ts";
-import { planRemoval, REMOVE_MAX_STATEMENTS } from "../src/outside/remove.ts";
+import { finishOutsideRemoval, planRemoval, REMOVE_MAX_STATEMENTS } from "../src/outside/remove.ts";
 import { context, createUser, unique } from "./helpers.ts";
 
 let queries = 0;
@@ -303,5 +303,71 @@ describe("removing a large copy", () => {
         )?.n,
       ).toBe(0);
     }
+  });
+
+  it("finishes an unfinished removal without touching a list loaded since, by a call or the daily maintenance", async () => {
+    const tag = unique("rf").toLowerCase();
+    const address = `${tag}@big.example.com`;
+    await seed(1_000, tag, await personWith(address), address);
+    // One bounded call: the list is removed, most of its rows are left.
+    const first = await planRemoval(db.query, ["members"], NOW, {
+      passRows: 100,
+      maxStatements: 5,
+    });
+    await db.batch(first.statements);
+    expect(first.remaining).toBeGreaterThan(0);
+    // A list is loaded meanwhile (here written straight in): it is current, and must stay.
+    const fresh = `ol_${tag}_fresh`;
+    await env.DB.batch([
+      env.DB.prepare(
+        "INSERT INTO core_outside_list (id, kind, source, exported_on, loaded_by, loaded_at, state) VALUES (?, 'members', 'file', '2026-11-24', 'usr_x', ?, 'current')",
+      ).bind(fresh, NOW),
+      env.DB.prepare(
+        "INSERT INTO core_outside_person (ref, list_id, member_status, active, why_kept) VALUES (?, ?, 'member', 1, 'member')",
+      ).bind(`${tag}-fresh`, fresh),
+    ]);
+    // Finishing by a call removes no current list.
+    const finish = (await invokeByName(
+      "outside.lists.remove",
+      { kind: "members", finish: true },
+      ctx(admin),
+    )) as { removed: string[]; done: boolean };
+    expect(finish).toMatchObject({ removed: [], done: true });
+    expect(await rows("core_outside_person")).toBe(1);
+    expect(
+      await env.DB.prepare("SELECT state FROM core_outside_list WHERE id = ?").bind(fresh).first(),
+    ).toEqual({ state: "current" });
+
+    // Left unfinished again: the daily maintenance finishes it, the current list untouched.
+    await env.DB.prepare(
+      "UPDATE core_outside_list SET state = 'removed', ended_at = ? WHERE id = ?",
+    )
+      .bind(NOW, fresh)
+      .run();
+    const tag2 = unique("rg").toLowerCase();
+    await seed(500, tag2, await personWith(`${tag2}@big.example.com`), `${tag2}@big.example.com`);
+    const second = await planRemoval(db.query, ["members"], NOW, {
+      passRows: 100,
+      maxStatements: 3,
+    });
+    await db.batch(second.statements);
+    const fresher = `ol_${tag2}_fresher`;
+    await env.DB.batch([
+      env.DB.prepare(
+        "INSERT INTO core_outside_list (id, kind, source, exported_on, loaded_by, loaded_at, state) VALUES (?, 'members', 'file', '2026-11-24', 'usr_x', ?, 'current')",
+      ).bind(fresher, NOW),
+      env.DB.prepare(
+        "INSERT INTO core_outside_person (ref, list_id, member_status, active, why_kept) VALUES (?, ?, 'member', 1, 'member')",
+      ).bind(`${tag2}-fresher`, fresher),
+    ]);
+    expect(await finishOutsideRemoval(db, NOW)).toMatchObject({ remaining: 0 });
+    expect(await rows("core_outside_membership")).toBe(0);
+    expect((await env.DB.prepare("SELECT ref FROM core_outside_person").all()).results).toEqual([
+      { ref: `${tag2}-fresher` },
+    ]);
+    // Nothing to do: two reads.
+    reset();
+    expect(await finishOutsideRemoval(db, NOW)).toEqual({ rows: 0, remaining: 0 });
+    expect(queries).toBe(2);
   });
 });

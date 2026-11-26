@@ -15,6 +15,7 @@ import {
 import { CompiledQuery, type Kysely, sql } from "kysely";
 import { saltedHash } from "../contact/suppression.ts";
 import { foldAddress, foldedSql, normaliseCustomerEmail } from "../customers/accounts.ts";
+import { ConfigError } from "../errors.ts";
 import { newId } from "../ids.ts";
 import type { HandlerContext } from "../operation.ts";
 import { chunk, jsonList } from "../records/common.ts";
@@ -86,6 +87,36 @@ export function outsideAddressHash(db: Db, address: string): Promise<string> {
 }
 
 /**
+ * A fingerprint of the deployment's salt: a keyed hash of a constant, never the salt. Kept on every
+ * suppression row and in the erase log, so a salt lost and remade (a restore without it) is found
+ * and refused, never silently matching nothing.
+ */
+export function saltFingerprint(db: Db): Promise<string> {
+  return saltedHash(db, "outside:fingerprint");
+}
+
+/**
+ * Refuses, loudly, when suppressions were keyed with another salt than the one in use: every
+ * suppression would match nothing and erased people would come back with the next list. One
+ * statement (the table is small: erased people only).
+ */
+export async function assertSuppressionSalt(db: Db): Promise<void> {
+  const fingerprint = await saltFingerprint(db);
+  const other = await db
+    .selectFrom("core_outside_suppressed")
+    .select("hash")
+    .where("fingerprint", "is not", null)
+    .where("fingerprint", "!=", fingerprint)
+    .limit(1)
+    .executeTakeFirst();
+  if (other) {
+    throw new ConfigError(
+      "The booking system's copy cannot be read: erased people's suppressions were kept with another deployment salt than the one in use (the salt was lost, perhaps by a restore). Restore the core_settings row text_number_salt from the backup before loading or linking anything, or erased people would come back.",
+    );
+  }
+}
+
+/**
  * What an erased Person left: the refs and the (normalised) addresses among these whose outside
  * copy must keep nothing (`core_outside_suppressed`), and the addresses on the erased-address list
  * (ADR 0320). Two reads.
@@ -96,6 +127,7 @@ export async function droppedOf(
   addresses: readonly string[],
   kind: OutsideKind = "person",
 ): Promise<{ refs: Set<string>; addresses: Set<string> }> {
+  await assertSuppressionSalt(db);
   const refHashes = await Promise.all(
     [...new Set(refs)].map(async (ref) => ({ ref, hash: await outsideRefHash(db, kind, ref) })),
   );
