@@ -32,6 +32,7 @@ import {
 import { approvalDecidedMessages, emitEvents, eventOriginOf } from "../automations/events.ts";
 import { deliverOutbox, emitDurably, outboxEntries, outboxInserts } from "../automations/outbox.ts";
 import type { ApprovalDecidedMessage, EventSink } from "../automations/types.ts";
+import { assertDiscountsUnchanged, type DiscountSnapshot } from "../discounts/terms.ts";
 import {
   ForbiddenError,
   NeedsOwnApprovalError,
@@ -1066,6 +1067,12 @@ async function approveActions(
         { actionId: target.id, after: blocking.id },
       );
     }
+  }
+  // A discount the action names is approved as it was asked for (ADR 0699): one whose terms have
+  // changed since (the assistant asked to make 10% live, then wrote 90%) is refused, naming them.
+  for (const target of targets) {
+    const simulated = parse<{ discounts?: DiscountSnapshot[] }>(target.simulated, {});
+    await assertDiscountsUnchanged(ctx.db, simulated.discounts ?? []);
   }
   // The claim (ADR 0345): commits with this batch, before anything applies. Of two approvals
   // arriving together, one claims each action, and only what it claimed is applied below.

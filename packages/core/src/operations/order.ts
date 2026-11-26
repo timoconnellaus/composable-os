@@ -483,6 +483,9 @@ export const orderStart = defineOperation({
   mcp: { expose: false },
   // What a visitor typed, drew and answered never reaches the audit log.
   redact: ["agreements", "address"],
+  // Nor a code typed (a single-use code is a secret until it is used, ADR 0699): the order's
+  // adjustments name the discount and the code's record. Kept for an approver of a waiting call.
+  auditRedact: ["code"],
   // Never the token: it is the guest's, and the audit log is read by staff.
   auditSummary: (output) => ({ id: output.id }),
   async handler(input, ctx) {
@@ -632,6 +635,8 @@ export const orderQuote = defineOperation({
   hostInternal: true,
   mcp: { idempotent: true },
   redact: ["address"],
+  // A code typed is never kept in the audit log (ADR 0699).
+  auditRedact: ["code"],
   async handler(input, ctx) {
     const currency = await loadOrderCurrency(ctx.db);
     if (!currency) {
@@ -1762,6 +1767,8 @@ export const orderApplyCode = defineOperation({
   hostInternal: true,
   mcp: { expose: false },
   redact: ["token"],
+  // A code typed is never kept in the audit log (ADR 0699).
+  auditRedact: ["code"],
   auditSummary: (output) => ({ id: output.id, total: output.total, deal: output.deal?.kind }),
   async handler(input, ctx) {
     const row = await orderForPaying(ctx, input.id, input.token);
@@ -2062,6 +2069,8 @@ export const orderStartHeld = defineOperation({
   toolOnly: true,
   mcp: { expose: false },
   redact: ["agreements"],
+  // A code typed is never kept in the audit log (ADR 0699).
+  auditRedact: ["code"],
   auditSummary: (output) => ({ id: output.id, recordId: output.recordId }),
   async handler(input, ctx) {
     const started = await startHeld(ctx, input);

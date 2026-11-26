@@ -386,6 +386,8 @@ export interface DiscountDefinition {
         readonly word: string;
         readonly uses?: string | undefined;
         readonly active?: string | undefined;
+        /** Codes kept as their hash (`codeHash`), never the code: generated single-use codes. */
+        readonly hashed?: boolean | undefined;
       }
     | undefined;
   readonly who?: string | undefined;

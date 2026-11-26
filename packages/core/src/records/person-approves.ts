@@ -7,7 +7,8 @@
 //
 // The same holds for a merge of People where either has a live family link (ADR 0540): who may act
 // for whom is identity, and a merge moves, ends or deletes links; and for any change to a discount
-// in a state it applies in (ADR 0693): what buyers are charged is a person's to change.
+// past its first state, live, paused or ended (ADR 0693, amended by ADR 0699): what buyers are
+// charged is a person's to change.
 import type { CoreDatabase } from "@composable-os/db";
 import type { Kysely } from "kysely";
 import { getObject, listObjects } from "../fields/index.ts";
@@ -38,11 +39,15 @@ function setsPersonApproves(object: unknown, values: unknown, changing = false):
 }
 
 /**
- * Whether the record is a discount in a state it applies in (ADR 0693): its terms are what buyers
- * are charged, so a change to it by anyone but a person (loosening a limit, raising what it takes
- * off) waits for a person, as moving it live does.
+ * Whether the record is a discount past its first state (ADR 0693, amended for stage 34 step 5):
+ * its terms are what buyers are charged, or will be when a person moves it live again (a paused
+ * discount resumed, a person's approved terms), so a change to it by anyone but a person
+ * (loosening a limit, raising what it takes off) waits for a person. Every state but the
+ * object's initial one counts, whatever the pack calls its live states: only a discount never yet
+ * past its draft is anyone's to edit, and moving that one live is a person's act that checks its
+ * terms (approvals/queue.ts, ADR 0699).
  */
-async function isLiveDiscount(
+async function isDiscountPastDraft(
   db: Kysely<CoreDatabase>,
   object: unknown,
   id: unknown,
@@ -60,7 +65,10 @@ async function isLiveDiscount(
     .select(`${column} as state`)
     .where("id", "=", id)
     .executeTakeFirst()) as { state?: unknown } | undefined;
-  return definition.discount.live.includes(String(row?.state ?? ""));
+  if (!row) return false;
+  const initial = definition.states?.initial;
+  const state = row.state == null || row.state === "" ? initial : String(row.state);
+  return state !== initial;
 }
 
 /** The record operations that write an extension record named by `input.object`. */
@@ -108,7 +116,7 @@ export async function touchesPersonApproves(
     case "record.update":
       return (
         setsPersonApproves(input.object, input.values, true) ||
-        (await isLiveDiscount(db, input.object, input.id))
+        (await isDiscountPastDraft(db, input.object, input.id))
       );
     // Following the series writes the named fields (default every copied one) from the series
     // (ADR 0620): a human-only field among them is a person's to change.

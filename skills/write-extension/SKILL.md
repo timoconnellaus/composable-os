@@ -168,9 +168,18 @@ extension declares it; it never implements it. Each behaviour the platform has i
   the order's batch; never compute a price or a discount in a tool or a block. Declare every move
   into a live state `by: ["host"], tools: [...]` (a person's tool) or `by: ["staff"]` with the
   state field `personApproves: true`, never `create.in` a live state; an AI's change to a live
-  discount, and any write of a promo code record by anyone but a person (your pack's tools
-  included), waits for a person. Not in a shipped pack until public operations have a
-  per-address rate limit (ADR 0693). See `DiscountSpec` in `packages/sdk/src/discount.ts` and ADR 0693.
+  discount (any state but the initial one, paused and ended too), and any write of a promo code
+  record by anyone but a person (your pack's tools included, unless the tool is `humanOnly` or
+  `personApproves` with a permission), waits for a person; an approval of a call naming a
+  discount shows its terms and is refused if they changed since (ADR 0699). Code words are kept folded, at least 6 characters, one per word (ADR 0940): show the
+  host's refusal, never check a word in a tool. Generated single-use codes go on a codes object
+  declared `hashed: true`: make them with `randomCodes`, write only `codeHash(code)` to `word`
+  (the host refuses anything else), and give the codes to the person who made them once, in a
+  `humanOnly` tool's answer under `redactResult` (ADR 0699); never store, log or notify them. Put
+  a word a person chooses on the discount's own `code`, never a hashed object. Name what a
+  discount covers in `objects` (a multi-select of `<pack>.<object>` values), not with relations to
+  packs you do not require. See `DiscountSpec` in `packages/sdk/src/discount.ts`, ADRs 0693 and
+  0699, and Offers: `packs/offers/index.ts`.
 - **`unique`** on an object: `unique: [{ fields: [<up to 4 fields>], states?: [<states>] }]`, no
   two live records in those states share the fields (one active booking per Person per class).
   The database refuses the second, however many write at once (`conflict`, `rule: "unique"`).

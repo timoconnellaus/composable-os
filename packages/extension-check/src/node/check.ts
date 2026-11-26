@@ -27,6 +27,18 @@ export interface LocatedIssue extends CheckIssue {
 export interface DirCheckResult extends Omit<CheckResult, "issues"> {
   id: string;
   issues: LocatedIssue[];
+  /**
+   * Packs beside it that its manifest names but the check left out, and why (one that requires a
+   * pack still being installed, as a deployment installs it later): said, never silent.
+   */
+  leftOut: { id: string; why: string }[];
+}
+
+/** What installing the siblings found: those left out, and the objects of those installed. */
+interface SiblingRun {
+  done: Set<string>;
+  deferred: Map<string, string>;
+  objects: Map<string, readonly string[]>;
 }
 
 export class ExtCheckError extends Error {
@@ -66,30 +78,43 @@ function siblingsNamed(dir: string, id: string, manifest: unknown): string[] {
 
 /**
  * Reconciles the extension in `dir` into `local` (after the ones it names), or says why not. One
- * that requires the extension being checked (`root`) is installed after it in a deployment, never
- * before, so it is not one the checked extension builds on: it is left out (stage 49, ADR 0764:
- * Memberships requires Bookings, whose appointments name Memberships' holders as payers).
+ * that requires an extension not yet in place (the one being checked, or one being installed
+ * before it, `pending`) is installed after that one in a deployment, never before, so it is not
+ * one it builds on: it is left out (stage 49, ADR 0764: Memberships requires Bookings, whose
+ * appointments name Memberships' holders as payers; stage 34 step 5: Offers names Bookings' and
+ * Memberships' objects as what a discount covers, so Bookings is installed and Memberships left
+ * out while it is).
  */
 async function installSibling(
   platform: Platform,
   local: LocalDb,
   dir: string,
   now: string,
-  done: Set<string>,
-  root: string,
+  run: SiblingRun,
+  pending: ReadonlySet<string>,
 ): Promise<string | null> {
+  const { done } = run;
   const id = extensionIdOf(dir);
   if (done.has(id)) return null;
   done.add(id);
   const evaluated = await evaluateFiles(platform, readExtensionFiles(dir));
   if (!evaluated.ok) return evaluated.issues[0]?.message ?? "it does not evaluate";
   const requires = (evaluated.manifest as { requires?: unknown } | null)?.requires;
-  if (Array.isArray(requires) && requires.includes(root)) {
+  const waits = Array.isArray(requires)
+    ? requires.filter((r): r is string => typeof r === "string" && pending.has(r))
+    : [];
+  if (waits.length) {
     done.delete(id);
+    run.deferred.set(id, `it requires ${waits.join(" and ")}, which is installed before it`);
     return null;
   }
+  run.objects.set(
+    id,
+    Object.keys((evaluated.manifest as { objects?: Record<string, unknown> }).objects ?? {}),
+  );
+  const inner = new Set([...pending, id]);
   for (const sibling of siblingsNamed(dir, id, evaluated.manifest)) {
-    const why = await installSibling(platform, local, join(dirname(dir), sibling), now, done, root);
+    const why = await installSibling(platform, local, join(dirname(dir), sibling), now, run, inner);
     if (why) return `${sibling}: ${why}`;
   }
   await refreshSchemaRegistry(local.db);
@@ -99,6 +124,45 @@ async function installSibling(
   if (issues.length || !plan) return issues[0]?.message ?? "it has no reconcile plan";
   local.batch(plan.statements);
   return null;
+}
+
+type ObjectsOf = Record<
+  string,
+  { discount?: { objects?: string }; fields?: Record<string, { options?: unknown }> }
+>;
+
+/**
+ * A discount's `objects` names what it covers by option values (`memberships.passtype`): plain
+ * strings the contract cannot check. One naming an object of a pack beside it that was installed
+ * for the check, and that pack does not declare, is a typo that would make the discount cover
+ * nothing (stage 34 step 5).
+ */
+export function discountObjectIssues(
+  manifest: unknown,
+  run: Pick<SiblingRun, "objects">,
+): CheckIssue[] {
+  const objects = (manifest as { objects?: ObjectsOf }).objects ?? {};
+  const issues: CheckIssue[] = [];
+  for (const [name, object] of Object.entries(objects)) {
+    const field = object.discount?.objects;
+    const options = field ? object.fields?.[field]?.options : undefined;
+    if (!Array.isArray(options)) continue;
+    options.forEach((option: unknown, i: number) => {
+      const value = typeof option === "string" ? option : (option as { value?: unknown })?.value;
+      if (typeof value !== "string") return;
+      const [ext, local] = value.split(".");
+      const known = ext ? run.objects.get(ext) : undefined;
+      if (!known || !local || known.includes(local)) return;
+      issues.push({
+        stage: "contract",
+        code: "contract",
+        path: `objects.${name}.fields.${field}.options.${i}`,
+        message: `"${value}" is what this discount covers, but ${ext} declares no object "${local}"`,
+        suggestion: `Use one of ${known.map((o) => `${ext}.${o}`).join(", ")}`,
+      });
+    });
+  }
+  return issues;
 }
 
 const escapeRe = (text: string) => text.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -173,6 +237,7 @@ export async function checkExtensionDir(
   try {
     const before: CheckIssue[] = [];
     const done = new Set([id]);
+    const run: SiblingRun = { done, deferred: new Map(), objects: new Map() };
     if (evaluated.ok) {
       for (const sibling of siblingsNamed(root, id, evaluated.manifest)) {
         const why = await installSibling(
@@ -180,8 +245,8 @@ export async function checkExtensionDir(
           local,
           join(dirname(root), sibling),
           now,
-          done,
-          id,
+          run,
+          new Set([id]),
         );
         if (why) {
           before.push({
@@ -199,10 +264,14 @@ export async function checkExtensionDir(
     // A pack's sections of My account name blocks in its folder (stage 48, ADR 0710): read here,
     // where the files are; the host has only the manifest.
     const portal = result.manifest ? portalBlockIssues(root, result.manifest, platform.root) : [];
-    const issues = [...before, ...result.issues, ...portal];
+    const covers = evaluated.ok ? discountObjectIssues(evaluated.manifest, run) : [];
+    const issues = [...before, ...result.issues, ...portal, ...covers];
     return {
       ...result,
       id,
+      leftOut: [...run.deferred]
+        .filter(([sibling]) => !done.has(sibling))
+        .map(([sibling, why]) => ({ id: sibling, why })),
       ok: issues.length === 0,
       issues: issues.map((issue) => located(files, issue)),
     };

@@ -100,6 +100,14 @@
 - [Memberships: screens](https://docs.composableos.dev/packs/memberships/screens/)
 - [Memberships: settings](https://docs.composableos.dev/packs/memberships/settings/)
 - [Memberships: operations and tools](https://docs.composableos.dev/packs/memberships/tools/)
+- [Offers: data model](https://docs.composableos.dev/packs/offers/data-model/)
+- [Offers: decisions](https://docs.composableos.dev/packs/offers/decisions/)
+- [Offers](https://docs.composableos.dev/packs/offers/): Money off, as discounts the host applies when it prices an order - promo codes, batches of single-use codes, members' prices and customer rates - each with its dates and limits, made live by a person.
+- [Offers: messages](https://docs.composableos.dev/packs/offers/messages/)
+- [Offers: permissions and roles](https://docs.composableos.dev/packs/offers/permissions/)
+- [Offers: screens](https://docs.composableos.dev/packs/offers/screens/)
+- [Offers: settings](https://docs.composableos.dev/packs/offers/settings/)
+- [Offers: operations and tools](https://docs.composableos.dev/packs/offers/tools/)
 - [Programs: data model](https://docs.composableos.dev/packs/programs/data-model/)
 - [Programs: decisions](https://docs.composableos.dev/packs/programs/decisions/)
 - [Programs](https://docs.composableos.dev/packs/programs/): An exercise bank, programs built from it as one layout (weeks, sessions, blocks, items, levels, typed sets), published versions, assignments to a person or a class type as dated sessions, and a log of every set against its target.

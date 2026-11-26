@@ -903,6 +903,19 @@ async function invokeOnce<O extends AnyOperation>(
   if (op.bookkeeping && decision === "review") decision = "auto";
   // The host's own system step (ADR 0520): never queued from the system origin; deny applies.
   if (op.hostStep && ctx.origin.surface === "system" && decision === "review") decision = "auto";
+  // A person's own tool (`humanOnly` or `personApproves`, with a permission, ADR 0513) writing
+  // its extension's records, run because a person called it or approved it (ADR 0699): the call
+  // was already a person's act, so the policy does not queue its writes a second time (a batch of
+  // codes stopped part way under `cautious`, its write left pending for codes nobody holds). The
+  // deploy floor still applies, as does a deny; a tool an AI called runs only once approved.
+  if (
+    decision === "review" &&
+    gate.floorDecision !== "review" &&
+    personsOwnRun(ctx) &&
+    writtenByPersonsTool(ctx, input)
+  ) {
+    decision = "auto";
+  }
   // Some changes always wait for a person (extension installs and upgrades, ADR 0041).
   // A person's own fields and settings (a gym's booking rules, ADR 0507): anyone else's write of
   // one waits for a person, as an AI's publish does (ADR 0480).
@@ -2948,6 +2961,17 @@ function staffStanding(ctx: InvocationContext): Standing {
  * waited for a person, so the fields only a person changes are a person's here (ADR 0764: an
  * appointment's coach given to another by `reassignAppointment`).
  */
+/**
+ * Whether an extension call runs inside a tool a person called themselves, or one a person
+ * approved (ADR 0552's `startedByApproval`): never an AI's or an automation's own run.
+ */
+function personsOwnRun(ctx: InvocationContext): boolean {
+  if (ctx.actor !== "extension") return false;
+  const tool = ctx.extension?.tool;
+  if (tool?.calledBy?.actor === "human") return true;
+  return tool?.startedByApproval === true && tool.startedBy !== ADJUDICATOR_PRINCIPAL;
+}
+
 function writtenByPersonsTool(ctx: { extension?: InvocationContext["extension"] }, input: unknown) {
   const object =
     typeof input === "object" && input !== null ? (input as { object?: unknown }).object : null;

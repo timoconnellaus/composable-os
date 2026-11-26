@@ -112377,6 +112377,1448 @@
       "pack": "memberships"
     },
     {
+      "name": "x.offers.activateDiscount",
+      "description": "Make a draft or paused discount live: from now on the host applies it to every order it covers (by its code, or by itself for a member's price). A person's decision with offers:manage: the assistant may ask, and its call waits for a person to approve. Check the terms first with discounts. Returns the discount. (Extension tool from Offers 0.1.0.)",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "discountId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          }
+        },
+        "required": [
+          "discountId"
+        ],
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "state": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "kind": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "percent": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "amount": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "automatic": {
+            "type": "boolean"
+          },
+          "code": {
+            "description": "The shared promo code, if it has one",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "who": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "appliesTo": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "from": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "until": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "totalUses": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "perPerson": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "minSpend": {
+            "type": [
+              "number",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "state",
+          "kind",
+          "percent",
+          "amount",
+          "automatic",
+          "code",
+          "who",
+          "appliesTo",
+          "from",
+          "until",
+          "totalUses",
+          "perPerson",
+          "minSpend"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "x.offers.codeBatches",
+        "x.offers.discounts"
+      ],
+      "pack": "offers"
+    },
+    {
+      "name": "x.offers.changeDiscount",
+      "description": "Change a discount's terms: what is off, what it covers, who it is for, its dates, limits or its shared promo code (null clears one). Not its state: use activateDiscount, pauseDiscount or endDiscount. A change to a live discount changes what buyers are charged from the next order, so a person makes it: the assistant's call waits for a person. Orders already started keep the deal they were priced with. Returns the discount. (Extension tool from Offers 0.1.0.)",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "discountId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "percent",
+              "amount",
+              "price"
+            ],
+            "description": "percent: a percentage off; amount: money off the order; price: a set price each"
+          },
+          "percent": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 1,
+                "maximum": 100,
+                "description": "For percent: 1 to 100"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "amount": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0,
+                "description": "For amount: the money off, in the currency's major unit; for price: what each costs"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "automatic": {
+            "type": "boolean",
+            "description": "True: applies by itself with no code (a member's price, a customer rate)"
+          },
+          "code": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 64,
+                "description": "A shared promo code anyone may type, at least 6 letters or digits (the host keeps it in capitals without spaces and refuses one another discount has)"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "who": {
+            "type": "string",
+            "enum": [
+              "anyone",
+              "signed_in",
+              "members",
+              "new_customers",
+              "organisation",
+              "tag"
+            ],
+            "description": "Who it is for. Anything but anyone needs a signed-in buyer"
+          },
+          "organisations": {
+            "anyOf": [
+              {
+                "maxItems": 50,
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "minLength": 1,
+                  "maxLength": 64
+                },
+                "description": "Organisation ids, for who = organisation"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "tag": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 80,
+                "description": "The tag, for who = tag"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "appliesTo": {
+            "anyOf": [
+              {
+                "maxItems": 6,
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "enum": [
+                    "bookings.booking",
+                    "ticketing.tickettype",
+                    "memberships.passtype",
+                    "courses.course",
+                    "courses.bundle",
+                    "shop.variant"
+                  ]
+                },
+                "description": "What it covers (drop-ins, tickets, passes, courses, goods). Empty: everything"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "from": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+                "description": "First day it applies (UTC)"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "until": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+                "description": "Last day it applies (UTC)"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "totalUses": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 9007199254740991,
+                "description": "Most orders in total"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "perPerson": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": 1,
+                "maximum": 9007199254740991,
+                "description": "Most orders per person"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "minSpend": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0,
+                "description": "Least the covered lines must cost"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 2000,
+                "description": "Why it exists, for staff"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "required": [
+          "discountId"
+        ],
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "state": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "kind": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "percent": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "amount": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "automatic": {
+            "type": "boolean"
+          },
+          "code": {
+            "description": "The shared promo code, if it has one",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "who": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "appliesTo": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "from": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "until": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "totalUses": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "perPerson": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "minSpend": {
+            "type": [
+              "number",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "state",
+          "kind",
+          "percent",
+          "amount",
+          "automatic",
+          "code",
+          "who",
+          "appliesTo",
+          "from",
+          "until",
+          "totalUses",
+          "perPerson",
+          "minSpend"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "x.offers.codeBatches",
+        "x.offers.discounts"
+      ],
+      "pack": "offers"
+    },
+    {
+      "name": "x.offers.codeBatches",
+      "description": "The batches of single-use codes made for one discount: how many were made, how many still work and how many were used, who made them and when. Never the codes themselves, which were shown once to the person who made them. Read-only. (Extension tool from Offers 0.1.0.)",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "discountId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          }
+        },
+        "required": [
+          "discountId"
+        ],
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "batches": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "batch": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "made": {
+                  "type": "number"
+                },
+                "working": {
+                  "type": "number",
+                  "description": "Codes not voided"
+                },
+                "used": {
+                  "type": "number",
+                  "description": "Codes used on at least one paid order"
+                },
+                "usesPerCode": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "madeBy": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "madeAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "batch",
+                "made",
+                "working",
+                "used",
+                "usesPerCode",
+                "madeBy",
+                "madeAt"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "batches"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [],
+      "pack": "offers"
+    },
+    {
+      "name": "x.offers.discounts",
+      "description": "The business's discounts (promo codes, members' prices and customer rates): their terms, state (draft, active = live, paused, ended), and how often each was used and what it took off paid orders (in minor units, cents). Use state to narrow it ('which codes are live?'). Never shows single-use codes (they are kept as their hash). Read-only. (Extension tool from Offers 0.1.0.)",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "state": {
+            "type": "string",
+            "enum": [
+              "draft",
+              "active",
+              "paused",
+              "ended"
+            ]
+          },
+          "automatic": {
+            "type": "boolean",
+            "description": "Only prices that apply by themselves, or not"
+          }
+        },
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "discounts": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "state": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "kind": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "percent": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "amount": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "automatic": {
+                  "type": "boolean"
+                },
+                "code": {
+                  "description": "The shared promo code, if it has one",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "who": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "appliesTo": {
+                  "type": "array",
+                  "items": {
+                    "type": "string"
+                  }
+                },
+                "from": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "until": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "totalUses": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "perPerson": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "minSpend": {
+                  "type": [
+                    "number",
+                    "null"
+                  ]
+                },
+                "used": {
+                  "type": "number",
+                  "description": "Orders paid with it"
+                },
+                "held": {
+                  "type": "number",
+                  "description": "Unpaid orders holding a use of it"
+                },
+                "given": {
+                  "type": "number",
+                  "description": "Money it took off paid orders, in the currency's minor unit"
+                }
+              },
+              "required": [
+                "id",
+                "name",
+                "state",
+                "kind",
+                "percent",
+                "amount",
+                "automatic",
+                "code",
+                "who",
+                "appliesTo",
+                "from",
+                "until",
+                "totalUses",
+                "perPerson",
+                "minSpend",
+                "used",
+                "held",
+                "given"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "truncated": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "discounts",
+          "truncated"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [],
+      "pack": "offers"
+    },
+    {
+      "name": "x.offers.draftDiscount",
+      "description": "Draft a discount: a promo code for a campaign (code = a word such as JANUARY26), a member's price (automatic = true, who = members, kind = price or percent, appliesTo = what it covers), a customer rate (automatic, who = organisation with organisations) or a discount for single-use codes (no code; a person then makes a batch). It is made as a draft and applies to nobody until a person makes it live with activateDiscount. The host refuses a code shorter than 6 characters or one another discount has. Returns the draft. (Extension tool from Offers 0.1.0.)",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 120
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "percent",
+              "amount",
+              "price"
+            ],
+            "description": "percent: a percentage off; amount: money off the order; price: a set price each"
+          },
+          "percent": {
+            "type": "number",
+            "minimum": 1,
+            "maximum": 100,
+            "description": "For percent: 1 to 100"
+          },
+          "amount": {
+            "type": "number",
+            "minimum": 0,
+            "description": "For amount: the money off, in the currency's major unit; for price: what each costs"
+          },
+          "automatic": {
+            "type": "boolean",
+            "description": "True: applies by itself with no code (a member's price, a customer rate)"
+          },
+          "code": {
+            "type": "string",
+            "maxLength": 64,
+            "description": "A shared promo code anyone may type, at least 6 letters or digits (the host keeps it in capitals without spaces and refuses one another discount has)"
+          },
+          "who": {
+            "type": "string",
+            "enum": [
+              "anyone",
+              "signed_in",
+              "members",
+              "new_customers",
+              "organisation",
+              "tag"
+            ],
+            "description": "Who it is for. Anything but anyone needs a signed-in buyer"
+          },
+          "organisations": {
+            "maxItems": 50,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 64
+            },
+            "description": "Organisation ids, for who = organisation"
+          },
+          "tag": {
+            "type": "string",
+            "maxLength": 80,
+            "description": "The tag, for who = tag"
+          },
+          "appliesTo": {
+            "maxItems": 6,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "bookings.booking",
+                "ticketing.tickettype",
+                "memberships.passtype",
+                "courses.course",
+                "courses.bundle",
+                "shop.variant"
+              ]
+            },
+            "description": "What it covers (drop-ins, tickets, passes, courses, goods). Empty: everything"
+          },
+          "from": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+            "description": "First day it applies (UTC)"
+          },
+          "until": {
+            "type": "string",
+            "pattern": "^\\d{4}-\\d{2}-\\d{2}$",
+            "description": "Last day it applies (UTC)"
+          },
+          "totalUses": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991,
+            "description": "Most orders in total"
+          },
+          "perPerson": {
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 9007199254740991,
+            "description": "Most orders per person"
+          },
+          "minSpend": {
+            "type": "number",
+            "minimum": 0,
+            "description": "Least the covered lines must cost"
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 2000,
+            "description": "Why it exists, for staff"
+          }
+        },
+        "required": [
+          "name",
+          "kind"
+        ],
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "state": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "kind": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "percent": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "amount": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "automatic": {
+            "type": "boolean"
+          },
+          "code": {
+            "description": "The shared promo code, if it has one",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "who": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "appliesTo": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "from": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "until": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "totalUses": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "perPerson": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "minSpend": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "open": {
+            "type": "object",
+            "properties": {
+              "object": {
+                "type": "string"
+              },
+              "id": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "object",
+              "id"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "state",
+          "kind",
+          "percent",
+          "amount",
+          "automatic",
+          "code",
+          "who",
+          "appliesTo",
+          "from",
+          "until",
+          "totalUses",
+          "perPerson",
+          "minSpend",
+          "open"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "x.offers.codeBatches",
+        "x.offers.discounts"
+      ],
+      "pack": "offers"
+    },
+    {
+      "name": "x.offers.endDiscount",
+      "description": "End a discount for good: it applies to no new order and cannot be made live again (draft a new one instead). Orders already started keep their deal; its codes stop working. A person's decision with offers:manage (the assistant's call waits for a person). Returns the discount. (Extension tool from Offers 0.1.0.)",
+      "risk": "destructive",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "discountId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          }
+        },
+        "required": [
+          "discountId"
+        ],
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "state": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "kind": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "percent": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "amount": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "automatic": {
+            "type": "boolean"
+          },
+          "code": {
+            "description": "The shared promo code, if it has one",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "who": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "appliesTo": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "from": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "until": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "totalUses": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "perPerson": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "minSpend": {
+            "type": [
+              "number",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "state",
+          "kind",
+          "percent",
+          "amount",
+          "automatic",
+          "code",
+          "who",
+          "appliesTo",
+          "from",
+          "until",
+          "totalUses",
+          "perPerson",
+          "minSpend"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "x.offers.codeBatches",
+        "x.offers.discounts"
+      ],
+      "pack": "offers"
+    },
+    {
+      "name": "x.offers.generateCodes",
+      "description": "Make a batch of up to 500 random single-use codes for a discount, each good for usesPerCode orders (1 by default), and show them once, in this answer, to export or send. The host keeps only each code's hash, so they cannot be shown again: keep the list. A person only, with offers:manage, at the discount's page; the assistant cannot make codes. Not for an ended discount. The discount still applies only once it is live. If the batch stops part way, the answer says so and holds every code that was made. (Extension tool from Offers 0.1.0.)",
+      "risk": "bulk-write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "discountId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "count": {
+            "default": 50,
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 500
+          },
+          "usesPerCode": {
+            "default": 1,
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 1000
+          },
+          "batch": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 60,
+            "description": "A name for the batch"
+          }
+        },
+        "required": [
+          "discountId"
+        ],
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "discountId": {
+            "type": "string"
+          },
+          "batch": {
+            "type": "string"
+          },
+          "made": {
+            "type": "number"
+          },
+          "complete": {
+            "type": "boolean",
+            "description": "False: the batch stopped part way; see problem"
+          },
+          "problem": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "codes": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The codes, shown once: the host keeps only their hash"
+          }
+        },
+        "required": [
+          "discountId",
+          "batch",
+          "made",
+          "complete",
+          "problem",
+          "codes"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "x.offers.codeBatches",
+        "x.offers.discounts"
+      ],
+      "pack": "offers"
+    },
+    {
+      "name": "x.offers.pauseDiscount",
+      "description": "Pause a live discount: it applies to no new order until it is made live again. Orders already started keep their deal. A person's decision with offers:manage (the assistant's call waits for a person). Returns the discount. (Extension tool from Offers 0.1.0.)",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "discountId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          }
+        },
+        "required": [
+          "discountId"
+        ],
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "state": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "kind": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "percent": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "amount": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "automatic": {
+            "type": "boolean"
+          },
+          "code": {
+            "description": "The shared promo code, if it has one",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "who": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "appliesTo": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "from": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "until": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "totalUses": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "perPerson": {
+            "type": [
+              "number",
+              "null"
+            ]
+          },
+          "minSpend": {
+            "type": [
+              "number",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "state",
+          "kind",
+          "percent",
+          "amount",
+          "automatic",
+          "code",
+          "who",
+          "appliesTo",
+          "from",
+          "until",
+          "totalUses",
+          "perPerson",
+          "minSpend"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "x.offers.codeBatches",
+        "x.offers.discounts"
+      ],
+      "pack": "offers"
+    },
+    {
+      "name": "x.offers.voidBatch",
+      "description": "Stop a whole batch of single-use codes working, by its name; at most 200 a call (call again while remaining is more than 0). Orders already started keep their deal. A person's decision with offers:manage (the assistant's call waits for a person). Returns how many were voided. (Extension tool from Offers 0.1.0.)",
+      "risk": "bulk-write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "discountId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "batch": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 60
+          }
+        },
+        "required": [
+          "discountId",
+          "batch"
+        ],
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "voided": {
+            "type": "number"
+          },
+          "remaining": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "voided",
+          "remaining"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "x.offers.codeBatches",
+        "x.offers.discounts"
+      ],
+      "pack": "offers"
+    },
+    {
+      "name": "x.offers.voidCodes",
+      "description": "Stop single-use codes working, typed as they were given out (a code that leaked). A person only, with offers:manage, at the screen: the codes are never kept, in the audit log or in a request waiting for approval, so the assistant cannot ask for this (it may ask to void the whole batch with voidBatch). Returns how many were voided. (Extension tool from Offers 0.1.0.)",
+      "risk": "bulk-write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "discountId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "codes": {
+            "minItems": 1,
+            "maxItems": 50,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "maxLength": 64
+            },
+            "description": "Codes as typed"
+          }
+        },
+        "required": [
+          "discountId",
+          "codes"
+        ],
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "voided": {
+            "type": "number"
+          },
+          "remaining": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "voided",
+          "remaining"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "x.offers.codeBatches",
+        "x.offers.discounts"
+      ],
+      "pack": "offers"
+    },
+    {
       "name": "x.programs.assign",
       "description": "Give a published program to a person or to a class type from a start date: pins the program's current published version and makes one dated session per session of its layout (week w's session on day d is dated start + 7(w-1) + (d-1)). Editing the program later changes none of them; publish a new version and assign again. Refused when the program has never been published. Safe to call again with the same program, person or class type and start date: it finishes what an interrupted call began. (Extension tool from Programs 0.1.0.)",
       "risk": "bulk-write",

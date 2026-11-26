@@ -51,7 +51,11 @@ Each kind has its own file, wired into `defineExtension` (Deals: the last keys o
    declares `humanOnly: true`: the host refuses the assistant, MCP clients, automations and other
    extensions' code (Memberships: `givePass`, ADR 0512). A tool whose input carries something the
    audit log must never keep (a note about someone's leave) lists those fields in `redact`
-   (Rostering: `away`). A tool only admins and accounts granted it should call names a
+   (Rostering: `away`); one whose answer holds a secret shown once (a batch of single-use codes)
+   lists those keys in `redactResult` and is `humanOnly`, since an approved call's answer reaches
+   nobody (Offers: `generateCodes`, ADR 0699). What an AI may propose but a person decides
+   (making a discount live) is `personApproves: true` with a `permission` (Offers:
+   `activateDiscount`, Bookings: `cancelClass`). A tool only admins and accounts granted it should call names a
    **restricted** permission (see `write-extension`, Roles; Rostering's `rostering:manage`).
    In a shipped pack only (ADR 0652): a `humanOnly` tool every staff account should reach, pack
    roles included, because its host operation decides who may (Daily checklists' `tick`), declares

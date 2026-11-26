@@ -15,10 +15,12 @@
 import { env } from "cloudflare:workers";
 import {
   CODE_ALPHABET,
+  codeHash,
   defineExtension,
   defineTool,
   type ExtensionManifest,
   foldCode,
+  isCodeHash,
   randomCodes,
   toManifest,
   z,
@@ -1546,6 +1548,101 @@ describe("promo codes kept folded, looked up by index, and guessed no faster tha
     }
     expect(CODE_ALPHABET).toHaveLength(32);
     expect(() => randomCodes(1, 8)).toThrow();
+  });
+});
+
+// --- Stage 34 step 5 (ADR 0699): single-use codes kept as their hash ------------------------------
+
+describe("codes kept as their hash", () => {
+  const H = extId("hoffers");
+  const HDISCOUNT = `${H}.discount`;
+  const HCODE = `${H}.code`;
+  const hashedTool = () =>
+    context(admin, {
+      actor: "extension",
+      extension: {
+        id: H,
+        permissions: { read: [], write: [], operations: [], modules: ["ops"] },
+        tool: {
+          name: "activate",
+          personApproves: true,
+          permission: `${H}:manage`,
+          calledBy: { account: admin.id, actor: "human" },
+        },
+      },
+    } as never);
+  let hdiscount: string;
+
+  beforeAll(async () => {
+    const m = offers(H) as unknown as ExtensionManifest & {
+      objects: { discount: { discount: { codes: Record<string, unknown> } } };
+    };
+    m.objects.discount.discount.codes.hashed = true;
+    await reconcile(m);
+    const now = new Date().toISOString();
+    await env.DB.prepare(
+      "INSERT INTO core_extensions (id, source, status, version, commit_oid, manifest, user_id, installed_at, updated_at) VALUES (?, 'shipped', 'active', '1.0.0', 'c1', ?, ?, ?, ?)",
+    )
+      .bind(H, JSON.stringify(m), admin.id, now, now)
+      .run();
+    hdiscount = (
+      (await run(
+        "record.create",
+        { object: HDISCOUNT, values: { name: unique("Hashed"), kind: "percent", percent: 25 } },
+        context(admin),
+      )) as { id: string }
+    ).id;
+    await run(
+      "record.update",
+      { object: HDISCOUNT, id: hdiscount, values: { state: "active" } },
+      hashedTool(),
+    );
+  });
+
+  const check = (code: string) =>
+    run<{ valid: boolean }>(
+      "discount.check",
+      { code, lines: [{ object: CLASS, id: yoga }] },
+      guest(),
+    );
+
+  it("keeps only a hash: a code in clear is refused, by a person too", async () => {
+    const [code] = randomCodes(1) as [string];
+    const clear = await refusal(
+      run(
+        "record.create",
+        { object: HCODE, values: { word: code, discount: hdiscount, uses: 1 } },
+        context(admin),
+      ),
+    );
+    expect(clear).toMatchObject({ code: "invalid_input", details: { rule: "code_hashed" } });
+    const hash = await codeHash(code);
+    expect(isCodeHash(hash)).toBe(true);
+    expect(hash).toHaveLength(57);
+    await run(
+      "record.create",
+      { object: HCODE, values: { word: hash, discount: hdiscount, uses: 1 } },
+      context(admin),
+    );
+    const table = await viewOf(HCODE);
+    const stored = await env.DB.prepare(`SELECT * FROM ${table}`).all();
+    expect(JSON.stringify(stored.results)).not.toContain(code);
+  });
+
+  it("the host hashes what a buyer types and finds the code; the hash typed is not a code", async () => {
+    const [code] = randomCodes(1) as [string];
+    const hash = await codeHash(code);
+    await run(
+      "record.create",
+      { object: HCODE, values: { word: hash, discount: hdiscount, uses: 1 } },
+      context(admin),
+    );
+    expect((await check(code.toLowerCase())).valid).toBe(true);
+    expect((await check(hash)).valid).toBe(false);
+    // Single use: once paid, it is spent.
+    const order = await buy([{ id: yoga }], { code });
+    expect(order.deal).toMatchObject({ kind: "code", amount: 3_000 });
+    expect((await buy([{ id: yoga }], { code }).catch((e) => e)).message).toBe(NOT_VALID);
   });
 });
 

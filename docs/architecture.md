@@ -2671,7 +2671,21 @@ only by a person: by `["host"]` through a person's tool, or by staff writing a s
 `personApproves`; nothing is created live; and a non-person's change to a live discount, its
 restore from the Trash, and any write of a promo code record wait for a person
 (`records/person-approves.ts`). Not on a sellable, stocked or capacity
-object. A runtime extension may declare it.
+object. A runtime extension may declare it. `codes.hashed: true` (stage 34 step 5,
+[ADR 0699](adr/0699-the-offers-pack-and-single-use-codes-kept-as-their-hash.md)) keeps each code
+as its hash (`codeHash` in the SDK: `#` and 224 bits of SHA-256 of the folded code): the host
+refuses any other value in `word` and hashes what a buyer types before its indexed lookup, so a
+generated code is never in a record, a view, a query or the audit log; `order.start`,
+`order.startHeld`, `order.quote`, `order.applyCode` and `discount.check` keep a typed `code` out
+of the audit row (`auditRedact`). The **Offers pack** (`packs/offers`) declares the discounts
+(`offers.discount`: promo codes, members' prices, customer rates; live only through its
+`personApproves` tools with `offers:manage`) and the single-use codes (`offers.code`, hashed, made
+by a person's `humanOnly` `generateCodes` and shown once). A non-person's change to a discount in
+any state but its initial one waits for a person (`records/person-approves.ts`); a waiting call
+that names a discount keeps its terms as asked and says them in the approval, and approving it is
+refused if they changed since (`discounts/terms.ts`, `approval.approve`); a person's own tool's
+writes of its extension's records are not queued again by the approval policy (`pipeline.ts`,
+`personsOwnRun`), the deploy floor aside.
 
 **Low stock** (stage 37 step 2, ADR 0681, `packages/core/src/stock/low.ts`). When a write takes a
 stock record's on hand to or below its reorder level (`stock.reorderAt`), the staff who hold the

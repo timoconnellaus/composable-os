@@ -330,6 +330,36 @@
         ]
       },
       {
+        "label": "Offers",
+        "collapsed": true,
+        "items": [
+          {
+            "slug": "packs/offers"
+          },
+          {
+            "slug": "packs/offers/data-model"
+          },
+          {
+            "slug": "packs/offers/tools"
+          },
+          {
+            "slug": "packs/offers/permissions"
+          },
+          {
+            "slug": "packs/offers/screens"
+          },
+          {
+            "slug": "packs/offers/messages"
+          },
+          {
+            "slug": "packs/offers/settings"
+          },
+          {
+            "slug": "packs/offers/decisions"
+          }
+        ]
+      },
+      {
         "label": "Programs",
         "collapsed": true,
         "items": [

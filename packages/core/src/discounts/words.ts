@@ -10,6 +10,7 @@ import {
   CODE_MIN_LENGTH,
   foldCode,
   CODE_ALPHABET as GENERATED_ALPHABET,
+  isCodeHash,
 } from "@composable-os/sdk";
 import type { Kysely } from "kysely";
 import { ConflictError, ValidationError } from "../errors.ts";
@@ -34,6 +35,17 @@ export function codeWordFields(object: ObjectDefinition): string[] {
   return fields;
 }
 
+/**
+ * The fields of `object` that hold codes kept as their hash (a codes object declared `hashed`,
+ * stage 34 step 5): `word` holds `codeHash`'s value and nothing else.
+ */
+export function hashedWordFields(object: ObjectDefinition): string[] {
+  return listObjects().flatMap((other) => {
+    const codes = other.discount?.codes;
+    return codes?.hashed && codes.object === object.name ? [codes.word] : [];
+  });
+}
+
 /** Whether a folded word could be a code at all (the lookup reads nothing for one that could not). */
 export function possibleCode(folded: string): boolean {
   const length = [...folded].length;
@@ -54,11 +66,20 @@ export async function foldCodeWords(
   const fields = codeWordFields(object).filter((name) => typeof values[name] === "string");
   if (!fields.length) return values;
   const folded = { ...values };
+  const hashed = hashedWordFields(object);
   for (const name of fields) {
     const word = foldCode(values[name] as string);
     if (word === "") {
       folded[name] = null;
       continue;
+    }
+    // A code kept as its hash (stage 34 step 5): only a hash, whoever writes it, so no code is
+    // ever stored, logged or shown in clear here.
+    if (hashed.includes(name) && !isCodeHash(word)) {
+      throw new ValidationError(
+        `${object.label} keeps each code as its hash: make codes with randomCodes and store codeHash(code)`,
+        { field: name, rule: "code_hashed" },
+      );
     }
     if (!possibleCode(word)) {
       throw new ValidationError(
