@@ -7,9 +7,10 @@
 // The host decides everything (ADRs 0701, 0702): what is published and its version, who must
 // read it, and whether a confirmation counts. The button confirms the version on screen, never
 // the one the list names; a refusal (a newer version, already confirmed) is shown, never taken
-// as done. Rich text is the Content pack's native renderer (`content-native-rich-text`). A
-// pack-role account is refused section names (the list is then one list) and is not served a
-// procedure's pictures (the host's media rule): a picture it cannot have says so in its place.
+// as done. Rich text is the Content pack's native renderer (`content-native-rich-text`). Each
+// procedure's section is the name the host gives with it (`names.section`, ADR 0708). A pack-role
+// account is not served a procedure's pictures (the host's media rule): a picture it cannot have
+// says so in its place.
 
 import type { RichText as RichTextValue } from "@composable-os/pack-content/client";
 import type {
@@ -24,6 +25,7 @@ import {
   dayWords,
   knowledgeRefusal,
   myStanding,
+  sectionOf,
   segmentsText,
   titleOf,
   versionLine,
@@ -36,10 +38,7 @@ import { Field } from "../native-base/field.tsx";
 import { Text } from "../native-base/text.tsx";
 import { theme } from "../native-base/theme.ts";
 
-export type NativeReaderHooks = Pick<
-  KnowledgeHooks,
-  "useProcedure" | "useToRead" | "useConfirm" | "useSections"
->;
+export type NativeReaderHooks = Pick<KnowledgeHooks, "useProcedure" | "useToRead" | "useConfirm">;
 export type NativeProceduresHooks = NativeReaderHooks &
   Pick<KnowledgeHooks, "useProcedures" | "useSearchProcedures">;
 
@@ -61,14 +60,17 @@ function Picture({
   alt,
   mediaUrl,
   width,
+  served,
 }: {
   media: string;
   alt: string;
   mediaUrl: MediaUrl;
   width: number;
+  /** False when the host said it will not serve this reader its pictures: none is asked for. */
+  served: boolean;
 }) {
   const [failed, setFailed] = useState(false);
-  if (failed) {
+  if (failed || !served) {
     return (
       <View testID="rt-block-image" style={styles.missing}>
         <Text tone="muted">This picture cannot be shown here{alt ? `: ${alt}` : ""}.</Text>
@@ -218,7 +220,6 @@ export function ProcedureScreen({
   locale?: string;
 }) {
   const answer = knowledge.useProcedure({ id });
-  const sections = knowledge.useSections();
   const scroll = useRef<ComponentRef<typeof ScrollView> | null>(null);
   const bodyY = useRef(0);
   const data = answer.data;
@@ -237,17 +238,14 @@ export function ProcedureScreen({
     );
   }
   const title = titleOf(data);
-  const sectionId = typeof data.values.section === "string" ? data.values.section : null;
-  const section = sectionId
-    ? sections.data?.items.find((s) => s.id === sectionId)?.values.name
-    : null;
+  const section = sectionOf(data);
   const summary = typeof data.values.summary === "string" ? data.values.summary : null;
   const version = data.version;
   return (
     <ScrollView ref={scroll} contentContainerStyle={styles.page} testID={`procedure-${data.id}`}>
       {onBack ? <Button label="All procedures" quiet onPress={onBack} /> : null}
       <View style={styles.header}>
-        {typeof section === "string" && section ? <Text tone="muted">{section}</Text> : null}
+        {section ? <Text tone="muted">{section}</Text> : null}
         <Text style={styles.title} accessibilityRole="header">
           {title}
         </Text>
@@ -266,7 +264,13 @@ export function ProcedureScreen({
           width={width}
           components={{
             image: ({ block }) => (
-              <Picture media={block.media} alt={block.alt} mediaUrl={mediaUrl} width={width} />
+              <Picture
+                media={block.media}
+                alt={block.alt}
+                mediaUrl={mediaUrl}
+                width={width}
+                served={data.pictures !== false}
+              />
             ),
           }}
           onAnchorLayout={(at, y) => {
@@ -330,12 +334,11 @@ function ProcedureList({
   onOpen,
   locale,
 }: {
-  knowledge: Pick<NativeProceduresHooks, "useProcedures" | "useSections" | "useToRead">;
+  knowledge: Pick<NativeProceduresHooks, "useProcedures" | "useToRead">;
   onOpen: (id: string) => void;
   locale?: string;
 }) {
   const list = knowledge.useProcedures({ sort: { field: "title", direction: "asc" }, limit: 100 });
-  const sections = knowledge.useSections();
   const mine = knowledge.useToRead();
   if (list.isPending) return <Text tone="muted">Loading the procedures…</Text>;
   if (list.error) {
@@ -347,12 +350,12 @@ function ProcedureList({
   }
   const items = list.data?.items ?? [];
   if (!items.length) return <Text>No procedure has been published yet.</Text>;
-  const groups = bySection(items, sections.error ? null : (sections.data?.items ?? null));
+  const groups = bySection(items);
   const due = new Set((mine.data?.toRead ?? []).map((r) => r.id));
   return (
     <View style={styles.gapLg}>
       {groups.map((group) => (
-        <View key={group.id ?? "none"} style={styles.gap}>
+        <View key={group.name ?? "none"} style={styles.gap}>
           {group.name ? (
             <Text style={styles.groupTitle} accessibilityRole="header">
               {group.name}

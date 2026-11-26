@@ -148,6 +148,8 @@ export default defineExtension({
         content: ["title", "summary", "body", "section"],
         slug: "slug",
         staffRead: true,
+        // The section's name with each procedure (ADR 0708): a coach reads no section.
+        staffNames: ["section"],
         acknowledge: {
           who: "mustRead",
           manage: MANAGE,

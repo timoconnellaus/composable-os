@@ -1,7 +1,9 @@
 // One help page (stage 38 step 6, ADR 0708), for a site's /help/<address> page: its title,
 // summary and body as the public reads it (`useHelpPage`: the published version only, ADR 0442),
-// and its related pages. An old address answers `redirect`: the page calls `onRedirect` with the
-// address it has now, so the site sends a 301 there. A link to a section (`#<anchor>`, from
+// and its related pages. An old address answers `redirect`: the page links to the address it has
+// now and, once it has drawn in the browser, calls `onRedirect` with it once (never while
+// rendering). A site that sends a 301 does it in its route's loader on the server, from the same
+// `content.get` answer. A link to a section (`#<anchor>`, from
 // search) lands on its heading: the renderer gives each heading the host's anchor as its id.
 //
 // The body is drawn by the Content pack's renderer only (`content-rich-text`): React elements,
@@ -11,7 +13,7 @@
 import { mediaPath, type RichText as RichTextValue } from "@composable-os/pack-content/client";
 import type { KnowledgeHooks, Published } from "@composable-os/pack-knowledge/client";
 import { helpHref, helpPageHead, slugOf, titleOf } from "@composable-os/pack-knowledge/client";
-import { useId } from "react";
+import { useEffect, useId } from "react";
 import { RichText } from "../content-rich-text/rich-text.tsx";
 
 export type HelpPageHooks = Pick<KnowledgeHooks, "useHelpPage" | "useHelpPages">;
@@ -99,20 +101,24 @@ export function HelpPage({
   /** The page a help page is read on: `(slug) => "/help/" + slug`. */
   hrefOf?: (slug: string) => string;
   /**
-   * The page's address now, for an old one: send a 301 there (on the server). Without it, the
-   * page links to the new address.
+   * The page's address now, for an old one, called once after the page has drawn (to move the
+   * browser there). Without it, the page links to the new address.
    */
   onRedirect?: (slug: string) => void;
   mediaBase?: string;
   mediaUrl?: (id: string, width: number) => string;
 }) {
   const { data, isPending, error } = knowledge.useHelpPage(slug);
+  const movedTo = data?.kind === "redirect" ? data.slug : null;
+  // A side effect, so never while rendering: once for each new address.
+  useEffect(() => {
+    if (movedTo !== null) onRedirect?.(movedTo);
+  }, [movedTo, onRedirect]);
   if (isPending) return <p aria-busy="true">Loading…</p>;
   if (error || !data) {
     return <p role="alert">This help page is not here. It may have moved or been taken down.</p>;
   }
   if (data.kind === "redirect") {
-    onRedirect?.(data.slug);
     return (
       <p>
         This help page has moved: <a href={hrefOf(data.slug)}>read it at its new address</a>.

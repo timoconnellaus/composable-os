@@ -18,6 +18,8 @@ export default mergeConfig(
     include: ["test/**/*.test.ts", "test/**/*.test.tsx"],
   }),
   {
+    // Driven in a DOM under Node instead (test/vitest.dom.config.ts).
+    test: { exclude: ["**/node_modules/**", "test/**/*.dom.test.tsx"] },
     resolve: {
       alias: [
         { find: "react-native", replacement: here("./test/react-native-shim.tsx") },

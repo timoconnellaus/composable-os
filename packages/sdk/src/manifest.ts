@@ -364,6 +364,7 @@ const objectManifestSchema = z.object({
         .strict()
         .optional(),
       staffRead: z.boolean().optional(),
+      staffNames: z.array(z.string().max(40)).min(1).max(8).optional(),
     })
     .strict()
     .optional(),
@@ -2020,6 +2021,29 @@ export function validateManifest(
         contract(`${path}.date`, `publishable.date must name a date or datetime field of ${name}`);
       } else if (!p.content.includes(p.date)) {
         contract(`${path}.date`, "publishable.date is content: list it in content too");
+      }
+    }
+    // Staff read names (ADR 0708): the title of a related record of the same pack, beside the
+    // values a staff reader is given; never a person, an organisation or another pack's record.
+    if (p.staffNames !== undefined) {
+      if (p.staffRead !== true) {
+        contract(`${path}.staffNames`, "publishable.staffNames needs staffRead");
+      }
+      for (const fieldName of p.staffNames) {
+        const field = object.fields[fieldName];
+        const to = field?.type === "relation" ? field.to : undefined;
+        const local = to?.startsWith(`${m.id}.`) ? to.slice(m.id.length + 1) : undefined;
+        if (!p.content.includes(fieldName) || !to || field?.many) {
+          contract(
+            `${path}.staffNames`,
+            `"${fieldName}" must be a single relation field listed in content`,
+          );
+        } else if (local === undefined || !m.objects[local] || local === name) {
+          contract(
+            `${path}.staffNames`,
+            `"${fieldName}" must relate to another object of this pack (${m.id}.*)`,
+          );
+        }
       }
     }
     // The states a record may be published in (ADR 0810): values of the object's states field.

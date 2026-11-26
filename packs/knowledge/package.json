@@ -16,7 +16,7 @@
   },
   "scripts": {
     "typecheck": "tsc --noEmit && tsc --noEmit -p blocks/tsconfig.web.json && tsc --noEmit -p blocks/tsconfig.native.json && tsc --noEmit -p test/tsconfig.json",
-    "test": "vitest run"
+    "test": "vitest run && vitest run -c test/vitest.dom.config.ts"
   },
   "dependencies": {
     "@composable-os/client": "workspace:*",
@@ -30,6 +30,7 @@
     "@types/react": "19.3.0",
     "@types/react-dom": "19.3.0",
     "class-variance-authority": "0.7.1",
+    "happy-dom": "21.0.4",
     "clsx": "2.1.1",
     "radix-ui": "1.8.1",
     "react": "19.3.1",

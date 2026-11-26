@@ -396,11 +396,21 @@ export function copyBlocks(
         `${block} is a ${manifest.skin} block and this repo has no ${manifest.skin === "web" ? "web" : "mobile"} app in product.ts.`,
       );
     }
-    // A block another block brings with it that calls no operation (Content's rich text
-    // renderer, which Knowledge's blocks draw with, ADR 0708) needs nothing of its pack on the
-    // host: it is copied whatever product.ts lists. Asked for by name, or calling the host, its
-    // pack must be listed.
-    const renderer = trail.length > 0 && manifest.operations.length === 0;
+    // A block that calls no operation (Content's rich text renderer, which Knowledge's blocks
+    // draw with, ADR 0708) needs nothing of its pack on the host: it is copied whatever
+    // product.ts lists when another block brings it, now or already copied (`cos upgrade` names a
+    // new dependency to add by name, and a deleted one can be added back). Asked for by name with
+    // no copied block depending on it, or calling the host, its pack must be listed.
+    const renderer =
+      manifest.operations.length === 0 &&
+      (trail.length > 0 ||
+        Object.keys(lock).some((copied) => {
+          try {
+            return blockManifest(kit, copied).dependsOn.includes(block);
+          } catch {
+            return false;
+          }
+        }));
     if (manifest.pack && !packs.includes(manifest.pack) && !renderer) {
       throw new CliError(
         `${block} is a block of the ${manifest.pack} pack, which product.ts does not list.`,

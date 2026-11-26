@@ -233,6 +233,11 @@ export function HelpPageScreen({
   const { data, isPending, error } = knowledge.useHelpPage(slug);
   const scroll = useRef<ComponentRef<typeof ScrollView> | null>(null);
   const bodyY = useRef(0);
+  const movedTo = data?.kind === "redirect" ? data.slug : null;
+  // A side effect, so never while rendering: once for each new address.
+  useEffect(() => {
+    if (movedTo !== null) onRedirect(movedTo);
+  }, [movedTo, onRedirect]);
   if (isPending) return <Text tone="muted">Loading…</Text>;
   if (error || !data) {
     return (
@@ -242,7 +247,6 @@ export function HelpPageScreen({
     );
   }
   if (data.kind === "redirect") {
-    onRedirect(data.slug);
     return <Text tone="muted">This help page has moved.</Text>;
   }
   const related = Array.isArray(data.values.related)

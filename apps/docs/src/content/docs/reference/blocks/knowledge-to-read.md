@@ -26,6 +26,5 @@ Through its hooks; the host decides what each caller may do.
 - [`x.knowledge.toRead`](/packs/knowledge/tools/#toread)
 - [`x.knowledge.confirm`](/packs/knowledge/tools/#confirm)
 - [`content.staffGet`](/reference/operations/content/#contentstaffget)
-- [`record.list`](/reference/operations/record/#recordlist)
 
 Source: [packs/knowledge/blocks/knowledge-to-read](https://github.com/timoconnellaus/composable-os/tree/main/packs/knowledge/blocks/knowledge-to-read).

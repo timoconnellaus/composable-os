@@ -84,25 +84,38 @@ describe("what the reader says", () => {
     expect(knowledgeRefusal(new Error("boom"))).toEqual({ kind: "other", message: "boom" });
   });
 
-  it("groups procedures by section in the sections' order, or in one list without them", () => {
+  it("reads the same refusals in the shape the admin's staff client throws them", () => {
+    // apps/app/src/lib/staff-client.ts: the surface's code (`extension_error` for a tool) and the
+    // tool's inner details only (the host's `{ reason, current }`, or `{ object, id }`).
+    const surface = (details: unknown) =>
+      Object.assign(new Error("Refused"), { code: "extension_error", details });
+    expect(knowledgeRefusal(surface({ reason: "not_current", current: 5 }))).toMatchObject({
+      kind: "not_current",
+      current: 5,
+    });
+    expect(knowledgeRefusal(surface({ reason: "already_confirmed" })).kind).toBe(
+      "already_confirmed",
+    );
+    expect(knowledgeRefusal(surface({ object: "knowledge.procedure", id: "rec_1" })).kind).toBe(
+      "not_found",
+    );
+  });
+
+  it("groups procedures by the section name the host gave with each, none last", () => {
     const p = (id: string, section?: string): Published => ({
       object: PROCEDURE,
       id,
-      values: { title: id, ...(section ? { section } : {}) },
+      values: { title: id },
+      ...(section ? { names: { section } } : {}),
     });
-    const sections = [
-      { id: "s2", values: { name: "Safety" } },
-      { id: "s1", values: { name: "Front desk" } },
-    ];
-    const groups = bySection([p("a", "s1"), p("b"), p("c", "s2"), p("d", "gone")], sections);
+    const groups = bySection([p("a", "Safety"), p("b"), p("c", "Front desk"), p("d", "Safety")]);
     expect(groups.map((g) => [g.name, g.items.map((i) => i.id)])).toEqual([
-      ["Safety", ["c"]],
-      ["Front desk", ["a"]],
-      ["Other", ["b", "d"]],
+      ["Front desk", ["c"]],
+      ["Safety", ["a", "d"]],
+      ["Other", ["b"]],
     ]);
-    expect(bySection([p("a", "s1")], null)).toEqual([
-      { id: null, name: null, items: [p("a", "s1")] },
-    ]);
+    // With no section at all, one list with no heading.
+    expect(bySection([p("a"), p("b")])).toEqual([{ name: null, items: [p("a"), p("b")] }]);
   });
 });
 

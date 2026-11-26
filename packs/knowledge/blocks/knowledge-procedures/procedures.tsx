@@ -10,9 +10,10 @@
 // names; a refusal (a newer version published meanwhile, already confirmed) is shown, never taken
 // as done. Rich text is drawn by the Content pack's renderer only: nothing here is HTML.
 //
-// A pack-role account (a coach, a cleaner) reads procedures but not section names (it is refused
-// them; the list is then not grouped), and is not served a procedure's pictures (the host's media
-// rule): a picture it cannot have says so in its place.
+// Each procedure's section is the name the host gives with it (`names.section`, ADR 0708), so no
+// account, a coach's or a cleaner's included, asks for sections. A pack-role account is not
+// served a procedure's pictures (the host's media rule): the reader asks for none for it (the
+// procedure's `pictures` answer says so) and says in each one's place that it cannot be shown.
 
 import { mediaPath, type RichText as RichTextValue } from "@composable-os/pack-content/client";
 import type {
@@ -28,6 +29,7 @@ import {
   dayWords,
   knowledgeRefusal,
   myStanding,
+  sectionOf,
   titleOf,
   versionLine,
 } from "@composable-os/pack-knowledge/client";
@@ -36,10 +38,7 @@ import { RichText } from "../content-rich-text/rich-text.tsx";
 import { Button } from "../ui-button/button.tsx";
 import { Input } from "../ui-input/input.tsx";
 
-export type ReaderHooks = Pick<
-  KnowledgeHooks,
-  "useProcedure" | "useToRead" | "useConfirm" | "useSections"
->;
+export type ReaderHooks = Pick<KnowledgeHooks, "useProcedure" | "useToRead" | "useConfirm">;
 export type ProceduresHooks = ReaderHooks &
   Pick<KnowledgeHooks, "useProcedures" | "useSearchProcedures">;
 
@@ -74,10 +73,23 @@ export function Highlight({ segments }: { segments: readonly Segment[] | null | 
   );
 }
 
-/** A picture in the procedure, or a line in its place when the host does not serve it. */
-function Picture({ media, alt, mediaUrl }: { media: string; alt: string; mediaUrl: MediaUrl }) {
+/**
+ * A picture in the procedure, or a line in its place when the host does not serve it: not asked
+ * for at all when the host said it will not serve this reader its pictures (`served` false).
+ */
+function Picture({
+  media,
+  alt,
+  mediaUrl,
+  served,
+}: {
+  media: string;
+  alt: string;
+  mediaUrl: MediaUrl;
+  served: boolean;
+}) {
   const [failed, setFailed] = useState(false);
-  if (failed) {
+  if (failed || !served) {
     return (
       <figure data-block="image" data-unavailable="">
         <p className="rounded-md border border-dashed p-3 text-sm text-muted-foreground">
@@ -236,7 +248,6 @@ export function ProcedureReader({
   mediaUrl?: MediaUrl;
 }) {
   const answer = knowledge.useProcedure({ id });
-  const sections = knowledge.useSections();
   const headingId = useId();
   const data = answer.data;
   useEffect(() => {
@@ -266,10 +277,7 @@ export function ProcedureReader({
     );
   }
   const title = titleOf(data);
-  const sectionId = typeof data.values.section === "string" ? data.values.section : null;
-  const section = sectionId
-    ? sections.data?.items.find((s) => s.id === sectionId)?.values.name
-    : null;
+  const section = sectionOf(data);
   const summary = typeof data.values.summary === "string" ? data.values.summary : null;
   const version = data.version;
   return (
@@ -281,7 +289,7 @@ export function ProcedureReader({
     >
       {back}
       <header className="grid gap-1">
-        {typeof section === "string" && section ? (
+        {section ? (
           <p className="text-sm text-muted-foreground" data-section="">
             {section}
           </p>
@@ -298,7 +306,14 @@ export function ProcedureReader({
         value={data.values.body as RichTextValue | null}
         mediaUrl={mediaUrl}
         components={{
-          image: ({ block }) => <Picture media={block.media} alt={block.alt} mediaUrl={mediaUrl} />,
+          image: ({ block }) => (
+            <Picture
+              media={block.media}
+              alt={block.alt}
+              mediaUrl={mediaUrl}
+              served={data.pictures !== false}
+            />
+          ),
         }}
       />
       <ConfirmPanel
@@ -382,25 +397,24 @@ function ProcedureList({
   onOpen,
   locale,
 }: {
-  knowledge: Pick<ProceduresHooks, "useProcedures" | "useSections" | "useToRead">;
+  knowledge: Pick<ProceduresHooks, "useProcedures" | "useToRead">;
   onOpen: (id: string) => void;
   locale?: string;
 }) {
   const list = knowledge.useProcedures({ sort: { field: "title", direction: "asc" }, limit: 100 });
-  const sections = knowledge.useSections();
   const mine = knowledge.useToRead();
   if (list.isPending) return <p aria-busy="true">Loading the procedures…</p>;
   if (list.error) return <p role="alert">{knowledgeRefusal(list.error).message}</p>;
   const items = list.data?.items ?? [];
   if (!items.length) return <p>No procedure has been published yet.</p>;
   // Sections only once they are known; an account refused them sees one list.
-  const groups = bySection(items, sections.error ? null : (sections.data?.items ?? null));
+  const groups = bySection(items);
   const due = new Set((mine.data?.toRead ?? []).map((r) => r.id));
   return (
     <div className="grid gap-6">
       {groups.map((group) => (
         <section
-          key={group.id ?? "none"}
+          key={group.name ?? "none"}
           aria-label={group.name ?? "Procedures"}
           className="grid gap-2"
         >

@@ -7,7 +7,10 @@
 //   and it leaves their list; the owner opens Read status and sees who has confirmed and who has
 //   not.
 // - A coach (a fixed role) follows the notice's link to the record from their small shell, which
-//   opens the reader; reads, confirms, and has nothing left to read; Read status is not theirs.
+//   opens the reader at its section, its picture said not to be shown and never asked for; reads,
+//   confirms, and has nothing left to read; after a read-again change it is to read again, and a
+//   further change published while the reader is open is refused as not current, shown, and the
+//   new version read and confirmed. Read status is not theirs, and nothing they did was refused.
 //
 // The help centre's blocks are mounted where they sit (`/blocks`, development only), as a client
 // app's site mounts them; staff use the admin's declared screens. Counts other specs could change
@@ -42,15 +45,25 @@ async function setUp(page: Page) {
 }
 
 /** A procedure written and published by the owner (a person), asking `roles` to confirm it. */
-async function publishedProcedure(page: Page, title: string, roles: string[], word: string) {
+async function publishedProcedure(
+  page: Page,
+  title: string,
+  roles: string[],
+  word: string,
+  extra: { section?: string; picture?: string } = {},
+) {
   const made = await op<{ id: string }>(page.request, "record.create", {
     object: "knowledge.procedure",
     values: {
       title,
       summary: "What the coach on duty does first.",
+      ...(extra.section ? { section: extra.section } : {}),
       body: {
         blocks: [
           { type: "paragraph", content: [text("Stay calm and fetch the first aid kit.")] },
+          ...(extra.picture
+            ? [{ type: "image", media: extra.picture, alt: "The assembly point" }]
+            : []),
           { type: "heading", level: 1, content: [text("Afterwards")] },
           { type: "paragraph", content: [text(`Write it up in the ${word} book the same day.`)] },
         ],
@@ -193,24 +206,57 @@ test("a member reads and confirms what is theirs to read, and the owner sees who
   }
 });
 
-test("a coach follows the notice's link from their small shell, reads and confirms", async ({
+/** A 1×1 PNG, the smallest picture the media library takes. */
+const DOT = Buffer.from(
+  "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAYAAAAfFcSJAAAADUlEQVR42mP8z8BQDwAEhQGAhKmMIQAAAABJRU5ErkJggg==",
+  "base64",
+);
+
+test("a coach follows the notice's link from their small shell, reads and confirms, and again after a change", async ({
   page,
   browser,
   baseURL,
 }) => {
-  test.setTimeout(150_000);
+  test.setTimeout(180_000);
   await setUp(page);
   const title = unique("Fire alarm ");
+  const sectionName = unique("Safety ");
   const coach = await staffAccount(browser, page, baseURL ?? "", unique("Coach "), {
     packRole: "bookings.coach",
   });
   try {
-    const id = await publishedProcedure(page, title, ["bookings.coach"], unique("assembly"));
+    // A procedure in a section, with a picture: the coach reads neither sections nor pictures.
+    const section = await op<{ id: string }>(page.request, "record.create", {
+      object: "knowledge.section",
+      values: { name: sectionName },
+    });
+    const origin = new URL(baseURL ?? "").origin;
+    const uploaded = await page.request.post(
+      "/api/media?name=assembly.png&alt=The+assembly+point",
+      {
+        data: DOT,
+        headers: { origin, "content-type": "image/png" },
+      },
+    );
+    expect(uploaded.ok(), await uploaded.text()).toBe(true);
+    const media = ((await uploaded.json()) as { data: { id: string } }).data.id;
+    const id = await publishedProcedure(page, title, ["bookings.coach"], unique("assembly"), {
+      section: section.id,
+      picture: media,
+    });
     const watch = watchRefusals(coach.page);
     await open(coach.page, "/");
     await expect(coach.page.locator('[data-shell="fixed-role"]')).toBeVisible();
     const knowledge = coach.page.getByTestId("screens-nav-Knowledge").getByRole("link");
     await expect(knowledge).toHaveText(["Procedures", "To read"]);
+
+    // The list groups it under its section's name, which came with the procedure.
+    await openScreen(coach.page, "Knowledge", "Procedures");
+    await expect(
+      coach.page.getByRole("region", { name: sectionName }).getByRole("button", {
+        name: `Open ${title}`,
+      }),
+    ).toBeVisible();
 
     // The notice ("Please read: …") links to the record; the small shell opens the reader.
     await coach.page.goto(`/x/knowledge.procedure/${id}`);
@@ -218,6 +264,10 @@ test("a coach follows the notice's link from their small shell, reads and confir
     await waitForScreen(coach.page);
     const reader = coach.page.getByRole("article", { name: title });
     await expect(reader).toContainText("Version 1, published");
+    await expect(reader.locator("[data-section]")).toHaveText(sectionName);
+    // The picture is not the coach's to be served: not asked for, said in its place.
+    await expect(reader.locator("img")).toHaveCount(0);
+    await expect(reader).toContainText("This picture cannot be shown here: The assembly point.");
     await reader
       .getByRole("button", { name: `I have read and understood "${title}" (version 1)` })
       .click();
@@ -225,17 +275,53 @@ test("a coach follows the notice's link from their small shell, reads and confir
 
     // Nothing of it left to read.
     await openScreen(coach.page, "Knowledge", "To read");
-    await expect(
-      coach.page.getByRole("region", { name: "To read" }).getByRole("button", {
-        name: `Read ${title}`,
-      }),
-    ).toHaveCount(0);
+    const toRead = coach.page.getByRole("region", { name: "To read" });
+    await expect(toRead.getByRole("button", { name: `Read ${title}` })).toHaveCount(0);
+
+    // The owner publishes a change that matters (read again): it is the coach's to read again.
+    await op(page.request, "record.update", {
+      object: "knowledge.procedure",
+      id,
+      values: { summary: "Who leads everyone out, and where to meet." },
+    });
+    const two = await op<{ version: number }>(page.request, "record.publish", {
+      object: "knowledge.procedure",
+      id,
+      readAgain: true,
+    });
+    expect(two.version).toBe(2);
+    await openScreen(coach.page, "Knowledge", "To read");
+    await toRead.getByRole("button", { name: `Read ${title}` }).click();
+    await expect(reader).toContainText("Version 2, published");
+
+    // While it is open, another change asks again: confirming version 2 is refused, and said so.
+    const three = await op<{ version: number }>(page.request, "record.publish", {
+      object: "knowledge.procedure",
+      id,
+      readAgain: true,
+    });
+    expect(three.version).toBe(3);
+    await reader
+      .getByRole("button", { name: `I have read and understood "${title}" (version 2)` })
+      .click();
+    await expect(reader.getByRole("alert")).toContainText("A newer version has been published");
+    await expect(reader.getByRole("status")).toHaveCount(0);
+    await reader.getByRole("button", { name: "Read the new version" }).click();
+    await expect(reader).toContainText("Version 3, published");
+    await reader
+      .getByRole("button", { name: `I have read and understood "${title}" (version 3)` })
+      .click();
+    await expect(reader.getByRole("status")).toContainText(
+      "Confirmed: you have read and understood version 3",
+    );
+
     // Read status is not the coach's: not listed, and its address is "not found".
     await coach.page.goto("/s/knowledge/readStatus");
     await expect(coach.page.getByTestId("not-found")).toBeVisible();
-    // The only call the coach's screens were refused is the sections' names (a full role's).
+    // No call the coach's screens made was refused: the sections' names come with the procedures,
+    // and a picture the host would refuse is never asked for (ADR 0708).
     await watch.settled();
-    expect(watch.refused.filter((r) => !r.includes("record.list"))).toEqual([]);
+    expect(watch.refused).toEqual([]);
   } finally {
     await coach.context.close();
   }

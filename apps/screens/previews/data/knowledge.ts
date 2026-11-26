@@ -90,6 +90,11 @@ const pauseBody = {
 export const SAFETY = "rec_sec_safety";
 export const DESK = "rec_sec_desk";
 export const CLEANING = "rec_sec_cleaning";
+const SECTION_NAMES: Record<string, string> = {
+  [SAFETY]: "Safety",
+  [DESK]: "Front desk",
+  [CLEANING]: "Cleaning",
+};
 
 const published = (
   id: string,
@@ -102,10 +107,13 @@ const published = (
   object: "knowledge.procedure",
   id,
   values: { title, slug: id.replace("rec_", ""), summary, section, body: injuryBody },
+  // The section's name, as the host gives it with the procedure (staffNames, ADR 0708).
+  names: { section: SECTION_NAMES[section] ?? "" },
   version,
   publishedAt: at("09:00", date),
 });
 
+/** The procedure the readers open: pictures served (a full role's reader). */
 export const injury = published(
   "rec_injury",
   "When someone is hurt",
@@ -150,15 +158,6 @@ export const procedures: Out<"content.staffList"> = {
       "The alarm, the lights, the music and the first class.",
     ),
     injury,
-  ],
-  nextCursor: null,
-};
-
-export const sections: Out<"record.list"> = {
-  items: [
-    { id: SAFETY, values: { name: "Safety", order: 1 } },
-    { id: DESK, values: { name: "Front desk", order: 2 } },
-    { id: CLEANING, values: { name: "Cleaning", order: 3 } },
   ],
   nextCursor: null,
 };

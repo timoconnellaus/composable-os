@@ -51,8 +51,10 @@ the assistant or by an MCP client, with a person publishing each. It requires no
 - **Staff read what was published.** A procedure declares staff read (ADR 0701): every staff
   account, pack roles included, reads its current published version with `content.staffGet`,
   `content.staffList` and `content.search` (each match with its section's anchor), and never the
-  working copy. A pack-role account reads nothing else of the pack. Its pictures are served to
-  staff with a full role; a pack-role account reads its words and not its pictures.
+  working copy, each with its section's name (`staffNames`, ADR 0708). A pack-role account reads
+  nothing else of the pack. Its pictures are served to staff with a full role; a pack-role account
+  reads its words and not its pictures, and `content.staffGet` says so (`pictures`), so its reader
+  asks for none.
 - **Read and understood is the host's** (ADR 0702): who must read, checked against each account's
   role, pack role and grants on the day; which confirmation counts; who may see who has confirmed
   (admins, and those granted `knowledge:manage`, never an AI or a pack-role account). Who must read,
@@ -127,9 +129,9 @@ and the blocks: the help centre (`knowledge-help-centre`, `knowledge-help-page`,
 status (`knowledge-read-status`, web only), with the admin's screens Procedures, To read, Read
 status and the reader on a procedure's record page.
 
-A pack-role account (a coach, a cleaner) reads procedures but not section names (the list is one
-list for it) and is not served a procedure's pictures: the reader says a picture cannot be shown
-in its place.
+A pack-role account (a coach, a cleaner) reads procedures with their section's name and is not
+served a procedure's pictures: the reader asks for none and says in each one's place that it
+cannot be shown. Its screens make no call the host refuses.
 
 Not in the code yet: the roster's warning for a procedure still to read, the assistant's answers
 from published passages, a checklist's "how to", and training through Courses.

@@ -33,6 +33,8 @@ const procedure: Published = {
     body: BODY,
     section: "rec_safety",
   },
+  // The section's name, as the host gives it with the procedure (staffNames, ADR 0708).
+  names: { section: "Safety" },
   version: 4,
   publishedAt: "2026-03-03T09:00:00.000Z",
 };
@@ -81,7 +83,6 @@ const mutation = () => ({
 function hooks(answers: {
   procedure?: Answer;
   toRead?: Answer;
-  sections?: Answer;
   procedures?: Answer;
   readStatus?: (id?: string) => Answer;
   topics?: Answer;
@@ -94,12 +95,6 @@ function hooks(answers: {
     useSearchProcedures: () => answered({ data: { items: [], nextCursor: null } }),
     useToRead: () => answered(answers.toRead ?? { data: asked }),
     useConfirm: mutation,
-    useSections: () =>
-      answered(
-        answers.sections ?? {
-          data: { items: [{ id: "rec_safety", values: { name: "Safety" } }], nextCursor: null },
-        },
-      ),
     useReadStatus: (id?: string) => answered(answers.readStatus?.(id) ?? { data: undefined }),
     useHelpTopics: () => answered(answers.topics ?? { data: { topics: [] } }),
     useHelpPages: () => answered(answers.pages ?? { data: { items: [], nextCursor: null } }),
@@ -206,16 +201,62 @@ describe("the procedure reader, web and native, from one fixture", () => {
     );
   });
 
-  it("lists procedures without sections for an account refused them (a pack role)", () => {
-    const refused = { error: { code: "forbidden", message: "no" } };
-    const list = web(<Procedures knowledge={hooks({ sections: refused })} />);
-    expect(list).toContain("When someone is hurt");
-    expect(list).not.toContain("Safety");
-    expect(list).toContain('data-to-read=""');
-    const reader = web(
-      <ProcedureReader knowledge={hooks({ sections: refused })} id="rec_injury" />,
+  it("groups procedures under the section name the host gave with each, asking for no sections", () => {
+    const fire: Published = {
+      ...procedure,
+      id: "rec_fire",
+      values: { ...procedure.values, title: "Fire alarm" },
+      names: { section: "Front desk" },
+    };
+    const loose: Published = {
+      ...procedure,
+      id: "rec_loose",
+      values: { ...procedure.values, title: "Lost property", section: null },
+      names: {},
+    };
+    const list = web(
+      <Procedures
+        knowledge={hooks({
+          procedures: { data: { items: [procedure, fire, loose], nextCursor: null } },
+        })}
+      />,
     );
-    expect(reader).not.toContain('data-section=""');
+    const order = [
+      "Front desk",
+      "Fire alarm",
+      "Safety",
+      "When someone is hurt",
+      "Other",
+      "Lost property",
+    ];
+    const at = order.map((words) => list.indexOf(words));
+    expect(at.every((i) => i >= 0)).toBe(true);
+    expect([...at].sort((a, b) => a - b)).toEqual(at);
+    expect(list).toContain('data-to-read=""');
+    // The hooks the blocks are given hold no sections read: none can be asked for.
+    expect(Object.keys(hooks({}))).not.toContain("useSections");
+  });
+
+  it("asks for no picture the host said it will not serve this reader (a pack role)", () => {
+    const shown = web(<ProcedureReader knowledge={hooks({})} id="rec_injury" />);
+    expect(shown).toMatch(/<img [^>]*src="\/api\/media\/med_01FIXTURE/);
+    const withheld = web(
+      <ProcedureReader
+        knowledge={hooks({ procedure: { data: { ...procedure, pictures: false } } })}
+        id="rec_injury"
+      />,
+    );
+    expect(withheld).not.toContain("<img");
+    expect(withheld).toContain("This picture cannot be shown here: The hall from the stage, full.");
+    const native = web(
+      <NativeReader
+        knowledge={hooks({ procedure: { data: { ...procedure, pictures: false } } })}
+        id="rec_injury"
+        {...nativeProps}
+      />,
+    );
+    expect(native).not.toContain("<rn-image");
+    expect(native).toContain("This picture cannot be shown here");
   });
 
   it("says a procedure that is not published is not here, never showing anything else", () => {
@@ -330,6 +371,25 @@ describe("the help centre, web and native, from one fixture", () => {
     );
     expectEveryBlock(html, tree);
     for (const out of [html, tree]) expect(out).toContain("Pausing your membership");
+  });
+
+  it("draws a page's related pages, each linked by its address", () => {
+    const parking: Published = {
+      object: "knowledge.helppage",
+      id: "rec_parking",
+      values: { title: "Parking", slug: "parking", order: 1 },
+    };
+    const html = web(
+      <HelpArticle
+        knowledge={hooks({ pages: { data: { items: [parking], nextCursor: null } } })}
+        page={{ ...helpPage, values: { ...helpPage.values, related: ["rec_parking"] } }}
+      />,
+    );
+    expect(html).toMatch(
+      /<nav aria-label="Related pages"[^>]*>.*href="\/help\/parking"[^>]*>Parking<\/a>/s,
+    );
+    // With none related, no list is drawn.
+    expect(web(<HelpArticle knowledge={hooks({})} page={helpPage} />)).not.toContain("Related");
   });
 
   it("escapes what a page says: nothing is markup", () => {

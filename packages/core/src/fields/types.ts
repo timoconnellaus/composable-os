@@ -292,6 +292,12 @@ export interface PublishableDefinition {
    * version's content and slug through `content.staffGet`, `content.staffList` and `content.search`.
    */
   readonly staffRead?: boolean;
+  /**
+   * Staff read names (ADR 0708): single relation content fields to another object of the same
+   * pack whose related record's title a staff reader is given beside the values (a procedure's
+   * section), so a pack-role account need not read that object.
+   */
+  readonly staffNames?: readonly string[];
 }
 
 /**

@@ -36,6 +36,11 @@ export interface Published {
   values: Record<string, unknown>;
   version?: number;
   publishedAt?: string;
+  /**
+   * Staff read: the title of each related record the object names in `staffNames` (a procedure's
+   * section's name), by field, from the host (ADR 0708).
+   */
+  names?: Record<string, string>;
 }
 
 /** A part of a highlighted title, heading or snippet: plain, or a matching word. */
@@ -70,22 +75,12 @@ export type KnowledgeOperations = {
   "content.staffGet": {
     kind: "query";
     input: { object: string; id?: string; slug?: string };
-    output: Published & { redirect?: string };
+    output: Published & { redirect?: string; pictures?: boolean };
   };
   "content.staffList": { kind: "query"; input: ListInput; output: Page<Published> };
   "x.knowledge.toRead": { kind: "query" } & Io<typeof toRead>;
   "x.knowledge.confirm": { kind: "mutation" } & Io<typeof confirm>;
   "x.knowledge.readStatus": { kind: "query" } & Io<typeof readStatus>;
-  // Staff with a full role: the sections' names (a pack-role account is refused them).
-  "record.list": {
-    kind: "query";
-    input: {
-      object: string;
-      sort?: { field: string; direction: "asc" | "desc" };
-      limit?: number;
-    };
-    output: Page<{ id: string; values: Record<string, unknown> }>;
-  };
   // Anyone: help pages as published, and their topics.
   "content.get": {
     kind: "query";
@@ -120,7 +115,6 @@ export const KNOWLEDGE_HOOKS_CALL = {
   useToRead: ["x.knowledge.toRead"],
   useConfirm: ["x.knowledge.confirm"],
   useReadStatus: ["x.knowledge.readStatus"],
-  useSections: ["record.list"],
   useHelpTopics: ["x.knowledge.helpTopics"],
   useHelpPages: ["content.list"],
   useHelpPage: ["content.get"],
@@ -161,7 +155,10 @@ function allKnowledgeHooks(
       const options = by
         ? api.query("content.staffGet", { object: PROCEDURE, ...by })
         : idle("content.staffGet");
-      return useQuery<Published & { redirect?: string }>({ ...options, enabled: by !== null });
+      return useQuery<Published & { redirect?: string; pictures?: boolean }>({
+        ...options,
+        enabled: by !== null,
+      });
     },
     /** Staff: procedures whose published words match, each with its section's anchor. */
     useSearchProcedures(q: string) {
@@ -188,20 +185,6 @@ function allKnowledgeHooks(
         ...api.query("x.knowledge.readStatus", id === undefined ? {} : { id }),
         gcTime: 0,
       });
-    },
-    /**
-     * Staff with a full role: the sections, in their order, to group procedures under. A
-     * pack-role account (a coach, a cleaner) is refused them: the blocks then list procedures
-     * without sections (ADR 0706).
-     */
-    useSections() {
-      return useQuery(
-        api.query("record.list", {
-          object: SECTION,
-          sort: { field: "order", direction: "asc" },
-          limit: 100,
-        }),
-      );
     },
     /** Anyone: the help topics, in their order. */
     useHelpTopics() {
@@ -323,32 +306,32 @@ export function myStanding(
 
 /** Procedures under one section (or none). */
 export interface SectionGroup {
-  id: string | null;
   name: string | null;
   items: Published[];
 }
 
+/** A published procedure's section's name, as the host gave it (`names.section`), or null. */
+export function sectionOf(record: Pick<Published, "names">): string | null {
+  return str(record.names?.section);
+}
+
 /**
- * A page of procedures grouped by section, in the sections' order, those with no (or an unknown)
- * section last. `sections` is what `useSections` answered, or null when the account may not read
- * them (a pack role): then every procedure is in one group with no name.
+ * A page of procedures grouped by their section's name (the host's `names`, ADR 0708), the
+ * sections in alphabetical order, those with none last ("Other" when there are sections).
  */
-export function bySection(
-  procedures: readonly Published[],
-  sections: readonly { id: string; values: Record<string, unknown> }[] | null,
-): SectionGroup[] {
-  if (!sections) return procedures.length ? [{ id: null, name: null, items: [...procedures] }] : [];
-  const groups: SectionGroup[] = sections.map((s) => ({
-    id: s.id,
-    name: str(s.values.name) ?? "Untitled section",
-    items: [],
-  }));
-  const other: SectionGroup = { id: null, name: groups.length ? "Other" : null, items: [] };
+export function bySection(procedures: readonly Published[], locale = "en-AU"): SectionGroup[] {
+  const groups = new Map<string, Published[]>();
+  const other: Published[] = [];
   for (const procedure of procedures) {
-    const section = str(procedure.values.section);
-    (groups.find((g) => g.id === section) ?? other).items.push(procedure);
+    const name = sectionOf(procedure);
+    if (name === null) other.push(procedure);
+    else groups.set(name, [...(groups.get(name) ?? []), procedure]);
   }
-  return [...groups, other].filter((g) => g.items.length);
+  const named: SectionGroup[] = [...groups.entries()]
+    .sort(([a], [b]) => a.localeCompare(b, locale))
+    .map(([name, items]) => ({ name, items }));
+  if (other.length) named.push({ name: named.length ? "Other" : null, items: other });
+  return named;
 }
 
 /** A highlighted line's words, joined (for a label). */
@@ -404,7 +387,13 @@ export function knowledgeRefusal(error: unknown): KnowledgeRefusal {
     return { kind: "already_confirmed", message: "You have already confirmed this version." };
   }
   const code = [outer?.code, e?.code].find((c) => typeof c === "string");
-  if (code === "not_found") {
+  // The admin's staff client keeps a tool's inner details only (`{ object, id }` for not found).
+  const notFound =
+    code === "not_found" ||
+    (e?.code === "extension_error" &&
+      typeof outer?.object === "string" &&
+      typeof outer?.id === "string");
+  if (notFound) {
     return {
       kind: "not_found",
       message: "This is not here: it may have been unpublished, or it is not yours to confirm.",

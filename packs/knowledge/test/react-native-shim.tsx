@@ -3,7 +3,8 @@
 // React Native's components as plain elements, for drawing the native blocks in a test: each
 // renders `<rn-<name>>` with its testID, accessibility role and label, and an image's address.
 // What a phone draws is React Native's; what this checks is which elements the block makes from
-// a document, and what they say. Styles and handlers are dropped.
+// a document, and what they say. Styles are dropped; a press (`onPress`) is a click, so a DOM
+// test can tap a native button (blocks.dom.test.tsx).
 import { createElement, type ReactNode, type Ref } from "react";
 
 type Props = {
@@ -13,11 +14,14 @@ type Props = {
   accessibilityLabel?: string;
   source?: { uri?: string };
   children?: ReactNode;
+  onPress?: () => void;
+  disabled?: boolean;
   [key: string]: unknown;
 };
 
 function Host({ name, props }: { name: string; props: Props }) {
-  const { testID, nativeID, accessibilityRole, accessibilityLabel, source, children } = props;
+  const { testID, nativeID, accessibilityRole, accessibilityLabel, source, children, onPress } =
+    props;
   return createElement(
     `rn-${name}`,
     {
@@ -26,6 +30,7 @@ function Host({ name, props }: { name: string; props: Props }) {
       ...(accessibilityRole ? { "data-role": accessibilityRole } : {}),
       ...(accessibilityLabel ? { "data-label": accessibilityLabel } : {}),
       ...(source?.uri ? { "data-src": source.uri } : {}),
+      ...(onPress && !props.disabled ? { onClick: () => onPress() } : {}),
     },
     children,
   );

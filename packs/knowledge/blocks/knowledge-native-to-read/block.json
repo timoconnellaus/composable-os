@@ -2,7 +2,7 @@
   "name": "knowledge-native-to-read",
   "pack": "knowledge",
   "skin": "native",
-  "operations": ["x.knowledge.toRead", "x.knowledge.confirm", "content.staffGet", "record.list"],
+  "operations": ["x.knowledge.toRead", "x.knowledge.confirm", "content.staffGet"],
   "files": ["to-read-screen.tsx", "LICENSE"],
   "dependsOn": ["knowledge-native-procedures", "native-base"],
   "packages": {

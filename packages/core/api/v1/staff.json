@@ -26926,12 +26926,26 @@
             "type": "string",
             "description": "When that version was published"
           },
+          "names": {
+            "description": "For an object that declares staffNames: the title of each related record those fields name, by field (a procedure's section's name)",
+            "type": "object",
+            "propertyNames": {
+              "type": "string"
+            },
+            "additionalProperties": {
+              "type": "string"
+            }
+          },
           "redirect": {
             "description": "Read by an old slug: the slug the record has now; else null",
             "type": [
               "string",
               "null"
             ]
+          },
+          "pictures": {
+            "type": "boolean",
+            "description": "Whether the caller is served the record's pictures (media.serve): false for an account with a pack role, which a reader then does not ask for (ADR 0708)"
           }
         },
         "required": [
@@ -26940,7 +26954,8 @@
           "values",
           "version",
           "publishedAt",
-          "redirect"
+          "redirect",
+          "pictures"
         ],
         "additionalProperties": false
       },
@@ -27106,6 +27121,16 @@
                 "publishedAt": {
                   "type": "string",
                   "description": "When that version was published"
+                },
+                "names": {
+                  "description": "For an object that declares staffNames: the title of each related record those fields name, by field (a procedure's section's name)",
+                  "type": "object",
+                  "propertyNames": {
+                    "type": "string"
+                  },
+                  "additionalProperties": {
+                    "type": "string"
+                  }
                 }
               },
               "required": [

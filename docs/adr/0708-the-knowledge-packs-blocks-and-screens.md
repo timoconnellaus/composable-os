@@ -88,28 +88,37 @@ admin's source still names no pack, and nothing here decides who may read the re
 screen's own calls are the host's to answer.
 
 **A block another block brings that calls no operation (amends ADR 0424).** `cos add` copies a
-block of a pack that `product.ts` does not list when another block depends on it and it calls no
-operation: Content's rich text renderers, brought by Knowledge's blocks. Asked for by name, or
+block of a pack that `product.ts` does not list when it calls no operation and another block
+depends on it, one being added or one already copied (so `cos upgrade`'s "now depends on X (cos
+add X)" works, and a deleted renderer can be added back): Content's rich text renderers, brought by Knowledge's blocks. Asked for by name, or
 calling the host, a block's pack must still be listed. In this repository the admin's build and
 the pictures' build resolve such a sibling import (`../content-rich-text/…`) to the one pack whose
 `blocks/` holds it (`pack-blocks-plugin.ts`), as the blocks' tsconfigs do with `rootDirs`.
 
-**What a fixed-role account cannot have, and the smallest host change for each** (not made here:
-neither is decided by the spec, and step 6 widens nothing):
+**What a fixed-role account is given of a procedure's section and pictures** (amended in the
+PR's review round, see the amendment below; amends ADR 0701):
 
-- **A procedure's pictures.** `media.serve` is outside a pack-role account's reach (ADR 0701), so
-  its reader shows "This picture cannot be shown here" with the picture's alt text in its place.
-  The smallest correct change: put `media.serve` in `PACK_ROLE_STAFF_READS` and let it answer a
-  pack-role account through the path it already has for outsiders (`outsiderShown`, which asks
-  `core_published_media` for a current published version that shows the picture), with the
-  staff-read source as that account's reader, so it is served only a picture a published
-  staff-read version shows, never a draft's or another object's. Reviewed as step 2 was.
-- **Section names.** A pack-role account reaches only staff-read objects; `knowledge.section` is
-  not one, so `record.list` of sections is refused and the list is one list, the reader showing
-  no section. The smallest correct change: answer a relation's display name inside
-  `content.staffGet` and `content.staffList` for the relations among the published content fields
-  (the section's name beside its id), which needs no new reach; or declare the grouping object
-  readable by staff read. Until then a coach's Procedures screen is usable without them.
+- **Section names: given with the procedure.** `publishable.staffNames` (SDK, contract-checked)
+  names single relation content fields to another object of the same pack. `content.staffGet`
+  and `content.staffList` then give each record `names`: the related live record's title by field
+  (`names.section`, a procedure's section's name), read from that object's table, its title only,
+  nothing of a deleted one. The Knowledge pack declares `staffNames: ["section"]`, and its blocks
+  group and label by `names.section`; no block asks for sections at all (the `useSections` hook and
+  its `record.list` are gone). The reach this adds: a staff reader, a pack role's included, learns
+  the title of a section a published procedure names, which the procedure's own page already
+  showed it by id. The contract refuses a person, an organisation, another pack's object, a
+  relation to many and a field outside the content, and it needs `staffRead`.
+- **Pictures: never asked for.** `media.serve` stays outside a pack-role account's reach (ADR
+  0701), and a refused `media.serve` is audited (the media route calls it through the pipeline,
+  whose pack-role refusal writes a `forbidden` row). So `content.staffGet` answers `pictures`:
+  whether the caller reaches `media.serve` at all (`staffRightsReach`, one more statement on that
+  read). When it is false the reader draws no `<img>` and shows "This picture cannot be shown
+  here" with the alt text in its place. Serving a pack-role account a procedure's pictures stays
+  undecided by the spec; the smallest correct change remains: put `media.serve` in
+  `PACK_ROLE_STAFF_READS` and let it answer a pack-role account through the path it already has
+  for outsiders (`outsiderShown`, which asks `core_published_media` for a current published
+  version that shows the picture), with the staff-read source as that account's reader. Reviewed
+  as step 2 was.
 
 ## Consequences
 - A business's site gets a help centre by `cos add knowledge-help-centre knowledge-help-page`,
@@ -117,23 +126,48 @@ neither is decided by the spec, and step 6 widens nothing):
   through a role client (`knowledge-native-procedures`, `knowledge-native-to-read`).
 - A coach or a cleaner signs in to the admin and finds Procedures and To read in their small
   shell; a notice's link opens the reader.
-- A refused section read costs a pack-role account one refused call per screen load (the admin
-  asks `screens.mine` again after a refusal, at most every five seconds).
+- A coach's or a cleaner's Procedures, To read and reader make no call the host refuses: no
+  section read, no picture (the coach e2e asserts no refused call). So no `forbidden` audit row
+  and no `screens.mine` refetch comes from them.
+- `content.staffGet` and `content.staffList` answer `names` for an object that declares
+  `staffNames`, and `content.staffGet` answers `pictures` (the API contract changes with them).
 - The native blocks are untried on real phones.
 
 ## Proof
 - `packs/knowledge/test/blocks.test.tsx`: the reader and a help page drawn from one fixture by the
   web and the native blocks, every block type and the host's anchors in both; the confirm button's
-  words and place; no button for a newer version, for someone not asked or already confirmed; a
-  pack role's list without sections; read status shows only the refusal to a refused account;
-  nothing in a page is markup.
+  words and place; no button for a newer version, for someone not asked or already confirmed;
+  procedures grouped by the host's section names, with no sections read; no picture asked for
+  when the host says it is not served; a related page drawn; read status shows only the refusal
+  to a refused account; nothing in a page is markup.
+- `packs/knowledge/test/blocks.dom.test.tsx` (happy-dom): the confirm button pressed, web and
+  native, with the list at version 3 and the reader at version 4: `{ version: 4 }` is sent; a
+  refusal in the staff client's real `not_current` shape is shown as an alert and never as
+  "Confirmed".
+- `packages/sdk/test/staff-names.test.ts`: what the contract checks of `staffNames`.
+- `apps/runner/test/knowledge.test.ts`: a coach and a member get the section's name with the
+  procedure (by id and in a list) while the coach is still refused the section; a deleted section
+  gives none; `pictures` is true for an admin and a member, false for a coach.
 - `packs/knowledge/test/client.test.ts`: `myStanding`, `knowledgeRefusal` (the tool's nested
   details), `bySection`, the CSV, the head, which hooks a public client gets, that search asks
   for help pages and procedures by object, and read status's `gcTime: 0`.
 - `packages/create-composable-os/test/client-repo.test.ts`: `cos add knowledge-help-page` with
-  only Knowledge listed brings Content's renderer; `cos add content-post` is still refused.
+  only Knowledge listed brings Content's renderer; `cos add content-post` is still refused; the
+  renderer, deleted, is added back by name.
 - `apps/app/test-node/screens-plugin.test.ts`: the four screens resolve and build.
 - `apps/app/e2e/knowledge.spec.ts`: a visitor searches the help centre and reads a page; a
   manager publishes a procedure, a member reads it in To read and confirms, and it leaves the
   list; the manager sees who has not; a coach follows the notice's link from the small shell,
-  reads and confirms.
+  sees the section's name and no picture asked for, reads and confirms; after a read-again
+  version it is to read again, a further version published while the reader is open makes the
+  confirmation refused as not current (shown, never done), and the new version is read and
+  confirmed; no call of the coach's is refused.
+
+## Amendment, 2026-11-26 (the PR's review)
+Before review, a coach's screens asked for sections (`record.list`, refused) on every list and
+reader, and for each picture (`media.serve`, refused): each refusal wrote a `forbidden` audit row
+and made the admin ask `screens.mine` again. The section's name now comes with the procedure
+(`staffNames`) and the reader asks for no picture the host said it will not serve (`pictures`),
+as above. `HelpPage` and `HelpPageScreen` call `onRedirect` from an effect, never while
+rendering. `knowledgeRefusal` reads the admin's staff client's shape (the tool's inner details
+only) as well as the typed client's.

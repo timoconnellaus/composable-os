@@ -305,10 +305,20 @@ test("a coach signs in to the admin, opens today's list and ticks who came", asy
     const watch = watchRefusals(coach.page);
     await open(coach.page, "/");
     await expect(coach.page.locator('[data-shell="fixed-role"]')).toBeVisible();
-    // Its Bookings screens: another pack's for every staff account (Knowledge's Procedures and To
-    // read, when a spec has installed it) may sit beside them.
-    const screens = coach.page.getByTestId("screens-nav-Bookings").locator("a");
-    await expect(screens).toHaveText(["Class list"]);
+    // Its whole shell: Bookings' class list, and the screens every staff account has of the packs
+    // installed: Knowledge's (the global setup installs it), and Daily checklists' Today's
+    // checklists when a spec has installed that (read from the host just before comparing).
+    const screens = coach.page.locator('[data-testid^="screens-nav-"] a');
+    const listed = await op<{ screens: { pack: string; nav?: unknown }[] }>(
+      coach.page.request,
+      "screens.mine",
+      {},
+    );
+    const checklists = listed.screens.some((s) => s.pack === "dailychecks" && s.nav)
+      ? ["Today's checklists"]
+      : [];
+    const theirs = (bookings: string[]) => [...bookings, ...checklists, "Procedures", "To read"];
+    await expect(screens).toHaveText(theirs(["Class list"]));
     // No search, assistant, notifications or records in its shell.
     await expect(coach.page.getByTestId("open-palette")).toHaveCount(0);
     await expect(coach.page.getByTestId("open-assistant")).toHaveCount(0);
@@ -360,13 +370,13 @@ test("a coach signs in to the admin, opens today's list and ticks who came", asy
       permissions: ["bookings:desk"],
     });
     await open(coach.page, "/");
-    await expect(screens).toHaveText(["Front desk", "Class list"]);
+    await expect(screens).toHaveText(theirs(["Front desk", "Class list"]));
     await openScreen(coach.page, "Bookings", "Front desk");
     await expect(coach.page.getByRole("region", { name: "Front desk" })).toBeVisible();
     // The grant removed: gone on the next load, and its address is "not found".
     await op(page.request, "user.setPermissions", { id: coach.id, permissions: [] });
     await open(coach.page, "/");
-    await expect(screens).toHaveText(["Class list"]);
+    await expect(screens).toHaveText(theirs(["Class list"]));
     await coach.page.goto("/s/bookings/desk");
     await expect(coach.page.getByTestId("not-found")).toBeVisible();
   } finally {

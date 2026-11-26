@@ -261,7 +261,9 @@ Read one published record (a procedure) of an object staff read as published, by
 | `values` | map of any | yes |   |   |
 | `version` | integer | yes | ≥ -9007199254740991, ≤ 9007199254740991 | The published version these values are |
 | `publishedAt` | string | yes |   | When that version was published |
+| `names` | map of string |   |   | For an object that declares staffNames: the title of each related record those fields name, by field (a procedure's section's name) |
 | `redirect` | string or null | yes |   | Read by an old slug: the slug the record has now; else null |
+| `pictures` | boolean | yes |   | Whether the caller is served the record's pictures (media.serve): false for an account with a pack role, which a reader then does not ask for (ADR 0708) |
 
 ## content.staffList
 
@@ -295,4 +297,5 @@ A page of the published records (procedures) of an object staff read as publishe
 | `items[].values` | map of any | yes |   |   |
 | `items[].version` | integer | yes | ≥ -9007199254740991, ≤ 9007199254740991 | The published version these values are |
 | `items[].publishedAt` | string | yes |   | When that version was published |
+| `items[].names` | map of string |   |   | For an object that declares staffNames: the title of each related record those fields name, by field (a procedure's section's name) |
 | `nextCursor` | string or null | yes |   |   |

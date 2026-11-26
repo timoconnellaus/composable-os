@@ -2662,8 +2662,10 @@ _Avoid_: search index (that is `core_search`, over working copies, for staff), F
 **Staff read** (of a publishable object; stage 38, ADR 0701)
 What an object that declares `publishable.staffRead` gives every staff account, pack roles (a
 cleaner, a coach, the door) included: its records' current published versions, their content and
-slug, through `content.staffGet`, `content.staffList` and `content.search`. Never the working copy
-being edited, never a draft or an unpublished record, never the public or a customer.
+slug, through `content.staffGet`, `content.staffList` and `content.search`, and the title of a
+related record of the same pack its `staffNames` fields name (a procedure's section's name, ADR
+0708). Never the working copy being edited, never a draft or an unpublished record, never the
+public or a customer.
 _Avoid_: staff view (a saved view of records), internal (a note's level)
 
 **Procedure** (stage 38, ADR 0706)
