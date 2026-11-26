@@ -125,7 +125,7 @@ business, and its lawyer or the booking system's support, to confirm. The load s
 - **Step 9** — unclear — the roster is "later" by decision 1 and the owner's change of plan calls step 9
   moot without amending the spec — The roster (migration 1411).
 
-- **Step 10** — built — PR #NNN — Erase, merge, removal (built 2026-11-26, branch
+- **Step 10** — built — PR #508 — Erase, merge, removal (built 2026-11-26, branch
   `feat/stage-65-erase-merge`; ADR 0926; no migration): `packages/core/src/outside/erase.ts`:
   `person.erase` (through `queueErase`) deletes every outside person linked to the Person or listed
   with their address, coaches with their address, their memberships, passes, bookings, To match
