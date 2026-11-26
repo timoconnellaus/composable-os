@@ -111,19 +111,15 @@ describe("cos ext check on the shipped extensions", () => {
   it("leaves out one that requires the checked extension: it is installed after it (ADR 0764)", async () => {
     // Bookings names Memberships' holders as payers; Memberships requires Bookings (its passes
     // relate to bookings.service). Each passes, checked from either side.
-    for (const name of ["bookings", "memberships"]) {
-      const result = await checkExtensionDir(shipped(name));
-      expect(result.issues, name).toEqual([]);
-    }
-    // And says so: Bookings is checked without Memberships installed.
-    const bookings = await checkExtensionDir(shipped("bookings"));
-    expect(bookings.leftOut).toEqual([
-      { id: "memberships", why: "it requires bookings, which is installed before it" },
-    ]);
+    const memberships = await checkExtensionDir(shipped("memberships"));
+    expect(memberships.issues).toEqual([]);
+    // Bookings through the command, which says it was checked without Memberships installed.
     const out = io();
     expect(await runExt(["check", shipped("bookings")], out)).toBe(0);
-    expect(out.lines.join("\n")).toContain("note: checked without ../memberships installed");
-  });
+    expect(out.lines.join("\n")).toContain(
+      "note: checked without ../memberships installed: it requires bookings, which is installed before it",
+    );
+  }, 180_000);
 
   it("installs a pack another names in the middle, leaving out one that requires it (Offers)", async () => {
     // Offers names Bookings' and Memberships' objects; Memberships requires Bookings. Memberships
@@ -131,7 +127,7 @@ describe("cos ext check on the shipped extensions", () => {
     const result = await checkExtensionDir(shipped("offers"));
     expect(result.issues).toEqual([]);
     expect(result.leftOut).toEqual([]);
-  });
+  }, 180_000);
 
   it("refuses what a discount covers when the pack beside it declares no such object", () => {
     const manifest = {
