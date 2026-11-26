@@ -3,15 +3,32 @@
 // - ConnectCallback: the connect flow's `GatekeeperConnectCallback` for one connection;
 // - HostHookInitiator: a bound hook's `HookInitiator`, whose startHook() opens one firing.
 // Both forward to the connection's integration host Durable Object.
+//
+// On a many-client host (stage 66, ADR 0615) the props carry the client whose connection minted
+// them: a gatekeeper calling back reaches that client's connection object and no other, since
+// props are the host's and the holder cannot change them. One minted without a client refuses.
 import { WorkerEntrypoint } from "cloudflare:workers";
+import { propsClientEnvironment } from "@composable-os/db/client-entries";
+import { PROOF } from "@composable-os/db/client-proofs";
 import { hostFor } from "./runtime.ts";
 
-export class ConnectCallback extends WorkerEntrypoint<
-  Env,
-  { connectionId: string; vendor: string }
-> {
+interface Minted {
+  connectionId: string;
+  /** The client, on a many-client host; absent or null on a single-client deployment. */
+  client?: string | null;
+  /** The host's proof of the client and the connection, made when it was minted. */
+  proof?: string | null;
+}
+
+/** The minting connection's object, in its client's environment. */
+async function mintedHost(env: Env, props: Minted) {
+  const clientEnv = await propsClientEnvironment(env, props, PROOF.callback, props.connectionId);
+  return hostFor(clientEnv, props.connectionId);
+}
+
+export class ConnectCallback extends WorkerEntrypoint<Env, Minted & { vendor: string }> {
   async complete(user: unknown, expiresAt?: Date) {
-    return hostFor(this.env, this.ctx.props.connectionId).stage(
+    return (await mintedHost(this.env, this.ctx.props)).stage(
       this.ctx.props.vendor,
       user,
       expiresAt,
@@ -19,26 +36,23 @@ export class ConnectCallback extends WorkerEntrypoint<
   }
 
   async reconnectComplete(stageId: string, _expiresAt?: Date) {
-    return hostFor(this.env, this.ctx.props.connectionId).stageReconnect(
+    return (await mintedHost(this.env, this.ctx.props)).stageReconnect(
       this.ctx.props.vendor,
       stageId,
     );
   }
 
   async credentialsExpired(): Promise<void> {
-    await hostFor(this.env, this.ctx.props.connectionId).credentialsChanged("expired");
+    await (await mintedHost(this.env, this.ctx.props)).credentialsChanged("expired");
   }
 
   async credentialsRestored(_expiresAt?: Date): Promise<void> {
-    await hostFor(this.env, this.ctx.props.connectionId).credentialsChanged("restored");
+    await (await mintedHost(this.env, this.ctx.props)).credentialsChanged("restored");
   }
 }
 
-export class HostHookInitiator extends WorkerEntrypoint<
-  Env,
-  { connectionId: string; hookId: string }
-> {
+export class HostHookInitiator extends WorkerEntrypoint<Env, Minted & { hookId: string }> {
   async startHook() {
-    return hostFor(this.env, this.ctx.props.connectionId).startHook(this.ctx.props.hookId);
+    return (await mintedHost(this.env, this.ctx.props)).startHook(this.ctx.props.hookId);
   }
 }

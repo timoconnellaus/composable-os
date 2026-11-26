@@ -12,7 +12,7 @@
     "dev": "pnpm --filter @composable-os/app dev",
     "build": "turbo run build",
     "typecheck": "turbo run typecheck",
-    "lint": "biome check . && node scripts/check-agent-imports.mjs && node scripts/check-stray-names.mjs && node scripts/stage-status.mjs --check && node scripts/check-skills-version.mjs && node scripts/check-blocks.mjs && node blocks/web-base.mjs --check && node scripts/ci-unit-shards.mjs --check && node --test scripts/check-blocks.test.mjs scripts/check-agent-imports.test.mjs scripts/check-stray-names.test.mjs scripts/stage-status.test.mjs scripts/check-skills-version.test.mjs scripts/ci-docs-only.test.mjs scripts/ci-unit-shards.test.mjs scripts/smoke-deployment.test.mjs scripts/turnstile-keys.test.mjs",
+    "lint": "biome check . && node scripts/check-agent-imports.mjs && node scripts/check-module-env.mjs && node scripts/check-stray-names.mjs && node scripts/stage-status.mjs --check && node scripts/check-skills-version.mjs && node scripts/check-blocks.mjs && node blocks/web-base.mjs --check && node scripts/ci-unit-shards.mjs --check && node --test scripts/check-blocks.test.mjs scripts/check-agent-imports.test.mjs scripts/check-module-env.test.mjs scripts/check-stray-names.test.mjs scripts/stage-status.test.mjs scripts/check-skills-version.test.mjs scripts/ci-docs-only.test.mjs scripts/ci-unit-shards.test.mjs scripts/smoke-deployment.test.mjs scripts/turnstile-keys.test.mjs",
     "format": "biome check --write .",
     "test": "turbo run test",
     "test:client-db": "COS_TEST_DB=client-db turbo run test --filter=@composable-os/core --filter=@composable-os/auth --filter=@composable-os/app --filter=@composable-os/runner",

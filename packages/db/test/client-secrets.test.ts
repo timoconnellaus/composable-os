@@ -8,6 +8,7 @@ import { env } from "cloudflare:workers";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 import { gatekeeperBaseUrl, isCallbackHostname, isCallbackRequest } from "../src/callbacks.ts";
 import type { ClientDb } from "../src/client-db.ts";
+import type { ClientDbQueryService } from "../src/client-db-service.ts";
 import { ENV_NAMES } from "../src/client-env-names.ts";
 import { ClientDirectory, envNameUse } from "../src/client-environment.ts";
 import { buildClientEnvironment } from "../src/client-environment-build.ts";
@@ -52,6 +53,7 @@ const real = env as unknown as {
   DB: D1Database;
   REGISTRY: D1Database;
   CLIENT_DB: DurableObjectNamespace<ClientDb>;
+  CLIENT_DB_QUERIES: ClientDbQueryService;
 };
 
 const A = "gym-a" as ClientId;
@@ -75,6 +77,8 @@ function manyClientEnv(extra: Record<string, unknown> = {}) {
     DB: real.DB,
     REGISTRY: real.REGISTRY,
     CLIENT_DB: real.CLIENT_DB,
+    // The query path a client's DB goes through (stage 66 step 2).
+    CLIENT_DB_QUERIES: real.CLIENT_DB_QUERIES,
     COS_HOST_ENVIRONMENT: "live",
     COS_ROOT_KEY: ROOT,
     COS_SECRETS_PRIVATE_KEY: PRIVATE,

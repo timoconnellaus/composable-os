@@ -29,7 +29,7 @@
 // are byte for byte what they were before the module was shared.
 import { type RateLimitBinding, readStaffFeed } from "@composable-os/core";
 import { createCrmDb } from "@composable-os/db";
-import { isFeedPath, serveFeed } from "./calendar-feed.ts";
+import { feedSecret, isFeedPath, serveFeed } from "./calendar-feed.ts";
 
 export interface StaffFeedEnv {
   DB: D1Database;
@@ -64,7 +64,7 @@ export function handleStaffFeed(
       tokenLimit: env.STAFF_FEED_RATE_LIMIT,
       addressLimit: env.STAFF_FEED_ADDRESS_RATE_LIMIT,
       keys: { token: "feed", address: "feed-from" },
-      secret: env.BETTER_AUTH_SECRET ?? "",
+      secret: feedSecret(env),
       failure: "staff calendar feed could not be served",
       async read(token, at) {
         const feed = await readStaffFeed(createCrmDb(env.DB).query, token, at);

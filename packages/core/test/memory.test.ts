@@ -438,6 +438,26 @@ describe("what a turn sends", () => {
     expect(after.tail[0]?.text).toContain("I take Mondays off");
   });
 
+  it("an edit in the same millisecond as the fold still leaves the block (review of #512, M6)", async () => {
+    const user = await createUser("member");
+    // One clock for the save, the fold and the edit: every timestamp is the same millisecond.
+    const at = new Date(Date.UTC(2031, 0, 2, 3, 4, 5, 6));
+    const saved = await propose(
+      { text: "I take Fridays off" },
+      { ...chat(user, accepts()), clock: () => at },
+    );
+    const first = await turn(user.id, EMPTY_THREAD_MEMORY, true);
+    expect(first.block).toBe("- I take Fridays off");
+    await invokeByName(
+      "memory.update",
+      { id: saved.line?.id, text: "I take Mondays off" },
+      { ...context(user), clock: () => at },
+    );
+    const after = await turn(user.id, first.state);
+    expect(after.block).toBeUndefined();
+    expect(after.tail[0]?.text).toContain("I take Mondays off");
+  });
+
   it("sends nothing while memory is paused, and a paused line is not read", async () => {
     const user = await createUser("member");
     const one = await save(user, "I take Fridays off");

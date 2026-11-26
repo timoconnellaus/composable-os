@@ -55,6 +55,14 @@ import {
   vendorBinding,
 } from "@composable-os/core";
 import { createCrmDb } from "@composable-os/db";
+import {
+  CLIENT_OBJECT,
+  ClientObject,
+  gatekeeperOffered,
+  perClientMissing,
+  refreshOnEachCall,
+} from "@composable-os/db/client-entries";
+import { PROOF } from "@composable-os/db/client-proofs";
 import { runnerJudge } from "../extensions/ai.ts";
 import { paymentEventDeps } from "./payments.ts";
 import { HostQueue, type QueueCaller, type QueueHost } from "./queue.ts";
@@ -307,6 +315,25 @@ export class TextSink extends RpcTarget {
 export class IntegrationHost extends DurableObject<Env> {
   /** Configurator `ui` capabilities by resource pattern, for this isolate's lifetime. */
   #configurators = new Map<string, Stub>();
+  /**
+   * Whose connection this is on a many-client host (stage 66, ADR 0615): named
+   * `<client>:<connectionId>` by the INTEGRATION_HOST wrapper, it runs on that client's
+   * environment, and every entrypoint it mints for a gatekeeper carries that client in its props.
+   */
+  readonly #client = new ClientObject(this.ctx, this.env, (clientEnv) => {
+    this.env = clientEnv;
+  });
+
+  /** Its ClientObject, for `refreshOnEachCall` (below the class). */
+  get [CLIENT_OBJECT]() {
+    return this.#client;
+  }
+
+  /** The host's proof on what this object mints for a gatekeeper (review of #512, S1). */
+  #mintProof(connectionId: string): string | null {
+    const client = this.#client.client;
+    return client === null ? null : this.#client.proof(PROOF.callback, client, connectionId);
+  }
 
   // --- State ----------------------------------------------------------------------------------
 
@@ -314,7 +341,7 @@ export class IntegrationHost extends DurableObject<Env> {
     const meta = await this.ctx.storage.get<Meta>("meta");
     if (meta) return meta;
     // First use: read the mirror row the operation wrote.
-    const id = this.ctx.id.name ?? "";
+    const id = this.#client.name ?? "";
     const row = await this.env.DB.prepare(
       "SELECT id, vendor, scope, owner_user_id, title FROM core_integration_connection WHERE id = ?",
     )
@@ -339,6 +366,14 @@ export class IntegrationHost extends DurableObject<Env> {
   }
 
   #vendor(vendor: string): Stub {
+    const offered = gatekeeperOffered(this.env, vendorBinding(vendor));
+    if (!offered.offered) {
+      throw new Error(
+        offered.why.includes("not available on this host")
+          ? `The ${vendor} gatekeeper is not available on this host yet`
+          : `The ${vendor} gatekeeper is not deployed here`,
+      );
+    }
     const binding = (this.env as unknown as Record<string, unknown>)[vendorBinding(vendor)];
     if (!binding) throw new Error(`The ${vendor} gatekeeper is not deployed here`);
     if (vendor === "fake" && this.env.INTEGRATIONS_FAKE_PROVIDER !== "true") {
@@ -392,7 +427,12 @@ export class IntegrationHost extends DurableObject<Env> {
   ): Promise<ConnectStart> {
     const meta = await this.#meta();
     const origin = appOrigin ?? this.env.APP_ORIGIN;
-    if (!origin) throw new Error("The CRM's public origin is unknown (APP_ORIGIN)");
+    if (!origin) {
+      throw new Error(
+        perClientMissing(this.env, "APP_ORIGIN") ??
+          "The CRM's public origin is unknown (APP_ORIGIN)",
+      );
+    }
     const nonce = token();
     await this.ctx.storage.put<PendingConnect>("connect", {
       vendor,
@@ -407,7 +447,12 @@ export class IntegrationHost extends DurableObject<Env> {
       ({ url } = await (await this.#account(vendor)).reconnect());
     } else {
       const callback = this.ctx.exports.ConnectCallback({
-        props: { connectionId: meta.connectionId, vendor },
+        props: {
+          connectionId: meta.connectionId,
+          vendor,
+          client: this.#client.client,
+          proof: this.#mintProof(meta.connectionId),
+        },
       });
       ({ url } = await this.#vendor(vendor).connectAccount(callback, {}));
     }
@@ -1219,7 +1264,12 @@ export class IntegrationHost extends DurableObject<Env> {
     const controller = await this.ctx.storage.get<Stub>(`controller:${id}`);
     if (!controller) throw new Error("The hook controller is gone");
     const initiator = this.ctx.exports.HostHookInitiator({
-      props: { connectionId: meta.connectionId, hookId: id },
+      props: {
+        connectionId: meta.connectionId,
+        hookId: id,
+        client: this.#client.client,
+        proof: this.#mintProof(meta.connectionId),
+      },
     });
     await controller.enable(initiator, { workspaceId: meta.connectionId });
     await this.ctx.storage.put<HookRecord>(`hook:${id}`, {
@@ -1530,3 +1580,6 @@ export class IntegrationHost extends DurableObject<Env> {
     };
   }
 }
+
+// Every async method re-reads the client's admission first (stage 66, review of #512, M2).
+refreshOnEachCall(IntegrationHost);

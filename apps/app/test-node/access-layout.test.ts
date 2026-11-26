@@ -1,10 +1,10 @@
 // The Access layout (ADR 0455, src/server/access-layout.ts) against cos-app's route table: every
 // route the host serves is either staff-only behind Access or a bypassed path that authenticates
-// by its own means. A route added anywhere (a file route, a dispatch in src/server.ts, an OAuth
+// by its own means. A route added anywhere (a file route, a dispatch in src/server/entry.ts, an OAuth
 // endpoint, a gatekeeper vendor) that is in neither list fails here, so it cannot be forgotten.
 //
 // The route table is read from the sources the Worker is built from: TanStack Start's generated
-// route tree, the entry's own dispatch (src/server.ts), the MCP/OAuth handler's endpoints and the
+// route tree, the entry's own dispatch (src/server/entry.ts), the MCP/OAuth handler's endpoints and the
 // integrations catalogue.
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
@@ -60,8 +60,9 @@ describe("every route of cos-app is accounted for behind Access", () => {
     }
   });
 
-  it("the Worker entry's own dispatch (src/server.ts), before TanStack Start", () => {
-    const server = read("../src/server.ts");
+  it("the Worker entry's own dispatch (src/server/entry.ts), before TanStack Start", () => {
+    // The dispatch moved out of src/server.ts into src/server/entry.ts (stage 66 step 4).
+    const server = read("../src/server/entry.ts");
     const dispatched = new Set([
       ...[...server.matchAll(/if \((\w+)\(pathname\)\)/g)].map((m) => m[1] as string),
       ...[...server.matchAll(/pathname === (\w+)/g)].map((m) => m[1] as string),
