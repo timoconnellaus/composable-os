@@ -1191,6 +1191,60 @@ node scripts/release/inspect-bundle.ts release-out/composable-os-crm-1.2.3.tar.g
 Releases are built by `.github/workflows/release.yml` on a `vX.Y.Z` / `vX.Y.Z-beta.N` tag; see
 [`scripts/release/README.md`](../scripts/release/README.md).
 
+## Proving a client's database on Cloudflare (stage 66 step 1)
+
+One host for many clients keeps each client's records in a Durable Object (`ClientDb`, ADR 0612)
+instead of D1. Before more is built on it, the proof Worker (`apps/client-db-proof`) is deployed to
+the fleet's account and measured: a typical staff page and a customer checkout on D1 and on a
+client's database, and every probe on which the two answer differently. It is not the host and
+serves no one; it holds only its own seeded records.
+
+**What the owner sets up (done 2026-11-26):**
+
+- Repository secrets `FLEET_CLOUDFLARE_API_TOKEN` and `FLEET_CLOUDFLARE_ACCOUNT_ID` (the account's
+  id is a secret too, and is never written in a file).
+- The token: account-owned, on the fleet's account, with Workers Scripts: Edit, D1: Edit, Workers
+  KV Storage: Edit, Workers R2 Storage: Edit, Queues: Edit, Vectorize: Edit, AI Gateway: Edit and
+  Account Settings: Read; and, on the zone `composableos.app` only, Zone: Read, Workers Routes:
+  Edit, DNS: Edit, SSL and Certificates: Edit. The proof needs only **Workers Scripts: Edit** (the
+  Worker, its Durable Object class and its secret), **D1: Edit** (finding or creating its
+  database) and **Account Settings: Read**; it uses no zone, so it is served on `workers.dev`.
+- The account must have a `workers.dev` subdomain (Workers & Pages in the dashboard shows it; an
+  account that has deployed to `workers.dev` before has one). Without it `wrangler deploy` asks for
+  one and the run fails.
+- No variable is needed. The workflow's inputs choose the location hint (default `oc`, Oceania,
+  stage 43) and how many runs it times.
+
+**What runs** (`Client database proof`, Actions, *Run workflow*; it runs only by hand, and with a
+secret missing it passes with a notice and deploys nothing):
+
+1. `pnpm --filter @composable-os/db test` and `pnpm --filter @composable-os/client-db-proof test`
+   on the runner: the probes on the local D1 and `ClientDb`, and every scenario on both.
+2. A fresh random key for the run (masked in the log).
+3. `pnpm --filter @composable-os/client-db-proof run deploy` (`scripts/deploy.mjs`): the Worker and
+   its D1 database are named from the product (`crm-client-db-proof` for the CRM); the database is
+   found or created with the location hint; the Worker is deployed with `ClientDb` and the key set
+   as its `PROOF_KEY` secret.
+4. `scripts/time.mjs`: migrations and the seed on both databases (300 people with a note each,
+   two class passes, a payments connection), the probes on Cloudflare, then each scenario timed
+   inside the Worker, alternating databases. The table of medians and p95s is in the run's
+   summary, and the JSON in its `client-db-proof` artifact.
+
+The runner is a GitHub machine, usually in North America, so the time inside the Worker is the
+measure to read: the Worker runs where the request lands, and a request from far from the
+databases pays the distance on every query, on both. To time it from Australia, near the
+databases, set a key of your own (the workflow's is masked and replaced on each run) and run the
+script against the deployed Worker:
+
+```sh
+pnpm --filter @composable-os/client-db-proof exec wrangler secret put PROOF_KEY --name crm-client-db-proof
+PROOF_KEY=<that key> pnpm --filter @composable-os/client-db-proof time:remote -- \
+  --url https://crm-client-db-proof.<subdomain>.workers.dev --runs 10 --rounds 5 --skip-setup
+```
+ To remove the proof:
+`wrangler delete crm-client-db-proof` and `wrangler d1 delete crm-client-db-proof` with the
+fleet's token.
+
 ## Manual end-to-end run (needs a human)
 
 Stage 8 acceptance criterion 8. **Status: not yet run; needs a human with a Cloudflare account.**

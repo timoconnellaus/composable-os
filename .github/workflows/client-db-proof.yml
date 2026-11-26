@@ -1,0 +1,101 @@
+# Stage 66 step 1 (ADR 0612): deploys the proof Worker (apps/client-db-proof) to the fleet's
+# account, a client's database (ClientDb) beside a D1 database, then times a staff page and a
+# customer checkout on each and reports every probe on which the two answer differently. Run by
+# hand only. Uses FLEET_CLOUDFLARE_API_TOKEN and FLEET_CLOUDFLARE_ACCOUNT_ID (docs/deploying.md,
+# "Proving a client's database on Cloudflare"); without them nothing is deployed and the workflow
+# passes with a notice.
+name: Client database proof
+
+on:
+  workflow_dispatch:
+    inputs:
+      location:
+        description: Where the D1 database and the client's object are created
+        type: choice
+        default: oc
+        options: [oc, apac, wnam, enam, weur, eeur]
+      runs:
+        description: Runs of each scenario per request
+        default: "10"
+      rounds:
+        description: Requests per scenario and database
+        default: "5"
+
+concurrency:
+  group: client-db-proof
+  cancel-in-progress: false
+
+permissions:
+  contents: read
+
+jobs:
+  check:
+    name: Deploy configured?
+    runs-on: ubuntu-latest
+    outputs:
+      enabled: ${{ steps.check.outputs.enabled }}
+    steps:
+      - id: check
+        env:
+          TOKEN: ${{ secrets.FLEET_CLOUDFLARE_API_TOKEN }}
+          ACCOUNT: ${{ secrets.FLEET_CLOUDFLARE_ACCOUNT_ID }}
+        run: |
+          if [ -n "$TOKEN" ] && [ -n "$ACCOUNT" ]; then
+            echo "enabled=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "enabled=false" >> "$GITHUB_OUTPUT"
+            echo "::notice::FLEET_CLOUDFLARE_API_TOKEN / FLEET_CLOUDFLARE_ACCOUNT_ID are not set; not deploying the client database proof."
+          fi
+
+  prove:
+    name: Deploy, compare and time
+    needs: check
+    if: needs.check.outputs.enabled == 'true'
+    runs-on: ubuntu-latest
+    env:
+      CLOUDFLARE_API_TOKEN: ${{ secrets.FLEET_CLOUDFLARE_API_TOKEN }}
+      CLOUDFLARE_ACCOUNT_ID: ${{ secrets.FLEET_CLOUDFLARE_ACCOUNT_ID }}
+      LOCATION_HINT: ${{ inputs.location }}
+    steps:
+      - uses: actions/checkout@v5
+      - uses: pnpm/action-setup@v4
+      - uses: actions/setup-node@v5
+        with:
+          node-version-file: .nvmrc
+          cache: pnpm
+      - run: pnpm install --frozen-lockfile
+      # The suites on a client's database first, locally on the runner: nothing is deployed if
+      # they fail.
+      - run: pnpm --filter @composable-os/db test
+      - run: pnpm --filter @composable-os/client-db-proof test
+      # A fresh key for this run, masked in the log; the Worker refuses every request without it.
+      - id: key
+        run: |
+          key="$(openssl rand -hex 32)"
+          echo "::add-mask::$key"
+          echo "key=$key" >> "$GITHUB_OUTPUT"
+      - id: deploy
+        env:
+          PROOF_KEY: ${{ steps.key.outputs.key }}
+        run: pnpm --filter @composable-os/client-db-proof run deploy
+      - name: Compare and time
+        env:
+          PROOF_KEY: ${{ steps.key.outputs.key }}
+        run: >-
+          pnpm --filter @composable-os/client-db-proof exec node scripts/time.mjs
+          --url "${{ steps.deploy.outputs.url }}"
+          --runs "${{ inputs.runs }}" --rounds "${{ inputs.rounds }}"
+          --out "$RUNNER_TEMP/client-db-proof.json"
+          | tee "$RUNNER_TEMP/client-db-proof.txt"
+      - name: Summary
+        if: always()
+        run: |
+          if [ -f "$RUNNER_TEMP/client-db-proof.txt" ]; then
+            { echo '```'; cat "$RUNNER_TEMP/client-db-proof.txt"; echo '```'; } >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: client-db-proof
+          path: ${{ runner.temp }}/client-db-proof.*
+          if-no-files-found: ignore

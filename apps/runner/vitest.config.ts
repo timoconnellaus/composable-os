@@ -1,6 +1,7 @@
 import { fileURLToPath } from "node:url";
 import { readD1Migrations } from "@cloudflare/vitest-plugin";
 import { defineWorkersTestConfig } from "@composable-os/config/vitest";
+import { clientDbSetupFiles, withClientDb } from "@composable-os/db/testing/vitest";
 import { build } from "esbuild";
 
 const migrationsDir = fileURLToPath(new URL("../../packages/db/migrations", import.meta.url));
@@ -94,7 +95,8 @@ export default { fetch: () => new Response("fake email service") };
 export default defineWorkersTestConfig({
   workers: async () => ({
     wrangler: { configPath: "./wrangler.jsonc" },
-    miniflare: {
+    // COS_TEST_DB=client-db: env.DB is a client's database (stage 66, ADR 0612).
+    miniflare: await withClientDb({
       bindings: {
         TEST_MIGRATIONS: await readD1Migrations(migrationsDir),
         // Stage 6a: the fake OAuth provider and gatekeeper (fake transports only, no accounts).
@@ -239,7 +241,7 @@ export default defineWorkersTestConfig({
           durableObjects: { SENT: { className: "Sent", useSQLite: true } },
         },
       ],
-    },
+    }),
   }),
-  setupFiles: ["./test/apply-migrations.ts"],
+  setupFiles: clientDbSetupFiles(["./test/apply-migrations.ts"]),
 });
