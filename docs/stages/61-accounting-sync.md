@@ -62,21 +62,28 @@ steps 1 to 4 and 8; summaries wait for stage 52, documents for stage 35.
   refused for every caller; `integration.types` still reads the contract's types. Tests:
   `apps/runner/test/accounting-host-path.test.ts`.
 
-- **Step 4** — built — PR #504 — The outbox runner
-  (migration 1332, ADR 0882): `queuePost` (`accounting/outbox.ts`: an entry once by its reference,
-  the mapping's keys and its dependency's books ref resolved when sent, nothing before the start
-  date, `awaiting_approval` until approval is over) and the runner (`accounting/runner.ts`, the
-  minute cron's `runAccountingDue`: claimed before it is sent and recorded after; an uncertain
-  outcome or a claim left `sending` ten minutes looked up by reference before anything is sent
-  again; refusals held with their reason, transient ones retried after 1, 5, 30 minutes, 2 and 12
-  hours, sending paused meanwhile; the books unreachable touch nothing; dependencies wait, are held
-  behind a held or skipped one and released when it is sent; dated past the books' lock with the
-  real date in the text; blocked by an inactive connection or another currency, told once; told
-  once when approval ends; the daily pass from 02:00 in the organisation's zone with step 5's
-  builders, seven days a run; at most 25 sends and 25 look-ups a run), `accounting.approveDay`,
-  `accounting.post.retry` and `accounting.post.skip` (a person with `accounting:manage`), and the
-  fake books' outage control (`setUnavailable`). `accounting.run` is host code, not an operation
-  (ADR 0882). Tests: `apps/runner/test/accounting-outbox*.test.ts`, `accounting-approval.test.ts`.
+- **Step 4** — built — PR #504 — The outbox runner (migration 1332, which remakes
+  `core_accounting_post` with references unique per books; ADR 0882; ADR 0880 amended): `queuePost`
+  (`accounting/outbox.ts`: an entry once per books by its reference, the mapping's keys and its
+  dependency's books ref resolved when sent, a person's details only in `detail`, nothing before
+  the start date, `awaiting_approval` until approval is over) and the runner
+  (`accounting/runner.ts`, the minute cron's `runAccountingDue`): claimed before it is sent and the
+  outcome recorded onto that claim only; a 5-minute deadline on every call and a 30-minute stale
+  window; a write the host knows was applied (its ref with the applied action, from the facet's
+  `appliedRef`) never sent again, looked up for 14.6 hours then held; an uncertain outcome looked
+  up for 36 minutes before it is sent again, at most three times, then held; an error with no
+  refusal code held; refusals held with their reason, transient ones retried after 1, 5, 30
+  minutes, 2 and 12 hours, everything paused for the first two tries only and then the entry's own
+  day behind it; the bookkeepers told of holds (once a day), of an entry refused over half an hour,
+  of a block (inactive connection, other currency, a lock date that is not a date) and of approval
+  ending; dependencies; the lock and start dates; an entry left in Approvals recorded once decided
+  there; a change of books skipping the old books' unsent entries; the daily pass after the sends,
+  a failing builder isolated; at most 25 sends and 25 look-ups a run. `accounting.approveDay`,
+  `accounting.post.retry` and `accounting.post.skip` (a person with `accounting:manage`; a raced
+  one fails whole). The fake books' controls `setUnavailable`, `setLookupLag` and `hangNext`, and a
+  read-after-write conformance check. `accounting.run` is host code, not an operation (ADR 0882).
+  Step 9's erase clears `detail` alone. Tests: `apps/runner/test/accounting-outbox*.test.ts`,
+  `accounting-approval.test.ts`.
 
 - **Step 5** — not built — needs: step 4, stage 52 — Summaries and payouts: daily, late events, the
   reopen adjustment, transfers (needs stage 52's figures, close and payouts).

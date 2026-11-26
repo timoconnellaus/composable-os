@@ -112,8 +112,11 @@ describe("an uncertain outcome", () => {
     expect(await writes([q.reference])).toEqual([1]);
     expect((await post(q.id)).state).toBe("sending");
 
-    // While the claim is fresh nothing touches it: no second send.
+    // While the claim is fresh nothing touches it: no second send. Fresh is longer than a cron
+    // invocation may run (15 minutes), so a run still going is never taken for one that stopped.
     await runAt(minutes(NOW, 1));
+    expect((await post(q.id)).state).toBe("sending");
+    await runAt(minutes(NOW, 20));
     expect((await post(q.id)).state).toBe("sending");
     expect(await writes([q.reference])).toEqual([1]);
 

@@ -38,5 +38,13 @@ In development the CRM's dev server binds the fake to cos-runner as `GATEKEEPER_
 connect **Fake books (development)** for the org in Settings → Integrations and bind
 `accounting-fake://books/<name>`. cos-runner's tests reach its controls (`FakeBooksControl`) as
 `TEST_ACCOUNTING_BOOKS`: reset a set of books, lock them, make the next write fail, take them down
-(`setUnavailable`: every read and write refused `unavailable`, nothing written, as an outage), count
-how many times a reference was written, add the bookkeeper's own payments and invoices.
+(`setUnavailable`: every read and write refused `unavailable`, nothing written, as an outage), make
+their reference search lag (`setLookupLag`: each reference written is missed by its next n
+look-ups), make the next write hang (`hangNext`), count how many times a reference was written, add
+the bookkeeper's own payments and invoices.
+
+The contract promises read after write: once a write is applied, `findByReference` finds it on the
+next call (ADR 0880, as amended 2026-11-26; checked by the conformance suite). A system whose search
+lags reads the record by its own key or keeps the reference until the search catches up. The facet
+keeps each applied write's books ref for the host (`appliedRef`). A gatekeeper's refusal words never
+carry a request's or response's headers, body or credentials.

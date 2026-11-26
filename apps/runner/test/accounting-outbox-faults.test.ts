@@ -179,6 +179,22 @@ describe("an uncertain outcome", () => {
   }, 120_000);
 });
 
+describe("held entries", () => {
+  it("tell the bookkeepers once a day, however many are held", async () => {
+    const one = await queue(summaryEntry(b, "2026-11-20"));
+    const two = await queue(summaryEntry(b, "2026-11-21"));
+    await books.failNext(b.name, "postSummary", { refuse: "invalid" });
+    await books.failNext(b.name, "postSummary", { refuse: "invalid" });
+    // A day of its own in the organisation's zone, so no earlier test's notice counts.
+    const day = "2026-12-24T03:00:00.000Z";
+    const before = await noticesTitled(b.admin, HELD_NOTICE);
+    await runAt(day);
+    expect((await post(one.id)).state).toBe("held");
+    expect((await post(two.id)).state).toBe("held");
+    expect(await noticesTitled(b.admin, HELD_NOTICE)).toBe(before + 1);
+  });
+});
+
 describe("a call that hangs", () => {
   it("is cut off at its deadline, taken as uncertain, and its late write is found, never doubled", async () => {
     const q = await queue(summaryEntry(b, "2026-11-20"));
@@ -237,6 +253,11 @@ describe("one entry refused for hours", () => {
     await runAt(minutes(NOW, 7));
     expect((await post(otherDay.id)).state).toBe("sent");
     expect((await post(sameDay.id)).state).toBe("queued");
+    // A later day's entry queued while it waits (not due) goes at once: the pause was its first
+    // two tries only.
+    const later = await queue(transferEntry(b, "2026-11-22"));
+    await runAt(minutes(NOW, 10));
+    expect((await post(later.id)).state).toBe("sent");
     await runAt(minutes(NOW, 36));
     expect(await noticesTitled(b.admin, title)).toBe(told + 1);
     for (const m of [156, 876, 877]) await runAt(minutes(NOW, m));
@@ -420,6 +441,13 @@ describe("a change of books", () => {
       expect(await post(old.id)).toMatchObject({ state: "skipped" });
       // The old books' entries are not work (the new books' daily pass aside).
       await env.DB.prepare("UPDATE core_accounting_settings SET daily_date = '2099-12-31'").run();
+      expect(await accountingDue(createCrmDb(env.DB).query, NOW)).toBe(false);
+      // Even one left queued for other books (as before this rule) is no work for these.
+      await env.DB.prepare(
+        "INSERT INTO core_accounting_post (id, connection_id, kind, source_kind, source_id, reference, carries_date, belongs_date, state, created_at, updated_at) VALUES (?, 'con_elsewhere', 'summary', 'day', 'x', 'cos:summary:elsewhere:1', '2026-11-20', '2026-11-20', 'queued', ?, ?)",
+      )
+        .bind(newId("accountingPost"), NOW, NOW)
+        .run();
       expect(await accountingDue(createCrmDb(env.DB).query, NOW)).toBe(false);
       const again = await queuePost(
         createCrmDb(env.DB).query,
