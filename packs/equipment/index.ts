@@ -11,9 +11,10 @@
 //   - a record in a state only tools leave stays out of the Trash but for those tools' hands
 //     (ADR 0863): an out-of-service item, or an open fault, is not made to vanish by a member; an
 //     open fault holds its item (`holds`), so an item with open faults is a manager's to Trash;
-//   - the tag does not change while the item is out of service (`lockedIn`, ADR 0865), and a
-//     fault's item is the report's (`readOnly`): no retag or re-point frees a sticker or moves a
-//     safety risk;
+//   - the tag is given when the item is added (by the form or the admin's import) and then
+//     changed only by a manager's `correctTag` (`lockedIn` every state, ADR 0865), and a fault's
+//     item is the report's (`readOnly`): no retag or re-point frees a sticker or moves a safety
+//     risk;
 //   - why an item is out, and a fault's severity and words once reported, are written by the
 //     pack's tools only (`readOnly`), so a safety risk is never quietly lowered; a manager
 //     corrects them with `correctOutReason` and `correctFault`;
@@ -32,6 +33,7 @@ import { defineExtension } from "@composable-os/sdk";
 import {
   correctFault,
   correctOutReason,
+  correctTag,
   FAULT,
   ITEM,
   item,
@@ -89,7 +91,7 @@ export default defineExtension({
       "coach, a cleaner or anyone with another role who works on the floor.",
     [MANAGE]:
       "Equipment: put items back in service, retire them, acknowledge and close faults, and " +
-      "correct a fault's report or why an item is out of service",
+      "correct a fault's report, why an item is out of service or an item's tag",
   },
   objects: {
     item: {
@@ -122,10 +124,12 @@ export default defineExtension({
           label: "Tag",
           description:
             "The code on its sticker. No two items in the register share one; an import matches " +
-            "on it. It does not change while the item is out of service.",
-          // Out of service, the sticker stays with the machine that must not be used (ADR 0865):
-          // no retag frees it for a new item in service.
-          lockedIn: ["out_of_service"],
+            "on it. Given when the item is added; after that only a manager changes it " +
+            "(correctTag).",
+          // The sticker stays with its machine (ADR 0865, the review of PR #502): once the item
+          // exists, in any state, only the pack's correctTag (a manager's) changes it. So no
+          // retag, before or after a take-out or under an open fault, frees it for a new item.
+          lockedIn: ["in_service", "out_of_service", "retired"],
         },
         make: { type: "text", label: "Make" },
         model: { type: "text", label: "Model" },
@@ -386,5 +390,6 @@ export default defineExtension({
     triage,
     correctFault,
     correctOutReason,
+    correctTag,
   },
 });

@@ -63,6 +63,7 @@ import { backfillStockCounters } from "../stock/index.ts";
 import { orgReader, visibleSource, visibleTable } from "../visibility/index.ts";
 import {
   columnName,
+  fitName,
   ident,
   isCoreTarget,
   objectTable,
@@ -121,6 +122,7 @@ export interface ReconcileIssue {
     | "seed"
     | "unique_conflict"
     | "code_word_conflict"
+    | "unique_fold_rows"
     | "claims_conflict"
     | "grants_conflict"
     | "staffed_conflict"
@@ -244,7 +246,79 @@ export async function planReconcile(
   const words = await codeWordData(db, current, plan.next, manifest.id);
   plan.issues.push(...words.issues);
   plan.statements.unshift(...words.statements);
+  // A uniqueness rule that starts folding (ADR 0864, the review of PR #502): the records already
+  // there folded in place first, so the stored values are what the host keeps from then on.
+  const folds = await uniqueFoldData(db, current, plan.next, manifest.id);
+  plan.issues.push(...folds.issues);
+  plan.statements.unshift(...folds.statements);
   return plan;
+}
+
+/** The most records whose folded text needs more than SQLite's fold a reconcile may report. */
+const FOLD_REPORT_IDS = 5;
+
+/**
+ * The stored text of every folded rule whose index is about to be built (a rule gaining `fold`),
+ * folded in place in one UPDATE per column, in the Trash too: trimmed and upper case, a value of
+ * spaces alone emptied. SQLite's `trim` and `upper` fold exactly as the host does
+ * (`foldUniqueText`) for printable ASCII; a value with any other character (a letter outside A-Z,
+ * a tab, an invisible character) is not folded by SQL, and the plan is refused with how many there
+ * are and how to fold them first, in pages, so no reconcile ever leaves a value unfolded. One
+ * statement per column whatever the size of the table.
+ */
+async function uniqueFoldData(
+  db: Kysely<CoreDatabase>,
+  current: SchemaState,
+  next: SchemaState,
+  ext: string,
+): Promise<{ issues: ReconcileIssue[]; statements: CompiledQuery[] }> {
+  const issues: ReconcileIssue[] = [];
+  const statements: CompiledQuery[] = [];
+  for (const object of next.objects) {
+    if (object.extensionId !== ext || object.status !== "active") continue;
+    const before = current.objects.find(
+      (o) => o.name === object.name && o.tableName === object.tableName && o.status === "active",
+    );
+    if (!before) continue; // A new object has no records.
+    for (const index of uniqueIndexes(next, object, ext)) {
+      const rule = object.definition.unique?.[index.rule];
+      if (!rule?.fold) continue;
+      if ((current.indexes ?? []).some((i) => i.name === index.name)) continue;
+      for (const local of rule.fields) {
+        const column = current.fields.find(
+          (f) =>
+            f.object === object.name &&
+            f.extensionId === ext &&
+            f.localName === local &&
+            f.status === "active" &&
+            f.tableName === object.tableName,
+        )?.columnName;
+        if (!column) continue; // A new field: no record has a value yet.
+        const table = sql.table(object.tableName);
+        const col = sql.ref(column);
+        const odd = await sql<{ n: number; ids: string | null }>`
+          SELECT count(*) AS n, (SELECT group_concat(id, ', ') FROM (SELECT id FROM ${table}
+            WHERE ${col} GLOB '*[^ -~]*' LIMIT ${FOLD_REPORT_IDS})) AS ids
+          FROM ${table} WHERE ${col} GLOB '*[^ -~]*'
+        `.execute(db);
+        const n = Number(odd.rows[0]?.n ?? 0);
+        if (n > 0) {
+          issues.push({
+            code: "unique_fold_rows",
+            path: `objects.${object.localName}.unique.${index.rule}.fold`,
+            message: `${object.name}.${local}: ${n} record${n === 1 ? "" : "s"} (${odd.rows[0]?.ids ?? ""}${n > FOLD_REPORT_IDS ? ", ..." : ""}) hold characters the database cannot fold as the host does (a letter outside A-Z, a tab, an invisible character). Write each one's ${local} folded first (foldUniqueText: invisible characters removed, trimmed, upper case) with record.update, a page of records at a time (record.list with a cursor), then install again.`,
+          });
+          continue;
+        }
+        statements.push(
+          sql`UPDATE ${table} SET ${col} = CASE WHEN trim(${col}) = '' THEN NULL ELSE upper(trim(${col})) END WHERE ${col} IS NOT NULL AND ${col} IS NOT upper(trim(${col}))`.compile(
+            db,
+          ),
+        );
+      }
+    }
+  }
+  return { issues, statements };
 }
 
 /**
@@ -335,7 +409,8 @@ function uniqueIndexes(state: SchemaState, object: ObjectState, ext: string) {
     const where = ["deleted_at IS NULL", ...filled, ...states].join(" AND ");
     // A rule that folds (ADR 0864) is another index: gaining `fold` checks the live records again.
     const hashed = rule.fold ? `${where}|fold` : where;
-    const name = ident(`${object.tableName}__${named.join("__")}__u${shortHash(hashed)}`);
+    // Fitted (naming.ts `fitName`): a name that fits is unchanged, so no index is renamed.
+    const name = ident(fitName(`${object.tableName}__${named.join("__")}__u${shortHash(hashed)}`));
     out.push({ rule: i, name, columns: named, where });
   });
   return out;
@@ -418,9 +493,14 @@ async function dataIssues(
         .selectFrom(visibleSource(reader, installed))
         .select(sql<string>`group_concat(id, ', ')`.as("ids"));
       for (const column of columns) query = query.where(column as string, "is not", null);
+      // A value of spaces alone is no value once folded (ADR 0864).
+      if (rule.fold) {
+        for (const column of columns)
+          query = query.where(sql`trim(${sql.ref(column as string)})`, "<>", "");
+      }
       if (rule.states && stateColumn) query = query.where(stateColumn, "in", [...rule.states]);
-      // A folded rule's text compares as the host will keep it (ADR 0864): trimmed, upper case
-      // (SQLite's upper and trim: ASCII letters and spaces, which is what a clash is made of).
+      // A folded rule's text compares as the host will keep it (ADR 0864): trimmed, upper case.
+      // SQLite's fold is the host's for what uniqueFoldData lets through (printable ASCII).
       const groups = rule.fold
         ? (columns as string[]).map((c) => sql`upper(trim(${sql.ref(c)}))`)
         : (columns as string[]);
@@ -1112,7 +1192,7 @@ export function planFromState(
     // What a claim on a thing is found by (ADR 0765): its thing, and its margins' records.
     const occupies = occupiesTables(next, object);
     for (const column of occupies ? occupiesIndexColumns(occupies) : []) {
-      const name = ident(`${object.tableName}__occupies_${column}`);
+      const name = ident(fitName(`${object.tableName}__occupies_${column}`));
       wanted.set(
         name,
         `CREATE INDEX IF NOT EXISTS ${name} ON ${ident(object.tableName)} (${ident(column)}) WHERE deleted_at IS NULL`,
@@ -1121,7 +1201,7 @@ export function planFromState(
     // What the agree triggers on a room find its classes by (ADR 0911).
     const agree = agreeTables(next, object);
     for (const column of agree ? agreeIndexColumns(agree) : []) {
-      const name = ident(`${object.tableName}__agree_${column}`);
+      const name = ident(fitName(`${object.tableName}__agree_${column}`));
       wanted.set(
         name,
         `CREATE INDEX IF NOT EXISTS ${name} ON ${ident(object.tableName)} (${ident(column)}) WHERE deleted_at IS NULL`,

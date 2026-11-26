@@ -14,7 +14,7 @@
 // declares, only while it is shown to the public and open. Nothing deletes a location: it is
 // closed. What a closed location refuses (a new class, a duty shift) is the located declaration's,
 // stage 64 step 2.
-import { sql } from "kysely";
+import { CompiledQuery, type RawBuilder, type SqlBool, sql } from "kysely";
 import { z } from "zod";
 import { ConflictError, NotFoundError, ValidationError } from "../errors.ts";
 import { objectTableOf } from "../extensions/schema.ts";
@@ -452,7 +452,8 @@ export const locationRelocate = defineOperation({
   name: "location.relocate",
   description:
     "Move a located record (a room) to another location together with every record that uses " +
-    "it (its classes and series, past and future, in the Trash too), in one change: the way to " +
+    "it (its classes and series, past and future, in the Trash too, and what uses those in turn, " +
+    "such as bookings with a location of their own, up to three levels), in one change: the way to " +
     "correct a record filed at the wrong location, since a used room's location never changes " +
     "on its own. Times and zones are kept. A request from an AI always waits for a person to " +
     "apply it. Returns how many records of each object moved.",
@@ -498,28 +499,53 @@ export const locationRelocate = defineOperation({
         location: to.id,
       });
     }
-    const users = usersOf(object.name).map((u) => ({
+    // Everything that moves with it, level by level (a room's classes, their bookings), so no
+    // `agree` trigger anywhere down the chain sees two locations (the review of PR #502).
+    const users = relocationChain(object).map((u) => ({
       ...u,
       table: objectTableOf(u.user.name) as string,
       linkColumn: columnOfField(u.user, u.link) as string,
       locationColumn: columnOfField(u.user, u.location) as string,
     }));
+    /** The ids of the records level `i` points at: the record itself, or the level above's. */
+    const parentIds = (i: number): RawBuilder<unknown> => {
+      const u = users[i] as (typeof users)[number];
+      if (u.parent < 0) return sql`(SELECT ${input.id})`;
+      const p = users[u.parent] as (typeof users)[number];
+      return sql`(SELECT id FROM ${sql.table(p.table)} WHERE ${sql.ref(p.linkColumn)} IN ${parentIds(u.parent)})`;
+    };
     const moved = await Promise.all(
-      users.map(async (u) => {
+      users.map(async (u, i) => {
         // Through the seam's table: every record naming it, in the Trash too.
         const counted = await ctx.db
           .selectFrom(visibleTable(ctx, u.user, "r"))
           .select(sql<number>`count(*)`.as("n"))
-          .where(sql.ref(`r.${u.linkColumn}`), "=", input.id)
+          .where(sql<SqlBool>`${sql.ref(`r.${u.linkColumn}`)} IN ${parentIds(i)}`)
           .executeTakeFirst();
-        return { object: u.user.name, count: Number(counted?.n ?? 0) };
+        const named = await ctx.db
+          .selectFrom(visibleTable(ctx, u.user, "r"))
+          .select(sql<string>`r.id`.as("id"))
+          .where(sql<SqlBool>`${sql.ref(`r.${u.linkColumn}`)} IN ${parentIds(i)}`)
+          .orderBy("id")
+          .limit(RELOCATE_HISTORY_IDS)
+          .execute();
+        return {
+          object: u.user.name,
+          count: Number(counted?.n ?? 0),
+          ids: named.map((r) => String(r.id)),
+        };
       }),
     );
+    // The location still open when the batch commits: a close landing meanwhile fails it.
+    ctx.write(locationOpenGuard(to.id));
     // A mark no record's id can be: while it stands in the relation, the record names nothing.
-    const mark = `relocating:${input.id}`;
-    for (const u of users) {
+    // Marked from the deepest level up, so each level's records are found by the level above's
+    // relation before that one is marked; named again from the top down, each with the new
+    // location, so every agree trigger reads the end state.
+    for (let i = users.length - 1; i >= 0; i -= 1) {
+      const u = users[i] as (typeof users)[number];
       ctx.write(
-        sql`UPDATE ${sql.table(u.table)} SET ${sql.ref(u.linkColumn)} = ${mark} WHERE ${sql.ref(u.linkColumn)} = ${input.id}`.compile(
+        sql`UPDATE ${sql.table(u.table)} SET ${sql.ref(u.linkColumn)} = ${RELOCATING} || ${sql.ref(u.linkColumn)} WHERE ${sql.ref(u.linkColumn)} IN ${parentIds(i)}`.compile(
           ctx.db,
         ),
       );
@@ -531,25 +557,100 @@ export const locationRelocate = defineOperation({
     );
     for (const u of users) {
       ctx.write(
-        sql`UPDATE ${sql.table(u.table)} SET ${sql.ref(u.linkColumn)} = ${input.id}, ${sql.ref(u.locationColumn)} = ${to.id}, updated_at = ${ctx.now}, updated_by = ${ctx.user.id} WHERE ${sql.ref(u.linkColumn)} = ${mark}`.compile(
+        sql`UPDATE ${sql.table(u.table)} SET ${sql.ref(u.linkColumn)} = substr(${sql.ref(u.linkColumn)}, ${RELOCATING.length + 1}), ${sql.ref(u.locationColumn)} = ${to.id}, updated_at = ${ctx.now}, updated_by = ${ctx.user.id} WHERE substr(${sql.ref(u.linkColumn)}, 1, ${RELOCATING.length}) = ${RELOCATING}`.compile(
           ctx.db,
         ),
       );
     }
+    // One history entry, on the record, naming what moved with it (at most
+    // RELOCATE_HISTORY_IDS ids of each object, and how many): within D1's limits whatever the
+    // count, where an entry per moved record would not be.
     ctx.recordChange({
       object: object.name,
       id: input.id,
       action: "update",
       before: { [located.field]: row.location },
-      after: { [located.field]: to.id, relocatedWith: moved },
+      after: {
+        [located.field]: to.id,
+        relocatedWith: moved.map((m) => ({
+          object: m.object,
+          count: m.count,
+          ids: m.ids,
+          ...(m.count > m.ids.length ? { more: m.count - m.ids.length } : {}),
+        })),
+      },
     });
-    return { ...result, moved };
+    return { ...result, moved: moved.map(({ object: o, count }) => ({ object: o, count })) };
   },
 });
 
 /** A field's column, from the registry. */
 const columnOfField = (object: ObjectDefinition, field: string) =>
   object.fields.find((f) => f.name === field)?.column;
+
+/** The mark a moving record's relation holds in the batch: no record's id starts so. */
+const RELOCATING = "relocating:";
+/** The most ids of each moved object the relocate's history entry names. */
+export const RELOCATE_HISTORY_IDS = 200;
+/** How many levels below the record a relocate follows, and how many objects in all. */
+export const RELOCATE_MAX_DEPTH = 3;
+export const RELOCATE_MAX_OBJECTS = 10;
+
+/**
+ * What moves with a relocated record (ADR 0911, the review of PR #502): every object whose
+ * `agree` passes through it, then every object whose `agree` passes through one of those, down to
+ * RELOCATE_MAX_DEPTH levels and RELOCATE_MAX_OBJECTS objects. Beyond that, or when an object is
+ * reached twice, it is refused before anything is written, saying which and what to do.
+ */
+export function relocationChain(object: ObjectDefinition): {
+  user: ObjectDefinition;
+  link: string;
+  location: string;
+  parent: number;
+  depth: number;
+}[] {
+  const out: {
+    user: ObjectDefinition;
+    link: string;
+    location: string;
+    parent: number;
+    depth: number;
+  }[] = [];
+  const seen = new Set([object.name]);
+  const visit = (name: string, parent: number, depth: number) => {
+    for (const u of usersOf(name)) {
+      if (depth > RELOCATE_MAX_DEPTH || out.length >= RELOCATE_MAX_OBJECTS) {
+        throw new ValidationError(
+          `Too much moves with this ${object.label.toLowerCase()}: ${(u.user.plural ?? u.user.label).toLowerCase()} are more than ${RELOCATE_MAX_DEPTH} levels below it, or more than ${RELOCATE_MAX_OBJECTS} kinds of record move with it. Move the furthest records to the new location first, then this one.`,
+          { rule: "relocate_too_deep", object: u.user.name },
+        );
+      }
+      if (seen.has(u.user.name)) {
+        throw new ValidationError(
+          `${u.user.plural ?? u.user.label} agree with this ${object.label.toLowerCase()} by two paths: move them on their own first`,
+          { rule: "relocate_twice", object: u.user.name },
+        );
+      }
+      seen.add(u.user.name);
+      out.push({ ...u, parent, depth });
+      visit(u.user.name, out.length - 1, depth + 1);
+    }
+  };
+  visit(object.name, -1, 1);
+  return out;
+}
+
+/**
+ * A statement that fails the batch when the location is not open at commit (the review of PR
+ * #502): it sets a state the location's CHECK refuses, only where the state is not 'open'; an
+ * open location matches no row. errors.ts answers it as a conflict.
+ */
+export function locationOpenGuard(location: string) {
+  return CompiledQuery.raw(
+    "UPDATE core_location SET state = 'closed_meanwhile' WHERE id = ? AND state <> 'open'",
+    [location],
+  );
+}
 
 export const locationOperations = [
   locationList,

@@ -208,11 +208,12 @@
     {
       "permission": "equipment:manage",
       "pack": "equipment",
-      "label": "Equipment: put items back in service, retire them, acknowledge and close faults, and correct a fault's report or why an item is out of service",
+      "label": "Equipment: put items back in service, retire them, acknowledge and close faults, and correct a fault's report, why an item is out of service or an item's tag",
       "restricted": true,
       "operations": [
         "x.equipment.correctFault",
         "x.equipment.correctOutReason",
+        "x.equipment.correctTag",
         "x.equipment.putBack",
         "x.equipment.retire",
         "x.equipment.triage"

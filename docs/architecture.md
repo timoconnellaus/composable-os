@@ -2147,7 +2147,9 @@ the write path that gives the message; installing over records that already disa
 unless its zone was set by hand. A reconcile that fills on a host with more than one location
 says how many records it filed under the main location (`fill_main_location`, a warning on the
 approval and a notice to the admins), and `location.relocate` moves a room with every record that
-uses it in one batch. Coverage, the zone readers and staff limits are the stage's later steps.
+uses it in one batch, down the whole chain of records that agree with it (three levels, ten
+objects at most), with one history entry naming them and the target held open at commit.
+Coverage, the zone readers and staff limits are the stage's later steps.
 
 **Video and files** (stage 42, [ADR 0475](adr/0475-video-and-file-media-in-stream.md),
 `packages/core/src/operations/media-video.ts`, `packages/core/src/records/stream.ts`). A media

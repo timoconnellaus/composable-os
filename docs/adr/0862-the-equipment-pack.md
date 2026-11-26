@@ -174,3 +174,18 @@ the register one statement's read at 20 items and at 500. Each rule, taken out, 
   the assistant made it. Nothing reads faults yet but staff (no automation, no member view), so
   step 5 (members' reports) and step 6 (the new-fault notice) decide whether a fault records who
   made it (a person, the assistant, MCP) and whether the assistant's reports need a rate limit.
+
+## Amended again 2026-11-26, after the review of PR #502
+- **The tag is a manager's to change once the item exists.** Locking it only out of service left two
+  ways round: retag an item in service and then take it out, or retag an item in service under an
+  open safety-risk fault; either way a new item took the old sticker in service, and the register
+  showed the tag with no open fault. The tag is now `lockedIn` every state (in service, out of
+  service, retired): set when the item is added (the form, `record.create`, the admin's
+  create-only import `import.records.commit`, a keyed `record.import` create), and changed after
+  that only by `correctTag` (`equipment:manage`, `personApproves`), which writes only while the
+  item is in service (`record.update { while }`). A keyed `record.import` that would change it
+  reports that row as `invalid`, in the dry run and the real run, and writes the others; the same
+  tag in other case or spaces is `unchanged`. This replaces the earlier "changes only while in
+  service" rule.
+- A member without `equipment:manage` may therefore set an item's tag when adding it, and not
+  change it afterwards.

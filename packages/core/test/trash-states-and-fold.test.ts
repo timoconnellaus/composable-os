@@ -3,6 +3,7 @@
 //   - Which states are guarded (only tools or the host leave them), and the tools that leave each:
 //     what decides who may put a record in the Trash.
 //   - Folded uniqueness: the text the host keeps, and a filter's value folded to match it.
+import { env } from "cloudflare:workers";
 import { describe, expect, it } from "vitest";
 import type { ObjectDefinition } from "../src/fields/types.ts";
 import { compileFilter, invoke, personObject } from "../src/index.ts";
@@ -118,12 +119,47 @@ describe("a rule gaining fold (ADR 0864)", () => {
     const issue = issues.find((i) => i.code === "unique_conflict");
     expect(issue?.message).toContain((a as { id: string }).id);
     expect(issue?.message).toContain((b as { id: string }).id);
-    // Without a clash it is made.
+    // A value SQLite cannot fold as the host does (a zero-width space) refuses it, counted.
+    const odd = await invoke(
+      "record.create",
+      { object: `${id}.thing`, values: { tag: "tm-05\u200b" } },
+      admin,
+    );
     await invoke(
       "record.update",
-      { object: `${id}.thing`, id: (b as { id: string }).id, values: { tag: "TM-04" } },
+      { object: `${id}.thing`, id: (b as { id: string }).id, values: { tag: "tm-04 " } },
+      admin,
+    );
+    const refused = (await plan(withRule(true))).issues;
+    expect(refused.map((i) => i.code)).toEqual(["unique_fold_rows"]);
+    expect(refused[0]?.message).toContain("1 record");
+    expect(refused[0]?.message).toContain((odd as { id: string }).id);
+    // Written folded first, the change is made and the rows already there are folded in place.
+    await invoke(
+      "record.update",
+      { object: `${id}.thing`, id: (odd as { id: string }).id, values: { tag: "TM-05" } },
       admin,
     );
     expect((await plan(withRule(true))).issues).toEqual([]);
+    await reconcile(withRule(true));
+    const table = (
+      await env.DB.prepare("SELECT table_name FROM core_extension_objects WHERE name = ?")
+        .bind(`${id}.thing`)
+        .first<{ table_name: string }>()
+    )?.table_name;
+    const tags = await env.DB.prepare(`SELECT * FROM ${table} ORDER BY id`).all<
+      Record<string, unknown>
+    >();
+    const values = tags.results
+      .map((r) => Object.entries(r).find(([k]) => k.includes("tag"))?.[1])
+      .sort();
+    expect(values).toEqual(["TM-03", "TM-04", "TM-05"]);
+    // The old row and a new one the same once folded are one value now.
+    const twice = await invoke(
+      "record.create",
+      { object: `${id}.thing`, values: { tag: "TM-03" } },
+      admin,
+    ).catch((e: { code?: string }) => e.code);
+    expect(twice).toBe("conflict");
   });
 });

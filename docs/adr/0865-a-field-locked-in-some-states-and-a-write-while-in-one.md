@@ -49,3 +49,14 @@ an admin's retag of an out-of-service item is refused, a new item with its tag i
 tag written again is no change, and in service the tag changes; `record.update { while }` is refused
 when the record is elsewhere and applied when it is there. With `lockedIn` taken off the tag, the
 retag test fails.
+
+## Amended 2026-11-26, after the review of PR #502
+- **A field locked in every state is set once.** Listing every state makes a field the create's to
+  set (a form, an import that creates) and the extension's own tools' to change afterwards: how
+  Equipment holds an item's tag (ADR 0862, amended), with a manager's `correctTag`.
+- **Held at commit.** A write that changes a field locked in some state, made while the record is
+  in another, carries the `unmoved` guard: a move landing before the commit fails the batch, as
+  `while` and the Trash do.
+- **The keyed import** (`record.import`) asks the same rule before each update: a row it refuses is
+  reported `invalid` with the reason, in the dry run and the real run, and the other rows are
+  written; any other refusal of one row's update is that row's answer too.

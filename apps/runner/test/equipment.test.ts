@@ -207,13 +207,11 @@ describe("the register's tag (AC 1, 15)", () => {
     expect(JSON.stringify(twice.details)).toContain("unique");
     // Nor by changing another item's tag to it.
     const other = await newItem("Treadmill 2", { tag: unique("TM-") });
-    expect(
-      (
-        await refusal(
-          run("record.update", { object: ITEM, id: other, values: { tag } }, staff(admin)),
-        )
-      ).code,
-    ).toBe("conflict");
+    // Nor by a manager's correction of another item's tag to it.
+    const retagged = await refusal(
+      run("x.equipment.correctTag", { itemId: other, tag }, staff(manager)),
+    );
+    expect(retagged.inner ?? retagged.code).toBe("conflict");
     // Items without a tag are not compared.
     await newItem("Mat 1");
     await newItem("Mat 2");
@@ -239,15 +237,13 @@ describe("the register's tag (AC 1, 15)", () => {
     }
     const other = await newItem("Cable stack 2", { tag: unique("CS-") });
     expect(
-      (
-        await refusal(
-          run(
-            "record.update",
-            { object: ITEM, id: other, values: { tag: ` ${tag.toLowerCase()}` } },
-            staff(admin),
-          ),
-        )
-      ).code,
+      await refusal(
+        run(
+          "x.equipment.correctTag",
+          { itemId: other, tag: ` ${tag.toLowerCase()}` },
+          staff(manager),
+        ),
+      ).then((r) => r.inner ?? r.code),
     ).toBe("conflict");
     // Spaces alone are no tag.
     const blank = await run<Rec>(
@@ -569,11 +565,140 @@ describe("the second review (issue #498)", () => {
         )
       ).code,
     ).toBe("conflict");
-    // Written unchanged it is no change; in service it is any member's to change.
-    await run("record.update", { object: ITEM, id, values: { tag } }, staff(member));
+    // Written unchanged (whatever its case or spaces) it is no change.
+    await run(
+      "record.update",
+      { object: ITEM, id, values: { tag: ` ${tag.toLowerCase()}` } },
+      staff(member),
+    );
+    // Not even back in service is it a record write's to change; a manager corrects it, in
+    // service only.
     await run("x.equipment.putBack", { itemId: id }, staff(manager));
-    await run("record.update", { object: ITEM, id, values: { tag: `${tag}-B` } }, staff(member));
+    expect(
+      (
+        await refusal(
+          run("record.update", { object: ITEM, id, values: { tag: `${tag}-B` } }, staff(member)),
+        )
+      ).code,
+    ).toBe("invalid_input");
+    expect(
+      (await refusal(run("x.equipment.correctTag", { itemId: id, tag: `${tag}-B` }, staff(member))))
+        .code,
+    ).toBe("forbidden");
+    await run("x.equipment.correctTag", { itemId: id, tag: `${tag}-b ` }, staff(manager));
     expect((await get(ITEM, id)).values.tag).toBe(`${tag}-B`);
+    await run("x.equipment.takeOut", { itemId: id, reason: "Broken again" }, staff(member));
+    const out = await refusal(
+      run("x.equipment.correctTag", { itemId: id, tag: `${tag}-C` }, staff(manager)),
+    );
+    expect(out.inner ?? out.code).toBe("conflict");
+  });
+
+  it("no retag in service frees the sticker: neither before a take-out nor under an open fault", async () => {
+    // Retag first, then take out, then a new item with the old tag: the retag is refused.
+    const first = unique("RB-").toUpperCase();
+    const a = await newItem("Retag first", { tag: first });
+    expect(
+      (
+        await refusal(
+          run(
+            "record.update",
+            { object: ITEM, id: a, values: { tag: `${first}-OLD` } },
+            staff(member),
+          ),
+        )
+      ).code,
+    ).toBe("invalid_input");
+    await run("x.equipment.takeOut", { itemId: a, reason: "Broken" }, staff(member));
+    expect(
+      (
+        await refusal(
+          run(
+            "record.create",
+            { object: ITEM, values: { name: "New", tag: first } },
+            staff(member),
+          ),
+        )
+      ).code,
+    ).toBe("conflict");
+    // An item in service with an open safety risk keeps its tag, so the register keeps the risk.
+    const risky = unique("RS-").toUpperCase();
+    const b = await newItem("Risky bike", { tag: risky });
+    await run(
+      "x.equipment.reportFaultOnly",
+      { itemId: b, description: "Frame cracked", severity: "safety_risk" },
+      staff(member),
+    );
+    expect(
+      (
+        await refusal(
+          run(
+            "record.update",
+            { object: ITEM, id: b, values: { tag: `${risky}-OLD` } },
+            staff(member),
+          ),
+        )
+      ).code,
+    ).toBe("invalid_input");
+    expect(
+      (
+        await refusal(
+          run(
+            "record.create",
+            { object: ITEM, values: { name: "New", tag: risky } },
+            staff(member),
+          ),
+        )
+      ).code,
+    ).toBe("conflict");
+    const register = await run<{ items: { id: string; tag: string; safetyRisks: number }[] }>(
+      "x.equipment.register",
+      { q: risky },
+      staff(member),
+    );
+    expect(register.items.map((i) => [i.id, i.safetyRisks])).toEqual([[b, 1]]);
+  });
+
+  it("the keyed import reports a locked row as refused and writes the others; a same tag is unchanged", async () => {
+    const keyA = unique("imp");
+    const keyB = unique("imp");
+    const tagA = unique("IA-").toUpperCase();
+    const tagB = unique("IB-").toUpperCase();
+    const records = (aTag: string, bName: string) => [
+      { key: keyA, values: { name: "Import A", tag: aTag } },
+      { key: keyB, values: { name: bName, tag: tagB } },
+    ];
+    const first = await run<{ results: { id: string; outcome: string }[] }>(
+      "record.import",
+      { object: ITEM, records: records(tagA, "Import B") },
+      staff(admin),
+    );
+    expect(first.results.map((r) => r.outcome)).toEqual(["created", "created"]);
+    await run(
+      "x.equipment.takeOut",
+      { itemId: first.results[0]?.id, reason: "Broken" },
+      staff(admin),
+    );
+    for (const dryRun of [true, false]) {
+      const again = await run<{ results: { outcome: string; problems: string[] }[] }>(
+        "record.import",
+        { object: ITEM, records: records(`${tagA}-NEW`, "Import B renamed"), dryRun },
+        staff(admin),
+      );
+      expect(
+        again.results.map((r) => r.outcome),
+        `dry run ${dryRun}`,
+      ).toEqual(dryRun ? ["invalid", "updated"] : ["invalid", "updated"]);
+      expect(again.results[0]?.problems.join(" ")).toContain("does not change");
+    }
+    expect((await get(ITEM, first.results[1]?.id as string)).values.name).toBe("Import B renamed");
+    // The same tag in other case and spaces is no change.
+    const same = await run<{ results: { outcome: string }[] }>(
+      "record.import",
+      { object: ITEM, records: records(` ${tagA.toLowerCase()} `, "Import B renamed") },
+      staff(admin),
+    );
+    expect(same.results.map((r) => r.outcome)).toEqual(["unchanged", "unchanged"]);
   });
 
   it("a fault stays on its item, and an item with an open fault is a manager's to Trash", async () => {

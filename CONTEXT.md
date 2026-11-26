@@ -2716,8 +2716,8 @@ _Avoid_: FAQ entry, article, knowledge base article, support doc
 **Item** (the Equipment pack; stage 59, ADR 0862)
 One thing a business owns and looks after (`equipment.item`): a treadmill, a rack, the sauna, a
 drill, a van. It has a **tag**, the code on its sticker, which no other item in or out of service
-shares, whatever its case or outer spaces (kept upper case); it does not change while the item is
-out of service, and a retired item gives it up. A place, a
+shares, whatever its case or outer spaces (kept upper case); it is given when the item is added
+and changed afterwards only by a manager, and a retired item gives it up. A place, a
 supplier (an Organisation), what it cost, when its warranty ends, and its **keeper**, the staff
 account who looks after it (empty means the managers). It is in service, **out of service** (why,
 and since when) or retired. Not the Shop's item, which is something sold.

@@ -69,7 +69,7 @@ describe("the Equipment pack (test host)", () => {
     expect(fault?.states?.holds).toBe("item");
     expect(fault?.fields.item?.readOnly).toBe(true);
     // The sticker stays with an item out of service.
-    expect(item?.fields.tag?.lockedIn).toEqual(["out_of_service"]);
+    expect(item?.fields.tag?.lockedIn).toEqual(["in_service", "out_of_service", "retired"]);
     // Out of service only through takeOut and reportFault, with why; back only through putBack;
     // retired only through retire, with why. No staff record write makes any of them.
     expect(item?.states?.moves).toEqual([
@@ -113,7 +113,14 @@ describe("the Equipment pack (test host)", () => {
     expect(m.restricted).toEqual(["equipment:manage"]);
     const tools = m.tools;
     const report = ["register", "item", "reportFault", "reportFaultOnly", "takeOut"];
-    const manage = ["putBack", "retire", "triage", "correctFault", "correctOutReason"];
+    const manage = [
+      "putBack",
+      "retire",
+      "triage",
+      "correctFault",
+      "correctOutReason",
+      "correctTag",
+    ];
     for (const name of report) expect(tools[name]?.permission, name).toBe("equipment:report");
     for (const name of manage) expect(tools[name]?.permission, name).toBe("equipment:manage");
     // An AI asks and a person decides; putting back is a person's own act only.
@@ -124,6 +131,7 @@ describe("the Equipment pack (test host)", () => {
       "triage",
       "correctFault",
       "correctOutReason",
+      "correctTag",
     ]) {
       expect(tools[name]?.personApproves, name).toBe(true);
     }
@@ -520,5 +528,22 @@ describe("triage", () => {
     expect(updates[1]?.input).toMatchObject({
       values: { state: "fixed", closedWhy: "New belt fitted by the supplier" },
     });
+  });
+});
+
+describe("correctTag", () => {
+  it("a manager changes the tag while the item is in service, never while it is out", async () => {
+    const { host } = hostWith({ [ITEM]: [treadmill()] });
+    expect(await host.runTool("correctTag", { itemId: "itm_1", tag: "TM-03B" })).toEqual({
+      itemId: "itm_1",
+      tag: "TM-03B",
+    });
+    const update = host.calls.find((c) => c.operation === "record.update");
+    expect(update?.input).toMatchObject({ while: "in_service", values: { tag: "TM-03B" } });
+    const { host: out } = hostWith({ [ITEM]: [treadmill({ state: "out_of_service" })] });
+    await expect(out.runTool("correctTag", { itemId: "itm_1", tag: "X-1" })).rejects.toMatchObject({
+      code: "conflict",
+    });
+    expect(rowOf(out, ITEM, "itm_1").tag).toBe("TM-03");
   });
 });

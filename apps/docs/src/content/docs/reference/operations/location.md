@@ -149,7 +149,7 @@ No fields.
 
 ## location.relocate
 
-Move a located record (a room) to another location together with every record that uses it (its classes and series, past and future, in the Trash too), in one change: the way to correct a record filed at the wrong location, since a used room's location never changes on its own. Times and zones are kept. A request from an AI always waits for a person to apply it. Returns how many records of each object moved.
+Move a located record (a room) to another location together with every record that uses it (its classes and series, past and future, in the Trash too, and what uses those in turn, such as bookings with a location of their own, up to three levels), in one change: the way to correct a record filed at the wrong location, since a used room's location never changes on its own. Times and zones are kept. A request from an AI always waits for a person to apply it. Returns how many records of each object moved.
 
 |  |  |
 | --- | --- |

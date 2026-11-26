@@ -197,9 +197,12 @@ extension declares it; it never implements it. Each behaviour the platform has i
   permissions, put it there, never an AI (ADR 0863), so give a record that others should remove a
   way out of the state first. `states.holds: "<relation>"` (to another of your objects) makes such
   a record hold the one it points to as well: an open fault keeps its item out of the Trash but
-  for whoever may triage it; make that relation `readOnly` so it is not re-pointed. A field that
-  must not change in some states (an item's tag while it is out of service) declares
-  `lockedIn: [<states>]` (ADR 0865): only your own tools and the host change it there. A tool that
+  for whoever may triage it; the relation must be `readOnly` (the contract refuses it otherwise),
+  and the host refuses re-pointing it while the record is guarded, your own code included. A field
+  that must not change in some states declares `lockedIn: [<states>]` (ADR 0865): only your own
+  tools and the host change it there; list every state for a value set once at create and then
+  changed only by your tool (an item's tag, with a manager's `correctTag`). The test host holds the
+  Trash rule, `holds` and `while` as the host does. A tool that
   corrects a record only while it is in one state writes `record.update { while: "<state>" }`. An end is `"<datetime field>"` or
   `{ at, daysBefore?, minutesBefore?, zone? }`, each a field of the record or
   `<relation>.<field>` (`klass.startsAt`), up to two relations away (`class.classType.lateMinutes`,

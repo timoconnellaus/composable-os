@@ -51,9 +51,10 @@ It requires no other pack.
 - **The Trash follows the moves.** An item out of service, an item with an open fault and an open
   fault are put in the Trash only by a manager in person; an item in service with no open fault,
   or a closed fault, by any member; never by the assistant or an MCP client.
-- **The sticker stays put.** An item's tag does not change while it is out of service, and a
-  fault's item never changes: no retag or re-point lets a new item in service take the sticker of a
-  machine that must not be used, or moves a safety risk off it.
+- **The sticker stays put.** An item's tag is given when it is added (by hand or by the import)
+  and changed afterwards only by a manager, with `correctTag`, while it is in service; a fault's
+  item never changes. No retag or re-point lets a new item take the sticker of a machine that must
+  not be used, or moves a safety risk off it.
 - **A report is made once.** The same report again by the same person on the same item while it
   is open, or a retry with the same `requestId` on the same item, finds the fault already made. A
   `requestId` used again for a different report on that item is refused, and nothing is taken out.
@@ -90,7 +91,7 @@ It requires no other pack.
 
 Items and faults, the tag's uniqueness, the states and their tools, the two permissions, the
 item's Faults tab, and the tools `register`, `item`, `reportFault`, `reportFaultOnly`, `takeOut`,
-`putBack`, `retire`, `triage`, `correctFault` and `correctOutReason`.
+`putBack`, `retire`, `triage`, `correctFault`, `correctOutReason` and `correctTag`.
 
 Not in the code yet: service plans, maintenance, inspections and their checklists; the item's
 keeper triaging its faults; members' fault reports, the out-of-order list and My reports;

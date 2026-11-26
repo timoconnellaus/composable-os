@@ -842,3 +842,27 @@ export const correctOutReason = defineTool({
     return { itemId: input.itemId, outReason: text(after.values.outReason) };
   },
 });
+
+export const correctTag = defineTool({
+  description:
+    "Change an item's tag (the code on its sticker), when a sticker is replaced or was entered " +
+    "wrong. Once an item is added its tag is changed only here, by a manager (equipment:manage), " +
+    "and only while the item is in service: the sticker of a machine out of service stays with " +
+    "it. The tag is unique in the register, whatever its case or spaces. The assistant, an MCP " +
+    "client or an automation may ask, and it waits for a person to approve it.",
+  input: z.object({ itemId: ids, tag: z.string().trim().min(1).max(100) }),
+  output: z.object({ itemId: z.string(), tag: z.string().nullable() }),
+  risk: "write",
+  permission: MANAGE,
+  personApproves: true,
+  async handler(input, ctx) {
+    const after = await ctx.ops.call<HostRecord>("record.update", {
+      object: ITEM,
+      id: input.itemId,
+      // Only while it is in service (ADR 0865): a take-out landing first wins.
+      while: "in_service",
+      values: { tag: input.tag },
+    });
+    return { itemId: input.itemId, tag: text(after.values.tag) };
+  },
+});

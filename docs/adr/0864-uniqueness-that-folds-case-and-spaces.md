@@ -56,3 +56,18 @@ spaces creates nothing. With the folding taken out of the host's write, those fa
   again keeps its spelling, which the check above makes harmless.
 - The stored and displayed value becomes upper case: the write-extension skill now says so, and not
   to fold a name or an address.
+
+## Amended 2026-11-26, after the review of PR #502
+- **A rule that gains `fold` folds the stored values in place.** Refusing only clashes left an old
+  `tm-03` beside a new `TM-03`. The reconcile now folds each folded column of every record, in the
+  Trash too, in one `UPDATE` per column (`CASE WHEN trim(c) = '' THEN NULL ELSE upper(trim(c))
+  END`), before the rule's index is built. SQLite's `trim` and `upper` fold exactly as
+  `foldUniqueText` does for printable ASCII only, so a value holding any other character (a letter
+  outside A-Z, a tab, an invisible character such as a zero-width space) is not folded by SQL:
+  while any exists the reconcile is refused (`unique_fold_rows`), with how many and the first five
+  ids, and the way to fold them first in pages (write each one's value folded with `record.update`,
+  a page of `record.list` at a time), then install again. So after any reconcile the stored values
+  are what the host's fold makes, and the clash check (now exact) reports two that would be one.
+  One statement per column whatever the size of the table: inside D1's 1,000 statements.
+- The index name of a uniqueness rule is fitted (`fitName`) like the trigger names: one that fits
+  is unchanged.

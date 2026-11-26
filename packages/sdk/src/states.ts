@@ -295,6 +295,37 @@ export function moveOrigins(move: { from: string | readonly string[] }): readonl
   return typeof move.from === "string" ? [move.from] : move.from;
 }
 
+/**
+ * The tools that make a move out of `state` when it is **guarded** (ADR 0863): not final, some move
+ * leaves it, and every move leaving it is the host's alone (`by: ["host"]`, with or without
+ * `tools`). An empty list when only the host leaves it; null when the state is not guarded. The
+ * host's Trash rule and the test host both ask this.
+ */
+export function guardedStateTools(
+  object: {
+    states?:
+      | {
+          moves: readonly {
+            from: string | readonly string[];
+            to: string;
+            by: readonly string[];
+            tools?: readonly string[] | undefined;
+            final?: boolean | undefined;
+          }[];
+        }
+      | undefined;
+  },
+  state: unknown,
+): readonly string[] | null {
+  const states = object.states;
+  if (!states || typeof state !== "string") return null;
+  if (states.moves.some((m) => m.final && m.to === state)) return null;
+  const leaving = states.moves.filter((m) => moveOrigins(m).includes(state));
+  if (!leaving.length) return null;
+  if (leaving.some((m) => m.by.includes("staff") || m.by.includes("customer"))) return null;
+  return [...new Set(leaving.flatMap((m) => m.tools ?? []))];
+}
+
 /** Reports problems with `objects.<name>.states` through `contract`. */
 export function checkObjectStates(
   m: ExtensionManifest,
@@ -470,6 +501,13 @@ export function checkObjectStates(
       contract(
         `${sp}.holds`,
         `"${states.holds}" must be a relation (one record) of ${name} to another of this extension's objects`,
+      );
+    } else if (!held?.readOnly) {
+      // A hold re-pointed or cleared lets go of what it held (the review of PR #502): only the
+      // extension's own code sets it, and the host refuses even that while the record is guarded.
+      contract(
+        `${sp}.holds`,
+        `"${states.holds}" must be readOnly: a relation anyone may re-point or clear holds nothing`,
       );
     }
   }

@@ -119,3 +119,17 @@ rule taken out of `trashRecord`, those tests fail (listed in the pull request).
   a discount in one of them is put in the Trash by a person who may use one of those tools (every
   member), no longer by the assistant or an automation; once `ended` (final), by anyone who writes
   records. Its tests pass with the rule; nothing else is needed.
+
+## Amended 2026-11-26, after the review of PR #502
+- **A hold's relation is fixed.** The contract refuses `states.holds` on a relation that is not
+  `readOnly` (only the extension's own code sets it), and the host refuses any change of it while
+  the record is in a guarded state, the declaring extension's own code included (`field_locked`):
+  a hold re-pointed or cleared would let go of what it held. The host's own writes are not held.
+- **A holder is named only to whoever may read it.** The rule reads the holders org-wide; its
+  refusal gives the holder's id and state only when the caller may read that record, and otherwise
+  says only that an open record of that kind holds it.
+- **The test host holds it too** (`@composable-os/sdk/testing`): a pack tool's `record.delete` of a
+  record in a guarded state, or of one an open record holds, is refused unless the tool is one of
+  the leaving tools, and a hold is never re-pointed while guarded, so a pack's own tests refuse
+  where the host would.
+- `guardedStateTools` lives in the SDK (`states.ts`), so the host and the test host judge alike.

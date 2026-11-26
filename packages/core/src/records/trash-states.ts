@@ -20,7 +20,7 @@
 //   - The host's own removals (a series' record no longer in its rule, `trashRecordAsHost`) are
 //     not record writes and are not held here. Erase and merge clear and re-point fields; they
 //     put no extension record in the Trash.
-import { moveOrigins } from "@composable-os/sdk";
+import { guardedStateTools, moveOrigins } from "@composable-os/sdk";
 import type { Kysely } from "kysely";
 import { ForbiddenError } from "../errors.ts";
 import { listObjects } from "../fields/index.ts";
@@ -32,20 +32,10 @@ import { orgReader, visibleSource } from "../visibility/index.ts";
 
 /**
  * The tools that make a move out of `state` when it is guarded (an empty list when only the host
- * leaves it), or null when the state is not guarded and the Trash is open as before.
+ * leaves it), or null when the state is not guarded and the Trash is open as before. The SDK's,
+ * so the test host judges as the host does.
  */
-export function guardedStateTools(
-  object: Pick<ObjectDefinition, "states">,
-  state: unknown,
-): readonly string[] | null {
-  const states = object.states;
-  if (!states || typeof state !== "string") return null;
-  if (states.moves.some((m) => m.final && m.to === state)) return null;
-  const leaving = states.moves.filter((m) => moveOrigins(m).includes(state));
-  if (!leaving.length) return null;
-  if (leaving.some((m) => m.by.includes("staff") || m.by.includes("customer"))) return null;
-  return [...new Set(leaving.flatMap((m) => m.tools ?? []))];
-}
+export { guardedStateTools };
 
 /** Every guarded state of the object (those `guardedStateTools` answers a list for). */
 export function guardedStates(object: Pick<ObjectDefinition, "states" | "fields">): string[] {
@@ -141,14 +131,25 @@ export async function assertTrashLeavesState(
     if (!found) continue;
     const leaving = guardedStateTools(holder, found.state) ?? [];
     if (await mayLeave(ctx, holder, leaving)) continue;
+    // The rule reads org-wide; the answer names the holder, and its state, only to a caller who
+    // may read it (the review of PR #502).
+    // biome-ignore lint/suspicious/noExplicitAny: extension views are not in the typed schema.
+    const seen = await (ctx.db as Kysely<any>)
+      .selectFrom(visibleSource(ctx, holder))
+      .select("id")
+      .where("id", "=", found.id)
+      .executeTakeFirst();
+    const what = holder.label.toLowerCase();
     throw new ForbiddenError(
-      `${object.label} has a ${holder.label.toLowerCase()} that is ${stateLabel(holder, found.state)}: only a person who may use ${leaving.join(" or ") || "the host's moves"} can put it in the Trash. Close the ${holder.label.toLowerCase()} first, or ask such a person.`,
+      seen
+        ? `${object.label} has a ${what} that is ${stateLabel(holder, found.state)}: only a person who may use ${leaving.join(" or ") || "the host's moves"} can put it in the Trash. Close the ${what} first, or ask such a person.`
+        : `${object.label} is held by an open ${what}: only a person who may close it can put it in the Trash.`,
       {
         rule: "state_trash",
         reason: "held",
         object: object.name,
         heldBy: holder.name,
-        record: found.id,
+        ...(seen ? { record: found.id, state: found.state } : {}),
         tools: [...leaving],
       },
     );

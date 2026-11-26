@@ -89,7 +89,7 @@ import {
 import type { StageCache } from "../records/stages.ts";
 import { resolveStateRequest } from "../records/states.ts";
 import { type Mover, type TransitionOutcome, transitionTimeline } from "../records/transitions.ts";
-import { assertTrashLeavesState } from "../records/trash-states.ts";
+import { assertTrashLeavesState, guardedStateTools } from "../records/trash-states.ts";
 import { assertUnique, foldUniqueValues } from "../records/unique.ts";
 import { guardStatement } from "../recurring/bookkeeping.ts";
 import {
@@ -1247,7 +1247,7 @@ export async function updateRecord(
   if (options.while !== undefined)
     await assertStillIn(ctx, object, id, before.values, asked, options.while);
   // A field locked in the record's state (ADR 0865) changes only by its extension's own code.
-  assertUnlocked(ctx, object, before.values, foldUniqueValues(object, asked), by);
+  await assertUnlocked(ctx, object, id, before.values, foldUniqueValues(object, asked), by);
   assertMayChangeGatedStages(ctx, object, by);
   // Who must read a record staff confirm: a person's, and once published a manager's (ADR 0702).
   if (by !== "host") await assertMayChangeMustRead(ctx, object, id, asked, before.values);
@@ -1655,38 +1655,84 @@ async function assertStillIn(
 }
 
 /**
- * Refuses a change of a field locked in the record's current state (`lockedIn`, ADR 0865), unless
- * the host or the field's own extension's code makes it (its tools: an item's tag while it is out
- * of service changes by no form, import, assistant or other pack). A value written unchanged is
- * not a change.
+ * The first locked change a write would make (ADR 0865), or null: a field `lockedIn` the record's
+ * state, changed by anyone but the host and the field's own extension's code; or the relation a
+ * guarded record holds another by (`states.holds`, ADR 0863), changed by anyone but the host while
+ * the record is guarded (the extension's own code included: a hold re-pointed lets go). A value
+ * written unchanged is not a change. The keyed import's dry run asks it too.
  */
-function assertUnlocked(
-  ctx: HandlerContext,
+export function lockedChange(
+  ctx: Pick<HandlerContext, "extension">,
   object: ObjectDefinition,
   stored: Record<string, unknown>,
   values: Record<string, unknown>,
   by: Mover,
-): void {
+): { field: string; message: string; state: string } | null {
   const stateField = object.states?.field;
-  if (!stateField || by === "host") return;
+  if (!stateField || by === "host") return null;
   const state = stored[stateField];
-  if (typeof state !== "string") return;
+  if (typeof state !== "string") return null;
+  const label =
+    object.fields
+      .find((f) => f.name === stateField)
+      ?.options?.choices?.find((o) => o.value === state)
+      ?.label?.toLowerCase() ?? state;
+  const held = object.states?.holds;
+  const guarded = held !== undefined && guardedStateTools(object, state) !== null;
   for (const field of object.fields) {
-    if (!field.options?.lockedIn?.includes(state) || !(field.name in values)) continue;
+    const locked = field.options?.lockedIn?.includes(state) === true;
+    const holding = guarded && field.name === held;
+    if ((!locked && !holding) || !(field.name in values)) continue;
     const before = stored[field.name] ?? null;
     const after = values[field.name] ?? null;
     if (JSON.stringify(before) === JSON.stringify(after)) continue;
-    if (field.extension !== undefined && ctx.extension?.id === field.extension) continue;
-    const label =
-      object.fields
-        .find((f) => f.name === stateField)
-        ?.options?.choices?.find((o) => o.value === state)
-        ?.label?.toLowerCase() ?? state;
-    throw new ValidationError(
-      `${object.label}'s ${field.label.toLowerCase()} does not change while it is ${label}`,
-      { field: field.name, rule: "field_locked", state },
-    );
+    const own = field.extension !== undefined && ctx.extension?.id === field.extension;
+    if (own && !holding) continue;
+    return {
+      field: field.name,
+      state,
+      message: `${object.label}'s ${field.label.toLowerCase()} does not change while it is ${label}`,
+    };
   }
+  return null;
+}
+
+/**
+ * Refuses a locked change (`lockedChange`), and holds a change of a lockable field at commit: a
+ * field locked in some state, changed while the record is in another, is written only if the
+ * record has not moved meanwhile (the `unmoved` guard), as `while` and the Trash are.
+ */
+async function assertUnlocked(
+  ctx: HandlerContext,
+  object: ObjectDefinition,
+  id: string,
+  stored: Record<string, unknown>,
+  values: Record<string, unknown>,
+  by: Mover,
+): Promise<void> {
+  const locked = lockedChange(ctx, object, stored, values, by);
+  if (locked) {
+    throw new ValidationError(locked.message, {
+      field: locked.field,
+      rule: "field_locked",
+      state: locked.state,
+    });
+  }
+  if (!object.states || by === "host") return;
+  const lockable = object.fields.some(
+    (f) =>
+      (f.options?.lockedIn?.length || f.name === object.states?.holds) &&
+      f.name in values &&
+      JSON.stringify(stored[f.name] ?? null) !== JSON.stringify(values[f.name] ?? null),
+  );
+  if (!lockable) return;
+  const row = await ctx.db
+    .selectFrom("core_transition_history")
+    .select((eb) => eb.fn.countAll<number>().as("n"))
+    .where("object_type", "=", object.name)
+    .where("record_id", "=", id)
+    .executeTakeFirst();
+  ctx.write(guardStatement("unmoved", object.name, id, Number(row?.n ?? 0)));
 }
 
 /**

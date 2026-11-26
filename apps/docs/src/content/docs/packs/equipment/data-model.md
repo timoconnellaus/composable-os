@@ -28,7 +28,7 @@ One thing the business owns and looks after: a machine, a rack, a tool, a van. I
 | `name` | `text` | Name | yes |   |   |
 | `category` | `select` | Category |   | one of `cardio`, `strength`, `free_weights`, `studio`, `wet_area`, `tool`, `test_gear`, `vehicle`, `other` |   |
 | `place` | `text` | Place |   |   | Where it is: a room, an area of the floor, a van. |
-| `tag` | `text` | Tag |   |   | The code on its sticker. No two items in the register share one; an import matches on it. It does not change while the item is out of service. |
+| `tag` | `text` | Tag |   |   | The code on its sticker. No two items in the register share one; an import matches on it. Given when the item is added; after that only a manager changes it (correctTag). |
 | `make` | `text` | Make |   |   |   |
 | `model` | `text` | Model |   |   |   |
 | `serial` | `text` | Serial number |   |   |   |
