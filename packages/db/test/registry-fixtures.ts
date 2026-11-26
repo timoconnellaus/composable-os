@@ -45,12 +45,13 @@ export function insertHostname(
   client: string,
   surface: "staff" | "web" | "desk" = "staff",
   verified = true,
+  primary = false,
 ): D1PreparedStatement {
   return registry
     .prepare(
-      "INSERT INTO registry_hostnames (hostname, client, surface, verified) VALUES (?, ?, ?, ?)",
+      "INSERT INTO registry_hostnames (hostname, client, surface, verified, is_primary) VALUES (?, ?, ?, ?, ?)",
     )
-    .bind(hostname, client, surface, verified ? 1 : 0);
+    .bind(hostname, client, surface, verified ? 1 : 0, primary ? 1 : 0);
 }
 
 export function insertSetting(

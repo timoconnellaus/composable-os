@@ -111,3 +111,12 @@ A guest buying goods to be posted gives the address with the order (`order.start
 audit log, and the guest reads it back only with the order's token (`order.delivery.get`). A
 collect or take-it-now order needs none. Erasing the Person the address becomes theirs with blanks
 it. See [ADR 0682](0682-goods-on-an-order-where-sold-the-channel-and-the-delivery.md).
+
+## Amendment, 2026-11-26 (stage 66 step 6, ADR 0616): payment secrets on a many-client host
+Payment secrets stay env-only on a single-client deployment. On a host that serves many clients
+they are a client's given secrets (sealed in the registry, opened only into that client's
+environment, [ADR 0616](0616-secrets-and-addresses-per-client.md)), passed to the payments gatekeeper
+per call sealed to it and never stored there in plaintext; or the host uses Stripe Connect and holds
+no client's Stripe secret at all (the owner's decision). Until one is built the payments gatekeeper
+is left out of every client's environment, so no client takes money into another's (or the
+operator's) Stripe account. The work it needs is listed in ADR 0616, "Gatekeepers".

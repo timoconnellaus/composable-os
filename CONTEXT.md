@@ -1040,15 +1040,36 @@ The host's own database of its clients: their hostnames, per-client settings and
 the operator writes it; no operation, extension or assistant reaches it. A D1 database of its own
 (the `REGISTRY` binding, bound only on a host that serves many clients) with its own migrations
 (`packages/db/registry-migrations`), read by `@composable-os/db/registry`: clients, their
-verified hostnames (looked up exactly, never derived), their settings by env name, the encrypted
-secrets' columns, and a version stamp every write moves. Built in step 3; nothing writes it yet.
+verified hostnames (looked up exactly, never derived; one marked as each surface's address), their
+settings by env name, their given secrets sealed under the host's key, and a version stamp every
+write moves. Built in steps 3 and 6; nothing but the tests writes it yet (step 7).
+
+**Derived secret** (stage 66; ADR 0616)
+A secret the host signs or encrypts with for itself, made for one client from the host's root key
+(`COS_ROOT_KEY`) with HKDF, for one purpose and the client's secret generation, and stored
+nowhere: the staff, customer and desk secrets, the support cookie's key and the client-address key
+of a client on a host that serves many. A deployment imported as a client keeps its own instead
+(stored sealed); a client that leaves takes its own. A single-client deployment keeps them as
+Worker secrets.
+
+**Given secret** (stage 66; ADR 0616)
+A secret a client supplies that the host cannot derive (its own sign-in provider, Turnstile, judge
+and AI keys), sealed in the registry to the host's public key (HPKE), so only the private key in
+the host's environment (`COS_SECRETS_PRIVATE_KEY`) opens it; written only by the operator's
+command, which can overwrite but never read, and opened only into that client's environment.
+
+**Callback address** (stage 66; ADR 0616)
+The one hostname of a host that serves many clients where every gatekeeper's OAuth redirects and
+webhooks arrive (`COS_CALLBACK_HOSTNAME`), no client's. What a callback carries is checked by the
+gatekeeper against what that client's connection stored, so it can only reach that connection.
 
 **Client's environment** (stage 66; ADR 0613)
 What an entry of a host that serves many clients hands everything below it: an object shaped
 like the Worker's `env` for one client, with `DB` that client's database, its settings from the
-registry, the operator's shared values, and each shared binding through a wrapper that reaches
-only that client's part. What has no wrapper or value yet, the host's own names and anything
-unlisted are left out (`ENV_NAMES`). It is frozen, and handed out only for a client that is
+registry, its derived and given secrets, its addresses from its verified hostnames, the operator's
+shared values, and each shared binding through a wrapper that reaches only that client's part.
+What has no wrapper or value yet, the host's own names and keys, and anything unlisted are left
+out (`ENV_NAMES`). It is frozen, and handed out only for a client that is
 served: active, of the deployment's environment (`COS_HOST_ENVIRONMENT`), its schema not behind;
 otherwise the answer is a refusal with its reason and no environment. On a single-client
 deployment it is the real `env` itself. `@composable-os/db/client-environment`; no entry uses it

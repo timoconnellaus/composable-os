@@ -71,6 +71,8 @@ function manyClientEnv(registry: D1Database = real.REGISTRY, environment = "live
     // Shared.
     STREAM_ACCOUNT_ID: "stream-account",
     LOADER: { name: "loader" },
+    GATEKEEPER_GOOGLE: { name: "google" },
+    // Holds one deployment's Stripe key and events: left out until it is per client (ADR 0616).
     GATEKEEPER_PAYMENTS: { name: "payments" },
     // Kept apart: one with a wrapper (rate limits) and one without (files, step 4).
     MCP_RATE_LIMIT: recordingRateLimit(),
@@ -90,6 +92,7 @@ const gymA: ClientRecord = {
   repository: null,
   locationHint: "oc",
   schemaVersion: CORE_SCHEMA_VERSION,
+  secretGeneration: "0123456789abcdef0123456789abcdef",
 };
 
 /** The environment of a served admission, or a failure naming why it was refused. */
@@ -165,10 +168,11 @@ describe("buildClientEnvironment", () => {
     expect(Object.keys(built).sort()).toEqual(
       [
         "APPROVAL_FLOOR",
+        "COS_CLIENT_ID",
         "COS_ORG_EXTENSIONS",
         "COS_PACKS",
         "DB",
-        "GATEKEEPER_PAYMENTS",
+        "GATEKEEPER_GOOGLE",
         "LOADER",
         "MCP_RATE_LIMIT",
         "STREAM_ACCOUNT_ID",
@@ -184,7 +188,8 @@ describe("buildClientEnvironment", () => {
     expect("STREAM_SIGNING_JWK" in built).toBe(false);
     // Shared values are the same objects.
     expect(built.LOADER).toBe(host.LOADER);
-    expect(built.GATEKEEPER_PAYMENTS).toBe(host.GATEKEEPER_PAYMENTS);
+    expect(built.GATEKEEPER_GOOGLE).toBe(host.GATEKEEPER_GOOGLE);
+    expect("GATEKEEPER_PAYMENTS" in built).toBe(false);
     // DB is a client's database, not the D1 binding.
     expect(built.DB).not.toBe(real.DB);
     expect(clientOf(built)).toBe("gym-a");
@@ -537,7 +542,9 @@ describe("ClientDirectory", () => {
     expect((a1 as unknown as { APPROVAL_FLOOR: string }).APPROVAL_FLOOR).toBe("high");
     expect((b1 as unknown as { APPROVAL_FLOOR: string }).APPROVAL_FLOOR).toBe("medium");
     const afterFirst = meter.statements();
-    expect(afterFirst).toBe(4);
+    // The registry in one batch of four, and each built client's sealed secrets, one read each
+    // (stage 66 step 6: never in the snapshot).
+    expect(afterFirst).toBe(4 + 2);
     // Within the refresh: no read at all, however many requests and hostnames.
     for (let i = 0; i < 50; i++) await directory.clientForHostname(`unknown-${i}.example.com`);
     expect(served(await directory.environmentFor("gym-a"))).toBe(a1);
@@ -553,7 +560,7 @@ describe("ClientDirectory", () => {
     const b2 = served(await directory.environmentFor("gym-b"));
     expect(a2).not.toBe(a1);
     expect((b2 as unknown as { APPROVAL_FLOOR: string }).APPROVAL_FLOOR).toBe("critical");
-    expect(meter.statements()).toBe(afterFirst + 1 + 1 + 4);
+    expect(meter.statements()).toBe(afterFirst + 1 + 1 + 4 + 2);
   });
 
   it("stops serving a client the operator removed or paused, at the next check", async () => {

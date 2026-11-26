@@ -39,7 +39,16 @@ describe("the names of the host's environment", () => {
   });
 
   it("list nothing no Worker declares or reads (except the host's own bindings to come)", () => {
-    const toCome = new Set(["REGISTRY", "CLIENT_DB", "COS_HOST_ENVIRONMENT"]);
+    const toCome = new Set([
+      "REGISTRY",
+      "CLIENT_DB",
+      "COS_HOST_ENVIRONMENT",
+      // Stage 66 step 6 (ADR 0616): set by the deploy engine on a many-client deployment (step 7).
+      "COS_ROOT_KEY",
+      "COS_SECRETS_PRIVATE_KEY",
+      "COS_SECRETS_PRIVATE_KEY_PREVIOUS",
+      "COS_CALLBACK_HOSTNAME",
+    ]);
     const stale = [...Object.keys(ENV_NAMES), ...Object.keys(CLIENT_SETTINGS)].filter(
       (name) => !declared.has(name) && !toCome.has(name),
     );

@@ -385,7 +385,10 @@ the host's.
 6. **Secrets and addresses per client;** gatekeeper callbacks on one address. Criterion 10.
 7. **`cos client add`, the update, export, import, remove.** Criteria 11 to 14.
 8. **Hostnames, `cos-front` and the namespace:** `composableos.app` addresses, a client's web
-   app in the namespace, then custom hostnames for a client's own domain.
+   app in the namespace, then custom hostnames for a client's own domain. Client-controlled web
+   code is never served on the fleet's staff domain: a client's web app is on its own domain or
+   on a registrable domain apart from the staff hostnames, and the fleet's domain is submitted to
+   the Public Suffix List (ADR 0616, "Cookies"; added 2026-11-27).
 9. **The first client,** staging then live. Criterion 15.
 10. **Usage.** Criterion 16.
 11. Docs, skills and the ADR amendments. Criterion 17.
@@ -428,7 +431,7 @@ build step adds a bullet of its own here (CONTRIBUTING.md, Working in parallel).
 
 - **Step 5** — not built — needs: step 4 — Module-level caches and the two-client suite
 
-- **Step 6** — not built — needs: step 3 — Secrets and addresses per client (the desk secret and the person-code keys included)
+- **Step 6** — built — PR #513 — Secrets and addresses per client, gatekeeper callbacks on one address (ADR 0616; ADRs 0008, 0151 and 0428 amended): the staff, customer and desk secrets (and so the person-code and practitioner keys), the support cookie's key and the client-address key derived per client with HKDF from the host's `COS_ROOT_KEY` and the client's secret generation (migration 0792), stored nowhere, except a deployment imported as a client, whose own are stored sealed and override derivation (`writeImportedSecret`), and taken by a leaving client (`exportClientSecrets`); a client's given secrets (its own Google sign-in, Cloudflare Access, Turnstile, judge and AI keys) sealed with HPKE (X25519, AES-256-GCM, `@hpke/core`) to the host's public key in `registry_secrets`, so only `COS_SECRETS_PRIVATE_KEY` in the host's environment opens them, written only by the operator's command (`@composable-os/db/registry-sealing`, which cannot open) and opened only by the directory into that client's environment, never in the snapshot; rotation by a re-seal on the host; on a many-client host every session cookie `__Host-` prefixed; each address from the client's verified hostnames (migration 0791: the marked hostname of a surface), `NATIVE_REDIRECT_URIS` a registry setting; the deployment's one callback hostname (`COS_CALLBACK_HOSTNAME`, `@composable-os/db/callbacks`), no client's. The payments, text, inbound webhook, email and email-sending gatekeepers are left out of every client's environment and the fake gatekeeper refused, until each is made per client (ADR 0616 lists the work, and payments' two shapes for the owner)
 
 - **Step 7** — not built — needs: step 2, step 5, step 6 — `cos client add`, the update, export, import, remove
 

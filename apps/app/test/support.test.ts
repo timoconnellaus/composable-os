@@ -267,6 +267,47 @@ describe("/support/enter", () => {
   });
 });
 
+describe("the support cookie on a many-client host (stage 66 step 6, ADR 0616)", () => {
+  it("is __Host- prefixed, MACed with the client's own key, and refused under any other name or key", async () => {
+    const many = {
+      ...supportEnv,
+      COS_CLIENT_ID: "acme",
+      SUPPORT_COOKIE_SECRET: "s66e-derived-support-cookie-key-0001",
+    };
+    const { id, email } = await requestGrant("viewer");
+    const approved = await approve(id);
+    const response = await enter(await token(claimsFor(id, email)), many);
+    expect(response.status).toBe(302);
+    const setCookie = response.headers.get("set-cookie") ?? "";
+    expect(setCookie).toMatch(/^__Host-cos_support=sgr_/);
+    expect(setCookie).toContain("Secure");
+    expect(setCookie).toContain("Path=/");
+    expect(setCookie.toLowerCase()).not.toContain("domain");
+    const cookie = cookieFrom(response);
+    const ok = await authorize(new Request(`${ORIGIN}/`, { headers: { cookie } }), many, page);
+    expect(ok.ok).toBe(true);
+    // The same value without the prefix (what a sibling hostname could plant) is not read.
+    const value = cookie.slice(cookie.indexOf("=") + 1);
+    const planted = await authorize(
+      new Request(`${ORIGIN}/`, { headers: { cookie: `${SUPPORT_COOKIE}=${value}` } }),
+      many,
+      page,
+    );
+    expect(planted.ok).toBe(false);
+    // A cookie MACed with the staff secret is not a support cookie there.
+    const exp = Math.floor(Date.parse(approved.expiresAt) / 1000);
+    const staffKeyed = await signSupportCookie(id, exp, env.BETTER_AUTH_SECRET);
+    const wrongKey = await authorize(
+      new Request(`${ORIGIN}/`, {
+        headers: { cookie: `__Host-${SUPPORT_COOKIE}=${staffKeyed}` },
+      }),
+      many,
+      page,
+    );
+    expect(wrongKey.ok).toBe(false);
+  });
+});
+
 describe("plan limits through the UI adapter", () => {
   async function setPlan(value: Record<string, unknown>) {
     await env.DB.prepare(

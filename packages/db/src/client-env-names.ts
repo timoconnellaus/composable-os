@@ -13,12 +13,31 @@
 export type EnvNameUse =
   /** The host's own: never in a client's environment. */
   | { use: "host"; why: string }
+  /** The client's id (`COS_CLIENT_ID`), set by the builder: a many-client host's marker. */
+  | { use: "client" }
   /** The client's database: `clientDatabase(CLIENT_DB, client)`. */
   | { use: "database" }
   /** A deploy-time setting, per client, from the registry (`CLIENT_SETTINGS`). */
   | { use: "setting" }
-  /** The client's own, filled in by a later step; left out until then. */
-  | { use: "per-client"; step: 6; what: "secret" | "address"; why: string }
+  /**
+   * The client's own secret (stage 66 step 6, ADR 0616): `derived` from the host's root key for
+   * this client and purpose (`DERIVED_SECRETS`, never stored), or `given` by the client and
+   * opened from the registry (`GIVEN_SECRET_NAMES`). Left out when the host cannot supply it.
+   */
+  | { use: "per-client"; what: "secret"; from: "derived" | "given"; why: string }
+  /**
+   * The client's own address (ADR 0616), from its verified hostnames in the registry, never from
+   * a request: `staff` (its staff origin, with `path` appended), `customer` (its web origin, or
+   * its staff origin when it has no web hostname: where customers sign in today), `desk` (its
+   * desk hostname, a bare hostname), `all` (every verified hostname's origin, comma separated).
+   */
+  | {
+      use: "per-client";
+      what: "address";
+      from: "staff" | "customer" | "desk" | "all";
+      path?: string;
+      why: string;
+    }
   /** A shared binding or credential with a part per client: in only once its wrapper exists. */
   | { use: "kept-apart"; by: string }
   /**
@@ -28,8 +47,23 @@ export type EnvNameUse =
    */
   | { use: "shared"; why: string };
 
-const SECRET = (why: string): EnvNameUse => ({ use: "per-client", step: 6, what: "secret", why });
-const ADDRESS = (why: string): EnvNameUse => ({ use: "per-client", step: 6, what: "address", why });
+const DERIVED = (why: string): EnvNameUse => ({
+  use: "per-client",
+  what: "secret",
+  from: "derived",
+  why,
+});
+const GIVEN = (why: string): EnvNameUse => ({
+  use: "per-client",
+  what: "secret",
+  from: "given",
+  why,
+});
+const ADDRESS = (
+  from: "staff" | "customer" | "desk" | "all",
+  why: string,
+  path?: string,
+): EnvNameUse => ({ use: "per-client", what: "address", from, ...(path ? { path } : {}), why });
 const APART = (by: string): EnvNameUse => ({ use: "kept-apart", by });
 const SHARED = (why: string): EnvNameUse => ({ use: "shared", why });
 const HOST = (why: string): EnvNameUse => ({ use: "host", why });
@@ -52,30 +86,45 @@ export const ENV_NAMES: Readonly<Record<string, EnvNameUse>> = {
   COS_CONTROL_URL: HOST("stage 10's control plane, one per deployment"),
   COS_CONTROL_KEY: HOST("stage 10's control plane, one per deployment"),
   AI_CUSTOMER_GATEWAY: HOST("stage 10's customer gateway: one tenant's logs, not a client's"),
+  // Stage 66 step 6 (ADR 0616): the host's two keys, set by the deploy engine on a many-client
+  // deployment only (step 7), different on staging and live. Read by the directory alone.
+  COS_ROOT_KEY: HOST("every client's derived secrets come from it (registry-secrets.ts)"),
+  COS_SECRETS_PRIVATE_KEY: HOST(
+    "opens every client's given secrets, sealed to its public key (registry-sealing.ts)",
+  ),
+  COS_SECRETS_PRIVATE_KEY_PREVIOUS: HOST(
+    "the private key before a rotation, while the host re-seals every row",
+  ),
+  // The one address of the deployment's gatekeeper callbacks (OAuth redirects, webhooks): every
+  // gatekeeper's BASE_URL is under it. Read by the app's entry (`isCallbackHostname`), no client's.
+  COS_CALLBACK_HOSTNAME: HOST("the deployment's one callback address, no client's (callbacks.ts)"),
 
   // --- The client's database ----------------------------------------------------------------
   DB: { use: "database" },
+  // Which client the environment is for: set by the builder alone, never from the host's env.
+  COS_CLIENT_ID: { use: "client" },
 
-  // --- Secrets, per client (step 6: derived, or given and stored encrypted) ------------------
-  BETTER_AUTH_SECRET: SECRET("derived per client from the host's master secret"),
-  CUSTOMER_AUTH_SECRET: SECRET("derived per client from the host's master secret"),
-  DESK_SECRET: SECRET("derived per client (the desk's signing secret)"),
-  GOOGLE_CLIENT_ID: SECRET("the client's own Google sign-in"),
-  GOOGLE_CLIENT_SECRET: SECRET("the client's own Google sign-in"),
-  CF_ACCESS_TEAM_DOMAIN: SECRET("the client's own Cloudflare Access"),
-  CF_ACCESS_AUD: SECRET("the client's own Cloudflare Access"),
-  TYPESAFE_API_KEY: SECRET("the client's own judge key"),
-  TURNSTILE_SITE_KEY: SECRET("a Turnstile widget lists the hostnames it answers on"),
-  TURNSTILE_SECRET_KEY: SECRET("a Turnstile widget lists the hostnames it answers on"),
+  // --- Secrets, per client (ADR 0616: derived, or given and stored sealed) -------------------
+  BETTER_AUTH_SECRET: DERIVED("staff sessions, and the person-code keys derived from it"),
+  CUSTOMER_AUTH_SECRET: DERIVED("customer sessions, and the practitioner key derived from it"),
+  DESK_SECRET: DERIVED("the desk's codes, device credentials and session tokens"),
+  SUPPORT_COOKIE_SECRET: DERIVED("the support cookie's MAC, not the staff secret"),
+  CLIENT_ADDRESS_SECRET: DERIVED("the HMAC of a client address for rate limits"),
+  GOOGLE_CLIENT_ID: GIVEN("the client's own Google sign-in"),
+  GOOGLE_CLIENT_SECRET: GIVEN("the client's own Google sign-in"),
+  CF_ACCESS_TEAM_DOMAIN: GIVEN("the client's own Cloudflare Access"),
+  CF_ACCESS_AUD: GIVEN("the client's own Cloudflare Access"),
+  TYPESAFE_API_KEY: GIVEN("the client's own judge key"),
+  TURNSTILE_SITE_KEY: GIVEN("a Turnstile widget lists the hostnames it answers on"),
+  TURNSTILE_SECRET_KEY: GIVEN("a Turnstile widget lists the hostnames it answers on"),
 
-  // --- Addresses, per client (step 6: from the client's hostnames) --------------------------
-  BETTER_AUTH_URL: ADDRESS("the client's staff address"),
-  CUSTOMER_AUTH_URL: ADDRESS("the client's web address"),
-  APP_ORIGIN: ADDRESS("the client's staff address"),
-  MCP_RESOURCE: ADDRESS("the client's staff address"),
-  DESK_HOSTNAME: ADDRESS("the client's desk hostname (step 8)"),
-  NATIVE_REDIRECT_URIS: ADDRESS("the client's own native app"),
-  STREAM_ALLOWED_ORIGINS: ADDRESS("the client's own addresses play its videos"),
+  // --- Addresses, per client (ADR 0616: from the client's verified hostnames) ---------------
+  BETTER_AUTH_URL: ADDRESS("staff", "staff sign-in's base URL, and the host's own links"),
+  CUSTOMER_AUTH_URL: ADDRESS("customer", "customer sign-in's base URL, and links in its emails"),
+  APP_ORIGIN: ADDRESS("staff", "the runner's links in notifications and connect hand-backs"),
+  MCP_RESOURCE: ADDRESS("staff", "the MCP resource an access token is issued for", "/mcp"),
+  DESK_HOSTNAME: ADDRESS("desk", "the client's desk hostname (step 8 adds them)"),
+  STREAM_ALLOWED_ORIGINS: ADDRESS("all", "the client's own addresses play its videos"),
 
   // --- Shared bindings and credentials with a part per client (step 4's wrappers) ------------
   BLOBS: APART("a key prefix per client, added on write and removed on list"),
@@ -142,11 +191,23 @@ export const ENV_NAMES: Readonly<Record<string, EnvNameUse>> = {
 
 /** Names matched by their shape, after `ENV_NAMES` and the settings. */
 export const ENV_NAME_PATTERNS: ReadonlyArray<{ pattern: RegExp; use: EnvNameUse }> = [
-  { pattern: /^AI_KEY_[A-Z0-9_]+$/, use: SECRET("the client's own AI provider keys") },
+  { pattern: /^AI_KEY_[A-Z0-9_]+$/, use: GIVEN("the client's own AI provider keys") },
+  // Gatekeepers whose Worker holds one deployment's credentials or state for every account, so
+  // one client would act with another's (ADR 0616, "Gatekeepers"): left out of every client's
+  // environment until each is made per client. Payments: one Stripe key and one events object per
+  // provider. Text: one events object for the deployment. Webhook: endpoint ids chosen by the
+  // user, one object each for the deployment. Email: one mailbox per local part for the
+  // deployment. Email sending: the deployment's sender domains.
+  {
+    pattern: /^GATEKEEPER_(?:PAYMENTS|TEXT|WEBHOOK|EMAIL|EMAIL_SEND)$/,
+    use: APART(
+      "each client's own provider account, endpoints and mailboxes: the gatekeeper's work, listed in ADR 0616",
+    ),
+  },
   {
     pattern: /^GATEKEEPER_[A-Z0-9_]+$/,
     use: SHARED(
-      "a gatekeeper Worker: called with a connection minted for one client, whose object is that client's (stage 66)",
+      "a gatekeeper Worker: called with a connection minted for one client, whose object is that client's; its OAuth app is the operator's own, and each account's tokens are in that account's object (stage 66, ADR 0616)",
     ),
   },
   { pattern: /^[A-Z0-9_]+_RATE_LIMIT$/, use: APART("the client in every key") },

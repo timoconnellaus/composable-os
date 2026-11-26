@@ -12,6 +12,8 @@
     "./sql-export": "./src/sql-export.ts",
     "./registry": "./src/registry.ts",
     "./client-environment": "./src/client-environment.ts",
+    "./registry-sealing": "./src/registry-sealing.ts",
+    "./callbacks": "./src/callbacks.ts",
     "./testing/vitest": "./testing/vitest.ts",
     "./testing/conformance": "./testing/conformance.ts",
     "./testing/contents": "./testing/contents.ts"
@@ -24,6 +26,7 @@
     "seed": "node scripts/seed.ts"
   },
   "dependencies": {
+    "@hpke/core": "1.9.0",
     "kysely": "0.29.8"
   },
   "devDependencies": {

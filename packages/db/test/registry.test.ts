@@ -79,10 +79,10 @@ describe("the version stamp", () => {
     await step(registry.prepare("UPDATE registry_settings SET value = 'medium'"));
     await step(
       registry.prepare(
-        "INSERT INTO registry_secrets (client, name, ciphertext, iv, key_id) VALUES ('gym-a', 'STRIPE_KEY', x'00', x'000000000000000000000000', 'k1')",
+        "INSERT INTO registry_secrets (client, name, kind, enc, ciphertext, key_id) VALUES ('gym-a', 'AI_KEY_OPENAI', 'given', zeroblob(32), zeroblob(32), 'k2-0000000000000000')",
       ),
     );
-    await step(registry.prepare("UPDATE registry_secrets SET key_id = 'k2'"));
+    await step(registry.prepare("UPDATE registry_secrets SET key_id = 'k2-1111111111111111'"));
     await step(registry.prepare("DELETE FROM registry_secrets"));
     await step(registry.prepare("DELETE FROM registry_settings"));
     await step(registry.prepare("DELETE FROM registry_hostnames"));
@@ -300,6 +300,8 @@ describe("readRegistry", () => {
       repository: null,
       locationHint: "oc",
       schemaVersion: 7,
+      // Written by the registry when the client was added (migration 0792).
+      secretGeneration: expect.stringMatching(/^[0-9a-f]{32}$/),
     });
     expect(snapshot.settings.get("gym-a" as never)).toEqual({ APPROVAL_FLOOR: "high" });
     expect([...snapshot.hostnames.keys()]).toEqual(["gym-a.example.com"]);

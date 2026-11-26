@@ -14,6 +14,8 @@
 //
 // Exported as `@composable-os/db/client-environment`, never from `@composable-os/db`. Building an
 // environment (client-environment-build.ts) is internal: only the directory does it.
+
+import { callbackHostname, isCallbackHostname } from "./callbacks.ts";
 import {
   BINDING_WRAPPERS,
   type BindingWrapper,
@@ -26,6 +28,7 @@ import {
 import { CORE_SCHEMA_VERSION } from "./migrate.ts";
 import {
   CLIENT_ENVIRONMENTS,
+  type ClientAddresses,
   type ClientEnvironmentName,
   type ClientId,
   type ClientRecord,
@@ -37,6 +40,13 @@ import {
   readRegistry,
   readRegistryStamp,
 } from "./registry.ts";
+import { ROOT_KEY_VAR } from "./registry-sealing.ts";
+import {
+  deriveClientSecrets,
+  type OpeningKeyring,
+  openingKeyringOf,
+  readClientSecrets,
+} from "./registry-secrets.ts";
 
 export type { BindingWrapper, HostBindings };
 export { BINDING_WRAPPERS, clientOf, envNameUse, keepRateLimitApart };
@@ -131,11 +141,25 @@ export class ClientDirectory<E extends HostBindings = HostBindings> {
   #tickets = 0;
   #applied = 0;
   readonly #environments = new Map<ClientId, E>();
+  /** The sealing keys, imported once (non-extractable `CryptoKey`s). */
+  #keyring: OpeningKeyring | null | undefined;
+  #warnedNoRoot = false;
 
   constructor(env: E, options: ClientDirectoryOptions = {}) {
     if (hostMode(env) !== "many") throw new Error("No REGISTRY binding: one client, no directory");
     this.#env = env as E & ManyClientBindings;
     this.#environment = hostEnvironment(env);
+    // One clear failure where the directory is made, not one per request: a callback hostname
+    // that is not canonical (upper case, a port) is a broken deployment (step 7 checks it first).
+    callbackHostname(env);
+    // The fake gatekeepers keep one deployment's fake books and accept a fixed signing secret on
+    // localhost: never on a host of many clients (ADR 0616).
+    const flags = env as unknown as Record<string, unknown>;
+    if (flags.INTEGRATIONS_FAKE_PROVIDER === "true" || flags.GATEKEEPER_FAKE !== undefined) {
+      throw new Error(
+        "A host of many clients cannot run the fake gatekeeper: unset INTEGRATIONS_FAKE_PROVIDER and the GATEKEEPER_FAKE binding",
+      );
+    }
     this.#refreshMs = options.refreshMs ?? REGISTRY_REFRESH_MS;
     this.#now = options.now ?? Date.now;
     this.#codeSchemaVersion = options.codeSchemaVersion ?? CORE_SCHEMA_VERSION;
@@ -192,22 +216,75 @@ export class ClientDirectory<E extends HostBindings = HostBindings> {
     return this.#ofThisDeployment((await this.snapshot()).clients.get(id));
   }
 
-  #admit(snapshot: RegistrySnapshot, record: ClientRecord | null): ClientAdmission<E> {
+  async #admit(
+    snapshot: RegistrySnapshot,
+    record: ClientRecord | null,
+  ): Promise<ClientAdmission<E>> {
     if (!record) return { served: false, refused: "unknown", client: null };
     if (record.status === "moving") return { served: false, refused: "moving", client: record };
     if (record.status !== "active") return { served: false, refused: "paused", client: record };
     if (isSchemaBehind(record, this.#codeSchemaVersion)) {
       return { served: false, refused: "schema-behind", client: record };
     }
-    let built = this.#environments.get(record.id);
-    if (!built) {
-      built = buildClientEnvironment(this.#env, {
-        client: record,
-        settings: snapshot.settings.get(record.id) ?? {},
-      }) as E;
-      this.#environments.set(record.id, built);
-    }
+    const cached = this.#environments.get(record.id);
+    if (cached) return { served: true, client: record, env: cached };
+    const built = buildClientEnvironment(this.#env, {
+      client: record,
+      settings: snapshot.settings.get(record.id) ?? {},
+      ...(await this.#secretsOf(record)),
+      ...(snapshot.addresses.has(record.id)
+        ? { addresses: snapshot.addresses.get(record.id) as ClientAddresses }
+        : {}),
+    }) as E;
+    // Two requests may build at once: the first one kept is every later request's. One built
+    // from a registry read since replaced serves its own request and is not kept.
+    const kept = this.#environments.get(record.id);
+    if (kept) return { served: true, client: record, env: kept };
+    if (this.#snapshot === snapshot) this.#environments.set(record.id, built);
     return { served: true, client: record, env: built };
+  }
+
+  /**
+   * The client's derived and given secrets (ADR 0616). The plaintext exists only here, on its
+   * way into the client's environment, and then in that frozen environment, which the directory
+   * keeps until the registry's stamp changes (a secret written, changed or removed moves it).
+   * The snapshot holds none of it: a client's sealed rows are read now, for that client alone.
+   */
+  async #secretsOf(record: ClientRecord): Promise<{
+    derived?: Record<string, string>;
+    given: Record<string, string>;
+    imported: Record<string, string>;
+  }> {
+    const root = this.#env.COS_ROOT_KEY;
+    if (!root && !this.#warnedNoRoot) {
+      this.#warnedNoRoot = true;
+      console.warn(
+        `${ROOT_KEY_VAR} is not set: no client's auth or desk secret can be derived, so none can sign in`,
+      );
+    }
+    const problems: string[] = [];
+    if (root && !record.secretGeneration) {
+      problems.push("it has no secret generation, so no secret of it is derived");
+    }
+    const derived =
+      root && record.secretGeneration
+        ? await deriveClientSecrets(root, {
+            environment: record.environment,
+            client: record.id,
+            generation: record.secretGeneration,
+          })
+        : undefined;
+    // Kept as the keys, never as a promise: one request's promise is not another's to await.
+    if (this.#keyring === undefined) this.#keyring = await openingKeyringOf(this.#env);
+    const opened = await readClientSecrets(
+      this.#env.REGISTRY,
+      this.#keyring,
+      record.environment,
+      record.id,
+    );
+    problems.push(...opened.problems);
+    if (problems.length > 0) console.warn(`client ${record.id}: ${problems.join("; ")}`);
+    return { ...(derived ? { derived } : {}), given: opened.given, imported: opened.imported };
   }
 
   /**
@@ -218,13 +295,17 @@ export class ClientDirectory<E extends HostBindings = HostBindings> {
   async clientForHostname(host: string | null | undefined): Promise<HostnameAdmission<E>> {
     const hostname = canonicalHostname(host);
     if (!hostname) return { served: false, refused: "unknown", client: null };
+    // The deployment's callback address is no client's, even if the registry named it one's.
+    if (isCallbackHostname(this.#env, hostname)) {
+      return { served: false, refused: "unknown", client: null };
+    }
     const snapshot = await this.snapshot();
     const match = snapshot.hostnames.get(hostname);
     if (!match) {
       const refused = snapshot.unverified.has(hostname) ? "unverified" : "unknown";
       return { served: false, refused, client: null };
     }
-    const admission = this.#admit(
+    const admission = await this.#admit(
       snapshot,
       this.#ofThisDeployment(snapshot.clients.get(match.client)),
     );

@@ -907,39 +907,74 @@ export function createModelRunner(options: ModelRunnerOptions): ModelRunner {
       return embedWith(config, texts);
     },
     async test(role, ref) {
-      const config = (await resolved())[role];
-      const target = ref ? (hosted ? platformRef(ref) : ref) : config;
-      assertCapable(role, target, dims ? { vectorDimensions: dims } : {});
-      if (isSpeechRole(role)) {
-        // Report whether the provider is set up, without calling it: a test would open a socket.
-        const status = providerStatus(options.env, await settings(), target.provider);
-        if (!status.ready) {
-          throw new AiNotConfiguredError(
-            `${PROVIDER_INFO[target.provider].label}: ${status.reason ?? "not configured"}`,
-          );
-        }
-        return {
-          text: "Configured.",
-          model: target.model,
-          provider: target.provider,
-        };
+      try {
+        return await testRole(role, ref);
+      } catch (error) {
+        // A provider (or a proxy) may echo the key it was sent in its error: never pass it on.
+        throw withoutKeys(error, options.env);
       }
-      if (role === "embed") {
-        const result = await embedWith(target, ["Connection test"]);
-        return {
-          text: `${result.dimensions}-dimension vector`,
-          model: result.model,
-          provider: target.provider,
-        };
-      }
-      // Thinking off: a reasoning model would spend the 16 tokens before answering.
-      return generate(role, target, [{ role: "user", content: "Reply with the single word OK." }], {
-        maxTokens: 16,
-        temperature: 0,
-        thinking: false,
-      });
     },
   };
+
+  async function testRole(
+    role: Parameters<NonNullable<ModelRunner["test"]>>[0],
+    ref: Parameters<NonNullable<ModelRunner["test"]>>[1],
+  ): Promise<Awaited<ReturnType<NonNullable<ModelRunner["test"]>>>> {
+    const config = (await resolved())[role];
+    const target = ref ? (hosted ? platformRef(ref) : ref) : config;
+    assertCapable(role, target, dims ? { vectorDimensions: dims } : {});
+    if (isSpeechRole(role)) {
+      // Report whether the provider is set up, without calling it: a test would open a socket.
+      const status = providerStatus(options.env, await settings(), target.provider);
+      if (!status.ready) {
+        throw new AiNotConfiguredError(
+          `${PROVIDER_INFO[target.provider].label}: ${status.reason ?? "not configured"}`,
+        );
+      }
+      return {
+        text: "Configured.",
+        model: target.model,
+        provider: target.provider,
+      };
+    }
+    if (role === "embed") {
+      const result = await embedWith(target, ["Connection test"]);
+      return {
+        text: `${result.dimensions}-dimension vector`,
+        model: result.model,
+        provider: target.provider,
+      };
+    }
+    // Thinking off: a reasoning model would spend the 16 tokens before answering.
+    return generate(role, target, [{ role: "user", content: "Reply with the single word OK." }], {
+      maxTokens: 16,
+      temperature: 0,
+      thinking: false,
+    });
+  }
+}
+
+/** Env names whose values are credentials an error text must never carry. */
+const CREDENTIAL_NAME =
+  /^(?:AI_KEY_[A-Z0-9_]+|TYPESAFE_API_KEY|AI_GATEWAY_TOKEN|AI_PLATFORM_TOKEN|CLOUDFLARE_API_TOKEN)$/;
+
+/**
+ * An error with every credential of `env` cut out of its message (wherever a provider or a proxy
+ * echoed it), and any bearer token. Its class and name are kept where it has no credential.
+ */
+export function withoutKeys(error: unknown, env: AiEnv): Error {
+  const message = error instanceof Error ? error.message : String(error);
+  let out = message;
+  for (const [name, value] of Object.entries(env as Record<string, unknown>)) {
+    if (CREDENTIAL_NAME.test(name) && typeof value === "string" && value.length >= 8) {
+      out = out.split(value).join("…");
+    }
+  }
+  out = out.replace(/Bearer\s+[A-Za-z0-9._~+/=-]+/gi, "Bearer …");
+  if (out === message && error instanceof Error) return error;
+  const clean = new Error(out);
+  clean.name = error instanceof Error ? error.name : "Error";
+  return clean;
 }
 
 /**
