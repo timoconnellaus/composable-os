@@ -12,7 +12,9 @@ export const EMAIL_SEND_VENDOR = "email-send";
  * The client's verified sender domains on a host of many clients (empty when it has none), or null
  * on a single-client deployment, whose gatekeeper reads its own ALLOWED_SENDER_DOMAINS as before.
  */
-export function clientSenderDomains(env: { COS_SENDER_DOMAINS?: unknown }): string[] | null {
+export function clientSenderDomains<E extends object>(
+  env: E & { COS_SENDER_DOMAINS?: unknown },
+): string[] | null {
   if (clientOf(env) === null) return null;
   const value = env.COS_SENDER_DOMAINS;
   if (typeof value !== "string") return [];

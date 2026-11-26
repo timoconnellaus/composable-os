@@ -12,7 +12,12 @@
 // the sending records Cloudflare adds in place). Only a verified domain reaches the client's
 // environment; a running host stops or starts using a change at its next stamp check (up to
 // `REGISTRY_REFRESH_MS`, 10 seconds).
-import { type ClientId, canonicalSenderDomain, sameDomainTree, validateClientId } from "./registry.ts";
+import {
+  type ClientId,
+  canonicalSenderDomain,
+  sameDomainTree,
+  validateClientId,
+} from "./registry.ts";
 
 /** One of a client's sender domains, as the registry holds it. */
 export interface SenderDomainRecord {

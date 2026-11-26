@@ -1263,7 +1263,8 @@ export class IntegrationHost extends ClientDurableObject(DurableObject<Env>) {
     // On a host of many clients an email is applied with the client's verified sender domains as
     // its environment holds them now (a domain unverified or moved since it was queued is
     // refused by the gatekeeper), never with the plain apply, which it refuses there.
-    const senders = record.vendor === EMAIL_SEND_VENDOR ? senderOptions(this.env, record.vendor) : null;
+    const senders =
+      record.vendor === EMAIL_SEND_VENDOR ? senderOptions(this.env, record.vendor) : null;
     if (!stoppable?.recipients.length) {
       if (senders) await facet.applyForClient(action, senders);
       else await facet.applyAction(action, null);

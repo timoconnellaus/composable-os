@@ -3,8 +3,8 @@
 // behind each client's own integration host. A client sends only from its own verified sender
 // domains, read from its environment (the registry's rows, never a caller's argument): gym-a from
 // mail.gym-a.test; never from gym-b's, nor from gym-b's unverified one, nor from the deployment's
-// list; a client with none is refused; a sign-in code and an invite for gym-a are from gym-a's
-// domain with gym-a's links; and nothing of gym-b's is in gym-a's mail or its stored bodies.
+// list; a client with none is refused; a sign-in code, an invite and a notification for gym-a are
+// from gym-a's domain with gym-a's links; and nothing of gym-b's is in gym-a's mail or its stored bodies.
 import { env } from "cloudflare:test";
 import {
   type ActingUser,
@@ -14,6 +14,7 @@ import {
   type InvocationContext,
   invokeByName,
   newId,
+  notifyStatements,
   STAFF_MAIL_ORIGIN,
   sendCustomerCode,
   sendEmail,
@@ -23,11 +24,17 @@ import {
 import { createCrmDb } from "@composable-os/db";
 import { gatekeeperOffered } from "@composable-os/db/client-entries";
 import { environmentFor, REGISTRY_REFRESH_MS } from "@composable-os/db/client-environment";
-import { SENDER_DOMAINS, setUpTwoClients, TWO_CLIENTS } from "@composable-os/db/testing/two-clients";
+import {
+  SENDER_DOMAINS,
+  setUpTwoClients,
+  TWO_CLIENTS,
+} from "@composable-os/db/testing/two-clients";
 import { beforeAll, describe, expect, it } from "vitest";
+import { inClientScope } from "../src/client-scope.ts";
 import { extensionHost } from "../src/index.ts";
 import { availableVendors, integrationRuntime } from "../src/integrations/runtime.ts";
 import { clientSenderDomains, senderOptions } from "../src/integrations/senders.ts";
+import { runNotificationCron } from "../src/notifications/deliver.ts";
 
 const { a, b } = TWO_CLIENTS;
 const host = env as unknown as Env & {
@@ -196,10 +203,14 @@ describe("gym-a's mail", () => {
     const target = await customerCodeTarget(createCrmDb(clientA.env.DB).query);
     if ("problem" in target) throw new Error(target.problem);
     const to = someone("customer.test");
-    await sendCustomerCode(signInMailCall(clientA.integrations, "system.customer-mail"), target.target, {
-      to,
-      code: "482913",
-    });
+    await sendCustomerCode(
+      signInMailCall(clientA.integrations, "system.customer-mail"),
+      target.target,
+      {
+        to,
+        code: "482913",
+      },
+    );
     const sent = await outboxTo(to);
     expect(sent).toHaveLength(1);
     const [mail] = sent as [OutboxMessage];
@@ -235,6 +246,50 @@ describe("gym-a's mail", () => {
   });
 });
 
+describe("gym-a's routine mail", () => {
+  it("sends a notification email from gym-a's domain with gym-a's own link, nothing of gym-b's", async () => {
+    // The minute cron's delivery tick for gym-a (its fan-out message enters gym-a's scope): the
+    // notification's link from gym-a's environment (APP_ORIGIN), its sender gym-a's connection.
+    const member = await adminIn(clientA.env);
+    await clientA.op("notification.updateDeliverySettings", { email: connectionA });
+    await client(clientA.env, member).op("notification.setPreferences", {
+      channels: { "system.message": ["email"] },
+    });
+    const personId = (await clientA.op<{ id: string }>("person.create", { givenName: "Ada" })).id;
+    const title = `Notice ${crypto.randomUUID().slice(0, 8)}`;
+    await inClientScope(clientA.env, async () => {
+      const plan = await notifyStatements(
+        createCrmDb(clientA.env.DB).query,
+        {
+          to: [{ userId: member.id }],
+          type: "system.message",
+          title,
+          body: "From the two-client suite",
+          link: { kind: "record", object: "person", id: personId } as never,
+          source: { actor: "human", userId: member.id },
+        },
+        new Date().toISOString(),
+      );
+      await createCrmDb(clientA.env.DB).batch(plan.statements);
+      const report = await runNotificationCron(clientA.env, new Date(Date.now() + 31_000));
+      expect(report.notifications).toEqual([{ key: expect.any(String), status: "pending" }]);
+    });
+    // It waits for review (no internal domains here); approving it sends it.
+    const pending = await clientA.env.DB.prepare(
+      "SELECT id FROM core_pending_action WHERE connection_id = ? AND status = 'pending'",
+    )
+      .bind(connectionA)
+      .first<{ id: string }>();
+    expect(pending?.id).toBeTruthy();
+    await clientA.op("approval.approve", { actionIds: [pending?.id] });
+    const [mail] = (await outboxTo(member.email)) as [OutboxMessage];
+    expect(mail.from).toBe("hello@mail.gym-a.test");
+    expect(mail.subject).toContain(title);
+    expect(mail.text).toContain(`https://${a.hostname}/people/${personId}`);
+    expect(JSON.stringify(mail)).not.toMatch(/gym-b/);
+  });
+});
+
 describe("gym-b's mail", () => {
   it("goes from gym-b's own domain, never gym-a's", async () => {
     const id = await emailConnection(clientB);
@@ -244,10 +299,14 @@ describe("gym-b's mail", () => {
     const target = await customerCodeTarget(createCrmDb(clientB.env.DB).query);
     if ("problem" in target) throw new Error(target.problem);
     const to = someone("customer.test");
-    await sendCustomerCode(signInMailCall(clientB.integrations, "system.customer-mail"), target.target, {
-      to,
-      code: "771204",
-    });
+    await sendCustomerCode(
+      signInMailCall(clientB.integrations, "system.customer-mail"),
+      target.target,
+      {
+        to,
+        code: "771204",
+      },
+    );
     const [mail] = (await outboxTo(to)) as [OutboxMessage];
     expect(mail.from).toBe("desk@mail.gym-b.test");
     expect(JSON.stringify(mail)).not.toMatch(/gym-a/);

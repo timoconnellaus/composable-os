@@ -89,4 +89,3 @@ export class Outbox extends WorkerEntrypoint {
 }
 export default { fetch: () => new Response("fake email service") };
 `;
-

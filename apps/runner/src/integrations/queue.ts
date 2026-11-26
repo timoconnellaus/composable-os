@@ -10,7 +10,6 @@
 // - bindHook: system hooks (sync, webhooks) are enabled at once (their owner consented when
 //   turning sync on or creating the endpoint); hooks agents ask for wait (stage 5 binds them).
 import { RpcTarget } from "cloudflare:workers";
-import { clientSenderDomains } from "./senders.ts";
 import {
   type ActingUser,
   type ApplyOutcome,
@@ -39,6 +38,7 @@ import {
 } from "@composable-os/core";
 import { createCrmDb } from "@composable-os/db";
 import { runnerJudge } from "../extensions/ai.ts";
+import { clientSenderDomains } from "./senders.ts";
 
 export type QueueCaller =
   | { kind: "actor"; caller: IntegrationCaller; user: ActingUser }

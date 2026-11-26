@@ -91,7 +91,12 @@ describe("binding a sender", () => {
   });
 
   it("refuses with no domains, whatever the deployment's list says", async () => {
-    for (const options of [undefined, {}, { senderDomains: [] }, { senderDomains: "example.com" }]) {
+    for (const options of [
+      undefined,
+      {},
+      { senderDomains: [] },
+      { senderDomains: "example.com" },
+    ]) {
       await expect(
         account().getGatekeeperClassFor(SENDER_URL, options),
         JSON.stringify(options),

@@ -640,7 +640,8 @@ export class EmailSendGatekeeper
       // On a host of many clients: the domains the host gave with this apply, for the client
       // whose integration host holds this facet, re-read from the registry now (not when it was
       // queued), so a domain unverified or moved since is refused.
-      if (sendsPerClient(this.env)) assertSenderOfClient(email.from, this.#clientDomains.get(id) ?? null);
+      if (sendsPerClient(this.env))
+        assertSenderOfClient(email.from, this.#clientDomains.get(id) ?? null);
       else assertSenderAllowed(email.from, this.env.ALLOWED_SENDER_DOMAINS);
     } catch (error) {
       // Checked before anything is sent, so the email is known not to have gone out.
@@ -1021,7 +1022,9 @@ export class EmailSendGatekeeper
     input: { senderDomains?: unknown; links?: unknown } | null,
   ): Promise<void> {
     if (!sendsPerClient(this.env)) {
-      throw new Error("applyForClient is for a host of many clients only (SENDER_DOMAINS_PER_CLIENT).");
+      throw new Error(
+        "applyForClient is for a host of many clients only (SENDER_DOMAINS_PER_CLIENT).",
+      );
     }
     const id = requireActionId(action);
     const stops = input && "links" in input ? { links: input.links } : null;

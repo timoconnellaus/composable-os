@@ -3,8 +3,8 @@
 // into that client's environment as COS_SENDER_DOMAINS.
 import { env } from "cloudflare:workers";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
-import { buildClientEnvironment } from "../src/client-environment-build.ts";
 import { envNameUse } from "../src/client-environment.ts";
+import { buildClientEnvironment } from "../src/client-environment-build.ts";
 import { type ClientRecord, readRegistry } from "../src/registry.ts";
 import {
   addSenderDomain,
