@@ -691,9 +691,9 @@ that stay)
 
 **Outside suppression**
 `core_outside_suppressed`: keyed hashes (the deployment's salt, as the consent register's
-suppression list) of the refs and addresses of an erased Person's own outside rows (linked to
-them, or on their address where it can only be theirs; never a row linked to someone else), never
-the values. Every load keeps nothing they name, a link by hand refuses them, the erase log carries
+suppression list) of an erased Person's addresses (but one someone else holds) and of the refs of
+the outside rows linked to them (never of a row linked to nobody, which may be a family member's),
+never the values. Every load keeps nothing they name, a link by hand refuses them, the erase log carries
 them so a restore gets them back, `erasure.allowAddress` lifts an address with that erase's refs,
 and a person with `bookingSystem:manage` lifts a reused ref (`outside.suppression.lift`). A lost
 salt is refused, loudly (ADR 0926). Not the erased-address list (that is the Person's own

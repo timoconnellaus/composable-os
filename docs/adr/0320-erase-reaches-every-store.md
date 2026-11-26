@@ -215,11 +215,13 @@ and history lines) is scrubbed through the host's own agreements mail, and a wai
 approval is turned down and redacted.
 
 ## Amended 2026-11-26: the booking system's copy (stage 65 step 10, [ADR 0926](0926-erase-merge-and-removal-of-the-outside-copy.md))
-A person erase reaches the booking system's copy (`core_outside_*`): their own outside rows
-(linked to them, or on their address where only they can be; a coach on their address linked to
-no staff account), with their memberships, passes, bookings and To match rows, and their id in
-others' candidates go in the erase's batch; those rows' addresses and names join the erase's terms
-(never their refs, which collide with ordinary text). Their refs and unshared addresses go into
-`core_outside_suppressed` by keyed hash (not on the erased-address list, which stays the Person's
-own addresses), which every load checks; the erase log carries them for a re-apply, and
-`erasure.allowAddress` lifts an address with that erase's refs.
+A person erase reaches the booking system's copy (`core_outside_*`), by ADR 0926's rule: the
+outside rows linked to them, rows linked to nobody on an address only they hold, and coaches on it
+with no staff account, with their memberships, passes, bookings and To match rows, go in the
+erase's batch, and their id leaves others' candidates; never a row linked to another Person or a
+staff account. Their addresses (but one someone else holds) and the linked rows' names join the
+erase's terms (never refs, which collide with ordinary text). The linked rows' refs and the
+unshared addresses go into `core_outside_suppressed` by keyed hash (not on the erased-address
+list, which stays the Person's own addresses), which every load checks; the erase log carries them
+for a re-apply, and `erasure.allowAddress` lifts an address, with the refs of the one erase that
+suppressed it.

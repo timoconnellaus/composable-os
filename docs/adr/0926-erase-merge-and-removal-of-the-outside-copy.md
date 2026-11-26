@@ -24,46 +24,67 @@ numbers.
 
 ## Decision
 
-**Which outside rows are the erased Person's** (`outside/erase.ts`, `outsideOf`):
+**The rule, when Person P is erased** (`outside/erase.ts`; revised after the second review of
+PR #508). Two separate questions.
 
-- an outside person **linked to them**, by address or by staff;
-- an outside person **linked to nobody**, listed with one of their addresses exactly (as
-  normalised), **when it can only be theirs**: no other outside person is on that address (by its
-  folded form), and no other live Person holds it exactly;
-- a coach listed with one of their addresses and **linked to no staff account**. The spec ties
-  coaches to staff accounts ("erasing a staff account unlinks its outside staff"); a coach linked
-  to one is that account's, kept when the Person with its address is erased (an employee who
-  erases their member record stays a coach). The result counts them (`coachesOfStaff`).
+*A. Which rows are deleted from the copy* (`outsideOf`):
 
-A row linked to another live Person, or to a staff account, is never deleted, suppressed or
-added to the erase's terms, whatever address it lists. A row on their address that another
-outside person shares, linked to nobody, stays: the spec's rule 2 (the erased-address list) drops
-it at the next load while it lists the erased address, and it comes back, matched again, once the
-booking system lists its own.
+1. every outside person linked to P, by address or by staff;
+2. every outside person linked to nobody, listed with one of P's own addresses (folded, as
+   matching folds them), where no other identified Person or customer account holds that address
+   (`personsByFolded`, `addressesHeldByOthers`), however many unlinked rows share it: they can
+   only be P's household's unmatched copies, the next load would drop them anyway (the
+   erased-address list), and leaving P's own row readable is the worse failure. A family in To
+   match as `shared_address` on P's address goes now;
+3. every coach on P's address linked to no staff account (the spec ties coaches to staff accounts:
+   a coach linked to one is that account's, kept when the Person with its address is erased).
+
+Never deleted: a row linked to another live Person or to a staff account, whatever address it
+lists. A row on P's address waiting as `several_people` (another Person holds it too) stays: it
+may be theirs. With each deleted row go its memberships, passes, bookings (by ref, and by
+`email:<address>` for an address that is suppressed), To match rows, and staff's unlink decision.
+P's id leaves every other row's candidates.
+
+*B. What is suppressed and what becomes a search term:*
+
+- The addresses (P's own, and those every deleted row lists) are suppressed and become terms,
+  except a shared address: one another identified Person or customer account holds, for rows
+  under A.1 as well as A.2 (a husband's staff-linked row listing his wife's address leaves her
+  address alone), and one a row kept because it is linked to someone else still lists (see
+  "Where this goes beyond the rule given" below).
+- Refs are suppressed only for rows linked to P (A.1). For rows deleted under A.2 or A.3 no ref is
+  suppressed: they may be a family member's, and their address keeps them out of later loads.
+- Names become terms only from rows linked to P. The copy's own free text (class titles, class
+  types) is scrubbed of the full names, two words or more, as whole words in any case, of the rows
+  linked to P and the coaches deleted as P's; never a one-word name, which would hit ordinary words.
+- Refs never become free-text terms: a booking system's ids are often numbers ("123456"), which
+  would blank unrelated text ("Order 123456 for supplier"). They are scrubbed only where the copy
+  keeps them (its own rows, deleted here); the outside operations' audit never keeps one.
+
+*C. What staff are told.* Whenever the copy exists (a list is current, or anything was found),
+the result has `bookingSystem: { deletedLinked, deletedUnlinked, coaches, keptLinkedToOthers,
+keptWaiting, sharedAddresses, textScrubbed, copyRemains: true, note }`: counts only, never an
+address; "a copy remains in the booking system": the host cannot remove it there.
+
+**Where this goes beyond the rule given.** The coordinator's rule B names one exception to
+suppressing an address: another identified Person or customer account holding it. Applied alone it
+would suppress an address that only the copy holds, listed both by a row linked to P and by a row
+staff-linked to a family member's own Person, and so drop that family member at every later load
+(the first review's blocker, which this ADR's first revision fixed and a test holds). So a second
+exception is kept: an address a row kept because it is linked to someone else still lists is
+shared too. Removing it fails "keeps the others on an erased Person's outside address" and
+"erasing the parent leaves the child's row … alone".
 
 **Erase** (in `queueErase`, for a person). Read before the erase builds its terms (a few indexed
-reads): the addresses and names of their rows join the erase's terms and names, so the audit,
-pending actions, tasks, activities and assistant threads lose them as they lose the Person's own.
-**Their outside refs do not**: a booking system's ids are often numbers ("123456"), which would
-blank unrelated text ("Order 123456 for supplier"). Refs are scrubbed only where the copy keeps
-them (its own rows, deleted here); the outside operations' audit never keeps one (`redact: ["ref"]`).
-A ref staff typed into free text elsewhere is not found. In the erase's own batch, set based
-(each list one JSON parameter, about ten statements whatever the copy holds): their memberships
-and passes, their bookings (by their refs, and by `email:<address>` of their addresses no row that
-stays lists), their To match rows, their id in every other row's candidates, staff's "nobody here"
-decisions about their refs, the coach on their classes, their coaches and their outside people.
-Their full names (a person's given and family name, a coach's display name, 6 characters or more,
-at most 20) are replaced with `[erased]` in the booking system's own text the copy holds (class
-titles, class type names and descriptions), one statement a name; the result counts the rows
-(`textScrubbed`), and a later list brings back whatever the booking system still says. The result
-gains `bookingSystem: { people, coaches, coachesOfStaff, textScrubbed, copyRemains: true, note }`,
-"a copy remains in the booking system": the host cannot remove it there.
+reads), refusing first when the suppressions' salt is not the one in use (below). In the erase's
+own batch, set based (each list one JSON parameter, about ten statements whatever the copy holds;
+the free-text scrub 100 rows a statement).
 
-**Suppression, by keyed hash.** `core_outside_suppressed` gets the hash of each of their rows'
-refs (`ref`: `outside:person:ref:…` or `outside:staff:ref:…`) and of each address their rows list
-that no row that stays lists (`address`: the normalised address), keyed with the deployment's salt
-(`saltedHash`, the consent register's suppression list's, ADR 0675), never the value; with the
-erase it came from (`erase_id`) and the salt's fingerprint (migration 1412). A list with no ids
+**Suppression, by keyed hash.** `core_outside_suppressed` gets the hash of each ref and address
+rule B suppresses (`ref`: `outside:person:ref:…`; `address`: the normalised address), keyed
+with the deployment's salt (`saltedHash`, the consent register's suppression list's, ADR 0675),
+never the value, with the salt's fingerprint; and `core_outside_suppressed_erase` a row per erase
+and hash, however many erases suppressed it (migration 1412). A list with no ids
 uses the address as the ref, so a plain digest would be one anyone could recompute from an
 address. Every load reads it with the erased-address list: a members list keeps no outside person
 it names (by ref, so a changed address under the same ref is still dropped; by address, so the
@@ -75,20 +96,26 @@ dotted spelling of an erased address (`a+gym@`, `a.b@` for `ab@`) is a different
 host: it is neither on the erased-address list nor suppressed, and is matched as anyone's.
 
 **A ref the booking system reuses.** A load counts what it drops by a suppressed ref
-(`previouslyErased`), and a person with `bookingSystem:manage` lifts one by hand
+(`previouslyErased`), and a person holding both `bookingSystem:manage` and `records:erase` (the
+erase's own permission: lifting undoes an erase's protection for that ref, and brings the erased
+person back if the booking system still lists them under it) lifts one by hand
 (`outside.suppression.lift`, with why; never an AI, MCP, an extension or an automation), recorded
 in the erase log as an `allow` so a re-apply keeps it.
 
-**Consent to come back.** `erasure.allowAddress` lifts the address's copy suppression too, with
-the refs the same erase suppressed (they were that Person's; their own consent lifts them); the
-erase's other addresses stay until each is allowed. Its result says what it lifted, and its erase
+**Consent to come back.** `erasure.allowAddress` lifts the address's copy suppression too, and,
+when exactly one erase suppressed the address, that erase's refs (they were that Person's; their
+own consent lifts them), but never a ref another erase also suppressed. When several erases
+suppressed the address, whose consent it is cannot be told: no ref is lifted and they are counted
+(`refsLeft`) for a person with `records:erase` to lift the right one. The erase's other
+addresses stay until each is allowed. Its result says what it lifted, and its erase
 log entry carries the hashes so a re-apply keeps the decision.
 
 **A lost salt is refused, loudly.** The salt is in `core_settings`, and a restore without it would
 make a new one (`contact/suppression.ts`) under which every suppression matches nothing. Each
 suppression row and each erase-log entry carries the salt's fingerprint (a keyed hash of a
-constant, never the salt); `droppedOf` (every load, and `outside.link`) refuses when a row's
-fingerprint is not the one in use, and `erasure.reapply` refuses before doing anything when the
+constant, never the salt); `droppedOf` (every load, and `outside.link`) and the erase itself
+(before writing anything: rows keyed with the new salt would match nothing once the old one is
+restored) refuse when a row's fingerprint is not the one in use, and `erasure.reapply` refuses before doing anything when the
 log's is not, each saying to restore the `text_number_salt` row.
 
 **The erase log** carries the suppression hashes, the erase id and the fingerprint beside the
@@ -133,10 +160,15 @@ host's own removals and cannot be blocked by a guarded state or a hold.
 ## Consequences
 
 - Step 4 may merge: no list can be loaded on a host whose erase leaves an outside copy behind.
-- A family member on the erased Person's own address keeps their row, memberships and ref, but the
-  next load drops it while it lists the erased address (the erased-address list, as for mail);
-  they are back once the booking system lists their own address, or once an admin allows the
-  address on consent.
+- A family member on the erased Person's own address keeps their row, memberships and ref when
+  staff linked it to their own Person, but the next load drops it while it lists the erased address
+  (the erased-address list, as for mail); they are back once the booking system lists their own
+  address, or once an admin allows the address on consent. Linked to nobody, it goes with the erase
+  (rule A.2), ref unsuppressed, and comes back the same way.
+- A plus-tag or dotted spelling of an erased address is the same address to the matching (folded),
+  so rule A reaches it; to the erased-address list (mail sync) it is a different address.
+- A row waiting as `several_people` on the erased Person's address stays (it may be the other
+  Person's) and the result counts it (`keptWaiting`); its listed name and address stay with it.
 - Bookings of an outside person never kept in the members copy (booked but not a member) are named
   by an opaque ref the host cannot tie to the erased Person; they hold no name or address.
 - A ref typed into free text by staff (a task, a note) is not scrubbed; the address beside it is.
@@ -152,7 +184,11 @@ blob storage, then every table and the erase log are scanned for their id, addre
 names (none) while a bystander's copy is unchanged; reloads, a sign-up with the address and a link
 by hand bring none back, by ref or address; a ref lifted by a person; a family on the erased
 Person's own address, erasing the parent and the child, and a row on it linked to nobody; a row on
-their address staff-linked to another Person; consent to come back; a numeric ref beside unrelated
+their address staff-linked to another Person; "the rule" (A.2: a family in To match as
+`shared_address`, erasing the parent then the child; B: a husband staff-linked under his wife's
+address, her later row matched; three people on one address; a row waiting as `several_people`;
+C: the block with nothing of theirs; two erases on one address and consent), each scanning the
+copy's three tables right after the erase; consent to come back; a numeric ref beside unrelated
 text; a coach linked to a staff account; a coach's name in class titles and a class type; a lost
 salt refused by a load, a link and a re-apply; merge, an erase of the merged-away Person, then of
 the survivor; purge; `erasure.reapply`; removal's who (balanced and autonomous presets, every

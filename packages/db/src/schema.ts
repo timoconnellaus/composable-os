@@ -1454,10 +1454,15 @@ export interface CoreOutsideSuppressedTable {
   hash: string;
   kind: "ref" | "address";
   created_at: string;
-  /** Migration 1412: the erase that wrote it (lifted together on consent to come back). */
-  erase_id: string | null;
   /** Migration 1412: a keyed hash of a constant under the salt the row was keyed with. */
   fingerprint: string | null;
+}
+
+/** Migration 1412: each erase that suppressed a hash (consent lifts exactly that erase's refs). */
+export interface CoreOutsideSuppressedEraseTable {
+  hash: string;
+  erase_id: string;
+  kind: "ref" | "address";
 }
 
 /** Migration 0850 (stage 44, ADR 0640): an agreement document and its working copy. */
@@ -4816,6 +4821,7 @@ export interface CoreDatabase {
   core_outside_staff: CoreOutsideStaffTable;
   core_outside_match: CoreOutsideMatchTable;
   core_outside_suppressed: CoreOutsideSuppressedTable;
+  core_outside_suppressed_erase: CoreOutsideSuppressedEraseTable;
   core_outside_unlinked: CoreOutsideUnlinkedTable;
   rec_media: RecMediaView;
   rec_location: RecLocationView;

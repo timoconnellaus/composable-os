@@ -204,6 +204,30 @@ async function findAnywhere(needles: readonly string[]) {
   return hits;
 }
 
+/**
+ * The three tables an outside person's data is in, scanned row by row (every column, any case)
+ * for any of `needles`: what is left of them in the copy, without waiting for a load.
+ */
+async function scanCopy(needles: readonly string[]) {
+  const hits: { table: string; needle: string }[] = [];
+  for (const table of ["core_outside_person", "core_outside_membership", "core_outside_match"]) {
+    const { results } = await env.DB.prepare(`SELECT * FROM ${table}`).all<
+      Record<string, unknown>
+    >();
+    for (const row of results) {
+      const text = JSON.stringify(row).toLowerCase();
+      for (const needle of needles) {
+        if (text.includes(needle.toLowerCase())) hits.push({ table, needle });
+      }
+    }
+  }
+  return hits;
+}
+
+async function personExists(id: string) {
+  return (await count("SELECT count(*) AS n FROM core_person WHERE id = ?", id)) === 1;
+}
+
 let admin: ActingUser;
 beforeAll(async () => {
   admin = await createUser("admin");
@@ -231,7 +255,7 @@ describe("erase reaches the booking system's copy", () => {
     const [local4, domain4] = (f.person(4).email as string).split("@") as [string, string];
     const [local3, domain3] = theirs.third.split("@") as [string, string];
     // Lane (011) is listed with their third address, which someone else also holds folded: Lane
-    // waits in To match, linked to nobody, and is theirs by address.
+    // waits in To match, linked to nobody, and may be the other Person's: Lane stays (rule A.2).
     f.fake.change("person", f.ref(11), { email: theirs.third });
     // A coach in the timetable has their own address.
     f.fake.change("staff", `${f.tag}-fake-staff-1`, { email: theirs.own() });
@@ -295,9 +319,14 @@ describe("erase reaches the booking system's copy", () => {
       },
     );
     expect(result.bookingSystem).toEqual({
-      people: 3,
+      deletedLinked: 2,
+      deletedUnlinked: 0,
       coaches: 1,
-      coachesOfStaff: 0,
+      keptLinkedToOthers: 0,
+      // Lane and Devon: another Person holds their address (folded).
+      keptWaiting: 2,
+      // Their plus-tag and third addresses, which others hold folded.
+      sharedAddresses: 2,
       textScrubbed: 0,
       copyRemains: true,
       note: expect.stringContaining("A copy remains in the booking system"),
@@ -308,15 +337,12 @@ describe("erase reaches the booking system's copy", () => {
       erased,
       theirs.own(),
       theirs.listed(),
-      theirs.third,
       `${local4}+them@${domain4}`,
       f.ref(1),
       f.ref(3),
-      f.ref(11),
       `${f.tag}-fake-staff-1`,
       f.person(1).givenName as string,
       f.person(3).givenName as string,
-      f.person(11).givenName as string,
       `Riley Coach${f.tag}`,
     ];
     expect(await findAnywhere(needles)).toEqual([]);
@@ -344,6 +370,11 @@ describe("erase reaches the booking system's copy", () => {
       .bind(f.ref(4))
       .first<{ candidates: string }>();
     expect(JSON.parse(devonAfter?.candidates ?? "[]")).toEqual([other]);
+    // Lane may be the other Person's: kept, waiting, with their address and name as listed.
+    expect(await outsidePerson(f.ref(11))).toMatchObject({
+      person_id: null,
+      address: theirs.third,
+    });
     // Their coach's classes name no coach; the other coach's still do.
     expect(
       await count(
@@ -361,7 +392,6 @@ describe("erase reaches the booking system's copy", () => {
     for (const [kind, hash] of [
       ["ref", await outsideRefHash(db.query, "person", f.ref(1))],
       ["ref", await outsideRefHash(db.query, "person", f.ref(3))],
-      ["ref", await outsideRefHash(db.query, "staff", `${f.tag}-fake-staff-1`)],
       ["address", await outsideAddressHash(db.query, theirs.listed())],
       ["address", await outsideAddressHash(db.query, theirs.own())],
     ] as const) {
@@ -381,12 +411,12 @@ describe("erase reaches the booking system's copy", () => {
     for (const ref of [f.ref(1), f.ref(3), f.ref(11)]) expect(await outsidePerson(ref)).toBeNull();
     expect(
       await count(
-        "SELECT count(*) AS n FROM core_outside_booking WHERE person_ref IN (?, ?, ?)",
+        "SELECT count(*) AS n FROM core_outside_booking WHERE person_ref IN (?, ?)",
         f.ref(1),
         f.ref(3),
-        f.ref(11),
       ),
     ).toBe(0);
+    // Lane's bookings name only Lane's ref, which may be the other Person's: kept (rule A.2).
     expect(
       await count(
         "SELECT count(*) AS n FROM core_outside_staff WHERE ref = ?",
@@ -472,8 +502,8 @@ describe("erase reaches the booking system's copy", () => {
     for (const ref of [f.ref(1), `${f.tag}-new-a`, `${f.tag}-new-b`]) {
       expect(await outsidePerson(ref), ref).toBeNull();
     }
-    // Staff are told how many were dropped by a ref an erase suppressed.
-    expect(plan.counts.previouslyErased).toBe(3);
+    // Staff are told how many were dropped by a ref an erase suppressed (Lane by the address).
+    expect(plan.counts.previouslyErased).toBe(2);
     // Someone else entirely is kept as before.
     expect(await outsidePerson(f.ref(2))).toMatchObject({ person_id: bystander });
     expect(otherToo).toBeTruthy();
@@ -488,9 +518,20 @@ describe("erase reaches the booking system's copy", () => {
     }
     const member = await createUser("member");
     expect((await refusal(call("outside.suppression.lift", input, member))).code).toBe("forbidden");
+    // bookingSystem:manage alone is not enough: it undoes an erase's protection (records:erase).
+    const manager = await createUser("member");
+    await call(
+      "user.setPermissions",
+      { id: manager.id, permissions: ["bookingSystem:manage"] },
+      admin,
+    );
+    expect(await refusal(call("outside.suppression.lift", input, manager))).toMatchObject({
+      code: "forbidden",
+      details: { permission: "records:erase" },
+    });
     expect(await call("outside.suppression.lift", input, admin)).toEqual({ lifted: true });
     const plan = await loadMembers(f, admin.id);
-    expect(plan.counts.previouslyErased).toBe(2);
+    expect(plan.counts.previouslyErased).toBe(1);
     // Ref 1 now lists an address of nobody erased: kept, as anyone.
     expect(await outsidePerson(f.ref(1))).toMatchObject({ person_id: null });
     expect(await call("outside.suppression.lift", input, admin)).toEqual({ lifted: false });
@@ -563,7 +604,7 @@ describe("a family on the erased Person's own address", () => {
     );
     const before = await taskTitle(task);
     const out = await call<Record<string, unknown>>("person.erase", { id: parent }, admin);
-    expect(out.bookingSystem).toMatchObject({ people: 1 });
+    expect(out.bookingSystem).toMatchObject({ deletedLinked: 1 });
     expect(await outsidePerson(f.ref(3))).toBeNull();
     expect(await suppressedRef(f.ref(3))).toBe(1);
     // The child's: untouched, not suppressed, not blanked anywhere.
@@ -601,7 +642,7 @@ describe("a family on the erased Person's own address", () => {
   it("erasing the child leaves the parent's row, and the shared address unsuppressed", async () => {
     const { f, shared, parent, child, task } = await family({ parent: true, child: true });
     const out = await call<Record<string, unknown>>("person.erase", { id: child }, admin);
-    expect(out.bookingSystem).toMatchObject({ people: 1 });
+    expect(out.bookingSystem).toMatchObject({ deletedLinked: 1 });
     expect(await outsidePerson(f.ref(4))).toBeNull();
     expect(await suppressedRef(f.ref(4))).toBe(1);
     expect(await outsidePerson(f.ref(3))).toMatchObject({ person_id: parent });
@@ -618,17 +659,20 @@ describe("a family on the erased Person's own address", () => {
     expect(await outsidePerson(f.ref(4))).toBeNull();
   });
 
-  it("leaves a row on the shared address linked to nobody where it is", async () => {
-    const { f, shared, parent } = await family({ parent: true, child: false });
-    await call("person.erase", { id: parent }, admin);
-    expect(await outsidePerson(f.ref(4))).toMatchObject({ person_id: null, address: shared });
+  it("deletes a row on their own address linked to nobody, and suppresses no ref of it", async () => {
+    const { f, shared, parent, child } = await family({ parent: true, child: false });
+    const out = await call<Record<string, unknown>>("person.erase", { id: parent }, admin);
+    expect(out.bookingSystem).toMatchObject({ deletedLinked: 1, deletedUnlinked: 1 });
+    expect(await outsidePerson(f.ref(4))).toBeNull();
     expect(await suppressedRef(f.ref(4))).toBe(0);
     expect(
       await count(
         "SELECT count(*) AS n FROM core_outside_membership WHERE person_ref = ?",
         f.ref(4),
       ),
-    ).toBeGreaterThan(0);
+    ).toBe(0);
+    expect(await scanCopy([shared, f.ref(3), f.ref(4)])).toEqual([]);
+    expect(await personExists(child)).toBe(true);
     // The parent's own row (ref 3, linked to them by staff) goes.
     expect(await outsidePerson(f.ref(3))).toBeNull();
   });
@@ -643,7 +687,7 @@ describe("consent to come back", () => {
     await call("person.erase", { id: gone }, admin);
     expect(await call("erasure.allowAddress", { email: addr }, admin)).toEqual({
       removed: true,
-      bookingSystem: { addresses: 1, refs: 1 },
+      bookingSystem: { addresses: 1, refs: 1, refsLeft: 0 },
     });
     const back = await createPerson(admin, [addr]);
     // Their old ref, and the same address under a new ref, both come back.
@@ -681,7 +725,7 @@ describe("what is not theirs", () => {
       admin,
     );
     const out = await call<Record<string, unknown>>("person.erase", { id: gone }, admin);
-    expect(out.bookingSystem).toBeUndefined();
+    expect(out.bookingSystem).toMatchObject({ deletedLinked: 0, keptLinkedToOthers: 1 });
     expect(await outsidePerson(f.ref(1))).toMatchObject({ person_id: someoneElse });
     expect(
       await count(
@@ -732,7 +776,7 @@ describe("what is not theirs", () => {
         .first(),
     ).toEqual({ user_id: staff.id });
     const out = await call<Record<string, unknown>>("person.erase", { id: member }, admin);
-    expect(out.bookingSystem).toMatchObject({ coaches: 0, coachesOfStaff: 1 });
+    expect(out.bookingSystem).toMatchObject({ coaches: 0, keptLinkedToOthers: 1 });
     expect(
       await env.DB.prepare("SELECT user_id FROM core_outside_staff WHERE ref = ?")
         .bind(`${f.tag}-fake-staff-1`)
@@ -751,8 +795,13 @@ describe("what is not theirs", () => {
     const coachAddr = `coach.${f.tag}@else.example.com`;
     const name = `Riley Coach${f.tag}`;
     f.fake.change("staff", `${f.tag}-fake-staff-1`, { email: coachAddr });
+    const otherName = `Summer${f.tag}`;
+    f.fake.change("staff", `${f.tag}-fake-staff-2`, { displayName: otherName });
     for (const c of f.state.classes) {
-      if (c.staff === `${f.tag}-fake-staff-1`) c.title = `Strength with ${name}`;
+      c.title =
+        c.staff === `${f.tag}-fake-staff-1`
+          ? `Strength with ${name.toUpperCase()}`
+          : `${otherName} Bootcamp, not ${name}s`;
     }
     const type = f.state.classTypes[0] as (typeof f.state.classTypes)[number];
     type.description = `Coached by ${name}`;
@@ -765,10 +814,40 @@ describe("what is not theirs", () => {
     );
     expect(out.bookingSystem.coaches).toBe(1);
     expect(out.bookingSystem.textScrubbed).toBeGreaterThan(1);
-    expect(await findAnywhere([name, coachAddr])).toEqual([]);
+    // Any case, whole words only: another coach's class that has the name inside a longer word
+    // keeps its title, and a one-word name is never scrubbed.
+    expect(await findAnywhere([`with ${name}`, `by ${name}`, coachAddr])).toEqual([]);
     expect(
       await count(
         "SELECT count(*) AS n FROM core_outside_class WHERE title = 'Strength with [erased]'",
+      ),
+    ).toBeGreaterThan(0);
+    expect(
+      await count(
+        "SELECT count(*) AS n FROM core_outside_class WHERE title = ?",
+        `${otherName} Bootcamp, not ${name}s`,
+      ),
+    ).toBeGreaterThan(0);
+  });
+
+  it("never scrubs a one-word name from the copy's text", async () => {
+    const f = freshFake();
+    const coachAddr = `coach.${f.tag}@else.example.com`;
+    const word = `Summer${f.tag}`;
+    f.fake.change("staff", `${f.tag}-fake-staff-1`, { email: coachAddr, displayName: word });
+    for (const c of f.state.classes) c.title = `${word} Bootcamp`;
+    const coach = await createPerson(admin, [coachAddr]);
+    await loadTimetable(f, admin.id);
+    const out = await call<{ bookingSystem: { coaches: number; textScrubbed: number } }>(
+      "person.erase",
+      { id: coach },
+      admin,
+    );
+    expect(out.bookingSystem).toMatchObject({ coaches: 1, textScrubbed: 0 });
+    expect(
+      await count(
+        "SELECT count(*) AS n FROM core_outside_class WHERE title = ?",
+        `${word} Bootcamp`,
       ),
     ).toBeGreaterThan(0);
   });
@@ -790,6 +869,13 @@ describe("a lost salt", () => {
     ]) {
       await expect(attempt()).rejects.toThrow(/salt/);
     }
+    // An erase refuses too, before writing anything: rows keyed with this salt would match nothing
+    // once the old one is restored.
+    const next = await createPerson(admin, [f.person(2).email as string]);
+    const suppressedBefore = await count("SELECT count(*) AS n FROM core_outside_suppressed");
+    await expect(call("person.erase", { id: next }, admin)).rejects.toThrow(/salt/);
+    expect(await personExists(next)).toBe(true);
+    expect(await count("SELECT count(*) AS n FROM core_outside_suppressed")).toBe(suppressedBefore);
     await env.DB.prepare("UPDATE core_outside_suppressed SET fingerprint = NULL").run();
     for (const [key, text] of blobs.map) {
       if (key.startsWith("erase-log/")) {
@@ -885,12 +971,12 @@ describe("merge", () => {
 
     // An erase of the merged-away Person (in the Trash) is a no-op here, and does not fail.
     const away = await call<Record<string, unknown>>("person.erase", { id: duplicate }, admin);
-    expect(away.bookingSystem).toBeUndefined();
+    expect(away.bookingSystem).toMatchObject({ deletedLinked: 0, deletedUnlinked: 0 });
     expect(await outsidePerson(f.ref(3))).toMatchObject({ person_id: survivor });
 
     // Erasing the survivor removes every outside row either of them had.
     const out = await call<Record<string, unknown>>("person.erase", { id: survivor }, admin);
-    expect(out.bookingSystem).toMatchObject({ people: 3 });
+    expect(out.bookingSystem).toMatchObject({ deletedLinked: 3 });
     expect(
       await findAnywhere([
         survivor,
@@ -1077,5 +1163,215 @@ describe("removing the copy", () => {
       "SELECT name FROM sqlite_master WHERE type = 'trigger' AND tbl_name LIKE 'core_outside%'",
     ).all<{ name: string }>();
     expect(results).toEqual([]);
+  });
+});
+
+// The rule (ADR 0926, `outside/erase.ts`): A, what is deleted; B, what is suppressed and becomes a
+// term; C, what the result tells staff. Each case scans the copy's three tables for the erased
+// Person's name, addresses and ref right after the erase (no later load), and checks the other
+// person is intact.
+describe("the rule: which outside rows are the erased Person's", () => {
+  const membershipsOf = (ref: string) =>
+    count("SELECT count(*) AS n FROM core_outside_membership WHERE person_ref = ?", ref);
+  const suppressed = async (kind: "ref" | "address", value: string) =>
+    count(
+      "SELECT count(*) AS n FROM core_outside_suppressed WHERE hash = ?",
+      kind === "ref"
+        ? await outsideRefHash(db.query, "person", value)
+        : await outsideAddressHash(db.query, value),
+    );
+
+  it("A.2: a family in To match on the parent's address, linked to nobody: erase the parent, then the child", async () => {
+    const f = freshFake();
+    f.fake.shareAddress(f.ref(3), f.ref(4));
+    const shared = f.person(3).email as string;
+    const parent = await createPerson(admin, [shared], `Parent ${f.tag}`);
+    const child = await createPerson(admin, [`kid.${f.tag}@else.example.com`], `Child ${f.tag}`);
+    const bystander = await createPerson(admin, [f.person(2).email as string]);
+    // A class the booking system titled with the child's name: not theirs to scrub.
+    const childName = `${f.person(4).givenName} ${f.person(4).familyName}`;
+    const parentName = `${f.person(3).givenName} ${f.person(3).familyName}`;
+    for (const c of f.state.classes) c.title = `PT with ${childName} and ${parentName}`;
+    await loadMembers(f, admin.id);
+    await loadTimetable(f, admin.id);
+    const { matches } = await call<{ matches: { ref: string; why: string }[] }>(
+      "outside.matches",
+      { kind: "person" },
+      admin,
+    );
+    expect(matches.filter((m) => [f.ref(3), f.ref(4)].includes(m.ref)).map((m) => m.why)).toEqual([
+      "shared_address",
+      "shared_address",
+    ]);
+    const bystanderMemberships = await membershipsOf(f.ref(2));
+
+    const out = await call<Record<string, unknown>>("person.erase", { id: parent }, admin);
+    // C: staff are told, with the note, though no row was linked to them.
+    expect(out.bookingSystem).toMatchObject({
+      deletedLinked: 0,
+      deletedUnlinked: 2,
+      keptLinkedToOthers: 0,
+      copyRemains: true,
+    });
+    // A.2: both rows go now, with their memberships and To match; nothing waits for a load.
+    expect(
+      await scanCopy([
+        shared,
+        f.ref(3),
+        f.ref(4),
+        f.person(3).givenName as string,
+        f.person(3).familyName as string,
+      ]),
+    ).toEqual([]);
+    // B: the address is suppressed; no ref of a row linked to nobody is.
+    expect(await suppressed("address", shared)).toBe(1);
+    expect(await suppressed("ref", f.ref(3))).toBe(0);
+    expect(await suppressed("ref", f.ref(4))).toBe(0);
+    // B: no name of a row linked to nobody is scrubbed: it may be the child's.
+    expect(
+      await count(
+        "SELECT count(*) AS n FROM core_outside_class WHERE title = ?",
+        `PT with ${childName} and ${parentName}`,
+      ),
+    ).toBeGreaterThan(0);
+    // The others are intact.
+    expect(await personExists(child)).toBe(true);
+    expect(await outsidePerson(f.ref(2))).toMatchObject({ person_id: bystander });
+    expect(await membershipsOf(f.ref(2))).toBe(bystanderMemberships);
+
+    // Then the child: the copy still exists, so the result says so; nothing else of anyone goes.
+    const second = await call<Record<string, unknown>>("person.erase", { id: child }, admin);
+    expect(second.bookingSystem).toMatchObject({
+      deletedLinked: 0,
+      deletedUnlinked: 0,
+      copyRemains: true,
+    });
+    expect(await outsidePerson(f.ref(2))).toMatchObject({ person_id: bystander });
+  });
+
+  it("B: a husband staff-linked under his wife's address: her address is neither suppressed nor redacted, and she is matched at the next load", async () => {
+    const f = freshFake();
+    const b = f.person(3).email as string;
+    const wife = await createPerson(admin, [b], `Wife ${f.tag}`);
+    const husband = await createPerson(admin, [`h.${f.tag}@else.example.com`], `Husband ${f.tag}`);
+    await loadMembers(f, admin.id);
+    expect(await outsidePerson(f.ref(3))).toMatchObject({ person_id: wife });
+    await call(
+      "outside.link",
+      { kind: "person", ref: f.ref(3), personId: husband, why: "it is him" },
+      admin,
+    );
+    const task = await call<{ id: string }>(
+      "task.create",
+      { title: `Email the wife at ${b}`, links: [{ object: "person", id: wife }] },
+      admin,
+    );
+    const out = await call<Record<string, unknown>>("person.erase", { id: husband }, admin);
+    expect(out.bookingSystem).toMatchObject({ deletedLinked: 1, sharedAddresses: 1 });
+    // A.1: his row goes; B: his ref is suppressed, her address is not, nor redacted anywhere.
+    expect(
+      await scanCopy([f.ref(3), f.person(3).givenName as string, `h.${f.tag}@else.example.com`]),
+    ).toEqual([]);
+    expect(await suppressed("ref", f.ref(3))).toBe(1);
+    expect(await suppressed("address", b)).toBe(0);
+    expect(
+      (await env.DB.prepare("SELECT title FROM core_task WHERE id = ?").bind(task.id).first())
+        ?.title,
+    ).toBe(`Email the wife at ${b}`);
+    expect(await personExists(wife)).toBe(true);
+    // The booking system lists her under her own ref with the address: matched, not dropped.
+    f.fake.change("person", f.ref(7), { email: b });
+    await loadMembers(f, admin.id);
+    expect(await outsidePerson(f.ref(7))).toMatchObject({ person_id: wife, link_how: "address" });
+    expect(await outsidePerson(f.ref(3))).toBeNull();
+  });
+
+  it("A.2: three people on one address only they held all go", async () => {
+    const f = freshFake();
+    f.fake.shareAddress(f.ref(1), f.ref(3));
+    f.fake.shareAddress(f.ref(1), f.ref(4));
+    const x = f.person(1).email as string;
+    const p = await createPerson(admin, [x], `Three ${f.tag}`);
+    const bystander = await createPerson(admin, [f.person(2).email as string]);
+    await loadMembers(f, admin.id);
+    const out = await call<Record<string, unknown>>("person.erase", { id: p }, admin);
+    expect(out.bookingSystem).toMatchObject({ deletedUnlinked: 3 });
+    expect(await scanCopy([x, f.ref(1), f.ref(3), f.ref(4)])).toEqual([]);
+    for (const ref of [f.ref(1), f.ref(3), f.ref(4)]) expect(await suppressed("ref", ref)).toBe(0);
+    expect(await outsidePerson(f.ref(2))).toMatchObject({ person_id: bystander });
+  });
+
+  it("A.2, C: a row waiting as several_people (another Person holds the address) stays, and staff are told", async () => {
+    const f = freshFake();
+    const x = f.person(1).email as string;
+    const [local, domain] = x.split("@") as [string, string];
+    const p = await createPerson(admin, [x], `P ${f.tag}`);
+    const q = await createPerson(admin, [`${local}+q@${domain}`], `Q ${f.tag}`);
+    await loadMembers(f, admin.id);
+    const before = await env.DB.prepare(
+      "SELECT why, candidates FROM core_outside_match WHERE kind = 'person' AND ref = ?",
+    )
+      .bind(f.ref(1))
+      .first<{ why: string; candidates: string }>();
+    expect(before?.why).toBe("several_people");
+    const out = await call<Record<string, unknown>>("person.erase", { id: p }, admin);
+    expect(out.bookingSystem).toMatchObject({
+      deletedLinked: 0,
+      deletedUnlinked: 0,
+      keptWaiting: 1,
+      sharedAddresses: 1,
+    });
+    // It may be Q's: kept, with Q its only candidate; P's id is gone from it.
+    expect(await outsidePerson(f.ref(1))).toMatchObject({ person_id: null, address: x });
+    const after = await env.DB.prepare(
+      "SELECT candidates FROM core_outside_match WHERE kind = 'person' AND ref = ?",
+    )
+      .bind(f.ref(1))
+      .first<{ candidates: string }>();
+    expect(JSON.parse(after?.candidates ?? "[]")).toEqual([q]);
+    expect(await scanCopy([p])).toEqual([]);
+    expect(await suppressed("address", x)).toBe(0);
+    expect(await personExists(q)).toBe(true);
+  });
+
+  it("C: the block is there when nothing of theirs was in the copy", async () => {
+    const f = freshFake();
+    await loadMembers(f, admin.id);
+    const nobody = await createPerson(admin, [`nobody.${f.tag}@else.example.com`]);
+    const out = await call<Record<string, unknown>>("person.erase", { id: nobody }, admin);
+    expect(out.bookingSystem).toEqual({
+      deletedLinked: 0,
+      deletedUnlinked: 0,
+      coaches: 0,
+      keptLinkedToOthers: 0,
+      keptWaiting: 0,
+      sharedAddresses: 0,
+      textScrubbed: 0,
+      copyRemains: true,
+      note: expect.stringContaining("A copy remains in the booking system"),
+    });
+  });
+
+  it("S3: consent to come back lifts one erase's refs, never another erased Person's", async () => {
+    const f = freshFake();
+    const x = f.person(1).email as string;
+    const first = await createPerson(admin, [x]);
+    await loadMembers(f, admin.id);
+    await call("person.erase", { id: first }, admin);
+    // Someone later signs up with the same address and is erased too: two erases suppressed it.
+    const second = await createPerson(admin, [x]);
+    await call("person.erase", { id: second }, admin);
+    expect(
+      await count(
+        "SELECT count(*) AS n FROM core_outside_suppressed_erase WHERE hash = ?",
+        await outsideAddressHash(db.query, x),
+      ),
+    ).toBe(2);
+    // Whose consent this is cannot be told: the address is allowed, the first erase's ref is not.
+    expect(await call("erasure.allowAddress", { email: x }, admin)).toEqual({
+      removed: true,
+      bookingSystem: { addresses: 1, refs: 0, refsLeft: 1 },
+    });
+    expect(await suppressed("ref", f.ref(1))).toBe(1);
   });
 });

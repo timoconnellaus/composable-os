@@ -18,7 +18,7 @@
 // match for an account that holds bookingSystem:manage, to explain them.
 import { type SqlBool, sql } from "kysely";
 import { z } from "zod";
-import { ValidationError } from "../errors.ts";
+import { ForbiddenError, ValidationError } from "../errors.ts";
 import { defineOperation, type HandlerContext } from "../operation.ts";
 import { droppedOf, LINK_SUBJECT, outsideRefHash } from "../outside/match.ts";
 import { planRemoval, REMOVE_MAX_STATEMENTS, REMOVE_PASS_ROWS } from "../outside/remove.ts";
@@ -31,6 +31,7 @@ import {
   MAX_LARGEST_AGE_DAYS,
   onCurrentList,
 } from "../outside/settings.ts";
+import { holdsPermission } from "../principals.ts";
 import { putEraseLog } from "../records/erase-log.ts";
 import { visibleTable } from "../visibility/index.ts";
 
@@ -678,7 +679,9 @@ export const outsideSuppressionLift = defineOperation({
     "Lift the suppression of an outside ref an erase left: when the booking system has given an " +
     "erased person's old ref to someone new, every load drops that ref (counted as previously " +
     "erased) until a person lifts it. The new person is then kept and matched as anyone is. The " +
-    "erased person's addresses stay suppressed. A person with bookingSystem:manage only, never " +
+    "erased person's addresses stay suppressed. This undoes an erase's protection for that ref: " +
+    "if the booking system still lists the erased person under it, they come back. Needs both " +
+    "bookingSystem:manage and records:erase (the erase's own permission), a person only, never " +
     "an AI, an MCP client, an extension or an automation.",
   input: z.object({ kind: z.enum(["person", "staff"]), ref, why }),
   output: z.object({ lifted: z.boolean() }),
@@ -690,6 +693,12 @@ export const outsideSuppressionLift = defineOperation({
   redact: ["ref"],
   auditSummary: (output) => output,
   async handler(input, ctx) {
+    // It undoes an erase's protection: the erase's permission too, as erasure.allowAddress takes.
+    if (!holdsPermission(ctx.user, ctx.permissionGrants, "records:erase")) {
+      throw new ForbiddenError("Lifting an erase's suppression needs records:erase", {
+        permission: "records:erase",
+      });
+    }
     const hash = await outsideRefHash(ctx.db, input.kind, input.ref);
     const row = await ctx.db
       .selectFrom("core_outside_suppressed")
@@ -708,7 +717,10 @@ export const outsideSuppressionLift = defineOperation({
         outside: [{ hash, kind: "ref" }],
       });
     }
-    ctx.write(ctx.db.deleteFrom("core_outside_suppressed").where("hash", "=", hash));
+    ctx.write(
+      ctx.db.deleteFrom("core_outside_suppressed").where("hash", "=", hash),
+      ctx.db.deleteFrom("core_outside_suppressed_erase").where("hash", "=", hash),
+    );
     return { lifted: true };
   },
 });

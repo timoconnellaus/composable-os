@@ -187,9 +187,9 @@ describe("an erase over a large copy", () => {
       await seed(size, tag, person, address);
       reset();
       const out = (await invokeByName("person.erase", { id: person }, ctx(admin))) as {
-        bookingSystem?: { people: number };
+        bookingSystem?: { deletedLinked: number };
       };
-      expect(out.bookingSystem?.people).toBe(1);
+      expect(out.bookingSystem?.deletedLinked).toBe(1);
       cost.push(queries);
       expect(maxParams).toBeLessThanOrEqual(100);
       expect(compound).toBeLessThanOrEqual(5);

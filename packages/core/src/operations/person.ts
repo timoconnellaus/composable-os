@@ -1483,12 +1483,12 @@ export const personErase = defineOperation({
     "payment provider to end when the period already paid for ends (one paused, unpaid or " +
     "waiting for its first payment ends at once): nothing is refunded and nothing more is " +
     "charged; admins are told of one that could not be asked, and of one another person is " +
-    "still on. Their own copy from the booking system's lists (outside people linked to them, " +
-    "or on their address where nobody else can be; coaches on their address with no staff " +
-    "account; their memberships, passes, bookings, links, To match and their names in class " +
-    "titles) is deleted and its refs and addresses suppressed, so no later list brings them " +
-    "back; a row linked to anyone else, a family member's on the same address, or a coach of a " +
-    "staff account stays. bookingSystem says a copy remains in the booking system itself. Cannot " +
+    "still on. In the booking system's copy, the outside people linked to them, those linked to " +
+    "nobody on an address only they hold, and coaches on it with no staff account go, with their " +
+    "memberships, passes, bookings and To match; their addresses (but one someone else holds) " +
+    "and the linked rows' refs are suppressed, so no later list brings them back. A row linked " +
+    "to anyone else, or waiting because another Person holds the address, stays. bookingSystem " +
+    "says what happened, and that a copy remains in the booking system itself. Cannot " +
     "be undone; use person.delete for a reversible delete.",
   input: z.object({ id: personId }),
   output: z.object({

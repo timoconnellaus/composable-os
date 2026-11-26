@@ -445,7 +445,7 @@ describe("person.erase reaches every store", () => {
     ]);
 
     const result = await invoke("person.erase", { id: person.id }, context(admin, { blobs }));
-    expect(result.bookingSystem).toMatchObject({ people: 1, coaches: 1, copyRemains: true });
+    expect(result.bookingSystem).toMatchObject({ deletedLinked: 1, coaches: 1, copyRemains: true });
     expect(result).toMatchObject({
       eraseRequestsClosed: 1,
       suggestionsRemoved: 1,
@@ -582,7 +582,8 @@ describe("person.erase reaches every store", () => {
     });
     expect(await invoke("erasure.allowAddress", { email }, context(admin))).toEqual({
       removed: true,
-      bookingSystem: { addresses: 0, refs: 0 },
+      // The erase suppressed the address in the booking system's copy too (ADR 0926).
+      bookingSystem: { addresses: 1, refs: 0, refsLeft: 0 },
     });
     await ingest(member, conn, [mail({ email }, [{ email: keeperEmail }])]);
     expect(

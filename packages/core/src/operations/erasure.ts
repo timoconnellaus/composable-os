@@ -7,7 +7,7 @@
 import { z } from "zod";
 import { ConfigError } from "../errors.ts";
 import { defineOperation } from "../operation.ts";
-import { liftForAddress, suppressStatement } from "../outside/erase.ts";
+import { liftForAddress, suppressStatements } from "../outside/erase.ts";
 import { saltFingerprint } from "../outside/match.ts";
 import { chunk } from "../records/common.ts";
 import { planReapply, putEraseLog, readEraseLog } from "../records/erase-log.ts";
@@ -57,6 +57,11 @@ export const erasureAllowAddress = defineOperation({
         refs: z
           .number()
           .describe("Outside refs the same erase suppressed (the Person's own), lifted with it"),
+        refsLeft: z
+          .number()
+          .describe(
+            "Refs left suppressed because several erases suppressed this address and whose consent this is cannot be told: a person with records:erase lifts the right one with outside.suppression.lift",
+          ),
       })
       .describe(
         "The booking system's copy (stage 65): the address and the refs the same erase suppressed are matched again from the next list",
@@ -77,7 +82,7 @@ export const erasureAllowAddress = defineOperation({
       .executeTakeFirst();
     const outside = await liftForAddress(ctx.db, input.email);
     if (!row && !outside.hashes.length) {
-      return { removed: false, bookingSystem: { addresses: 0, refs: 0 } };
+      return { removed: false, bookingSystem: { addresses: 0, refs: 0, refsLeft: 0 } };
     }
     if (ctx.blobs && !ctx.simulation) {
       await putEraseLog(ctx.blobs, {
@@ -92,7 +97,11 @@ export const erasureAllowAddress = defineOperation({
     if (outside.statements.length) ctx.write(...outside.statements);
     return {
       removed: Boolean(row),
-      bookingSystem: { addresses: outside.addresses, refs: outside.refs },
+      bookingSystem: {
+        addresses: outside.addresses,
+        refs: outside.refs,
+        refsLeft: outside.refsLeft,
+      },
     };
   },
 });
@@ -172,8 +181,8 @@ export const erasureReapply = defineOperation({
       );
     }
     // The booking system's copy keeps nothing of them at the next load (stage 65, ADR 0926).
-    const suppress = suppressStatement(plan.outside, ctx.now);
-    if (suppress) ctx.write(suppress);
+    const suppress = suppressStatements(plan.outside, ctx.now);
+    if (suppress.length) ctx.write(...suppress);
     return {
       entries: entries.length,
       people: plan.people,

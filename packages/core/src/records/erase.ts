@@ -118,21 +118,36 @@ export const eraseCountsOutput = {
     .describe("Synced email bodies deleted from blob storage now (the rest are retried)"),
   bookingSystem: z
     .object({
-      people: z
-        .number()
-        .describe("Outside people of theirs removed from the booking system's copy"),
-      coaches: z
-        .number()
-        .describe("Coaches with their address and no staff account removed from the copy"),
-      coachesOfStaff: z
+      deletedLinked: z
         .number()
         .describe(
-          "Coaches with their address linked to a staff account: kept, as that account's (the staff account is not erased)",
+          "Outside people linked to them (by address or by staff): deleted, their refs suppressed",
+        ),
+      deletedUnlinked: z
+        .number()
+        .describe(
+          "Outside people linked to nobody on an address only they held (their household's unmatched copies): deleted, no ref suppressed",
+        ),
+      coaches: z.number().describe("Coaches on their address with no staff account: deleted"),
+      keptLinkedToOthers: z
+        .number()
+        .describe(
+          "Outside people and coaches on their address kept, because linked to another Person or a staff account",
+        ),
+      keptWaiting: z
+        .number()
+        .describe(
+          "Outside people on their address left waiting in To match, because another Person holds the address too",
+        ),
+      sharedAddresses: z
+        .number()
+        .describe(
+          "Their addresses another Person, customer account or kept outside person also holds: not suppressed, not redacted (a count only)",
         ),
       textScrubbed: z
         .number()
         .describe(
-          "Classes and class types whose text (a title naming them) was scrubbed; a later list brings back what the booking system still says",
+          "Classes and class types whose text named them (a full name, whole words), scrubbed; a later list brings back what the booking system still says",
         ),
       copyRemains: z
         .literal(true)
@@ -141,7 +156,7 @@ export const eraseCountsOutput = {
     })
     .optional()
     .describe(
-      "A person's copy from the booking system's lists (stage 65): their memberships, passes, bookings, links and matches are deleted and their outside refs and addresses suppressed, so no later list brings them back. A copy remains in the booking system, for staff to deal with there",
+      "Whenever the host holds a booking system's copy (stage 65): what the erase did to it. Present even when nothing of theirs was found. A copy remains in the booking system, for staff to deal with there",
     ),
 };
 
@@ -167,9 +182,12 @@ export async function afterErase(
   bodiesDeleted: number;
   agreementsKept?: { count: number; until: string | null; deleted: number };
   bookingSystem?: {
-    people: number;
+    deletedLinked: number;
+    deletedUnlinked: number;
     coaches: number;
-    coachesOfStaff: number;
+    keptLinkedToOthers: number;
+    keptWaiting: number;
+    sharedAddresses: number;
     textScrubbed: number;
     copyRemains: true;
     note: string;
@@ -193,13 +211,15 @@ export async function afterErase(
     }
   }
   return {
-    ...(counts.outside &&
-    counts.outside.people + counts.outside.coaches + counts.outside.coachesOfStaff > 0
+    ...(counts.outside?.exists
       ? {
           bookingSystem: {
-            people: counts.outside.people,
+            deletedLinked: counts.outside.deletedLinked,
+            deletedUnlinked: counts.outside.deletedUnlinked,
             coaches: counts.outside.coaches,
-            coachesOfStaff: counts.outside.coachesOfStaff,
+            keptLinkedToOthers: counts.outside.keptLinkedToOthers,
+            keptWaiting: counts.outside.keptWaiting,
+            sharedAddresses: counts.outside.sharedAddresses,
             textScrubbed: counts.outside.textScrubbed,
             copyRemains: true as const,
             note: BOOKING_SYSTEM_COPY_NOTE,

@@ -127,18 +127,19 @@ business, and its lawyer or the booking system's support, to confirm. The load s
 
 - **Step 10** — built — PR #508 — Erase, merge, removal (built 2026-11-26, branch
   `feat/stage-65-erase-merge`; ADR 0926; migration 1412): `packages/core/src/outside/erase.ts`:
-  `person.erase` (through `queueErase`) deletes the Person's own outside rows (linked to them, or
-  on their address where only they can be; a coach on their address linked to no staff account;
-  never a row linked to another Person or a staff account), their memberships, passes, bookings,
-  To match rows, their id in others' candidates and staff's unlink decisions on their refs, and
-  their names in class titles, in the erase's batch; those rows' addresses and names join the
-  erase's terms (never their refs); their refs and unshared addresses go into
-  `core_outside_suppressed` by keyed hash (the deployment's salt, as ADR 0675's suppression list)
-  with the erase id and the salt's fingerprint, carried in the erase log and put back by
-  `erasure.reapply`, which with every load and link refuses a changed salt; the result's
-  `bookingSystem` says a copy remains in the booking system. Loads drop a suppressed coach too and
+  `person.erase` (through `queueErase`) deletes, by ADR 0926's rule, the outside rows linked to
+  the Person, rows linked to nobody on an address only they hold, and coaches on it with no staff
+  account (never a row linked to another Person or a staff account), with their memberships,
+  passes, bookings, To match rows, their id in others' candidates and staff's unlink decisions,
+  and the linked rows' full names in class titles, in the erase's batch; their addresses (but a
+  shared one) and the linked rows' names join the erase's terms (never refs); the linked rows'
+  refs and the unshared addresses go into `core_outside_suppressed` by keyed hash (the
+  deployment's salt, as ADR 0675's suppression list) with the salt's fingerprint and a row per
+  erase (`core_outside_suppressed_erase`), carried in the erase log and put back by
+  `erasure.reapply`, which with every load, link and erase refuses a changed salt; the result's
+  `bookingSystem` always says what happened and that a copy remains in the booking system. Loads drop a suppressed coach too and
   count what a suppressed ref drops (`previouslyErased`); `outside.link` refuses a suppressed ref
-  or address; `outside.suppression.lift` (a person) lifts a reused ref; `erasure.allowAddress`
+  or address; `outside.suppression.lift` (a person with records:erase too) lifts a reused ref; `erasure.allowAddress`
   lifts an address with that erase's refs. `person.merge` moves links to the survivor and
   reconciles To match; `trash.purge` drops a purged Person's links. `outside.lists.remove`
   (`outside/remove.ts`; a person with `bookingSystem:manage`, never an AI, MCP, Code Mode, an
