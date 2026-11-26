@@ -24,7 +24,7 @@
       "stage": "contract",
       "code": "contract",
       "path": "objects.visit.fields.site.to",
-      "message": "Unknown relation target \"premises.site\". Use person, organisation, task or <extension>.<object>"
+      "message": "Unknown relation target \"premises.site\". Use person, organisation, task, location or <extension>.<object>"
     }
   ],
   "undeclaredwrite": [
