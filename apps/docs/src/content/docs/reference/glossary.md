@@ -1237,7 +1237,27 @@ A Durable Object with SQLite storage, one per client, that the host opens by cli
 through the same interface as D1. A deployment with one client uses D1 itself. The class is
 `ClientDb` (`@composable-os/db/client-db`) and `clientDatabase(namespace, client)` stands where a
 D1 binding stands, with D1's results, errors and limits; the test suites run on it with
-`COS_TEST_DB=client-db`. Built in step 1; no Worker of the host binds it yet.
+`COS_TEST_DB=client-db`. Since step 2 (ADR 0614) it reports its migrations (`migrateAndReport`),
+takes bookmarks and is restored to them (`restoreClientDb`), reports its size against the 10 GB
+limit (`usage`), records where it was first placed (`place`), and is exported and imported as SQL
+(`@composable-os/db/sql-export`); a set is committed only with an answer it can return. The class
+lives in a Worker of its own, `cos-client-db` (`apps/client-db`), so a release of the host does
+not restart it; the host's Workers are to reach it only through that Worker's query-only entrypoint
+`ClientDbQueries` (`CLIENT_DB_QUERIES`), never the namespace with its operator methods. No Worker
+of the host binds it yet.
+
+### Client export
+
+(stage 66 step 2; ADR 0614)
+
+A database written out as plain SQL in parts (`cos-sql-export/1`), every table, value, index,
+trigger and view exactly, taken from a client's database or D1 and imported into either, but only
+into an empty one. The database is held still while it is exported (a client's database refuses
+writes until the export ends). An import runs only the statements an export writes and, after the
+last part, compares the whole schema with what the code's migrations and the reconciler make,
+emptying the database on any difference. What a move between hosts and the leaving promise rest
+on.
+_Avoid_: dump, backup
 
 ### Registry
 

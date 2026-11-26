@@ -51,6 +51,23 @@ export async function withClientDb<T extends MiniflareLike>(miniflare: T): Promi
   return usingClientDb() ? addClientDb(miniflare) : miniflare;
 }
 
+/**
+ * A Worker shaped as `cos-client-db` (apps/client-db) is, named `name`: `ClientDb` and the
+ * query-only entrypoint `ClientDbQueries`, for a suite or a Worker that binds them by script name
+ * (the proof Worker's tests use it as its `cos-client-db-proof-db`).
+ */
+export async function clientDbWorker(name = CLIENT_DB_TEST_WORKER) {
+  return {
+    name,
+    modules: [
+      { type: "ESModule" as const, path: "client-db.mjs", contents: await clientDbWorkerScript() },
+    ],
+    compatibilityDate: "2026-10-01",
+    compatibilityFlags: ["nodejs_compat"],
+    durableObjects: { CLIENT_DB: { className: "ClientDb", useSQLite: true } },
+  };
+}
+
 /** `miniflare` with a `CLIENT_DB` binding to `ClientDb`, whatever the suite runs on. */
 export async function addClientDb<T extends MiniflareLike>(miniflare: T): Promise<T> {
   return {
@@ -59,18 +76,7 @@ export async function addClientDb<T extends MiniflareLike>(miniflare: T): Promis
       ...miniflare.durableObjects,
       CLIENT_DB: { className: "ClientDb", scriptName: CLIENT_DB_TEST_WORKER, useSQLite: true },
     },
-    workers: [
-      ...(miniflare.workers ?? []),
-      {
-        name: CLIENT_DB_TEST_WORKER,
-        modules: [
-          { type: "ESModule", path: "client-db.mjs", contents: await clientDbWorkerScript() },
-        ],
-        compatibilityDate: "2026-10-01",
-        compatibilityFlags: ["nodejs_compat"],
-        durableObjects: { CLIENT_DB: { className: "ClientDb", useSQLite: true } },
-      },
-    ],
+    workers: [...(miniflare.workers ?? []), await clientDbWorker()],
   };
 }
 

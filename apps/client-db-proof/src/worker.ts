@@ -1,20 +1,25 @@
-// The proof Worker of stage 66 step 1 (ADR 0612): `ClientDb` deployed with one client beside a D1
-// database, so the two can be timed doing the same work on Cloudflare and compared answer by
-// answer. Not the host: it serves no one, holds only seeded records, and refuses every request
+// The proof Worker of stage 66 (ADRs 0612, 0614): clients' databases beside a D1 database, so the
+// two can be timed doing the same work on Cloudflare and compared answer by answer. The clients'
+// databases are in their own small Worker (`cos-client-db-proof-db`, apps/client-db), reached as
+// the host will reach them: the query-only service `CLIENT_DB_QUERIES` for every timed page, the
+// class's namespace `CLIENT_DB` for setup and the operator's probes. Not the host: it serves no one, holds only seeded records, and refuses every request
 // without the key the deploy workflow sets (PROOF_KEY, a fresh random value each run).
 //
 //   GET  /health                     no key needed; says whether the key is set
-//   POST /setup?db=d1|client-db      migrate (inside the object, for the client's database) and
-//                                    seed one chunk; call until `remaining` is 0
+//   POST /setup?db=d1|client-db      beside the databases: every migration (one call into the
+//                                    object for a client's database), then seed chunks, until
+//                                    `remaining` is 0; work already done is skipped
 //   GET  /time?db=…&scenario=…&runs=N[&from=near|edge]   time a scenario N times, warm
 //   POST /cold/setup?run=R&i=I       a fresh client's database `cold-R-I`, migrated and seeded
 //   GET  /cold/time?run=R&i=I&order=d1-first|client-first   the first staff page on it, after
 //                                    the caller has left it idle, and D1's after the same wait
 //   GET  /subrequests?db=…&max=N&fetches=F   how many calls one request makes before a limit
 //   GET  /conformance                every probe on both databases, side by side
+//   GET  /step2/…                    stage 66 step 2's probes (src/step2.ts)
 import { DurableObject } from "cloudflare:workers";
 import { applyMigrations, type Migration } from "@composable-os/db";
-import { ClientDb as BaseClientDb, clientDatabase } from "@composable-os/db/client-db";
+import { type ClientDb, clientDatabase, clientDatabaseService } from "@composable-os/db/client-db";
+import type { ClientDbQueryService } from "@composable-os/db/client-db-service";
 import migrations from "./generated/migrations.json";
 import { compareAll } from "./probes.ts";
 import {
@@ -26,20 +31,14 @@ import {
   summarise,
   timeScenario,
 } from "./scenarios.ts";
+import { step2 } from "./step2.ts";
 
 /**
- * The client's database as the host will have it, plus a token for this instance in memory: a
- * cold-start sample compares the token after its first page with the one setup saw, so it can
- * say whether the object really had been evicted and constructed again (`/cold/time`).
+ * `d1`; `client-db`, a client's database as the host reaches it (the query-only service); and
+ * `client-db-direct`, the same object through the class's namespace, to show what the service's
+ * extra step costs.
  */
-export class ClientDb extends BaseClientDb {
-  readonly #instance = crypto.randomUUID();
-  instance(): string {
-    return this.#instance;
-  }
-}
-
-const DATABASES = ["d1", "client-db"] as const;
+const DATABASES = ["d1", "client-db", "client-db-direct"] as const;
 type Database = (typeof DATABASES)[number];
 const FROMS = ["near", "edge"] as const;
 type From = (typeof FROMS)[number];
@@ -47,10 +46,21 @@ const ORDERS = ["d1-first", "client-first"] as const;
 
 const near = (env: Env) => ({ locationHint: env.LOCATION_HINT as DurableObjectLocationHint });
 const clientDbs = (env: Env) => env.CLIENT_DB as unknown as DurableObjectNamespace<ClientDb>;
+const queries = (env: Env) => env.CLIENT_DB_QUERIES as unknown as ClientDbQueryService;
 
 function database(env: Env, which: Database, client = env.CLIENT_ID): D1Database {
-  return which === "d1" ? env.DB : clientDatabase(clientDbs(env), client, near(env));
+  if (which === "d1") return env.DB;
+  return which === "client-db"
+    ? clientDatabaseService(queries(env), client, near(env))
+    : clientDatabase(clientDbs(env), client, near(env));
 }
+
+/** A client's object, through the operator's binding: its session id says whether it restarted. */
+const objectOf = (env: Env, client: string) =>
+  clientDbs(env).get(clientDbs(env).idFromName(client), near(env));
+
+/** Seed chunks one setup call makes, beside the databases (each well inside the call's limits). */
+const SEED_CHUNKS_PER_CALL = 5;
 
 /** An integer query parameter within [min, max], its default when absent, or null when invalid. */
 function int(url: URL, name: string, min: number, max: number, fallback: number): number | null {
@@ -109,11 +119,19 @@ async function time(env: Env, which: Database, scenario: Scenario, runs: number)
   };
 }
 
-/** The first staff page on `db`, as a request after idle has it: the seed's lookups included. */
-async function firstPage(db: D1Database): Promise<number> {
-  const started = performance.now();
+/**
+ * The first staff page on `db` after idle, in two parts so the cost can be attributed: the very
+ * first query alone (on a cold object: its Worker's isolate, the constructor, SQLite opening, and
+ * the hop), then the page itself (the seed's lookups included), which then finds the object warm.
+ */
+async function firstPage(db: D1Database) {
+  let started = performance.now();
+  await db.prepare("SELECT 1 AS one").first();
+  const firstQueryMs = performance.now() - started;
+  started = performance.now();
   await runScenario("staff-list", db, await seeded(db));
-  return performance.now() - started;
+  const pageMs = performance.now() - started;
+  return { firstQueryMs, pageMs, totalMs: firstQueryMs + pageMs };
 }
 
 /** Times from beside the databases (`from=near`), and runs the cold and subrequest samples. */
@@ -122,16 +140,44 @@ export class ProofTimer extends DurableObject<Env> {
     return time(this.env, which, scenario, runs);
   }
 
-  async cold(client: string, d1First: boolean, setupInstance: string) {
-    const ms: Record<Database, number> = { d1: 0, "client-db": 0 };
-    for (const which of d1First ? DATABASES : [...DATABASES].reverse()) {
-      ms[which] = await firstPage(database(this.env, which, client));
+  /**
+   * Setup beside the databases, so each query crosses metres, not the world: every migration
+   * (for a client's database one call that loops inside the object), then up to
+   * `SEED_CHUNKS_PER_CALL` chunks of the seed. Work already done is skipped, so a rerun's setup is
+   * a few queries.
+   */
+  async setup(which: "d1" | "client-db", client: string) {
+    const started = performance.now();
+    const list = migrations as Migration[];
+    const applied =
+      which === "d1"
+        ? await applyMigrations(this.env.DB, list)
+        : await objectOf(this.env, client).migrate(list);
+    const db = database(this.env, which === "d1" ? "d1" : "client-db-direct", client);
+    let remaining = Number.POSITIVE_INFINITY;
+    for (let chunk = 0; chunk < SEED_CHUNKS_PER_CALL && remaining > 0; chunk += 1) {
+      ({ remaining } = await seed(db));
     }
-    const stub = clientDbs(this.env).get(clientDbs(this.env).idFromName(client), near(this.env));
-    // Another instance than the one setup used: it had been evicted, so the first page paid the
-    // cold start (the object's isolate, its constructor and SQLite opening).
-    const clientWasCold = (await stub.instance()) !== setupInstance;
-    return { client, d1Ms: ms.d1, clientDbMs: ms["client-db"], clientWasCold };
+    return { migrationsApplied: applied.length, remaining, ms: performance.now() - started };
+  }
+
+  /** A cold sample's client: migrated and seeded one chunk, and the object's session then. */
+  async coldSetup(client: string) {
+    const stub = objectOf(this.env, client);
+    await stub.migrate(migrations as Migration[]);
+    await seed(database(this.env, "client-db-direct", client));
+    return { client, instance: (await stub.session()).id };
+  }
+
+  async cold(client: string, d1First: boolean, setupInstance: string) {
+    const order: ("d1" | "client-db")[] = d1First ? ["d1", "client-db"] : ["client-db", "d1"];
+    const ms: Record<string, Awaited<ReturnType<typeof firstPage>>> = {};
+    for (const which of order) ms[which] = await firstPage(database(this.env, which, client));
+    // Another session than the one setup saw: the object had been evicted (or hibernated) and
+    // constructed again, so its first query paid the start. Read after timing, through the
+    // operator's binding, so the check itself never warms it.
+    const clientWasCold = (await objectOf(this.env, client).session()).id !== setupInstance;
+    return { client, d1: ms.d1, clientDb: ms["client-db"], clientWasCold };
   }
 
   async subrequests(which: Database, max: number, fetches: number) {
@@ -200,26 +246,18 @@ export default {
     }
     const timer = () => env.PROOF_TIMER.get(env.PROOF_TIMER.idFromName("timer"), near(env));
     const post = request.method === "POST";
-    const list = migrations as Migration[];
 
     if (url.pathname === "/setup" && post) {
-      const which = oneOf(url, "db", DATABASES);
+      const which = oneOf(url, "db", ["d1", "client-db"] as const);
       if (!which) return bad("db=d1|client-db");
-      const applied =
-        which === "d1"
-          ? await applyMigrations(env.DB, list)
-          : await clientDbs(env)
-              .get(clientDbs(env).idFromName(env.CLIENT_ID), near(env))
-              .migrate(list);
-      const { remaining } = await seed(database(env, which));
-      return json({ db: which, migrationsApplied: applied.length, remaining });
+      return json({ db: which, ...(await timer().setup(which, env.CLIENT_ID)) });
     }
     if (url.pathname === "/time") {
       const which = oneOf(url, "db", DATABASES);
       const scenario = oneOf(url, "scenario", SCENARIOS);
       const from = oneOf<From>(url, "from", FROMS, "near");
       const runs = int(url, "runs", 1, 50, 10);
-      if (!which) return bad("db=d1|client-db");
+      if (!which) return bad(`db=${DATABASES.join("|")}`);
       if (!scenario) return bad(`scenario=${SCENARIOS.join("|")}`);
       if (!from) return bad(`from=${FROMS.join("|")}`);
       if (runs === null) return bad("runs: an integer from 1 to 50");
@@ -232,11 +270,8 @@ export default {
     if (url.pathname === "/cold/setup" && post) {
       const client = coldClient(url);
       if (!client) return bad("run=[a-z0-9]{1,20}&i=0..99");
-      const stub = clientDbs(env).get(clientDbs(env).idFromName(client), near(env));
-      await stub.migrate(list);
       // One chunk of the seed: the admin, the shop and the first people, enough for the page.
-      await seed(database(env, "client-db", client));
-      return json({ client, instance: await stub.instance() });
+      return json(await timer().coldSetup(client));
     }
     if (url.pathname === "/cold/time") {
       const client = coldClient(url);
@@ -251,9 +286,14 @@ export default {
       const which = oneOf(url, "db", DATABASES);
       const max = int(url, "max", 1, 20_000, 11_000);
       const fetches = int(url, "fetches", 0, 100, 20);
-      if (!which) return bad("db=d1|client-db");
+      if (!which) return bad(`db=${DATABASES.join("|")}`);
       if (max === null || fetches === null) return bad("max: 1 to 20000; fetches: 0 to 100");
       return json(await timer().subrequests(which, max, fetches));
+    }
+    // Stage 66 step 2 (ADR 0614): bookmarks and restore, export and import, large answers, size.
+    if (url.pathname.startsWith("/step2/")) {
+      const answer = await step2(url, { ...env, CLIENT_DB: clientDbs(env) });
+      if (answer !== null) return json(answer);
     }
     if (url.pathname === "/conformance") {
       const compared = await compareAll(env.DB, database(env, "client-db", "conformance"));

@@ -1,7 +1,13 @@
-// The proof Worker of stage 66 step 1 (ADR 0612): ClientDb with one client beside a D1 database.
+// The proof Worker of stage 66 (ADRs 0612, 0614): clients' databases beside a D1 database.
 // Deployed only by hand, by .github/workflows/client-db-proof.yml (scripts/deploy.mjs), which
 // renames cos-* to the product's names and fills in the D1 database's id; nothing here names an
 // account. See docs/deploying.md, "Proving a client's database on Cloudflare".
+//
+// The clients' databases are NOT in this Worker: they are in `cos-client-db-proof-db`, the small
+// Worker of apps/client-db deployed under the proof's own name (deploy.mjs deploys it first), as
+// the host will have them in `cos-client-db`. This Worker reaches them as the host will:
+// - CLIENT_DB_QUERIES: the query-only entrypoint, a service binding (the timed scenarios);
+// - CLIENT_DB: the class's namespace by script name (setup, migrations, the operator's probes).
 {
   "$schema": "../../node_modules/wrangler/config-schema.json",
   "name": "cos-client-db-proof",
@@ -17,14 +23,26 @@
       "migrations_table": "core_migrations"
     }
   ],
+  "services": [
+    {
+      "binding": "CLIENT_DB_QUERIES",
+      "service": "cos-client-db-proof-db",
+      "entrypoint": "ClientDbQueries"
+    }
+  ],
   "durable_objects": {
     "bindings": [
-      { "name": "CLIENT_DB", "class_name": "ClientDb" },
-      // Times the scenarios from beside the databases (`/time?from=near`).
+      { "name": "CLIENT_DB", "class_name": "ClientDb", "script_name": "cos-client-db-proof-db" },
+      // Times the scenarios from beside the databases (`/time?from=near`), and runs the setup there.
       { "name": "PROOF_TIMER", "class_name": "ProofTimer" }
     ]
   },
-  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["ClientDb", "ProofTimer"] }],
+  // Only the timer's class is this Worker's: clients' databases are in the other Worker. Step 1's
+  // proof exported ClientDb here; Cloudflare refuses to delete a class in the same deploy that
+  // still has a binding of that class's name (error 10061, the first run of this arrangement), so
+  // the earlier proof Worker is removed once with the workflow's remove mode and this one starts
+  // with a history of its own.
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["ProofTimer"] }],
   // The one client's database, and where it and the D1 database are created (Oceania, stage 43).
   // PROOF_KEY is a secret the workflow sets after each deploy (a fresh random value), never
   // committed. Until it is set, the Worker refuses everything but /health.
