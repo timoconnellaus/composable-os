@@ -67,6 +67,13 @@ Offers' discounts (open PR #479) are not on `main`; a discount's live states, if
 the host's, will be held the same way once it merges, and its tests will say whether its words
 need to change.
 
+Note, 2026-11-26 (batch 20261126, PR #479 merged with this one): Offers' discount has every state
+but `ended` guarded: `draft` and `paused` (activateDiscount, endDiscount), `active` (pauseDiscount,
+endDiscount). A draft, live or paused discount is Trashed only by a person holding
+`offers:manage`, never by the assistant or an automation, whatever the preset; an ended one is
+final and not held. Codes have no states and are unchanged. No Offers test changed: none Trashed a
+discount. `apps/runner/test/offers.test.ts`, "the Trash of a discount (ADR 0863)", proves it.
+
 ## Consequences
 - A pack that guards a state with tools gets this without declaring anything; a pack that wants a
   record in such a state to be removable by others gives it a way out of the state first.

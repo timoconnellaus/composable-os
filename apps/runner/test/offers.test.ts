@@ -698,3 +698,27 @@ describe("a person's tools under every approval policy (review item 3)", () => {
     }
   });
 });
+
+// Batch 20261126 (PR #491 beside #479): every discount state but `ended` is guarded (each move out
+// is a person's tool), so a draft, live or paused discount is Trashed only by a person who may use
+// those tools (`offers:manage`), never by the assistant, whatever the preset (ADR 0863). Codes
+// have no states and keep their own Trash rules; an ended discount is final, so not held here.
+describe("the Trash of a discount (ADR 0863)", () => {
+  it("the assistant never Trashes a live discount; a person who manages offers does", async () => {
+    const id = await liveDiscount({ kind: "percent", percent: 10 });
+    await setPreset("autonomous");
+    try {
+      const refused = await refusal(run("record.delete", { object: DISCOUNT, id }, assistant()));
+      expect(refused.code).toBe("forbidden");
+      expect((refused.details as { rule?: string } | undefined)?.rule).toBe("state_trash");
+      expect(refused.message).toContain("pauseDiscount or endDiscount");
+      expect(await stateOf(id)).toBe("active");
+    } finally {
+      await setPreset("balanced");
+    }
+    await run("record.delete", { object: DISCOUNT, id }, staff());
+    expect((await refusal(run("record.get", { object: DISCOUNT, id }, staff()))).code).toBe(
+      "not_found",
+    );
+  });
+});
