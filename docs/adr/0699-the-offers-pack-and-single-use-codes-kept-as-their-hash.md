@@ -36,7 +36,7 @@ own: the spec's model names one `offers.discount`, and the host's rules do not d
 `offers:vouchers`): admins and members hold it, a pack role does not. Anyone on the staff, the
 assistant included, reads discounts (`discounts`, `codeBatches`) and drafts one (`draftDiscount`):
 a draft applies to nobody. Making it live (`activateDiscount`), pausing, ending and changing its
-terms (`changeDiscount`), and voiding codes (`voidCodes`) are `personApproves` with `offers:manage`:
+terms (`changeDiscount`), and voiding a batch (`voidBatch`) are `personApproves` with `offers:manage`:
 a person calls them, and anyone else's call waits in Approvals for a person (ADR 0552), which is the
 tool form ADR 0693 asks for. Making codes (`generateCodes`) is `humanOnly`: see below.
 
@@ -45,7 +45,8 @@ tool form ADR 0693 asks for. Making codes (`generateCodes`) is `humanOnly`: see 
 (57 characters); `isCodeHash` recognises one. On such an object the host refuses any `word` that is
 not a hash, whoever writes it (`rule: "code_hashed"`), and `codeMatches` hashes what a buyer types
 before its indexed lookup. The reconciler's unique index and the folding are unchanged (a hash
-folds to itself). Unsalted, because the lookup knows only the word typed; safe because the codes
+folds to itself). Unsalted, because the lookup knows only the word typed (and the pack hashes in
+the sandbox, which holds no secret); safe because the codes
 are `randomCodes`' 80 bits. It is never for a word a person chose (six characters can be found from
 a hash by trying them all): shared words stay on the discount's own `code`, in clear, as ADR 0940
 keeps them.
@@ -100,3 +101,40 @@ addresses; the one answer for an expired, an ended and an unknown code; the assi
 make live and code writes; a drop-in discount refused on a ticket). The batch test fails when the
 host's hashed lookup is taken out, and the assistant's test fails when the host's rule that a code
 write by a non-person waits is taken out.
+
+## Amended 2026-11-26, after the review of PR #479
+- **A person approves the terms they were shown** (review item 1). When a call waits for a person
+  and its input names a discount (the assistant asking to make one live, to change it, to void a
+  batch), the queue keeps that discount's terms as they are then, every field the behaviour names
+  (`discounts/terms.ts`, in `simulated.discounts`), and says them in words in the approval's notes
+  ("It names the discount "Ten off" as it is now: What is off: percent; Percentage off: 10; …").
+  Approving it is refused with a `conflict` (`rule: "discount_changed"`) naming each field that
+  changed since, before anything applies (`approval.approve`). Chosen over making a non-person's
+  edits wait while an activation is pending: it is one host rule for every waiting call that names
+  a discount, whatever tool or path; it also catches a change a person made after the ask (the
+  approver may not be that person); and it needs no search of pending actions on every write.
+  Drafts stay anyone's to edit, which is what drafting is.
+- **A discount past its draft is changed only by a person** (review item 2, amending ADR 0693):
+  the host's rule now covers every state but the object's initial one, live, paused and ended
+  alike, as a rule of the behaviour rather than of a pack's `live` list: a paused discount's terms
+  are terms a person approved, which a person's resume makes live again.
+- **A person's own tool is not queued twice** (review item 3). A write by a `humanOnly` or
+  `personApproves` tool (with a permission) of its own extension's records, in a run a person
+  called, or one a person (never the adjudicator) approved, is not queued by the approval policy:
+  under `cautious` a person's `generateCodes` stopped at 0 codes and left a pending write of codes
+  nobody could hold. The deploy floor and a deny still apply; a tool the assistant calls still
+  waits at the tool itself, so its writes run only once a person approved it
+  (`pipeline.ts`, `personsOwnRun`).
+- **Codes typed to void are a person's at the screen** (item 4): `voidCodes` (typed codes) is
+  `humanOnly`, so they never sit in clear in a pending action's input; `voidBatch` (by the batch's
+  name) is `personApproves`, which the assistant may ask for.
+- **No code left unheld** (items 5 and 6): `generateCodes` refuses an ended discount, and when a
+  chunk's write fails it looks up which of that chunk's codes the database kept (a write that
+  committed and lost its answer) and gives those to the person with the rest.
+- **The check says what it left out** (item 7): `cos ext check` prints "checked without ../<pack>
+  installed" with why, and refuses a discount's `objects` option naming an object that a pack
+  beside it, installed for the check, does not declare.
+- **The cost of the unsalted hash** (decided, no change): reversing one stored hash of an 80-bit
+  code takes about 2^80 SHA-256 tries; against N stored hashes, about 2^80/N (2^60 for a million
+  codes: years of a large GPU fleet), far above what any discount is worth. A per-deployment
+  pepper would need the host to hash on write, since the pack hashes in the sandbox; not built.

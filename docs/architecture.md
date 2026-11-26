@@ -2680,7 +2680,12 @@ generated code is never in a record, a view, a query or the audit log; `order.st
 of the audit row (`auditRedact`). The **Offers pack** (`packs/offers`) declares the discounts
 (`offers.discount`: promo codes, members' prices, customer rates; live only through its
 `personApproves` tools with `offers:manage`) and the single-use codes (`offers.code`, hashed, made
-by a person's `humanOnly` `generateCodes` and shown once).
+by a person's `humanOnly` `generateCodes` and shown once). A non-person's change to a discount in
+any state but its initial one waits for a person (`records/person-approves.ts`); a waiting call
+that names a discount keeps its terms as asked and says them in the approval, and approving it is
+refused if they changed since (`discounts/terms.ts`, `approval.approve`); a person's own tool's
+writes of its extension's records are not queued again by the approval policy (`pipeline.ts`,
+`personsOwnRun`), the deploy floor aside.
 
 **Low stock** (stage 37 step 2, ADR 0681, `packages/core/src/stock/low.ts`). When a write takes a
 stock record's on hand to or below its reorder level (`stock.reorderAt`), the staff who hold the

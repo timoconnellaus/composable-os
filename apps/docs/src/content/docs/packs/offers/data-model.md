@@ -149,7 +149,7 @@ One of a batch of codes made for a discount, each good for a set number of order
 | `batch` | `text` | Batch |   | read-only |   |
 | `word` | `text` | Code (its hash) |   | read-only | What the host keeps of the code: its hash, never the code. |
 | `uses` | `number` | Orders per code |   | min 1; read-only | The most orders this code may be used on. |
-| `active` | `boolean` | Works |   | default `true` | Off: the code is void. Switched off by voidCodes or by a person. |
+| `active` | `boolean` | Works |   | default `true` | Off: the code is void. Switched off by voidBatch, voidCodes or a person. |
 | `madeBy` | `text` | Made by |   | read-only |   |
 
 ### Relations

@@ -201,3 +201,8 @@ the same reads is left open.
 - **A code typed is never in the audit log.** `order.start`, `order.startHeld`, `order.quote`,
   `order.applyCode` and `discount.check` leave `code` out of their audit rows (`auditRedact`).
 - The Offers pack (step 5) declares the discounts and single-use codes; see ADR 0699.
+- **Changes wait for a person past the draft, not only while live** (review of PR #479): a
+  non-person's `record.update` of a discount in any state but its object's initial one (paused
+  and ended included) waits for a person, whatever the pack lists as `live`. And an approval of a
+  waiting call that names a discount is refused if the discount's terms changed since it was
+  asked for (ADR 0699).

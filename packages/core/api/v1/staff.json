@@ -113493,7 +113493,7 @@
     },
     {
       "name": "x.offers.generateCodes",
-      "description": "Make a batch of up to 500 random single-use codes for a discount, each good for usesPerCode orders (1 by default), and show them once, in this answer, to export or send. The host keeps only each code's hash, so they cannot be shown again: keep the list. A person only, with offers:manage, at the discount's page; the assistant cannot make codes. The discount still applies only once it is live. If the batch stops part way, the answer says so and holds the codes that were made. (Extension tool from Offers 0.1.0.)",
+      "description": "Make a batch of up to 500 random single-use codes for a discount, each good for usesPerCode orders (1 by default), and show them once, in this answer, to export or send. The host keeps only each code's hash, so they cannot be shown again: keep the list. A person only, with offers:manage, at the discount's page; the assistant cannot make codes. Not for an ended discount. The discount still applies only once it is live. If the batch stops part way, the answer says so and holds every code that was made. (Extension tool from Offers 0.1.0.)",
       "risk": "bulk-write",
       "audiences": [
         "staff"
@@ -113714,8 +113714,8 @@
       "pack": "offers"
     },
     {
-      "name": "x.offers.voidCodes",
-      "description": "Stop single-use codes working: the codes given (as typed, for a code that leaked), or a whole batch, of one discount; at most 200 a call (call again while remaining is more than 0). Orders already started keep their deal. A person's decision with offers:manage (the assistant's call waits for a person). Returns how many were voided. (Extension tool from Offers 0.1.0.)",
+      "name": "x.offers.voidBatch",
+      "description": "Stop a whole batch of single-use codes working, by its name; at most 200 a call (call again while remaining is more than 0). Orders already started keep their deal. A person's decision with offers:manage (the assistant's call waits for a person). Returns how many were voided. (Extension tool from Offers 0.1.0.)",
       "risk": "bulk-write",
       "audiences": [
         "staff"
@@ -113733,6 +113733,51 @@
             "type": "string",
             "minLength": 1,
             "maxLength": 60
+          }
+        },
+        "required": [
+          "discountId",
+          "batch"
+        ],
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "voided": {
+            "type": "number"
+          },
+          "remaining": {
+            "type": "number"
+          }
+        },
+        "required": [
+          "voided",
+          "remaining"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "x.offers.codeBatches",
+        "x.offers.discounts"
+      ],
+      "pack": "offers"
+    },
+    {
+      "name": "x.offers.voidCodes",
+      "description": "Stop single-use codes working, typed as they were given out (a code that leaked). A person only, with offers:manage, at the screen: the codes are never kept, in the audit log or in a request waiting for approval, so the assistant cannot ask for this (it may ask to void the whole batch with voidBatch). Returns how many were voided. (Extension tool from Offers 0.1.0.)",
+      "risk": "bulk-write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "discountId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
           },
           "codes": {
             "minItems": 1,
@@ -113746,7 +113791,8 @@
           }
         },
         "required": [
-          "discountId"
+          "discountId",
+          "codes"
         ],
         "additionalProperties": {}
       },

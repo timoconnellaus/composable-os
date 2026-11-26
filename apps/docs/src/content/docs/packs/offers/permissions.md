@@ -12,7 +12,7 @@ A tool with no permission of its own is held by admins and members as any tool i
 
 | Permission | Tools | Restricted | Grantable | Roles holding it | What a grant gives |
 | --- | --- | --- | --- | --- | --- |
-| `offers:manage` | [draftDiscount](/packs/offers/tools/#draftdiscount), [changeDiscount](/packs/offers/tools/#changediscount), [activateDiscount](/packs/offers/tools/#activatediscount), [pauseDiscount](/packs/offers/tools/#pausediscount), [endDiscount](/packs/offers/tools/#enddiscount), [generateCodes](/packs/offers/tools/#generatecodes), [voidCodes](/packs/offers/tools/#voidcodes) |   |   |   |   |
+| `offers:manage` | [draftDiscount](/packs/offers/tools/#draftdiscount), [changeDiscount](/packs/offers/tools/#changediscount), [activateDiscount](/packs/offers/tools/#activatediscount), [pauseDiscount](/packs/offers/tools/#pausediscount), [endDiscount](/packs/offers/tools/#enddiscount), [generateCodes](/packs/offers/tools/#generatecodes), [voidBatch](/packs/offers/tools/#voidbatch), [voidCodes](/packs/offers/tools/#voidcodes) |   |   |   |   |
 
 ## Roles
 
@@ -27,4 +27,5 @@ This pack declares no roles.
 | [pauseDiscount](/packs/offers/tools/#pausediscount) |   | yes |   |   |
 | [endDiscount](/packs/offers/tools/#enddiscount) |   | yes |   |   |
 | [generateCodes](/packs/offers/tools/#generatecodes) | yes |   |   |   |
-| [voidCodes](/packs/offers/tools/#voidcodes) |   | yes |   |   |
+| [voidBatch](/packs/offers/tools/#voidbatch) |   | yes |   |   |
+| [voidCodes](/packs/offers/tools/#voidcodes) | yes |   |   |   |

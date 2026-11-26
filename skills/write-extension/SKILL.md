@@ -168,9 +168,10 @@ extension declares it; it never implements it. Each behaviour the platform has i
   the order's batch; never compute a price or a discount in a tool or a block. Declare every move
   into a live state `by: ["host"], tools: [...]` (a person's tool) or `by: ["staff"]` with the
   state field `personApproves: true`, never `create.in` a live state; an AI's change to a live
-  discount, and any write of a promo code record by anyone but a person (your pack's tools
-  included, unless the tool is `humanOnly` or `personApproves` with a permission), waits for a
-  person. Code words are kept folded, at least 6 characters, one per word (ADR 0940): show the
+  discount (any state but the initial one, paused and ended too), and any write of a promo code
+  record by anyone but a person (your pack's tools included, unless the tool is `humanOnly` or
+  `personApproves` with a permission), waits for a person; an approval of a call naming a
+  discount shows its terms and is refused if they changed since (ADR 0699). Code words are kept folded, at least 6 characters, one per word (ADR 0940): show the
   host's refusal, never check a word in a tool. Generated single-use codes go on a codes object
   declared `hashed: true`: make them with `randomCodes`, write only `codeHash(code)` to `word`
   (the host refuses anything else), and give the codes to the person who made them once, in a

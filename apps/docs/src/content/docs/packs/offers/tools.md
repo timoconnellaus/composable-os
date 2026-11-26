@@ -302,7 +302,7 @@ End a discount for good: it applies to no new order and cannot be made live agai
 
 ### generateCodes
 
-Make a batch of up to 500 random single-use codes for a discount, each good for usesPerCode orders (1 by default), and show them once, in this answer, to export or send. The host keeps only each code's hash, so they cannot be shown again: keep the list. A person only, with offers:manage, at the discount's page; the assistant cannot make codes. The discount still applies only once it is live. If the batch stops part way, the answer says so and holds the codes that were made.
+Make a batch of up to 500 random single-use codes for a discount, each good for usesPerCode orders (1 by default), and show them once, in this answer, to export or send. The host keeps only each code's hash, so they cannot be shown again: keep the list. A person only, with offers:manage, at the discount's page; the assistant cannot make codes. Not for an ended discount. The discount still applies only once it is live. If the batch stops part way, the answer says so and holds every code that was made.
 
 |  |  |
 | --- | --- |
@@ -332,9 +332,9 @@ Make a batch of up to 500 random single-use codes for a discount, each good for 
 | `problem` | string or null | yes |   |   |
 | `codes` | array of string | yes |   | The codes, shown once: the host keeps only their hash |
 
-### voidCodes
+### voidBatch
 
-Stop single-use codes working: the codes given (as typed, for a code that leaked), or a whole batch, of one discount; at most 200 a call (call again while remaining is more than 0). Orders already started keep their deal. A person's decision with offers:manage (the assistant's call waits for a person). Returns how many were voided.
+Stop a whole batch of single-use codes working, by its name; at most 200 a call (call again while remaining is more than 0). Orders already started keep their deal. A person's decision with offers:manage (the assistant's call waits for a person). Returns how many were voided.
 
 |  |  |
 | --- | --- |
@@ -342,6 +342,31 @@ Stop single-use codes working: the codes given (as typed, for a code that leaked
 | Audiences | `staff` |
 | Permission | `offers:manage` |
 | Approval | a person approves anyone else's call (`personApproves`) |
+
+#### Input
+
+| Field | Type | Required | Limits | Description |
+| --- | --- | --- | --- | --- |
+| `discountId` | string | yes | min length 1, max length 64 |   |
+| `batch` | string | yes | min length 1, max length 60 |   |
+
+#### Output
+
+| Field | Type | Required | Limits | Description |
+| --- | --- | --- | --- | --- |
+| `voided` | number | yes |   |   |
+| `remaining` | number | yes |   |   |
+
+### voidCodes
+
+Stop single-use codes working, typed as they were given out (a code that leaked). A person only, with offers:manage, at the screen: the codes are never kept, in the audit log or in a request waiting for approval, so the assistant cannot ask for this (it may ask to void the whole batch with voidBatch). Returns how many were voided.
+
+|  |  |
+| --- | --- |
+| Risk | `bulk-write` |
+| Audiences | `staff` |
+| Permission | `offers:manage` |
+| Who may call it | a person only (`humanOnly`) |
 | Kept from the audit log | `codes` |
 
 #### Input
@@ -349,8 +374,7 @@ Stop single-use codes working: the codes given (as typed, for a code that leaked
 | Field | Type | Required | Limits | Description |
 | --- | --- | --- | --- | --- |
 | `discountId` | string | yes | min length 1, max length 64 |   |
-| `batch` | string |   | min length 1, max length 60 |   |
-| `codes` | array of string |   | at least 1, at most 50 | Codes as typed |
+| `codes` | array of string | yes | at least 1, at most 50 | Codes as typed |
 
 #### Output
 
