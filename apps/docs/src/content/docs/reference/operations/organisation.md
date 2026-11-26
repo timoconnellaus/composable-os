@@ -167,12 +167,13 @@ Permanently delete an organisation now (admins only), live or in Trash, together
 | `bodiesDeleted` | number | yes |   | Synced email bodies deleted from blob storage now (the rest are retried) |
 | `bookingSystem` | object |   |   | Whenever the host holds a booking system's copy (stage 65): what the erase did to it. Present even when nothing of theirs was found. A copy remains in the booking system, for staff to deal with there |
 | `bookingSystem.deletedLinked` | number | yes |   | Outside people linked to them (by address or by staff): deleted, their refs suppressed |
-| `bookingSystem.deletedUnlinked` | number | yes |   | Outside people linked to nobody on an address only they held (their household's unmatched copies): deleted, no ref suppressed |
-| `bookingSystem.coaches` | number | yes |   | Coaches on their address with no staff account: deleted |
-| `bookingSystem.keptLinkedToOthers` | number | yes |   | Outside people and coaches on their address kept, because linked to another Person or a staff account |
-| `bookingSystem.keptWaiting` | number | yes |   | Outside people on their address left waiting in To match, because another Person holds the address too |
-| `bookingSystem.sharedAddresses` | number | yes |   | Their addresses another Person, customer account or kept outside person also holds: not suppressed, not redacted (a count only) |
-| `bookingSystem.textScrubbed` | number | yes |   | Classes and class types whose text named them (a full name, whole words), scrubbed; a later list brings back what the booking system still says |
+| `bookingSystem.deletedUnlinked` | number | yes |   | Outside people linked to nobody on an address only they held (their household's unmatched copies): deleted, no ref suppressed, as one may be a family member's: such a row comes back if the booking system later lists it under another address |
+| `bookingSystem.coaches` | number | yes |   | Coaches on their address with no staff account: deleted, their refs suppressed unless someone else holds the address |
+| `bookingSystem.keptLinkedToOthers` | number | yes |   | Outside people and coaches on their address kept, because linked to another Person or a staff account: kept at later loads too while that link holds, though their address is on the erased-address list |
+| `bookingSystem.keptWaiting` | number | yes |   | Outside people on their address left waiting in To match, because another Person holds the address too: the next load drops them while they list an address of theirs on the erased-address list |
+| `bookingSystem.keptNamedElsewhere` | number | yes |   | Outside people linked to nobody that list their full name on an address someone else holds (a child on a parent's mailbox): left, as they cannot be told from a namesake; staff decide |
+| `bookingSystem.sharedAddresses` | number | yes |   | Their addresses another Person, customer account or kept outside person also holds: not suppressed in the copy (a count only). Their own live addresses are on the erased-address list and redacted from the audit whatever this says |
+| `bookingSystem.textScrubbed` | number | yes |   | Classes and class types whose text named them (a full name of two words or more, whole words, any case), scrubbed. A later timetable scrubs an erased coach's name again; a member's name a later list writes into a title is not matched (no name is kept after the erase) |
 | `bookingSystem.copyRemains` | `true` | yes |   | The booking system itself still holds them: the host cannot remove it there |
 | `bookingSystem.note` | string | yes |   |   |
 
