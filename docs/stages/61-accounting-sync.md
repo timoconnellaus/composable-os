@@ -62,7 +62,7 @@ steps 1 to 4 and 8; summaries wait for stage 52, documents for stage 35.
   refused for every caller; `integration.types` still reads the contract's types. Tests:
   `apps/runner/test/accounting-host-path.test.ts`.
 
-- **Step 4** — in progress — branch `feat/stage-61-outbox-runner` — The outbox runner
+- **Step 4** — built — PR #504 — The outbox runner
   (migration 1332, ADR 0882): `queuePost` (`accounting/outbox.ts`: an entry once by its reference,
   the mapping's keys and its dependency's books ref resolved when sent, nothing before the start
   date, `awaiting_approval` until approval is over) and the runner (`accounting/runner.ts`, the
