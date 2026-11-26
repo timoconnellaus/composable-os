@@ -86,7 +86,13 @@ reports there; until it has run, those rows are what the platform documents, not
 | 100 columns a table | 101 refused | refused locally by both | documented the same | a probe |
 | 2,000,000 bytes a value or row | refused | **not enforced locally by either** | both document 2 MB | a probe; a test passing on a larger value would pass on local D1 too |
 | 32 arguments a function | refused | **33 accepted locally by both** | to be seen | a probe |
-| 1,000 queries a Worker invocation | refused | not enforced locally by either | each ClientDb query is a Durable Object call, a subrequest: to be seen which limit applies | the host's own meter keeps paths under 1,000 (ADR 0841), on both |
+| 1,000 queries a Worker invocation | refused | not enforced locally by either | each ClientDb query is a Durable Object call, and a staged batch one per part; Workers allow 10,000 subrequests an invocation (paid plan), and whether ClientDb's calls share that budget with outbound fetches is what the proof's `/subrequests` reports | the host's own meter keeps paths under 1,000 (ADR 0841), on both; it counts a staged batch as one |
+| A result over 32 MiB | returned | **refused by Workers RPC** (review of PR #507, S1: 40 rows of 1 MB) | same limit | the probe `read-over-32mib`, on the proof's allow-list as known; paging or a clear refusal is step 2's |
+| A batch's results over 32 MiB | returned | **written, then reported as failed** (review B1: 200,000 one-row inserts) | same limit | **step 2 fixes it** (bound the response inside the transaction); not probed on Cloudflare (too large a write for the proof) |
+| How a bound JS number is typed with no column affinity | to be seen (D1 may bind an integral number as INTEGER) | REAL for both locally (`typeof(?)` of 42 is `real`, `json_array(3)` is `[3.0]`) | the probe `number-binding` shows it | if D1 differs, the binding's side must match it |
+| A trigger's `RAISE(ABORT, …)` text | `D1_ERROR: <message>: SQLITE_CONSTRAINT (extended: SQLITE_CONSTRAINT_TRIGGER)` locally | same | the probe `trigger-raise` | `errors.ts` matches with `includes()` |
+| A client's first request after idle | no cold start per client (one database for the deployment) | an evicted object starts again: its isolate, constructor and SQLite opening (Cloudflare evicts after 70 to 140 s idle) | the proof's cold samples time it and say whether each object really was evicted | the owner's threshold: no more than a few hundred ms worse |
+| Deploying the Worker that holds the class | D1 is not touched by a Worker deploy | deploying `ClientDb`'s Worker resets every live object ("Durable Object reset because its code was updated"), aborting queries in flight for every client | the proof exports the class itself, so it is not measured | steps 2 and 3: put `ClientDb` in its own Worker, deployed only when the class changes, or say why not (review S9) |
 | `PRAGMA foreign_keys`, `defer_foreign_keys`, `table_info` | on, allowed, allowed | same | to be seen | probes |
 | `PRAGMA journal_mode`, `user_version`, `compile_options` | refused (not authorised) | same locally | to be seen | a probe; the host uses none |
 | `BEGIN`, `SAVEPOINT` | refused | refused (the object's message) | real D1's text may differ | nothing uses them |
@@ -100,6 +106,10 @@ reports there; until it has run, those rows are what the platform documents, not
 | Queries an invocation | 1,000 (D1's own) | not enforced | each call a subrequest: 10,000 an invocation on Paid by default, shared with fetches; to be measured | `clientDbCalls(db)` counts them; `/step2/calls` (ADR 0614) |
 | A value or row, corrected (step 2) | D1 documents 2 MB | not enforced | Durable Objects' limits page documents 8 MB (2026-11), not 2 MB as the row above says | a client's database may hold a row D1 refuses: an export of such a row fails on D1 |
 | A database's size | 10 GB | `databaseSize` | 10 GB a Durable Object on Paid, then `SQLITE_FULL` | `usage()`, a clear refusal past 9.5 GB (ADR 0614) |
+
+Every probe's answer on Cloudflare is printed by the workflow, D1's beside ClientDb's, and a
+difference not in `apps/client-db-proof/conformance-allow.json` fails the run; the "to be seen"
+cells are filled from that run.
 
 ## Deferred to step 2
 _Amended 2026-11-26 (stage 66 step 2, [ADR 0614](0614-clientdb-finished.md)): each item below is

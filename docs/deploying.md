@@ -1195,9 +1195,14 @@ Releases are built by `.github/workflows/release.yml` on a `vX.Y.Z` / `vX.Y.Z-be
 
 One host for many clients keeps each client's records in a Durable Object (`ClientDb`, ADR 0612)
 instead of D1. Before more is built on it, the proof Worker (`apps/client-db-proof`) is deployed to
-the fleet's account and measured: a typical staff page and a customer checkout on D1 and on a
-client's database, and every probe on which the two answer differently. It is not the host and
-serves no one; it holds only its own seeded records.
+the fleet's account and measured against D1: a typical staff page and a customer checkout, warm;
+the first staff page on a client's database that has been idle long enough to be evicted; how
+many database calls one request can make; and every probe on which the two answer differently.
+It is not the host and serves no one; it holds only its own seeded records.
+
+What it does not show: the test suites running deployed. Those run on `ClientDb` locally
+(`pnpm test:client-db`); on Cloudflare the probes and the scenarios stand in for them (stage 66,
+step 1's Status).
 
 **What the owner sets up (done 2026-11-26):**
 
@@ -1206,52 +1211,103 @@ serves no one; it holds only its own seeded records.
 - The token: account-owned, on the fleet's account, with Workers Scripts: Edit, D1: Edit, Workers
   KV Storage: Edit, Workers R2 Storage: Edit, Queues: Edit, Vectorize: Edit, AI Gateway: Edit and
   Account Settings: Read; and, on the zone `composableos.app` only, Zone: Read, Workers Routes:
-  Edit, DNS: Edit, SSL and Certificates: Edit. The proof needs only **Workers Scripts: Edit** (the
-  Worker, its Durable Object class and its secret), **D1: Edit** (finding or creating its
-  database) and **Account Settings: Read**; it uses no zone, so it is served on `workers.dev`.
+  Edit, DNS: Edit, SSL and Certificates: Edit. **The proof needs only Workers Scripts: Edit** (the
+  Worker, its Durable Object classes and its secret), **D1: Edit** (finding, creating and, in
+  `remove` mode, deleting its own database) **and Account Settings: Read**. It uses no zone: it is
+  served on `workers.dev`. A token with only those three would do, and is safer.
+- A GitHub environment named **`fleet`** (Settings, Environments). The jobs that use the secrets
+  run in it, so the owner can add required reviewers there: every run then waits for approval
+  before the token is handed to it. The secrets may also be moved from the repository into the
+  environment. Without the environment GitHub creates it, unprotected, on the first run.
 - The account must have a `workers.dev` subdomain (Workers & Pages in the dashboard shows it; an
   account that has deployed to `workers.dev` before has one). Without it `wrangler deploy` asks for
   one and the run fails.
-- No variable is needed. The workflow's inputs choose the location hint (default `oc`, Oceania,
-  stage 43) and how many runs it times.
 
-**What runs** (`Client database proof`, Actions, *Run workflow*; it runs only by hand, and with a
-secret missing it passes with a notice and deploys nothing):
+**How the token is handled:** only two steps have it in their environment, *Deploy*
+(`scripts/deploy.mjs`) and, in `remove` mode, the deletion. Installing dependencies and the tests
+run with no secret (the tests in a job of their own), so no install script or test can read it.
+The step that compares and times the proof Worker has only the run's key. The workflow's inputs
+are passed through the environment and checked (integers in a range, the hint from a fixed list)
+before any job uses them.
 
-1. `pnpm --filter @composable-os/db test` and `pnpm --filter @composable-os/client-db-proof test`
-   on the runner: the probes on the local D1 and `ClientDb`, and every scenario on both.
-2. A fresh random key for the run (masked in the log).
-3. `pnpm --filter @composable-os/client-db-proof run deploy` (`scripts/deploy.mjs`): the Worker and
-   its D1 database are named from the product (`crm-client-db-proof` for the CRM); the database is
-   found or created with the location hint; the Worker is deployed with `ClientDb` and the key set
-   as its `PROOF_KEY` secret.
-4. `scripts/time.mjs`: migrations and the seed on both databases (300 people with a note each,
-   two class passes, a payments connection), the probes on Cloudflare, then each scenario timed
-   inside the Worker, alternating databases. The table of medians and p95s is in the run's
-   summary, and the JSON in its `client-db-proof` artifact.
-5. `scripts/step2.mjs` (stage 66 step 2, ADR 0614), each on a fresh client of its own:
-   `/step2/pitr` takes a bookmark, writes, restores to the bookmark and then undoes the restore,
-   on a real object (point-in-time recovery does not exist locally); `/step2/export` moves the D1
-   database into a client's database and out into another, comparing every table with D1's;
-   `/step2/answers` sends a 200,000-statement batch and reads 40 MB; `/step2/calls` makes up to
-   12,000 calls to a client's database in one request and reports where Cloudflare's subrequest
-   limit stops them. The run fails if restore, the export or the answers do not do what they
-   should; the calls are reported, not judged.
+**The Worker's address stays private.** It names the account's `workers.dev` subdomain, and the
+repository's logs and artifacts are public. `deploy.mjs` masks it in the log before wrangler's
+output is printed and hands it to the next step in a file; `time.mjs` never prints it, and the
+summary and the artifact leave it out.
 
-The runner is a GitHub machine, usually in North America, so the time inside the Worker is the
-measure to read: the Worker runs where the request lands, and a request from far from the
-databases pays the distance on every query, on both. To time it from Australia, near the
-databases, set a key of your own (the workflow's is masked and replaced on each run) and run the
-script against the deployed Worker:
+**What runs** (`Client database proof`, Actions, *Run workflow*, mode `prove`; it runs only by
+hand, and with a secret missing it passes with a notice and deploys nothing):
+
+1. The inputs are checked.
+2. `pnpm --filter @composable-os/db test` and `pnpm --filter @composable-os/client-db-proof test`,
+   without secrets: the probes on the local D1 and `ClientDb`, and every route of the proof.
+3. In the `fleet` environment: a fresh random key for the run (masked), then `deploy.mjs`: the
+   Worker and its D1 database are named from the product (`crm-client-db-proof` for the CRM), the
+   database is found by exact name or created with the location hint, the Worker is deployed with
+   `ClientDb` and the key set as its `PROOF_KEY` secret.
+4. `time.mjs`, which prints, in order:
+   - **Conformance:** every probe (those of `@composable-os/db/testing/conformance` and the
+     proof's own, `src/probes.ts`), D1's answer beside the client's database's when they differ.
+     The probes include how bound numbers are typed, the error text of a UNIQUE, a FOREIGN KEY and
+     a trigger's `RAISE(ABORT)`, `changes` with triggers, FTS5 and JSON1, the 2 MB value and
+     100-parameter limits, a batch sent in parts and a result over 32 MiB.
+   - **Warm:** each scenario's median and p95, `near` (in a Durable Object beside the databases:
+     read this one) and `edge` (where the request landed: mostly the runner's distance).
+   - **Cold:** for each sample, a fresh client's database is set up, left idle for `cold_wait`
+     seconds (Cloudflare evicts an idle object after 70 to 140 seconds, when the runtime decides,
+     so 150 is the default), then the first staff page is timed on it and on D1 after the same
+     wait. Each sample says whether the object really had been evicted (its instance changed): a
+     sample that was not is not a cold start. D1 has no cold start per client, so this measures
+     the cost a quiet client pays that a D1 host does not.
+   - **Subrequests:** how many queries one request makes to each database (after 20 fetches)
+     before a limit stops it, and the error then. Workers allow 10,000 subrequests an invocation
+     on the paid plan; with ClientDb every query is a call to an object.
+   - **The verdict** against the thresholds below.
+5. The run's summary has the whole printout; the `client-db-proof` artifact has it and the JSON.
+6. `step2.mjs` (stage 66 step 2, ADR 0614), after the timing, with the address from the same file
+   and the run's key only; each probe uses a fresh client of its own:
+   - `/step2/pitr`: a bookmark, a write, a restore to the bookmark, then the undo, on a real object
+     (point-in-time recovery does not exist locally), with how long each took, and whether a call
+     made while the restore waits is refused.
+   - `/step2/export`: the D1 database out as SQL into a client's database and out of that into a
+     second one, every table compared with D1's. The other direction (a client's database onto a
+     fresh D1) needs a second D1 database the proof does not have; it is proved locally.
+   - `/step2/answers`: a 200,000-statement batch, a 40 MB read, and a read over 48 MiB, which must
+     be refused cleanly ("read it in pages") and leave the object answering.
+   - `/step2/size`: whether `databaseSize` falls after deletes (reported, not judged).
+   The run fails if restore, the export or the answers do not do what they should.
+
+**When to stop and return to the owner** (from the review of PR #507; `time.mjs` prints the
+verdict, and timing never fails the run):
+
+- a `near` median for the staff list or a person's page over about 1.5x D1's, or more than about
+  20 ms more;
+- a checkout's `near` p95 over about 2x D1's;
+- a cold first page more than a few hundred milliseconds (300) worse than D1's, or no cold sample
+  that was really cold (run again with a longer wait);
+- any conformance difference.
+
+**A difference in the probes fails the run** (after everything has printed), unless the probe is
+in `apps/client-db-proof/conformance-allow.json` with the reason. Each new difference is judged:
+fixed in `ClientDb`, or allowed with its reason in a pull request. Today the list holds one known
+limit: a result over Workers RPC's 32 MiB a call.
+
+To time it from Australia, near the databases, set a key of your own (the workflow's is masked
+and replaced on each run) and run the script against the deployed Worker:
 
 ```sh
 pnpm --filter @composable-os/client-db-proof exec wrangler secret put PROOF_KEY --name crm-client-db-proof
-PROOF_KEY=<that key> pnpm --filter @composable-os/client-db-proof time:remote -- \
-  --url https://crm-client-db-proof.<subdomain>.workers.dev --runs 10 --rounds 5 --skip-setup
+PROOF_URL=https://crm-client-db-proof.<subdomain>.workers.dev PROOF_KEY=<that key> \
+  pnpm --filter @composable-os/client-db-proof time:remote -- --skip-setup --runs 10 --rounds 5
 ```
- To remove the proof:
-`wrangler delete crm-client-db-proof` and `wrangler d1 delete crm-client-db-proof` with the
-fleet's token.
+
+**To remove the proof,** run the workflow with mode `remove`. It deletes the Worker and the D1
+database named exactly `crm-client-db-proof` (the product's name for it), nothing matched by a
+pattern, and nothing else. By hand, with the fleet's token:
+
+```sh
+pnpm --filter @composable-os/client-db-proof exec node scripts/deploy.mjs --remove
+```
 
 ## Manual end-to-end run (needs a human)
 
