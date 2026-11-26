@@ -1,3 +1,4 @@
+// Vendored from cloudflare/cloudflare-os@a3ba4746b58f packages/gatekeeper-google/src/calendar-api.ts (Apache-2.0). Modified locally: see UPSTREAM.md in this package.
 import type {
   CalendarAttendee,
   CalendarEvent,
@@ -10,6 +11,7 @@ import type {
   GoogleCalendarInfo,
   PersonAvailability,
 } from "./calendar-types";
+import { upstreamFailure } from "@composable-os/gatekeeper-kit/upstream-error";
 import { AccessTokenProvider, fetchWithAuthRetry } from "./auth-retry";
 
 const CALENDAR_API_BASE = "https://www.googleapis.com/calendar/v3";
@@ -197,8 +199,8 @@ export function validateCalendarTimeWindow(timeMin: Date, timeMax: Date, maxDays
 }
 
 class GoogleCalendarApiError extends Error {
-  constructor(readonly status: number, body: string) {
-    super(`Google Calendar API request failed: ${status} ${body}`);
+  constructor(readonly status: number, message: string) {
+    super(message);
   }
 }
 
@@ -214,14 +216,22 @@ export class GoogleCalendarApi {
       headers.set("Content-Type", "application/json");
     }
 
+    // The access tokens this request was sent with, so an error that echoes one can be scrubbed.
+    let sent: string[] = [];
     let response = await fetchWithAuthRetry(`${CALENDAR_API_BASE}${path}`, {
       ...init,
       headers,
-    }, this.getAccessToken);
+    }, async opts => {
+      let token = await this.getAccessToken(opts);
+      sent.push(token);
+      return token;
+    });
 
     if (!response.ok) {
-      let text = await response.text();
-      throw new GoogleCalendarApiError(response.status, text);
+      // Google's error code and message only, scrubbed of the access token it was sent, never the
+      // raw body (it may quote the request).
+      throw new GoogleCalendarApiError(
+          response.status, await upstreamFailure("Google Calendar API request", response, sent));
     }
 
     if (response.status === 204) return undefined as T;

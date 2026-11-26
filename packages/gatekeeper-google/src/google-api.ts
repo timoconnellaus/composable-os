@@ -10,6 +10,7 @@ import {
 import { createMimeMessage } from "mimetext/browser";
 import PostalMime, { addressParser } from "postal-mime";
 import type {Attachment as PostalAttachment} from "postal-mime";
+import { tokenEndpointErrorMessage } from "@composable-os/gatekeeper-kit/upstream-error";
 import { AccessTokenProvider, fetchWithAuthRetry } from "./auth-retry";
 
 /**
@@ -93,6 +94,16 @@ export type GmailOutboundMessage = {
   attachments: GmailOutboundAttachment[];
 };
 
+/**
+ * A token-endpoint failure (exchanging a code, refreshing a token). Its message keeps the status out
+ * of the `: <status>` position API errors use, so `httpStatusFromError` never reads a wrong client
+ * secret's 401 as the API's "no access" (issue #517 follow-up). The class does not survive an RPC
+ * hop; the message shape does.
+ */
+export class GoogleTokenError extends Error {
+  override name = "GoogleTokenError";
+}
+
 export type GoogleAccessToken = {
   token: string;
   expires: Date;
@@ -124,13 +135,17 @@ export async function exchangeAuthCode(
   let isJson = contentType && contentType.startsWith("application/json");
 
   if (!response.ok) {
-    if (isJson) {
-      let body = await response.json<any>();
-      throw new Error(`Failed to obtain refresh token: ${body.error} ${body.error_description}`);
-    } else {
-      throw new Error(
-          `Failed to obtain refresh token: ${response.status} ${response.statusText}`);
+    // Only Google's error code and description, scrubbed of what was sent (the client secret, the
+    // code): never the raw body.
+    let failed: unknown;
+    try {
+      failed = isJson ? await response.json() : undefined;
+    } catch {
+      failed = undefined;
     }
+    if (!isJson) await response.body?.cancel().catch(() => undefined);
+    throw new GoogleTokenError(tokenEndpointErrorMessage(
+        "Google token exchange", response.status, failed, [clientSecret, code]));
   }
 
   if (!isJson) {
@@ -188,12 +203,14 @@ export async function getAccessToken(
         return { ok: false, reason: "policyBlocked",
                  detail: body.error_description ?? "admin_policy_enforced" };
       }
-      throw new Error(
-          `Failed to refresh access token: ${body.error} ${body.error_description}`);
+      throw new GoogleTokenError(tokenEndpointErrorMessage(
+          "Google token refresh", response.status, body, [refreshToken, clientSecret]));
     }
 
-    let errorText = await readErrorText(response);
-    throw new Error(`Failed to refresh access token: ${response.status} ${errorText}`);
+    // Not JSON: the status only, never the body.
+    await response.body?.cancel().catch(() => undefined);
+    throw new GoogleTokenError(
+        tokenEndpointErrorMessage("Google token refresh", response.status, undefined, []));
   }
 
   const data = await response.json() as {
@@ -1721,31 +1738,6 @@ export function shouldIncludeSpamTrash(query?: string, labelIds?: string[]): boo
     escaped = char === "\\" && !escaped;
   }
   return flushToken();
-}
-
-// Read a bounded prefix of an error response body for inclusion in thrown errors.
-async function readErrorText(response: Response, maxBytes = 4096): Promise<string> {
-  if (!response.body) return response.statusText;
-  const reader = response.body.getReader();
-  const chunks: Uint8Array[] = [];
-  let total = 0;
-  while (total < maxBytes) {
-    const {done, value} = await reader.read();
-    if (done) break;
-    const remaining = maxBytes - total;
-    const chunk = value.subarray(0, remaining);
-    chunks.push(chunk);
-    total += chunk.byteLength;
-    if (chunk.byteLength < value.byteLength) break;
-  }
-  await reader.cancel();
-  const bytes = new Uint8Array(total);
-  let offset = 0;
-  for (const chunk of chunks) {
-    bytes.set(chunk, offset);
-    offset += chunk.byteLength;
-  }
-  return new TextDecoder().decode(bytes);
 }
 
 /** A status-only provider error that is safe to use for retry decisions and server logs. */

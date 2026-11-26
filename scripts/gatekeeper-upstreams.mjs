@@ -50,6 +50,8 @@ export const PACKAGES = [
       ["packages/gatekeeper-kit/USAGE.md", "USAGE.md"],
       ["packages/gatekeeper-kit/AGENTS.md", "AGENTS.md"],
     ],
+    // Ours, not upstream's (issue #517): what a gatekeeper may say about an upstream failure.
+    keep: ["src/upstream-error.ts", "__tests__/upstream-error.test.ts"],
   },
   {
     target: "packages/mcp-shared",
@@ -72,7 +74,7 @@ export const PACKAGES = [
     upstream: "packages/gatekeeper-google",
     dirs: ["src", "__tests__"],
     files: [["packages/gatekeeper-google/README.md", "README.md"]],
-    keep: ["src/generated"],
+    keep: ["src/generated", "__tests__/upstream-echo.test.ts", "__tests__/local-workerd"],
   },
   {
     target: "packages/gatekeeper-microsoft",
@@ -83,7 +85,7 @@ export const PACKAGES = [
       ["packages/gatekeeper-microsoft/AGENTS.md", "AGENTS.md"],
       ["packages/gatekeeper-microsoft/storage-schema.md", "storage-schema.md"],
     ],
-    keep: ["src/generated"],
+    keep: ["src/generated", "__tests__/upstream-echo.test.ts"],
   },
   {
     target: "packages/gatekeeper-slack",
@@ -91,7 +93,7 @@ export const PACKAGES = [
     // Upstream keeps Slack's tests next to the source, in src/.
     dirs: ["src"],
     files: [["packages/gatekeeper-slack/README.md", "README.md"]],
-    keep: ["src/generated"],
+    keep: ["src/generated", "src/upstream-echo.test.ts"],
   },
   {
     target: "packages/gatekeeper-email",
@@ -115,5 +117,6 @@ export const PACKAGES = [
       ["packages/gatekeeper-websearch/README.md", "README.md"],
       ["packages/gatekeeper-websearch/AGENTS.md", "AGENTS.md"],
     ],
+    keep: ["__tests__/upstream-echo.test.ts"],
   },
 ];
