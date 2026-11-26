@@ -77,8 +77,13 @@ export const SCANNED = {
     "packages/db/src/client-parking.ts",
     "packages/db/src/client-objects.ts",
   ],
-  /** Where `CLIENT_DB` and `ClientDb` are defined: the name rule does not apply there. */
-  definesClientDb: ["packages/db/src/"],
+  /**
+   * Where `CLIENT_DB` and `ClientDb` are defined: the name rule does not apply there. And the deploy
+   * engine's fleet bindings (stage 66 step 7, ADR 0617), which write a binding of that name into a
+   * Worker upload's metadata and never hold one: reached from the app only because the self-updater
+   * imports packages/release's index.
+   */
+  definesClientDb: ["packages/db/src/", "packages/release/src/fleet.ts"],
   /**
    * Files not read: Node-only modules (build scripts' helpers, never bundled into a Worker), and
    * third-party code bundled at build time (TypeScript's compiler, which only the type checker

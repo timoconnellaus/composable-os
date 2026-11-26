@@ -104,15 +104,11 @@ export interface DeployablePackage {
  * service, deployed by docs/saas-go-live.md, never part of a customer's deployment. The proof Worker
  * of a client's database (apps/client-db-proof, stage 66 step 1, ADR 0612) is a measurement,
  * deployed only by hand by .github/workflows/client-db-proof.yml. The Worker that holds clients'
- * databases (apps/client-db, stage 66 step 2, ADR 0614) is a deployment's only once it holds
- * clients; a single-client release never ships it.
+ * databases (apps/client-db, stage 66 step 2, ADR 0614) and the operator's Worker (apps/operator,
+ * step 7, ADR 0617) are released as `fleet` Workers: optional, and deployed only on a deployment
+ * whose state is a fleet's (packages/release fleet.ts), never on a single-client one.
  */
-const NOT_RELEASED = new Set([
-  "apps/marketing",
-  "apps/docs",
-  "apps/client-db-proof",
-  "apps/client-db",
-]);
+const NOT_RELEASED = new Set(["apps/marketing", "apps/docs", "apps/client-db-proof"]);
 
 /** Every wrangler.jsonc under apps/ and packages/, sorted by directory. */
 export function readDeployablePackages(root: string): DeployablePackage[] {
@@ -204,6 +200,7 @@ export function checkAiGateway(dir: string, value: unknown): AiGatewayConfig {
 function roleOf(dir: string): WorkerRole {
   if (dir === "apps/app") return "app";
   if (dir === "apps/runner") return "runner";
+  if (dir === "apps/client-db" || dir === "apps/operator") return "fleet";
   if (dir.startsWith("packages/gatekeeper-")) return "gatekeeper";
   throw new Error(`cannot classify deployable package ${dir}: decide its role in manifest-lib.ts`);
 }
@@ -363,7 +360,7 @@ export async function buildWorkerEntry(build: WorkerBuild, ctx: Context): Promis
         "Decide how installed deployments get them in scripts/release/manifest-lib.ts.",
     );
   }
-  const optional = pkg.role === "gatekeeper";
+  const optional = pkg.role === "gatekeeper" || pkg.role === "fleet";
   const shortName =
     pkg.role === "gatekeeper" ? pkg.dir.slice("packages/gatekeeper-".length) : undefined;
   const bindings: ManifestBinding[] = [];

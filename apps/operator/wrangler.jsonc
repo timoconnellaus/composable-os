@@ -1,0 +1,19 @@
+// The operator's Worker (stage 66 step 7, ADR 0617): the one way `cos` on the operator's machine
+// reaches each client's database (the raw `ClientDb` namespace of cos-client-db, with the
+// operator's methods) and a client's part of the shared stores, for `cos client add`, the update,
+// `export`, `import` and `remove`. Deployed on a fleet deployment only (a release's `fleet`
+// Worker, never on a single-client deployment). It answers only the bearer of the token `cos`
+// sets as its secret for each command (COS_OPERATOR_TOKEN). The deploy engine adds the rest of its
+// bindings on a fleet deployment (packages/release fleet.ts): the registry, the files bucket, the
+// exports bucket, OAuth's key-value, the search index, COS_HOST_ENVIRONMENT and the host's keys.
+{
+  "$schema": "../../node_modules/wrangler/config-schema.json",
+  "name": "cos-operator",
+  "main": "src/worker.ts",
+  "compatibility_date": "2026-10-01",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": true,
+  "durable_objects": {
+    "bindings": [{ "name": "CLIENT_DB", "class_name": "ClientDb", "script_name": "cos-client-db" }]
+  }
+}

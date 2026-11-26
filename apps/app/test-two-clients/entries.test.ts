@@ -748,6 +748,84 @@ async function connectMcp(hostname: string, cookie: string) {
   };
 }
 
+describe("erase on a host of many clients (criterion 14, ADR 0320)", () => {
+  it("reaches every store of the erasing client and touches nothing of the other's", async () => {
+    // The same person, the same email with its body under the same key, in each client.
+    const seed = async (c: Client) => {
+      const cEnv = await clientEnv(c.id);
+      const made = await op(
+        c.hostname,
+        "person.create",
+        { givenName: "Erin", familyName: "Same", emails: [{ email: "erin@same.example" }] },
+        c.staffToken,
+      );
+      expect(made.status).toBe(200);
+      const personId = ((await made.json()) as { data: { id: string } }).data.id;
+      const activityId = newId("activity");
+      const at = new Date().toISOString();
+      await cEnv.DB.batch([
+        cEnv.DB.prepare(
+          "INSERT INTO core_activity (id, type, subject, body, payload, occurred_at, created_at, updated_at, body_ref) VALUES (?, 'email', 'Hello Erin', 'Dear Erin', '{}', ?, ?, ?, 'email-bodies/shared-key')",
+        ).bind(activityId, at, at, at),
+        cEnv.DB.prepare(
+          "INSERT INTO core_activity_links (activity_id, object_type, record_id) VALUES (?, 'person', ?)",
+        ).bind(activityId, personId),
+      ]);
+      await cEnv.BLOBS.put("email-bodies/shared-key", `Dear Erin, from ${c.id}`);
+      return { personId, activityId, cEnv };
+    };
+    const atA = await seed(A);
+    const atB = await seed(B);
+    const erased = await op(A.hostname, "person.erase", { id: atA.personId }, A.staffToken);
+    expect(erased.status, await erased.clone().text()).toBe(200);
+    const count = async (cEnv: Env, sql: string, ...params: string[]) =>
+      (
+        await cEnv.DB.prepare(sql)
+          .bind(...params)
+          .first<{ n: number }>()
+      )?.n;
+    // At A: the person, their email address, the email and its body in the files are gone.
+    expect(
+      await count(atA.cEnv, "SELECT count(*) AS n FROM core_person WHERE id = ?", atA.personId),
+    ).toBe(0);
+    expect(
+      await count(atA.cEnv, "SELECT count(*) AS n FROM core_activity WHERE id = ?", atA.activityId),
+    ).toBe(0);
+    expect(
+      await count(
+        atA.cEnv,
+        "SELECT count(*) AS n FROM core_person_emails WHERE email = ?",
+        "erin@same.example",
+      ),
+    ).toBe(0);
+    expect(await atA.cEnv.BLOBS.get("email-bodies/shared-key")).toBeNull();
+    // At B, the same rows, the same address and the same key: all as they were.
+    expect(
+      await count(atB.cEnv, "SELECT count(*) AS n FROM core_person WHERE id = ?", atB.personId),
+    ).toBe(1);
+    expect(
+      await count(atB.cEnv, "SELECT count(*) AS n FROM core_activity WHERE id = ?", atB.activityId),
+    ).toBe(1);
+    expect(
+      await count(
+        atB.cEnv,
+        "SELECT count(*) AS n FROM core_person_emails WHERE email = ?",
+        "erin@same.example",
+      ),
+    ).toBe(1);
+    expect(await (await atB.cEnv.BLOBS.get("email-bodies/shared-key"))?.text()).toBe(
+      `Dear Erin, from ${b.id}`,
+    );
+    expect(
+      await count(
+        atB.cEnv,
+        "SELECT count(*) AS n FROM core_blob_deletion WHERE key = ?",
+        "email-bodies/shared-key",
+      ),
+    ).toBe(0);
+  });
+});
+
 /** A support token as the control plane signs one, for `audience` (ADR 0212). */
 async function supportToken(audience: string): Promise<string> {
   const jwk = JSON.parse(

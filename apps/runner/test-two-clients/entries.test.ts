@@ -936,6 +936,81 @@ describe("a client not served for a while (review of #512, S3 and S5; #515)", ()
     expect((await aside.stats()).parked).toBe(counted);
   });
 
+  it("acks a message once its copy is parked even when the ledger fails, and parks a redelivery under the same id, handled once (issue #523, F2)", async () => {
+    const parking = heldQueue();
+    const real = ledgers();
+    const brokenLedger = {
+      idFromName: (name: string) => real.idFromName(name),
+      get: () => ({
+        admit: async () => {
+          throw new Error("ledger down");
+        },
+      }),
+    };
+    const original = () =>
+      createMessageBatch<unknown>("cos-automation-events", [
+        {
+          id: "f2-original",
+          timestamp: new Date(),
+          attempts: 1,
+          body: { cosClient: paused.id, body: event("f2") },
+        },
+      ]);
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => {});
+    try {
+      // Sent, its row not written: acked, not retried (a retry would park a second copy).
+      const first = original();
+      const ctx = createExecutionContext();
+      await consumeByClient(
+        {
+          ...(env as unknown as Env),
+          CLIENT_PARKING: parking,
+          CLIENT_PARKING_LEDGER: brokenLedger,
+        } as unknown as Env,
+        first,
+        async () => {},
+      );
+      const r = await getQueueResult(first, ctx);
+      expect(r.explicitAcks).toEqual(["f2-original"]);
+      expect(r.retryMessages).toEqual([]);
+      expect(parking.sent.length).toBe(1);
+    } finally {
+      warn.mockRestore();
+    }
+    // The queue delivers the original again anyway (at least once): parked under the same id.
+    const again = original();
+    const ctx2 = createExecutionContext();
+    await consumeByClient(
+      { ...(env as unknown as Env), CLIENT_PARKING: parking } as unknown as Env,
+      again,
+      async () => {},
+    );
+    await getQueueResult(again, ctx2);
+    expect(parking.sent.length).toBe(2);
+    const [one, two] = parking.sent.map((s) => s.body as { id: string });
+    expect(one?.id).toBe(two?.id);
+    // Each copy is delivered once the client is served: the event is handled once.
+    await setStatus(paused.id, "active");
+    try {
+      const handled: string[] = [];
+      const consumer = automationConsumer(async (_clientEnv, share) => {
+        handled.push("handled");
+        share.ackAll();
+      });
+      for (const copy of parking.sent) {
+        await deliver(
+          { ...(env as unknown as Env), CLIENT_PARKING: heldQueue() } as unknown as Env,
+          copy.body,
+          consumer,
+          Date.now(),
+        );
+      }
+      expect(handled).toEqual(["handled"]);
+    } finally {
+      await setStatus(paused.id, "paused");
+    }
+  });
+
   it("retries a parked message as its own queue would, then gives it up (#515)", async () => {
     const parking = heldQueue();
     const host = { ...(env as unknown as Env), CLIENT_PARKING: parking } as unknown as Env;

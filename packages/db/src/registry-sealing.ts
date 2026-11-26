@@ -114,12 +114,28 @@ export const GIVEN_SECRET_NAMES: ReadonlySet<string> = new Set([
   "TURNSTILE_SECRET_KEY",
 ]);
 
+/**
+ * Given secrets held for a gatekeeper made per client later (the owner's decision of 2026-11-27,
+ * ADR 0616 "Payments"): each client's own Stripe account, its keys passed per call sealed to the
+ * payments gatekeeper. `cos client secret set` can store them now, sealed as every given secret
+ * is, and a leaving client's export carries them; no name here is in `ENV_NAMES`, so the
+ * environment builder puts none of them in a client's environment (it takes a given value only
+ * into a name `ENV_NAMES` says a given secret fills) until the gatekeeper is made per client.
+ */
+export const GATEKEEPER_HELD_SECRET_NAMES: ReadonlySet<string> = new Set([
+  "STRIPE_SECRET_KEY",
+  "STRIPE_WEBHOOK_SECRET",
+]);
+
 /** The client's own AI provider keys (ADR 0151). */
 export const GIVEN_SECRET_PATTERN = /^AI_KEY_[A-Z0-9_]{1,32}$/;
 
 export function isGivenSecretName(name: unknown): name is string {
   return (
-    typeof name === "string" && (GIVEN_SECRET_NAMES.has(name) || GIVEN_SECRET_PATTERN.test(name))
+    typeof name === "string" &&
+    (GIVEN_SECRET_NAMES.has(name) ||
+      GATEKEEPER_HELD_SECRET_NAMES.has(name) ||
+      GIVEN_SECRET_PATTERN.test(name))
   );
 }
 

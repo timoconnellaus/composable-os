@@ -1,0 +1,20 @@
+{
+  "name": "@composable-os/operator",
+  "version": "0.0.0",
+  "license": "FSL-1.1-ALv2",
+  "private": true,
+  "description": "Stage 66: the operator's Worker, through which cos reaches clients' databases and their part of the shared stores. Deployed on a fleet deployment only.",
+  "type": "module",
+  "scripts": {
+    "types": "wrangler types --strict-vars=false",
+    "typecheck": "wrangler types --strict-vars=false --check && tsc --noEmit"
+  },
+  "dependencies": {
+    "@composable-os/db": "workspace:*"
+  },
+  "devDependencies": {
+    "@composable-os/config": "workspace:*",
+    "typescript": "6.0.3",
+    "wrangler": "4.157.0"
+  }
+}

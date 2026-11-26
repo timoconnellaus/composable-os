@@ -84,6 +84,8 @@ export interface FixtureOptions {
    * settings, a send_email binding, optional secrets.
    */
   clientGatekeepers?: boolean;
+  /** Also carry the fleet Workers (cos-client-db and cos-operator, stage 66 step 7). */
+  fleet?: boolean;
 }
 
 /** The AI Gateway set-up fixture releases carry (the shape of apps/app/deploy-inputs.json). */
@@ -312,6 +314,56 @@ export async function buildFixtureRelease(options: FixtureOptions): Promise<Fixt
       ),
     );
   }
+
+  // A release's fleet Workers (stage 66 step 7): deployed on a fleet deployment only.
+  const fleetWorkers = !options.fleet
+    ? []
+    : [
+        await finish({
+          name: "demo-client-db",
+          package: "apps/client-db",
+          role: "fleet",
+          optional: true,
+          mainModule: "client-db.js",
+          modules: [await add("client-db.js", "export default {}; export class ClientDb {}")],
+          compatibilityDate: "2026-09-04",
+          compatibilityFlags: ["nodejs_compat"],
+          durableObjectMigrations: [{ tag: "v1", new_sqlite_classes: ["ClientDb"] }],
+          bindings: [
+            { type: "durable_object_namespace", name: "CLIENT_DB", class_name: "ClientDb" },
+          ],
+          secrets: [],
+          crons: [],
+          public: false,
+          queueConsumers: [],
+          dependsOn: [],
+        }),
+        await finish({
+          name: "demo-operator",
+          package: "apps/operator",
+          role: "fleet",
+          optional: true,
+          mainModule: "operator.js",
+          modules: [await add("operator.js", "export default {}")],
+          compatibilityDate: "2026-09-04",
+          compatibilityFlags: ["nodejs_compat"],
+          durableObjectMigrations: [],
+          bindings: [
+            {
+              type: "durable_object_namespace",
+              name: "CLIENT_DB",
+              class_name: "ClientDb",
+              script_name: "$WORKER_NAME(demo-client-db)",
+            },
+          ],
+          secrets: [],
+          crons: [],
+          public: true,
+          queueConsumers: [],
+          dependsOn: [],
+        }),
+      ];
+  extra.push(...fleetWorkers);
 
   const migrationSql = new Map<string, string>([...BASE_MIGRATIONS, ...(options.migrations ?? [])]);
   const migrations = [];

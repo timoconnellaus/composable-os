@@ -16,6 +16,16 @@ import {
   type LocationHint,
   type ModulePart,
 } from "./cloudflare.ts";
+import {
+  FLEET_PACKAGES,
+  type FleetDeployInput,
+  type FleetState,
+  fleetBindings,
+  fleetConsumers,
+  fleetDurableObjectMigration,
+  fleetSecrets,
+  isFleetWorker,
+} from "./fleet.ts";
 import { toBase64 } from "./hash.ts";
 import {
   type DurableObjectMigration,
@@ -110,6 +120,11 @@ export interface DeploymentState {
   resources: Record<string, string>;
   /** sha256 of the installed bundle. */
   bundleDigest?: string;
+  /**
+   * A host of many clients (stage 66, ADR 0617): its environment, callback hostname, domain and
+   * sealing public key. Absent on every single-client deployment, whose uploads it never changes.
+   */
+  fleet?: FleetState;
   installedAt?: string;
   updatedAt?: string;
 }
@@ -220,9 +235,13 @@ export function featureOn(state: Pick<DeploymentState, "ai">, feature: Feature):
 export function neededResources(
   manifest: ReleaseManifest,
   gatekeepers: string[],
-  features: Pick<DeploymentState, "ai"> = {},
+  features: Pick<DeploymentState, "ai" | "fleet"> = {},
 ): ResourceEntry[] {
   const installed = new Set(gatekeepers);
+  // A fleet's own Workers' resources are needed on a fleet only (stage 66 step 7).
+  if (features.fleet) {
+    for (const w of manifest.workers) if (isFleetWorker(w)) installed.add(w.name);
+  }
   return manifest.resources.filter(
     (r) =>
       (!r.optional || r.usedBy.some((worker) => installed.has(worker))) &&
@@ -363,6 +382,8 @@ export interface DeployInput {
   state: DeploymentState;
   /** Secret values to set in this deploy; others keep their stored values. */
   secrets: Record<string, Record<string, string>>;
+  /** A fleet deployment's keys and signed props (required when `state.fleet` is set). */
+  fleet?: FleetDeployInput;
   log?: Log;
 }
 
@@ -403,6 +424,7 @@ export function workerBindings(
   manifest: ReleaseManifest,
   state: DeploymentState,
   secrets: Record<string, string>,
+  fleet?: FleetDeployInput,
 ): ManifestBinding[] {
   const values = placeholderValues(state, secrets);
   const overrides = state.vars[worker.name] ?? {};
@@ -445,11 +467,23 @@ export function workerBindings(
       bindings.push({ type: "service", name, service: workerName(state, gk.name), entrypoint });
     }
   }
+  // A fleet's bindings (ADR 0615's list), only when the state says it is one.
+  let out = bindings;
+  if (state.fleet) {
+    if (!fleet) throw new Error("a fleet deployment needs its keys (the operator's keys file)");
+    const { add, change } = fleetBindings(worker, manifest, state, fleet, (name) =>
+      workerName(state, name),
+    );
+    out = bindings.map(change);
+    for (const binding of add) {
+      if (!out.some((b) => b.name === binding.name)) out.push(binding);
+    }
+  }
   // Any secret value supplied but not declared in the manifest (e.g. COS_UPDATE_TOKEN set late).
   for (const [name, text] of Object.entries(secrets)) {
-    if (!bindings.some((b) => b.name === name)) bindings.push({ type: "secret_text", name, text });
+    if (!out.some((b) => b.name === name)) out.push({ type: "secret_text", name, text });
   }
-  return bindings;
+  return out;
 }
 
 async function uploadAssets(
@@ -506,9 +540,14 @@ export interface DeployResult {
 
 /** Workers this deployment runs: every required Worker plus installed gatekeepers. */
 export function selectedWorkers(manifest: ReleaseManifest, state: DeploymentState): WorkerEntry[] {
-  return deployOrder(manifest.workers).filter(
-    (w) => !w.optional || state.gatekeepers.includes(w.name),
+  const ordered = deployOrder(manifest.workers).filter((w) =>
+    isFleetWorker(w) ? Boolean(state.fleet) : !w.optional || state.gatekeepers.includes(w.name),
   );
+  if (!state.fleet) return ordered;
+  // On a fleet, cos-client-db first (the host's Workers bind its entrypoint), then cos-operator.
+  const rank = (w: WorkerEntry) =>
+    w.package === FLEET_PACKAGES.clientDb ? 0 : w.package === FLEET_PACKAGES.operator ? 1 : 2;
+  return [...ordered].sort((a, b) => rank(a) - rank(b));
 }
 
 /** The client for this deployment's scripts: its dispatch namespace, if it has one (ADR 0210). */
@@ -535,6 +574,16 @@ export async function deployWorkers(input: DeployInput): Promise<DeployResult> {
   const namespaced = Boolean(state.dispatchNamespace);
   const scripts = new Map((await scriptApi.listScripts(state.accountId)).map((s) => [s.id, s]));
   const workers = selectedWorkers(manifest, state);
+  const secrets: Record<string, Record<string, string>> = { ...input.secrets };
+  if (state.fleet) {
+    if (!input.fleet) {
+      throw new Error("a fleet deployment needs its keys (the operator's keys file)");
+    }
+    for (const [worker, values] of Object.entries(fleetSecrets(manifest, input.fleet.keys))) {
+      secrets[worker] = { ...values, ...(secrets[worker] ?? {}) };
+    }
+  }
+  const hostWorker = (w: WorkerEntry) => w.role === "app" || w.role === "runner";
 
   type Staged = {
     worker: WorkerEntry;
@@ -549,16 +598,22 @@ export async function deployWorkers(input: DeployInput): Promise<DeployResult> {
   for (const worker of workers) {
     const deployedName = workerName(state, worker.name);
     const existing = scripts.get(deployedName);
-    const migration = durableObjectMigration(
-      worker.durableObjectMigrations,
-      existing ? existing.migration_tag : undefined,
-    );
+    const migration =
+      state.fleet && hostWorker(worker)
+        ? fleetDurableObjectMigration(
+            worker.durableObjectMigrations,
+            existing ? existing.migration_tag : undefined,
+          )
+        : durableObjectMigration(
+            worker.durableObjectMigrations,
+            existing ? existing.migration_tag : undefined,
+          );
     const assetsJwt = await uploadAssets(input, worker, deployedName);
     const metadata: Record<string, unknown> = {
       main_module: worker.mainModule,
       compatibility_date: worker.compatibilityDate,
       compatibility_flags: worker.compatibilityFlags,
-      bindings: workerBindings(worker, manifest, state, input.secrets[worker.name] ?? {}),
+      bindings: workerBindings(worker, manifest, state, secrets[worker.name] ?? {}, input.fleet),
       // Secrets not set in this deploy keep their stored values.
       keep_bindings: ["secret_text", "secret_key"],
       ...(worker.observability ? { observability: worker.observability } : {}),
@@ -611,14 +666,21 @@ export async function deployWorkers(input: DeployInput): Promise<DeployResult> {
 
   // 3. Triggers, consumers and routes.
   const values = placeholderValues(state, {});
-  const queues = manifest.resources.some((r) => r.type === "queue")
-    ? await api.listQueues(state.accountId)
-    : [];
+  const queues =
+    manifest.resources.some((r) => r.type === "queue") || state.fleet
+      ? await api.listQueues(state.accountId)
+      : [];
   for (const { worker, deployedName } of staged) {
     // A namespaced deployment's crons are run by the platform's dispatch Worker (ADR 0210).
     if (!namespaced) await api.putSchedules(state.accountId, deployedName, worker.crons);
-    for (const consumer of worker.queueConsumers) {
-      const queueName = renderString(consumer.queue, values);
+    // A fleet's own queues and every dead-letter queue (ADR 0615), named as deployed.
+    const fleetQueues = fleetConsumers(worker, manifest, state).map((c) => ({
+      ...c,
+      deployed: true,
+    }));
+    for (const consumer of [...worker.queueConsumers, ...fleetQueues]) {
+      const deployed = "deployed" in consumer;
+      const queueName = deployed ? consumer.queue : renderString(consumer.queue, values);
       const queue = queues.find((q) => q.queue_name === queueName);
       if (!queue) throw new Error(`queue ${queueName} does not exist`);
       const existing = queue.consumers?.find(
@@ -630,7 +692,11 @@ export async function deployWorkers(input: DeployInput): Promise<DeployResult> {
         deployedName,
         consumer.settings,
         existing,
-        consumer.deadLetterQueue ? renderString(consumer.deadLetterQueue, values) : undefined,
+        consumer.deadLetterQueue
+          ? deployed
+            ? consumer.deadLetterQueue
+            : renderString(consumer.deadLetterQueue, values)
+          : undefined,
       );
     }
     if (namespaced) continue;

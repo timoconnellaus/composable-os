@@ -280,7 +280,21 @@ export const PARKING_QUEUES = Object.freeze({
 });
 
 export function isParkingQueue(name: string): boolean {
-  return (Object.values(PARKING_QUEUES) as string[]).includes(name);
+  return (Object.values(PARKING_QUEUES) as string[]).some((local) => isQueue(name, local));
+}
+
+/**
+ * Whether the queue a batch came from (`batch.queue`, its deployed name) is the code's queue
+ * `local` (a `cos-…` name of wrangler.jsonc). A release names queues for the product
+ * (`cos-automation-events` deploys as `<prefix>automation-events`, packages/product
+ * `deployedName`), and a fleet's staging deployment adds `-staging` to every name of its own
+ * (stage 66 step 7, ADR 0617), so the name is matched on what follows the product's prefix.
+ */
+export function isQueue(deployed: string, local: string): boolean {
+  const base = deployed.endsWith("-staging") ? deployed.slice(0, -"-staging".length) : deployed;
+  if (base === local) return true;
+  const rest = local.startsWith("cos-") ? local.slice("cos-".length) : local;
+  return base.endsWith(`-${rest}`);
 }
 
 /** A stamped message waiting for its client to be served again, on the parking queue. */
@@ -365,7 +379,10 @@ function ledgerOf(
  * Parks one stamped message: sent to the parking queue, then recorded in its client's ledger
  * (which may give up the client's oldest, each reported). Sent first, so a failed send leaves no
  * row counting towards the cap (review of #520, M5); a failed record leaves a message with no row,
- * which its delivery handles and reports (`unrecorded`).
+ * which its delivery handles and reports (`unrecorded`). Throws only when the send failed: once
+ * the copy is on the parking queue the original is acked whatever the ledger says, so it is never
+ * parked twice (issue #523, F2); and the parked id is the original's own (`parkedIdOf`), so a
+ * second delivery of the original parks under the same id, which the ledger handles once.
  */
 async function park(
   env: HostBindings,
@@ -375,12 +392,26 @@ async function park(
 ): Promise<void> {
   const parking = requireParking(env);
   await parking.queue.send({ cosParked: 1, ...parked }, { delaySeconds: parked.delaySeconds });
-  const givenUp = await ledgerOf(env, parking, client).admit(
-    parked.id,
-    parked.parkedAt,
-    PARKING.maxPerClient,
-    now,
-  );
+  let givenUp: string[];
+  try {
+    givenUp = await ledgerOf(env, parking, client).admit(
+      parked.id,
+      parked.parkedAt,
+      PARKING.maxPerClient,
+      now,
+    );
+  } catch (error) {
+    console.warn(
+      JSON.stringify({
+        event: "cos.queue.parked_unrecorded",
+        queue: parked.queue,
+        client: client.id,
+        message: parked.id,
+        why: `sent to the parking queue, its ledger row not written (${String(error).slice(0, 200)}): its delivery handles it`,
+      }),
+    );
+    return;
+  }
   for (const id of givenUp) {
     reportDeadLetter(
       parked.queue,
@@ -389,6 +420,18 @@ async function park(
       client.id,
     );
   }
+}
+
+/**
+ * The id a message is parked under: its queue's own message id (the same on every delivery of
+ * it), hashed with the queue's name into one token of fixed length. Two deliveries of one message
+ * park under one id, which the client's ledger handles once (issue #523, F2).
+ */
+export async function parkedIdOf(queue: string, messageId: string): Promise<string> {
+  const digest = new Uint8Array(
+    await crypto.subtle.digest("SHA-256", new TextEncoder().encode(`${queue}\n${messageId}`)),
+  );
+  return `m-${Array.from(digest.subarray(0, 16), (b) => b.toString(16).padStart(2, "0")).join("")}`;
 }
 
 /** A dead letter, said where the operator's logs and alerts read it (stage 66, ADR 0615). */
@@ -482,7 +525,7 @@ export async function consumeByClient<E extends HostBindings, Body>(
               await park(
                 env,
                 {
-                  id: crypto.randomUUID(),
+                  id: await parkedIdOf(batch.queue, message.id),
                   queue: batch.queue,
                   stamped: message.body as StampedMessage<unknown>,
                   generation: generationPart(admission.client.secretGeneration),
@@ -554,7 +597,10 @@ export async function consumeParked<E extends HostBindings>(
   for (const message of batch.messages) {
     const parked = parkedMessageOf(message.body);
     const stamp = parked ? stampOf(parked.stamped) : null;
-    const consumer = parked ? consumers[parked.queue] : undefined;
+    const consumer = parked
+      ? (consumers[parked.queue] ??
+        Object.entries(consumers).find(([local]) => isQueue(parked.queue, local))?.[1])
+      : undefined;
     if (!parked || !stamp || !consumer) {
       reportDeadLetter(
         batch.queue,
@@ -703,7 +749,7 @@ export const FANOUT_CONSUMER = Object.freeze({
 });
 
 export function isFanOutQueue(name: string): boolean {
-  return (Object.values(FANOUT_QUEUES) as string[]).includes(name);
+  return (Object.values(FANOUT_QUEUES) as string[]).some((local) => isQueue(name, local));
 }
 
 /** One client's share of one cron tick. */

@@ -169,6 +169,34 @@ Installing a product with no client repo
   cos client generate --out <dir>        in a checkout: write a product's typed client (customer.ts
                                          and staff.ts) from its registry; see cos client --help
 
+A host of many clients (stage 66; docs/deploying.md "A host of many clients")
+  cos fleet keys --env <live|staging> --out <file>
+                                         the deployment's keys, written only to <file> (mode
+                                         0600, refused inside a git working tree), never printed
+  cos fleet install --env <e> --keys-file <f> --callback-hostname <h> --domain <d>
+                                         the host, its registry, cos-client-db and the operator's
+                                         Worker, with every binding a fleet needs
+  cos fleet upgrade --env <e> --keys-file <f> [--version x.y.z] [--dry-run] [--yes]
+                                         every client paused, bookmarked and migrated, the Workers
+                                         uploaded once, smoke checked, resumed; a client whose
+                                         migration fails is restored and nothing is uploaded; live
+                                         only after staging (--skip-staging, deliberately)
+  cos client add <id> [--env e] [--tier t] [--location oc] [--setting NAME=VALUE]… [--dry-run]
+                                         a client: its registry rows, its database made and
+                                         migrated, its two hostnames; no Worker uploaded
+  cos client pause|resume <id>, cos client list
+  cos client secret set|remove <id> <NAME> [--value-file f]
+                                         a client's given secret, sealed (this command cannot
+                                         read one back)
+  cos client export <id> [--out <dir>] [--leaving]
+                                         its database, files (and with --out its secrets) for a
+                                         move or a leaving client; kept 90 days in the host
+  cos client import <id> --from <dir>    an export brought in as a new, imported client
+  cos client remove <id>                 exported (kept 90 days), then erased; its id is never
+                                         used again
+  Each asks for the client's id before removing or overwriting (or --yes); a re-run after a
+  failure carries on where it stopped.
+
 Options
   --token <t>            Cloudflare API token (or CLOUDFLARE_API_TOKEN). Needs, on the account:
                          Workers Scripts Edit, D1 Edit, Workers R2 Storage Edit, Workers KV
@@ -215,6 +243,9 @@ Options
   --no-gh                skip \`gh attestation verify\` even if gh is installed
   --require-gh           fail unless \`gh attestation verify\` passes (full Sigstore check)
   --wait                 after install, wait until /api/health answers
+  --import <dir>         a client's export (cos client export --out) installed as this new
+                         deployment: its database, files and secrets; staff and customers stay
+                         signed in, and its search index is rebuilt (stage 66)
   --bundle-dir <dir>     use composable-os-<product>-<version>.tar.gz and SHA256SUMS from <dir> instead of downloading
                          (still verified against its build attestation)
   --yes                  don't ask; fail on anything that would need an answer
@@ -265,6 +296,9 @@ export function parseArgs(argv: string[]): { command: string; flags: Flags } {
       "check",
       "listing",
       "draft",
+      "leaving",
+      "without-secrets",
+      "skip-staging",
     ].includes(key);
     let value: string | boolean = true;
     if (takesValue) {
@@ -295,6 +329,8 @@ export interface Env {
   COS_AI?: string;
   /** Settings → AI's token, stored as demo-app's CLOUDFLARE_API_TOKEN secret. */
   COS_AI_ADMIN_TOKEN?: string;
+  /** Where the operator's Worker answers instead of its workers.dev address (tests). */
+  COS_OPERATOR_ORIGIN?: string;
 }
 
 export interface Deps {
@@ -336,7 +372,7 @@ export interface ReleaseSource {
   unverified: boolean;
 }
 
-interface Session extends ReleaseSource {
+export interface Session extends ReleaseSource {
   api: CloudflareClient;
   accountId: string;
 }
@@ -352,7 +388,7 @@ export function productOf(flags: Flags, deps: Deps): ProductDefinition {
   return product;
 }
 
-async function session(flags: Flags, deps: Deps): Promise<Session> {
+export async function session(flags: Flags, deps: Deps): Promise<Session> {
   const { io, env } = deps;
   const product = productOf(flags, deps);
   let token = str(flags, "token") ?? env.CLOUDFLARE_API_TOKEN;
@@ -661,6 +697,15 @@ export async function install(flags: Flags, deps: Deps): Promise<number> {
     io.out(
       `Found an existing install (${found.version}); re-running it to repair anything missing.`,
     );
+  // A client's export from a host of many clients, installed here (stage 66 step 7, criterion
+  // 13): checked whole before anything is made, and only into a new install.
+  const importDir = str(flags, "import");
+  if (importDir && found) {
+    throw new CliError("--import makes a new install: this account has one already");
+  }
+  const folder = importDir
+    ? (await import("./fleet/clients.ts")).readExportFolder(importDir)
+    : null;
   const { bundle, digest } = await verified(s, version, deps);
   const manifest = bundle.manifest;
   const previous = found;
@@ -787,6 +832,20 @@ export async function install(flags: Flags, deps: Deps): Promise<number> {
   const secrets = parseSecrets(flags, deps.redactor, app.name);
   secrets[app.name] ??= {};
   const appSecrets = secrets[app.name] as Record<string, string>;
+  if (folder) {
+    // The client's own secrets, so its staff and customers stay signed in (never printed).
+    const { exportedAppSecrets } = await import("./fleet/install-import.ts");
+    const exported = exportedAppSecrets(folder);
+    for (const [name, value] of Object.entries(exported.secrets)) {
+      deps.redactor.add(value);
+      appSecrets[name] ??= value;
+    }
+    if (exported.leftOut.length) {
+      io.out(
+        `  not set from the export (not a single-client Worker secret): ${exported.leftOut.join(", ")}`,
+      );
+    }
+  }
   const scripts = new Set((await s.api.listScripts(s.accountId)).map((sc) => sc.id));
   // Secrets are on the Worker as deployed, which a client product names (issue #155): looking
   // under the release's name would find none and make a new staff secret on every deploy.
@@ -1030,6 +1089,25 @@ export async function install(flags: Flags, deps: Deps): Promise<number> {
     io.out(`Model roles (${MODEL_ROLES_VAR} on ${on}): ${what}`);
   }
   const databaseId = databaseIdOf(manifest, resources);
+  if (folder) {
+    const imports = await import("./fleet/install-import.ts");
+    io.out(`Importing ${folder.manifest.client}'s export:`);
+    await imports.importIntoD1({
+      api: s.api,
+      accountId: s.accountId,
+      databaseId,
+      bundle,
+      folder,
+      log: (l) => io.out(l),
+    });
+    await imports.importFiles({
+      api: s.api,
+      accountId: s.accountId,
+      bucket: imports.filesBucketOf(manifest, resources),
+      folder,
+      log: (l) => io.out(l),
+    });
+  }
   io.out("Core migrations:");
   const applied = await applyBundleMigrations(
     bundle,
@@ -1633,7 +1711,15 @@ export async function runCli(argv: string[], input: Deps): Promise<number> {
   if (argv[0] === "rostering") return rostering(argv.slice(1), deps);
   if (argv[0] === "programs") return programsCommand(argv.slice(1), deps);
   if (argv[0] === "ext") return ext(argv.slice(1), deps);
-  if (argv[0] === "client") return client(argv.slice(1), deps);
+  if (argv[0] === "fleet")
+    return (await import("./fleet/run.ts")).runFleetCommand(argv.slice(1), deps);
+  if (argv[0] === "client") {
+    const fleet = await import("./fleet/run.ts");
+    if ((fleet.CLIENT_COMMANDS as readonly string[]).includes(argv[1] ?? "")) {
+      return fleet.runClientCommand(argv.slice(1), deps);
+    }
+    return client(argv.slice(1), deps);
+  }
   if (argv[0] === "app") return (await import("./app.ts")).runApp(argv.slice(1), deps);
   // Commands that take one argument before their flags (stage 24).
   const positional =

@@ -18,7 +18,8 @@ export default defineWorkersTestConfig({
       // many-client host's registry (test/registry.test.ts and test/client-environment.test.ts).
       d1Databases: ["DB", "DB2", "REGISTRY"],
       // The shared bindings a many-client host keeps apart (test/client-bindings.test.ts).
-      r2Buckets: ["BLOBS"],
+      // EXPORTS: the operator's Worker's kept exports (test/operator.test.ts, stage 66 step 7).
+      r2Buckets: ["BLOBS", "EXPORTS"],
       kvNamespaces: ["OAUTH_KV"],
       // The query path of every client's database, as the host's Workers bind it (step 2).
       serviceBindings: {

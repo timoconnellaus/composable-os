@@ -75,7 +75,8 @@ export interface ManifestSecret {
   description?: string;
 }
 
-export type WorkerRole = "app" | "runner" | "gatekeeper";
+/** `fleet`: a Worker deployed only on a host of many clients (cos-client-db, cos-operator; stage 66 step 7). */
+export type WorkerRole = "app" | "runner" | "gatekeeper" | "fleet";
 
 export interface WorkerEntry {
   /** The Worker's name in wrangler.jsonc; deployed as `$WORKER_NAME(<name>)`. */
