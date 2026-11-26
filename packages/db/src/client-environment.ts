@@ -281,6 +281,7 @@ export class ClientDirectory<E extends HostBindings = HostBindings> {
       this.#keyring,
       record.environment,
       record.id,
+      record.imported,
     );
     problems.push(...opened.problems);
     if (problems.length > 0) console.warn(`client ${record.id}: ${problems.join("; ")}`);

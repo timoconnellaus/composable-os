@@ -302,6 +302,7 @@ describe("readRegistry", () => {
       schemaVersion: 7,
       // Written by the registry when the client was added (migration 0792).
       secretGeneration: expect.stringMatching(/^[0-9a-f]{32}$/),
+      imported: false,
     });
     expect(snapshot.settings.get("gym-a" as never)).toEqual({ APPROVAL_FLOOR: "high" });
     expect([...snapshot.hostnames.keys()]).toEqual(["gym-a.example.com"]);

@@ -80,6 +80,34 @@ describe("no Worker code, operation, tool or pack reaches a client's secrets", (
     expect(found).toEqual([]);
   });
 
+  it("read COS_CLIENT_ID only as a marker, in the files that need it, never into a client's data", () => {
+    // `COS_CLIENT_ID` tells code below an entry that it runs on a many-client host (its cookies
+    // and keys, ADR 0616). It is read as a boolean and never written into a row, a log line or an
+    // audit entry: the files that name it are these, and a new one is a reviewed change here.
+    const allowed = new Set([
+      "../../auth/src/index.ts",
+      "../../auth/src/better-auth.ts",
+      "../../../apps/app/src/server/support.ts",
+    ]);
+    const naming: string[] = [];
+    for (const files of Object.values(glob)) {
+      for (const [path, source] of Object.entries(files)) {
+        if (/(?<![A-Za-z0-9_])COS_CLIENT_ID(?![A-Za-z0-9_])/.test(source)) naming.push(path);
+      }
+    }
+    expect(naming.filter((path) => !allowed.has(path))).toEqual([]);
+    for (const path of naming) {
+      const source = Object.values(glob).find((files) => path in files)?.[path] ?? "";
+      // Read as a marker: `Boolean(env.COS_CLIENT_ID)`, `env.COS_CLIENT_ID ?` or `if (env.COS_CLIENT_ID)`.
+      const uses = source.match(/[^\n]*COS_CLIENT_ID[^\n]*/g) ?? [];
+      for (const use of uses) {
+        expect(use, path).not.toMatch(
+          /\$\{[^}]*COS_CLIENT_ID|COS_CLIENT_ID\s*[,)]\s*$|insert|log\(|warn\(|error\(/i,
+        );
+      }
+    }
+  });
+
   it("the check itself finds each", () => {
     for (const { what, pattern } of FORBIDDEN) {
       const sample = {

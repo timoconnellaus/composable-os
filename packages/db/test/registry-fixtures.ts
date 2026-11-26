@@ -21,12 +21,14 @@ export interface ClientFixture {
   repository?: string | null;
   locationHint?: string | null;
   schemaVersion?: number | null;
+  /** Added as an imported deployment (migration 0793). */
+  imported?: boolean;
 }
 
 export function insertClient(registry: D1Database, client: ClientFixture): D1PreparedStatement {
   return registry
     .prepare(
-      "INSERT INTO registry_clients (id, environment, status, tier, repository, location_hint, schema_version) VALUES (?, ?, ?, ?, ?, ?, ?)",
+      "INSERT INTO registry_clients (id, environment, status, tier, repository, location_hint, schema_version, imported) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(
       client.id,
@@ -36,6 +38,7 @@ export function insertClient(registry: D1Database, client: ClientFixture): D1Pre
       client.repository ?? null,
       client.locationHint ?? null,
       client.schemaVersion === undefined ? CORE_SCHEMA_VERSION : client.schemaVersion,
+      client.imported ? 1 : 0,
     );
 }
 

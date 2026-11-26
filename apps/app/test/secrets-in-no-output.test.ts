@@ -4,9 +4,12 @@
 // an admin, through the UI's pipeline; no output, error or log line holds any of the values,
 // and nor does the database afterwards.
 import { env } from "cloudflare:workers";
+import { runTurn } from "@composable-os/agent-core";
 import type { Principal } from "@composable-os/auth";
 import { coreRegistry } from "@composable-os/core";
+import { createCrmDb } from "@composable-os/db";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
+import { aiContextFor } from "../src/server/ai.ts";
 import { runOperation } from "../src/server/operations.ts";
 import { ensureAdmin } from "./helpers.ts";
 
@@ -138,6 +141,84 @@ describe("a client's secrets in no operation's output", () => {
         for (const output of outputs)
           expect(output.includes(needle), output.slice(0, 300)).toBe(false);
         for (const line of lines) expect(line.includes(needle), line.slice(0, 300)).toBe(false);
+      }
+    } finally {
+      fetchSpy.mockRestore();
+    }
+  }, 120_000);
+
+  it("shows no key on any route provider text takes out of the model runner (turns, jobs, runs, embeddings)", async () => {
+    // A provider that echoes every header it was sent, plain, URL-encoded, base64 and cut short.
+    const fetchSpy = vi.spyOn(globalThis, "fetch").mockImplementation(async (input, init) => {
+      const headers = new Headers(
+        (init?.headers as HeadersInit | undefined) ??
+          (input instanceof Request ? input.headers : undefined),
+      );
+      const sent = [...headers.entries()].map(([k, v]) => `${k}: ${v}`).join("; ");
+      const token = (headers.get("authorization") ?? "").replace(/^Bearer\s+/i, "");
+      const echo = [
+        sent,
+        encodeURIComponent(token),
+        btoa(`user:${token}`),
+        token.slice(0, 20),
+      ].join(" | ");
+      return new Response(JSON.stringify({ error: { message: `Incorrect API key: ${echo}` } }), {
+        status: 401,
+        headers: { "content-type": "application/json" },
+      });
+    });
+    try {
+      const withSecrets = {
+        ...env,
+        ...values,
+        AI_PROVIDERS: "openai",
+        AI_FAKE_MODEL: "",
+        AI_MODEL_ROLES: JSON.stringify({
+          summarise: { provider: "openai", model: "gpt-4.1-mini" },
+          "assistant.core": { provider: "openai", model: "gpt-4.1-mini" },
+          embed: { provider: "openai", model: "text-embedding-3-small" },
+        }),
+      } as typeof env;
+      const models = aiContextFor(withSecrets, createCrmDb(env.DB)).models;
+      if (!models?.chatModels || !models.embed) throw new Error("no model runner");
+      const outputs: string[] = [];
+      const caught = async (label: string, work: Promise<unknown>) => {
+        const out = await work.then(
+          (value) => ({ value }),
+          (error: unknown) => ({ thrown: error instanceof Error ? error.message : String(error) }),
+        );
+        outputs.push(`${label} ${safeText(out)}`);
+      };
+      // Summaries, routines, the adjudicator, digests, dictation clean-up: `run`.
+      await caught("run", models.run("summarise", [{ role: "user", content: "hi" }]));
+      // Search indexing and hybrid search: `embed`.
+      await caught("embed", models.embed(["hello"]));
+      // The assistant's turns, its compaction and its jobs: `chatModels` through `runTurn`.
+      const events: unknown[] = [];
+      const turn = await runTurn({
+        models: await models.chatModels("assistant.core"),
+        system: "s",
+        messages: [
+          { role: "user", content: "first" },
+          // A note stored before this fix, with a key in it: never re-sent to the model.
+          { role: "assistant", content: `(This answer failed: ${values.AI_KEY_OPENAI}.)` },
+          { role: "user", content: "again" },
+        ],
+        tools: [],
+        emit: (e) => events.push(e),
+      });
+      outputs.push(`turn ${safeText({ turn, events })}`);
+      // What the turn sent to the provider: the old note's key is cut out of the history.
+      const sentBodies = fetchSpy.mock.calls.map(([, init]) => String(init?.body ?? ""));
+      expect(turn.status).toBe("error");
+      expect(fetchSpy).toHaveBeenCalled();
+      const key = values.AI_KEY_OPENAI as string;
+      const forms = [key, encodeURIComponent(key), btoa(`user:${key}`), key.slice(0, 20)];
+      for (const form of forms) {
+        for (const output of outputs)
+          expect(output.includes(form), output.slice(0, 300)).toBe(false);
+        for (const line of lines) expect(line.includes(form), line.slice(0, 300)).toBe(false);
+        for (const body of sentBodies) expect(body.includes(form), "a request body").toBe(false);
       }
     } finally {
       fetchSpy.mockRestore();

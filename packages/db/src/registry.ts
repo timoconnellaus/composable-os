@@ -40,6 +40,11 @@ export interface ClientRecord {
    * derived secret of the client (ADR 0616). Null only for a row the registry has not given one.
    */
   secretGeneration: string | null;
+  /**
+   * Added as an imported deployment (migration 0793), set once: only such a client's `imported`
+   * secrets (its own old derivable secrets) are honoured (ADR 0616).
+   */
+  imported: boolean;
 }
 
 export interface HostnameRecord {
@@ -323,6 +328,7 @@ interface ClientRow {
   location_hint: string | null;
   schema_version: number | null;
   secret_generation: string | null;
+  imported: number;
 }
 
 /**
@@ -336,7 +342,7 @@ export async function readRegistry(registry: D1Database): Promise<RegistrySnapsh
   const [meta, clients, settings, hostnames] = await registry.batch([
     registry.prepare(STAMP_SQL),
     registry.prepare(
-      "SELECT id, environment, status, tier, repository, location_hint, schema_version, secret_generation FROM registry_clients",
+      "SELECT id, environment, status, tier, repository, location_hint, schema_version, secret_generation, imported FROM registry_clients",
     ),
     registry.prepare("SELECT client, name, value FROM registry_settings"),
     registry.prepare(
@@ -368,6 +374,7 @@ export async function readRegistry(registry: D1Database): Promise<RegistrySnapsh
         typeof row.secret_generation === "string" && /^[0-9a-f]{32}$/.test(row.secret_generation)
           ? row.secret_generation
           : null,
+      imported: Number(row.imported) === 1,
     });
   }
 
