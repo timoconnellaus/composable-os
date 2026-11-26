@@ -14,7 +14,7 @@ import {
   SidebarMenuItem,
   useSidebar,
 } from "@composable-os/ui/components/sidebar";
-import { Link } from "@tanstack/react-router";
+import { Link, useRouteContext } from "@tanstack/react-router";
 import {
   ActivitySquareIcon,
   BoxIcon,
@@ -24,7 +24,7 @@ import {
   type LucideIcon,
   TargetIcon,
 } from "lucide-react";
-import { MAIN_NAV, type NavItem, SETTINGS_NAV } from "#/lib/nav";
+import { MAIN_NAV, type NavItem, navItemShown, SETTINGS_NAV } from "#/lib/nav";
 import { useExtensionObjects } from "#/lib/schema";
 import { usePendingCount } from "./approvals/hooks.ts";
 import { useThreadUnread } from "./assistant/thread-provider.tsx";
@@ -118,6 +118,8 @@ export function AppSidebar() {
   const pendingCount = usePendingCount();
   const duplicateCount = useDuplicateCount();
   const unread = useThreadUnread().unread;
+  const { navPermissions } = useRouteContext({ from: "/_app" });
+  const nav = MAIN_NAV.filter((item) => navItemShown(item, navPermissions));
   return (
     <Sidebar
       aria-label="Main navigation"
@@ -130,7 +132,7 @@ export function AppSidebar() {
         <SidebarGroup>
           <SidebarGroupContent>
             <SidebarMenu>
-              {MAIN_NAV.map((item) =>
+              {nav.map((item) =>
                 item.to === "/duplicates" ? (
                   <NavLink
                     key={item.to}

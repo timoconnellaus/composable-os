@@ -69,8 +69,16 @@ async function recordScreenFor(pathname: string): Promise<string | null> {
 
 export const Route = createFileRoute("/_app")({
   beforeLoad: async ({ location }) => {
-    const { principal, user, packRole, signOutUrl, setupOpen, identityProvider, support } =
-      await getSession();
+    const {
+      principal,
+      user,
+      packRole,
+      navPermissions,
+      signOutUrl,
+      setupOpen,
+      identityProvider,
+      support,
+    } = await getSession();
     if (!principal || !user) {
       throw redirect({ to: "/sign-in", search: { redirect: location.href } });
     }
@@ -92,6 +100,7 @@ export const Route = createFileRoute("/_app")({
       principal,
       user,
       packRole,
+      navPermissions,
       signOutUrl,
       identityProvider,
       support,
@@ -268,7 +277,7 @@ function createKindFor(pathname: string): { kind: CreateKind; options?: CreateOp
 
 /** Dialogs controlled by AppCommands, plus the global shortcuts that open them. */
 function AppOverlays() {
-  const { isAdmin } = Route.useRouteContext();
+  const { isAdmin, navPermissions } = Route.useRouteContext();
   const state = useAppCommandsState();
   const pathname = useRouterState({ select: (s) => s.location.pathname });
 
@@ -292,6 +301,7 @@ function AppOverlays() {
         onCreate={state.create}
         onShowShortcuts={() => state.setShortcuts(true)}
         isAdmin={isAdmin}
+        navPermissions={navPermissions}
       />
       <ShortcutSheet open={state.shortcuts} onOpenChange={state.setShortcuts} />
       <CreatePersonDialog

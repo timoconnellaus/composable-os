@@ -28,6 +28,7 @@ import {
   UsersIcon,
   WorkflowIcon,
 } from "lucide-react";
+import type { NavPermission } from "./nav-permissions.ts";
 
 export interface NavItem {
   to:
@@ -65,6 +66,16 @@ export interface NavItem {
   /** Extra words the palette matches on. */
   keywords?: string[];
   adminOnly?: boolean;
+  /**
+   * The permission the section's page reads with: the item is shown only to an account holding
+   * it (the session's `navPermissions`), so nobody is offered a page the host would refuse.
+   */
+  permission?: NavPermission;
+}
+
+/** The item is for this account: its permission, if it names one, is among those it holds. */
+export function navItemShown(item: NavItem, held: readonly string[]): boolean {
+  return !item.permission || held.includes(item.permission);
 }
 
 export const MAIN_NAV: NavItem[] = [
@@ -80,6 +91,7 @@ export const MAIN_NAV: NavItem[] = [
     label: "Inbox",
     icon: MessagesSquareIcon,
     keywords: ["conversations", "email", "chat", "messages", "replies", "support", "help desk"],
+    permission: "inbox:read",
   },
   { to: "/people", label: "People", icon: UsersIcon, keywords: ["contacts", "persons"] },
   { to: "/organisations", label: "Organisations", icon: Building2Icon, keywords: ["companies"] },
