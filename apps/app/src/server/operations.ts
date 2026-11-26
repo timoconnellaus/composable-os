@@ -26,6 +26,7 @@ import {
   withCodeModeRateLimit,
 } from "@composable-os/core";
 import { createCrmDb } from "@composable-os/db";
+import { clientOf } from "@composable-os/db/client-environment";
 import { type AiAppEnv, aiContextFor } from "./ai.ts";
 import { approvalExpiryDays } from "./approval-expiry.ts";
 import type { AssistantAgent } from "./assistant/agent.ts";
@@ -181,16 +182,22 @@ function rpcHost(stub: ExtensionHost): ExtensionHost {
   };
 }
 
-let shippedInstall: Promise<void> | null = null;
+// Once per environment (stage 66 step 5, ADR 0617): on a many-client host each client's
+// environment is its own object, and each client's database needs its own install.
+const shippedInstalls = new WeakMap<object, Promise<void>>();
+const SINGLE_CLIENT = {};
 
 /**
- * Installs the shipped extensions bundled with this release once per isolate, through
- * `extension.install` in cos-runner (ADR 0025). A failure is logged and retried on a later call;
- * operations still run meanwhile.
+ * Installs the shipped extensions bundled with this release once per isolate (and client),
+ * through `extension.install` in cos-runner (ADR 0025). A failure is logged and retried on a later
+ * call; operations still run meanwhile.
  */
 export function ensureShippedExtensions(env: OperationsEnv): Promise<void> {
   if (!env.RUNNER) return Promise.resolve();
-  shippedInstall ??= runner({ RUNNER: env.RUNNER })
+  const key = clientOf(env) === null ? SINGLE_CLIENT : env;
+  const held = shippedInstalls.get(key);
+  if (held) return held;
+  const shippedInstall = runner({ RUNNER: env.RUNNER })
     .installShipped()
     .then((results) => {
       const failed = results.filter((r) => r.outcome === "failed");
@@ -198,8 +205,9 @@ export function ensureShippedExtensions(env: OperationsEnv): Promise<void> {
     })
     .catch((error: unknown) => {
       console.error("could not install shipped extensions", error);
-      shippedInstall = null;
+      shippedInstalls.delete(key);
     });
+  shippedInstalls.set(key, shippedInstall);
   return shippedInstall;
 }
 

@@ -9,7 +9,7 @@
 // adjudicator.
 
 import { provideStaffCodes } from "@composable-os/auth";
-import { setVideoHost } from "@composable-os/core";
+import { setVideoHost, setVideoHostResolver } from "@composable-os/core";
 import { servesManyClients } from "@composable-os/db/client-entries";
 import { PRODUCT_LABEL_VAR, setProductLabel } from "@composable-os/product";
 import handler from "@tanstack/react-start/server-entry";
@@ -17,7 +17,7 @@ import { type AppParts, hostFetch, hostQueue, hostScheduled } from "./server/ent
 import { staffCodesFor } from "./server/host-mail.ts";
 import type { ApiEnv } from "./server/http/api.ts";
 import { createAppHandler } from "./server/mcp/handler.ts";
-import { type VideoEnv, videoHostFor } from "./server/media.ts";
+import { clientVideoHosts, type VideoEnv, videoHostFor } from "./server/media.ts";
 import { deploymentEnv } from "./server/request-env.ts";
 
 // A client product's label (issue #155): a deploy-time var, read once per isolate, which every
@@ -28,11 +28,13 @@ setProductLabel(
 
 // Videos in Cloudflare Stream (stage 42, ADR 0475): the account, its token and signing key are
 // this Worker's own vars and secrets, read once per isolate.
-// On a many-client host there is none yet: the token is every client's videos, and the host that
-// stamps each upload with its client and refuses another creator is stage 66 step 5's (ADR 0615),
-// so until then video is not configured for any client rather than shared by all of them.
+// On a many-client host the token reaches every client's videos, so each client has a video host
+// of its own (stage 66 step 5, ADR 0617): its uploads stamped with it as their creator, and any
+// call for a video another client created refused. One per client environment.
 if (!servesManyClients(deploymentEnv)) {
   setVideoHost(videoHostFor(deploymentEnv as unknown as VideoEnv));
+} else {
+  setVideoHostResolver(clientVideoHosts(deploymentEnv as unknown as VideoEnv));
 }
 
 // Staff sign-in codes go out as the host's own mail (ADR 0455). Given for the module env that

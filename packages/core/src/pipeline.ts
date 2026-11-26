@@ -7,7 +7,12 @@
 // A gate `review` dry-runs the handler and queues a pending action instead (approvals/queue.ts);
 // reads by an MCP session see its pending actions applied (approvals/simulation.ts).
 
-import type { AuditChangeAction, CrmDb, ReviewSource } from "@composable-os/db";
+import {
+  type AuditChangeAction,
+  type CrmDb,
+  databaseOf,
+  type ReviewSource,
+} from "@composable-os/db";
 import { checkGrant } from "@composable-os/sdk";
 import { type Compilable, type CompiledQuery, sql } from "kysely";
 import { ADJUDICATOR_PRINCIPAL } from "./adjudicator/review.ts";
@@ -46,6 +51,7 @@ import {
 } from "./automations/outbox.ts";
 import { createTestSimulation, type TestSimulation } from "./automations/simulate.ts";
 import type { AutomationHost, EventSink } from "./automations/types.ts";
+import { clientState, inDatabaseScope } from "./client-scope.ts";
 import { contentGenerationWrites } from "./content/cache.ts";
 import { loadCustomerSignIn } from "./customers/accounts.ts";
 import { checkOutsideRateLimit } from "./customers/limits.ts";
@@ -775,7 +781,17 @@ function isDealTaken(error: unknown): boolean {
   return error instanceof Error && error.message.includes("core_discount_use_auto_limit");
 }
 
-export async function invokeOperation<O extends AnyOperation>(
+export function invokeOperation<O extends AnyOperation>(
+  op: O,
+  rawInput: unknown,
+  ctx: AnyInvocationContext,
+): Promise<OperationOutput<O>> {
+  // In its database's client scope (stage 66 step 5, ADR 0617), when no entry set one: what the
+  // operation keeps at module level is that client's. A single client: called as it is.
+  return inDatabaseScope(databaseOf(ctx.db), () => invokeInScope(op, rawInput, ctx));
+}
+
+async function invokeInScope<O extends AnyOperation>(
   op: O,
   rawInput: unknown,
   ctx: AnyInvocationContext,
@@ -2345,7 +2361,8 @@ function limitedCaller(principal: OutsidePrincipal | DevicePrincipal): LimitedCa
 }
 
 const NOTICE_EVERY_MS = 60 * 60 * 1000;
-let downNoticeAt = 0;
+// One client's each (stage 66 step 5, ADR 0617): the notice goes to that client's admins.
+const downNotices = clientState(() => ({ at: 0 }));
 
 /**
  * A count the rate limiting binding could not make (the call went through, ADR 0940): the admins
@@ -2354,8 +2371,9 @@ let downNoticeAt = 0;
 function limiterDown(ctx: OutsideInvocationContext | DeviceInvocationContext, now: string) {
   return (what: string) => {
     const at = Date.now();
-    if (at - downNoticeAt < NOTICE_EVERY_MS) return;
-    downNoticeAt = at;
+    const notice = downNotices.get();
+    if (at - notice.at < NOTICE_EVERY_MS) return;
+    notice.at = at;
     void tellAdmins(
       ctx.db,
       "Rate limits are not working",

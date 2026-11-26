@@ -67,6 +67,7 @@ import { dispatchAutomationMessages, runDeferredDue } from "./automations/dispat
 import { automationHost } from "./automations/host.ts";
 import { pollIntegrationEvents } from "./automations/integration-events.ts";
 import { runAutomationCron } from "./automations/schedule.ts";
+import { inClientScope, provideRunnerClientScope } from "./client-scope.ts";
 import { deploymentEnv as workerEnv } from "./deployment-env.ts";
 import { Executor, type ExecutorOptions } from "./executor/executor.ts";
 import { embedFromEvents } from "./extensions/embeddings.ts";
@@ -77,6 +78,9 @@ import { runOrdersTick } from "./integrations/payments.ts";
 import { availableVendors, integrationRuntime } from "./integrations/runtime.ts";
 import { runNotificationCron } from "./notifications/deliver.ts";
 import type { PingResult, RunnerRpc, WorkflowRunStatus } from "./rpc.ts";
+
+// What core keeps at module level, kept per client on a many-client host (stage 66 step 5).
+provideRunnerClientScope(workerEnv);
 
 // A client product's label (issue #155), for the notifications and pages the runner sends.
 setProductLabel((workerEnv as unknown as Record<string, string | undefined>)[PRODUCT_LABEL_VAR]);
@@ -356,10 +360,11 @@ export default class Runner extends WorkerEntrypoint<Env> implements RunnerRpc {
     if (!(RUNNER_METHODS as readonly string[]).includes(method)) {
       throw new NoClientError(`${method} is not one of the runner's methods`);
     }
-    const target = new ClientRunner(await clientEnvironment(this.env, client), this.env);
+    const clientEnv = await clientEnvironment(this.env, client);
+    const target = new ClientRunner(clientEnv, this.env);
     const run = (target as unknown as Record<string, (...a: unknown[]) => unknown>)[method];
     if (typeof run !== "function") throw new NoClientError(`${method} is not offered`);
-    return run.apply(target, Array.isArray(args) ? args : []);
+    return inClientScope(clientEnv, () => run.apply(target, Array.isArray(args) ? args : []));
   }
 
   /**
@@ -492,11 +497,13 @@ export default class Runner extends WorkerEntrypoint<Env> implements RunnerRpc {
     if (isFanOutQueue(batch.queue)) {
       await consumeFanOut(this.env, batch, {
         tick: async (clientEnv, tick) => {
-          await minuteTick(clientEnv, new Date(tick.scheduledTime));
+          await inClientScope(clientEnv, () => minuteTick(clientEnv, new Date(tick.scheduledTime)));
         },
         parked: {
           [AUTOMATION_EVENTS_QUEUE]: (clientEnv, share) =>
-            consumeAutomationEvents(clientEnv, share as MessageBatch<AutomationQueueMessage>),
+            inClientScope(clientEnv, () =>
+              consumeAutomationEvents(clientEnv, share as MessageBatch<AutomationQueueMessage>),
+            ),
         },
       });
       return;
@@ -505,7 +512,9 @@ export default class Runner extends WorkerEntrypoint<Env> implements RunnerRpc {
       consumeDeadLetters(batch);
       return;
     }
-    await consumeByClient<Env, AutomationQueueMessage>(this.env, batch, consumeAutomationEvents);
+    await consumeByClient<Env, AutomationQueueMessage>(this.env, batch, (clientEnv, share) =>
+      inClientScope(clientEnv, () => consumeAutomationEvents(clientEnv, share)),
+    );
   }
 
   /**

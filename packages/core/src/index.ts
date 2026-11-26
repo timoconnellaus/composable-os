@@ -87,6 +87,7 @@ export * from "./capacity/claimants.ts";
 export * from "./capacity/holds.ts";
 export * from "./capacity/index.ts";
 export * from "./capacity/records.ts";
+export * from "./client-scope.ts";
 // Consent to be contacted (stage 30 step 5, ADR 0675): the seam Journeys, the inbox and Reviews use.
 export * from "./contact/index.ts";
 export {

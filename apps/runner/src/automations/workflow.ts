@@ -17,6 +17,7 @@ import {
 import { NonRetryableError } from "cloudflare:workflows";
 import { workflowRun } from "@composable-os/db/client-entries";
 import type { AutomationEvent, AutomationJournalEntry } from "@composable-os/sdk";
+import { inClientScope } from "../client-scope.ts";
 import { Executor } from "../executor/executor.ts";
 import { type AutomationRunParams, reviewEventType } from "./dispatch.ts";
 import { checkRoutineRun, isRoutineRun, queueRoutineDelivery } from "./routine.ts";
@@ -70,6 +71,11 @@ export class AutomationWorkflow extends WorkflowEntrypoint<Env, AutomationRunPar
     // The client the instance was created for (stage 66, ADR 0615): its id `<client>_<id>` and
     // its stamped params must agree, or it refuses; a single-client deployment's, as given.
     const { env, params } = await workflowRun<Env, AutomationRunParams>(this.env, event);
+    // In its client's scope (stage 66 step 5, ADR 0617): what core keeps for it is its own.
+    return inClientScope(env, () => this.#run(env, params, step));
+  }
+
+  async #run(env: Env, params: AutomationRunParams, step: WorkflowStep) {
     try {
       if (params.delaySeconds) {
         // Debounce: later updates in the window land on this same instance id (coalesced).

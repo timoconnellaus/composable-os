@@ -68,6 +68,7 @@ import {
   extensionHostFor,
   type OperationsEnv,
 } from "../operations.ts";
+import { runInClientEnv } from "../request-env.ts";
 import type { AssistantAgent } from "./agent.ts";
 import { threadStub } from "./http.ts";
 import { type AssistantMcp, connectAssistantMcp } from "./mcp-client.ts";
@@ -273,7 +274,8 @@ export class AgentJob extends DurableObject<Cloudflare.Env> {
     if (phase === "reviewing") return this.#remind();
     if (phase !== "running") return;
     try {
-      await this.#slice();
+      // In its client's scope (stage 66 step 5, ADR 0617): what core keeps is its own.
+      await runInClientEnv(this.#env as unknown as Env, () => this.#slice());
     } catch (error) {
       // Provider text may carry a key: redacted before it is logged or stored (redact.ts).
       const redact = redactorForEnv(this.#env);

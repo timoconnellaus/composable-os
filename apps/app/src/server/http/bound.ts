@@ -71,6 +71,7 @@ import {
   refusalResponse,
   servesManyClients,
 } from "@composable-os/db/client-entries";
+import { clientOf } from "@composable-os/db/client-environment";
 import { PROOF } from "@composable-os/db/client-proofs";
 import { type MediaEnv, mediaResizerFor, mediaStoreFor } from "../media.ts";
 import { runInClientEnv } from "../request-env.ts";
@@ -113,7 +114,10 @@ export async function boundAddress(request: Request, env: ApiEnv): Promise<Clien
 }
 
 const NOTICE_EVERY_MS = 60 * 60 * 1000;
-let noticeAt = 0;
+// When each environment's notice was last tried (stage 66 step 5, ADR 0617): a client's admins
+// are told about their own app, whatever another client's did.
+let noticeAt = new WeakMap<object, number>();
+const SINGLE_CLIENT = {};
 
 /** The dedupe key prefix of the admins' daily notice that a client app names no visitor. */
 export const NO_VISITOR_NOTICE = "public_limit.no_visitor:";
@@ -121,8 +125,9 @@ export const NO_VISITOR_NOTICE = "public_limit.no_visitor:";
 /** Tells the admins, once a day (tried at most once an hour per isolate), that no visitor came. */
 async function noVisitorNotice(env: ApiEnv): Promise<void> {
   const at = Date.now();
-  if (at - noticeAt < NOTICE_EVERY_MS) return;
-  noticeAt = at;
+  const key = clientOf(env) === null ? SINGLE_CLIENT : env;
+  if (at - (noticeAt.get(key) ?? 0) < NOTICE_EVERY_MS) return;
+  noticeAt.set(key, at);
   const now = new Date(at).toISOString();
   console.error("client app calls name no visitor address: they share one rate limit (ADR 0940)");
   await tellAdmins(
@@ -139,7 +144,7 @@ async function noVisitorNotice(env: ApiEnv): Promise<void> {
 
 /** Lets the tests see the notice again. */
 export function resetNoVisitorNotice(): void {
-  noticeAt = 0;
+  noticeAt = new WeakMap();
 }
 
 /**

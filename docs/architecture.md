@@ -158,7 +158,7 @@ One **D1** database per deployment, with real tables ([ADR 0002](adr/0002-d1-rea
   (active, of the deployment's `COS_HOST_ENVIRONMENT`, its schema not behind); any other answer is
   a refusal with its reason (`unknown`, `unverified`, `paused`, `moving`, `schema-behind`) and no
   environment, and a failed registry read fails the call. The account's Stream credentials are
-  kept apart (left out until step 4's video-host wrapper). With no `REGISTRY` bound, the client's environment is the real
+  kept apart (left out of every client's environment; step 5's creator-checked video host uses them). With no `REGISTRY` bound, the client's environment is the real
   `env`: a single-client deployment is unchanged.
 
 - **Every entry decides the client** (stage 66 step 4,
@@ -177,6 +177,21 @@ One **D1** database per deployment, with real tables ([ADR 0002](adr/0002-d1-rea
   refuses the module-level `env` and `CLIENT_DB` in the app's and the runner's code. The two-client
   suites (`apps/app/test-two-clients`, `apps/runner/test-two-clients`) run through the real
   entries with a registry and every client's database.
+
+- **Module-level state per client, and the creator-checked video host** (stage 66 step 5,
+  [ADR 0617](adr/0617-module-state-per-client-and-the-creator-checked-video-host.md)): what core
+  keeps between requests (the extension schema registry, entitlements, the plan on sale, schema
+  names, query embeddings, Today's failed items, the rate-limits-down notice) is a `clientState`,
+  one value per **client scope**: the database a client's requests reach, held by an
+  AsyncLocalStorage the host Worker gives core at load (`provideClientScope`), set by each entry
+  once it decides the client and by `invoke` where none did; code outside every scope is refused.
+  The shared widget cache's key holds the client. Caches in the app and the runner are keyed by
+  the client's environment. `scripts/check-module-state.mjs` (in `pnpm lint`) finds every piece
+  of module-level state in the code the host's Workers load, gatekeepers included, and fails
+  unless `scripts/module-state.mjs` lists it with its reason. On a many-client host each client's
+  video host (`creatorCheckedVideoHost`) stamps the client as the creator of every upload and copy
+  and refuses any call or playback token for a video another creator made. A single-client
+  deployment gives no store: every value is one module-level value, as before.
 
 - **Secrets and addresses per client** (stage 66 step 6,
   [ADR 0616](adr/0616-secrets-and-addresses-per-client.md)): on a many-client host the staff,
