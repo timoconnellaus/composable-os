@@ -26,7 +26,8 @@ export const NOT_STAFF_HOSTNAMES = {
 
 interface TwoClientBindings {
   REGISTRY: D1Database;
-  CLIENT_DB: DurableObjectNamespace<ClientDb>;
+  /** The operator's raw namespace (testing/vitest.ts, `addClientDbService`): step 7's stand-in. */
+  OPERATOR_CLIENT_DB: DurableObjectNamespace<ClientDb>;
   TEST_MIGRATIONS: Migration[];
   REGISTRY_MIGRATIONS: Migration[];
 }
@@ -68,6 +69,9 @@ async function setUp(env: TwoClientBindings): Promise<void> {
     hostname(NOT_STAFF_HOSTNAMES.desk, a.id, "desk"),
   ]);
   for (const id of [a.id, b.id, paused.id, moving.id]) {
-    await env.CLIENT_DB.get(env.CLIENT_DB.idFromName(id)).migrate(env.TEST_MIGRATIONS);
+    // As the operator's `cos client add` will (step 7): the raw namespace, which the host's
+    // Workers never bind.
+    const operator = env.OPERATOR_CLIENT_DB;
+    await operator.get(operator.idFromName(id)).migrate(env.TEST_MIGRATIONS);
   }
 }

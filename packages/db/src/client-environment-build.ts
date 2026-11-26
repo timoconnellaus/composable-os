@@ -11,7 +11,8 @@ import {
   keepVectorsApart,
   keepWorkflowApart,
 } from "./client-bindings.ts";
-import { type ClientDb, clientDatabase } from "./client-db.ts";
+import { type ClientDb, clientDatabaseService } from "./client-db.ts";
+import type { ClientDbQueryService } from "./client-db-service.ts";
 
 /** The names a wrapper applies to. */
 const named =
@@ -34,6 +35,12 @@ export interface HostBindings {
    * app nor the runner exports the class (ADR 0613).
    */
   CLIENT_DB?: DurableObjectNamespace<ClientDb>;
+  /**
+   * The query path of every client's database (stage 66 step 2): a service binding to
+   * `cos-client-db`'s `ClientDbQueries`, which serves queries only. What the app and the runner
+   * bind on a many-client host; the raw namespace (`CLIENT_DB`) is the operator's (step 7).
+   */
+  CLIENT_DB_QUERIES?: ClientDbQueryService;
   /**
    * Which environment of its clients this deployment holds (`live` or `staging`). Required with
    * REGISTRY: the one source of the deployment's environment; a client of the other is unknown.
@@ -142,18 +149,16 @@ export interface ClientPart {
 }
 
 /**
- * A client's database, the one place it is opened. When step 2's query-only service lands (PR
- * #511: the binding `CLIENT_DB_QUERIES`, service `cos-client-db`, entrypoint `ClientDbQueries`),
- * the switch is the `return` line here, to
- * `return clientDatabaseService(env.CLIENT_DB_QUERIES, client.id, hint);`, and the check in
- * `hostMode` (client-environment.ts), from `bindings.CLIENT_DB` to `bindings.CLIENT_DB_QUERIES`;
- * the raw namespace is then the operator's only.
+ * A client's database, the one place it is opened: through `cos-client-db`'s query-only service
+ * (`CLIENT_DB_QUERIES`, stage 66 step 2), never the raw namespace, which is the operator's.
  */
 function openClientDatabase(env: HostBindings, client: ClientRecord): D1Database {
-  const namespace = env.CLIENT_DB;
-  if (!namespace) throw new Error("No CLIENT_DB binding: a client's database cannot be opened");
+  const service = env.CLIENT_DB_QUERIES;
+  if (!service) {
+    throw new Error("No CLIENT_DB_QUERIES binding: a client's database cannot be opened");
+  }
   const hint = client.locationHint ? { locationHint: client.locationHint } : undefined;
-  return clientDatabase(namespace, client.id, hint);
+  return clientDatabaseService(service, client.id, hint);
 }
 
 /** A value made here for one client (its database, a wrapper's result): frozen. */
@@ -165,7 +170,7 @@ function frozen<T>(value: T): T {
  * The client's environment on a host that serves many clients: a new, frozen object shaped like
  * `env`, holding only what `envNameUse` lets through.
  *
- * - `DB` is `clientDatabase(CLIENT_DB, client)`, created at the client's location hint.
+ * - `DB` is `clientDatabaseService(CLIENT_DB_QUERIES, client)`, at the client's location hint.
  * - Each setting in `CLIENT_SETTINGS` is the client's from the registry; with no row, the
  *   deployment's own value (`inherit`) or nothing (`empty`).
  * - A shared value (`shared`) is the same object as in `env`, so a cache keyed by it (a WeakMap

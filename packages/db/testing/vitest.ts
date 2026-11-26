@@ -51,6 +51,23 @@ export async function withClientDb<T extends MiniflareLike>(miniflare: T): Promi
   return usingClientDb() ? addClientDb(miniflare) : miniflare;
 }
 
+/**
+ * A Worker shaped as `cos-client-db` (apps/client-db) is, named `name`: `ClientDb` and the
+ * query-only entrypoint `ClientDbQueries`, for a suite or a Worker that binds them by script name
+ * (the proof Worker's tests use it as its `cos-client-db-proof-db`).
+ */
+export async function clientDbWorker(name = CLIENT_DB_TEST_WORKER) {
+  return {
+    name,
+    modules: [
+      { type: "ESModule" as const, path: "client-db.mjs", contents: await clientDbWorkerScript() },
+    ],
+    compatibilityDate: "2026-10-01",
+    compatibilityFlags: ["nodejs_compat"],
+    durableObjects: { CLIENT_DB: { className: "ClientDb", useSQLite: true } },
+  };
+}
+
 /** `miniflare` with a `CLIENT_DB` binding to `ClientDb`, whatever the suite runs on. */
 export async function addClientDb<T extends MiniflareLike>(miniflare: T): Promise<T> {
   return {
@@ -59,18 +76,39 @@ export async function addClientDb<T extends MiniflareLike>(miniflare: T): Promis
       ...miniflare.durableObjects,
       CLIENT_DB: { className: "ClientDb", scriptName: CLIENT_DB_TEST_WORKER, useSQLite: true },
     },
-    workers: [
-      ...(miniflare.workers ?? []),
-      {
-        name: CLIENT_DB_TEST_WORKER,
-        modules: [
-          { type: "ESModule", path: "client-db.mjs", contents: await clientDbWorkerScript() },
-        ],
-        compatibilityDate: "2026-10-01",
-        compatibilityFlags: ["nodejs_compat"],
-        durableObjects: { CLIENT_DB: { className: "ClientDb", useSQLite: true } },
+    workers: [...(miniflare.workers ?? []), await clientDbWorker()],
+  };
+}
+
+/**
+ * The operator's binding to every client's database in the two-client suites: the raw namespace,
+ * for the test helpers that stand in for step 7's operator commands (`migrate`). Never named
+ * `CLIENT_DB`, so the Worker under test holds what production gives it: the query path only.
+ */
+export const OPERATOR_CLIENT_DB = "OPERATOR_CLIENT_DB";
+
+/**
+ * `miniflare` as a many-client host's Worker binds `cos-client-db` (stage 66 step 2): the
+ * query-only service `CLIENT_DB_QUERIES` (entrypoint `ClientDbQueries`), and for the suite's
+ * operator stand-ins the raw namespace as `OPERATOR_CLIENT_DB`.
+ */
+export async function addClientDbService<T extends MiniflareLike>(miniflare: T): Promise<T> {
+  const services = (miniflare as { serviceBindings?: Record<string, unknown> }).serviceBindings;
+  return {
+    ...miniflare,
+    durableObjects: {
+      ...miniflare.durableObjects,
+      [OPERATOR_CLIENT_DB]: {
+        className: "ClientDb",
+        scriptName: CLIENT_DB_TEST_WORKER,
+        useSQLite: true,
       },
-    ],
+    },
+    serviceBindings: {
+      ...services,
+      CLIENT_DB_QUERIES: { name: CLIENT_DB_TEST_WORKER, entrypoint: "ClientDbQueries" },
+    },
+    workers: [...(miniflare.workers ?? []), await clientDbWorker()],
   };
 }
 

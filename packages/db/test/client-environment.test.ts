@@ -5,6 +5,7 @@
 import { env } from "cloudflare:workers";
 import { beforeAll, beforeEach, describe, expect, it } from "vitest";
 import type { ClientDb } from "../src/client-db.ts";
+import type { ClientDbQueryService } from "../src/client-db-service.ts";
 import * as published from "../src/client-environment.ts";
 import {
   ClientDirectory,
@@ -34,6 +35,7 @@ const real = env as unknown as {
   DB: D1Database;
   REGISTRY: D1Database;
   CLIENT_DB: DurableObjectNamespace<ClientDb>;
+  CLIENT_DB_QUERIES: ClientDbQueryService;
 };
 
 /** A rate limiter that records the keys it is asked about. */
@@ -53,7 +55,10 @@ function manyClientEnv(registry: D1Database = real.REGISTRY, environment = "live
   return {
     DB: real.DB,
     REGISTRY: registry,
+    // The operator's raw namespace (left out of every client's environment) and the query path
+    // the host's Workers bind (stage 66 step 2), which a client's DB goes through.
     CLIENT_DB: real.CLIENT_DB,
+    CLIENT_DB_QUERIES: real.CLIENT_DB_QUERIES,
     COS_HOST_ENVIRONMENT: environment,
     // Settings: the deployment's own values.
     APPROVAL_FLOOR: "medium",
@@ -300,20 +305,26 @@ describe("buildClientEnvironment", () => {
   });
 
   it("creates the client's database at its location hint, named by its id", async () => {
-    const calls: { name: string; options: unknown }[] = [];
-    const namespace = {
-      idFromName: (name: string) => ({ name }),
-      get: (id: { name: string }, options?: unknown) => {
-        calls.push({ name: id.name, options });
-        return { query: async () => ({ ok: true, results: [] }) };
+    // The query service as the host's Workers bind it: each call names its target.
+    const calls: unknown[] = [];
+    const service = new Proxy(
+      {},
+      {
+        get: (_target, method) =>
+          method === "then"
+            ? undefined
+            : async (target: unknown) => {
+                calls.push(target);
+                throw new Error("not a database");
+              },
       },
-    } as unknown as DurableObjectNamespace<ClientDb>;
-    const host = { ...manyClientEnv(), CLIENT_DB: namespace };
+    ) as unknown as ClientDbQueryService;
+    const host = { ...manyClientEnv(), CLIENT_DB_QUERIES: service };
     const built = buildClientEnvironment(host, { client: gymA, settings: {} });
     await built.DB.prepare("SELECT 1")
       .all()
       .catch(() => undefined);
-    expect(calls).toEqual([{ name: "gym-a", options: { locationHint: "oc" } }]);
+    expect(calls[0]).toEqual({ client: "gym-a", locationHint: "oc" });
     const nowhere = buildClientEnvironment(host, {
       client: { ...gymA, locationHint: null },
       settings: {},
@@ -321,7 +332,7 @@ describe("buildClientEnvironment", () => {
     await nowhere.DB.prepare("SELECT 1")
       .all()
       .catch(() => undefined);
-    expect(calls[1]).toEqual({ name: "gym-a", options: undefined });
+    expect(calls.at(-1)).toEqual({ client: "gym-a" });
   });
 
   it("refuses a client id the registry would not hold", () => {
@@ -345,7 +356,13 @@ const ESCAPE_HATCH =
  * method does with its arguments is for behavioural tests (each wrapper's, step 4).
  */
 function walkForEscapes(root: unknown, host: object): void {
-  const forbidden = new Set<unknown>([host, real.REGISTRY, real.CLIENT_DB, real.DB]);
+  const forbidden = new Set<unknown>([
+    host,
+    real.REGISTRY,
+    real.CLIENT_DB,
+    real.CLIENT_DB_QUERIES,
+    real.DB,
+  ]);
   const seen = new Set<unknown>();
   const walk = (value: unknown, path: string, depth: number) => {
     if (value === null || (typeof value !== "object" && typeof value !== "function")) return;

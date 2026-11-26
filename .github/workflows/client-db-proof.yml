@@ -1,7 +1,9 @@
-# Stage 66 step 1 (ADR 0612): deploys the proof Worker (apps/client-db-proof) to the fleet's
-# account, a client's database (ClientDb) beside a D1 database, then compares the two probe by
-# probe and times a staff page, a customer checkout and a cold first page on each. Or, with mode
-# `remove`, deletes the proof's own Worker and D1 database by their exact names. Run by hand only.
+# Stage 66 (ADRs 0612, 0614): deploys the proof to the fleet's account: the Worker that holds
+# clients' databases (apps/client-db, as <product>-client-db-proof-db, deployed first) and the
+# proof Worker (apps/client-db-proof) beside a D1 database, reaching the clients' databases as the
+# host will (the query-only service). It compares the two probe by probe, times a staff page, a
+# customer checkout and a cold first page on each, and runs step 2's probes. Or, with mode
+# `remove`, deletes both Workers and the D1 database by their exact names. Run by hand only.
 #
 # Uses FLEET_CLOUDFLARE_API_TOKEN and FLEET_CLOUDFLARE_ACCOUNT_ID (docs/deploying.md, "Proving a
 # client's database on Cloudflare"). Without them nothing is deployed and the workflow passes with
@@ -13,7 +15,7 @@ on:
   workflow_dispatch:
     inputs:
       mode:
-        description: prove (deploy, compare, time) or remove (delete the proof's Worker and database)
+        description: prove (deploy, compare, time) or remove (delete the proof's two Workers and its database)
         type: choice
         default: prove
         options: [prove, remove]
@@ -32,7 +34,7 @@ on:
         description: Cold first-page samples (0 to 10), each after an idle wait
         default: "3"
       cold_wait:
-        description: Seconds each cold sample waits idle (0 to 900; Cloudflare evicts after 70 to 140)
+        description: Seconds each cold sample waits idle (0 to 900; Cloudflare evicts an idle object after 70 to 140)
         default: "150"
 
 concurrency:
@@ -124,8 +126,9 @@ jobs:
           key="$(openssl rand -hex 32)"
           echo "::add-mask::$key"
           echo "key=$key" >> "$GITHUB_OUTPUT"
-      # The only step with the token. The Worker's address is masked by the script and passed in a
-      # file, never as an output.
+      # The only step with the token. It deploys the clients' databases' Worker, then the proof
+      # Worker. The proof Worker's address is masked by the script and passed in a file, never as an
+      # output; each Worker's startup time and size go in another file, for the summary.
       - name: Deploy
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.FLEET_CLOUDFLARE_API_TOKEN }}
@@ -133,6 +136,7 @@ jobs:
           PROOF_KEY: ${{ steps.key.outputs.key }}
           LOCATION_HINT: ${{ inputs.location }}
           PROOF_URL_FILE: ${{ runner.temp }}/proof-url
+          PROOF_DEPLOY_FILE: ${{ runner.temp }}/proof-deploy.txt
         working-directory: apps/client-db-proof
         run: node scripts/deploy.mjs
       # No Cloudflare token: the proof Worker is reached with the run's key only.
@@ -140,6 +144,7 @@ jobs:
         env:
           PROOF_KEY: ${{ steps.key.outputs.key }}
           URL_FILE: ${{ runner.temp }}/proof-url
+          PROOF_DEPLOY_FILE: ${{ runner.temp }}/proof-deploy.txt
           RUNS: ${{ inputs.runs }}
           ROUNDS: ${{ inputs.rounds }}
           COLD: ${{ inputs.cold }}
@@ -153,6 +158,20 @@ jobs:
           set -o pipefail
           node scripts/time.mjs --runs "$RUNS" --rounds "$ROUNDS" --cold "$COLD" \
             --cold-wait "$COLD_WAIT" --out "$OUT.json" | tee "$OUT.txt"
+      # Stage 66 step 2 (ADR 0614): bookmarks and restore, export and import, large answers, size.
+      # No Cloudflare token; the address is read from the file and masked, as above.
+      - name: Step 2 probes
+        env:
+          PROOF_KEY: ${{ steps.key.outputs.key }}
+          URL_FILE: ${{ runner.temp }}/proof-url
+          OUT: ${{ runner.temp }}/client-db-proof
+        working-directory: apps/client-db-proof
+        run: |
+          PROOF_URL="$(cat "$URL_FILE")"
+          echo "::add-mask::$PROOF_URL"
+          export PROOF_URL
+          set -o pipefail
+          node scripts/step2.mjs | tee -a "$OUT.txt"
       - name: Summary
         if: always()
         env:
@@ -184,7 +203,7 @@ jobs:
           node-version-file: .nvmrc
           cache: pnpm
       - run: pnpm install --frozen-lockfile
-      - name: Delete the proof's Worker and D1 database, by exact name
+      - name: Delete the proof's two Workers and its D1 database, by exact name
         env:
           CLOUDFLARE_API_TOKEN: ${{ secrets.FLEET_CLOUDFLARE_API_TOKEN }}
           CLOUDFLARE_ACCOUNT_ID: ${{ secrets.FLEET_CLOUDFLARE_ACCOUNT_ID }}

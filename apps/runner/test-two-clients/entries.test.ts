@@ -325,6 +325,16 @@ export default defineExtension({
   });
 });
 
+describe("the runner's bindings to the clients' databases (stage 66 step 2)", () => {
+  it("are the query path only: no raw CLIENT_DB, and a client's DB goes through the service", async () => {
+    const host = env as unknown as Record<string, unknown>;
+    expect("CLIENT_DB" in host).toBe(false);
+    expect(host.CLIENT_DB_QUERIES).toBeDefined();
+    const aEnv = await clientEnv(a.id);
+    expect(await aEnv.DB.prepare("SELECT 1 AS one").first("one")).toBe(1);
+  });
+});
+
 describe("the runner's D1 binding", () => {
   it("holds no table: nothing ran on it instead of a client's database", async () => {
     const row = await (env as unknown as Env).DB.prepare(

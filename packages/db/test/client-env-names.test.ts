@@ -42,6 +42,7 @@ describe("the names of the host's environment", () => {
     const toCome = new Set([
       "REGISTRY",
       "CLIENT_DB",
+      "CLIENT_DB_QUERIES",
       "COS_HOST_ENVIRONMENT",
       "CLIENT_FANOUT",
       "COS_BINDING_KEY",

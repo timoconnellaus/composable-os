@@ -8,6 +8,8 @@
     ".": "./src/index.ts",
     "./seed": "./src/seed.ts",
     "./client-db": "./src/client-db.ts",
+    "./client-db-service": "./src/client-db-service.ts",
+    "./sql-export": "./src/sql-export.ts",
     "./registry": "./src/registry.ts",
     "./client-environment": "./src/client-environment.ts",
     "./client-bindings": "./src/client-bindings.ts",
@@ -15,7 +17,8 @@
     "./client-proofs": "./src/client-proofs.ts",
     "./testing/two-clients": "./testing/two-clients.ts",
     "./testing/vitest": "./testing/vitest.ts",
-    "./testing/conformance": "./testing/conformance.ts"
+    "./testing/conformance": "./testing/conformance.ts",
+    "./testing/contents": "./testing/contents.ts"
   },
   "scripts": {
     "postinstall": "node scripts/schema-version.mjs",

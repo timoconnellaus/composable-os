@@ -144,7 +144,7 @@ queues' `-dlq` on a fleet deployment, step 7), is reported as a log line
 Tested with a 10-minute pause (apps/runner's suite).
 
 ### What a many-client deployment binds, and where it comes from
-`REGISTRY`, `CLIENT_DB`, `COS_HOST_ENVIRONMENT`, `CLIENT_FANOUT`, `COS_BINDING_KEY` (a long random
+`REGISTRY`, `CLIENT_DB_QUERIES`, `COS_HOST_ENVIRONMENT`, `CLIENT_FANOUT`, `COS_BINDING_KEY` (a long random
 secret of the operator's) and `COS_CALLBACK_HOSTNAME` are added by the deploy engine for a fleet
 deployment (step 7) and never to the committed `wrangler.jsonc`, which self-hosted installs use;
 so are the props of the app's binding to the runner (`runnerCallerProps(key)`) and, at each web
@@ -191,17 +191,16 @@ modules that define it), or names `CLIENT_DB` or `ClientDb`.
 - The proofs are as strong as the key's secrecy: the operator holds `COS_BINDING_KEY` (step 7
   stores it as a Worker secret, never in the registry) and rotating it renames every object.
 
-### `CLIENT_DB`, and step 2's query-only service
-Today `CLIENT_DB` is touched only by `packages/db/src/client-environment.ts` (`hostMode`),
-`client-environment-build.ts` (`openClientDatabase`) and the test helpers
-`packages/db/testing/use-client-db.ts`, `testing/two-clients.ts` (which migrates the clients'
-databases, standing in for step 7) and `testing/vitest.ts`. When #511 lands (the binding
-`CLIENT_DB_QUERIES`, service `cos-client-db`, entrypoint `ClientDbQueries`), the switch is two
-lines: `openClientDatabase`'s `return clientDatabase(namespace, client.id, hint);` becomes
-`return clientDatabaseService(env.CLIENT_DB_QUERIES, client.id, hint);`, and `hostMode`'s
-`if (!bindings.CLIENT_DB) {` becomes `if (!bindings.CLIENT_DB_QUERIES) {`, with the binding's
-type in `HostBindings` and a `host` line in `ENV_NAMES`; the raw namespace is then the operator's
-only. The tests stay on the namespace until then.
+### The clients' databases: the query-only service (step 2)
+The app and the runner reach a client's database only through `cos-client-db`'s query-only
+entrypoint, bound as `CLIENT_DB_QUERIES` (service `cos-client-db`, entrypoint `ClientDbQueries`):
+`openClientDatabase` (`client-environment-build.ts`) is `clientDatabaseService(env.CLIENT_DB_QUERIES,
+client.id, { locationHint })`, and `hostMode` requires `REGISTRY` and `CLIENT_DB_QUERIES`. The raw
+`CLIENT_DB` namespace, with the operator's methods (restore, migrate, bookmarks, export), is the
+operator's (step 7): no Worker of the host binds it, and the lint refuses its name in their code.
+The two-client suites bind the service as production will; only their operator stand-in
+(`testing/two-clients.ts`, `migrate`) holds the namespace, as `OPERATOR_CLIENT_DB`, and apps/runner's
+suite checks that the Worker holds no `CLIENT_DB`.
 
 ### Secrets and addresses until step 6
 A client's environment has none of the names step 3 marked `per-client`. A place that needs one

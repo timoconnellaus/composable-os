@@ -1,11 +1,11 @@
 // The runner as a many-client host's (stage 66 step 4, ADR 0615): the committed wrangler.jsonc,
 // plus what the deploy engine adds for a fleet deployment and never commits (step 7): the
-// registry (REGISTRY) and every client's database (CLIENT_DB). Its suite is test-two-clients/:
+// registry (REGISTRY) and the query path of every client's database (CLIENT_DB_QUERIES, never the raw CLIENT_DB). Its suite is test-two-clients/:
 // two clients on one deployment, through the runner's real entries.
 import { fileURLToPath } from "node:url";
 import { readD1Migrations } from "@cloudflare/vitest-plugin";
 import { defineWorkersTestConfig } from "@composable-os/config/vitest";
-import { addClientDb } from "@composable-os/db/testing/vitest";
+import { addClientDbService } from "@composable-os/db/testing/vitest";
 
 const migrationsDir = fileURLToPath(new URL("../../packages/db/migrations", import.meta.url));
 const registryMigrationsDir = fileURLToPath(
@@ -16,7 +16,7 @@ export default defineWorkersTestConfig({
   include: ["test-two-clients/**/*.test.ts"],
   workers: async () => ({
     wrangler: { configPath: "./wrangler.jsonc" },
-    miniflare: await addClientDb({
+    miniflare: await addClientDbService({
       d1Databases: ["REGISTRY"],
       bindings: {
         TEST_MIGRATIONS: await readD1Migrations(migrationsDir),

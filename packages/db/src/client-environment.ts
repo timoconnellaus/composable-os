@@ -52,7 +52,7 @@ export {
 
 type ManyClientBindings = HostBindings & {
   REGISTRY: D1Database;
-  CLIENT_DB: NonNullable<HostBindings["CLIENT_DB"]>;
+  CLIENT_DB_QUERIES: NonNullable<HostBindings["CLIENT_DB_QUERIES"]>;
 };
 
 /** One client, or many: whether REGISTRY is bound. */
@@ -63,8 +63,10 @@ export function hostMode(env: object): HostMode {
   if (!bindings.REGISTRY) return "single";
   // Fail closed: a registry with nowhere to open clients' databases is a broken deployment,
   // never a reason to serve every client from the one D1 database.
-  if (!bindings.CLIENT_DB) {
-    throw new Error("REGISTRY is bound without CLIENT_DB: no client's database can be opened");
+  if (!bindings.CLIENT_DB_QUERIES) {
+    throw new Error(
+      "REGISTRY is bound without CLIENT_DB_QUERIES: no client's database can be opened",
+    );
   }
   return "many";
 }
