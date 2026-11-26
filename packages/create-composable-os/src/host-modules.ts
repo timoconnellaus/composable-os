@@ -1,6 +1,6 @@
 // The host modules a client repo takes from the template (ADR 0451, amended 2026-11-21): each app's
-// framework-free module that reaches the host (`host.ts`; the mobile app's `secure-store.ts` and
-// `secure-random.ts`). `cos create` and `cos init` write them; `cos upgrade` keeps them current:
+// framework-free module that reaches the host (`host.ts`, the web app's `agreements.ts`, the mobile
+// app's `secure-store.ts` and `secure-random.ts`). `cos create` and `cos init` write them; `cos upgrade` keeps them current:
 //
 // - What was written is recorded, a sha256 per module, in `composable-os.lock.json`.
 // - On upgrade a module the company has not edited (its file still has the recorded hash) is
@@ -18,7 +18,17 @@ import type { Io } from "./io.ts";
 /** The repo's record of what cos wrote that is not a block (blocks are in blocks.lock.json). */
 export const STATE_FILE = "composable-os.lock.json";
 
-const MODULES = { web: ["host.ts"], mobile: ["host.ts", "secure-store.ts", "secure-random.ts"] };
+/**
+ * Each app's host modules: `host.ts` and every file of the template it imports beside it (but for
+ * the generated client). A module left out here is never written by `cos init` or `cos upgrade`,
+ * and an adopted repo then stops compiling (the web module's `agreements.ts`, missed until
+ * 0.1.0-beta.13); `test/client-repo.test.ts` checks the list against the template's imports.
+ */
+export const HOST_MODULES = {
+  web: ["host.ts", "agreements.ts"],
+  mobile: ["host.ts", "secure-store.ts", "secure-random.ts"],
+};
+const MODULES = HOST_MODULES;
 
 interface State {
   hostModules?: Record<string, { template: string; version: string; sha256: string }>;
