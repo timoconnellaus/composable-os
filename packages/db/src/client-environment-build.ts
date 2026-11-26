@@ -141,6 +141,21 @@ export interface ClientPart {
   settings: Readonly<Record<string, string>>;
 }
 
+/**
+ * A client's database, the one place it is opened. When step 2's query-only service lands (PR
+ * #511: the binding `CLIENT_DB_QUERIES`, service `cos-client-db`, entrypoint `ClientDbQueries`),
+ * the switch is the `return` line here, to
+ * `return clientDatabaseService(env.CLIENT_DB_QUERIES, client.id, hint);`, and the check in
+ * `hostMode` (client-environment.ts), from `bindings.CLIENT_DB` to `bindings.CLIENT_DB_QUERIES`;
+ * the raw namespace is then the operator's only.
+ */
+function openClientDatabase(env: HostBindings, client: ClientRecord): D1Database {
+  const namespace = env.CLIENT_DB;
+  if (!namespace) throw new Error("No CLIENT_DB binding: a client's database cannot be opened");
+  const hint = client.locationHint ? { locationHint: client.locationHint } : undefined;
+  return clientDatabase(namespace, client.id, hint);
+}
+
 /** A value made here for one client (its database, a wrapper's result): frozen. */
 function frozen<T>(value: T): T {
   return value !== null && typeof value === "object" ? Object.freeze(value) : value;
@@ -167,8 +182,6 @@ function frozen<T>(value: T): T {
 export function buildClientEnvironment<E extends HostBindings>(env: E, part: ClientPart): E {
   const { client, settings } = part;
   if (!isClientId(client.id)) throw new RangeError("Not a client id");
-  const namespace = env.CLIENT_DB;
-  if (!namespace) throw new Error("No CLIENT_DB binding: a client's database cannot be opened");
   const out: Record<string, unknown> = {};
   for (const name of Object.keys(env)) {
     const use = envNameUse(name);
@@ -199,13 +212,7 @@ export function buildClientEnvironment<E extends HostBindings>(env: E, part: Cli
       own ?? (absent === "inherit" ? (env as unknown as Record<string, unknown>)[name] : undefined);
     if (typeof value === "string") out[name] = value;
   }
-  out.DB = frozen(
-    clientDatabase(
-      namespace,
-      client.id,
-      client.locationHint ? { locationHint: client.locationHint } : undefined,
-    ),
-  );
+  out.DB = frozen(openClientDatabase(env, client));
   Object.freeze(out);
   clientOfEnvironment.set(out, client.id);
   return out as unknown as E;
