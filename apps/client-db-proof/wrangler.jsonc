@@ -37,12 +37,12 @@
       { "name": "PROOF_TIMER", "class_name": "ProofTimer" }
     ]
   },
-  // v1 made ClientDb here, as step 1's proof had it; v2 deletes that class and every object of it
-  // (the earlier runs' databases, seeded test data only): the class now lives in its own Worker.
-  "migrations": [
-    { "tag": "v1", "new_sqlite_classes": ["ClientDb", "ProofTimer"] },
-    { "tag": "v2", "deleted_classes": ["ClientDb"] }
-  ],
+  // Only the timer's class is this Worker's: clients' databases are in the other Worker. Step 1's
+  // proof exported ClientDb here; Cloudflare refuses to delete a class in the same deploy that
+  // still has a binding of that class's name (error 10061, the first run of this arrangement), so
+  // the earlier proof Worker is removed once with the workflow's remove mode and this one starts
+  // with a history of its own.
+  "migrations": [{ "tag": "v1", "new_sqlite_classes": ["ProofTimer"] }],
   // The one client's database, and where it and the D1 database are created (Oceania, stage 43).
   // PROOF_KEY is a secret the workflow sets after each deploy (a fresh random value), never
   // committed. Until it is set, the Worker refuses everything but /health.
