@@ -56,6 +56,7 @@ import {
   fanOutCron,
   isDeadLetterQueue,
   isFanOutQueue,
+  isRunnerCaller,
   NoClientError,
   servesManyClients,
 } from "@composable-os/db/client-entries";
@@ -335,6 +336,12 @@ export default class Runner extends WorkerEntrypoint<Env> implements RunnerRpc {
   async callAs(client: string, method: string, args: unknown[]): Promise<unknown> {
     if (!servesManyClients(this.env)) {
       throw new NoClientError("A client was named on a single-client deployment");
+    }
+    // Only cos-app's own binding, whose props the deploy fixes (review of #512, S4): a Worker
+    // that binds cos-runner itself, a namespace Worker among them, has no such props, and a
+    // binding's caller cannot set them.
+    if (!isRunnerCaller((this.ctx as { props?: unknown }).props)) {
+      throw new NoClientError("callAs is offered only to the host's own app");
     }
     if (!(RUNNER_METHODS as readonly string[]).includes(method)) {
       throw new NoClientError(`${method} is not one of the runner's methods`);

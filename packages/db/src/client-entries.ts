@@ -690,6 +690,25 @@ export function propsClientEnvironment<E extends HostBindings>(
   return clientEnvironment(env, props?.client ?? null);
 }
 
+// --- The runner's caller -------------------------------------------------------------------
+
+/**
+ * The props the deploy engine fixes on cos-app's binding to cos-runner on a many-client host
+ * (step 7: `{ "binding": "RUNNER", "service": "cos-runner", "props": { "caller": "cos-app" } }`).
+ * A binding's props are set by whoever uploads the Worker that holds it, never by its code, so
+ * `callAs` refuses any caller without them: a Worker of the account that binds cos-runner on its
+ * own (a namespace Worker a client's upload made, step 8) cannot name a client to it.
+ */
+export const RUNNER_CALLER = Object.freeze({ caller: "cos-app" });
+
+export function isRunnerCaller(props: unknown): boolean {
+  return (
+    !!props &&
+    typeof props === "object" &&
+    (props as { caller?: unknown }).caller === RUNNER_CALLER.caller
+  );
+}
+
 // --- Gatekeepers ---------------------------------------------------------------------------
 
 /**

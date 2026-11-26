@@ -20,6 +20,7 @@ import {
   gatekeeperOffered,
   PARKING,
   propsClientEnvironment,
+  RUNNER_CALLER,
   stampOf,
   workflowRun,
 } from "@composable-os/db/client-entries";
@@ -37,7 +38,10 @@ interface CallAs {
 }
 // The runner's real entry class, as the host's Workers reach it (SELF's test proxy cannot carry
 // this Worker's own loopback bindings across).
-const entry = new Runner(createExecutionContext(), env as unknown as Env) as unknown as CallAs;
+/** An execution context with the props the deploy fixes on cos-app's binding (S4). */
+const fromApp = () =>
+  Object.assign(createExecutionContext(), { props: { ...RUNNER_CALLER } }) as ExecutionContext;
+const entry = new Runner(fromApp(), env as unknown as Env) as unknown as CallAs;
 /** The runner's methods as `client`, as cos-app's RUNNER wrapper calls them. */
 const as = (client: string) =>
   new Proxy(
@@ -79,6 +83,21 @@ describe("the runner's RPC on a many-client host", () => {
     await expect((async () => entry.ping())()).rejects.toThrow(/callAs/);
     await expect(entry.callAs(a.id, "fetch", [])).rejects.toThrow(/not one of/);
     await expect(entry.callAs(a.id, "constructor", [])).rejects.toThrow(/not one of/);
+  });
+
+  it("refuses callAs from any binding but the app's, whatever client it names (S4)", async () => {
+    const stranger = new Runner(
+      createExecutionContext(),
+      env as unknown as Env,
+    ) as unknown as CallAs;
+    await expect(stranger.callAs(a.id, "ping", [])).rejects.toThrow(/only to the host's own app/);
+    const forged = new Runner(
+      Object.assign(createExecutionContext(), {
+        props: { caller: "cos-front" },
+      }) as ExecutionContext,
+      env as unknown as Env,
+    ) as unknown as CallAs;
+    await expect(forged.callAs(b.id, "ping", [])).rejects.toThrow(/only to the host's own app/);
   });
 
   it("refuses a client it does not know or does not serve now", async () => {
