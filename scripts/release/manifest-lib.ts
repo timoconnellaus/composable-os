@@ -101,9 +101,11 @@ export interface DeployablePackage {
  * (the Composable OS site, ADR 0191) is deployed on its own by .github/workflows/marketing.yml, the
  * docs site (ADR 0930) by .github/workflows/docs.yml, and
  * the hosted control plane (products/crm/apps/control: crm-control and crm-dispatch, ADR 0210) is our own
- * service, deployed by docs/saas-go-live.md, never part of a customer's deployment.
+ * service, deployed by docs/saas-go-live.md, never part of a customer's deployment. The proof Worker
+ * of a client's database (apps/client-db-proof, stage 66 step 1, ADR 0612) is a measurement,
+ * deployed only by hand by .github/workflows/client-db-proof.yml.
  */
-const NOT_RELEASED = new Set(["apps/marketing", "apps/docs"]);
+const NOT_RELEASED = new Set(["apps/marketing", "apps/docs", "apps/client-db-proof"]);
 
 /** Every wrangler.jsonc under apps/ and packages/, sorted by directory. */
 export function readDeployablePackages(root: string): DeployablePackage[] {
