@@ -4,7 +4,7 @@
 // is idle (hibernated) between runs. The rate limit is separate: the Workers Rate Limiting binding
 // in cos-app (CODE_MODE_RATE_LIMIT).
 import { DurableObject } from "cloudflare:workers";
-import { ClientDurableObject, refreshOnEachCall } from "@composable-os/db/client-entries";
+import { ClientDurableObject, refreshOnEachCall } from "@composable-os/db/client-objects";
 
 interface Lease {
   token: string;

@@ -55,14 +55,13 @@ import {
   vendorBinding,
 } from "@composable-os/core";
 import { createCrmDb } from "@composable-os/db";
+import { gatekeeperOffered, perClientMissing } from "@composable-os/db/client-entries";
 import {
   CLIENT_OBJECT,
   ClientDurableObject,
   type ClientObject,
-  gatekeeperOffered,
-  perClientMissing,
   refreshOnEachCall,
-} from "@composable-os/db/client-entries";
+} from "@composable-os/db/client-objects";
 import { PROOF } from "@composable-os/db/client-proofs";
 import { runnerJudge } from "../extensions/ai.ts";
 import { paymentEventDeps } from "./payments.ts";

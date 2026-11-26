@@ -61,7 +61,7 @@ import {
   ClientDurableObject,
   type ClientObject,
   refreshOnEachCall,
-} from "@composable-os/db/client-entries";
+} from "@composable-os/db/client-objects";
 import { activeUser } from "../acting-user.ts";
 import { aiContextFor } from "../ai.ts";
 import { approvalExpiryDays } from "../approval-expiry.ts";

@@ -15,9 +15,6 @@ import { type ActingUser, invokeByName, newId, vendorBinding } from "@composable
 import { createCrmDb } from "@composable-os/db";
 import { clientObjectName, RUNNER_METHODS } from "@composable-os/db/client-bindings";
 import {
-  CLIENT_OBJECT,
-  ClientDurableObject,
-  type ClientObject,
   consumeByClient,
   consumeFanOut,
   consumeParked,
@@ -28,12 +25,17 @@ import {
   type ParkedConsumer,
   propsClientEnvironment,
   RUNNER_CALLER,
-  refreshOnEachCall,
   runnerCallerProps,
   stampOf,
   workflowRun,
 } from "@composable-os/db/client-entries";
 import { clientOf, environmentFor } from "@composable-os/db/client-environment";
+import {
+  CLIENT_OBJECT,
+  ClientDurableObject,
+  type ClientObject,
+  refreshOnEachCall,
+} from "@composable-os/db/client-objects";
 import type { ParkingLedger } from "@composable-os/db/client-parking";
 import { bindingProof, PROOF } from "@composable-os/db/client-proofs";
 import type { ClientId } from "@composable-os/db/registry";

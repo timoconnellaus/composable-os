@@ -18,7 +18,7 @@ import type {
   WorkspaceEntry,
   WorkspaceWrite,
 } from "@composable-os/core";
-import { ClientDurableObject, refreshOnEachCall } from "@composable-os/db/client-entries";
+import { ClientDurableObject, refreshOnEachCall } from "@composable-os/db/client-objects";
 import type { BuildRecord } from "../executor/build-cache.ts";
 import { buildKey, contentHash } from "../executor/worker-code.ts";
 import { shippedExtensions } from "./shipped-list.ts";

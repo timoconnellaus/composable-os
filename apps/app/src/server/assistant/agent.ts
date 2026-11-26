@@ -105,7 +105,7 @@ import {
   ClientDurableObject,
   type ClientObject,
   refreshOnEachCall,
-} from "@composable-os/db/client-entries";
+} from "@composable-os/db/client-objects";
 import { Agent, type Connection, type ConnectionContext, type WSMessage } from "agents";
 import "./routine-agents.ts";
 import { activeUser } from "../acting-user.ts";

@@ -262,7 +262,8 @@ is closed here, with a test that fails when the fix is taken out.
   Workers' code, as it refuses `CLIENT_DB`. Tested in apps/client-db (no props, another caller, a
   copied name, another key's proof; a call with no proof, another client's, another purpose's).
 - **S2, a Durable Object's `env`.** Every object class of the app and the runner extends
-  `ClientDurableObject(Base)`: on a many-client host its base class (`DurableObject`, the Agents
+  `ClientDurableObject(Base)` (`@composable-os/db/client-objects`, with `ClientObject` and
+  `refreshOnEachCall`): on a many-client host its base class (`DurableObject`, the Agents
   SDK's `Agent` under the voice mixin) is constructed with a read-only view of the client's
   environment (`clientEnvView`), never the real `env`, which stays in the `ClientObject`'s private
   field. So `this.env`, and everything the SDK keeps of it, is the client's from the first line of
