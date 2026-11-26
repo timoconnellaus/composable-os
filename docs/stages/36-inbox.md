@@ -58,7 +58,16 @@ stage 30".
 - **Step 2** — not built — needs: step 1 — Email in and out: the inbound hook, sender checks,
   threading, unknown senders, replies via email-send, auto-acknowledgement
 
-- **Step 3** — not built — needs: step 1 — The web inbox screens, saved replies, Settings → Inbox
+- **Step 3** — built — PR #494 — The web inbox screens, saved replies, Settings → Inbox (migration
+  1051, ADR 0749): `/inbox` (mine, unassigned, all; status, channel and category filters),
+  `/inbox/<id>` (messages and notes as text, the reply and note boxes, take, assign, status,
+  category, private, link or make a Person, about, other conversations), `/inbox/saved-replies`,
+  `/settings/inbox` (the categories) and a Person's Conversations tab; `core_saved_reply` and
+  `savedReply.list`, `.create`, `.update`, `.archive`, `.fill` (own or shared, fixed slots the
+  host fills, written by a person only), `inbox.settings.get` and `.update`, `inbox.categories`,
+  `conversation.setCategory`; the stale guards are conflicts. Left: Send waits for `message.send`
+  (steps 2 and 4), "due soon" and the other settings for steps 2, 4 and 5, "Draft with AI" and
+  drafts for step 6 (its own migration, not 1051), choosing "about" for step 9.
 
 - **Step 4** — not built — needs: step 1 — Chat for customers: `chat.*`, web and native blocks,
   the Messages section and `message_unread`

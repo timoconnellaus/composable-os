@@ -341,6 +341,8 @@ export type Conversation = z.infer<typeof conversationSchema>;
 /** A conversation row with the Person's and the assignee's names joined. */
 export type ConversationListRow = ConversationRow & {
   person_name: string | null;
+  /** The Person's given name: the `person.firstName` slot of a saved reply (ADR 0749). */
+  person_given_name: string | null;
   assignee_name: string | null;
 };
 
@@ -351,7 +353,11 @@ export function conversationQuery(db: Kysely<CoreDatabase>) {
     .leftJoin("core_person as p", "p.id", "c.person_id")
     .leftJoin("core_user as u", "u.id", "c.assignee_id")
     .selectAll("c")
-    .select(["p.display_name as person_name", "u.name as assignee_name"]);
+    .select([
+      "p.display_name as person_name",
+      "p.given_name as person_given_name",
+      "u.name as assignee_name",
+    ]);
 }
 
 export function toConversation(row: ConversationListRow, aboutTitle?: string | null): Conversation {

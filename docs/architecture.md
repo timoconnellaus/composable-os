@@ -164,7 +164,12 @@ One **D1** database per deployment, with real tables ([ADR 0002](adr/0002-d1-rea
   assignee, through one rule every read path takes (the inbox's operations, timelines, activity
   reads); search, the `rec_*` views, embeddings and summaries leave it out for everyone. `inbox:*`
   permissions are core and never held by a pack role. An erase and the Trash purge delete a
-  Person's conversations whole; a merge moves them.
+  Person's conversations whole; a merge moves them. The admin's web screens (step 3,
+  [ADR 0749](adr/0749-saved-replies-inbox-categories-and-the-inbox-screens.md)) are core, not pack
+  screens: the inbox (`/inbox`, mine, unassigned and all), a conversation (`/inbox/<id>`), saved
+  replies (`core_saved_reply`, migration 1051: a staff member's own or shared, fixed slots the
+  host fills) and Settings → Inbox (the categories, in `core_settings` under `inbox`), and a
+  Person's Conversations tab. They show only what the operations return.
 - **Storage retention** ([ADR 0090](adr/0090-storage-retention.md)): D1 stops at 10 GB, so the same
   cron keeps growth bounded. Successful reads by AI, extensions and automations are counted per
   hour (`core_audit_read_counts`) rather than audited row by row. Write audits are kept forever by
