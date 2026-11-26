@@ -8,20 +8,32 @@ import { test } from "node:test";
 import { fileURLToPath } from "node:url";
 import {
   checkModuleEnv,
+  findings as findingsOf,
   importsDeploymentEnv,
   importsModuleEnv,
   loadsByComputedName,
   reachesClientDb,
   reachesHostEnv,
   SCANNED,
+  scannedFiles,
   usesCtxExports,
 } from "./check-module-env.mjs";
 
 test("the repository's Workers and the packages bundled into them pass", () => {
   const root = resolve(dirname(fileURLToPath(import.meta.url)), "..");
   assert.deepEqual(checkModuleEnv(root), []);
-  assert.ok(SCANNED.dirs.includes("packages/core/src"));
   assert.ok(SCANNED.dirs.includes("packs"));
+  // What the Workers import is read wherever it lives (review of #520, M2): packages/db's objects
+  // and parking, packages/core, packages/release.
+  const scanned = scannedFiles(root);
+  for (const file of [
+    "packages/db/src/client-objects.ts",
+    "packages/db/src/client-parking.ts",
+    "packages/core/src/index.ts",
+  ]) {
+    assert.ok(scanned.includes(file), file);
+  }
+  assert.ok(scanned.some((file) => file.startsWith("packages/release/")));
 });
 
 test("every way to the module env or exports is caught", () => {
@@ -130,6 +142,78 @@ test("a real env reached from a class that should hold a client's is caught (#51
     "class Compiler { constructor(readonly env: Scope) {} m() { return this.env.fields; } }",
     "class Compiler { env: Scope; m() { return this.env; } }",
     'import { requestEnv } from "./server/request-env.ts";',
+  ]) {
+    assert.equal(reachesHostEnv(text), false, text);
+  }
+});
+
+test("the evasions of the review of #520 (M2) are each caught", () => {
+  const caught = (text, rule) =>
+    assert.ok(
+      // biome-ignore lint/suspicious/noExplicitAny: a test reads the findings' rules
+      findingsOf(text).some((f) => f.rule === rule),
+      `${rule}: ${text}`,
+    );
+  // A Durable Object base under another name.
+  caught(
+    'import { DurableObject } from "cloudflare:workers"; const B = DurableObject; class X extends B {}',
+    "object-base",
+  );
+  caught(
+    'import { DurableObject as DO } from "cloudflare:workers"; class X extends DO {}',
+    "object-base",
+  );
+  caught('import { Agent as A } from "agents"; class X extends A<Env> {}', "object-base");
+  caught("class Base extends DurableObject {} class X extends Base {}", "object-base");
+  // `this` under another name, or destructured.
+  caught("class X extends Base { m() { const s = this; return s.env; } }", "this-env");
+  caught("class X extends Base { m() { const { env } = this; return env; } }", "this-env");
+  caught("class X extends Base { m() { let s; s = this; return s.env; } }", "this-env");
+  caught(
+    'class X extends Base { m() { return Object.getOwnPropertyDescriptor(this, "env"); } }',
+    "this-env-reflect",
+  );
+  // ctx.exports through parentheses, `!`, a cast, an alias, destructuring, another name.
+  for (const text of [
+    "(this.ctx).exports.X",
+    "this.ctx!.exports.X",
+    "(this.ctx as any).exports.X",
+    "const c = this.ctx; c.exports.X",
+    "const { exports } = this.ctx;",
+    "state.exports.X",
+    'ctx["exports"].X',
+  ]) {
+    caught(text, "ctx-exports");
+  }
+  assert.equal(usesCtxExports("module.exports = {};"), false);
+  // Re-exports of an env module, in any form.
+  caught('export * from "../request-env.ts";', "env-module-whole");
+  caught('export * as x from "./server/request-env.ts";', "env-module-whole");
+  caught('export { deploymentEnv } from "../deployment-env.ts";', "deployment-env");
+  caught('export { requestEnv } from "../request-env.ts";', "env-module-whole");
+  // createRequire, and node:module.
+  caught(
+    'import { createRequire } from "node:module"; const r = createRequire(import.meta.url); r("x");',
+    "require",
+  );
+  caught('const r = (await import("node:module")).createRequire(import.meta.url);', "require");
+});
+
+test("a client object's constructor passes its env (the host's) straight to super and no further (review of #520, S2)", () => {
+  for (const text of [
+    "class X extends ClientDurableObject(DurableObject<Env>) { constructor(ctx, env) { super(ctx, env); this.x = env; } }",
+    "class X extends ClientDurableObject(DurableObject<Env>) { constructor(ctx, env) { super(ctx, env); new Helper(env); } }",
+    "class X extends ClientDurableObject(DurableObject<Env>) { constructor(ctx, env) { const e = env; super(ctx, e); } }",
+    "class X extends ClientDurableObject(DurableObject<Env>) { constructor(ctx, { REGISTRY }) { super(ctx, {}); } }",
+    "class X extends ClientDurableObject(DurableObject<Env>) { constructor(ctx, private env) { super(ctx, env); } }",
+    "class X extends ClientDurableObject(DurableObject<Env>) { constructor(...args) { super(...args); keep(args); } }",
+  ]) {
+    assert.equal(reachesHostEnv(text), true, text);
+  }
+  for (const text of [
+    "class X extends ClientDurableObject(DurableObject<Env>) { constructor(ctx, env) { super(ctx, env); this.w = new W(ctx.storage); } }",
+    "class X extends ClientDurableObject(DurableObject<Env>) { constructor(...args) { super(...args); } }",
+    "class X extends ClientDurableObject(DurableObject<Env>) { constructor(ctx) { super(ctx, undefined); } }",
   ]) {
     assert.equal(reachesHostEnv(text), false, text);
   }
