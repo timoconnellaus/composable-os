@@ -264,11 +264,17 @@ describe("a fortnight's outage", () => {
 });
 
 describe("one run", () => {
-  async function measure(backlog: number) {
+  async function measure(backlog: number, state: "queued" | "unknown" = "queued") {
     await clearOutbox(b);
     const queued = [];
     for (let i = 0; i < backlog; i++) {
       queued.push(await queue(summaryEntry(b, "2026-11-20", { net: 1000 + i * 10 })));
+    }
+    if (state === "unknown") {
+      // A backlog of answers lost (none of them in the books): each is looked up first.
+      await env.DB.prepare(
+        "UPDATE core_accounting_post SET state = 'unknown' WHERE state = 'queued'",
+      ).run();
     }
     const meter = meterStatements(env.DB);
     const result = await runAccounting({
@@ -286,7 +292,17 @@ describe("one run", () => {
     expect(large.result).toMatchObject({ sent: SENDS_PER_RUN, more: true });
     // The same statements for 30 entries on file as for 200: the backlog adds none.
     expect(large.statements).toBe(small.statements);
-    // A few statements an entry and a few a run; far inside D1's 1,000 a Worker invocation.
-    expect(small.statements).toBeLessThanOrEqual(SENDS_PER_RUN * 3 + LOOKUPS_PER_RUN + 20);
+    // Three statements an entry and about a dozen a run: 86 on 2026-11-26, far inside D1's 1,000
+    // a Worker invocation (a run of look-ups adds two or three each, at most 25 of them).
+    expect(small.statements).toBeLessThanOrEqual(100);
+  }, 120_000);
+
+  it(`looks up at most ${LOOKUPS_PER_RUN} entries of unknown outcome, whatever the backlog`, async () => {
+    const small = await measure(LOOKUPS_PER_RUN + 5, "unknown");
+    const large = await measure(LOOKUPS_PER_RUN * 4, "unknown");
+    expect(small.result).toMatchObject({ requeued: LOOKUPS_PER_RUN, more: true });
+    expect(large.result).toMatchObject({ requeued: LOOKUPS_PER_RUN, more: true });
+    expect(large.statements).toBe(small.statements);
+    expect(small.statements).toBeLessThanOrEqual(200);
   }, 120_000);
 });
