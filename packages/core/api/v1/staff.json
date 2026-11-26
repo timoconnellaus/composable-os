@@ -28068,7 +28068,7 @@
     },
     {
       "name": "conversation.linkPerson",
-      "description": "Link a conversation from an unknown sender to a Person (make the Person first with person.create when there is none): its messages move onto their timeline and the unknown address is cleared from it. Needs records:write as well. People only. Returns the conversation.",
+      "description": "Link a conversation from an unknown sender to a Person: an existing one (personId), or a new one made from its sender in the same write (newPerson: their names; the sender's address becomes their email), so a failure leaves no Person behind. Its messages move onto their timeline and the unknown address is cleared from it. Needs records:write as well. People only. Returns the conversation.",
       "risk": "write",
       "audiences": [
         "staff"
@@ -28090,6 +28090,31 @@
             "format": "starts_with",
             "pattern": "^per_.*"
           },
+          "newPerson": {
+            "description": "Make a new Person from the sender instead of linking an existing one",
+            "type": "object",
+            "properties": {
+              "givenName": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 100
+              },
+              "familyName": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "maxLength": 100
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "givenName"
+            ]
+          },
           "version": {
             "description": "The version you read: the write is refused if the conversation changed since",
             "type": "integer",
@@ -28098,8 +28123,7 @@
           }
         },
         "required": [
-          "id",
-          "personId"
+          "id"
         ]
       },
       "output": {
@@ -28622,7 +28646,7 @@
     },
     {
       "name": "conversation.setCategory",
-      "description": "File a conversation under one of the inbox's categories (inbox.categories lists them), or under none (category null). Returns the conversation.",
+      "description": "File a conversation under one of the inbox's categories (inbox.categories lists them), or under none (category null). From an assistant, MCP, an automation or an extension it is a suggestion: it waits for a person to apply it in Approvals. Returns the conversation.",
       "risk": "write",
       "audiences": [
         "staff"

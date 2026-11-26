@@ -26,6 +26,7 @@ import { MessageSquareTextIcon, PlusIcon } from "lucide-react";
 import { type FormEvent, useMemo, useRef, useState } from "react";
 import { toast } from "sonner";
 import { EmptyState, ErrorState } from "#/components/empty-state";
+import { NoInboxAccess, useInboxAccess } from "#/components/inbox/access";
 import { CHANNEL_LABELS, type ConversationChannel } from "#/components/inbox/labels";
 import { PageLayout } from "#/components/layout/page-layout";
 import { errorMessage, useInfiniteOp, useOpMutation } from "#/lib/query";
@@ -44,10 +45,20 @@ const CHANNELS: ConversationChannel[] = ["email", "chat"];
 
 function SavedRepliesPage() {
   const { isAdmin } = Route.useRouteContext();
+  const { works } = useInboxAccess();
   const [scope, setScope] = useState<Scope>("all");
   const [archived, setArchived] = useState(false);
   // null: closed; "new": a new one; otherwise the one being edited.
   const [editing, setEditing] = useState<SavedReply | "new" | null>(null);
+
+  // Saved replies are for those who work the inbox: a viewer reads it and has none.
+  if (!works) {
+    return (
+      <PageLayout title="Saved replies" width="md" back={{ to: "/inbox", label: "Inbox" }}>
+        <NoInboxAccess what="saved replies" />
+      </PageLayout>
+    );
+  }
 
   return (
     <PageLayout

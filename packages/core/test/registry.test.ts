@@ -57,12 +57,20 @@ describe("core registry", () => {
         // ADR 0922). The invoice event log is read with invoices:payments (stage 35 decision 11,
         // ADR 0730): what was paid, by which method, is that permission's. The accounting sync's
         // settings and mapping with accounting:manage (stage 61).
-        // The shared inbox is read with inbox:read (ADR 0740); saved replies, which only those
-        // who work the inbox use, with inbox:work, and its settings with inbox:manage (ADR 0749).
+        // The shared inbox is read with inbox:read (ADR 0740). By name only: saved replies, which
+        // only those who work the inbox use, with inbox:work, and its settings with inbox:manage
+        // (ADR 0749).
         // Whom a checklist done on its own can be for (checklist.whoChoices, ADR 0651: the
         // grantable permissions among them) is read by whoever writes checklists.
         // Outside practitioners' accounts are listed with practitioners:manage (stage 43, ADR 0581).
-        if (op.risk === "read") {
+        const readsByName: Record<string, string> = {
+          "savedReply.list": "inbox:work",
+          "savedReply.fill": "inbox:work",
+          "inbox.settings.get": "inbox:manage",
+        };
+        if (op.risk === "read" && readsByName[op.name]) {
+          expect(op.permission).toBe(readsByName[op.name]);
+        } else if (op.risk === "read") {
           expect([
             "practitioners:manage",
             "accounting:manage",
@@ -77,8 +85,6 @@ describe("core registry", () => {
             "agreements:manage",
             "agreements:paper",
             "inbox:read",
-            "inbox:work",
-            "inbox:manage",
             "finance:read",
             "records:read",
             "audit:read",

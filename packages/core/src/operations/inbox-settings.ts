@@ -4,7 +4,7 @@
 //   inbox.settings.get       staff (inbox:manage, a person, not on MCP)   the inbox's settings
 //   inbox.settings.update    staff (inbox:manage, a person, not on MCP)   change them, audited
 //   inbox.categories         staff (inbox:read)                           the categories offered
-//   conversation.setCategory staff (inbox:work)                           file a conversation
+//   conversation.setCategory staff (inbox:work; an AI's waits for a person) file a conversation
 //
 // Step 3's settings are the categories. The other settings (addresses, the reopen window and the
 // auto-acknowledgement; chat on or off; reply targets and opening hours) join with steps 2, 4 and
@@ -108,7 +108,8 @@ export const conversationSetCategory = defineOperation({
   name: "conversation.setCategory",
   description:
     "File a conversation under one of the inbox's categories (inbox.categories lists them), or " +
-    "under none (category null). Returns the conversation.",
+    "under none (category null). From an assistant, MCP, an automation or an extension it is a " +
+    "suggestion: it waits for a person to apply it in Approvals. Returns the conversation.",
   input: z.object({
     id: z.string().startsWith("cnv_").max(64).describe("Conversation id (cnv_…)"),
     category: categorySchema.nullable(),
@@ -122,6 +123,9 @@ export const conversationSetCategory = defineOperation({
   output: conversationSchema,
   permission: "inbox:work",
   risk: "write",
+  // The AI suggests a category and a person applies it (the spec's Tools and AI): whatever the
+  // preset, a filing by any caller that is not a person waits for review.
+  alwaysReview: ["assistant", "mcp", "automation", "extension"],
   async handler(input, ctx) {
     const row = await requireConversation(ctx, input.id);
     checkVersion(row, input.version);

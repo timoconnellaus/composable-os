@@ -37,6 +37,7 @@ import { InboxIcon, StickyNoteIcon } from "lucide-react";
 import { type FormEvent, type ReactNode, useMemo, useState } from "react";
 import { toast } from "sonner";
 import { EmptyState, ErrorState } from "#/components/empty-state";
+import { NoInboxAccess, useInboxAccess } from "#/components/inbox/access";
 import { Composer, type StaffOption } from "#/components/inbox/composer";
 import {
   CHANNEL_LABELS,
@@ -64,9 +65,9 @@ const NOBODY = "nobody";
 function ConversationPage() {
   const { id } = Route.useParams();
   const { user } = Route.useRouteContext();
-  const works = user.role !== "viewer";
-  const read = useOp("conversation.get", { id }, { refetchInterval: 15_000 });
-  const users = useOp("user.list", ALL_USERS_INPUT, { staleTime: 60_000 });
+  const { reads, works } = useInboxAccess();
+  const read = useOp("conversation.get", { id }, { refetchInterval: 15_000, enabled: reads });
+  const users = useOp("user.list", ALL_USERS_INPUT, { staleTime: 60_000, enabled: reads });
   // Who may have a conversation: staff who work the inbox (the host checks again).
   const workers: StaffOption[] = useMemo(
     () =>
@@ -83,6 +84,13 @@ function ConversationPage() {
     [users.data, user.id],
   );
 
+  if (!reads) {
+    return (
+      <PageLayout title="Conversation" width="xl" back={{ to: "/inbox", label: "Inbox" }}>
+        <NoInboxAccess />
+      </PageLayout>
+    );
+  }
   if (read.isPending) {
     return (
       <PageLayout title="Conversation" width="xl" back={{ to: "/inbox", label: "Inbox" }}>
@@ -135,7 +143,10 @@ function ConversationPage() {
     >
       <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_20rem]">
         <div className="grid min-w-0 content-start gap-4">
+          {/* Keyed by the conversation: the route reuses this page from one to the next, and
+              the earlier pages, the reply, the note and the filled slots are that one's. */}
           <Thread
+            key={`thread:${conversation.id}`}
             conversationId={conversation.id}
             them={conversationWho(conversation)}
             messages={messages}
@@ -143,6 +154,7 @@ function ConversationPage() {
           />
           {works && (
             <Composer
+              key={`composer:${conversation.id}`}
               conversationId={conversation.id}
               channel={conversation.channel}
               staff={readers}
@@ -151,7 +163,12 @@ function ConversationPage() {
         </div>
         <div className="grid content-start gap-4">
           <WorkCard conversation={conversation} works={works} workers={workers} userId={user.id} />
-          <PersonCard conversation={conversation} works={works} others={otherConversations} />
+          <PersonCard
+            key={`person:${conversation.id}`}
+            conversation={conversation}
+            works={works}
+            others={otherConversations}
+          />
           <AboutCard conversation={conversation} works={works} />
         </div>
       </div>
@@ -649,7 +666,11 @@ function PersonCard({
   );
 }
 
-/** Make a Person from an unknown sender (person.create), then link the conversation to them. */
+/**
+ * Make a Person from an unknown sender and link the conversation to them: one host write
+ * (conversation.linkPerson with newPerson), so a failure leaves no Person and pressing again makes
+ * no second one.
+ */
 function MakePersonDialog({
   open,
   onOpenChange,
@@ -671,14 +692,12 @@ function MakePersonDialog({
     if (!given.trim()) return;
     setBusy(true);
     await write(async () => {
-      const person = await callOp("person.create", {
-        givenName: given.trim(),
-        ...(family.trim() ? { familyName: family.trim() } : {}),
-        ...(address ? { emails: [{ email: address }] } : {}),
-      });
       await callOp("conversation.linkPerson", {
         id: conversation.id,
-        personId: person.id,
+        newPerson: {
+          givenName: given.trim(),
+          ...(family.trim() ? { familyName: family.trim() } : {}),
+        },
         version: conversation.version,
       });
       await invalidateOps(client, "person.");
