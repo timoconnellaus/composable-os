@@ -10,7 +10,9 @@ import {
   checkModuleEnv,
   importsDeploymentEnv,
   importsModuleEnv,
+  loadsByComputedName,
   reachesClientDb,
+  reachesHostEnv,
   SCANNED,
   usesCtxExports,
 } from "./check-module-env.mjs";
@@ -37,6 +39,10 @@ test("every way to the module env or exports is caught", () => {
     'export * as w from "cloudflare:workers";',
     'const { env } = await import("cloudflare:workers");',
     "const { exports } = await import(`cloudflare:workers`);",
+    // Spacing, comments and line breaks change nothing: the file is parsed (#515, S2).
+    'import {\n  // the module env\n  env\n} from "cloudflare:workers"',
+    'import{env}from"cloudflare:workers"',
+    "const w = await import(/* any */ 'cloudflare:workers');",
   ]) {
     assert.equal(importsModuleEnv(text), true, text);
   }
@@ -63,6 +69,10 @@ test("ctx.exports, deploymentEnv and the clients' databases are caught", () => {
     'const ns = (env as Record<string, unknown>)["CLIENT_DB"];',
     'import type { ClientDb } from "@composable-os/db/client-db";',
     'import { clientDatabase } from "@composable-os/db/client-db";',
+    // The query path's binding too (#515, S1), and cos-client-db's service module.
+    "env.CLIENT_DB_QUERIES.query({ client: 'gym-b' }, [])",
+    'const q = env["CLIENT_DB_QUERIES"];',
+    'import type { ClientDbQueryService } from "@composable-os/db/client-db-service";',
   ]) {
     assert.equal(reachesClientDb(text), true, text);
   }
@@ -79,5 +89,48 @@ test("the module's other exports, types and comments pass", () => {
     'export { DurableObject } from "cloudflare:workers";',
   ]) {
     assert.equal(importsModuleEnv(text), false, text);
+  }
+});
+
+test("code loaded by a name the check cannot read is caught (#515, S2)", () => {
+  for (const text of [
+    "const m = await import(name);",
+    "const m = await import(`cloudflare:${'workers'}`);",
+    'const m = await import("cloudflare:" + "workers");',
+    'const { env } = require("cloudflare:workers");',
+    "const m = require(name);",
+  ]) {
+    assert.equal(loadsByComputedName(text) || importsModuleEnv(text), true, text);
+  }
+  assert.equal(loadsByComputedName('const m = await import("./module.ts");'), false);
+});
+
+test("a real env reached from a class that should hold a client's is caught (#515, S2)", () => {
+  for (const text of [
+    // A Durable Object class on its own base: its `env` is the host's.
+    "export class X extends DurableObject<Env> { m() { return 1; } }",
+    "export class X extends Agent<Env> {}",
+    "export class X extends withVoice(Agent<Env>) {}",
+    // `this.env` outside an entry or a client's object, plain, by key or by reflection.
+    "class Helper extends Base { m() { return this.env.REGISTRY; } }",
+    'class Helper { m() { return this["env"]; } }',
+    'class Helper { m() { return Reflect.get(this, "env"); } }',
+    "class Helper { m(k) { return this[k]; } }",
+    // A Worker's env module, whole.
+    'import * as hostEnv from "./server/request-env.ts";',
+    'import * as hostEnv from "../deployment-env";',
+  ]) {
+    assert.equal(reachesHostEnv(text), true, text);
+  }
+  for (const text of [
+    "export class X extends ClientDurableObject(DurableObject<Env>) { m() { return this.env.DB; } }",
+    "export class X extends ClientDurableObject(withVoice(Agent<Env>)) { m() { return this.env; } }",
+    "export class E extends WorkerEntrypoint<Env> { m() { return this.env; } }",
+    "export class W extends WorkflowEntrypoint<Env, P> { run() { return this.env; } }",
+    "class Compiler { constructor(readonly env: Scope) {} m() { return this.env.fields; } }",
+    "class Compiler { env: Scope; m() { return this.env; } }",
+    'import { requestEnv } from "./server/request-env.ts";',
+  ]) {
+    assert.equal(reachesHostEnv(text), false, text);
   }
 });
