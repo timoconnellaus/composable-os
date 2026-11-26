@@ -6,6 +6,7 @@
   "description": "Stage 66: the operator's Worker, through which cos reaches clients' databases and their part of the shared stores. Deployed on a fleet deployment only.",
   "type": "module",
   "scripts": {
+    "build": "wrangler deploy --dry-run --outdir dist",
     "types": "wrangler types --strict-vars=false",
     "typecheck": "wrangler types --strict-vars=false --check && tsc --noEmit"
   },
