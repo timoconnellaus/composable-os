@@ -16,5 +16,7 @@ The decisions this pack rests on, as recorded in the repository's ADRs.
 | [ADR 0600](https://github.com/timoconnellaus/composable-os/blob/main/docs/adr/0600-a-pack-role-and-its-grants-add-up.md) | A pack role and its grants add up; the front desk's permission |
 | [ADR 0625](https://github.com/timoconnellaus/composable-os/blob/main/docs/adr/0625-restricted-pack-permissions.md) | Restricted pack permissions, and the caller of a pack's tool |
 | [ADR 0862](https://github.com/timoconnellaus/composable-os/blob/main/docs/adr/0862-the-equipment-pack.md) | The Equipment pack: items, faults, out of service by a tool and back by a person |
+| [ADR 0863](https://github.com/timoconnellaus/composable-os/blob/main/docs/adr/0863-a-state-only-tools-leave-keeps-its-record-out-of-the-trash.md) | A state only tools leave keeps its record out of the Trash |
+| [ADR 0864](https://github.com/timoconnellaus/composable-os/blob/main/docs/adr/0864-uniqueness-that-folds-case-and-spaces.md) | Uniqueness that folds case and spaces |
 
 The specification is stage 59's, [59-equipment.md](https://github.com/timoconnellaus/composable-os/blob/main/docs/stages/59-equipment.md).

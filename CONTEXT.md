@@ -2682,7 +2682,8 @@ _Avoid_: FAQ entry, article, knowledge base article, support doc
 
 **Item** (the Equipment pack; stage 59, ADR 0862)
 One thing a business owns and looks after (`equipment.item`): a treadmill, a rack, the sauna, a
-drill, a van. It has a **tag**, the code on its sticker, which no other live item shares; a place, a
+drill, a van. It has a **tag**, the code on its sticker, which no other item in or out of service
+shares, whatever its case or outer spaces (kept upper case); a retired item gives it up. A place, a
 supplier (an Organisation), what it cost, when its warranty ends, and its **keeper**, the staff
 account who looks after it (empty means the managers). It is in service, **out of service** (why,
 and since when) or retired. Not the Shop's item, which is something sold.
@@ -2692,13 +2693,16 @@ _Avoid_: asset (fine in prose), equipment (the pack's name, not one record), mac
 An item's state while it must not be used. Any staff member who may report faults takes an item
 out, with why, on its own or in the same call as a fault report; only a manager
 (`equipment:manage`) puts it back, and only a person, never an AI. Nothing takes an item out by
-itself.
+itself. While it is out, why is changed only by a manager, and the item is put in the Trash only
+by a manager in person (ADR 0863).
 _Avoid_: broken (a fault's word), out of order (what members are shown)
 
 **Fault** (stage 59, ADR 0862)
 A report that something is wrong with an item (`equipment.fault`): what is wrong and how bad (a
 safety risk, not working, worn or cosmetic), by whom. Reported, then acknowledged, then closed by a
-manager as fixed, not a fault or a duplicate, each with why. An injury to a person is not a fault.
+manager as fixed, not a fault or a duplicate, each with why. What is wrong and how bad are the
+report's: only a manager corrects them. The same report again, or a retry, is the same fault while
+it is open. None is made on a retired item. An injury to a person is not a fault.
 _Avoid_: ticket (Ticketing's), issue, incident
 
 **Confirmation** (read and understood; stage 38, ADR 0702)

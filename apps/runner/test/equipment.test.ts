@@ -183,7 +183,7 @@ describe("the pack in a product", () => {
 
 describe("the register's tag (AC 1, 15)", () => {
   it("a manager adds a treadmill with a tag, supplier, cost and warranty; the same tag again is refused", async () => {
-    const tag = unique("TM-");
+    const tag = unique("TM-").toUpperCase();
     const made = await run<Rec>(
       "record.create",
       {
@@ -219,9 +219,56 @@ describe("the register's tag (AC 1, 15)", () => {
     await newItem("Mat 2");
   });
 
+  it("ignores case and outer spaces: the host keeps the tag trimmed and upper case", async () => {
+    const tag = unique("cs-").toUpperCase();
+    const made = await run<Rec>(
+      "record.create",
+      { object: ITEM, values: { name: "Cable stack 1", tag: `  ${tag.toLowerCase()} ` } },
+      staff(manager),
+    );
+    expect(made.values.tag).toBe(tag);
+    for (const variant of [tag.toLowerCase(), `${tag} `, ` ${tag}`]) {
+      const refused = await refusal(
+        run(
+          "record.create",
+          { object: ITEM, values: { name: "Copy", tag: variant } },
+          staff(admin),
+        ),
+      );
+      expect(refused.code, JSON.stringify(variant)).toBe("conflict");
+    }
+    const other = await newItem("Cable stack 2", { tag: unique("CS-") });
+    expect(
+      (
+        await refusal(
+          run(
+            "record.update",
+            { object: ITEM, id: other, values: { tag: ` ${tag.toLowerCase()}` } },
+            staff(admin),
+          ),
+        )
+      ).code,
+    ).toBe("conflict");
+    // Spaces alone are no tag.
+    const blank = await run<Rec>(
+      "record.create",
+      { object: ITEM, values: { name: "Blank", tag: "   " } },
+      staff(admin),
+    );
+    expect(blank.values.tag ?? null).toBeNull();
+  });
+
+  it("a retired item gives its tag up to its replacement", async () => {
+    const tag = unique("RP-");
+    const old = await newItem("Old rower", { tag });
+    await run("x.equipment.retire", { itemId: old, reason: "Replaced" }, staff(manager));
+    const replacement = await newItem("New rower", { tag });
+    expect((await get(ITEM, replacement)).values.tag).toBe(tag.toUpperCase());
+  });
+
   it("a register loads through the admin's import; a second run creates nothing twice", async () => {
-    const a = unique("RK-");
-    const b = unique("RK-");
+    const a = unique("RK-").toUpperCase();
+    const b = unique("RK-").toUpperCase();
     const csv = `Name,Category,Place,Tag\nSquat rack 1,strength,Weights room,${a}\nSquat rack 2,strength,Weights room,${b}\n`;
     const first = await run<{ created: string[]; skipped: unknown[] }>(
       "import.records.commit",
@@ -243,6 +290,123 @@ describe("the register's tag (AC 1, 15)", () => {
       .bind(a, b)
       .all<{ n: number }>();
     expect(results[0]?.n).toBe(2);
+    // The same register re-exported with other case and stray spaces matches too.
+    const messy = `Name,Category,Place,Tag\nSquat rack 1,strength,Weights room, ${a.toLowerCase()} \nSquat rack 2,strength,Weights room,${b.toLowerCase()}  \n`;
+    const third = await run<{ created: string[]; skipped: { row: number }[] }>(
+      "import.records.commit",
+      { object: ITEM, csv: messy, skipInvalid: true },
+      staff(admin),
+    );
+    expect(third.created).toEqual([]);
+    expect(third.skipped.map((s) => s.row)).toEqual([1, 2]);
+  });
+});
+
+describe("the Trash (ADR 0863)", () => {
+  it("a member cannot Trash an item out of service, so cannot make it again in service", async () => {
+    const tag = unique("PB-");
+    const id = await newItem("Probe bike", { tag });
+    await run("x.equipment.takeOut", { itemId: id, reason: "Broken: do not use" }, staff(member));
+    const refused = await refusal(run("record.delete", { object: ITEM, id }, staff(member)));
+    expect(refused.code).toBe("forbidden");
+    expect(refused.message).toContain("out of service");
+    expect((refused.details as { rule?: string } | undefined)?.rule).toBe("state_trash");
+    expect(
+      (
+        await refusal(
+          run(
+            "record.create",
+            { object: ITEM, values: { name: "Probe bike", tag } },
+            staff(member),
+          ),
+        )
+      ).code,
+    ).toBe("conflict");
+    expect((await get(ITEM, id)).values.state).toBe("out_of_service");
+  });
+
+  it("the assistant and an MCP client never Trash it, whatever the preset", async () => {
+    const id = await newItem("Probe bike 2");
+    await run("x.equipment.takeOut", { itemId: id, reason: "Broken: do not use" }, staff(member));
+    try {
+      for (const preset of ["balanced", "autonomous"] as const) {
+        await setPreset(preset);
+        for (const ctx of [assistant(admin), mcp(admin)]) {
+          const refused = await refusal(run("record.delete", { object: ITEM, id }, ctx));
+          if (refused.code === "pending_approval") {
+            // Asked: a person approving it does not make it the person's own act.
+            const actionId = String(
+              (refused.details as { actionId?: string } | undefined)?.actionId,
+            );
+            const decided = await run<{ results: { status: string }[] }>(
+              "approval.approve",
+              { actionIds: [actionId] },
+              staff(admin),
+            ).catch(async (error: { details?: { confirmLabel?: string } }) => {
+              const label = error.details?.confirmLabel;
+              if (!label) throw error;
+              return run<{ results: { status: string }[] }>(
+                "approval.approve",
+                { actionIds: [actionId], confirm: label },
+                staff(admin),
+              );
+            });
+            expect(decided.results.map((r) => r.status)).not.toEqual(["applied"]);
+          } else {
+            expect(refused.code, `${preset} ${ctx.actor}`).toBe("forbidden");
+          }
+          expect((await get(ITEM, id)).values.state).toBe("out_of_service");
+        }
+      }
+    } finally {
+      await setPreset("balanced");
+    }
+  });
+
+  it("a manager in person may Trash it; an item in service is any member's to Trash", async () => {
+    const out = await newItem("Probe bike 3");
+    await run("x.equipment.takeOut", { itemId: out, reason: "Broken" }, staff(member));
+    await run("record.delete", { object: ITEM, id: out }, staff(manager));
+    const inService = await newItem("Probe bike 4");
+    await run("record.delete", { object: ITEM, id: inService }, staff(member));
+    for (const id of [out, inService]) {
+      expect((await refusal(get(ITEM, id))).code).toBe("not_found");
+    }
+  });
+
+  it("an open fault is a manager's to Trash; a closed one anyone's", async () => {
+    const id = await newItem("Probe sauna");
+    const { faultId } = await run<{ faultId: string }>(
+      "x.equipment.reportFaultOnly",
+      { itemId: id, description: "Heater sparks", severity: "safety_risk" },
+      staff(member),
+    );
+    expect(
+      (await refusal(run("record.delete", { object: FAULT, id: faultId }, staff(member)))).code,
+    ).toBe("forbidden");
+    const register = await run<{ items: { id: string; safetyRisks: number }[] }>(
+      "x.equipment.register",
+      { q: "Probe sauna" },
+      staff(member),
+    );
+    expect(register.items.find((i) => i.id === id)?.safetyRisks).toBe(1);
+    await run(
+      "x.equipment.triage",
+      { faultId, action: "not_a_fault", why: "The light, not sparks" },
+      staff(manager),
+    );
+    await run("record.delete", { object: FAULT, id: faultId }, staff(member));
+  });
+
+  it("a restore whose tag was taken meanwhile says so plainly", async () => {
+    const tag = unique("RS-");
+    const first = await newItem("Restore bike", { tag });
+    await run("record.delete", { object: ITEM, id: first }, staff(member));
+    await newItem("Restore bike again", { tag });
+    const refused = await refusal(run("record.restore", { object: ITEM, id: first }, staff(admin)));
+    expect(refused.code).toBe("conflict");
+    expect(refused.message).toContain("cannot come back from the Trash");
+    expect(refused.message).toContain("Tag");
   });
 });
 
@@ -250,6 +414,7 @@ describe("out of service and back (AC 6, 7)", () => {
   it("no record write moves an item, whoever makes it: only the tools do", async () => {
     const id = await newItem("Bike 1");
     for (const values of [
+      { state: "out_of_service" },
       { state: "out_of_service", outReason: "Broken" },
       { state: "retired", notes: "Gone" },
     ]) {
@@ -384,6 +549,140 @@ describe("out of service and back (AC 6, 7)", () => {
   });
 });
 
+describe("what only the tools write", () => {
+  it("why an item is out is the tools'; a manager corrects it; nobody else rewrites or clears it", async () => {
+    const id = await newItem("Leg press");
+    await run("x.equipment.takeOut", { itemId: id, reason: "Cable frayed" }, staff(member));
+    for (const values of [{ outReason: "Fine now, use it" }, { outReason: null }]) {
+      expect(
+        (await refusal(run("record.update", { object: ITEM, id, values }, staff(admin)))).code,
+      ).toBe("invalid_input");
+    }
+    expect(
+      (
+        await refusal(
+          run("x.equipment.correctOutReason", { itemId: id, reason: "Fine now" }, staff(member)),
+        )
+      ).code,
+    ).toBe("forbidden");
+    await run(
+      "x.equipment.correctOutReason",
+      { itemId: id, reason: "Cable frayed at the top pulley" },
+      staff(manager),
+    );
+    expect((await get(ITEM, id)).values.outReason).toBe("Cable frayed at the top pulley");
+  });
+
+  it("a fault's severity and words are the report's; only a manager corrects them", async () => {
+    const id = await newItem("Smith machine");
+    const { faultId } = await run<{ faultId: string }>(
+      "x.equipment.reportFaultOnly",
+      { itemId: id, description: "Safety catch does not lock", severity: "safety_risk" },
+      staff(member),
+    );
+    for (const values of [{ severity: "worn" }, { description: "Fine" }]) {
+      expect(
+        (await refusal(run("record.update", { object: FAULT, id: faultId, values }, staff(admin))))
+          .code,
+      ).toBe("invalid_input");
+    }
+    // Nor made by a record write with them set.
+    expect(
+      (
+        await refusal(
+          run(
+            "record.create",
+            { object: FAULT, values: { item: id, description: "x", severity: "worn" } },
+            staff(admin),
+          ),
+        )
+      ).code,
+    ).toBe("invalid_input");
+    expect(
+      (await refusal(run("x.equipment.correctFault", { faultId, severity: "worn" }, staff(member))))
+        .code,
+    ).toBe("forbidden");
+    await run(
+      "x.equipment.correctFault",
+      { faultId, severity: "not_working", description: "Safety catch is stiff" },
+      staff(manager),
+    );
+    expect((await get(FAULT, faultId)).values).toMatchObject({
+      severity: "not_working",
+      description: "Safety catch is stiff",
+    });
+  });
+});
+
+describe("a report made once (reportFault, reportFaultOnly)", () => {
+  it("a retry with its request id, or the same report again, makes no second fault", async () => {
+    const id = await newItem("Spin bike 9");
+    const input = {
+      itemId: id,
+      description: "Pedal loose",
+      severity: "not_working",
+      requestId: unique("req"),
+    };
+    const first = await run<{ faultId: string; alreadyReported: boolean }>(
+      "x.equipment.reportFault",
+      { ...input, takeOut: { reason: "Pedal loose" } },
+      staff(member),
+    );
+    const retry = await run<{ faultId: string; alreadyReported: boolean; takenOut: boolean }>(
+      "x.equipment.reportFault",
+      { ...input, takeOut: { reason: "Pedal loose" } },
+      staff(member),
+    );
+    expect(retry).toMatchObject({ faultId: first.faultId, alreadyReported: true, takenOut: false });
+    const same = await run<{ faultId: string; alreadyReported: boolean }>(
+      "x.equipment.reportFaultOnly",
+      { itemId: id, description: "pedal loose", severity: "not_working" },
+      staff(member),
+    );
+    // Without the request id it is found by its words (another key), so this one is new...
+    const again = await run<{ faultId: string; alreadyReported: boolean }>(
+      "x.equipment.reportFaultOnly",
+      { itemId: id, description: "Pedal loose ", severity: "not_working" },
+      staff(member),
+    );
+    // ...and the same words again are the same report.
+    expect(again).toMatchObject({ faultId: same.faultId, alreadyReported: true });
+    const { results } = await env.DB.prepare(
+      "SELECT count(*) AS n FROM rec_x_equipment_fault WHERE item = ?",
+    )
+      .bind(id)
+      .all<{ n: number }>();
+    expect(results[0]?.n).toBe(2);
+  });
+
+  it("refuses a fault on a retired item", async () => {
+    const id = await newItem("Old bench");
+    await run("x.equipment.retire", { itemId: id, reason: "Worn out" }, staff(manager));
+    for (const name of ["x.equipment.reportFault", "x.equipment.reportFaultOnly"]) {
+      const refused = await refusal(
+        run(name, { itemId: id, description: "Wobbly", severity: "worn" }, staff(member)),
+      );
+      expect(refused.inner ?? refused.code, name).toBe("invalid_input");
+    }
+    const { results } = await env.DB.prepare(
+      "SELECT count(*) AS n FROM rec_x_equipment_fault WHERE item = ?",
+    )
+      .bind(id)
+      .all<{ n: number }>();
+    expect(results[0]?.n).toBe(0);
+  });
+
+  it("retire on a retired item says it is already retired", async () => {
+    const id = await newItem("Old bench 2");
+    await run("x.equipment.retire", { itemId: id, reason: "Worn out" }, staff(manager));
+    const twice = await refusal(
+      run("x.equipment.retire", { itemId: id, reason: "Worn out" }, staff(manager)),
+    );
+    expect(twice.inner ?? twice.code).toBe("conflict");
+    expect(JSON.stringify(twice)).toContain("already retired");
+  });
+});
+
 describe("a coach granted equipment:report (AC 6)", () => {
   it("reports a safety-risk fault and takes the machine out of service in one call", async () => {
     const id = await newItem("Cable machine 1", { tag: unique("CB-") });
@@ -445,6 +744,8 @@ describe("a coach granted equipment:report (AC 6)", () => {
       ["record.create", { object: ITEM, values: { name: "Mine" } }],
       ["record.update", { object: ITEM, id, values: { name: "Renamed" } }],
       ["record.update", { object: FAULT, id: fault.faultId, values: { closedWhy: "x" } }],
+      ["record.delete", { object: ITEM, id }],
+      ["record.delete", { object: FAULT, id: fault.faultId }],
     ] as const) {
       expect((await refusal(run(name, input, staff(coach)))).code, name).toBe("forbidden");
     }
@@ -527,7 +828,7 @@ describe("what the assistant may do, under the balanced preset", () => {
     ).toBe(id);
   });
 
-  it("asks to report, take out, retire and triage, and each waits for a person; nothing changes", async () => {
+  it("asks to report, take out, retire and triage, and each waits for a person under balanced and autonomous; nothing changes", async () => {
     await setPreset("balanced");
     const id = await newItem("Treadmill AI 2");
     const { faultId } = await run<{ faultId: string }>(
@@ -549,10 +850,16 @@ describe("what the assistant may do, under the balanced preset", () => {
       ["x.equipment.retire", { itemId: id, reason: "Worn out" }],
       ["x.equipment.triage", { faultId, action: "not_a_fault", why: "Normal noise" }],
     ] as const) {
-      for (const ctx of [assistant(admin), mcp(admin)]) {
-        expect((await refusal(run(name, input, ctx))).code, name).toBe("pending_approval");
+      for (const preset of ["balanced", "autonomous"] as const) {
+        await setPreset(preset);
+        for (const ctx of [assistant(admin), mcp(admin)]) {
+          expect((await refusal(run(name, input, ctx))).code, `${preset} ${name}`).toBe(
+            "pending_approval",
+          );
+        }
       }
     }
+    await setPreset("balanced");
     expect((await get(ITEM, id)).values.state).toBe("in_service");
     expect((await get(FAULT, faultId)).values.state).toBe("reported");
     const { results } = await env.DB.prepare(
@@ -561,6 +868,28 @@ describe("what the assistant may do, under the balanced preset", () => {
       .bind(id)
       .all<{ n: number }>();
     expect(results[0]?.n).toBe(1);
+  });
+
+  it("reports a fault without taking anything out, with no approval, under balanced and autonomous", async () => {
+    const id = await newItem("Treadmill AI 5");
+    try {
+      for (const preset of ["balanced", "autonomous"] as const) {
+        await setPreset(preset);
+        const out = await run<{ faultId: string; takenOut: boolean }>(
+          "x.equipment.reportFaultOnly",
+          { itemId: id, description: `The member says it rattles (${preset})`, severity: "worn" },
+          assistant(admin),
+        );
+        expect(out.takenOut).toBe(false);
+        expect((await get(FAULT, out.faultId)).values).toMatchObject({
+          state: "reported",
+          reportedBy: admin.id,
+        });
+      }
+    } finally {
+      await setPreset("balanced");
+    }
+    expect((await get(ITEM, id)).values.state).toBe("in_service");
   });
 
   it("a person approves the assistant's take-out: it is applied", async () => {

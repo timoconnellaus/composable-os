@@ -5,12 +5,15 @@
 //
 // Who may call which:
 //   - equipment:report (every staff member; granted to a coach or a cleaner, ADR 0600): the
-//     register, one item, report a fault, take an item out of service;
+//     register, one item, report a fault (with or without taking the item out), take an item
+//     out of service;
 //   - equipment:manage (restricted, ADR 0625: admins and those granted it): put an item back in
-//     service (a person's own act, never an AI's: decision 4), retire it, triage faults.
-// Taking out, retiring and triage are a person's acts: the assistant, an MCP client or an
-// automation may ask, and the call waits for a person (personApproves, ADR 0552). So is a fault
-// report, because the same call may take the item out of service (decision 3).
+//     service (a person's own act, never an AI's: decision 4), retire it, triage faults, and
+//     correct a fault's report or why an item is out (fields only the tools write).
+// Taking out, retiring, triage and corrections are a person's acts: the assistant, an MCP client
+// or an automation may ask, and the call waits for a person (personApproves, ADR 0552). So is
+// `reportFault`, which takes the item out in the same call (decision 3); `reportFaultOnly`
+// changes nothing but the new fault, and the assistant may make it as an ordinary write.
 import { defineTool, type ExtensionContext, OpsCallError, z } from "@composable-os/sdk";
 
 export const ITEM = "equipment.item";
@@ -314,70 +317,200 @@ const STATE_WORDS: Record<string, string> = {
   retired: "retired",
 };
 
-export const reportFault = defineTool({
-  description:
-    "Report a fault on an item: what is wrong (never an injury: that goes on the incident " +
-    "form) and how bad (safety_risk, not_working, worn). The report is recorded as the caller's. " +
-    "With takeOut, the item is also taken out of service in the same call, with the reason " +
-    "given: for a staff member who sees something unsafe (decision 3). Nothing takes an item out " +
-    "by itself. The answer says whether it was taken out, the item's state and whether it is " +
-    "under warranty. A person's act: the assistant, an MCP client or an automation may ask, and " +
-    "it waits for a person to approve it.",
-  input: z.object({
-    itemId: ids,
-    description: z.string().trim().min(3).max(4000),
-    severity: z.enum(SEVERITIES),
-    takeOut: z
-      .object({ reason })
-      .optional()
-      .describe("Also take the item out of service, with why it must not be used"),
-  }),
-  output: z.object({
-    faultId: z.string(),
-    itemId: z.string(),
-    takenOut: z.boolean().describe("This call took the item out of service"),
-    itemState: z.enum(ITEM_STATES).nullable(),
-    underWarranty: z.boolean(),
-    message: z.string(),
-  }),
-  risk: "write",
-  permission: REPORT,
-  personApproves: true,
-  async handler(input, ctx) {
-    const staff = staffOf(ctx);
-    // The report first: a call stopped part way leaves the fault recorded, never an item taken
-    // out with nothing saying why.
+/** Why a take-out did not happen: the item was not in service, or the host refused it. */
+type MoveOutResult = { moved: true } | { moved: false; error: string | null };
+
+/**
+ * Takes the item out of service and says what happened, never throwing: for a report whose fault
+ * is already recorded, which must say truthfully that the take-out failed.
+ */
+async function tryMoveOut(
+  ctx: ExtensionContext,
+  itemId: string,
+  why: string,
+): Promise<MoveOutResult> {
+  try {
+    return (await moveOut(ctx, itemId, why)) ? { moved: true } : { moved: false, error: null };
+  } catch (error) {
+    return { moved: false, error: error instanceof Error ? error.message : String(error) };
+  }
+}
+
+/** A short, stable digest of a text (FNV-1a, 32 bits): enough to tell one report from another. */
+function digest(value: string): string {
+  let hash = 0x811c9dc5;
+  for (let i = 0; i < value.length; i++) {
+    hash ^= value.charCodeAt(i);
+    hash = Math.imul(hash, 0x01000193) >>> 0;
+  }
+  return hash.toString(36);
+}
+
+const reportInput = {
+  itemId: ids,
+  description: z.string().trim().min(3).max(4000),
+  severity: z.enum(SEVERITIES),
+  requestId: z
+    .string()
+    .trim()
+    .min(1)
+    .max(64)
+    .optional()
+    .describe(
+      "The caller's own id for this report, the same on every retry: a retry finds the report " +
+        "it made rather than making a second. Left out, a report by the same person on the same " +
+        "item with the same words and severity, still open, is the same report.",
+    ),
+};
+
+const reportOutput = z.object({
+  faultId: z.string(),
+  itemId: z.string(),
+  alreadyReported: z
+    .boolean()
+    .describe("This report was made before (a retry, or the same report again): no second fault"),
+  takenOut: z.boolean().describe("This call took the item out of service"),
+  takeOutFailed: z
+    .string()
+    .nullable()
+    .describe("Why the take-out asked for did not happen, when it did not; the fault is recorded"),
+  itemState: z.enum(ITEM_STATES).nullable(),
+  underWarranty: z.boolean(),
+  message: z.string(),
+});
+
+/**
+ * Records a fault once: found by its report key (the caller's request id, or the reporter, item,
+ * severity and words) among the open faults before it is made, and by the database's uniqueness
+ * on the key when two calls make it at once. The host refuses a fault on a retired item.
+ */
+async function recordFault(
+  ctx: ExtensionContext,
+  input: { itemId: string; description: string; severity: string; requestId?: string | undefined },
+): Promise<{ fault: HostRecord; again: boolean }> {
+  const staff = staffOf(ctx);
+  const who = staff?.userId ?? "-";
+  const reportKey = input.requestId
+    ? `r:${who}:${input.requestId}`
+    : `k:${who}:${input.itemId}:${input.severity}:${digest(input.description.toLowerCase())}`;
+  const find = async () =>
+    (
+      await ctx.ops.call<{ items: HostRecord[] }>("record.list", {
+        object: FAULT,
+        filter: {
+          and: [
+            { field: "reportKey", op: "eq", value: reportKey },
+            { field: "state", op: "in", value: ["reported", "acknowledged"] },
+          ],
+        },
+        limit: 1,
+      })
+    ).items[0];
+  const earlier = await find();
+  if (earlier) return { fault: earlier, again: true };
+  try {
     const fault = await ctx.ops.call<HostRecord>("record.create", {
       object: FAULT,
       values: {
         item: input.itemId,
         description: input.description,
         severity: input.severity,
+        reportKey,
         reportedBy: staff?.userId ?? null,
         reportedByName: staff?.name || null,
       },
     });
-    const takenOut = input.takeOut ? await moveOut(ctx, input.itemId, input.takeOut.reason) : false;
-    const after = await readItem(ctx, input.itemId);
-    const state = (text(after.values.state) as (typeof ITEM_STATES)[number] | null) ?? null;
-    const underWarranty = coversDay(
-      text(after.values.warrantyUntil),
-      fault.createdAt ?? new Date().toISOString(),
-    );
-    const said = input.takeOut
-      ? takenOut
-        ? " It is out of service."
-        : ` It was not taken out of service: it is ${STATE_WORDS[state ?? ""] ?? "not in service"}.`
-      : "";
-    return {
-      faultId: fault.id,
-      itemId: input.itemId,
-      takenOut,
-      itemState: state,
-      underWarranty,
-      message: `Fault reported.${said}${underWarranty ? " The item is under warranty." : ""}`,
-    };
+    return { fault, again: false };
+  } catch (error) {
+    // The same report made at the same moment by another call: that one is this one.
+    const raced = isConflict(error) ? await find() : undefined;
+    if (raced) return { fault: raced, again: true };
+    throw error;
+  }
+}
+
+async function reportHandler(
+  input: {
+    itemId: string;
+    description: string;
+    severity: string;
+    requestId?: string | undefined;
+    takeOut?: { reason: string } | undefined;
   },
+  ctx: ExtensionContext,
+): Promise<z.input<typeof reportOutput>> {
+  // The report first: a call stopped part way leaves the fault recorded, never an item taken
+  // out with nothing saying why; a retry finds it and goes on to the take-out.
+  const { fault, again } = await recordFault(ctx, input);
+  const out = input.takeOut
+    ? await tryMoveOut(ctx, input.itemId, input.takeOut.reason)
+    : ({ moved: false, error: null } as MoveOutResult);
+  const after = await readItem(ctx, input.itemId).catch(() => null);
+  const state = (text(after?.values.state) as (typeof ITEM_STATES)[number] | null) ?? null;
+  const underWarranty = coversDay(
+    text(after?.values.warrantyUntil),
+    fault.createdAt ?? new Date().toISOString(),
+  );
+  const failed =
+    input.takeOut && !out.moved
+      ? out.error
+        ? `it could not be taken out of service (${out.error}); take it out with takeOut`
+        : `it was not taken out of service: it is ${STATE_WORDS[state ?? ""] ?? "not in service"}`
+      : null;
+  const said = input.takeOut
+    ? out.moved
+      ? " It is out of service."
+      : ` The fault is recorded, but ${failed}.`
+    : "";
+  return {
+    faultId: fault.id,
+    itemId: input.itemId,
+    alreadyReported: again,
+    takenOut: out.moved,
+    takeOutFailed: input.takeOut && !out.moved ? failed : null,
+    itemState: state,
+    underWarranty,
+    message: `${again ? "Already reported." : "Fault reported."}${said}${underWarranty ? " The item is under warranty." : ""}`,
+  };
+}
+
+export const reportFault = defineTool({
+  description:
+    "Report a fault on an item and take it out of service in the same call: what is wrong " +
+    "(never an injury: that goes on the incident form), how bad (safety_risk, not_working, worn) " +
+    "and, in takeOut, why it must not be used. For a staff member who sees something unsafe " +
+    "(decision 3). To report without taking it out, use reportFaultOnly. The report is recorded " +
+    "as the caller's, once: a retry with the same requestId (or the same report while it is " +
+    "open) finds it. The answer says whether it was taken out, and why not if not. A fault on a " +
+    "retired item is refused. A person's act: the assistant, an MCP client or an automation " +
+    "may ask, and it waits for a person to approve it.",
+  input: z.object({
+    ...reportInput,
+    takeOut: z
+      .object({ reason })
+      .optional()
+      .describe("Take the item out of service, with why it must not be used"),
+  }),
+  output: reportOutput,
+  risk: "write",
+  permission: REPORT,
+  personApproves: true,
+  handler: reportHandler,
+});
+
+export const reportFaultOnly = defineTool({
+  description:
+    "Report a fault on an item without taking it out of service: what is wrong (never an " +
+    "injury: that goes on the incident form) and how bad (safety_risk, not_working, worn). The " +
+    "report is recorded as the caller's, once: a retry with the same requestId (or the same " +
+    "report while it is open) finds it. Nothing else changes: the item stays as it is, and a " +
+    "manager triages the fault. To take the item out too, use reportFault or takeOut. A fault " +
+    "on a retired item is refused.",
+  input: z.object(reportInput),
+  output: reportOutput,
+  risk: "write",
+  permission: REPORT,
+  handler: (input, ctx) => reportHandler(input, ctx),
 });
 
 export const takeOut = defineTool({
@@ -506,6 +639,13 @@ export const retire = defineTool({
   async handler(input, ctx) {
     const now = await readItem(ctx, input.itemId);
     const state = text(now.values.state) ?? "";
+    if (state === "retired") {
+      // Said as the other tools say it; the host would refuse the move either way.
+      throw new OpsCallError("conflict", "The item is already retired", {
+        reason: "already_retired",
+        state,
+      });
+    }
     const before = text(now.values.notes);
     const line = `Retired ${new Date().toISOString().slice(0, 10)}: ${input.reason}`;
     try {
@@ -518,6 +658,9 @@ export const retire = defineTool({
           state: "retired",
           listForMembers: "not_listed",
           notes: before ? `${before}\n\n${line}` : line,
+          // Not out of service any more: retired.
+          outReason: null,
+          outSince: null,
         },
       });
     } catch (error) {
@@ -584,5 +727,77 @@ export const triage = defineTool({
       });
     }
     return { faultId: input.faultId, state: to };
+  },
+});
+
+// --- Corrections ---------------------------------------------------------------------------------
+
+export const correctFault = defineTool({
+  description:
+    "Correct a fault's report: how bad it is (safety_risk, not_working, worn) and what is wrong. " +
+    "Once reported these are fixed for everyone else, so a safety risk is never quietly lowered; " +
+    "a manager (equipment:manage) corrects them here. The assistant, an MCP client or an " +
+    "automation may ask, and it waits for a person to approve it.",
+  input: z
+    .object({
+      faultId: ids,
+      severity: z.enum(SEVERITIES).optional(),
+      description: z.string().trim().min(3).max(4000).optional(),
+    })
+    .refine((v) => v.severity !== undefined || v.description !== undefined, {
+      message: "Give the severity, the description or both",
+    }),
+  output: z.object({
+    faultId: z.string(),
+    severity: z.enum(SEVERITIES).nullable(),
+    description: z.string().nullable(),
+  }),
+  risk: "write",
+  permission: MANAGE,
+  personApproves: true,
+  async handler(input, ctx) {
+    const after = await ctx.ops.call<HostRecord>("record.update", {
+      object: FAULT,
+      id: input.faultId,
+      values: {
+        ...(input.severity ? { severity: input.severity } : {}),
+        ...(input.description ? { description: input.description } : {}),
+      },
+    });
+    return {
+      faultId: input.faultId,
+      severity: (text(after.values.severity) as (typeof SEVERITIES)[number] | null) ?? null,
+      description: text(after.values.description),
+    };
+  },
+});
+
+export const correctOutReason = defineTool({
+  description:
+    "Correct why an item that is out of service must not be used. Only the tools that take it " +
+    "out write the reason, so nobody can change it to 'fine now' while it is out; a manager " +
+    "(equipment:manage) corrects it here. To put the item back, use putBack. The assistant, an " +
+    "MCP client or an automation may ask, and it waits for a person to approve it.",
+  input: z.object({ itemId: ids, reason }),
+  output: z.object({ itemId: z.string(), outReason: z.string().nullable() }),
+  risk: "write",
+  permission: MANAGE,
+  personApproves: true,
+  async handler(input, ctx) {
+    const now = await readItem(ctx, input.itemId);
+    const state = text(now.values.state) ?? "";
+    if (state !== "out_of_service") {
+      throw new OpsCallError(
+        "conflict",
+        `The item is ${STATE_WORDS[state] ?? state}, not out of service`,
+        { reason: "not_out_of_service", state },
+      );
+    }
+    const after = await ctx.ops.call<HostRecord>("record.update", {
+      object: ITEM,
+      id: input.itemId,
+      values: { outReason: input.reason },
+    });
+    return { itemId: input.itemId, outReason: text(after.values.outReason) };
   },
 });

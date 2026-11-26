@@ -4,8 +4,15 @@
 // other pack.
 //
 // Everything that is a rule is the host's, declared here as behaviours (ADR 0404):
-//   - an item's tag (the code on its sticker) is `unique` (ADR 0502): the database refuses a second
-//     live item with the same tag, however it is written (a form, the assistant, an import);
+//   - an item's tag (the code on its sticker) is `unique` among items in or out of service (ADR
+//     0502), folded (ADR 0864: case and outer spaces never count, the host keeps it trimmed and
+//     upper case): the database refuses a second, however it is written (a form, the assistant,
+//     an import). A retired item gives its tag up, for the replacement wearing the old sticker;
+//   - a record in a state only tools leave stays out of the Trash but for those tools' hands
+//     (ADR 0863): an out-of-service item, or an open fault, is not made to vanish by a member;
+//   - why an item is out, and a fault's severity and words once reported, are written by the
+//     pack's tools only (`readOnly`), so a safety risk is never quietly lowered; a manager
+//     corrects them with `correctOutReason` and `correctFault`;
 //   - an item is in service, out of service or retired (`states`, ADR 0425). Out of service is a
 //     move only the tools `takeOut` and `reportFault` make (ADR 0513), for anyone holding
 //     `equipment:report`, and an AI's call waits for a person (`personApproves`, ADR 0552). Back
@@ -19,6 +26,8 @@
 // automations, the dashboard and views (step 6), and the blocks (step 7) come later.
 import { defineExtension } from "@composable-os/sdk";
 import {
+  correctFault,
+  correctOutReason,
   FAULT,
   ITEM,
   item,
@@ -27,6 +36,7 @@ import {
   REPORT,
   register,
   reportFault,
+  reportFaultOnly,
   retire,
   takeOut,
   triage,
@@ -73,7 +83,9 @@ export default defineExtension({
     [REPORT]:
       "Equipment: see the register, report a fault and take an item out of service. For a " +
       "coach, a cleaner or anyone with another role who works on the floor.",
-    [MANAGE]: "Equipment: put items back in service, retire them, and acknowledge and close faults",
+    [MANAGE]:
+      "Equipment: put items back in service, retire them, acknowledge and close faults, and " +
+      "correct a fault's report or why an item is out of service",
   },
   objects: {
     item: {
@@ -175,14 +187,25 @@ export default defineExtension({
         outReason: {
           type: "text",
           label: "Why out of service",
-          description: "Why it must not be used. Required to take it out of service.",
+          readOnly: true,
+          description:
+            "Why it must not be used. Given when it is taken out; written only by the tools " +
+            "(a manager corrects it with correctOutReason), cleared when it is put back.",
         },
         notes: { type: "longText", label: "Notes" },
+        retiredFlag: {
+          type: "formula",
+          label: "Retired",
+          description: "True once retired: no fault is reported on it any more.",
+          expression: 'coalesce(state, "in_service") == "retired"',
+        },
       },
       indexes: [["state", "category"], ["category"], ["keeper"], ["warrantyUntil"]],
-      // The code on its sticker names one item (ADR 0502): the database refuses the second,
-      // whoever writes it, an import included. An item without a tag is not compared.
-      unique: [{ fields: ["tag"] }],
+      // The code on its sticker names one item in or out of service (ADR 0502): the database
+      // refuses the second, whoever writes it, an import included. Folded (ADR 0864): `tm-03 `
+      // is `TM-03`. A retired item gives its tag up to its replacement; one without a tag is
+      // not compared.
+      unique: [{ fields: ["tag"], states: ["in_service", "out_of_service"], fold: true }],
       states: {
         field: "state",
         initial: "in_service",
@@ -224,17 +247,19 @@ export default defineExtension({
       fields: {
         title: { type: "text", label: "Title" },
         item: { type: "relation", label: "Item", to: "equipment.item", required: true },
+        // What is wrong and how bad are the report's, written by the report tools only (a
+        // manager corrects them with correctFault): a safety risk is never quietly lowered.
         description: {
           type: "longText",
           label: "What is wrong",
-          required: true,
+          readOnly: true,
           description: "What is wrong with it. Do not describe an injury here.",
         },
         severity: {
           type: "select",
           label: "How bad",
           default: "not_working",
-          required: true,
+          readOnly: true,
           options: [
             { value: "safety_risk", label: "Safety risk", color: "red" },
             { value: "not_working", label: "Not working", color: "orange" },
@@ -249,6 +274,13 @@ export default defineExtension({
           description: "The staff member who reported it, set by the report.",
         },
         reportedByName: { type: "text", label: "Reported by (name)", readOnly: true },
+        reportKey: {
+          type: "text",
+          label: "Report key",
+          readOnly: true,
+          description:
+            "Set by the report: the same report again, or a retry, finds this fault while it is open.",
+        },
         state: {
           type: "select",
           label: "State",
@@ -272,9 +304,13 @@ export default defineExtension({
         ["item", "state"],
         ["state", "severity"],
       ],
+      // One open fault per report (a retry of a call stopped part way makes no second).
+      unique: [{ fields: ["reportKey"], states: OPEN_FAULT }],
       states: {
         field: "state",
         initial: "reported",
+        // Nobody reports a fault on a retired item, staff and tools included.
+        create: { closed: "item.retiredFlag" },
         // Triage is a manager's (equipment:manage), through `triage` only: a record write cannot
         // close a fault, and an AI's triage waits for a person.
         moves: [
@@ -321,5 +357,16 @@ export default defineExtension({
       order: 10,
     },
   },
-  tools: { register, item, reportFault, takeOut, putBack, retire, triage },
+  tools: {
+    register,
+    item,
+    reportFault,
+    reportFaultOnly,
+    takeOut,
+    putBack,
+    retire,
+    triage,
+    correctFault,
+    correctOutReason,
+  },
 });

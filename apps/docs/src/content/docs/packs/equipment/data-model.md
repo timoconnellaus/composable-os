@@ -44,8 +44,9 @@ One thing the business owns and looks after: a machine, a rack, a tool, a van. I
 | `listForMembers` | `select` | Listed for members |   | one of `listed`, `not_listed`; default `"not_listed"` | Whether members may see it in the out-of-order list. Not listed until someone chooses; retiring an item unlists it. |
 | `state` | `select` | State |   | one of `in_service`, `out_of_service`, `retired`; default `"in_service"` |   |
 | `outSince` | `datetime` | Out of service since |   | read-only | When it was taken out of service. Set when it is taken out, cleared when put back. |
-| `outReason` | `text` | Why out of service |   |   | Why it must not be used. Required to take it out of service. |
+| `outReason` | `text` | Why out of service |   | read-only | Why it must not be used. Given when it is taken out; written only by the tools (a manager corrects it with correctOutReason), cleared when it is put back. |
 | `notes` | `longText` | Notes |   |   |   |
+| `retiredFlag` | `formula` | Retired |   |   | True once retired: no fault is reported on it any more. |
 
 ### Relations
 
@@ -62,7 +63,12 @@ One thing the business owns and looks after: a machine, a rack, a tool, a van. I
     {
       "fields": [
         "tag"
-      ]
+      ],
+      "states": [
+        "in_service",
+        "out_of_service"
+      ],
+      "fold": true
     }
   ],
   "states": {
@@ -126,7 +132,7 @@ A report that something is wrong with an item: what is wrong and how bad. Report
 | Plural | Faults |
 | Title field | `title` |
 | Listed in | main |
-| Behaviours | [`states`](/reference/behaviours/#states) |
+| Behaviours | [`unique`](/reference/behaviours/#unique), [`states`](/reference/behaviours/#states) |
 | Indexes | `item, state`; `state, severity` |
 
 ### Fields
@@ -135,11 +141,12 @@ A report that something is wrong with an item: what is wrong and how bad. Report
 | --- | --- | --- | --- | --- | --- |
 | `title` | `text` | Title |   |   |   |
 | `item` | `relation` | Item | yes | to `equipment.item` |   |
-| `description` | `longText` | What is wrong | yes |   | What is wrong with it. Do not describe an injury here. |
-| `severity` | `select` | How bad | yes | one of `safety_risk`, `not_working`, `worn`; default `"not_working"` |   |
+| `description` | `longText` | What is wrong |   | read-only | What is wrong with it. Do not describe an injury here. |
+| `severity` | `select` | How bad |   | one of `safety_risk`, `not_working`, `worn`; default `"not_working"`; read-only |   |
 | `photo` | `image` | Photo |   |   |   |
 | `reportedBy` | `user` | Reported by |   | read-only | The staff member who reported it, set by the report. |
 | `reportedByName` | `text` | Reported by (name) |   | read-only |   |
+| `reportKey` | `text` | Report key |   | read-only | Set by the report: the same report again, or a retry, finds this fault while it is open. |
 | `state` | `select` | State |   | one of `reported`, `acknowledged`, `fixed`, `not_a_fault`, `duplicate`; default `"reported"` |   |
 | `closedWhy` | `text` | Closed because |   |   | Why it was closed: what fixed it, or why it is not a fault. |
 
@@ -154,9 +161,23 @@ A report that something is wrong with an item: what is wrong and how bad. Report
 
 ```json
 {
+  "unique": [
+    {
+      "fields": [
+        "reportKey"
+      ],
+      "states": [
+        "reported",
+        "acknowledged"
+      ]
+    }
+  ],
   "states": {
     "field": "state",
     "initial": "reported",
+    "create": {
+      "closed": "item.retiredFlag"
+    },
     "moves": [
       {
         "from": "reported",

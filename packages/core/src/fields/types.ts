@@ -735,6 +735,8 @@ export interface WaitlistDefinition {
 export interface UniqueDefinition {
   fields: readonly string[];
   states?: readonly string[] | undefined;
+  /** Its text fields kept trimmed and in upper case by the host: case and spaces never count (ADR 0864). */
+  fold?: boolean | undefined;
 }
 
 /**

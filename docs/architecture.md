@@ -1373,7 +1373,18 @@ such a tool may be named in a move's `tools` ([ADR 0552](adr/0552-a-tool-a-perso
 `packages/core/src/records/unique.ts`). `unique: [{ fields, states? }]` is a partial unique index
 the reconciler builds on the extension's table: no two live records in those states share the
 fields (one active booking per Person per class), whoever writes and however many at once. A
-read before the write gives the clear message and the dry run's answer.
+read before the write gives the clear message and the dry run's answer, and a restore whose
+values were taken while it was in the Trash is refused in words. `fold: true`
+([ADR 0864](adr/0864-uniqueness-that-folds-case-and-spaces.md)) keeps the rule's text fields
+trimmed and in upper case on every write, so case and outer spaces never make a second (an
+equipment tag).
+
+**The Trash and a guarded state** ([ADR 0863](adr/0863-a-state-only-tools-leave-keeps-its-record-out-of-the-trash.md),
+`packages/core/src/records/trash-states.ts`). A state that is not final and that only the host
+leaves (`by: ["host"]`, with or without `tools`) is guarded: a record in it is put in the Trash by
+a record write only from inside one of those tools, or by a person holding one of their
+permissions, never by an AI, an automation or other code, whatever the preset. The host's own
+removals (a series' records) are not held.
 
 **`recurring`** ([ADR 0500](adr/0500-recurring-a-weekly-rule-in-local-time.md),
 `packages/core/src/recurring/`, `packages/core/src/time/local.ts`). A series (a timetable line)
@@ -2062,14 +2073,17 @@ fields may read `publishedAt` and `publishedVersion`, and a date-relative trigge
 formula.
 
 **The Equipment pack** (stage 59 step 3, [ADR 0862](adr/0862-the-equipment-pack.md),
-`packs/equipment`). Items (`equipment.item`: a tag `unique` among live items, a supplier
-Organisation, cost and warranty) and the faults staff report on them (`equipment.fault`). An item
-is in service, out of service or retired, and each move is one only the pack's tools make (ADR
-0513): `takeOut` and `reportFault` for anyone with `equipment:report` (a coach or cleaner by
-grant), an AI's call waiting for a person (`personApproves`); `putBack` a manager's own act
-(`equipment:manage`, restricted, `humanOnly`); `retire` a manager's. A fault is triaged by a
-manager through `triage`, each close with why. The register is one `query.sql` statement whatever
-its size. It adds no rule.
+`packs/equipment`). Items (`equipment.item`: a tag `unique` and folded among items in or out
+of service, a supplier Organisation, cost and warranty) and the faults staff report on them
+(`equipment.fault`, one open fault per report key, none on a retired item). An item is in service,
+out of service or retired, and each move is one only the pack's tools make (ADR 0513): `takeOut`
+and `reportFault` for anyone with `equipment:report` (a coach or cleaner by grant), an AI's call
+waiting for a person (`personApproves`); `putBack` a manager's own act (`equipment:manage`,
+restricted, `humanOnly`); `retire` a manager's. A fault is triaged by a manager through `triage`,
+each close with why; `reportFaultOnly` reports without taking anything out, which the assistant
+may do. Why an item is out and a fault's severity and words are read-only but to the tools
+(`correctOutReason`, `correctFault` for a manager), and the Trash is held to the moves (ADR 0863).
+The register is one `query.sql` statement whatever its size. It adds no rule.
 
 **Media** ([ADR 0444](adr/0444-media-the-editor-and-the-content-pack.md),
 `packages/core/src/operations/media.ts`, `packages/core/src/http/media.ts`). A base record,

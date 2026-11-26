@@ -76,7 +76,7 @@ Declared as `claims: ClaimsSpec` on an object. Declared by: [`bookings.booking`]
 
 Uniqueness among live records in some states (see UniqueSpec, ADR 0502): one active booking per Person per class. Refused by the database for every actor.
 
-Declared as `unique: readonly UniqueSpec[]` on an object. Declared by: [`bookings.coach`](/packs/bookings/data-model/), [`bookings.booking`](/packs/bookings/data-model/), [`equipment.item`](/packs/equipment/data-model/), [`programs.program`](/packs/programs/data-model/), [`programs.log`](/packs/programs/data-model/).
+Declared as `unique: readonly UniqueSpec[]` on an object. Declared by: [`bookings.coach`](/packs/bookings/data-model/), [`bookings.booking`](/packs/bookings/data-model/), [`equipment.item`](/packs/equipment/data-model/), [`equipment.fault`](/packs/equipment/data-model/), [`programs.program`](/packs/programs/data-model/), [`programs.log`](/packs/programs/data-model/).
 
 ## recurring
 

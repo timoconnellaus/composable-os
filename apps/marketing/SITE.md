@@ -90,7 +90,7 @@ and nothing stronger than the repository shows:
 - Packs that are merged in part and not on the site until their spec's site step: Forms (stage
   29 step 8, with feedback after a class), Offers, promo codes and member prices (stage 34 step
   10), the Shop (stage 37 step 9, once built end to end), Knowledge (stage 38, once its screens are
-  built), texts and pushes (stage 30 step 7) and outside practitioners (stage 43). The member's
+  built), Equipment (stage 59 step 8), texts and pushes (stage 30 step 7) and outside practitioners (stage 43). The member's
   contact preferences in My account (stage 30 step 5) go on G4's "Members' own account" once an
   e2e journey drives them (stage 30 step 7).
 - Staff use packs' own screens on the web in the product's admin (stage 47, ADR 0660): Bookings'

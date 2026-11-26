@@ -108,7 +108,7 @@ One item of the register: its details, state (and why and since when it is out o
 
 ### reportFault
 
-Report a fault on an item: what is wrong (never an injury: that goes on the incident form) and how bad (safety_risk, not_working, worn). The report is recorded as the caller's. With takeOut, the item is also taken out of service in the same call, with the reason given: for a staff member who sees something unsafe (decision 3). Nothing takes an item out by itself. The answer says whether it was taken out, the item's state and whether it is under warranty. A person's act: the assistant, an MCP client or an automation may ask, and it waits for a person to approve it.
+Report a fault on an item and take it out of service in the same call: what is wrong (never an injury: that goes on the incident form), how bad (safety_risk, not_working, worn) and, in takeOut, why it must not be used. For a staff member who sees something unsafe (decision 3). To report without taking it out, use reportFaultOnly. The report is recorded as the caller's, once: a retry with the same requestId (or the same report while it is open) finds it. The answer says whether it was taken out, and why not if not. A fault on a retired item is refused. A person's act: the assistant, an MCP client or an automation may ask, and it waits for a person to approve it.
 
 |  |  |
 | --- | --- |
@@ -124,7 +124,8 @@ Report a fault on an item: what is wrong (never an injury: that goes on the inci
 | `itemId` | string | yes | min length 1, max length 64 |   |
 | `description` | string | yes | min length 3, max length 4000 |   |
 | `severity` | `"safety_risk"`, `"not_working"`, `"worn"` | yes |   |   |
-| `takeOut` | object |   |   | Also take the item out of service, with why it must not be used |
+| `requestId` | string |   | min length 1, max length 64 | The caller's own id for this report, the same on every retry: a retry finds the report it made rather than making a second. Left out, a report by the same person on the same item with the same words and severity, still open, is the same report. |
+| `takeOut` | object |   |   | Take the item out of service, with why it must not be used |
 | `takeOut.reason` | string | yes | min length 3, max length 500 |   |
 
 #### Output
@@ -133,7 +134,41 @@ Report a fault on an item: what is wrong (never an injury: that goes on the inci
 | --- | --- | --- | --- | --- |
 | `faultId` | string | yes |   |   |
 | `itemId` | string | yes |   |   |
+| `alreadyReported` | boolean | yes |   | This report was made before (a retry, or the same report again): no second fault |
 | `takenOut` | boolean | yes |   | This call took the item out of service |
+| `takeOutFailed` | string or null | yes |   | Why the take-out asked for did not happen, when it did not; the fault is recorded |
+| `itemState` | `"in_service"`, `"out_of_service"`, `"retired"` or null | yes |   |   |
+| `underWarranty` | boolean | yes |   |   |
+| `message` | string | yes |   |   |
+
+### reportFaultOnly
+
+Report a fault on an item without taking it out of service: what is wrong (never an injury: that goes on the incident form) and how bad (safety_risk, not_working, worn). The report is recorded as the caller's, once: a retry with the same requestId (or the same report while it is open) finds it. Nothing else changes: the item stays as it is, and a manager triages the fault. To take the item out too, use reportFault or takeOut. A fault on a retired item is refused.
+
+|  |  |
+| --- | --- |
+| Risk | `write` |
+| Audiences | `staff` |
+| Permission | `equipment:report` |
+
+#### Input
+
+| Field | Type | Required | Limits | Description |
+| --- | --- | --- | --- | --- |
+| `itemId` | string | yes | min length 1, max length 64 |   |
+| `description` | string | yes | min length 3, max length 4000 |   |
+| `severity` | `"safety_risk"`, `"not_working"`, `"worn"` | yes |   |   |
+| `requestId` | string |   | min length 1, max length 64 | The caller's own id for this report, the same on every retry: a retry finds the report it made rather than making a second. Left out, a report by the same person on the same item with the same words and severity, still open, is the same report. |
+
+#### Output
+
+| Field | Type | Required | Limits | Description |
+| --- | --- | --- | --- | --- |
+| `faultId` | string | yes |   |   |
+| `itemId` | string | yes |   |   |
+| `alreadyReported` | boolean | yes |   | This report was made before (a retry, or the same report again): no second fault |
+| `takenOut` | boolean | yes |   | This call took the item out of service |
+| `takeOutFailed` | string or null | yes |   | Why the take-out asked for did not happen, when it did not; the fault is recorded |
 | `itemState` | `"in_service"`, `"out_of_service"`, `"retired"` or null | yes |   |   |
 | `underWarranty` | boolean | yes |   |   |
 | `message` | string | yes |   |   |
@@ -241,6 +276,58 @@ Triage a fault: acknowledge it (seen, being dealt with), or close it as fixed, n
 | --- | --- | --- | --- | --- |
 | `faultId` | string | yes |   |   |
 | `state` | `"reported"`, `"acknowledged"`, `"fixed"`, `"not_a_fault"`, `"duplicate"` | yes |   |   |
+
+### correctFault
+
+Correct a fault's report: how bad it is (safety_risk, not_working, worn) and what is wrong. Once reported these are fixed for everyone else, so a safety risk is never quietly lowered; a manager (equipment:manage) corrects them here. The assistant, an MCP client or an automation may ask, and it waits for a person to approve it.
+
+|  |  |
+| --- | --- |
+| Risk | `write` |
+| Audiences | `staff` |
+| Permission | `equipment:manage` |
+| Approval | a person approves anyone else's call (`personApproves`) |
+
+#### Input
+
+| Field | Type | Required | Limits | Description |
+| --- | --- | --- | --- | --- |
+| `faultId` | string | yes | min length 1, max length 64 |   |
+| `severity` | `"safety_risk"`, `"not_working"`, `"worn"` |   |   |   |
+| `description` | string |   | min length 3, max length 4000 |   |
+
+#### Output
+
+| Field | Type | Required | Limits | Description |
+| --- | --- | --- | --- | --- |
+| `faultId` | string | yes |   |   |
+| `severity` | `"safety_risk"`, `"not_working"`, `"worn"` or null | yes |   |   |
+| `description` | string or null | yes |   |   |
+
+### correctOutReason
+
+Correct why an item that is out of service must not be used. Only the tools that take it out write the reason, so nobody can change it to 'fine now' while it is out; a manager (equipment:manage) corrects it here. To put the item back, use putBack. The assistant, an MCP client or an automation may ask, and it waits for a person to approve it.
+
+|  |  |
+| --- | --- |
+| Risk | `write` |
+| Audiences | `staff` |
+| Permission | `equipment:manage` |
+| Approval | a person approves anyone else's call (`personApproves`) |
+
+#### Input
+
+| Field | Type | Required | Limits | Description |
+| --- | --- | --- | --- | --- |
+| `itemId` | string | yes | min length 1, max length 64 |   |
+| `reason` | string | yes | min length 3, max length 500 |   |
+
+#### Output
+
+| Field | Type | Required | Limits | Description |
+| --- | --- | --- | --- | --- |
+| `itemId` | string | yes |   |   |
+| `outReason` | string or null | yes |   |   |
 
 ## Automations
 

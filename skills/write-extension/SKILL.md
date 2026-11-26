@@ -174,13 +174,18 @@ extension declares it; it never implements it. Each behaviour the platform has i
 - **`unique`** on an object: `unique: [{ fields: [<up to 4 fields>], states?: [<states>] }]`, no
   two live records in those states share the fields (one active booking per Person per class).
   The database refuses the second, however many write at once (`conflict`, `rule: "unique"`).
-  Never check for a duplicate in a tool instead. See `UniqueSpec` in `packages/sdk/src/unique.ts`
-  and ADR 0502.
+  Add `fold: true` for a code people type (a tag on a sticker): the rule's fields are then text
+  fields the host keeps trimmed and in upper case on every write, so case and outer spaces never
+  make a second one (ADR 0864). Never check for a duplicate, or fold a value, in a tool instead.
+  See `UniqueSpec` in `packages/sdk/src/unique.ts` and ADR 0502.
 - **Windows and staff-only rules** on `states`: a move's `window: { from?, until? }` and
   `staffOnly: "<boolean field>"`, and the same on `states.create` for every create, bind
   customers (staff and the host are not bound). A move only a person should make (voiding a pass)
   is `by: ["host"], tools: ["<tool>"]`: only the host and that tool make it, and the tool is
-  `humanOnly` with a `permission` (ADR 0513). An end is `"<datetime field>"` or
+  `humanOnly` with a `permission` (ADR 0513). A record in a state that only such tools (or the
+  host) leave is kept out of the Trash too: only those tools, or a person holding one of their
+  permissions, put it there, never an AI (ADR 0863), so give a record that others should remove a
+  way out of the state first. An end is `"<datetime field>"` or
   `{ at, daysBefore?, minutesBefore?, zone? }`, each a field of the record or
   `<relation>.<field>` (`klass.startsAt`), up to two relations away (`class.classType.lateMinutes`,
   every field on the way your own, including fields you add to another pack's object), or a

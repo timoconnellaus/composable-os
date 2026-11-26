@@ -55,7 +55,16 @@ describe("the Equipment pack (test host)", () => {
     const { host } = hostWith();
     expect(host.issues).toEqual([]);
     const { item, fault } = host.manifest.objects;
-    expect(item?.unique).toEqual([{ fields: ["tag"] }]);
+    // Folded (case and outer spaces never count), among items in or out of service.
+    expect(item?.unique).toEqual([
+      { fields: ["tag"], states: ["in_service", "out_of_service"], fold: true },
+    ]);
+    // One open fault per report key: a retry makes no second.
+    expect(fault?.unique).toEqual([
+      { fields: ["reportKey"], states: ["reported", "acknowledged"] },
+    ]);
+    // Nobody reports a fault on a retired item.
+    expect(fault?.states?.create).toEqual({ closed: "item.retiredFlag" });
     // Out of service only through takeOut and reportFault, with why; back only through putBack;
     // retired only through retire, with why. No staff record write makes any of them.
     expect(item?.states?.moves).toEqual([
@@ -81,7 +90,13 @@ describe("the Equipment pack (test host)", () => {
       expect(move.tools).toEqual(["triage"]);
       if (move.to !== "acknowledged") expect(move.requires).toEqual(["closedWhy"]);
     }
-    expect(item?.fields.outSince?.readOnly).toBe(true);
+    // Written by the pack's tools only: why it is out, and the report's words and severity.
+    for (const field of ["outSince", "outReason"]) {
+      expect(item?.fields[field]?.readOnly, field).toBe(true);
+    }
+    for (const field of ["description", "severity", "reportKey", "reportedByName"]) {
+      expect(fault?.fields[field]?.readOnly, field).toBe(true);
+    }
     expect(item?.fields.listForMembers?.default).toBe("not_listed");
     expect(fault?.fields.reportedBy?.readOnly).toBe(true);
   });
@@ -92,14 +107,25 @@ describe("the Equipment pack (test host)", () => {
     expect(m.grantable).toEqual(["equipment:report", "equipment:manage"]);
     expect(m.restricted).toEqual(["equipment:manage"]);
     const tools = m.tools;
-    const report = ["register", "item", "reportFault", "takeOut"];
-    const manage = ["putBack", "retire", "triage"];
+    const report = ["register", "item", "reportFault", "reportFaultOnly", "takeOut"];
+    const manage = ["putBack", "retire", "triage", "correctFault", "correctOutReason"];
     for (const name of report) expect(tools[name]?.permission, name).toBe("equipment:report");
     for (const name of manage) expect(tools[name]?.permission, name).toBe("equipment:manage");
     // An AI asks and a person decides; putting back is a person's own act only.
-    for (const name of ["reportFault", "takeOut", "retire", "triage"]) {
+    for (const name of [
+      "reportFault",
+      "takeOut",
+      "retire",
+      "triage",
+      "correctFault",
+      "correctOutReason",
+    ]) {
       expect(tools[name]?.personApproves, name).toBe(true);
     }
+    // A report alone changes nothing for members: the assistant may make it as a write.
+    expect(tools.reportFaultOnly?.personApproves).toBeFalsy();
+    expect(tools.reportFaultOnly?.humanOnly).toBeFalsy();
+    expect(tools.reportFaultOnly?.risk).toBe("write");
     expect(tools.putBack?.humanOnly).toBe(true);
     expect(tools.putBack?.personApproves).toBeFalsy();
     expect(tools.register?.risk).toBe("read");
@@ -263,6 +289,83 @@ describe("reportFault", () => {
     expect(out.faultId).toMatch(/^rec_/);
     expect(out.message).toContain("is out of service");
   });
+
+  it("makes no second fault when the same report comes again, or a retry with its requestId", async () => {
+    const { host } = hostWith({ [ITEM]: [treadmill()] });
+    const report = { itemId: "itm_1", description: "Belt slips", severity: "not_working" };
+    const first = await host.runTool<{ faultId: string; alreadyReported: boolean }>(
+      "reportFaultOnly",
+      report,
+      { caller: COACH },
+    );
+    const again = await host.runTool<{
+      faultId: string;
+      alreadyReported: boolean;
+      message: string;
+    }>("reportFault", { ...report, description: "belt slips" }, { caller: COACH });
+    expect(first.alreadyReported).toBe(false);
+    expect(again).toMatchObject({ faultId: first.faultId, alreadyReported: true });
+    expect(again.message).toMatch(/^Already reported/);
+    // By request id: the same call retried, whatever its words.
+    const a = await host.runTool<{ faultId: string }>(
+      "reportFaultOnly",
+      { ...report, description: "Squeaks", requestId: "req-1" },
+      { caller: COACH },
+    );
+    const b = await host.runTool<{ faultId: string; alreadyReported: boolean }>(
+      "reportFaultOnly",
+      { ...report, description: "Squeaks loudly", requestId: "req-1" },
+      { caller: COACH },
+    );
+    expect(b).toMatchObject({ faultId: a.faultId, alreadyReported: true });
+    // Another person's same words are their own report.
+    const other = await host.runTool<{ faultId: string; alreadyReported: boolean }>(
+      "reportFaultOnly",
+      report,
+    );
+    expect(other.alreadyReported).toBe(false);
+    expect([...(host.records.get(FAULT)?.values() ?? [])]).toHaveLength(3);
+  });
+
+  it("says truthfully when the fault was recorded but the take-out failed", async () => {
+    const host = createTestHost(extension, {
+      records: { [ITEM]: [treadmill()] },
+      operations: {
+        "record.update": () => {
+          throw Object.assign(new Error("The host is busy"), { code: "internal" });
+        },
+      },
+    });
+    const out = await host.runTool<{
+      faultId: string;
+      takenOut: boolean;
+      takeOutFailed: string | null;
+      message: string;
+    }>("reportFault", {
+      itemId: "itm_1",
+      description: "Sparks from the motor",
+      severity: "safety_risk",
+      takeOut: { reason: "Sparks: do not use" },
+    });
+    expect(out.takenOut).toBe(false);
+    expect(out.takeOutFailed).toContain("could not be taken out of service");
+    expect(out.message).toContain("The fault is recorded, but");
+    expect(host.records.get(FAULT)?.get(out.faultId)).toBeTruthy();
+  });
+});
+
+describe("reportFaultOnly", () => {
+  it("records the fault and changes nothing else", async () => {
+    const { host } = hostWith({ [ITEM]: [treadmill()] });
+    const out = await host.runTool<{ faultId: string; takenOut: boolean; takeOutFailed: null }>(
+      "reportFaultOnly",
+      { itemId: "itm_1", description: "Display flickers", severity: "worn" },
+      { caller: COACH },
+    );
+    expect(out).toMatchObject({ takenOut: false, takeOutFailed: null, itemState: "in_service" });
+    expect(host.calls.some((c) => c.operation === "record.update")).toBe(false);
+    expect(rowOf(host, FAULT, out.faultId)).toMatchObject({ severity: "worn", state: "reported" });
+  });
 });
 
 describe("takeOut", () => {
@@ -321,7 +424,49 @@ describe("retire", () => {
     expect(update?.input).toMatchObject({ from: "out_of_service" });
     const after = { values: rowOf(host, ITEM, "itm_1") };
     expect(after.values.listForMembers).toBe("not_listed");
+    expect(after.values).toMatchObject({ outReason: null, outSince: null });
     expect(String(after.values.notes)).toMatch(/^Old\n\nRetired \d{4}-\d{2}-\d{2}: Worn out$/);
+  });
+
+  it("says so when the item is already retired", async () => {
+    const { host } = hostWith({ [ITEM]: [treadmill({ state: "retired" })] });
+    await expect(
+      host.runTool("retire", { itemId: "itm_1", reason: "Worn out" }),
+    ).rejects.toMatchObject({ code: "conflict", message: "The item is already retired" });
+    expect(host.calls.some((c) => c.operation === "record.update")).toBe(false);
+  });
+});
+
+describe("correctFault and correctOutReason", () => {
+  it("a manager corrects a fault's severity and words", async () => {
+    const { host } = hostWith({
+      [FAULT]: [{ id: "flt_1", item: "itm_1", description: "Belt", severity: "safety_risk" }],
+    });
+    expect(
+      await host.runTool("correctFault", {
+        faultId: "flt_1",
+        severity: "worn",
+        description: "Belt worn at the edge, safe to use",
+      }),
+    ).toEqual({
+      faultId: "flt_1",
+      severity: "worn",
+      description: "Belt worn at the edge, safe to use",
+    });
+    await expect(host.runTool("correctFault", { faultId: "flt_1" })).rejects.toBeTruthy();
+  });
+
+  it("a manager corrects why an item is out, only while it is out", async () => {
+    const { host } = hostWith({
+      [ITEM]: [treadmill({ state: "out_of_service", outReason: "Broken" })],
+    });
+    expect(
+      await host.runTool("correctOutReason", { itemId: "itm_1", reason: "Motor burnt out" }),
+    ).toEqual({ itemId: "itm_1", outReason: "Motor burnt out" });
+    const { host: inService } = hostWith({ [ITEM]: [treadmill()] });
+    await expect(
+      inService.runTool("correctOutReason", { itemId: "itm_1", reason: "Motor burnt out" }),
+    ).rejects.toMatchObject({ code: "conflict" });
   });
 });
 

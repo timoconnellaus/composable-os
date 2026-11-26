@@ -12,8 +12,8 @@ A tool with no permission of its own is held by admins and members as any tool i
 
 | Permission | Tools | Restricted | Grantable | Roles holding it | What a grant gives |
 | --- | --- | --- | --- | --- | --- |
-| `equipment:report` | [register](/packs/equipment/tools/#register), [item](/packs/equipment/tools/#item), [reportFault](/packs/equipment/tools/#reportfault), [takeOut](/packs/equipment/tools/#takeout) |   | yes |   | Equipment: see the register, report a fault and take an item out of service. For a coach, a cleaner or anyone with another role who works on the floor. |
-| `equipment:manage` | [putBack](/packs/equipment/tools/#putback), [retire](/packs/equipment/tools/#retire), [triage](/packs/equipment/tools/#triage) | yes | yes |   | Equipment: put items back in service, retire them, and acknowledge and close faults |
+| `equipment:report` | [register](/packs/equipment/tools/#register), [item](/packs/equipment/tools/#item), [reportFault](/packs/equipment/tools/#reportfault), [reportFaultOnly](/packs/equipment/tools/#reportfaultonly), [takeOut](/packs/equipment/tools/#takeout) |   | yes |   | Equipment: see the register, report a fault and take an item out of service. For a coach, a cleaner or anyone with another role who works on the floor. |
+| `equipment:manage` | [putBack](/packs/equipment/tools/#putback), [retire](/packs/equipment/tools/#retire), [triage](/packs/equipment/tools/#triage), [correctFault](/packs/equipment/tools/#correctfault), [correctOutReason](/packs/equipment/tools/#correctoutreason) | yes | yes |   | Equipment: put items back in service, retire them, acknowledge and close faults, and correct a fault's report or why an item is out of service |
 
 ## Roles
 
@@ -28,3 +28,5 @@ This pack declares no roles.
 | [putBack](/packs/equipment/tools/#putback) | yes |   |   |   |
 | [retire](/packs/equipment/tools/#retire) |   | yes |   |   |
 | [triage](/packs/equipment/tools/#triage) |   | yes |   |   |
+| [correctFault](/packs/equipment/tools/#correctfault) |   | yes |   |   |
+| [correctOutReason](/packs/equipment/tools/#correctoutreason) |   | yes |   |   |
