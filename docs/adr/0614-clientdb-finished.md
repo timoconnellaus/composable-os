@@ -113,6 +113,10 @@ rows and `core_meta`.
   discarded by the restore. So the update pauses the client (the registry's `paused`, which the
   host refuses to serve) **before** it takes the bookmark, and keeps it paused until the update has
   succeeded or the restore has finished; pausing automations alone is not enough.
+- **On Cloudflare** (the proof's `/step2/pitr`, 2026-11-27): a bookmark, a write, a restore to
+  the bookmark (1,435 ms, the write gone), then the undo (1,121 ms, the write back), on a real
+  object; a write made while the restore waited was refused with `RESTORING_MESSAGE`; and
+  `bookmarkAt` a minute before the database existed was refused cleanly.
 - **Locally,** workerd answers `getCurrentBookmark()` with a bookmark of zeros and refuses
   `getBookmarkForTime` and `onNextSessionRestoreBookmark` ("This Durable Object's storage back-end
   does not implement point-in-time recovery"); `restore` then reports the refusal and the object
@@ -256,16 +260,14 @@ whatever holds its namespace can call them. So the host's Workers never hold the
   - tests keep binding the namespace (`CLIENT_DB`).
 - A test calls each operator method through the service and finds it is not there ("The RPC
   receiver does not implement …"), and that a client id the registry refuses is refused.
-- **Open, for the proof run to settle:** Cloudflare's service-binding page (2026-11) says service
-  bindings add "zero overhead or added latency" (both Workers run on the same thread), but also "A
-  single request has a maximum of 32 Worker invocations, and each call to a Service binding counts
-  towards this limit". The Workers limits and RPC pages do not mention 32. If it is a total per
-  request and not a chain depth, a page of more than 32 queries cannot go through the service, and
-  the query-only path needs another shape (the namespace in the host's Workers with the operator's
-  methods behind a capability only the operator holds, say). Locally 200 queries through the
-  service pass, which proves nothing about Cloudflare; the proof's `/subrequests` now measures the
-  service, the namespace and D1 side by side, and its warm timing reports a scenario that fails on
-  the service instead of stopping.
+- **Settled by the proof (2026-11-27): no 32-call limit.** Cloudflare's service-binding page
+  (2026-11) says service bindings add "zero overhead or added latency" (both Workers run on the
+  same thread), and also "A single request has a maximum of 32 Worker invocations, and each call to
+  a Service binding counts towards this limit". On Cloudflare one request made 9,980 queries
+  through `ClientDbQueries` before the ordinary 10,000-subrequest refusal, so that sentence did
+  not apply to RPC calls to an entrypoint, and the query-only shape stands. Warm, the service costs
+  nothing measurable against the namespace (31 against 30 ms for the staff list; ADR 0612,
+  "Measured on Cloudflare").
 - **The proof measures this arrangement** (after its first three runs had the class inside the
   7.7 MB proof Worker): `apps/client-db` deployed as `<product>-client-db-proof-db`, the timed
   pages through `ClientDbQueries`, setup and the operator's probes through the namespace.
@@ -280,12 +282,14 @@ whatever holds its namespace can call them. So the host's Workers never hold the
   the call counter, migrations and their report, the size refusal and its reserve, place, the
   holds, the local refusal of restore, the query-only service, and export and import both ways
   between D1 and a client's database, with the statement checks, the schema verification and the
-  in-transaction counts. What waits for the proof run on Cloudflare (`/step2/pitr`,
-  `/step2/export`, `/step2/d1`, `/step2/answers`, `/step2/size`, run by the workflow after the
-  timing): restore and undo on a real object, how long they take, and a call refused in the
-  window; the export across real D1 and Durable Objects; whether real D1 allows each feature the
-  export and import use; the large batch, the 40 MB read and a 60 MB read refused without a reset
-  there; and whether a Durable Object's size falls after deletes and what `VACUUM` answers. The
+  in-transaction counts. Shown on Cloudflare (2026-11-27, `/step2/pitr`): restore and undo on a
+  real object, how long they take, and a call refused in the window. Still waiting for the proof
+  run, the next probes having timed out as one long request each and been made resumable since
+  (`/step2/export`, `/step2/d1`, `/step2/answers`, `/step2/size`, driven a bounded call at a time
+  by `scripts/step2.mjs`): the export across real D1 and Durable Objects; whether real D1 allows
+  each feature the export and import use; the large batch, the 40 MB read and a 60 MB read refused
+  without a reset there; and whether a Durable Object's size falls after deletes and what
+  `VACUUM` answers. The
   restore window's refusals of `outcome`, `place` and `setSizeLimits` (M6), the bounded outcome
   sweep (M7) and the memory bound of S7 (that a large read no longer fills the isolate) are not
   exercised by any test: the local runtime cannot enter the restore window, an hour cannot pass in

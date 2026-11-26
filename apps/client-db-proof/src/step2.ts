@@ -5,29 +5,33 @@
 // id per run), never the timed client's database. (How many calls one request may make is step
 // 1's `/subrequests`.)
 //
-//   GET /step2/pitr      bookmark, a write, restore (a call made while it waits is refused),
-//                        then the undo: what each leaves, and how long each took
-//   GET /step2/export    the D1 database out as SQL into a fresh client's database, out of that
-//                        (held still) into another, every table compared with D1's
-//   GET /step2/d1        each feature the export and import use, run on real D1 and rolled back
-//   GET /step2/answers   a 200,000-statement batch, a 40 MB read, and a 60 MB read that must be
-//                        refused cleanly with the object still answering
-//   GET /step2/size      whether `databaseSize` falls after deletes, and what VACUUM answers
+//   POST /step2/<probe>, body { cursor }: one call of a probe. It answers `{ done: true, result }`,
+//   or `{ done: false, cursor, progress }` for the script (scripts/step2.mjs) to send back; no
+//   call works more than about `BUDGET_MS`, so no request comes near a limit, and a probe that
+//   stops part way says how far it got.
+//
+//   pitr      bookmark, a write, restore (a call made while it waits is refused), then the undo:
+//             what each leaves, and how long each took (one call)
+//   export    the D1 database out as SQL into a fresh client's database, out of that (held still)
+//             into another, a part a step; then every table of the three hashed and compared
+//   d1        each feature the export and import use, run on real D1 and rolled back (one call)
+//   answers   a 200,000-statement batch, a 40 MB read, and a 60 MB read that must be refused
+//             cleanly with the object still answering (a step a call)
+//   size      whether `databaseSize` falls after deletes, and what VACUUM answers (one call)
 import {
   type ClientDb,
   clientDatabase,
-  clientDbCalls,
   RESTORING_MESSAGE,
   restoreClientDb,
 } from "@composable-os/db/client-db";
 import {
   clientDbHold,
-  type ExportPart,
-  exportDatabase,
-  importDatabase,
+  type ExportCursor,
+  exportPart,
+  importPart,
   schemaRows,
 } from "@composable-os/db/sql-export";
-import { contentsDiffer, databaseContents } from "@composable-os/db/testing/contents";
+import { contentTables, tableContents } from "@composable-os/db/testing/contents";
 
 interface Step2Env {
   DB: D1Database;
@@ -115,50 +119,211 @@ async function pitr(env: Step2Env) {
   };
 }
 
-/** D1 → a client's database → another client's database, every table compared with D1's. */
-async function exportProbe(env: Step2Env) {
-  const started = Date.now();
-  const firstName = fresh("export-a");
-  const first = clientDatabase(env.CLIENT_DB, firstName, hint(env));
-  const second = clientDatabase(env.CLIENT_DB, fresh("export-b"), hint(env));
-  let parts = 0;
-  let statements = 0;
-  async function* counted(from: AsyncIterable<ExportPart>): AsyncGenerator<ExportPart> {
-    for await (const part of from) {
-      parts += 1;
-      statements += part.statements.length;
-      yield part;
-    }
-  }
+/** How long one call of a probe works before it returns its cursor: well inside a request. */
+const BUDGET_MS = 8_000;
+
+/** What every probe call answers: done with its result, or a cursor for the next call. */
+type Step =
+  | { done: true; result: Record<string, unknown> }
+  | { done: false; cursor: unknown; progress: string };
+
+const short = async (value: unknown) => {
+  const digest = await crypto.subtle.digest(
+    "SHA-256",
+    new TextEncoder().encode(JSON.stringify(value)),
+  );
+  return Array.from(new Uint8Array(digest).slice(0, 8), (b) =>
+    b.toString(16).padStart(2, "0"),
+  ).join("");
+};
+
+// --- /step2/export, in parts -----------------------------------------------------------------------
+
+type Reading = "d1" | "a" | "b";
+interface ExportProbeCursor {
+  phase: "d1-to-a" | "a-to-b" | "read" | "done";
+  a: string;
+  b: string;
+  exported: ExportCursor | null;
+  parts: number;
+  statements: number;
+  reading: Reading;
+  table: number;
+  hashes: Record<Reading, Record<string, string>>;
+  started: number;
+}
+
+/**
+ * D1 → a client's database → another client's database (the second export held still), then every
+ * table of the three read and hashed, a few tables a call, and compared with D1's. Each call
+ * works up to `BUDGET_MS` and returns its cursor.
+ */
+async function exportProbe(env: Step2Env, given: unknown): Promise<Step> {
+  const at: ExportProbeCursor = (given as ExportProbeCursor | null) ?? {
+    phase: "d1-to-a",
+    a: fresh("export-a"),
+    b: fresh("export-b"),
+    exported: null,
+    parts: 0,
+    statements: 0,
+    reading: "d1",
+    table: 0,
+    hashes: { d1: {}, a: {}, b: {} },
+    started: Date.now(),
+  };
+  const db = (which: Reading) =>
+    which === "d1" ? env.DB : clientDatabase(env.CLIENT_DB, which === "a" ? at.a : at.b, hint(env));
   // The expected schema is the source's own: the proof compares two copies of one database.
   const expected = { expectedSchema: async () => schemaRows(env.DB) };
-  await importDatabase(
-    first,
-    counted(exportDatabase(env.DB, { maxBytes: 512 * 1024, hold: "caller-paused" })),
-    expected,
-  );
-  await importDatabase(
-    second,
-    counted(
-      exportDatabase(first, { maxBytes: 512 * 1024, hold: clientDbHold(env.CLIENT_DB, firstName) }),
-    ),
-    expected,
-  );
-  const [d1, a, b] = await Promise.all([
-    databaseContents(env.DB),
-    databaseContents(first),
-    databaseContents(second),
-  ]);
-  const differ = { firstFromD1: contentsDiffer(d1, a), secondFromFirst: contentsDiffer(d1, b) };
+  const until = Date.now() + BUDGET_MS;
+  while (Date.now() < until && at.phase !== "done") {
+    if (at.phase === "d1-to-a" || at.phase === "a-to-b") {
+      const from = at.phase === "d1-to-a" ? db("d1") : db("a");
+      const into = at.phase === "d1-to-a" ? db("a") : db("b");
+      const hold =
+        at.phase === "d1-to-a" ? ("caller-paused" as const) : clientDbHold(env.CLIENT_DB, at.a);
+      const { part, next } = await exportPart(from, at.exported, { maxBytes: 256 * 1024, hold });
+      await importPart(into, part, expected);
+      at.parts += 1;
+      at.statements += part.statements.length;
+      at.exported = next;
+      if (!next) at.phase = at.phase === "d1-to-a" ? "a-to-b" : "read";
+      continue;
+    }
+    // Reading: the schema, then a table at a time, hashed.
+    const { schema, tables, virtual } = await contentTables(db(at.reading));
+    if (at.table === 0) at.hashes[at.reading]["(schema)"] = await short(schema);
+    while (Date.now() < until && at.table < tables.length) {
+      const table = tables[at.table] as (typeof tables)[number];
+      at.hashes[at.reading][table.name] = await short(
+        await tableContents(db(at.reading), table, virtual),
+      );
+      at.table += 1;
+    }
+    if (at.table >= tables.length) {
+      const order: Reading[] = ["d1", "a", "b"];
+      const next = order[order.indexOf(at.reading) + 1];
+      if (next) {
+        at.reading = next;
+        at.table = 0;
+      } else {
+        at.phase = "done";
+      }
+    }
+  }
+  if (at.phase !== "done") {
+    const progress =
+      at.phase === "read"
+        ? `reading ${at.reading}: ${at.table} tables hashed`
+        : `${at.phase}: ${at.parts} parts, ${at.statements} statements so far`;
+    return { done: false, cursor: at, progress };
+  }
+  const differ = (other: Reading) =>
+    [...new Set([...Object.keys(at.hashes.d1), ...Object.keys(at.hashes[other])])].filter(
+      (name) => at.hashes.d1[name] !== at.hashes[other][name],
+    );
+  const result = { firstFromD1: differ("a"), secondFromFirst: differ("b") };
   return {
-    ok: differ.firstFromD1.length === 0 && differ.secondFromFirst.length === 0,
-    tables: Object.keys(d1.tables).length,
-    rows: Object.values(d1.tables).reduce((sum, t) => sum + t.length, 0),
-    parts,
-    statements,
-    differ,
-    ms: Date.now() - started,
-    calls: (clientDbCalls(first) ?? 0) + (clientDbCalls(second) ?? 0),
+    done: true,
+    result: {
+      ok: result.firstFromD1.length === 0 && result.secondFromFirst.length === 0,
+      tables: Object.keys(at.hashes.d1).length - 1,
+      parts: at.parts,
+      statements: at.statements,
+      differ: result,
+      ms: Date.now() - at.started,
+    },
+  };
+}
+
+// --- /step2/answers, a step a call -----------------------------------------------------------------
+
+interface AnswersCursor {
+  client: string;
+  step: number;
+  found: Record<string, unknown>;
+}
+
+const ANSWER_STEPS = ["batch", "fill-40", "read-40", "fill-60", "read-60"] as const;
+
+/** The review's B1 and S1, and S7: a huge batch, a 40 MB read, a 60 MB read refused; a step a call. */
+async function answers(env: Step2Env, given: unknown): Promise<Step> {
+  const at: AnswersCursor = (given as AnswersCursor | null) ?? {
+    client: fresh("answers"),
+    step: 0,
+    found: {},
+  };
+  const db = clientDatabase(env.CLIENT_DB, at.client, hint(env));
+  const stub = () => env.CLIENT_DB.get(env.CLIENT_DB.idFromName(at.client), hint(env));
+  const fill = async (n: number) => {
+    await db.prepare("DELETE FROM t").run();
+    await db
+      .prepare(
+        `WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < ${n}) INSERT INTO t SELECT i, hex(zeroblob(500000)) FROM n`,
+      )
+      .run();
+  };
+  const step = ANSWER_STEPS[at.step];
+  const started = Date.now();
+  switch (step) {
+    case "batch": {
+      await db.prepare("CREATE TABLE t (id INTEGER PRIMARY KEY, v)").run();
+      const results = await db.batch(
+        Array.from({ length: 200_000 }, (_, i) =>
+          db.prepare("INSERT INTO t VALUES (?, ?)").bind(i + 1, i),
+        ),
+      );
+      at.found.batch = { results: results.length, ms: Date.now() - started };
+      break;
+    }
+    case "fill-40":
+      await fill(40);
+      break;
+    case "read-40": {
+      const read = await db.prepare("SELECT * FROM t").all();
+      at.found.read = { rows: read.results.length, ms: Date.now() - started };
+      break;
+    }
+    case "fill-60":
+      await fill(60);
+      break;
+    case "read-60": {
+      const session = await stub().session();
+      at.found.tooLarge = await db
+        .prepare("SELECT * FROM t")
+        .all()
+        .then(
+          () => "returned",
+          (error) => message(error),
+        );
+      const sessionAfter = await stub().session();
+      at.found.objectReset = session.id !== sessionAfter.id;
+      at.found.stillAnswers = await db.prepare("SELECT count(*) AS n FROM t").first("n");
+      break;
+    }
+  }
+  at.step += 1;
+  if (at.step < ANSWER_STEPS.length) {
+    return { done: false, cursor: at, progress: `${step}: done in ${Date.now() - started} ms` };
+  }
+  const f = at.found as {
+    batch?: { results: number };
+    read?: { rows: number };
+    tooLarge?: string;
+    objectReset?: boolean;
+    stillAnswers?: unknown;
+  };
+  return {
+    done: true,
+    result: {
+      ok:
+        f.batch?.results === 200_000 &&
+        f.read?.rows === 40 &&
+        /read it in pages/.test(f.tooLarge ?? "") &&
+        f.objectReset === false &&
+        f.stillAnswers === 60,
+      ...at.found,
+    },
   };
 }
 
@@ -219,56 +384,6 @@ async function d1Features(env: Step2Env) {
   return { ok: Object.values(result).every((r) => r === "ok"), ...result };
 }
 
-/** The review's B1 and S1, and S7: a huge batch, a 40 MB read, and a 60 MB read refused. */
-async function answers(env: Step2Env) {
-  const client = fresh("answers");
-  const db = clientDatabase(env.CLIENT_DB, client, hint(env));
-  const stub = () => env.CLIENT_DB.get(env.CLIENT_DB.idFromName(client), hint(env));
-  await db.prepare("CREATE TABLE t (id INTEGER PRIMARY KEY, v)").run();
-  const statements = Array.from({ length: 200_000 }, (_, i) =>
-    db.prepare("INSERT INTO t VALUES (?, ?)").bind(i + 1, i),
-  );
-  let started = Date.now();
-  const results = await db.batch(statements);
-  const batchMs = Date.now() - started;
-  await db.prepare("DELETE FROM t").run();
-  const fill = (n: number) =>
-    db
-      .prepare(
-        `WITH RECURSIVE n(i) AS (SELECT 1 UNION ALL SELECT i + 1 FROM n WHERE i < ${n}) INSERT INTO t SELECT i, hex(zeroblob(500000)) FROM n`,
-      )
-      .run();
-  await fill(40);
-  started = Date.now();
-  const read = await db.prepare("SELECT * FROM t").all();
-  const readMs = Date.now() - started;
-  await db.prepare("DELETE FROM t").run();
-  await fill(60);
-  const session = await stub().session();
-  const tooLarge = await db
-    .prepare("SELECT * FROM t")
-    .all()
-    .then(
-      () => "returned",
-      (error) => message(error),
-    );
-  const sessionAfter = await stub().session();
-  const stillAnswers = await db.prepare("SELECT count(*) AS n FROM t").first("n");
-  return {
-    ok:
-      results.length === 200_000 &&
-      read.results.length === 40 &&
-      /read it in pages/.test(tooLarge) &&
-      session.id === sessionAfter.id &&
-      stillAnswers === 60,
-    batch: { results: results.length, ms: batchMs },
-    read: { rows: read.results.length, ms: readMs },
-    tooLarge,
-    objectReset: session.id !== sessionAfter.id,
-    calls: clientDbCalls(db),
-  };
-}
-
 /** Whether a client's database gets smaller after deletes, and what VACUUM answers there. */
 async function size(env: Step2Env) {
   const client = fresh("size");
@@ -301,28 +416,28 @@ async function size(env: Step2Env) {
   };
 }
 
-/** The step 2 probes' router: null when the path is not one of them; a failure as data. */
-export async function step2(url: URL, env: Step2Env): Promise<unknown | null> {
-  try {
-    return await route(url, env);
-  } catch (error) {
-    return { ok: false, error: message(error) };
-  }
-}
+/** The step 2 probes, by name. */
+export const STEP2_PROBES = ["pitr", "export", "d1", "answers", "size"] as const;
 
-async function route(url: URL, env: Step2Env): Promise<unknown | null> {
-  switch (url.pathname) {
-    case "/step2/pitr":
-      return pitr(env);
-    case "/step2/export":
-      return exportProbe(env);
-    case "/step2/d1":
-      return d1Features(env);
-    case "/step2/answers":
-      return answers(env);
-    case "/step2/size":
-      return size(env);
-    default:
-      return null;
+/** The step 2 probes' router: null when the path is not one of them; a failure as data. */
+export async function step2(url: URL, env: Step2Env, body: unknown): Promise<Step | null> {
+  const name = url.pathname.replace(/^\/step2\//, "");
+  if (!(STEP2_PROBES as readonly string[]).includes(name)) return null;
+  const cursor = (body as { cursor?: unknown } | null)?.cursor ?? null;
+  try {
+    switch (name) {
+      case "pitr":
+        return { done: true, result: await pitr(env) };
+      case "export":
+        return await exportProbe(env, cursor);
+      case "d1":
+        return { done: true, result: await d1Features(env) };
+      case "answers":
+        return await answers(env, cursor);
+      default:
+        return { done: true, result: await size(env) };
+    }
+  } catch (error) {
+    return { done: true, result: { ok: false, error: message(error) } };
   }
 }

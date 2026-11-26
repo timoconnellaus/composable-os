@@ -2,7 +2,8 @@
 
 Status: accepted, 2026-11-26 (stage 66 step 1, built on `feat/stage-66-client-db`). Builds
 [ADR 0611](0611-one-host-a-database-per-client.md)'s "each client's records are in a database of
-its own". The deployed half of step 1 (the timing on Cloudflare) has not run yet.
+its own". The deployed half of step 1 (the timing on Cloudflare) ran on 2026-11-26 and 2026-11-27:
+"Measured on Cloudflare" below.
 
 ## Context
 ADR 0611 put each hosted client's records in a Durable Object with SQLite storage, behind the
@@ -110,6 +111,38 @@ reports there; until it has run, those rows are what the platform documents, not
 Every probe's answer on Cloudflare is printed by the workflow, D1's beside ClientDb's, and a
 difference not in `apps/client-db-proof/conformance-allow.json` fails the run; the "to be seen"
 cells are filled from that run.
+
+## Measured on Cloudflare
+
+_Added 2026-11-27._ The proof (`apps/client-db-proof`, `.github/workflows/client-db-proof.yml`) ran
+on the fleet's account, location hint `oc` (Oceania), in the production shape: the `ClientDb` class
+in its own 45 KiB Worker (`apps/client-db`, deployed as `crm-client-db-proof-db`), the timed pages
+reaching it through the query-only service `ClientDbQueries` (ADR 0614), D1 created with the same
+hint. Times in milliseconds, timed inside a Durable Object beside the databases (`near`), medians.
+
+| What | D1 | Client's database, through the service | Same object, through its namespace |
+| --- | --- | --- | --- |
+| Staff list (People, 50 rows and a count), warm | 156 | 31 | 30 |
+| A person's page (the record and its timeline), warm | 275 | 54 | 53 |
+| Guest checkout (start an order, open the provider's page), warm | 648 | 163 | 154 |
+| First staff page after an idle wait long enough to evict the object (three real cold samples) | 381, 420, 276 | 115, 357, 375 | |
+| Probes answering the same as D1 (`/conformance`) | 39 of 39 | | |
+| Queries one request made before Cloudflare refused it | | 9,980 (then the ordinary 10,000-subrequest refusal) | |
+| Setup (every migration and the seed) | 153 s | 36 s | |
+
+- **Warm, a client's database is about five times faster than D1** for these pages, and the
+  service's step to the class's Worker costs nothing measurable (31 against 30 ms).
+- **Cold, a quiet client's first page is no worse than D1's** in this run (115, 357 and 375 ms
+  against 381, 420 and 276). The three earlier runs had the class inside the 7.7 MB proof Worker
+  (a Worker Startup Time of 501 ms), and their cold first pages (949, 889, 445 against 246, 323,
+  250) measured that arrangement, not the design: it is why `ClientDb` lives in its own Worker.
+- **No 32-call limit on service-binding calls of this kind.** One request made 9,980 queries
+  through `ClientDbQueries` before Cloudflare's ordinary 10,000-subrequest refusal. The
+  service-binding page's "A single request has a maximum of 32 Worker invocations, and each call
+  to a Service binding counts towards this limit" did not apply to RPC calls to an entrypoint here.
+- What the run did not cover: the test suites themselves deployed (stage 66, criterion 1's
+  deviation: the probes and the scenarios stand in for them), and step 2's probes after `pitr`
+  (ADR 0614).
 
 ## Deferred to step 2
 _Amended 2026-11-26 (stage 66 step 2, [ADR 0614](0614-clientdb-finished.md)): each item below is
