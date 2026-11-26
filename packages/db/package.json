@@ -10,6 +10,9 @@
     "./client-db": "./src/client-db.ts",
     "./registry": "./src/registry.ts",
     "./client-environment": "./src/client-environment.ts",
+    "./client-bindings": "./src/client-bindings.ts",
+    "./client-entries": "./src/client-entries.ts",
+    "./testing/two-clients": "./testing/two-clients.ts",
     "./testing/vitest": "./testing/vitest.ts",
     "./testing/conformance": "./testing/conformance.ts"
   },

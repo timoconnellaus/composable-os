@@ -17,6 +17,9 @@ export default defineWorkersTestConfig({
       // REGISTRY: a many-client host's registry (test/registry.test.ts and
       // test/client-environment.test.ts).
       d1Databases: ["DB", "REGISTRY"],
+      // The shared bindings a many-client host keeps apart (test/client-bindings.test.ts).
+      r2Buckets: ["BLOBS"],
+      kvNamespaces: ["OAUTH_KV"],
       bindings: {
         TEST_MIGRATIONS: await readD1Migrations(migrationsDir),
         REGISTRY_MIGRATIONS: await readD1Migrations(registryMigrationsDir),

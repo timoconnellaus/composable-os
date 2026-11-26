@@ -65,7 +65,7 @@ function manyClientEnv(registry: D1Database = real.REGISTRY) {
     STREAM_ACCOUNT_ID: "stream-account",
     LOADER: { name: "loader" },
     GATEKEEPER_PAYMENTS: { name: "payments" },
-    // Kept apart: one with a wrapper (rate limits) and one without (files, step 4).
+    // Kept apart: each by its wrapper (rate limits, files and the runner here).
     MCP_RATE_LIMIT: recordingRateLimit(),
     BLOBS: { name: "bucket" },
     RUNNER: { name: "runner" },
@@ -132,15 +132,20 @@ describe("buildClientEnvironment", () => {
     expect(Object.keys(built).sort()).toEqual(
       [
         "APPROVAL_FLOOR",
+        // Kept apart by step 4's wrappers (client-bindings.ts), never the real bindings.
+        "BLOBS",
         "COS_ORG_EXTENSIONS",
         "COS_PACKS",
         "DB",
         "GATEKEEPER_PAYMENTS",
         "LOADER",
         "MCP_RATE_LIMIT",
+        "RUNNER",
         "STREAM_ACCOUNT_ID",
       ].sort(),
     );
+    expect(built.BLOBS).not.toBe(host.BLOBS);
+    expect(built.RUNNER).not.toBe(host.RUNNER);
     // The client's own settings, else the deployment's (`inherit`), else nothing (`empty`).
     expect(built.APPROVAL_FLOOR).toBe("high");
     expect(built.COS_ORG_EXTENSIONS).toBe("gym-a-hash");

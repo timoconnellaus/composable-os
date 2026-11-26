@@ -10,6 +10,15 @@
 //
 // No entry calls this yet: deciding the client at the app's and the runner's entries is step 4.
 // Exported as `@composable-os/db/client-environment`, never from `@composable-os/db`.
+import {
+  keepBucketApart,
+  keepKeyValueApart,
+  keepObjectsApart,
+  keepQueueApart,
+  keepRunnerApart,
+  keepVectorsApart,
+  keepWorkflowApart,
+} from "./client-bindings.ts";
 import { type ClientDb, clientDatabase } from "./client-db.ts";
 import { ENV_NAME_PATTERNS, ENV_NAMES, type EnvNameUse } from "./client-env-names.ts";
 import {
@@ -88,10 +97,17 @@ export const keepRateLimitApart: BindingWrapper<RateLimit> = (binding, client) =
     binding.limit({ ...options, key: `${client}:${options.key}` }),
 });
 
+/** The names each wrapper of step 4 (client-bindings.ts, ADR 0615) applies to. */
+const named =
+  (...names: string[]) =>
+  (name: string) =>
+    names.includes(name);
+
 /**
  * The wrappers of the shared bindings, by the `by` of their entry in `ENV_NAMES` (or a pattern).
  * A kept-apart binding with no wrapper here is left out of every client's environment: code that
  * reaches for it fails, where an unwrapped binding would show one client another's part.
+ * packages/db/test/client-bindings.test.ts fails when a kept-apart name has none.
  */
 export const BINDING_WRAPPERS: ReadonlyArray<{
   applies: (name: string) => boolean;
@@ -101,7 +117,36 @@ export const BINDING_WRAPPERS: ReadonlyArray<{
     applies: (name) => /^[A-Z0-9_]+_RATE_LIMIT$/.test(name),
     wrap: keepRateLimitApart as BindingWrapper,
   },
+  { applies: named("BLOBS"), wrap: keepBucketApart as BindingWrapper },
+  { applies: named("OAUTH_KV"), wrap: keepKeyValueApart as BindingWrapper },
+  { applies: named("VECTORIZE"), wrap: keepVectorsApart as BindingWrapper },
+  {
+    applies: named("AUTOMATION_EVENTS", "ROUTINE_DELIVERY"),
+    wrap: keepQueueApart as BindingWrapper,
+  },
+  {
+    applies: named("AUTOMATION_WORKFLOW", "HELLO_WORKFLOW"),
+    wrap: keepWorkflowApart as BindingWrapper,
+  },
+  {
+    applies: named(
+      "ASSISTANT",
+      "AGENT_JOB",
+      "EXTENSION_WORKSPACE",
+      "CODE_MODE_GATE",
+      "INTEGRATION_HOST",
+      "FAKE_ACCOUNT",
+      "FAKE_PROVIDER",
+    ),
+    wrap: keepObjectsApart as BindingWrapper,
+  },
+  { applies: named("RUNNER"), wrap: keepRunnerApart as BindingWrapper },
 ];
+
+/** Whether a kept-apart `name` has a wrapper (a test holds every one to it). */
+export function hasBindingWrapper(name: string): boolean {
+  return wrapperFor(name) !== null;
+}
 
 function wrapperFor(name: string): BindingWrapper | null {
   return BINDING_WRAPPERS.find((wrapper) => wrapper.applies(name))?.wrap ?? null;

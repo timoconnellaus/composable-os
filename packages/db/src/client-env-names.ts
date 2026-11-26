@@ -34,6 +34,11 @@ export const ENV_NAMES: Readonly<Record<string, EnvNameUse>> = {
   REGISTRY: { use: "host", why: "the registry: the operator's only (stage 66)" },
   // A namespace of `ClientDb` in its own Worker (`cos-client-db`), bound by script name.
   CLIENT_DB: { use: "host", why: "every client's database: a client's is its DB alone" },
+  // Each Worker's own fan-out queue (stage 66 step 4): a cron's one message per client.
+  CLIENT_FANOUT: {
+    use: "host",
+    why: "the crons' fan-out: one message per client, sent by the host",
+  },
   CLOUDFLARE_API_TOKEN: {
     use: "host",
     why: "Settings → AI writes the deployment's Worker secrets with it: every client's at once (ADR 0151)",
