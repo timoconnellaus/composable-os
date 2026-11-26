@@ -89,6 +89,10 @@ export interface IdentityEnv {
   AUTH_ALLOW_SIGNUP?: string;
   CF_ACCESS_TEAM_DOMAIN?: string;
   CF_ACCESS_AUD?: string;
+  /** Set in a client's environment on a host of many clients (ADR 0616): `__Host-` cookies. */
+  COS_CLIENT_ID?: string;
+  /** A many-client host's derived key for client addresses (ADR 0616). */
+  CLIENT_ADDRESS_SECRET?: string;
   /** Code requests per address asked for: staff and customers share it (ADR 0455). */
   CUSTOMER_CODE_RATE_LIMIT?: RateLimitBinding;
   /** Code requests per client address, keyed by a hash of it. */
@@ -144,6 +148,7 @@ export function getBetterAuth(env: IdentityEnv): BetterAuthInstance | null {
       codeRateLimit: env.CUSTOMER_CODE_RATE_LIMIT,
       codeAddressRateLimit: env.CUSTOMER_CODE_ADDRESS_RATE_LIMIT,
       addressSecret: clientAddressSecret(env),
+      hostOnlyCookies: Boolean(env.COS_CLIENT_ID),
     });
     betterAuthCache.set(env, auth);
   }
@@ -198,6 +203,10 @@ export interface CustomerIdentityEnv {
   BETTER_AUTH_SECRET?: string;
   /** The client app's public origin. */
   CUSTOMER_AUTH_URL?: string;
+  /** Set in a client's environment on a host of many clients (ADR 0616): `__Host-` cookies. */
+  COS_CLIENT_ID?: string;
+  /** A many-client host's derived key for client addresses (ADR 0616). */
+  CLIENT_ADDRESS_SECRET?: string;
   /** Code requests per address asked for. Declared with the HTTP surface (stage 23). */
   CUSTOMER_CODE_RATE_LIMIT?: RateLimitBinding;
   /** Code requests per client address, keyed by a hash of it (stage 23). */
@@ -240,6 +249,7 @@ export function getCustomerIdentity(
       codeRateLimit: env.CUSTOMER_CODE_RATE_LIMIT,
       codeAddressRateLimit: env.CUSTOMER_CODE_ADDRESS_RATE_LIMIT,
       addressSecret: clientAddressSecret(env),
+      hostOnlyCookies: Boolean(env.COS_CLIENT_ID),
       codeNewRateLimit: env.CUSTOMER_CODE_NEW_RATE_LIMIT,
       ready,
     });
@@ -283,6 +293,7 @@ export function getPractitionerIdentity(
         codeRateLimit: env.CUSTOMER_CODE_RATE_LIMIT,
         codeAddressRateLimit: env.CUSTOMER_CODE_ADDRESS_RATE_LIMIT,
         addressSecret: clientAddressSecret(env),
+        hostOnlyCookies: Boolean(env.COS_CLIENT_ID),
         ready,
       }),
     );

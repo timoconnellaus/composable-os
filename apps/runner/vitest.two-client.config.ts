@@ -5,7 +5,7 @@
 import { fileURLToPath } from "node:url";
 import { readD1Migrations } from "@cloudflare/vitest-plugin";
 import { defineWorkersTestConfig } from "@composable-os/config/vitest";
-import { addClientDbService } from "@composable-os/db/testing/vitest";
+import { addClientDbService, manyClientWranglerConfig } from "@composable-os/db/testing/vitest";
 
 const migrationsDir = fileURLToPath(new URL("../../packages/db/migrations", import.meta.url));
 const registryMigrationsDir = fileURLToPath(
@@ -15,7 +15,10 @@ const registryMigrationsDir = fileURLToPath(
 export default defineWorkersTestConfig({
   include: ["test-two-clients/**/*.test.ts"],
   workers: async () => ({
-    wrangler: { configPath: "./wrangler.jsonc" },
+    // The committed wrangler.jsonc as a many-client deployment has it: no fake gatekeeper.
+    wrangler: {
+      configPath: manyClientWranglerConfig(fileURLToPath(new URL(".", import.meta.url))),
+    },
     miniflare: await addClientDbService({
       d1Databases: ["REGISTRY"],
       bindings: {
@@ -23,7 +26,6 @@ export default defineWorkersTestConfig({
         REGISTRY_MIGRATIONS: await readD1Migrations(registryMigrationsDir),
         COS_HOST_ENVIRONMENT: "live",
         COS_BINDING_KEY: "two-client-suite-binding-key-0123456789abcdef",
-        INTEGRATIONS_FAKE_PROVIDER: "false",
         TURNSTILE_SECRET_KEY: "",
       },
     }),

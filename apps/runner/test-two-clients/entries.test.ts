@@ -92,6 +92,13 @@ describe("the runner's RPC on a many-client host", () => {
     await expect(entry.callAs(a.id, "constructor", [])).rejects.toThrow(/not one of/);
   });
 
+  it("refuses every entry while the fake gatekeeper is on or bound, as the directory does", () => {
+    for (const flags of [{ INTEGRATIONS_FAKE_PROVIDER: "true" }, { GATEKEEPER_FAKE: {} }]) {
+      const host = { ...(env as unknown as Env), ...flags } as unknown as Env;
+      expect(() => new Runner(fromApp(), host)).toThrow(/fake gatekeeper/);
+    }
+  });
+
   it("refuses callAs from any binding but the app's, whatever client it names (S4)", async () => {
     const stranger = new Runner(
       createExecutionContext(),

@@ -21,13 +21,13 @@ import {
   isMediaPath,
   type RoutineDeliveryMessage,
 } from "@composable-os/core";
+import { isCallbackHostname, isCallbackRequest } from "@composable-os/db/callbacks";
 import {
   consumeByClient,
   consumeDeadLetters,
   consumeFanOut,
   decideRequest,
   fanOutCron,
-  isCallbackRequest,
   isDeadLetterQueue,
   isFanOutQueue,
   servesManyClients,
@@ -187,7 +187,9 @@ export async function hostFetch(
 ): Promise<Response> {
   if (!servesManyClients(env)) return dispatch(request, env, ctx, parts);
   // The deployment's callback address first: no client's, and decided before any client is.
-  if (isCallbackRequest(env, request)) return callbackFetch(request, env);
+  if (isCallbackHostname(env as never, new URL(request.url).hostname)) {
+    return callbackFetch(request, env);
+  }
   const decided = await decideRequest(env, request, APP_SURFACES);
   if ("response" in decided) return decided.response;
   const clientEnv = decided.env;
@@ -200,12 +202,13 @@ export async function hostFetch(
  * whose state says whose connection it is for. Anything else there is the plain 404.
  */
 async function callbackFetch(request: Request, env: Env): Promise<Response> {
-  const match = /^\/gatekeeper\/([a-z0-9-]+)(?:\/|$)/.exec(new URL(request.url).pathname);
-  if (!match?.[1]) return unknownHostResponse();
+  // Step 6's routing (`@composable-os/db/callbacks`): the vendor, on a gatekeeper's path only.
+  const callback = isCallbackRequest(env as never, new URL(request.url));
+  if (!callback) return unknownHostResponse();
   const runner = env.RUNNER as unknown as {
     gatekeeperCallback(vendor: string, request: Request): Promise<Response>;
   };
-  return runner.gatekeeperCallback(match[1], request);
+  return runner.gatekeeperCallback(callback.vendor, request);
 }
 
 /** One cron's work for one environment: the real `env`, or one client's. */

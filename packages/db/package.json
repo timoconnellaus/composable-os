@@ -16,6 +16,8 @@
     "./client-entries": "./src/client-entries.ts",
     "./client-proofs": "./src/client-proofs.ts",
     "./testing/two-clients": "./testing/two-clients.ts",
+    "./registry-sealing": "./src/registry-sealing.ts",
+    "./callbacks": "./src/callbacks.ts",
     "./testing/vitest": "./testing/vitest.ts",
     "./testing/conformance": "./testing/conformance.ts",
     "./testing/contents": "./testing/contents.ts"
@@ -28,6 +30,7 @@
     "seed": "node scripts/seed.ts"
   },
   "dependencies": {
+    "@hpke/core": "1.9.0",
     "kysely": "0.29.8"
   },
   "devDependencies": {

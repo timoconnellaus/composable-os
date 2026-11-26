@@ -78,3 +78,15 @@ environment and are stored nowhere; a secret a client gives (payment keys, its o
 provider, its own AI keys) is stored encrypted in the host's registry, under a key only the
 host's environment holds, written only by the operator's command and never readable by an
 operation, an extension or the assistant. A deployment for one organisation is unchanged.
+
+## Amended 2026-11-26: provider keys of a client on a many-client host (stage 66 step 6)
+[ADR 0616](0616-secrets-and-addresses-per-client.md). On a host that serves many clients, a
+client's own provider keys (`AI_KEY_<PROVIDER>`) and its judge key (`TYPESAFE_API_KEY`) are given
+secrets: sealed in the registry's `registry_secrets` to the host's public key (HPKE, X25519 and
+AES-256-GCM), so only the private key in the host's environment (`COS_SECRETS_PRIVATE_KEY`) can
+open them; bound to the client and the name, written only by the operator's command (which holds
+the public key only, and so can overwrite a key but never read one) and opened only into that
+client's environment. They are still never in a
+client's database. Settings → AI cannot store a key there (its Cloudflare API token is the host's
+and in no client's environment), so a client's keys are set by the operator. A single-client
+deployment is unchanged: Workers secrets or BYOK, as above.

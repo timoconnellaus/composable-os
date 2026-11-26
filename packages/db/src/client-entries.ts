@@ -33,13 +33,7 @@ import {
   PROOF,
   RUNNER_CALLER,
 } from "./client-proofs.ts";
-import {
-  type ClientId,
-  type ClientRecord,
-  canonicalHostname,
-  isClientId,
-  isSchemaBehind,
-} from "./registry.ts";
+import { type ClientId, type ClientRecord, isClientId, isSchemaBehind } from "./registry.ts";
 
 /** Whether `env` is a many-client host's: one constant check, no read. */
 export function servesManyClients(env: object): boolean {
@@ -757,23 +751,6 @@ export async function propsClientEnvironment<E extends HostBindings>(
     throw new NoClientError("These props were not minted by the host for this client");
   }
   return clientEnvironment(env, client);
-}
-
-// --- The deployment's callback address --------------------------------------------------------
-
-/**
- * The deployment's one address for gatekeepers' callbacks (OAuth redirects, provider pushes):
- * no client's (stage 66, "Addresses"). Step 6 (PR #513) names it and owns the routing; this is
- * the stand-in its `isCallbackRequest` replaces.
- */
-export const CALLBACK_HOSTNAME = "COS_CALLBACK_HOSTNAME";
-
-/** Whether `request` reached the deployment's callback address: decided before any client. */
-export function isCallbackRequest(env: object, request: Request): boolean {
-  const configured = (env as Record<string, unknown>)[CALLBACK_HOSTNAME];
-  if (typeof configured !== "string") return false;
-  const hostname = canonicalHostname(new URL(request.url).hostname);
-  return hostname !== null && hostname === canonicalHostname(configured);
 }
 
 // --- The runner's caller -------------------------------------------------------------------

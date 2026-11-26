@@ -15,7 +15,8 @@
 //                                    the caller has left it idle, and D1's after the same wait
 //   GET  /subrequests?db=…&max=N&fetches=F   how many calls one request makes before a limit
 //   GET  /conformance                every probe on both databases, side by side
-//   GET  /step2/…                    stage 66 step 2's probes (src/step2.ts)
+//   POST /step2/<probe>              stage 66 step 2's probes, a bounded call at a time, the
+//                                    cursor in the body (src/step2.ts, scripts/step2.mjs)
 import { DurableObject } from "cloudflare:workers";
 import { applyMigrations, type Migration } from "@composable-os/db";
 import { type ClientDb, clientDatabase, clientDatabaseService } from "@composable-os/db/client-db";
@@ -292,7 +293,9 @@ export default {
     }
     // Stage 66 step 2 (ADR 0614): bookmarks and restore, export and import, large answers, size.
     if (url.pathname.startsWith("/step2/")) {
-      const answer = await step2(url, { ...env, CLIENT_DB: clientDbs(env) });
+      // One call of a probe: its cursor, if any, in the body (scripts/step2.mjs drives the calls).
+      const body = post ? await request.json().catch(() => null) : null;
+      const answer = await step2(url, { ...env, CLIENT_DB: clientDbs(env) }, body);
       if (answer !== null) return json(answer);
     }
     if (url.pathname === "/conformance") {

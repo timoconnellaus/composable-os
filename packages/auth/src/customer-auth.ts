@@ -35,7 +35,7 @@ import { type CrmDb, createCrmDb } from "@composable-os/db";
 import { betterAuth } from "better-auth";
 import { APIError, createAuthMiddleware } from "better-auth/api";
 import { emailOTP } from "better-auth/plugins/email-otp";
-import { beforeCodeRequest, randomId, uniformCodeSignIn } from "./better-auth.ts";
+import { beforeCodeRequest, cookieOptions, randomId, uniformCodeSignIn } from "./better-auth.ts";
 
 export const CUSTOMER_AUTH_BASE_PATH = "/api/customer-auth";
 /** Customer cookies are `cos-customer.*`; staff cookies keep Better Auth's `better-auth.*`. */
@@ -77,6 +77,8 @@ export interface CustomerAuthOptions {
   codeAddressRateLimit?: RateLimitBinding | undefined;
   /** What the address is keyed with (`clientAddressSecret`): one count for every kind of sign-in. */
   addressSecret?: string | undefined;
+  /** A many-client host: every cookie `__Host-` prefixed (`cookieOptions`, ADR 0616). */
+  hostOnlyCookies?: boolean | undefined;
   /**
    * Limits codes sent host-wide to addresses that only "anyone starting a subscription" lets sign
    * in (ADR 0459): one key, `code-new`, for the whole host. Over it, nothing is sent, the answer
@@ -128,7 +130,7 @@ export function createCustomerAuth(options: CustomerAuthOptions) {
     emailAndPassword: { enabled: false },
     socialProviders: {},
     advanced: {
-      cookiePrefix: CUSTOMER_COOKIE_PREFIX,
+      ...cookieOptions(CUSTOMER_COOKIE_PREFIX, options.hostOnlyCookies),
       ipAddress: { disableIpTracking: true },
       database: {
         // The tables are migration 0401's, and leave out on purpose what Better Auth's default

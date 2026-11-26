@@ -76,9 +76,8 @@ function manyClientEnv(registry: D1Database = real.REGISTRY, environment = "live
     // Shared.
     STREAM_ACCOUNT_ID: "stream-account",
     LOADER: { name: "loader" },
-    // A gatekeeper that keeps each account in its own object (shared); payments is kept apart
-    // (B1 of the review of #512) and so left out, like any kept-apart name with no wrapper.
     GATEKEEPER_GOOGLE: { name: "google" },
+    // Holds one deployment's Stripe key and events: left out until it is per client (ADR 0616).
     GATEKEEPER_PAYMENTS: { name: "payments" },
     // Kept apart: each by its wrapper (rate limits, files and the runner here).
     MCP_RATE_LIMIT: recordingRateLimit(),
@@ -98,6 +97,7 @@ const gymA: ClientRecord = {
   repository: null,
   locationHint: "oc",
   schemaVersion: CORE_SCHEMA_VERSION,
+  secretGeneration: "0123456789abcdef0123456789abcdef",
 };
 
 /** The environment of a served admission, or a failure naming why it was refused. */
@@ -175,6 +175,7 @@ describe("buildClientEnvironment", () => {
         "APPROVAL_FLOOR",
         // Kept apart by step 4's wrappers (client-bindings.ts), never the real bindings.
         "BLOBS",
+        "COS_CLIENT_ID",
         "COS_ORG_EXTENSIONS",
         "COS_PACKS",
         "DB",
@@ -563,7 +564,9 @@ describe("ClientDirectory", () => {
     expect((a1 as unknown as { APPROVAL_FLOOR: string }).APPROVAL_FLOOR).toBe("high");
     expect((b1 as unknown as { APPROVAL_FLOOR: string }).APPROVAL_FLOOR).toBe("medium");
     const afterFirst = meter.statements();
-    expect(afterFirst).toBe(4);
+    // The registry in one batch of four, and each built client's sealed secrets, one read each
+    // (stage 66 step 6: never in the snapshot).
+    expect(afterFirst).toBe(4 + 2);
     // Within the refresh: no read at all, however many requests and hostnames.
     for (let i = 0; i < 50; i++) await directory.clientForHostname(`unknown-${i}.example.com`);
     expect(served(await directory.environmentFor("gym-a"))).toBe(a1);
@@ -579,7 +582,7 @@ describe("ClientDirectory", () => {
     const b2 = served(await directory.environmentFor("gym-b"));
     expect(a2).not.toBe(a1);
     expect((b2 as unknown as { APPROVAL_FLOOR: string }).APPROVAL_FLOOR).toBe("critical");
-    expect(meter.statements()).toBe(afterFirst + 1 + 1 + 4);
+    expect(meter.statements()).toBe(afterFirst + 1 + 1 + 4 + 2);
   });
 
   it("stops serving a client the operator removed or paused, at the next check", async () => {

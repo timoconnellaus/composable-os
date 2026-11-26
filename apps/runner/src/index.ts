@@ -61,7 +61,7 @@ import {
   NoClientError,
   servesManyClients,
 } from "@composable-os/db/client-entries";
-import { envNameUse } from "@composable-os/db/client-environment";
+import { envNameUse, refuseFakeGatekeeper } from "@composable-os/db/client-environment";
 import { PRODUCT_LABEL_VAR, setProductLabel } from "@composable-os/product";
 import { dispatchAutomationMessages, runDeferredDue } from "./automations/dispatch.ts";
 import { automationHost } from "./automations/host.ts";
@@ -330,6 +330,14 @@ async function consumeAutomationEvents(
  * per client, and its queues and Workflows act as the client stamped on each message and instance.
  */
 export default class Runner extends WorkerEntrypoint<Env> implements RunnerRpc {
+  constructor(ctx: ExecutionContext, env: Env) {
+    super(ctx, env);
+    // Every entry of the runner on a many-client host refuses the fake gatekeeper, whether or not
+    // the call reaches the directory (which refuses it too): `gatekeeperCallback` and the fake's
+    // own routes do not (ADR 0616, step 6's second review).
+    if (servesManyClients(env)) refuseFakeGatekeeper(env);
+  }
+
   /**
    * One of the runner's methods (`RUNNER_METHODS`, and no other) as `client`, in that client's
    * environment: a many-client host's only. The client is its own argument, never read from the

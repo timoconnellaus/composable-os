@@ -161,8 +161,9 @@ function deploy(dir, config) {
 
 /** What wrangler said about a Worker's startup and size. */
 function report(worker, output) {
-  const startup = /Worker Startup Time:\s*([\d.]+\s*ms)/i.exec(output)?.[1] ?? "not printed";
-  const upload = /Total Upload:\s*([^\n]+)/i.exec(output)?.[1]?.trim() ?? "not printed";
+  const startup =
+    /Worker Startup Time:\s*([\d.]+\s*ms)/i.exec(output)?.[1] ?? "not printed by wrangler";
+  const upload = /Total Upload:\s*([^\n]+)/i.exec(output)?.[1]?.trim() ?? "not printed by wrangler";
   return `${worker}: Worker Startup Time ${startup}; Total Upload ${upload}`;
 }
 

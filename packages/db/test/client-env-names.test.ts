@@ -46,6 +46,10 @@ describe("the names of the host's environment", () => {
       "COS_HOST_ENVIRONMENT",
       "CLIENT_FANOUT",
       "COS_BINDING_KEY",
+      // Stage 66 step 6 (ADR 0616): set by the deploy engine on a many-client deployment (step 7).
+      "COS_ROOT_KEY",
+      "COS_SECRETS_PRIVATE_KEY",
+      "COS_SECRETS_PRIVATE_KEY_PREVIOUS",
       "COS_CALLBACK_HOSTNAME",
     ]);
     const stale = [...Object.keys(ENV_NAMES), ...Object.keys(CLIENT_SETTINGS)].filter(
