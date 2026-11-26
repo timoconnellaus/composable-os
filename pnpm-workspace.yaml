@@ -16,3 +16,8 @@ onlyBuiltDependencies:
   - sharp
   - "@tailwindcss/oxide"
   - lightningcss
+
+# Pinned exactly: the HPKE library given secrets are sealed with (ADR 0616) takes its common
+# package with a caret; this holds it to the version reviewed.
+overrides:
+  "@hpke/common": "1.13.0"

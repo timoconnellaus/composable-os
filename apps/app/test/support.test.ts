@@ -306,6 +306,25 @@ describe("the support cookie on a many-client host (stage 66 step 6, ADR 0616)",
     );
     expect(wrongKey.ok).toBe(false);
   });
+
+  it("stays off without the client's own key: never falls back to the staff secret", async () => {
+    const many = { ...supportEnv, COS_CLIENT_ID: "acme" };
+    expect("SUPPORT_COOKIE_SECRET" in many).toBe(false);
+    const { id, email } = await requestGrant("viewer");
+    const approved = await approve(id);
+    const response = await enter(await token(claimsFor(id, email)), many);
+    expect(response.status).toBe(404);
+    const exp = Math.floor(Date.parse(approved.expiresAt) / 1000);
+    const staffKeyed = await signSupportCookie(id, exp, env.BETTER_AUTH_SECRET);
+    const result = await authorize(
+      new Request(`${ORIGIN}/`, {
+        headers: { cookie: `__Host-${SUPPORT_COOKIE}=${staffKeyed}` },
+      }),
+      many,
+      page,
+    );
+    expect(result.ok).toBe(false);
+  });
 });
 
 describe("plan limits through the UI adapter", () => {

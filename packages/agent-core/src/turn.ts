@@ -24,6 +24,11 @@ export interface TurnModel {
   params: { maxTokens?: number | undefined; temperature?: number | undefined };
   providerOptions?: StreamTextOptions["providerOptions"];
   headers?: Record<string, string>;
+  /**
+   * The model runner's redactor (packages/core `ai/redact.ts`): cuts every credential it holds,
+   * in every form a provider may echo, out of this model's error text.
+   */
+  redact?: (text: string) => string;
 }
 
 /** A tool the model may call. */
@@ -130,6 +135,41 @@ function errorMessage(error: unknown): string {
   return typeof error === "string" ? error : "The model call failed";
 }
 
+/**
+ * The turn's redactor: every model's (each holds its runner's), applied in turn, so provider error
+ * text never reaches the user, the log, the stored conversation or a model with a key in it.
+ */
+function turnRedactor(models: readonly TurnModel[]): (text: string) => string {
+  const each = models.flatMap((m) => (m.redact ? [m.redact] : []));
+  return (text) => each.reduce((out, redact) => redact(out), text);
+}
+
+/** What a stored failure note starts with (written below; redacted again when read back). */
+const FAILED_NOTE = /^\(This answer failed/;
+
+/**
+ * The history as the model is sent it: a failure note stored before redaction existed (or under
+ * another key) is redacted again, so an old stored key is never re-sent to a model.
+ */
+function withRedactedNotes(
+  messages: readonly ModelMessage[],
+  redact: (text: string) => string,
+): ModelMessage[] {
+  return messages.map((m) => {
+    if (m.role !== "assistant") return m;
+    if (typeof m.content === "string") {
+      return FAILED_NOTE.test(m.content) ? { ...m, content: redact(m.content) } : m;
+    }
+    if (!m.content.some((p) => p.type === "text" && FAILED_NOTE.test(p.text))) return m;
+    return {
+      ...m,
+      content: m.content.map((p) =>
+        p.type === "text" && FAILED_NOTE.test(p.text) ? { ...p, text: redact(p.text) } : p,
+      ),
+    };
+  });
+}
+
 /** Parses a tool's text result as JSON when it is JSON. */
 export function parseToolOutput(text: string): unknown {
   const trimmed = text.trim();
@@ -199,7 +239,7 @@ async function attemptTurn<X extends object>(
   const result = streamText({
     model: model.model,
     instructions: input.system,
-    messages: [...input.messages],
+    messages: withRedactedNotes(input.messages, turnRedactor(input.models)),
     tools: toolSet(input, attempt),
     stopWhen: [
       stepCountIs(input.maxSteps ?? DEFAULT_MAX_STEPS),
@@ -307,14 +347,19 @@ export async function runTurn<X extends object = Record<never, never>>(
       if (input.signal?.aborted) {
         return { response: [], steps, status: "stopped", model: model.modelId, text: "" };
       }
-      console.warn(`turn: ${model.provider}/${model.modelId} failed`, error);
+      console.warn(
+        `turn: ${model.provider}/${model.modelId} failed`,
+        turnRedactor(input.models)(errorMessage(error)),
+      );
       if (attempt.emitted) {
         actedBeforeFailing = true;
         break;
       }
     }
   }
-  const message = input.models.length ? errorMessage(lastError) : "No model is configured";
+  const message = input.models.length
+    ? turnRedactor(input.models)(errorMessage(lastError))
+    : "No model is configured";
   input.emit({ type: "error", message });
   const note: ModelMessage = {
     role: "assistant",

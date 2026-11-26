@@ -26,19 +26,21 @@ import {
   validateClientId,
 } from "./registry.ts";
 import {
-  DERIVED_SECRETS,
   hex,
   hostKeyBytes,
   hostKeyPair,
+  SEALING_SUITE,
+  type SealingPublicKey,
+} from "./registry-hpke.ts";
+import {
+  DERIVED_SECRETS,
   isDerivedSecretName,
   isGivenSecretName,
   placeBytes,
   ROOT_KEY_VAR,
-  SEALING_SUITE,
   SECRETS_PRIVATE_KEY_PREVIOUS_VAR,
   SECRETS_PRIVATE_KEY_VAR,
   type SealedSecret,
-  type SealingPublicKey,
   type SecretKind,
   type SecretPlace,
   sealClientSecret,
@@ -234,13 +236,16 @@ export interface OpenedSecrets {
  * builds that client's environment, and only then; what it returns goes into that environment and
  * nowhere else. A row it cannot open (no key, another key, moved from another client, name or
  * kind, tampered with), or whose name does not fit its kind, is left out and named in
- * `problems`, never with its value.
+ * `problems`, never with its value. An `imported` row is honoured only for a client added as
+ * imported (`importedClient`, migration 0793): for any other it is left out and named, so an
+ * auth secret cannot be pinned on an existing client by writing a row.
  */
 export async function readClientSecrets(
   registry: D1Database,
   keyring: OpeningKeyring | null,
   environment: ClientEnvironmentName,
   client: ClientId,
+  importedClient = false,
 ): Promise<OpenedSecrets> {
   const { results } = await registry
     .prepare("SELECT name, kind, enc, ciphertext, key_id FROM registry_secrets WHERE client = ?")
@@ -256,6 +261,10 @@ export async function readClientSecrets(
       (kind === "imported" && isDerivedSecretName(row.name));
     if (!fits) {
       left(`not a ${kind === "imported" ? "derivable" : "given"} secret's name`);
+      continue;
+    }
+    if (kind === "imported" && !importedClient) {
+      left("an imported secret of a client not added as imported");
       continue;
     }
     if (!keyring) {
@@ -292,13 +301,14 @@ export async function readClientSecrets(
  */
 export async function exportClientSecrets(
   env: HostKeys & { REGISTRY: D1Database },
-  client: Pick<ClientRecord, "id" | "environment" | "secretGeneration">,
+  client: Pick<ClientRecord, "id" | "environment" | "secretGeneration" | "imported">,
 ): Promise<{ derived: Record<string, string>; given: Record<string, string>; problems: string[] }> {
   const opened = await readClientSecrets(
     env.REGISTRY,
     await openingKeyringOf(env),
     client.environment,
     client.id,
+    client.imported,
   );
   const derived: Record<string, string> = {};
   if (env.COS_ROOT_KEY && client.secretGeneration) {

@@ -50,6 +50,7 @@ import {
   type RateLimitBinding,
   RateLimitedError,
   rateLimit,
+  redactorForEnv,
   scrubMessage,
   scrubPattern,
   scrubText,
@@ -266,9 +267,11 @@ export class AgentJob extends DurableObject<Cloudflare.Env> {
     try {
       await this.#slice();
     } catch (error) {
-      console.error("agent slice failed", errorForLog(error));
+      // Provider text may carry a key: redacted before it is logged or stored (redact.ts).
+      const redact = redactorForEnv(this.#env);
+      console.error("agent slice failed", redact(errorForLog(error)));
       await this.#finish("failed", {
-        error: error instanceof Error ? error.message.slice(0, 500) : "The agent failed",
+        error: error instanceof Error ? redact(error.message).slice(0, 500) : "The agent failed",
       });
     }
   }
