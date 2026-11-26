@@ -247,6 +247,7 @@ export class ClientDirectory<E extends HostBindings = HostBindings> {
       ...(snapshot.addresses.has(record.id)
         ? { addresses: snapshot.addresses.get(record.id) as ClientAddresses }
         : {}),
+      senderDomains: snapshot.senderDomains.get(record.id) ?? [],
     }) as E;
     // Two requests may build at once: the first one kept is every later request's. One built
     // from a registry read since replaced serves its own request and is not kept.

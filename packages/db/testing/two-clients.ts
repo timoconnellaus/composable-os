@@ -33,6 +33,13 @@ export const NOT_STAFF_HOSTNAMES = {
   desk: "desk.gym-a.test",
 } as const;
 
+/** The served clients' sender domains: each verified one is its client's alone. */
+export const SENDER_DOMAINS = [
+  { domain: "mail.gym-a.test", client: TWO_CLIENTS.a.id, verified: true },
+  { domain: "mail.gym-b.test", client: TWO_CLIENTS.b.id, verified: true },
+  { domain: "news.gym-b.test", client: TWO_CLIENTS.b.id, verified: false },
+] as const;
+
 interface TwoClientBindings {
   REGISTRY: D1Database;
   /** The operator's raw namespace (testing/vitest.ts, `addClientDbService`): step 7's stand-in. */
@@ -84,6 +91,15 @@ async function setUp(env: TwoClientBindings): Promise<void> {
     hostname(NOT_STAFF_HOSTNAMES.unverified, b.id, "staff", 0),
     hostname(NOT_STAFF_HOSTNAMES.web, a.id, "web"),
     hostname(NOT_STAFF_HOSTNAMES.desk, a.id, "desk"),
+    // Each served client's own sender domains (registry migration 0796; ADR 0616, "Email sending
+    // per client"): gym-a's verified, gym-b's verified and one of gym-b's not yet.
+    ...SENDER_DOMAINS.map(({ domain, client, verified }) =>
+      registry
+        .prepare(
+          "INSERT INTO registry_sender_domains (domain, client, verified, verified_at) VALUES (?, ?, ?, ?)",
+        )
+        .bind(domain, client, verified ? 1 : 0, verified ? "2026-11-27T00:00:00Z" : null),
+    ),
     // Staff may sign up at each served client, so the suites can sign one in by password.
     ...[a.id, b.id].map((id) =>
       registry

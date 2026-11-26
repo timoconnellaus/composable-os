@@ -19,6 +19,7 @@
     "./client-objects": "./src/client-objects.ts",
     "./testing/two-clients": "./testing/two-clients.ts",
     "./registry-sealing": "./src/registry-sealing.ts",
+    "./registry-senders": "./src/registry-senders.ts",
     "./callbacks": "./src/callbacks.ts",
     "./testing/vitest": "./testing/vitest.ts",
     "./testing/conformance": "./testing/conformance.ts",

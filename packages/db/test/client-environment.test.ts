@@ -580,9 +580,9 @@ describe("ClientDirectory", () => {
     expect((a1 as unknown as { APPROVAL_FLOOR: string }).APPROVAL_FLOOR).toBe("high");
     expect((b1 as unknown as { APPROVAL_FLOOR: string }).APPROVAL_FLOOR).toBe("medium");
     const afterFirst = meter.statements();
-    // The registry in one batch of four, and each built client's sealed secrets, one read each
+    // The registry in one batch of five, and each built client's sealed secrets, one read each
     // (stage 66 step 6: never in the snapshot).
-    expect(afterFirst).toBe(4 + 2);
+    expect(afterFirst).toBe(5 + 2);
     // Within the refresh: no read at all, however many requests and hostnames.
     for (let i = 0; i < 50; i++) await directory.clientForHostname(`unknown-${i}.example.com`);
     expect(served(await directory.environmentFor("gym-a"))).toBe(a1);
@@ -598,7 +598,7 @@ describe("ClientDirectory", () => {
     const b2 = served(await directory.environmentFor("gym-b"));
     expect(a2).not.toBe(a1);
     expect((b2 as unknown as { APPROVAL_FLOOR: string }).APPROVAL_FLOOR).toBe("critical");
-    expect(meter.statements()).toBe(afterFirst + 1 + 1 + 4 + 2);
+    expect(meter.statements()).toBe(afterFirst + 1 + 1 + 5 + 2);
   });
 
   it("stops serving a client the operator removed or paused, at the next check", async () => {

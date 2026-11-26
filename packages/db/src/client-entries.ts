@@ -917,6 +917,17 @@ export function gatekeeperOffered(
         why: `${binding} is not available on this host yet: it holds one account for every client (stage 66, ADR 0615)`,
       };
     }
+    // Email sending sends a client's mail only from its own verified sender domains (ADR 0616,
+    // "Email sending per client"): with none, it is not offered, and the gatekeeper refuses too.
+    if (
+      binding === "GATEKEEPER_EMAIL_SEND" &&
+      !(env as { COS_SENDER_DOMAINS?: unknown }).COS_SENDER_DOMAINS
+    ) {
+      return {
+        offered: false,
+        why: `${binding} is not available to this business yet: it has no verified sender domain (the operator verifies one, ADR 0616)`,
+      };
+    }
   }
   return bound ? { offered: true } : { offered: false, why: `${binding} is not deployed here` };
 }

@@ -21,8 +21,13 @@
   // Cloudflare Email Service: env.EMAIL.send({ from, to, subject, text, html, ... }).
   "send_email": [{ "name": "EMAIL" }],
   "vars": {
-    // Comma-separated domains a sender address may use. Empty refuses every sender.
+    // Comma-separated domains a sender address may use. Empty refuses every sender. Not read on a
+    // host of many clients (below).
     "ALLOWED_SENDER_DOMAINS": "",
+    // "true" on a host of many clients only, set by the deploy engine (stage 66): each client's own
+    // verified sender domains come from the host with every bind, send and apply, and nothing is
+    // sent without them. Empty: one deployment's ALLOWED_SENDER_DOMAINS, as before.
+    "SENDER_DOMAINS_PER_CLIENT": "",
     // Comma-separated domains whose recipients count as colleagues: a send whose every recipient
     // is in one of them is the auto-approvable `email.internal` kind.
     "INTERNAL_DOMAINS": ""

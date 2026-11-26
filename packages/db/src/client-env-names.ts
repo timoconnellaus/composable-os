@@ -38,6 +38,12 @@ export type EnvNameUse =
       path?: string;
       why: string;
     }
+  /**
+   * The client's verified sender domains (registry migration 0796), comma separated: the only
+   * domains its email is sent from (ADR 0616, "Email sending per client"). Left out when it has
+   * none.
+   */
+  | { use: "per-client"; what: "senders"; why: string }
   /** A shared binding or credential with a part per client: in only once its wrapper exists. */
   | { use: "kept-apart"; by: string }
   /**
@@ -139,6 +145,15 @@ export const ENV_NAMES: Readonly<Record<string, EnvNameUse>> = {
   DESK_HOSTNAME: ADDRESS("desk", "the client's desk hostname (step 8 adds them)"),
   STREAM_ALLOWED_ORIGINS: ADDRESS("all", "the client's own addresses play its videos"),
 
+  // --- Sender domains, per client (registry migration 0796) ---------------------------------
+  // Read by the runner's integration host and handed to the email-send gatekeeper with each bind,
+  // send and apply: a client's mail goes only from these, never the deployment's list.
+  COS_SENDER_DOMAINS: {
+    use: "per-client",
+    what: "senders",
+    why: "the client's verified sender domains, from the registry",
+  },
+
   // --- Shared bindings and credentials with a part per client (step 4's wrappers) ------------
   BLOBS: APART("a key prefix per client, added on write and removed on list"),
   OAUTH_KV: APART("a key prefix per client"),
@@ -209,9 +224,10 @@ export const ENV_NAME_PATTERNS: ReadonlyArray<{ pattern: RegExp; use: EnvNameUse
   // environment until each is made per client. Payments: one Stripe key and one events object per
   // provider. Text: one events object for the deployment. Webhook: endpoint ids chosen by the
   // user, one object each for the deployment. Email: one mailbox per local part for the
-  // deployment. Email sending: the deployment's sender domains.
+  // deployment. Email sending is shared (below): it takes each client's own verified sender
+  // domains from the host with every bind, send and apply (ADR 0616, "Email sending per client").
   {
-    pattern: /^GATEKEEPER_(?:PAYMENTS|TEXT|WEBHOOK|EMAIL|EMAIL_SEND)$/,
+    pattern: /^GATEKEEPER_(?:PAYMENTS|TEXT|WEBHOOK|EMAIL)$/,
     use: APART(
       "each client's own provider account, endpoints and mailboxes: the gatekeeper's work, listed in ADR 0616",
     ),

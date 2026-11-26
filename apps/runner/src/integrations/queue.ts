@@ -10,6 +10,7 @@
 // - bindHook: system hooks (sync, webhooks) are enabled at once (their owner consented when
 //   turning sync on or creating the endpoint); hooks agents ask for wait (stage 5 binds them).
 import { RpcTarget } from "cloudflare:workers";
+import { clientSenderDomains } from "./senders.ts";
 import {
   type ActingUser,
   type ApplyOutcome,
@@ -201,6 +202,19 @@ export class HostQueue extends RpcTarget {
     } catch (error) {
       console.error("failed to count an observation", error);
     }
+  }
+
+  /**
+   * The client's verified sender domains, on a host of many clients (stage 66; ADR 0616, "Email
+   * sending per client"): the email-send gatekeeper allows a send only from one of them. From the
+   * client's own environment (this queue's host is the client's integration host object), never
+   * from anything the caller sent. Throws on a single-client deployment, whose gatekeeper reads
+   * its own ALLOWED_SENDER_DOMAINS (and fails closed if it were ever asked there).
+   */
+  async senderDomains(): Promise<string[]> {
+    const domains = clientSenderDomains(this.#host.env);
+    if (domains === null) throw new Error("Sender domains are a host of many clients' only");
+    return domains;
   }
 
   /**
