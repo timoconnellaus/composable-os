@@ -614,8 +614,11 @@ Stage 6a ([ADR 0110](adr/0110-integration-host-per-connection.md) to
   cells while parsing, map columns and value maps (saved per kind, holding no person), and read the
   file through the contract's file session into the same ingest, so step 10's rules hold every
   load. The load re-plans and refuses unless its keyed fingerprint (file, mapping, current lists,
-  every planned row) is the dry run's; it is one batch (one transaction), 827 statements at the
-  largest file. The file is held only in the request, never stored. The minute cron
+  every planned row) is the dry run's; it is one batch (one transaction), 836 statements at the
+  largest file, guarded by the copy's version (`core_outside_version`, `core_load_guard`) so an
+  erase or link between its plan and its write fails it; every address is cleaned and checked by
+  `normaliseCustomerEmail` before its row is kept; neither operation is ever queued for approval
+  (`neverQueued`). The file is held only in the request, never stored. The minute cron
   (`runOutsideListsDue`) tells the list's age once each, 3 days before and when it stops counting
   (migration 1413).
   Inbound webhooks and sync events land in `core_integration_event`; cos-runner's cron turns them

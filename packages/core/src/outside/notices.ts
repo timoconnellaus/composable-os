@@ -70,6 +70,11 @@ export async function runOutsideListsDue(db: CrmDb, at: Date): Promise<ListNotic
       .where("l.kind", "=", "members")
       .where("l.state", "=", "current")
       .where((eb) => eb.or([eb("l.told_soon_at", "is", null), eb("l.told_old_at", "is", null)]))
+      // Only once it may be due: within 3 days of the largest age by UTC's day, a day early for
+      // the business's zone. Before then a quiet minute reads nothing more (the review, M5).
+      .where(
+        sql<boolean>`l.exported_on <= date(${now}, '+1 day', '-' || (coalesce(s.largest_age_days, ${DEFAULT_LARGEST_AGE_DAYS}) - ${TOO_OLD_NOTICE_DAYS}) || ' days')`,
+      )
       .executeTakeFirst(),
     db.query
       .selectFrom("core_outside_list")

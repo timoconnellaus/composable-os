@@ -67,7 +67,11 @@ linked and what a customer may see are rules of the host.
    are refused and why, who is new, changed, unchanged or removed, who is not kept, how many are
    dropped because they were erased, who would link and who would wait in To match. They load it
    with the dry run's fingerprint (`outside.file.load`): the host plans again and refuses unless
-   nothing changed since. The batch replaces the copy of that kind, adds one timeline line per
+   nothing changed since, and its batch fails if an erase, a link or another load lands between
+   its plan and its write. An address is checked as the host keys erased addresses (hidden
+   characters, compatibility forms, quotes and brackets dropped first), and a row whose address
+   it does not take is left out. Neither call is ever queued for approval. The batch replaces the
+   copy of that kind, adds one timeline line per
    Person linked, and saves the mapping. The file is never kept: the browser sends it again for
    the load, and the audit records counts only.
 2. A Person is created, given an address, restored or imported: an unlinked outside person with

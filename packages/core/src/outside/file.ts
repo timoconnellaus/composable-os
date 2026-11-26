@@ -21,6 +21,9 @@
 // with the load (ADR 0020's stateless rule), and the load plans again and refuses unless its plan
 // is the one the dry run showed (the fingerprint). So an erase between the two cannot be defeated
 // by a kept upload: there is none, and the erase changes the plan, so the stale load is refused.
+// Nor is the file kept by an approval: both operations are `neverQueued`, refused where a preset
+// or the deploy floor would make them wait (a pending action would keep the input whole). And an
+// erase landing between a load's plan and its write fails the write (`guardStatement`).
 import type { CoreDatabase } from "@composable-os/db";
 import {
   type BookingSystemBookingState,
@@ -33,18 +36,16 @@ import {
   type FileIssue,
   type FileLoad,
   loadFiles,
-  MAX_CELL,
-  MAX_COLUMNS,
   MAX_FILE_CHARS,
   MAX_ISSUES_SHOWN,
-  MAX_PEOPLE_ROWS,
   type PeopleFileMapping,
-  parseCsv,
+  readHeader,
   refusalCode,
   type TimetableFileMapping,
 } from "@composable-os/gatekeeper-booking-system";
 import { CompiledQuery, type Kysely } from "kysely";
 import { saltedHash } from "../contact/suppression.ts";
+import { normaliseCustomerEmail } from "../customers/accounts.ts";
 import { sha256Hex } from "../digest.ts";
 import { ValidationError } from "../errors.ts";
 import { loadGeneralSettings } from "../settings.ts";
@@ -235,7 +236,11 @@ export function fileBytes(base64: string): Uint8Array {
   } catch {
     throw refused("The file is not base64 text.");
   }
-  return Uint8Array.from(binary, (c) => c.charCodeAt(0));
+  // A plain loop: `Uint8Array.from(binary, fn)` holds a value per character and runs a 10 MB file
+  // past a Worker's 128 MB (measured, the review M1).
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+  return bytes;
 }
 
 // --- Fields, suggestions and saved mappings. -------------------------------------------------------
@@ -468,14 +473,7 @@ export function checkMapping(
       });
     }
   }
-  for (const header of headers) {
-    if (ADDRESS_LIKE.test(header) || DIGITS_LIKE.test(header)) {
-      throw new ValidationError(
-        "The first row must be the column names, and it holds an address or a long number: is the header row missing?",
-        { field: "file", rule: "outside_no_header" },
-      );
-    }
-  }
+  checkHeaders(headers, personalValues);
   const maps: Record<string, readonly string[]> = VALUE_MAPS[kind];
   for (const [name, map] of Object.entries(mapping.values ?? {})) {
     const allowed = maps[name];
@@ -511,6 +509,91 @@ export function checkMapping(
   }
 }
 
+/** A date, a time or a number: what a data row holds and a column name never is. */
+const VALUE_LIKE = [
+  /^\s*[\d\s.,:+-]+\s*$/,
+  /\d{1,4}[-/.]\d{1,2}[-/.]\d{1,4}/,
+  /\b\d{1,2}:\d{2}\b/,
+  /\b\d{1,2}(st|nd|rd|th)?\s+(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s+\d{2,4}\b/i,
+  /\b(jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)[a-z]*\.?\s+\d{1,2}(st|nd|rd|th)?,?\s+\d{2,4}\b/i,
+];
+
+/**
+ * The first row must be the column names (the review, M3): a mapping saves them, so a file whose
+ * first row is a person's (an address, a long number, a date or time, or a name, address or id
+ * that the file's own rows hold) is refused, saying why and echoing nothing.
+ */
+function checkHeaders(headers: readonly string[], personalValues: ReadonlySet<string>): void {
+  for (const header of headers) {
+    if (!header.trim()) continue;
+    if (
+      ADDRESS_LIKE.test(header) ||
+      DIGITS_LIKE.test(header) ||
+      VALUE_LIKE.some((re) => re.test(header)) ||
+      personalValues.has(wordKey(header))
+    ) {
+      throw new ValidationError(
+        "The first row must be the column names, and it holds what looks like a row of data (an address, a number, a date, or a name the file's rows hold): is the header row missing? Export the list with its column names.",
+        { field: "file", rule: "outside_no_header" },
+      );
+    }
+  }
+}
+
+/** The free-text fields a mapping copies into the copy's own text (a plan's or a class's name). */
+const FREE_TEXT: Record<ListKind, readonly string[]> = {
+  members: ["membershipType"],
+  timetable: ["title", "classType", "location"],
+};
+
+/** A value with its dates and times taken out, for the long-number check (a class on 2026-12-01). */
+const withoutDates = (value: string) =>
+  value.replace(/\d{1,4}[-/.]\d{1,2}[-/.]\d{1,4}/g, " ").replace(/\d{1,2}:\d{2}/g, " ");
+
+/**
+ * Refuses a mapping that copies a person's data into the copy's own text (the review, M4): a
+ * column mapped to a plan's name, a class's title, its type or its location whose values hold an
+ * address or a phone-like number, or several of which are people's names, addresses or ids in
+ * the file. Class titles are public (`outside.timetable`). Nothing is echoed.
+ */
+export function checkFreeText(
+  kind: ListKind,
+  mapping: FileMapping,
+  load: FileLoad,
+  personalValues: ReadonlySet<string>,
+): void {
+  const values: Record<string, string[]> =
+    kind === "members"
+      ? { membershipType: load.membershipTypes.map((t) => t.name) }
+      : {
+          title: load.classes.map((c) => c.title),
+          classType: mapping.columns.classType ? load.classTypes.map((t) => t.name) : [],
+          location: load.site.locations.map((l) => l.name),
+        };
+  for (const field of FREE_TEXT[kind]) {
+    if (mapping.columns[field] === undefined) continue;
+    const distinct = [...new Set(values[field] ?? [])];
+    const personal = distinct.filter((v) => personalValues.has(wordKey(v))).length;
+    if (
+      distinct.some((v) => ADDRESS_LIKE.test(v) || DIGITS_LIKE.test(withoutDates(v))) ||
+      personal >= Math.max(2, Math.ceil(distinct.length / 10))
+    ) {
+      throw new ValidationError(
+        `The column mapped to ${field} holds what look like people's names, addresses or phone numbers: map it to the column that holds the ${field === "membershipType" ? "plan" : "class"}'s own name.`,
+        { field: "mapping", rule: "outside_mapping_personal", target: field },
+      );
+    }
+  }
+}
+
+/** The headers the suggestion takes for a person's name, address or id. */
+function personalHeaders(kind: ListKind, suggested: FileMapping): string[] {
+  const fields: Record<string, Field> = FILE_FIELDS[kind];
+  return Object.entries(suggested.columns).flatMap(([field, header]) =>
+    fields[field]?.personal ? [header] : [],
+  );
+}
+
 /** The values of a loaded file's name, address and id columns, as value-map words compare. */
 function personalValuesOf(load: FileLoad): Set<string> {
   const out = new Set<string>();
@@ -529,12 +612,14 @@ function personalValuesOf(load: FileLoad): Set<string> {
     add(s.email);
   }
   for (const b of load.bookings) add(b.person);
+  for (const v of load.seen) add(v);
   return out;
 }
 
 /** A saved mapping, with the headers of the file it was saved from. */
 export interface SavedMapping extends FileMapping {
-  headers?: string[];
+  /** A keyed hash of the column names of the file it was saved from (`shapeOf`). */
+  shape?: string;
 }
 
 /** The saved mapping of each kind, as `core_outside_settings.mappings` holds them. */
@@ -834,11 +919,13 @@ export async function planFile(
   who: { userId: string; now: string },
 ): Promise<FilePlan> {
   const { text, encoding } = decodeFile(input.bytes);
+  // The copy's version before anything is read: the load's batch is guarded by it, so whatever
+  // changes after this (an erase, a link, another load) fails the batch (the review, S3).
+  const version = await copyVersion(db);
+  // The first row only: the file is parsed whole once, by the file session (the review, M1).
   let headerRow: string[];
   try {
-    headerRow =
-      parseCsv(text, { maxRows: MAX_PEOPLE_ROWS, maxColumns: MAX_COLUMNS, maxCell: MAX_CELL })[0] ??
-      [];
+    headerRow = readHeader(text);
   } catch (error) {
     asValidation(error);
   }
@@ -851,7 +938,7 @@ export async function planFile(
   if (input.mapping) {
     mapping = input.mapping;
     mappingFrom = "given";
-  } else if (saved && sameShape(saved, headers)) {
+  } else if (saved && (await sameShape(db, saved, headers))) {
     mapping = {
       columns: saved.columns,
       ...(saved.values ? { values: saved.values } : {}),
@@ -925,12 +1012,19 @@ export async function planFile(
     load = loadFiles({
       site: { name: general.orgName ?? "Booking system", timeZone: general.timezone },
       now: who.now,
+      // The one address check: the form erased addresses and suppressions are keyed by.
+      normaliseAddress: normaliseCustomerEmail,
+      // The columns that look like names, addresses or ids by their headers, mapped or not: a
+      // mapping is checked against their values too (the review, M4).
+      watch: personalHeaders(input.kind, suggested),
       ...asLoadInput(input.kind, text, mapping),
     });
   } catch (error) {
     asValidation(error);
   }
-  checkMapping(input.kind, mapping, headers, personalValuesOf(load));
+  const personal = personalValuesOf(load);
+  checkMapping(input.kind, mapping, headers, personal);
+  checkFreeText(input.kind, mapping, load, personal);
 
   const meta = {
     exportedOn,
@@ -962,10 +1056,14 @@ export async function planFile(
       }
       plan = await planTimetable(
         db,
-        await readTimetable(session, {
-          from: new Date(from).toISOString(),
-          until: new Date(until).toISOString(),
-        }),
+        {
+          ...(await readTimetable(session, {
+            from: new Date(from).toISOString(),
+            until: new Date(until).toISOString(),
+          })),
+          // Every address a row carried, beside an id too, is checked (the review, S2).
+          bookingAddresses: load.bookingAddresses,
+        },
         meta,
       );
     }
@@ -1020,6 +1118,8 @@ export async function planFile(
     plan,
     now: who.now,
   });
+  // The guard first: the batch commits only while the copy is the version this plan read.
+  plan.statements.unshift(guardStatement(version));
   const c = plan.counts;
   return {
     plan,
@@ -1049,25 +1149,61 @@ export async function planFile(
   };
 }
 
-/** The statement that saves a load's mapping as its kind's, for the next export of that shape. */
+/**
+ * A keyed hash of a file's set of column names (the deployment's salt): what a saved mapping
+ * keeps to know the next export of the same shape, never the names themselves (the review, M3).
+ */
+function shapeOf(db: Db, headers: readonly string[]): Promise<string> {
+  return saltedHash(db, `outside:shape:${JSON.stringify([...new Set(headers)].sort())}`);
+}
+
 /** The next export of the same shape: the same columns, by name, in any order. */
-function sameShape(saved: SavedMapping, headers: readonly string[]): boolean {
+async function sameShape(db: Db, saved: SavedMapping, headers: readonly string[]) {
   const have = new Set(headers);
   return (
-    Array.isArray(saved.headers) &&
-    saved.headers.length === have.size &&
-    saved.headers.every((h) => have.has(h)) &&
+    typeof saved.shape === "string" &&
+    saved.shape === (await shapeOf(db, headers)) &&
     Object.values(saved.columns ?? {}).every((h) => have.has(h))
   );
 }
 
-export function saveMappingStatement(
+/** The statement that saves a load's mapping as its kind's, for the next export of that shape. */
+export async function saveMappingStatement(
+  db: Db,
   kind: ListKind,
   mapping: FileMapping,
   headers: readonly string[],
-): CompiledQuery {
+): Promise<CompiledQuery> {
+  const saved: SavedMapping = {
+    columns: mapping.columns,
+    ...(mapping.values ? { values: mapping.values } : {}),
+    ...(mapping.dateFormat ? { dateFormat: mapping.dateFormat } : {}),
+    shape: await shapeOf(db, headers),
+  };
   return CompiledQuery.raw(
     "UPDATE core_outside_settings SET mappings = json_set(CASE WHEN json_valid(mappings) THEN mappings ELSE '{}' END, ?, json(?)) WHERE id = 1",
-    [`$.${kind}`, JSON.stringify({ ...mapping, headers: [...new Set(headers)] })],
+    [`$.${kind}`, JSON.stringify(saved)],
   );
+}
+
+/** The statement that forgets a kind's saved mapping (`outside.settings.update`, a human admin). */
+export function clearMappingStatement(kind: ListKind): CompiledQuery {
+  return CompiledQuery.raw(
+    "UPDATE core_outside_settings SET mappings = json_remove(CASE WHEN json_valid(mappings) THEN mappings ELSE '{}' END, ?) WHERE id = 1",
+    [`$.${kind}`],
+  );
+}
+
+/** The copy's version now (migration 1413's view): counts, rowids and times, never a value. */
+export async function copyVersion(db: Db): Promise<string> {
+  const row = await db.selectFrom("core_outside_version").select("version").executeTakeFirst();
+  return row?.version ?? "";
+}
+
+/**
+ * The load's guard, the first statement of its batch: the trigger fails the whole batch
+ * (`core_outside_stale`) unless the copy is still `version` (the review, S3).
+ */
+export function guardStatement(version: string): CompiledQuery {
+  return CompiledQuery.raw("INSERT INTO core_load_guard (expected) VALUES (?)", [version]);
 }

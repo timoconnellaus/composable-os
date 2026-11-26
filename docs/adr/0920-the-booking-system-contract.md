@@ -153,4 +153,8 @@ one row per booking (who is booked by id or address, its state, a value map for 
 words), and gives the coach's address; `FileBookingSystem.listBookings` answers those bookings.
 A membership type's kind may be set by its name (the value map `membershipType`). Refs are kept
 within the contract's shape whatever the file's ids are (`fitRef`), and every text kept has its
-hidden and direction-changing characters dropped and its white space folded.
+hidden and direction-changing characters dropped and its white space folded. Revised after the
+review of PR #519: an address too (`cleanAddress`, then the host's own check through
+`normaliseAddress`); a row whose address the host does not take is left out, never read without
+it; a booking's address given beside its id is passed on (`bookingAddresses`); cells are sliced,
+not built a character at a time, and `readHeader` reads the first row alone.

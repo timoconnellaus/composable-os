@@ -124,11 +124,22 @@ business, and its lawyer or the booking system's support, to confirm. The load s
   request, and the browser sends it again for the load. A timetable file may be one row per
   booking (who by id or address, the state, the coach's address). The minute cron
   (`runOutsideListsDue`) tells the holders of `bookingSystem:manage` once 3 days before a members
-  list stops counting and once when it does, and removes log rows after 30 days. Statements: 46
-  for the 3,000-row fixture, 827 at the largest file (20,000 members, all linking). Tests:
-  `outside-file.test.ts`, `outside-file-bounds.test.ts`, the package's `file-source.test.ts`.
+  list stops counting and once when it does (a quiet minute two reads), and removes log rows after
+  30 days. After the review of PR #519: every address is cleaned (hidden characters, compatibility
+  forms, quotes, brackets) and checked by the host's own normalisation before anything of its row
+  is kept, and a row whose address it does not take is left out; a booking's address beside its id
+  is checked against erased people; the load's batch starts with a guard on the copy's version
+  (migration 1413's `core_outside_version` and `core_load_guard`), so an erase, link or other load
+  between its plan and its write fails it (`outside_preview_stale`); both operations are
+  `neverQueued` (a new operation property: refused, never queued, where approval would apply); a
+  first row that is data, and a mapping copying people's data into plan names or class titles, are
+  refused; a saved mapping keeps a keyed hash of its columns, and `outside.settings.update`'s
+  `clearMappings` forgets one; cells are sliced and the file parsed once (about 20 MB at the
+  largest file, measured in V8); every read binds at most 90 KB. Statements: 51 for the 3,000-row
+  fixture, 836 at the largest file (20,000 members, all linking). Tests: `outside-file.test.ts`,
+  `outside-file-review.test.ts`, `outside-file-bounds.test.ts`, the package's `file-source.test.ts`.
   `outside.lists.remove` was step 10's. Not done here: the screens (step 5), the daily To match
-  digest line, editing a saved mapping through `outside.settings.update`.
+  digest line (issue #521), editing a saved mapping through `outside.settings.update`.
 
 - **Step 5** — not built — needs: step 4 — Admin screens and the Person panel.
 

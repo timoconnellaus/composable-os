@@ -23,6 +23,7 @@ import { z } from "zod";
 import { ConflictError, ForbiddenError, ValidationError } from "../errors.ts";
 import { defineOperation, type HandlerContext } from "../operation.ts";
 import {
+  clearMappingStatement,
   DATE_FORMATS,
   type FileMapping,
   fileBytes,
@@ -81,6 +82,12 @@ const typeSchema = z.object({
   counts: z.boolean().describe("It makes a Person a member"),
 });
 
+const savedMappingOut = z.object({
+  columns: z.record(z.string(), z.string()),
+  values: z.record(z.string(), z.record(z.string(), z.string())).optional(),
+  dateFormat: z.enum(DATE_FORMATS).optional(),
+});
+
 export const outsideSettingsGet = defineOperation({
   name: "outside.settings.get",
   description:
@@ -93,8 +100,10 @@ export const outsideSettingsGet = defineOperation({
   output: settingsSchema.extend({
     types: z.array(typeSchema),
     mappings: z
-      .record(z.string(), z.unknown())
-      .describe("The column mapping and value maps saved by the last load of each kind"),
+      .object({ members: savedMappingOut.optional(), timetable: savedMappingOut.optional() })
+      .describe(
+        "The column mapping, value maps and date format saved by the last load of each kind (the export's own column names and words, never a person's)",
+      ),
   }),
   permission: "bookingSystem:manage",
   risk: "read",
@@ -111,7 +120,22 @@ export const outsideSettingsGet = defineOperation({
     const { updatedBy: _by, ...rest } = settings;
     return {
       ...rest,
-      mappings: await savedMappings(ctx.db),
+      mappings: Object.fromEntries(
+        Object.entries(await savedMappings(ctx.db)).flatMap(([kind, m]) =>
+          m && LIST_KINDS.includes(kind as ListKind)
+            ? [
+                [
+                  kind,
+                  {
+                    columns: m.columns ?? {},
+                    ...(m.values ? { values: m.values } : {}),
+                    ...(m.dateFormat ? { dateFormat: m.dateFormat } : {}),
+                  },
+                ],
+              ]
+            : [],
+        ),
+      ),
       types: types.map((t) => ({
         ref: t.ref,
         name: t.name,
@@ -132,13 +156,19 @@ export const outsideSettingsUpdate = defineOperation({
     "Change the booking-system settings: on or off, the outside types that make a Person a " +
     "member (null for the default: every membership type, no pass), the two links (each an https " +
     "address, or null), and the largest age a members list counts for (1 to 90 days). Leave a " +
-    "setting out to keep it. A human admin in the app only.",
+    "setting out to keep it; clearMappings forgets the saved column mapping of a kind. A human " +
+    "admin in the app only.",
   input: z.object({
     enabled: z.boolean().optional(),
     memberTypes: z.array(z.string().min(1).max(600)).max(200).nullable().optional(),
     manageUrl: httpsLink.optional(),
     bookUrl: httpsLink.optional(),
     largestAgeDays: z.number().int().min(1).max(MAX_LARGEST_AGE_DAYS).optional(),
+    clearMappings: z
+      .array(z.enum(LIST_KINDS))
+      .max(2)
+      .optional()
+      .describe("Forget the saved column mapping of these kinds: the next file is mapped afresh"),
   }),
   output: settingsSchema,
   permission: "settings:manage",
@@ -174,6 +204,7 @@ export const outsideSettingsUpdate = defineOperation({
         .values({ id: 1, ...row })
         .onConflict((oc) => oc.column("id").doUpdateSet(row)),
     );
+    for (const kind of new Set(input.clearMappings ?? [])) ctx.write(clearMappingStatement(kind));
     return { source: "file" as const, ...next, updatedAt: ctx.now };
   },
 });
@@ -833,7 +864,8 @@ export const outsideFilePreview = defineOperation({
     "not kept; dropped because the person was erased; who would link by address and who would " +
     "wait in To match) and every refused row with why. Writes nothing and keeps nothing of the " +
     "file. Pass its fingerprint, with the same file, mapping and export date, to outside.file.load. " +
-    "A person with bookingSystem:manage only, never an AI.",
+    "A person with bookingSystem:manage only, never an AI; never queued for approval (where it " +
+    "would wait, it is refused: a waiting call would keep the file).",
   input: fileInput,
   output: z.object({
     kind: z.enum(LIST_KINDS),
@@ -867,6 +899,7 @@ export const outsideFilePreview = defineOperation({
   actors: ["human"],
   mcp: { expose: false },
   redact: ["file"],
+  neverQueued: true,
   auditSummary: (output) => ({ kind: output.kind, rows: output.rows, ready: output.ready }),
   async handler(input, ctx) {
     const { preview } = await planFile(ctx.db, fileOf(input), {
@@ -876,6 +909,9 @@ export const outsideFilePreview = defineOperation({
     return preview;
   },
 });
+
+const STALE =
+  "The file, its mapping or the booking system's copy changed since the dry run (another list was loaded, someone was erased, linked or unlinked, a Person's address changed): nothing was loaded. Run the dry run again.";
 
 export const outsideFileLoad = defineOperation({
   name: "outside.file.load",
@@ -887,7 +923,9 @@ export const outsideFileLoad = defineOperation({
     "batch: rows not in the new file go, with their links and matches; nothing of an erased " +
     "person is kept. The mapping is saved for the next export of the same shape. The file itself " +
     "is not kept; the audit records counts only. A person with bookingSystem:manage only, never an " +
-    "AI, an MCP client, Code Mode, an extension or an automation.",
+    "AI, an MCP client, Code Mode, an extension or an automation; never queued for approval " +
+    "(where it would wait, it is refused). An erase, link or other load landing between its plan " +
+    "and its write fails the whole write (conflict), so nothing an erase removed comes back.",
   input: fileInput.extend({
     fingerprint: z.string().min(1).max(200).describe("The dry run's fingerprint"),
     saveMapping: z.boolean().optional().describe("Default true: save the mapping for next time"),
@@ -904,7 +942,14 @@ export const outsideFileLoad = defineOperation({
   actors: ["human"],
   mcp: { expose: false },
   redact: ["file"],
+  neverQueued: true,
   auditSummary: (output) => output,
+  // The load's guard failed its batch: the copy moved between its plan and its write (an erase,
+  // a link, another load): nothing was written (the review, S3).
+  explainFailure: async (error) =>
+    /core_outside_stale/.test(`${error.message} ${JSON.stringify(error.details ?? null)}`)
+      ? new ConflictError(STALE, { rule: "outside_preview_stale" })
+      : null,
   async handler(input, ctx) {
     const { plan, preview } = await planFile(ctx.db, fileOf(input), {
       userId: ctx.user.id,
@@ -917,14 +962,11 @@ export const outsideFileLoad = defineOperation({
       });
     }
     if (preview.fingerprint !== input.fingerprint) {
-      throw new ConflictError(
-        "The file, its mapping or the booking system's copy changed since the dry run (another list was loaded, someone was erased, a Person's address changed): nothing was loaded. Run the dry run again.",
-        { rule: "outside_preview_stale" },
-      );
+      throw new ConflictError(STALE, { rule: "outside_preview_stale" });
     }
     ctx.write(...plan.statements);
     if (input.saveMapping !== false)
-      ctx.write(saveMappingStatement(input.kind, preview.mapping, preview.headers));
+      ctx.write(await saveMappingStatement(ctx.db, input.kind, preview.mapping, preview.headers));
     return {
       kind: input.kind,
       exportedOn: preview.exportedOn,

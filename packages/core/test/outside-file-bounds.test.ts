@@ -11,17 +11,22 @@ import { createCrmDb } from "@composable-os/db";
 import { beforeAll, describe, expect, it } from "vitest";
 import { type ActingUser, invokeByName } from "../src/index.ts";
 import { MAX_PLAN_STATEMENTS } from "../src/outside/ingest.ts";
+import { runOutsideListsDue } from "../src/outside/notices.ts";
 import { context, createUser, unique } from "./helpers.ts";
 
 let queries = 0;
 let maxParams = 0;
 let compound = 0;
 let maxColumns = 0;
+let maxParamBytes = 0;
+let maxSql = 0;
+const encoder = new TextEncoder();
 
 const metered = new Proxy(env.DB, {
   get(target, prop) {
     if (prop === "prepare") {
       return (query: string) => {
+        maxSql = Math.max(maxSql, encoder.encode(query).length);
         compound = Math.max(
           compound,
           (query.match(/\b(UNION|INTERSECT|EXCEPT)\b/gi) ?? []).length + 1,
@@ -32,6 +37,11 @@ const metered = new Proxy(env.DB, {
               if (p === "bind") {
                 return (...args: unknown[]) => {
                   maxParams = Math.max(maxParams, args.length);
+                  for (const a of args) {
+                    if (typeof a === "string") {
+                      maxParamBytes = Math.max(maxParamBytes, encoder.encode(a).length);
+                    }
+                  }
                   return wrap(s.bind(...args));
                 };
               }
@@ -71,6 +81,8 @@ function reset() {
   maxParams = 0;
   compound = 0;
   maxColumns = 0;
+  maxParamBytes = 0;
+  maxSql = 0;
 }
 
 function b64(text: string): string {
@@ -136,6 +148,9 @@ describe("the file source's bounds", () => {
       expect(maxParams).toBeLessThanOrEqual(100);
       expect(compound).toBeLessThanOrEqual(5);
       expect(maxColumns).toBeLessThanOrEqual(100);
+      // D1: a statement at most 100 KB, a string at most 2 MB (the review, M2).
+      expect(maxSql).toBeLessThanOrEqual(100_000);
+      expect(maxParamBytes).toBeLessThanOrEqual(100_000);
       reset();
       await invokeByName(
         "outside.file.load",
@@ -146,6 +161,9 @@ describe("the file source's bounds", () => {
       expect(maxParams).toBeLessThanOrEqual(100);
       expect(compound).toBeLessThanOrEqual(5);
       expect(maxColumns).toBeLessThanOrEqual(100);
+      // D1: a statement at most 100 KB, a string at most 2 MB (the review, M2).
+      expect(maxSql).toBeLessThanOrEqual(100_000);
+      expect(maxParamBytes).toBeLessThanOrEqual(100_000);
       cost.push({ rows, preview, load, plan: dry.statements });
       expect(
         (
@@ -163,12 +181,37 @@ describe("the file source's bounds", () => {
       expect(c.plan, `${c.rows}`).toBeLessThanOrEqual(MAX_PLAN_STATEMENTS);
       expect(c.load, `${c.rows}`).toBeLessThan(1_000);
       expect(c.preview, `${c.rows}`).toBeLessThan(60);
-      // Reads do not grow with the file: the load is its reads, its plan and the audit.
+      // The reads grow by one per 90 KB of a list read at once (refs, addresses, hashes), never one
+      // statement past D1's limits: the load is its reads, its plan and the audit.
       expect(c.load - c.plan, `${c.rows}`).toBeLessThan(60);
     }
     // The 3,000-row fixture is within the spec's 250 (acceptance criterion 11).
     expect(cost[0]?.load).toBeLessThanOrEqual(250);
   }, 300_000);
+
+  it("reads twice in a quiet minute of the list's notices, and nothing more", async () => {
+    // A members list exported today: nothing is due for weeks.
+    const data = file(unique("fq").toLowerCase(), 3, 3);
+    const dry = (await invokeByName(
+      "outside.file.preview",
+      { kind: "members", file: data },
+      ctx(),
+    )) as {
+      fingerprint: string;
+    };
+    await invokeByName(
+      "outside.file.load",
+      { kind: "members", file: data, fingerprint: dry.fingerprint },
+      ctx(),
+    );
+    reset();
+    expect(await runOutsideListsDue(db, new Date(NOW))).toEqual({
+      soon: false,
+      old: false,
+      logRows: 0,
+    });
+    expect(queries).toBe(2);
+  });
 
   it("refuses a file naming more than the source takes before anything is planned", async () => {
     const tag = unique("fx").toLowerCase();

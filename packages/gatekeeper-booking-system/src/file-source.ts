@@ -11,8 +11,12 @@
 // A file is hostile input (stage 65 step 4): its size, rows, columns and cells are bounded while
 // it is read, not after; a value is only ever text (a cell starting `=`, `+`, `-` or `@` is kept as
 // the text it is, never evaluated); control and direction-changing characters are dropped from
-// every text kept; refs are kept printable whatever the file's ids are. Decoding the file's bytes
-// (its encoding, and refusing what is not delimited text) is the host's, before this.
+// every text kept, addresses included (`cleanAddress`, then the host's own check: an address it
+// does not take leaves the row out, never kept without it); every address a row carries is
+// handed to the host, a booking's beside its id too; refs are kept printable whatever the file's
+// ids are; a refused row's issue quotes at most 40 characters of a value, never an address.
+// Decoding the file's bytes (its encoding, and refusing what is not delimited text) is the
+// host's, before this.
 
 import { type MatchContext, type MatchOutcome, matchPeople } from "./match.js";
 import { refuse } from "./refusal.js";
@@ -127,6 +131,18 @@ export interface FileSourceInput {
   timetable?: { text: string; mapping: TimetableFileMapping };
   /** Today, for a membership with no status (live until its end date). Defaults to now. */
   now?: string;
+  /**
+   * The host's own check of an address, after `cleanAddress`: the form its suppressions and
+   * erased addresses are keyed by, or null when it takes none. One check, so the file and the host
+   * cannot disagree about what an address is. Without one, the plain shape, lower-cased.
+   */
+  normaliseAddress?: (address: string) => string | null;
+  /**
+   * Columns, by header, whose values the host checks a mapping against though it reads no field
+   * from them (a names column left unmapped): their distinct values come back in `seen`, for the
+   * host's checks only, never kept.
+   */
+  watch?: readonly string[];
 }
 
 /** A row refused, or a value not understood. Rows are counted from 1 after the header. */
@@ -145,11 +161,18 @@ export interface FileLoad {
   classTypes: BookingSystemClassType[];
   classes: BookingSystemClass[];
   bookings: BookingSystemBooking[];
+  /**
+   * The address the file gave for a booking's person, by booking ref, when it also gave their id:
+   * the host checks it against erased addresses too (stage 65 step 4's review, S2).
+   */
+  bookingAddresses: Record<string, string>;
   staff: BookingSystemStaff[];
   issues: FileIssue[];
   rows: { people: number; timetable: number };
   /** Cells kept that start as a spreadsheet formula would (`=`, `+`, `-`, `@`): kept as text. */
   formulaLike: number;
+  /** The distinct values of the `watch` columns (trimmed), for the host's checks only. */
+  seen: string[];
 }
 
 export interface FileDryRun {
@@ -189,78 +212,121 @@ export interface CsvLimits {
   maxCell?: number;
 }
 
+/** The delimiter a file is read with: the one its first line has most of, of `,`, `;` and tab. */
+function delimiterOf(body: string): string {
+  const end = body.search(/\r?\n|$/);
+  const counts = { ",": 0, ";": 0, "\t": 0 };
+  for (let i = 0; i < end; i++) {
+    const ch = body[i] as string;
+    if (ch in counts) counts[ch as keyof typeof counts] += 1;
+  }
+  return (Object.entries(counts).sort((a, b) => b[1] - a[1])[0]?.[0] ?? ",") as string;
+}
+
+const QUOTE = 34;
+const CR = 13;
+const LF = 10;
+
 /**
  * Rows of a CSV file (RFC 4180: commas, quotes doubled inside quoted fields, CRLF or LF, newlines
  * inside quotes), with a byte-order mark dropped and blank lines skipped. A semicolon or tab file
  * is read when its first line has more of those than commas. The limits are enforced while
- * reading, so an oversized file is refused before it is held whole: too many characters, rows or
- * columns, a cell too long, or a NUL character (not a text file). A refusal names a row and a
- * column number, never a value.
+ * reading: too many characters, rows or columns, a cell too long, or a NUL character (not a text
+ * file). A refusal names a row and a column number, never a value.
+ *
+ * Fields are sliced from the text, never built a character at a time, so a 10 MB file is held
+ * about once more as its cells, not many times over (stage 65 step 4's review, M1). With
+ * `headerOnly`, only the first row is read.
  */
-export function parseCsv(text: string, limits: CsvLimits = {}): string[][] {
+export function parseCsv(
+  text: string,
+  limits: CsvLimits & { headerOnly?: boolean } = {},
+): string[][] {
   const maxRows = limits.maxRows ?? MAX_PEOPLE_ROWS;
   const maxColumns = limits.maxColumns ?? MAX_COLUMNS;
   const maxCell = limits.maxCell ?? MAX_CELL;
   if (text.length > MAX_FILE_CHARS) throw refuse("invalid", "The file is over 10 MB.");
-  const body = text.startsWith("﻿") ? text.slice(1) : text;
-  const firstLine = body.slice(0, body.search(/\r?\n|$/));
-  const counts = { ",": 0, ";": 0, "\t": 0 };
-  for (const ch of firstLine) if (ch in counts) counts[ch as keyof typeof counts] += 1;
-  const sep = (Object.entries(counts).sort((a, b) => b[1] - a[1])[0]?.[0] ?? ",") as string;
+  const body = text.charCodeAt(0) === 0xfeff ? text.slice(1) : text;
+  if (body.indexOf(String.fromCharCode(0)) >= 0) {
+    throw refuse("invalid", "The file holds a NUL character: it is not text.");
+  }
+  const sep = delimiterOf(body).charCodeAt(0);
+  const n = body.length;
   const rows: string[][] = [];
   let row: string[] = [];
-  let field = "";
-  let quoted = false;
   const where = () => `Row ${rows.length === 0 ? "1 (the header)" : rows.length}`;
-  const push = () => {
-    if (field.length > maxCell) {
-      throw refuse(
-        "invalid",
-        `${where()}, column ${row.length + 1} is longer than ${maxCell} characters.`,
-      );
+  const tooLong = () =>
+    refuse("invalid", `${where()}, column ${row.length + 1} is longer than ${maxCell} characters.`);
+  /** The end of an unquoted run: the next delimiter, CR, LF or the end. */
+  const runEnd = (from: number) => {
+    let j = from;
+    while (j < n) {
+      const c = body.charCodeAt(j);
+      if (c === sep || c === CR || c === LF) break;
+      j++;
     }
-    row.push(field);
-    field = "";
+    return j;
+  };
+  let i = 0;
+  for (;;) {
+    let value: string;
+    if (body.charCodeAt(i) === QUOTE) {
+      // A quoted field: up to the closing quote, a doubled quote one quote.
+      let start = i + 1;
+      let parts: string[] | null = null;
+      let length = 0;
+      for (;;) {
+        const q = body.indexOf('"', start);
+        if (q < 0) throw refuse("invalid", "The file ends inside a quoted field.");
+        length += q - start;
+        if (length > maxCell) throw tooLong();
+        if (body.charCodeAt(q + 1) === QUOTE) {
+          length += 1;
+          if (!parts) parts = [];
+          parts.push(body.slice(start, q + 1));
+          start = q + 2;
+          continue;
+        }
+        value = parts ? parts.join("") + body.slice(start, q) : body.slice(start, q);
+        i = q + 1;
+        break;
+      }
+      // Anything after the closing quote, up to the delimiter, is the field's too.
+      const end = runEnd(i);
+      if (end > i) value += body.slice(i, end);
+      i = end;
+    } else {
+      const end = runEnd(i);
+      value = body.slice(i, end);
+      i = end;
+    }
+    if (value.length > maxCell) throw tooLong();
+    row.push(value);
     if (row.length > maxColumns) {
       throw refuse("invalid", `${where()} has more than ${maxColumns} columns.`);
     }
-  };
-  const endRow = () => {
-    push();
+    const c = i < n ? body.charCodeAt(i) : -1;
+    if (c === sep) {
+      i++;
+      continue;
+    }
+    // The end of a row (CR, LF, CRLF, or the end of the text).
+    if (c === CR) i += body.charCodeAt(i + 1) === LF ? 2 : 1;
+    else if (c === LF) i++;
     if (row.some((f) => f.trim() !== "")) {
       rows.push(row);
+      if (limits.headerOnly) return rows;
       if (rows.length > maxRows + 1) throw refuse("invalid", `The file is over ${maxRows} rows.`);
     }
     row = [];
-  };
-  for (let i = 0; i < body.length; i++) {
-    const ch = body[i] as string;
-    if (ch === "\u0000") throw refuse("invalid", "The file holds a NUL character: it is not text.");
-    if (quoted) {
-      if (ch === '"' && body[i + 1] === '"') {
-        field += '"';
-        i++;
-      } else if (ch === '"') {
-        quoted = false;
-      } else {
-        field += ch;
-        if (field.length > maxCell) push();
-      }
-    } else if (ch === '"' && field === "") {
-      quoted = true;
-    } else if (ch === sep) {
-      push();
-    } else if (ch === "\n" || ch === "\r") {
-      if (ch === "\r" && body[i + 1] === "\n") i++;
-      endRow();
-    } else {
-      field += ch;
-      if (field.length > maxCell) push();
-    }
+    if (i >= n) break;
   }
-  if (quoted) throw refuse("invalid", "The file ends inside a quoted field.");
-  endRow();
   return rows;
+}
+
+/** The file's first row (its column names), read without the rest. */
+export function readHeader(text: string): string[] {
+  return parseCsv(text, { headerOnly: true })[0] ?? [];
 }
 
 // --- Values. ---------------------------------------------------------------------------------------
@@ -291,9 +357,14 @@ const HIDDEN = new RegExp(
       [0x0b, 0x0c],
       [0x0e, 0x1f],
       [0x7f, 0x9f],
+      [0xad, 0xad],
+      [0x034f, 0x034f],
+      [0x061c, 0x061c],
+      [0x180e, 0x180e],
       [0x200b, 0x200b],
       [0x200e, 0x200f],
       [0x202a, 0x202e],
+      [0x2060, 0x2064],
       [0x2066, 0x2069],
       [0xfeff, 0xfeff],
     ] as const
@@ -336,6 +407,31 @@ export function fitRef(raw: string): string {
 }
 
 const ADDRESS = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+/** Without a host's own check: the plain shape of an address, lower-cased. */
+function plainAddress(cleaned: string): string | null {
+  return ADDRESS.test(cleaned) ? cleaned.toLowerCase() : null;
+}
+
+/**
+ * An address cell as it is compared (stage 65 step 4's review, S1): its hidden and
+ * direction-changing characters dropped, in Unicode's compatibility form (a fullwidth `ａ` is `a`),
+ * trimmed, out of the quotes or angle brackets an export may put round it (`"Name" <a@x>` is
+ * `a@x`). Then the host's own check (`normalise`, the one its suppressions and erased addresses
+ * are keyed by) decides: an address it does not take is no address, and the row is left out,
+ * never kept without it.
+ */
+export function cleanAddress(raw: string): string {
+  let s = raw.replace(HIDDEN, "").normalize("NFKC").trim();
+  const angled = /<([^<>]*)>\s*$/.exec(s);
+  if (angled) s = (angled[1] as string).trim();
+  for (;;) {
+    const unwrapped = s.replace(/^["'`]+|["'`]+$/g, "").trim();
+    if (unwrapped === s) break;
+    s = unwrapped;
+  }
+  return s;
+}
 
 const MEMBER_STATUS_WORDS: Record<string, BookingSystemMemberStatus> = {
   member: "member",
@@ -521,6 +617,13 @@ function columnsOf(header: string[], columns: Record<string, string | undefined>
   return index;
 }
 
+/** The indexes of the watched columns this file has. */
+function watchedOf(header: string[], watch: readonly string[] | undefined): number[] {
+  if (!watch?.length) return [];
+  const wanted = new Set(watch.map(key));
+  return header.flatMap((h, i) => (wanted.has(key(h)) ? [i] : []));
+}
+
 function checkZone(timeZone: string): void {
   try {
     new Intl.DateTimeFormat("en", { timeZone });
@@ -552,11 +655,22 @@ export function loadFiles(input: FileSourceInput): FileLoad {
     .toISOString()
     .slice(0, 10);
   const issues: FileIssue[] = [];
+  const normalise = input.normaliseAddress ?? plainAddress;
+  /** A cell's address as the host keys it; `undefined` for an empty cell, null for no address. */
+  const addressOf = (raw: string): string | null | undefined => {
+    const cleaned = cleanAddress(raw);
+    return cleaned === "" ? undefined : normalise(cleaned);
+  };
   const people = new Map<string, BookingSystemPerson>();
   const types = new Map<string, BookingSystemMembershipType>();
   const memberships = new Map<string, BookingSystemMembership>();
   const explicitStatus = new Set<string>();
   let formulas = 0;
+  const seen = new Set<string>();
+  const see = (v: string | undefined) => {
+    const t = v?.trim();
+    if (t) seen.add(t);
+  };
   /** A text cell as kept, counting one that looks like a formula. */
   const text = (raw: string): string => {
     const kept = cut(raw);
@@ -572,35 +686,40 @@ export function loadFiles(input: FileSourceInput): FileLoad {
     if (!header) throw refuse("invalid", "The people file is empty.");
     peopleRows = rows.length;
     const col = columnsOf(header, { ...mapping.columns }, "people");
+    const watched = watchedOf(header, input.watch);
     rows.forEach((cells, i) => {
       const row = i + 1;
+      for (const at of watched) see(cells[at]);
       const cell = (field: keyof PeopleFileMapping["columns"]) => {
         const at = col[field];
         return at === undefined ? "" : (cells[at] ?? "").trim();
       };
       const note = (column: string, problem: string) =>
         issues.push({ file: "people", row, column, problem });
-      let email: string | null = cell("email") || null;
-      if (email !== null && !ADDRESS.test(email)) {
-        note(
-          mapping.columns.email,
-          `"${cut(email).slice(0, 100)}" is not an address; read without one`,
-        );
-        email = null;
+      // An address the host does not take leaves the row out, never kept without it: it may be
+      // an erased person's, written so that it no longer matches (stage 65 step 4's review, S1).
+      const address = addressOf(cell("email"));
+      if (address === null) {
+        note(mapping.columns.email, "not an address: the row is left out");
+        return;
       }
+      const email: string | null = address ?? null;
       const own = cell("ref");
       if (!own && email === null) {
         issues.push({ file: "people", row, problem: "no address and no id: the row is left out" });
         return;
       }
-      const ref = own ? fitRef(own) : fitRef(`email:${(email as string).toLowerCase()}`);
+      const ref = own ? fitRef(own) : fitRef(`email:${email as string}`);
       let person = people.get(ref);
       if (!person) {
         let active = true;
         if (cell("active")) {
           const f = flag(cell("active"));
           if (f === null)
-            note(mapping.columns.active as string, `"${cut(cell("active"))}" is not yes or no`);
+            note(
+              mapping.columns.active as string,
+              `"${cut(cell("active")).slice(0, 40)}" is not yes or no`,
+            );
           else active = f;
         }
         let memberStatus: BookingSystemMemberStatus = "not_member";
@@ -609,7 +728,7 @@ export function loadFiles(input: FileSourceInput): FileLoad {
           if (w === null)
             note(
               mapping.columns.memberStatus as string,
-              `"${cut(cell("memberStatus"))}" is not a member status this file maps`,
+              `"${cut(cell("memberStatus")).slice(0, 40)}" is not a member status this file maps`,
             );
           else {
             memberStatus = w;
@@ -626,14 +745,10 @@ export function loadFiles(input: FileSourceInput): FileLoad {
           modifiedAt: null,
         };
         people.set(ref, person);
-      } else if (
-        email !== null &&
-        person.email !== null &&
-        email.toLowerCase() !== person.email.toLowerCase()
-      ) {
+      } else if (email !== null && person.email !== null && email !== person.email) {
         note(
           mapping.columns.email,
-          `another address for ${ref} than an earlier row; the first is kept`,
+          "another address than an earlier row with the same id; the first is kept",
         );
       }
 
@@ -652,7 +767,7 @@ export function loadFiles(input: FileSourceInput): FileLoad {
         if (w === null)
           note(
             mapping.columns.membershipKind as string,
-            `"${cut(cell("membershipKind"))}" is not a membership or a pass`,
+            `"${cut(cell("membershipKind")).slice(0, 40)}" is not a membership or a pass`,
           );
         else kind = w;
       }
@@ -682,7 +797,7 @@ export function loadFiles(input: FileSourceInput): FileLoad {
         if (w === null)
           note(
             mapping.columns.membershipStatus as string,
-            `"${cut(cell("membershipStatus"))}" is not a membership status this file maps`,
+            `"${cut(cell("membershipStatus")).slice(0, 40)}" is not a membership status this file maps`,
           );
         else status = w;
       }
@@ -696,7 +811,7 @@ export function loadFiles(input: FileSourceInput): FileLoad {
         issues.push({
           file: "people",
           row,
-          problem: `the same ${kind} for ${ref} twice; the first is kept`,
+          problem: `the same ${kind} for the same person twice; the first is kept`,
         });
         return;
       }
@@ -734,6 +849,7 @@ export function loadFiles(input: FileSourceInput): FileLoad {
   const staff = new Map<string, BookingSystemStaff>();
   const locations = new Map<string, BookingSystemLocation>();
   const bookings = new Map<string, BookingSystemBooking>();
+  const bookingAddresses: Record<string, string> = {};
   let timetableRows = 0;
   if (input.timetable) {
     const t = input.timetable.mapping;
@@ -742,16 +858,30 @@ export function loadFiles(input: FileSourceInput): FileLoad {
     if (!tHeader) throw refuse("invalid", "The timetable file is empty.");
     timetableRows = tRows.length;
     const tCol = columnsOf(tHeader, { ...t.columns }, "timetable");
+    const tWatched = watchedOf(tHeader, input.watch);
     // A file with a booking column is one row per booking: a class's rows repeat it.
     const perBooking = tCol.person !== undefined || tCol.personEmail !== undefined;
     tRows.forEach((cells, i) => {
       const row = i + 1;
+      for (const at of tWatched) see(cells[at]);
       const cell = (field: keyof TimetableFileMapping["columns"]) => {
         const at = tCol[field];
         return at === undefined ? "" : (cells[at] ?? "").trim();
       };
       const note = (column: string, problem: string) =>
         issues.push({ file: "timetable", row, column, problem });
+      // Every address the row carries, checked before anything of it is read: one the host does
+      // not take leaves the row out (stage 65 step 4's review, S1 and S2).
+      const staffAddress = addressOf(cell("staffEmail"));
+      if (staffAddress === null) {
+        note(t.columns.staffEmail as string, "not an address: the row is left out");
+        return;
+      }
+      const personAddress = perBooking ? addressOf(cell("personEmail")) : undefined;
+      if (personAddress === null) {
+        note(t.columns.personEmail as string, "not an address: the row is left out");
+        return;
+      }
       const title = text(cell("title"));
       const startsAt = instant(cell("startsAt"), tFormat, input.site.timeZone);
       if (!title || startsAt === null) {
@@ -824,11 +954,7 @@ export function loadFiles(input: FileSourceInput): FileLoad {
         let staffRef: string | null = null;
         if (cell("staff")) {
           staffRef = fitRef(`staff:${slug(cell("staff"))}`);
-          let address: string | null = cell("staffEmail") || null;
-          if (address !== null && !ADDRESS.test(address)) {
-            note(t.columns.staffEmail as string, "not an address; read without one");
-            address = null;
-          }
+          const address = staffAddress ?? null;
           const known = staff.get(staffRef);
           if (!known) {
             staff.set(staffRef, {
@@ -872,13 +998,9 @@ export function loadFiles(input: FileSourceInput): FileLoad {
       }
       if (!perBooking) return;
       const own = cell("person");
-      const address: string | null = cell("personEmail") || null;
-      if (address !== null && !ADDRESS.test(address)) {
-        note(t.columns.personEmail as string, "not an address; the booking is left out");
-        return;
-      }
+      const address = personAddress ?? null;
       if (!own && address === null) return; // A class with no booking.
-      const person = own ? fitRef(own) : fitRef(`email:${(address as string).toLowerCase()}`);
+      const person = own ? fitRef(own) : fitRef(`email:${address as string}`);
       let state: BookingSystemBookingState = "booked";
       if (cell("bookingState")) {
         const w = word(cell("bookingState"), t.values?.bookingState, BOOKING_STATE_WORDS);
@@ -902,6 +1024,7 @@ export function loadFiles(input: FileSourceInput): FileLoad {
         });
         return;
       }
+      if (own && address !== null) bookingAddresses[bookingRef] = address;
       bookings.set(bookingRef, {
         ref: bookingRef,
         class: ref,
@@ -932,10 +1055,12 @@ export function loadFiles(input: FileSourceInput): FileLoad {
     classTypes: [...classTypes.values()],
     classes: [...classes.values()],
     bookings: [...bookings.values()],
+    bookingAddresses,
     staff: [...staff.values()],
     issues,
     rows: { people: peopleRows, timetable: timetableRows },
     formulaLike: formulas,
+    seen: [...seen],
   };
 }
 

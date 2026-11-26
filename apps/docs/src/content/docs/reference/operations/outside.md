@@ -8,7 +8,7 @@ editUrl: false
 
 ## outside.file.load
 
-Load a list exported from the booking system, as its dry run showed: the same file, mapping and export date, and the dry run's fingerprint. The host plans again and refuses, writing nothing, unless the plan is the one the dry run showed (the file, the copy, an erase or a Person's address changed since). The list replaces the current one of its kind in one batch: rows not in the new file go, with their links and matches; nothing of an erased person is kept. The mapping is saved for the next export of the same shape. The file itself is not kept; the audit records counts only. A person with bookingSystem:manage only, never an AI, an MCP client, Code Mode, an extension or an automation.
+Load a list exported from the booking system, as its dry run showed: the same file, mapping and export date, and the dry run's fingerprint. The host plans again and refuses, writing nothing, unless the plan is the one the dry run showed (the file, the copy, an erase or a Person's address changed since). The list replaces the current one of its kind in one batch: rows not in the new file go, with their links and matches; nothing of an erased person is kept. The mapping is saved for the next export of the same shape. The file itself is not kept; the audit records counts only. A person with bookingSystem:manage only, never an AI, an MCP client, Code Mode, an extension or an automation; never queued for approval (where it would wait, it is refused). An erase, link or other load landing between its plan and its write fails the whole write (conflict), so nothing an erase removed comes back.
 
 |  |  |
 | --- | --- |
@@ -60,7 +60,7 @@ Load a list exported from the booking system, as its dry run showed: the same fi
 
 ## outside.file.preview
 
-The dry run of a list exported from the booking system: decodes the file by its content, maps its columns (the given mapping, else the saved one, else a suggestion from the headers), and says what the load would do against the current list (new, changed, unchanged, removed; not kept; dropped because the person was erased; who would link by address and who would wait in To match) and every refused row with why. Writes nothing and keeps nothing of the file. Pass its fingerprint, with the same file, mapping and export date, to outside.file.load. A person with bookingSystem:manage only, never an AI.
+The dry run of a list exported from the booking system: decodes the file by its content, maps its columns (the given mapping, else the saved one, else a suggestion from the headers), and says what the load would do against the current list (new, changed, unchanged, removed; not kept; dropped because the person was erased; who would link by address and who would wait in To match) and every refused row with why. Writes nothing and keeps nothing of the file. Pass its fingerprint, with the same file, mapping and export date, to outside.file.load. A person with bookingSystem:manage only, never an AI; never queued for approval (where it would wait, it is refused: a waiting call would keep the file).
 
 |  |  |
 | --- | --- |
@@ -253,11 +253,19 @@ No fields.
 | `types[].kind` | `"membership"`, `"pass"` | yes |   |   |
 | `types[].active` | boolean | yes |   |   |
 | `types[].counts` | boolean | yes |   | It makes a Person a member |
-| `mappings` | map of any | yes |   | The column mapping and value maps saved by the last load of each kind |
+| `mappings` | object | yes |   | The column mapping, value maps and date format saved by the last load of each kind (the export's own column names and words, never a person's) |
+| `mappings.members` | object |   |   |   |
+| `mappings.members.columns` | map of string | yes |   |   |
+| `mappings.members.values` | map of map of string |   |   |   |
+| `mappings.members.dateFormat` | `"YYYY-MM-DD"`, `"DD/MM/YYYY"`, `"MM/DD/YYYY"` |   |   |   |
+| `mappings.timetable` | object |   |   |   |
+| `mappings.timetable.columns` | map of string | yes |   |   |
+| `mappings.timetable.values` | map of map of string |   |   |   |
+| `mappings.timetable.dateFormat` | `"YYYY-MM-DD"`, `"DD/MM/YYYY"`, `"MM/DD/YYYY"` |   |   |   |
 
 ## outside.settings.update
 
-Change the booking-system settings: on or off, the outside types that make a Person a member (null for the default: every membership type, no pass), the two links (each an https address, or null), and the largest age a members list counts for (1 to 90 days). Leave a setting out to keep it. A human admin in the app only.
+Change the booking-system settings: on or off, the outside types that make a Person a member (null for the default: every membership type, no pass), the two links (each an https address, or null), and the largest age a members list counts for (1 to 90 days). Leave a setting out to keep it; clearMappings forgets the saved column mapping of a kind. A human admin in the app only.
 
 |  |  |
 | --- | --- |
@@ -276,6 +284,7 @@ Change the booking-system settings: on or off, the outside types that make a Per
 | `manageUrl` | string or null |   |   |   |
 | `bookUrl` | string or null |   |   |   |
 | `largestAgeDays` | integer |   | ≥ 1, ≤ 90 |   |
+| `clearMappings` | array of `"members"`, `"timetable"` |   | at most 2 | Forget the saved column mapping of these kinds: the next file is mapped afresh |
 
 ### Output
 

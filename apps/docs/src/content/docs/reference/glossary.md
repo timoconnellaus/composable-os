@@ -829,7 +829,9 @@ status, a kind or a plan into the contract's) and says, writing nothing, what th
 against the current list and which rows are refused and why; `outside.file.load` does exactly that
 or, if anything changed since (the file, the copy, an erase), refuses (the dry run's
 **fingerprint**). The file is read by its content and never kept: the browser sends it again for
-the load (ADR 0923). A mapping holds no person: a value-map word that is a name, an address or an
+the load (ADR 0923). It is never queued for approval (`neverQueued`: refused where approval would
+apply), and an erase, link or other load between its plan and its write fails it. A mapping holds
+no person: a value-map word that is a name, an address or an
 id in the file is refused. _Avoid_: import (an import makes records that stay), upload (nothing is
 stored)
 

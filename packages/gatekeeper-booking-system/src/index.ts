@@ -29,6 +29,7 @@ export {
 } from "./fake.js";
 export {
   type CsvLimits,
+  cleanAddress,
   dryRunFiles,
   FILE_PAGE,
   FileBookingSystem,
@@ -50,6 +51,7 @@ export {
   MAX_TIMETABLE_ROWS,
   type PeopleFileMapping,
   parseCsv,
+  readHeader,
   type TimetableFileMapping,
 } from "./file-source.js";
 export {

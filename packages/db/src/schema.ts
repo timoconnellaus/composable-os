@@ -4817,6 +4817,9 @@ export interface CoreDatabase {
   core_journey_step_log: CoreJourneyStepLogTable;
   core_outside_settings: CoreOutsideSettingsTable;
   core_outside_list: CoreOutsideListTable;
+  /** Migration 1413: the load's guard (a trigger fails the batch; nothing is stored) and the version it checks. */
+  core_load_guard: { expected: string };
+  core_outside_version: { version: string };
   core_outside_person: CoreOutsidePersonTable;
   core_outside_membership_type: CoreOutsideMembershipTypeTable;
   core_outside_membership: CoreOutsideMembershipTable;
