@@ -17,6 +17,10 @@ kept as symlinks.
 
 ## Local modifications
 
+- **Upstream error text (2026-11-27, issue #517).** Token-endpoint and API errors
+  (`src/zoominfo-api.ts`) quote only the code and description, scrubbed of the client secret, the
+  refresh token, the code, the verifier and the access token; the raw body is no longer kept on
+  `ZoomInfoApiError.details`. Test: `test/upstream-echo.test.ts`.
 - **Scope rename.** `@gadgets/*` imports point at `@composable-os/gatekeeper-interface`,
   `@composable-os/gatekeeper-kit` and `@composable-os/gatekeeper-configurator-ui`. The 3 source files this touched
   start with a `// Vendored from cloudflare/cloudflare-os@… Modified locally` comment.

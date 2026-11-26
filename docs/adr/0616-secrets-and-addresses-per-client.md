@@ -191,14 +191,22 @@ provider text leaves the model runner goes through one redactor, packages/core `
 before it is returned, logged, stored or sent to a model again. This holds on a single-client
 deployment as on a many-client host.
 
-- **What it cuts:** every credential the Worker holds (`credentialsOf(env)`: `AI_KEY_*`,
-  `*_TOKEN`, `*_SECRET`, `*_API_KEY`, `*_PRIVATE_KEY`, `AI_CUSTOMER_GATEWAY` and every string inside
-  a JSON credential value, such as the customer gateway's `token`), in each form it can come back
-  in: plain, URL-encoded, JSON-escaped (with `\/` too), base64 and base64url at any alignment (a
-  Basic `user:key` header), and any run of at least 12 characters from a key's start (a cut-short
-  echo); and any `Bearer` or `Basic` token, `x-api-key` and the like. A value shorter than 8
-  characters is not redacted, by rule: it would cut ordinary words, and no provider key is that
-  short.
+- **What it cuts** (revised 2026-11-27, issue #517): every credential the Worker holds
+  (`credentialsOf(env)`: `AI_KEY_*` and every name ending in `_TOKEN`, `_SECRET`, `_KEY`,
+  `_PASSWORD`, `_JWK`, `_PRIVATE_KEY` and the like, never `_PUBLIC_KEY`, `_SITE_KEY` or `_KEY_ID`;
+  every string inside a JSON credential value; of `AI_CUSTOMER_GATEWAY` only its `token`), in each
+  form it can come back in: plain, URL-encoded, JSON-escaped (with `\/` too), base64 and base64url
+  at any alignment (a Basic `user:key` header); and any run of 12 or more characters found anywhere
+  in one of those forms (its start, its middle, its end, and the rest of a key split by a line
+  break or a space), so that at most a piece under 12 characters (the last 4 a provider shows) may
+  stay. A 12-character piece that is word-like (letters of one case with punctuation, no digit) or
+  the head of a URL is not looked for on its own, so a credential holding an ordinary word or
+  `https://` never blanks ordinary text. A `Bearer` or `Basic` scheme is cut only before a
+  token-shaped value ("Basic auth is disabled" stays). A value shorter than 8 characters is not
+  redacted, by rule. It reads the text at every sixth character for a 6-character anchor and grows
+  each hit, so a 200 KB adversarial text takes 1 to 3 ms (a test holds it under 40 ms).
+  `packages/core/test/redact-env-names.test.ts` fails when a name the Workers declare looks secret
+  and is neither collected nor listed as not a secret.
 - **Where:**
   - **The model runner** (`ai/client.ts`): every error `run`, `embed` and `test` throw, and the
     fallback's warning, is redacted, so summaries, routines, the adjudicator, digests, dictation
@@ -206,17 +214,38 @@ deployment as on a many-client host.
     `ai.testRole` all get clean text.
   - **Each chat model** the runner hands out carries its `redact`. `runTurn` (packages/agent-core)
     applies it to the error event, `result.error`, the stored note "(This answer failed: …)" and
-    its log line; the assistant's turns, its compaction and its jobs all run through `runTurn`.
+    its log line, and to a **tool's error text**: a tool that throws, or a tool result marked
+    `isError` (an MCP server's), is redacted before the model, the `tool-result` event and the
+    stored response see it. A successful tool result is the tool's own data and is passed on as it
+    is. The assistant's turns, its compaction and its jobs all run through `runTurn`.
   - **The assistant's and the jobs' own failure paths** (`agent.ts`, `job.ts`) redact what they
     show, log and store, with the env's redactor.
   - **The judge's** `redactor` is the same code.
-  - **Gatekeepers** hold their own provider keys, which the host never sees. The payments
-    gatekeeper reports a Stripe error by HTTP status, type and code only, never its message; each
-    gatekeeper redacts its own.
+  - **Gatekeepers** hold their own credentials (OAuth refresh tokens, client secrets), which the
+    host never sees, so each scrubs its own where it knows them, with
+    `@composable-os/gatekeeper-kit/upstream-error`: an upstream failure is quoted as the HTTP
+    status, the provider's error code and its description scrubbed of what was sent, never the raw
+    body. Google (token exchange and refresh, Calendar, BigQuery), Microsoft (Graph's message, the
+    token endpoint through the kit's OAuth client), Slack and Slack posting (an error code only),
+    ZoomInfo (token endpoint and API, no raw body kept on the error), payments (Stripe's type and
+    code only when each is an identifier), web search (the status only) and MCP (its own
+    `redactSecrets` of the credential it sent and the OAuth client's secret) each have an echoing
+    upstream test. Email receiving, email sending (Cloudflare's binding), text and inbound webhooks
+    call no upstream with a credential of theirs.
 - **Notes already stored with a key in them** (on any existing deployment): no scrub is run. When
   a stored conversation is read back into a turn, `runTurn` redacts every failure note before the
-  history is sent to a model, so an old stored key is never re-sent. The note stays in the stored
-  thread, where the person who saw it saw it before; erasing it is the thread's own deletion.
+  history is sent to a model, so an old stored key is never re-sent. Only credentials still in the
+  environment are known: a note quoting a key since rotated keeps it (except where the bearer and
+  header rules catch it), and a rotation has made that key dead. The note stays in the stored
+  thread; erasing it is the thread's own deletion.
+- **Other routes checked** (issue #517): the audit log's `error` holds an operation's typed error,
+  whose text comes from the sources above (the runner, the gatekeepers, the host's own
+  operations); notifications and emails that quote an error (routine deliveries, agent jobs,
+  connection errors, the outbox) store text from those same sources; MCP tool results returned to
+  an outside MCP client carry `Internal error` for an unexpected failure and an operation's own
+  message otherwise; `errorForLog` logs the message and five stack frames, never `cause`, and
+  every log of a model error goes through the redactor first.
+
 
 ### Addresses
 Each client's addresses come from its **verified hostnames in the registry**, never from a

@@ -18,6 +18,17 @@ kept as symlinks.
 
 ## Local modifications
 
+- **Upstream error text (2026-11-27, issue #517).** The token exchange and refresh errors
+  (`src/google-api.ts`) and the Calendar API error (`src/calendar-api.ts`) quote only Google's
+  error code and description, scrubbed of what was sent (`@composable-os/gatekeeper-kit/upstream-error`),
+  never the raw body; BigQuery's non-JSON failure gives the status only (`src/bigquery-api.ts`).
+  `readErrorText` is gone. The Calendar call scrubs the access tokens it was sent. A token-endpoint
+  failure is a `GoogleTokenError` whose message keeps the status out of the `: <status>` position
+  (`tokenEndpointErrorMessage`), and `httpStatusFromError` (`src/google.ts`, now exported for its
+  test) reads no status from one, so a wrong client secret's 401 fails an observer check loudly
+  instead of reading as "no access". Tests: `__tests__/upstream-echo.test.ts` and
+  `__tests__/local-workerd/token-refresh-access.test.ts` (listed in `vitest.worker.config.ts`).
+  Both are on this package's `keep` list in `scripts/gatekeeper-upstreams.mjs`.
 - **Scope rename.** `@gadgets/*` imports point at `@composable-os/gatekeeper-interface`,
   `@composable-os/gatekeeper-kit`, `@composable-os/gatekeeper-observability` and `@composable-os/gatekeeper-configurator-ui`
   (including `vi.mock("@gadgets/configurator-ui")` in tests). The 76 source files this touched

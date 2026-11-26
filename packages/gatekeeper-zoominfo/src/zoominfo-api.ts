@@ -1,6 +1,7 @@
 // Vendored from cloudflare/cloudflare-os@a3ba4746b58f packages/gatekeeper-zoominfo/src/zoominfo-api.ts (Apache-2.0). Modified locally: see UPSTREAM.md in this package.
 import "cloudflare:workers";
 import { stripTrailingSlashes } from "@composable-os/gatekeeper-interface/gatekeeper";
+import { scrubSent, upstreamErrorMessage } from "@composable-os/gatekeeper-kit/upstream-error";
 
 // ---------------------------------------------------------------------------
 // OAuth (Authorization Code + PKCE) and a thin HTTP wrapper around the ZoomInfo GTM API.
@@ -128,12 +129,18 @@ async function tokenRequest(
 
   const parsed = await parseBody(response);
   if (!response.ok) {
-    let message = `${response.status} ${response.statusText}`;
-    if (parsed && typeof parsed === "object") {
-      const details = parsed as { error?: string; error_description?: string };
-      message = [details.error, details.error_description].filter(Boolean).join(": ") || message;
-    }
-    throw new ZoomInfoApiError(response.status, message, parsed);
+    // ZoomInfo's error code and description only, scrubbed of what was sent (the client secret,
+    // the refresh token or the code): never the raw body, which is not kept on the error either.
+    const sent = [
+      clientSecret,
+      body.get("refresh_token"),
+      body.get("code"),
+      body.get("code_verifier"),
+    ];
+    throw new ZoomInfoApiError(
+      response.status,
+      upstreamErrorMessage("ZoomInfo token request", response.status, parsed, sent),
+    );
   }
 
   const result = parsed as {
@@ -144,7 +151,7 @@ async function tokenRequest(
     id_token?: string;
   };
   if (!result.access_token) {
-    throw new ZoomInfoApiError(400, "ZoomInfo token exchange did not return an access token.", parsed);
+    throw new ZoomInfoApiError(400, "ZoomInfo token exchange did not return an access token.");
   }
 
   return {
@@ -265,7 +272,8 @@ export class ZoomInfoApi {
 
     const parsed = await parseBody(response);
     if (!response.ok) {
-      throw new ZoomInfoApiError(response.status, formatApiError(response, parsed), parsed);
+      // The provider's own detail, scrubbed of the token this request sent; the body is not kept.
+      throw new ZoomInfoApiError(response.status, scrubSent(formatApiError(response, parsed), [token]));
     }
     return (parsed ?? { data: null }) as JsonApiDoc;
   }
