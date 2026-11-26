@@ -86,8 +86,6 @@ export class FakeCloudflare {
   readonly r2Objects = new Map<string, Uint8Array>();
   /** Each bucket's lifecycle rules, as last put (stage 66 step 7: the exports bucket's expiry). */
   readonly r2Lifecycle = new Map<string, unknown>();
-  /** Stream videos (uid, creator, meta), for a client's export (stage 66 step 7). */
-  readonly streamVideos: { uid: string; creator?: string; meta?: Record<string, unknown> }[] = [];
   readonly kv = new Map<string, string>();
   readonly queues = new Map<
     string,
@@ -333,10 +331,6 @@ export class FakeCloudflare {
       if (!this.r2.has(m[1] as string)) return fail(404, 10006, `no bucket ${m[1]}`);
       this.r2Lifecycle.set(m[1] as string, b);
       return ok(null);
-    }
-    if (path === `${a}/stream` && method === "GET") {
-      const creator = url.searchParams.get("creator");
-      return ok(this.streamVideos.filter((v) => !creator || v.creator === creator));
     }
     m = new RegExp(`^${a}/r2/buckets/([^/]+)$`).exec(path);
     if (m && method === "DELETE") {

@@ -445,7 +445,12 @@ export async function provisionFleet(
     { locationHint: state.locationHint },
   );
   const exportsBucket = fleetNames(manifest, state).exportsBucket;
-  await api.putR2ExpiryRule(state.accountId, exportsBucket, "exports-kept-90-days", EXPORTS_KEPT_DAYS);
+  await api.putR2ExpiryRule(
+    state.accountId,
+    exportsBucket,
+    "exports-kept-90-days",
+    EXPORTS_KEPT_DAYS,
+  );
   log(`  R2 ${exportsBucket}: objects deleted after ${EXPORTS_KEPT_DAYS} days`);
   return resources;
 }

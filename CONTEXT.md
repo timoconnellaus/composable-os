@@ -1063,7 +1063,22 @@ the operator writes it; no operation, extension or assistant reaches it. A D1 da
 (`packages/db/registry-migrations`), read by `@composable-os/db/registry`: clients, their
 verified hostnames (looked up exactly, never derived; one marked as each surface's address), their
 settings by env name, their given secrets sealed under the host's key, and a version stamp every
-write moves. Built in steps 3 and 6; nothing but the tests writes it yet (step 7).
+write moves. Built in steps 3 and 6; written by the operator's commands since step 7 (ADR 0617,
+`@composable-os/db/registry-writes`), which also record their own progress there
+(`registry_operations`) so a re-run carries on. A client's environment never changes.
+
+**Operator's Worker** (stage 66 step 7; ADR 0617)
+`cos-operator`: the one Worker that binds the raw `ClientDb` namespace and a client's part of the
+shared stores, through which `cos` adds, updates, exports, imports and removes clients. It answers
+only the token `cos` sets on it for one command; no Worker of the host binds it.
+
+**Fleet deployment** (stage 66 step 7; ADR 0617)
+A deployment of the host for many clients: its state says so (`fleet`: its environment, callback
+hostname, domain and public sealing key), and the deploy engine adds the bindings, keys, queues and
+Workers a host of many clients needs (ADR 0615's list), never to the committed configuration. Live
+and staging are two fleet deployments. Its keys live in the operator's keys file, never in the
+state.
+_Avoid_: tenant (stage 10's hosted CRM), cluster
 
 **Derived secret** (stage 66; ADR 0616)
 A secret the host signs or encrypts with for itself, made for one client from the host's root key

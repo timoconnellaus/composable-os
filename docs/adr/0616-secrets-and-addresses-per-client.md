@@ -456,6 +456,23 @@ Read refused (ADR 0613); `writeClientSecret` binds the sealed bytes as BLOBs thr
 `D1Database` (over D1's REST API, hex literals); the command says that a running host serves the
 old value for up to 10 seconds.
 
+### Payments: the owner chose (2026-11-27)
+*Added 2026-11-27 (stage 66 step 7).* Of the two shapes under "Gatekeepers" item 1, the owner chose
+the first: **each client's own Stripe account, its keys passed per call sealed to the payments
+gatekeeper**, not Stripe Connect (Connect may be added later for clients who prefer it). The
+gatekeeper's change is a later step. Step 7 makes the commands ready for it: `STRIPE_SECRET_KEY`
+and `STRIPE_WEBHOOK_SECRET` are given secrets (`GATEKEEPER_HELD_SECRET_NAMES`), stored with `cos
+client secret set` sealed like every other, carried by a leaving client's export, and in no
+client's environment (no `ENV_NAMES` entry names them, so the builder takes neither), until the
+gatekeeper is made per client.
+
+### Authenticated sealing: decided by step 7 (2026-11-27), open to the owner's override
+*Added 2026-11-27.* "For step 7: authenticated sealing … is decided together with the signed audit
+of the operator's writes". Decided: **not added now**; base-mode HPKE stays. A signature adds
+something only when its key is held apart from the Cloudflare token that can write the registry and
+redeploy the host, and today the operator holds both. The signed audit and a signing key held apart
+(a hardware key or the control plane) come together, as one later step. ADR 0617.
+
 ## Consequences
 - **A single-client deployment is unchanged:** no Worker of one binds `REGISTRY`, so nothing here
   is read; its Worker secrets, cookie names and vars are exactly as before, and every existing test

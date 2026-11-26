@@ -107,6 +107,37 @@ installing a product with no repository.
                                          and staff.ts) from its registry; see cos client --help
 ```
 
+## A host of many clients (stage 66; docs/deploying.md "A host of many clients")
+
+```text
+  cos fleet keys --env <live|staging> --out <file>
+                                         the deployment's keys, written only to <file> (mode
+                                         0600, refused inside a git working tree), never printed
+  cos fleet install --env <e> --keys-file <f> --callback-hostname <h> --domain <d>
+                                         the host, its registry, cos-client-db and the operator's
+                                         Worker, with every binding a fleet needs
+  cos fleet upgrade --env <e> --keys-file <f> [--version x.y.z] [--dry-run] [--yes]
+                                         every client paused, bookmarked and migrated, the Workers
+                                         uploaded once, smoke checked, resumed; a client whose
+                                         migration fails is restored and nothing is uploaded; live
+                                         only after staging (--skip-staging, deliberately)
+  cos client add <id> [--env e] [--tier t] [--location oc] [--setting NAME=VALUE]… [--dry-run]
+                                         a client: its registry rows, its database made and
+                                         migrated, its two hostnames; no Worker uploaded
+  cos client pause|resume <id>, cos client list
+  cos client secret set|remove <id> <NAME> [--value-file f]
+                                         a client's given secret, sealed (this command cannot
+                                         read one back)
+  cos client export <id> [--out <dir>] [--leaving]
+                                         its database, files (and with --out its secrets) for a
+                                         move or a leaving client; kept 90 days in the host
+  cos client import <id> --from <dir>    an export brought in as a new, imported client
+  cos client remove <id>                 exported (kept 90 days), then erased; its id is never
+                                         used again
+  Each asks for the client's id before removing or overwriting (or --yes); a re-run after a
+  failure carries on where it stopped.
+```
+
 ## Options
 
 ```text
@@ -155,6 +186,9 @@ installing a product with no repository.
   --no-gh                skip `gh attestation verify` even if gh is installed
   --require-gh           fail unless `gh attestation verify` passes (full Sigstore check)
   --wait                 after install, wait until /api/health answers
+  --import <dir>         a client's export (cos client export --out) installed as this new
+                         deployment: its database, files and secrets; staff and customers stay
+                         signed in, and its search index is rebuilt (stage 66)
   --bundle-dir <dir>     use composable-os-<product>-<version>.tar.gz and SHA256SUMS from <dir> instead of downloading
                          (still verified against its build attestation)
   --yes                  don't ask; fail on anything that would need an answer

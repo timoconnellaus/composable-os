@@ -911,24 +911,6 @@ export class CloudflareClient {
     });
   }
 
-  /**
-   * The account's Stream videos with a creator (stage 66: the host stamps each upload with its
-   * client), for a client's export: their ids and what describes them, never a signed URL.
-   */
-  async listStreamVideosByCreator(accountId: string, creator: string) {
-    return (
-      await this.request<
-        {
-          uid: string;
-          meta?: Record<string, unknown>;
-          duration?: number;
-          size?: number;
-          creator?: string;
-        }[]
-      >("GET", `/accounts/${accountId}/stream?creator=${encodeURIComponent(creator)}`)
-    ).result.filter((v) => v.creator === creator);
-  }
-
   // ---- Static assets (direct upload) ----------------------------------------------------------
 
   /** Starts an assets upload session; returns the JWT and the hashes the API still needs. */
