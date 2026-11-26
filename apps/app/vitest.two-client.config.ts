@@ -3,6 +3,7 @@
 // (REGISTRY) and the query path of every client's database (CLIENT_DB_QUERIES, never the raw CLIENT_DB). Its suite is test-two-clients/: two clients
 // on one deployment, through the app's real entries (src/server/entry.ts; TanStack Start itself
 // needs its build, so the suite stands a recorder in its place).
+import { generateKeyPairSync } from "node:crypto";
 import { fileURLToPath } from "node:url";
 import { readD1Migrations } from "@cloudflare/vitest-plugin";
 import { defineWorkersTestConfig } from "@composable-os/config/vitest";
@@ -28,6 +29,16 @@ export default class extends WorkerEntrypoint {
 // A client's web app as step 8 will upload it: its one binding, HOST, to ClientApp, the client
 // fixed in the binding's props. It forwards every request as it came, Host header and all.
 const WEB_APP = `export default { fetch: (request, env) => env.HOST.fetch(request) };`;
+
+/** An Ed25519 key pair standing in for the control plane's support key (ADR 0212). */
+const SUPPORT_KEYS = (() => {
+  const { publicKey, privateKey } = generateKeyPairSync("ed25519");
+  const jwk = publicKey.export({ format: "jwk" }) as { x: string };
+  return {
+    publicKey: jwk.x,
+    privateJwk: JSON.stringify(privateKey.export({ format: "jwk" })),
+  };
+})();
 
 /** The suite's host binding key (a real deployment's is a long random secret of the operator's). */
 export const BINDING_KEY_FOR_TESTS = "two-client-suite-binding-key-0123456789abcdef";
@@ -60,8 +71,16 @@ export default mergeConfig(
           COS_HOST_ENVIRONMENT: "live",
           // The host's binding key (client-proofs.ts): its proofs on objects' names and props.
           COS_BINDING_KEY: BINDING_KEY_FOR_TESTS,
-          // The deployment's one callback address (step 6 names it; entry.ts routes it first).
+          // The deployment's one callback address (step 6, ADR 0616; entry.ts routes it first).
           COS_CALLBACK_HOSTNAME: "callbacks.test",
+          // The root every client's auth, desk and support secrets are derived from (ADR 0616).
+          COS_ROOT_KEY: Buffer.from(Array.from({ length: 32 }, (_, i) => i * 7 + 3)).toString(
+            "base64url",
+          ),
+          // The control plane's support key (ADR 0212): the public half the host checks with, and
+          // for the suite the private half it signs support tokens with.
+          COS_SUPPORT_PUBLIC_KEY: SUPPORT_KEYS.publicKey,
+          SUPPORT_TEST_PRIVATE_JWK: SUPPORT_KEYS.privateJwk,
           // The deployment's own: a client's environment never holds it (step 6 derives each
           // client's). The suite shows a client's sign-in refuses without its own.
           BETTER_AUTH_SECRET: "the-host-wide-secret-the-host-wide-secret",

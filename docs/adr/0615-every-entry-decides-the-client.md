@@ -24,7 +24,7 @@ helpers are `@composable-os/db/client-entries`.
 | app | `fetch` (`src/server/entry.ts`, `hostFetch`): the desk origin, support, the assistant socket, agreement PDFs, media, the staff and customer feeds, `/api/v1`, the form page, customer and practitioner sign-in, native staff sign-in, OAuth and `/mcp`, then TanStack Start | The URL's hostname among the registry's verified `staff` hostnames (`decideRequest`) | Unknown, unverified, another environment's, or a `web` or `desk` hostname: one plain 404 before any other code. Paused, moving, schema behind: "being updated" (503, the same words for each) |
 | app | TanStack Start's code that reads no `env` of its own: the request middleware (`start.ts`), `call-operation.ts`, `session.public.ts`, `system.ts`, the routes `api/auth/$`, `api/health`, `api/assistant/*`, `gatekeeper/$`, and `routine-agents.ts` | The environment the entry decided, held for the request (and its `waitUntil`) by AsyncLocalStorage: `requestEnv()` (`src/server/request-env.ts`) | Outside an entry that decided one: throws, never the host's `env` |
 | app | `scheduled` | The registry: one message per client served to the Worker's fan-out queue (`fanOutCron`) | A client not served now gets no message |
-| app | the deployment's callback address (`COS_CALLBACK_HOSTNAME`), before any client | No client: only `/gatekeeper/<vendor>/*`, to the runner's `gatekeeperCallback` (a shared gatekeeper's own `fetch`, whose state says whose connection); `isCallbackRequest` is step 6's stand-in | Any other path: the plain 404 |
+| app | the deployment's callback address (`COS_CALLBACK_HOSTNAME`), before any client | No client: only `/gatekeeper/<vendor>/*`, to the runner's `gatekeeperCallback` (a shared gatekeeper's own `fetch`, whose state says whose connection); `isCallbackHostname` and `isCallbackRequest` are step 6's (packages/db `callbacks.ts`) | Any other path: the plain 404 |
 | app | `queue`: `cos-routine-delivery`, the fan-out queue, the dead-letter queues | By `batch.queue`. A routine delivery: the stamp the runner's ROUTINE_DELIVERY wrapper put beside it. A tick, or a parked message, on the fan-out queue: its `client` or its stamp | No stamp, or an unknown client: retried, never acted on, to the dead-letter queue, which is reported. A client paused, moving or behind: parked (below), never retried. A tick for a client no longer served: dropped |
 | app | `ClientApp` (`bound.ts`), the door a client's web app binds to | The `client` in the binding's props with the host's proof (`clientAppProps`), set by the deploy when it uploads the web app (step 8). Never a hostname or header the web app sends | No client, no or a wrong proof, or a client not known: 404; not served: "being updated" |
 | app | `AssistantAgent` (Durable Object): its RPC, `fetch`, the Agents SDK's `onConnect`, `onMessage`, `onClose`, `onError`, `onRequest`, its schedule alarm (`onIdleAlarm`) and the wake from hibernation | Its own name, `<client>:<proof>:<name>`, given by the ASSISTANT wrapper and checked against the host's key (`ClientObject`) when the object is built; its admission read again before every async method it defines (`refreshOnEachCall`) | A name with no client or no valid proof, or a client the registry does not serve: the event refused |
@@ -203,7 +203,8 @@ The two-client suites bind the service as production will; only their operator s
 suite checks that the Worker holds no `CLIENT_DB`.
 
 ### Secrets and addresses until step 6
-A client's environment has none of the names step 3 marked `per-client`. A place that needs one
+*Amended 2026-11-27: step 6 (#513) has merged; see "With step 6" below.* Before it, a client's
+environment had none of the names step 3 marked `per-client`. A place that needs one
 fails with a message naming step 6 (`perClientMissing`, `requirePerClient`): Better Auth and
 customer and practitioner sign-in, the calendar feeds (which keyed with `""` when the secret was
 missing), the integration host's public origin, the staff invite's link (from the client's
@@ -212,13 +213,19 @@ client's `MCP_RESOURCE`, never the request's: every OAuth path and `/mcp` answer
 Nothing falls back to the deployment's value or to the request's address. The deployment's
 callback address is routed before any client (`isCallbackRequest`).
 
-**When step 6 (#513) merges:** its derived and given secrets and its addresses fill these names,
-and its `#admit` is async (the directory's callers here already await it); its
-`isCallbackRequest` and `COS_CALLBACK_HOSTNAME` replace this step's stand-in in `client-entries.ts`
-(the same name, so the call in `entry.ts` stays); the MCP refusal and the invite's address then
-answer with the client's own `MCP_RESOURCE` and `APP_ORIGIN`; the two-client suites set each
-client's secrets and drive the browser sessions', native handoff's and MCP's cross-client tests;
-`ConnectCallback`'s props already carry the client and its proof.
+**With step 6 (#513, merged):** its derived and given secrets and its addresses fill these names
+(a client whose registry rows give none still gets the message, now naming ADR 0616); its
+`isCallbackHostname` and `isCallbackRequest` route the callback address in `entry.ts`; OAuth and
+`/mcp` answer with the client's own `MCP_RESOURCE`. On a many-client host:
+- only `__Host-` cookie names are sessions wherever the host reads cookie names (`isSessionCookie`
+  in packages/auth: the API's one-hat check, the bound door, the desk, and the typed client's
+  `customerCookies`), so an unprefixed `cos-customer.*` a sibling hostname plants on the parent
+  domain is neither a session nor a second hat (tested: without the rule the staff request is
+  refused as carrying two sessions);
+- the fake gatekeeper (`INTEGRATIONS_FAKE_PROVIDER`, `GATEKEEPER_FAKE`) is refused at the runner's
+  entry as well as by the directory (`refuseFakeGatekeeper`); the runner's two-client suite runs
+  on the committed wrangler config with that binding and var removed
+  (`manyClientWranglerConfig`).
 
 ### Where a credential of one client is refused at another's address (criterion 4)
 Every credential is a row of the client's own database or a key of its own part of OAUTH_KV, so at
@@ -226,12 +233,15 @@ another client's address it is simply unknown:
 - staff and customer device tokens (the native apps', API tokens, `cos content import`'s):
   `core_device_session`, resolved in the request's client's database (tested);
 - MCP: the OAuth library's clients, grants and tokens under the client's KV prefix (tested in
-  packages/db), and the connected app's row in its database; until step 6 OAuth and `/mcp` are
-  refused at every client's address (tested), and the cross-client exchange is step 6's test;
-- staff (Better Auth), customer and practitioner sessions, native sign-in's handoff, the calendar
-  feeds' tokens and support access: their rows are the client's, and their signing keys are the
-  client's own secrets (step 6). Today they are refused for want of the secret, with the message
-  naming step 6; their cross-client test waits for step 6.
+  packages/db), and the connected app's row in its database: a connection made by consent and
+  code exchange at A is refused at B, its refresh token too, and every key stored is under A's
+  prefix (tested);
+- staff (Better Auth) and customer browser sessions, signed in at A: at B the same answer as no
+  cookie (tested); practitioner sessions are signed with a key derived from the client's
+  customer secret and resolve in its database, as customer ones do (not driven end to end here);
+- native sign-in's handoff code: issued in A's database, refused at B's exchange (tested);
+- a customer's calendar feed address: 200 at A, the feed's one 404 at B (tested);
+- support access: a token for A's address is refused at B for its audience (tested).
 
 ### Other fixes from the review of #512
 - The MCP OAuth providers are cached by client and origin, so a hostname the registry gives
@@ -251,8 +261,7 @@ another client's address it is simply unknown:
   queue messages, not only its requests.
 - Deferred: step 5, the module-level caches (the product label, the Stream host, the bound
   door's no-visitor notice, the widget caches) and the video host
-  with its creator check; step 6, secrets and addresses, and with them the browser sessions' and
-  MCP consent's cross-client tests; step 7, the fleet's bindings at deploy, the fan-out queues'
+  with its creator check; step 7, the fleet's bindings at deploy, the fan-out queues'
   consumer settings, and the clients' org extensions written under their prefix
   (`clients/<client>/org-extensions/<hash>.json`); step 8, desk and web hostnames, and the
   standard web app's hostname-passing form of ClientApp.

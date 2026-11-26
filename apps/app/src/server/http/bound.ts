@@ -48,6 +48,7 @@
 import { WorkerEntrypoint } from "cloudflare:workers";
 import {
   CUSTOMER_COOKIE_PREFIX,
+  isSessionCookie,
   PRACTITIONER_COOKIE_PREFIX,
   validClientAddress,
 } from "@composable-os/auth";
@@ -157,7 +158,9 @@ function signInWithVisitor(request: Request): Request {
 }
 
 /** A session cookie of `prefix` by name, with or without Better Auth's `__Secure-` prefix. */
-function isCookieOf(part: string, prefix: string): boolean {
+function isCookieOf(part: string, prefix: string, hostOnly: boolean): boolean {
+  // On a many-client host only `__Host-` names (`isSessionCookie`, ADR 0616).
+  if (hostOnly) return isSessionCookie(part, prefix, true);
   return part.replace(/^__(Secure|Host)-/, "").startsWith(`${prefix}.`);
 }
 
@@ -165,10 +168,10 @@ function isCookieOf(part: string, prefix: string): boolean {
  * The request as one kind of session check sees it: that kind's cookies and no other header.
  * Nothing else the bound Worker sends can reach the code that decides who the caller is.
  */
-function cookiesOnly(request: Request, prefix: string): Request | null {
+function cookiesOnly(request: Request, prefix: string, hostOnly = false): Request | null {
   const cookie = (request.headers.get("cookie") ?? "")
     .split(/;\s*/)
-    .filter((part) => part && isCookieOf(part, prefix))
+    .filter((part) => part && isCookieOf(part, prefix, hostOnly))
     .join("; ");
   return cookie ? new Request(request.url, { headers: { cookie } }) : null;
 }
@@ -187,8 +190,9 @@ export async function boundContext(
       { reason: "binding_takes_cookies_only", httpStatus: 401 },
     );
   }
-  const asCustomer = cookiesOnly(request, CUSTOMER_COOKIE_PREFIX);
-  const asPractitioner = cookiesOnly(request, PRACTITIONER_COOKIE_PREFIX);
+  const hostOnly = Boolean((env as { COS_CLIENT_ID?: string }).COS_CLIENT_ID);
+  const asCustomer = cookiesOnly(request, CUSTOMER_COOKIE_PREFIX, hostOnly);
+  const asPractitioner = cookiesOnly(request, PRACTITIONER_COOKIE_PREFIX, hostOnly);
   if (asCustomer && asPractitioner) {
     throw new ForbiddenError(
       "This request carries a customer session and a practitioner session. Sign out of one.",

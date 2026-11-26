@@ -814,7 +814,7 @@ export function perClientMissing(env: object, name: string): string | null {
   if (clientOf(env) === null) return null;
   const value = (env as Record<string, unknown>)[name];
   if (typeof value === "string" && value.length > 0) return null;
-  return `${name} is each client's own on a many-client host; stage 66 step 6 (secrets and addresses per client) fills it in and is not built yet`;
+  return `${name} is each client's own on a many-client host, and this client has none (its registry rows give none: a secret or an address, ADR 0616)`;
 }
 
 /** `perClientMissing` as a refusal: throws its reason, or does nothing. */

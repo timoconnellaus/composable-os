@@ -67,6 +67,14 @@ async function setUp(env: TwoClientBindings): Promise<void> {
     hostname(NOT_STAFF_HOSTNAMES.unverified, b.id, "staff", 0),
     hostname(NOT_STAFF_HOSTNAMES.web, a.id, "web"),
     hostname(NOT_STAFF_HOSTNAMES.desk, a.id, "desk"),
+    // Staff may sign up at each served client, so the suites can sign one in by password.
+    ...[a.id, b.id].map((id) =>
+      registry
+        .prepare(
+          "INSERT INTO registry_settings (client, name, value) VALUES (?, 'AUTH_ALLOW_SIGNUP', 'true')",
+        )
+        .bind(id),
+    ),
   ]);
   for (const id of [a.id, b.id, paused.id, moving.id]) {
     // As the operator's `cos client add` will (step 7): the raw namespace, which the host's

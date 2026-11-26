@@ -58,9 +58,9 @@ export interface FeedRoute {
 const TOKEN_PATH = /^([A-Za-z0-9_-]{43})\.ics$/;
 
 /**
- * The key of a feed's client-address bucket: the auth secret, or "" with none (as before). A
- * client's environment on a many-client host has no auth secret until stage 66 step 6, and the
- * feed refuses rather than key every client's addresses alike.
+ * The key of a feed's client-address bucket: the auth secret, or "" with none (as before). On a
+ * many-client host a client's environment without its derived auth secret (ADR 0616) makes the
+ * feed refuse rather than key every client's addresses alike.
  */
 export function feedSecret(env: { BETTER_AUTH_SECRET?: string }): string {
   requirePerClient(env, "BETTER_AUTH_SECRET");

@@ -30,10 +30,12 @@ function isCustomerCookie(pair: string): boolean {
 
 /** The customer cookies in a `Cookie` header, as one header value ("" when there are none). */
 export function customerCookies(cookieHeader: string | null | undefined): string {
-  return (cookieHeader ?? "")
-    .split(/;\s*/)
-    .filter((pair) => pair && isCustomerCookie(pair))
-    .join("; ");
+  const pairs = (cookieHeader ?? "").split(/;\s*/).filter((pair) => pair && isCustomerCookie(pair));
+  // A host of many clients sets only `__Host-` names, which a sibling hostname cannot plant: when
+  // the browser holds one, only those go on, never an unprefixed one planted on the parent domain
+  // (stage 66, ADR 0616; the host reads only `__Host-` names there anyway).
+  const hostOnly = pairs.filter((pair) => pair.startsWith(`__Host-${CUSTOMER_COOKIE_PREFIX}.`));
+  return (hostOnly.length ? hostOnly : pairs).join("; ");
 }
 
 /** Headers for a call made for the browser's customer: their session cookie, if any. */

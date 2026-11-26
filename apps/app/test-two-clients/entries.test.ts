@@ -4,9 +4,9 @@
 // the other's address; the client's web app reaches only the client fixed on its binding; the
 // crons fan out per client and the queue acts as the client stamped on each message.
 //
-// What needs step 6 (each client's own auth secrets and addresses) is shown refused clearly, not
-// driven end to end: a staff browser session (Better Auth), a customer browser session, and an
-// MCP connection's consent (which needs a staff session). See ADR 0615, "Not covered yet".
+// With step 6's secrets and addresses, every sign-in is driven end to end at one client and
+// refused at the other: device tokens, staff and customer browser sessions, MCP consent and
+// exchange, the native handoff, calendar feed addresses and support tokens.
 import {
   createExecutionContext,
   createMessageBatch,
@@ -16,7 +16,14 @@ import {
   waitOnExecutionContext,
 } from "cloudflare:test";
 import { exports } from "cloudflare:workers";
-import { issueDeviceSession, newId } from "@composable-os/core";
+import { createIdentityProvider, getCustomerIdentity } from "@composable-os/auth";
+import {
+  inviteCustomer,
+  issueDeviceSession,
+  issueNativeHandoff,
+  newId,
+  pkceChallenge,
+} from "@composable-os/core";
 import { createCrmDb } from "@composable-os/db";
 import { unknownHostResponse } from "@composable-os/db/client-entries";
 import { clientOf, environmentFor } from "@composable-os/db/client-environment";
@@ -25,11 +32,12 @@ import {
   setUpTwoClients,
   TWO_CLIENTS,
 } from "@composable-os/db/testing/two-clients";
-import { beforeAll, describe, expect, it } from "vitest";
+import { beforeAll, describe, expect, it, vi } from "vitest";
 import { threadStub } from "../src/server/assistant/http.ts";
 import { type AppParts, hostFetch, hostQueue, hostScheduled } from "../src/server/entry.ts";
 import { createAppHandler } from "../src/server/mcp/handler.ts";
 import { requestEnv } from "../src/server/request-env.ts";
+import { SUPPORT_TOKEN_ISSUER } from "../src/server/support.ts";
 
 const { a, b, paused, moving, behind } = TWO_CLIENTS;
 const host = env as unknown as Env;
@@ -37,6 +45,11 @@ const host = env as unknown as Env;
 /** What TanStack Start would have been handed: the request, and the env its code reads. */
 const reachedStart: { url: string; client: string | null }[] = [];
 const start = async (request: Request) => {
+  // Better Auth's routes, as src/routes/api/auth/$.ts serves them: on the request's env.
+  if (new URL(request.url).pathname.startsWith("/api/auth/")) {
+    const provider = createIdentityProvider(requestEnv() as never);
+    return (await provider.handle?.(request)) ?? new Response("Not found", { status: 404 });
+  }
   // Below the entry, code that reads no env of its own reads the request's: the client's.
   reachedStart.push({ url: request.url, client: clientOf(requestEnv()) });
   await new Promise((resolve) => setTimeout(resolve, 5));
@@ -283,35 +296,47 @@ describe("a credential issued for one client, at the other's address (criterion 
     expect((await op(b.hostname, "me.get", {}, A.customerToken)).status).toBe(401);
   });
 
-  it("MCP and OAuth: refused at every client's address until step 6 gives it its own address", async () => {
-    // The issuer and resource are the client's MCP_RESOURCE (step 6), never the request's: until
-    // then registration, tokens and /mcp all answer 503 naming step 6, at A and at B. That the
-    // library's clients, grants and tokens are each client's own (its KV prefix) is shown in
-    // packages/db/test/client-bindings.test.ts; the cross-client exchange waits for step 6.
-    for (const hostname of [a.hostname, b.hostname]) {
-      for (const [path, init] of [
-        [
-          "/oauth/register",
-          {
-            method: "POST",
-            headers: { "content-type": "application/json" },
-            body: JSON.stringify({ client_name: "Claude", redirect_uris: ["http://localhost/cb"] }),
+  it("an MCP connection made at one client (consent and exchange) is unknown at the other", async () => {
+    const staff = await signUpStaff(a.hostname);
+    const tokens = await connectMcp(a.hostname, staff.cookie);
+    const list = (hostname: string) =>
+      fetchAt(hostname, "/mcp", {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${tokens.access_token}`,
+          "content-type": "application/json",
+          accept: "application/json, text/event-stream",
+        },
+        body: JSON.stringify({
+          jsonrpc: "2.0",
+          id: 1,
+          method: "initialize",
+          params: {
+            protocolVersion: "2025-06-18",
+            capabilities: {},
+            clientInfo: { name: "t", version: "1" },
           },
-        ],
-        ["/oauth/token", { method: "POST", body: "grant_type=authorization_code" }],
-        ["/.well-known/oauth-authorization-server", {}],
-        [
-          "/mcp",
-          { method: "POST", headers: { authorization: `Bearer ${A.userId}:g:s` }, body: "{}" },
-        ],
-      ] as const) {
-        const response = await fetchAt(hostname, path, init as RequestInit);
-        expect(response.status, `${hostname}${path}`).toBe(503);
-        expect(await response.text()).toMatch(/MCP_RESOURCE.*step 6/);
-      }
-    }
-    // Nothing was stored for any client.
-    expect((await host.OAUTH_KV.list()).keys).toEqual([]);
+        }),
+      });
+    const atA = await list(a.hostname);
+    expect(atA.status, await atA.clone().text()).toBe(200);
+    expect((await list(b.hostname)).status).toBe(401);
+    // Its refresh token and the client it registered are unknown at B too.
+    const refreshed = await fetchAt(b.hostname, "/oauth/token", {
+      method: "POST",
+      headers: { "content-type": "application/x-www-form-urlencoded" },
+      body: new URLSearchParams({
+        grant_type: "refresh_token",
+        refresh_token: tokens.refresh_token,
+        client_id: tokens.clientId,
+        resource: `https://${b.hostname}/mcp`,
+      }),
+    });
+    expect(refreshed.status).toBeGreaterThanOrEqual(400);
+    // Everything the library stored is under A's prefix.
+    const keys = (await host.OAUTH_KV.list()).keys.map((k) => k.name);
+    expect(keys.length).toBeGreaterThan(0);
+    for (const key of keys) expect(key.startsWith(`clients/${a.id}/`), key).toBe(true);
   });
 
   it("the deployment's callback address decides no client and reaches only the gatekeepers' door", async () => {
@@ -323,19 +348,107 @@ describe("a credential issued for one client, at the other's address (criterion 
     }
   });
 
-  it("a staff or customer browser session: refused, since a client's auth secret is step 6's", async () => {
-    const staff = await fetchAt(a.hostname, "/api/v1/op/person.list", {
-      method: "POST",
-      headers: {
-        cookie: "better-auth.session_token=forged.signature",
-        "content-type": "application/json",
-      },
-      body: "{}",
+  it("a staff browser session is unknown there, and a planted unprefixed cookie is not a second hat", async () => {
+    const staff = await signUpStaff(a.hostname);
+    expect(staff.cookie).toMatch(/^__Host-/);
+    const atA = await cookieOp(a.hostname, staff.cookie, "person.list");
+    expect(atA.status, await atA.clone().text()).toBe(200);
+    // At B it is no session at all: the same answer as a request with no cookie.
+    await expectSameAs(
+      cookieOp(b.hostname, staff.cookie, "person.list"),
+      cookieOp(b.hostname, "", "person.list"),
+    );
+    // A sibling hostname can plant `cos-customer.*` with Domain= on the parent: on a many-client
+    // host only `__Host-` names are sessions, so this staff request is still one hat.
+    const planted = await cookieOp(
+      a.hostname,
+      `${staff.cookie}; cos-customer.session_token=planted.value`,
+      "person.list",
+    );
+    expect(planted.status, await planted.clone().text()).toBe(200);
+  });
+
+  it("a customer browser session is unknown there", async () => {
+    const aEnv = await clientEnv(a.id);
+    const email = `ada-${crypto.randomUUID()}@member.test`;
+    const codes = new Map<string, string>();
+    // Built first, this is the identity the host's routes use for A's (frozen) environment, and it
+    // hands the code to the test instead of mailing it.
+    getCustomerIdentity(aEnv as never, async ({ to, code }) => {
+      codes.set(to.toLowerCase(), code);
     });
-    expect(staff.status).not.toBe(200);
-    const signIn = await fetchAt(a.hostname, "/api/customer-auth/get-session");
-    expect(signIn.status).toBe(503);
-    expect(await signIn.text()).toMatch(/step 6/);
+    await inviteCustomer(createCrmDb(aEnv.DB), email, A.userId);
+    const web = `https://${NOT_STAFF_HOSTNAMES.web}`;
+    const step = (route: string, body: unknown) =>
+      fetchAt(a.hostname, `/api/customer-auth${route}`, {
+        method: "POST",
+        headers: { "content-type": "application/json", origin: web },
+        body: JSON.stringify(body),
+      });
+    const asked = await step("/email-otp/send-verification-otp", { email, type: "sign-in" });
+    expect(asked.status, await asked.clone().text()).toBe(200);
+    const otp = codes.get(email);
+    expect(otp).toBeTruthy();
+    const signedIn = await step("/sign-in/email-otp", { email, otp });
+    expect(signedIn.status, await signedIn.clone().text()).toBe(200);
+    const cookie = cookiesOf(signedIn);
+    expect(cookie).toMatch(/^__Host-cos-customer\./);
+    const atA = await cookieOp(a.hostname, cookie, "me.get");
+    expect(atA.status, await atA.clone().text()).toBe(200);
+    // At B it is no session at all: the same answer as a request with no cookie.
+    await expectSameAs(cookieOp(b.hostname, cookie, "me.get"), cookieOp(b.hostname, "", "me.get"));
+  });
+
+  it("a native sign-in's handoff code made at one client is unknown at the other", async () => {
+    const codeVerifier = "v".repeat(43);
+    const challenge = await pkceChallenge(codeVerifier);
+    const redirectUri = "gym://staff-sign-in";
+    const issue = async () =>
+      issueNativeHandoff(
+        createCrmDb((await clientEnv(a.id)).DB),
+        { userId: A.userId, challenge, redirectUri },
+        new Date(),
+      );
+    const exchange = (hostname: string, code: string) =>
+      fetchAt(hostname, "/api/v1/auth/staff/exchange", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ code, codeVerifier, redirectUri, deviceName: "phone" }),
+      });
+    expect((await exchange(b.hostname, await issue())).status).toBe(401);
+    const atA = await exchange(a.hostname, await issue());
+    expect(atA.status, await atA.clone().text()).toBe(200);
+  });
+
+  it("a customer's calendar feed address made at one client opens nothing at the other", async () => {
+    const rotated = await op(a.hostname, "me.calendarFeed.rotate", {}, A.customerToken);
+    expect(rotated.status, await rotated.clone().text()).toBe(200);
+    const data = ((await rotated.json()) as { data: { url?: string; path?: string } }).data;
+    const path = data.path ?? new URL(data.url ?? "").pathname;
+    const atA = await fetchAt(a.hostname, path);
+    expect(atA.status, await atA.clone().text()).toBe(200);
+    expect((await fetchAt(b.hostname, path)).status).toBe(404);
+  });
+
+  it("a support token for one client's address is refused at the other's", async () => {
+    const token = await supportToken(a.hostname);
+    const enter = (hostname: string) =>
+      fetchAt(hostname, `/support/enter?token=${encodeURIComponent(token)}`);
+    const reasons: string[] = [];
+    const warn = vi.spyOn(console, "warn").mockImplementation((line: string) => {
+      reasons.push(line);
+    });
+    try {
+      expect((await enter(b.hostname)).status).toBe(403);
+      // At A the audience holds, and the grant is looked up in A's database: there is none.
+      expect((await enter(a.hostname)).status).toBe(403);
+    } finally {
+      warn.mockRestore();
+    }
+    expect(reasons).toEqual([
+      "support access refused: wrong audience",
+      "support access refused: unknown grant",
+    ]);
   });
 });
 
@@ -447,3 +560,155 @@ describe("the crons and the queue (criterion 7)", () => {
     expect(result.retryMessages.map((m) => m.msgId).sort()).toEqual(["r-a", "r-none", "r-tick"]);
   });
 });
+
+function cookiesOf(response: Response): string {
+  return response.headers
+    .getSetCookie()
+    .map((c) => c.split(";")[0])
+    .join("; ");
+}
+
+/** Two answers alike in status and body, and neither a success. */
+async function expectSameAs(got: Promise<Response>, without: Promise<Response>): Promise<void> {
+  const [g, w] = await Promise.all([got, without]);
+  expect(g.status).toBeGreaterThanOrEqual(400);
+  expect({ status: g.status, body: await g.text() }).toEqual({
+    status: w.status,
+    body: await w.text(),
+  });
+}
+
+/** A staff account signed up by password at `hostname` (the host's own sign-in), and its cookie. */
+async function signUpStaff(hostname: string): Promise<{ cookie: string }> {
+  const origin = `https://${hostname}`;
+  const response = await fetchAt(hostname, "/api/auth/sign-up/email", {
+    method: "POST",
+    headers: { "content-type": "application/json", origin },
+    body: JSON.stringify({
+      email: `staff-${crypto.randomUUID()}@staff.test`,
+      password: "correct-horse-battery",
+      name: "Staff",
+    }),
+  });
+  if (response.status !== 200) {
+    throw new Error(`sign-up failed: ${response.status} ${await response.text()}`);
+  }
+  return { cookie: cookiesOf(response) };
+}
+
+/** An operation called from a page, by cookie. */
+function cookieOp(hostname: string, cookie: string, name: string, origin = `https://${hostname}`) {
+  return fetchAt(hostname, `/api/v1/op/${name}`, {
+    method: "POST",
+    headers: {
+      "content-type": "application/json",
+      "idempotency-key": crypto.randomUUID(),
+      origin,
+      cookie,
+    },
+    body: "{}",
+  });
+}
+
+function b64url(bytes: Uint8Array): string {
+  return btoa(String.fromCharCode(...bytes))
+    .replace(/\+/g, "-")
+    .replace(/\//g, "_")
+    .replace(/=+$/, "");
+}
+
+/** The OAuth 2.1 flow at `hostname`: register, consent as the staff cookie, exchange the code. */
+async function connectMcp(hostname: string, cookie: string) {
+  const origin = `https://${hostname}`;
+  const redirect = "http://localhost:3333/callback";
+  const registered = await fetchAt(hostname, "/oauth/register", {
+    method: "POST",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({
+      client_name: "Claude",
+      redirect_uris: [redirect],
+      grant_types: ["authorization_code", "refresh_token"],
+      response_types: ["code"],
+      token_endpoint_auth_method: "none",
+    }),
+  });
+  if (registered.status >= 300) throw new Error(`register: ${await registered.text()}`);
+  const { client_id: clientId } = (await registered.json()) as { client_id: string };
+  const verifier = b64url(crypto.getRandomValues(new Uint8Array(32)));
+  const challenge = b64url(
+    new Uint8Array(await crypto.subtle.digest("SHA-256", new TextEncoder().encode(verifier))),
+  );
+  const query = new URLSearchParams({
+    response_type: "code",
+    client_id: clientId,
+    redirect_uri: redirect,
+    scope: "read",
+    state: "st4te",
+    code_challenge: challenge,
+    code_challenge_method: "S256",
+    resource: `${origin}/mcp`,
+  });
+  const page = await fetchAt(hostname, `/oauth/consent?${query}`, { headers: { cookie } });
+  const html = await page.text();
+  const handle = /name="handle" value="([^"]+)"/.exec(html)?.[1]?.replace(/&amp;/g, "&");
+  if (!handle) throw new Error(`no consent form: ${page.status} ${html.slice(0, 300)}`);
+  const form = new URLSearchParams({ handle, decision: "allow" });
+  form.append("scope", "read");
+  const decided = await fetchAt(hostname, "/oauth/consent", {
+    method: "POST",
+    headers: {
+      "content-type": "application/x-www-form-urlencoded",
+      cookie: [cookie, cookiesOf(page)].filter(Boolean).join("; "),
+      origin,
+    },
+    body: form,
+    redirect: "manual",
+  });
+  const location = decided.headers.get("location");
+  if (decided.status !== 302 || !location) {
+    throw new Error(`consent: ${decided.status} ${await decided.text()}`);
+  }
+  const token = await fetchAt(hostname, "/oauth/token", {
+    method: "POST",
+    headers: { "content-type": "application/x-www-form-urlencoded" },
+    body: new URLSearchParams({
+      grant_type: "authorization_code",
+      code: new URL(location).searchParams.get("code") ?? "",
+      redirect_uri: redirect,
+      client_id: clientId,
+      code_verifier: verifier,
+      resource: `${origin}/mcp`,
+    }),
+  });
+  if (token.status !== 200) throw new Error(`token: ${token.status} ${await token.text()}`);
+  return {
+    ...((await token.json()) as { access_token: string; refresh_token: string }),
+    clientId,
+  };
+}
+
+/** A support token as the control plane signs one, for `audience` (ADR 0212). */
+async function supportToken(audience: string): Promise<string> {
+  const jwk = JSON.parse(
+    (env as unknown as { SUPPORT_TEST_PRIVATE_JWK: string }).SUPPORT_TEST_PRIVATE_JWK,
+  );
+  const key = await crypto.subtle.importKey("jwk", jwk, { name: "Ed25519" }, false, ["sign"]);
+  const now = Math.floor(Date.now() / 1000);
+  const part = (value: unknown) => b64url(new TextEncoder().encode(JSON.stringify(value)));
+  const head = part({ alg: "EdDSA", typ: "JWT" });
+  const body = part({
+    iss: SUPPORT_TOKEN_ISSUER,
+    aud: audience,
+    sub: "grant-1",
+    email: "support@example.com",
+    iat: now,
+    exp: now + 300,
+    jti: crypto.randomUUID(),
+  });
+  const signature = await crypto.subtle.sign(
+    { name: "Ed25519" },
+    key,
+    new TextEncoder().encode(`${head}.${body}`),
+  );
+  return `${head}.${body}.${b64url(new Uint8Array(signature))}`;
+}

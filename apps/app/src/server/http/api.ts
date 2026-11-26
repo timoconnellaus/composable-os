@@ -34,6 +34,7 @@ import {
   getCustomerIdentity,
   getPractitionerIdentity,
   type IdentityEnv,
+  isSessionCookie,
   PRACTITIONER_AUTH_BASE_PATH,
   PRACTITIONER_COOKIE_PREFIX,
   type PractitionerIdentity,
@@ -125,7 +126,7 @@ export async function connectionAddress(request: Request, env: ApiEnv): Promise<
 
 /**
  * Why customer or practitioner sign-in is not set up: no CUSTOMER_AUTH_SECRET, which on a
- * many-client host is each client's own and comes with stage 66 step 6.
+ * many-client host is each client's own, derived for it (ADR 0616).
  */
 function signInNotSetUp(env: ApiEnv, who: "Customer" | "Practitioner"): string {
   const perClient = perClientMissing(env, "CUSTOMER_AUTH_SECRET");
@@ -172,31 +173,35 @@ async function staffSession(request: Request, env: ApiEnv): Promise<Principal | 
   return staff;
 }
 
-function hasCookie(request: Request, prefix: string): boolean {
+function hasCookie(request: Request, prefix: string, env: ApiEnv): boolean {
   const cookie = request.headers.get("cookie") ?? "";
-  // Better Auth prefixes secure cookies with `__Secure-`.
-  return cookie
-    .split(/;\s*/)
-    .some((part) => part.replace(/^__(Secure|Host)-/, "").startsWith(`${prefix}.`));
+  // Better Auth prefixes secure cookies with `__Secure-`; a many-client host's are `__Host-`
+  // only, and nothing else counts there (`isSessionCookie`).
+  const hostOnly = Boolean((env as { COS_CLIENT_ID?: string }).COS_CLIENT_ID);
+  return cookie.split(/;\s*/).some((part) => isSessionCookie(part, prefix, hostOnly));
 }
 
-function hasCustomerCookie(request: Request): boolean {
-  return hasCookie(request, CUSTOMER_COOKIE_PREFIX);
+function hasCustomerCookie(request: Request, env: ApiEnv): boolean {
+  return hasCookie(request, CUSTOMER_COOKIE_PREFIX, env);
 }
 
-function hasPractitionerCookie(request: Request): boolean {
-  return hasCookie(request, PRACTITIONER_COOKIE_PREFIX);
+function hasPractitionerCookie(request: Request, env: ApiEnv): boolean {
+  return hasCookie(request, PRACTITIONER_COOKIE_PREFIX, env);
 }
 
 /**
  * Refuses a request that carries two kinds of session: one call is one hat (ADR 0581). Which
  * sessions are valid is not looked at: a second kind's cookie at all is refused.
  */
-function oneHat(request: Request, staff: boolean): void {
-  const kinds = [staff, hasCustomerCookie(request), hasPractitionerCookie(request)].filter(Boolean);
+function oneHat(request: Request, staff: boolean, env: ApiEnv): void {
+  const kinds = [
+    staff,
+    hasCustomerCookie(request, env),
+    hasPractitionerCookie(request, env),
+  ].filter(Boolean);
   if (kinds.length > 1) {
     throw new ForbiddenError(
-      staff && hasCustomerCookie(request)
+      staff && hasCustomerCookie(request, env)
         ? "This request carries a staff session and a customer session. Sign out of one."
         : "This request carries more than one kind of session (staff, customer, practitioner). Sign out of all but one.",
     );
@@ -294,7 +299,7 @@ export async function apiContext(request: Request, env: ApiEnv): Promise<AnyInvo
   const token = bearer(request);
   if (token) return deviceContext(env, db, token, new URL(request.url), address);
   const staff = await staffSession(request, env);
-  oneHat(request, Boolean(staff));
+  oneHat(request, Boolean(staff), env);
   if (staff) {
     // `staffSession` refused a staff cookie from anywhere but the host's own pages (stage 47,
     // ADR 0660). A native app's bearer token above, and customer cookies, are unchanged.
@@ -302,7 +307,7 @@ export async function apiContext(request: Request, env: ApiEnv): Promise<AnyInvo
   }
   // A practitioner's session (ADR 0581): that practitioner, or, when it no longer resolves, the
   // public, as a customer's session that no longer resolves is.
-  if (hasPractitionerCookie(request)) {
+  if (hasPractitionerCookie(request, env)) {
     const resolved = (await practitioners(env)?.resolveSession(request)) ?? null;
     return outsideContext(
       env,
@@ -543,9 +548,9 @@ async function authRoutes(route: string, request: Request, env: ApiEnv): Promise
     }
     const deviceName = deviceNameSchema(input.deviceName);
     const staff = await staffSession(request, env);
-    oneHat(request, Boolean(staff));
+    oneHat(request, Boolean(staff), env);
     // A practitioner works on the web (ADR 0581): their session is not exchanged for app tokens.
-    if (hasPractitionerCookie(request)) {
+    if (hasPractitionerCookie(request, env)) {
       throw new ForbiddenError("A practitioner's sign-in is not exchanged for app tokens", {
         reason: "practitioner_web_only",
         httpStatus: 401,

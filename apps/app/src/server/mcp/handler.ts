@@ -274,8 +274,9 @@ export function createAppHandler(fallback: Fallback) {
     fetch(request: Request, env: McpEnv, ctx: ExecutionContext): Promise<Response> {
       const origin = new URL(request.url).origin;
       // On a many-client host the MCP issuer and resource are the client's own address, from its
-      // environment (step 6 fills MCP_RESOURCE), never the request's: until then OAuth and /mcp
-      // answer that they are not available, naming step 6. Every other path goes on as before.
+      // environment (MCP_RESOURCE, from its staff hostname, ADR 0616), never the request's: a
+      // client with none has OAuth and /mcp answer that they are not available. Every other path
+      // goes on as before.
       if (clientOf(env) !== null && isOAuthPath(new URL(request.url).pathname)) {
         const missing = perClientMissing(env, "MCP_RESOURCE");
         if (missing) {

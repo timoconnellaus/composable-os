@@ -58,12 +58,28 @@ export interface BetterAuthOptions {
 }
 
 /**
+ * Whether a cookie (`name=value` or a name) is a session cookie of `prefix` (stage 66, ADR
+ * 0616): on a host of many clients (`hostOnly`, the client's environment has `COS_CLIENT_ID`) only
+ * the `__Host-` name counts, so a sibling hostname that plants `cos-customer.*` on the parent
+ * domain cannot make a staff request look like two hats; elsewhere with or without `__Secure-`.
+ *
  * Better Auth's cookie options for one sign-in (staff, customer, practitioner). On a host that
  * serves many clients (stage 66, ADR 0616) every cookie it sets is `__Host-` prefixed: Secure,
  * `Path=/` and no `Domain`, so a page on a sibling hostname of the fleet's domain can never plant
  * one (a cookie it sets with `Domain=` cannot carry the prefix, and a cookie without the prefix is
  * not read). A single-client deployment keeps its names (`__Secure-<prefix>.*` on https), so
  * nobody is signed out.
+ */
+export function isSessionCookie(part: string, prefix: string, hostOnly: boolean): boolean {
+  const name = part.trim();
+  // A many-client host sets only `__Host-` names, which a sibling hostname cannot plant; a
+  // cookie of the same name without the prefix (set with `Domain=` on the parent) is not one.
+  if (hostOnly) return name.startsWith(`__Host-${prefix}.`);
+  return name.replace(/^__(Secure|Host)-/, "").startsWith(`${prefix}.`);
+}
+
+/**
+ * Better Auth's cookie options (see the comment above `isSessionCookie`).
  */
 export function cookieOptions(
   prefix: string,
