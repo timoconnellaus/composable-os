@@ -41,6 +41,21 @@ export interface HostnameRecord {
   hostname: string;
   client: ClientId;
   surface: HostnameSurface;
+  /** Marked as its surface's address (migration 0791); only a verified hostname is one. */
+  primary: boolean;
+}
+
+/**
+ * A client's addresses, from its verified hostnames only (stage 66 step 6, ADR 0616): each
+ * surface's marked hostname, or its only verified one; null when it has none, or several and none
+ * marked. Never from a request's Host header.
+ */
+export interface ClientAddresses {
+  staff: string | null;
+  web: string | null;
+  desk: string | null;
+  /** Every verified hostname of the client, sorted. */
+  hostnames: readonly string[];
 }
 
 // --- Client ids ----------------------------------------------------------------------------
@@ -234,6 +249,9 @@ export const CLIENT_SETTINGS: Readonly<Record<string, { absent: SettingAbsent; w
   AI_MODEL_ROLES: { absent: "inherit", what: "the model roles" },
   AI_PROVIDERS: { absent: "inherit", what: "the optional AI providers" },
   API_ALLOWED_ORIGINS: { absent: "empty", what: "the origins allowed to call the API" },
+  // An address that is not a hostname (stage 66 step 6, ADR 0616): the client's own native app's
+  // sign-in redirects (`<scheme>://staff-sign-in`), never another client's.
+  NATIVE_REDIRECT_URIS: { absent: "empty", what: "the client's native app's sign-in redirects" },
 };
 
 export function isClientSetting(name: string): boolean {
@@ -259,6 +277,8 @@ export interface RegistrySnapshot {
   hostnames: ReadonlyMap<string, HostnameRecord>;
   /** Hostnames the registry holds but has not verified: refused as such, never served. */
   unverified: ReadonlySet<string>;
+  /** Each client's addresses, from its verified hostnames (`ClientAddresses`). */
+  addresses: ReadonlyMap<ClientId, ClientAddresses>;
   /**
    * Rows the code would not accept and so left out, one line each, for the operator: an id
    * `validateClientId` refuses, a setting not in `CLIENT_SETTINGS`, a hostname that is not
@@ -313,7 +333,9 @@ export async function readRegistry(registry: D1Database): Promise<RegistrySnapsh
       "SELECT id, environment, status, tier, repository, location_hint, schema_version FROM registry_clients",
     ),
     registry.prepare("SELECT client, name, value FROM registry_settings"),
-    registry.prepare("SELECT hostname, client, surface, verified FROM registry_hostnames"),
+    registry.prepare(
+      "SELECT hostname, client, surface, verified, is_primary FROM registry_hostnames",
+    ),
   ]);
   const { version, stamp } = stampOf(
     meta?.results[0] as { value: number; nonce: string } | undefined,
@@ -362,6 +384,7 @@ export async function readRegistry(registry: D1Database): Promise<RegistrySnapsh
     client: string;
     surface: string;
     verified: number;
+    is_primary: number;
   }[]) {
     if (!isClientId(row.client) || !clientMap.has(row.client)) continue;
     if (canonicalHostname(row.hostname) !== row.hostname) {
@@ -378,6 +401,36 @@ export async function readRegistry(registry: D1Database): Promise<RegistrySnapsh
       hostname: row.hostname,
       client: row.client,
       surface: row.surface as HostnameSurface,
+      primary: Number(row.is_primary) === 1,
+    });
+  }
+
+  const byClient = new Map<ClientId, HostnameRecord[]>();
+  for (const record of hostnameMap.values()) {
+    const list = byClient.get(record.client) ?? [];
+    list.push(record);
+    byClient.set(record.client, list);
+  }
+  const addressMap = new Map<ClientId, ClientAddresses>();
+  for (const id of clientMap.keys()) {
+    const own = byClient.get(id) ?? [];
+    const pick = (surface: HostnameSurface): string | null => {
+      const on = own.filter((h) => h.surface === surface);
+      const marked = on.find((h) => h.primary);
+      if (marked) return marked.hostname;
+      if (on.length === 1) return (on[0] as HostnameRecord).hostname;
+      if (on.length > 1) {
+        problems.push(
+          `${id} has ${on.length} verified ${surface} hostnames and none marked as its address: no ${surface} address`,
+        );
+      }
+      return null;
+    };
+    addressMap.set(id, {
+      staff: pick("staff"),
+      web: pick("web"),
+      desk: pick("desk"),
+      hostnames: own.map((h) => h.hostname).sort(),
     });
   }
 
@@ -388,6 +441,7 @@ export async function readRegistry(registry: D1Database): Promise<RegistrySnapsh
     settings: settingMap,
     hostnames: hostnameMap,
     unverified,
+    addresses: addressMap,
     problems,
   };
 }

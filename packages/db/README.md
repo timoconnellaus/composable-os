@@ -13,6 +13,11 @@ Core D1 schema for a deployment.
   reads it (client ids, exact hostnames, settings, the version stamp, `isSchemaBehind`), and
   `@composable-os/db/client-environment` builds a client's environment from it (`DB` from
   `@composable-os/db/client-db`). Neither is exported from `@composable-os/db`.
+  `@composable-os/db/registry-secrets` (stage 66 step 6, ADR 0616) derives a client's auth and
+  desk secrets from the host's `COS_ROOT_KEY` and seals and opens its given secrets in
+  `registry_secrets` under `COS_SECRETS_KEY` (`writeClientSecret` is the operator's command's);
+  `@composable-os/db/callbacks` is the deployment's one gatekeeper callback hostname.
+  Migration 0791 marks which verified hostname is a surface's address.
 - `getMigrationLevel(db)`: the applied level, reported by `/api/health`.
 - `createDb(d1)`: typed [Kysely](https://kysely.dev) access to core tables (ADR 0014).
 - `createCrmDb(d1)`: the handle operations use: `{ query: Kysely, batch(statements) }`, where

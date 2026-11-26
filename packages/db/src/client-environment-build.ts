@@ -4,7 +4,13 @@
 // record it read from the registry and admitted. Tests import this file by its path.
 import { type ClientDb, clientDatabase } from "./client-db.ts";
 import { ENV_NAME_PATTERNS, ENV_NAMES, type EnvNameUse } from "./client-env-names.ts";
-import { CLIENT_SETTINGS, type ClientId, type ClientRecord, isClientId } from "./registry.ts";
+import {
+  CLIENT_SETTINGS,
+  type ClientAddresses,
+  type ClientId,
+  type ClientRecord,
+  isClientId,
+} from "./registry.ts";
 
 /** What this module needs of a Worker's `env`: its D1 binding, and on a many-client host more. */
 export interface HostBindings {
@@ -23,6 +29,13 @@ export interface HostBindings {
    * REGISTRY: the one source of the deployment's environment; a client of the other is unknown.
    */
   COS_HOST_ENVIRONMENT?: string;
+  /** The root key of every client's derived secrets (ADR 0616). The host's own. */
+  COS_ROOT_KEY?: string;
+  /** The key every client's given secrets are sealed under, and the one before (ADR 0616). */
+  COS_SECRETS_KEY?: string;
+  COS_SECRETS_KEY_PREVIOUS?: string;
+  /** The deployment's one callback hostname (ADR 0616). The host's own. */
+  COS_CALLBACK_HOSTNAME?: string;
 }
 
 /** What `name` of the host's environment becomes in a client's environment, or null: left out. */
@@ -87,10 +100,47 @@ export function clientOf(env: object): ClientId | null {
   return clientOfEnvironment.get(env) ?? null;
 }
 
-/** What the client's environment is built from: its registry row and its settings. */
+/**
+ * What the client's environment is built from: its registry row and its settings, and (step 6,
+ * ADR 0616) its secrets and addresses. `derived` is what `deriveClientSecrets` gave for this
+ * client, `given` what `readClientSecrets` opened for it, `addresses` its verified hostnames'
+ * addresses from the registry. Each is used only for the names `ENV_NAMES` says it fills; with
+ * one left out, those names are left out.
+ */
 export interface ClientPart {
   client: ClientRecord;
   settings: Readonly<Record<string, string>>;
+  derived?: Readonly<Record<string, string>>;
+  given?: Readonly<Record<string, string>>;
+  addresses?: ClientAddresses;
+}
+
+/** The value of an address name for a client, or undefined when it has no such address. */
+function addressValue(
+  use: Extract<EnvNameUse, { what: "address" }>,
+  addresses: ClientAddresses,
+): string | undefined {
+  const origin = (hostname: string | null) => (hostname ? `https://${hostname}` : undefined);
+  switch (use.from) {
+    case "staff": {
+      const staff = origin(addresses.staff);
+      return staff ? `${staff}${use.path ?? ""}` : undefined;
+    }
+    case "customer":
+      return origin(addresses.web ?? addresses.staff);
+    case "desk":
+      return addresses.desk ?? undefined;
+    case "all":
+      return addresses.hostnames.length > 0
+        ? addresses.hostnames.map((hostname) => `https://${hostname}`).join(",")
+        : undefined;
+  }
+}
+
+/** Every name, listed or matched, that a part of the client's own may fill. */
+function perClientUse(name: string): Extract<EnvNameUse, { use: "per-client" }> | null {
+  const use = envNameUse(name);
+  return use?.use === "per-client" ? use : null;
 }
 
 /** A value made here for one client (its database, a wrapper's result): frozen. */
@@ -108,8 +158,10 @@ function frozen<T>(value: T): T {
  * - A shared value (`shared`) is the same object as in `env`, so a cache keyed by it (a WeakMap
  *   on `env.LOADER`, `env.AI`, a `GATEKEEPER_*` binding) is one cache for every client.
  * - A kept-apart binding is its wrapper's result, frozen, or left out when it has none.
- * - The host's own names, and the client's secrets and addresses that step 6 fills in, are left
- *   out, and so is any name `ENV_NAMES` does not list.
+ * - The client's secrets are its derived and given ones (`part.derived`, `part.given`), and its
+ *   addresses come from its verified hostnames (`part.addresses`); the host's own value of such a
+ *   name is never used, and with no part for it the name is left out (step 6, ADR 0616).
+ * - The host's own names are left out, and so is any name `ENV_NAMES` does not list.
  *
  * The object and what is made here for it (`DB`, the wrappers' results) are frozen: it is shared
  * by every request of the client in the isolate, so a write below an entry throws (modules are
@@ -150,6 +202,30 @@ export function buildClientEnvironment<E extends HostBindings>(env: E, part: Cli
     const value =
       own ?? (absent === "inherit" ? (env as unknown as Record<string, unknown>)[name] : undefined);
     if (typeof value === "string") out[name] = value;
+  }
+  // The client's own secrets: each only into a name `ENV_NAMES` says that kind fills, so a
+  // derived name never takes a given value (auth secrets are derived, not stored) and the other
+  // way round. Never the host's own value of the name, which is not read here at all.
+  for (const [kind, values] of [
+    ["derived", part.derived],
+    ["given", part.given],
+  ] as const) {
+    for (const [name, value] of Object.entries(values ?? {})) {
+      const use = perClientUse(name);
+      if (use?.what === "secret" && use.from === kind && typeof value === "string" && value) {
+        out[name] = value;
+      }
+    }
+  }
+  // The client's own addresses, from its verified hostnames: every address name `ENV_NAMES`
+  // lists, whether or not the host's env has it.
+  if (part.addresses) {
+    for (const name of Object.keys(ENV_NAMES)) {
+      const use = perClientUse(name);
+      if (use?.what !== "address") continue;
+      const value = addressValue(use, part.addresses);
+      if (value !== undefined) out[name] = value;
+    }
   }
   out.DB = frozen(
     clientDatabase(

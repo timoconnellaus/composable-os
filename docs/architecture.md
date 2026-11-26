@@ -144,6 +144,24 @@ One **D1** database per deployment, with real tables ([ADR 0002](adr/0002-d1-rea
   kept apart (left out until step 4's video-host wrapper). With no `REGISTRY` bound, the client's environment is the real
   `env`: a single-client deployment is unchanged. No entry calls it yet (step 4).
 
+- **Secrets and addresses per client** (stage 66 step 6,
+  [ADR 0616](adr/0616-secrets-and-addresses-per-client.md)): on a many-client host the staff,
+  customer and desk secrets of a client (and so its person-code and practitioner keys) are
+  derived with HKDF from the host's `COS_ROOT_KEY` for that client, purpose and environment, and
+  stored nowhere; a client's given secrets (its own Google sign-in, Cloudflare Access, Turnstile,
+  judge and AI keys) are sealed with AES-256-GCM in `registry_secrets` under `COS_SECRETS_KEY`,
+  bound to the environment, client, name and key id, written only by the operator's command
+  (`@composable-os/db/registry-secrets`, which no Worker code, operation or pack names) and opened
+  only by the directory into that client's environment, never into the cached snapshot. Each
+  address (`BETTER_AUTH_URL`, `APP_ORIGIN`, `MCP_RESOURCE`, `CUSTOMER_AUTH_URL`, `DESK_HOSTNAME`,
+  `STREAM_ALLOWED_ORIGINS`) comes from the client's verified hostnames, one marked per surface;
+  `NATIVE_REDIRECT_URIS` is a registry setting. Gatekeeper callbacks arrive on the deployment's
+  one callback hostname (`COS_CALLBACK_HOSTNAME`, `@composable-os/db/callbacks`), no client's;
+  the gatekeeper checks the state or endpoint against what that client's connection stored. The
+  payments, text, inbound webhook, email and email-sending gatekeepers hold one deployment's
+  credentials or state for every account, so they are left out of every client's environment
+  until each is made per client.
+
 - **Core schema** (`core_*` tables): our versioned migrations, applied on deploy or upgrade. It covers
   the minimal core objects (People, Organisations, Activities, Tasks), users, settings, the approval
   queue and the audit log. Deletes are soft (Trash); a daily cron trigger on `cos-app` purges

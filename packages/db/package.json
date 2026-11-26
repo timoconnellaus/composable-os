@@ -10,6 +10,8 @@
     "./client-db": "./src/client-db.ts",
     "./registry": "./src/registry.ts",
     "./client-environment": "./src/client-environment.ts",
+    "./registry-secrets": "./src/registry-secrets.ts",
+    "./callbacks": "./src/callbacks.ts",
     "./testing/vitest": "./testing/vitest.ts",
     "./testing/conformance": "./testing/conformance.ts"
   },
