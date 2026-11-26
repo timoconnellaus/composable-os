@@ -51,6 +51,8 @@ export default defineConfig({
       "__tests__/workerd/gmail-actions.test.ts",
       "__tests__/workerd/gmail-hooks.test.ts",
       "__tests__/workerd/gmail-state.test.ts",
+      // Local (issue #517 follow-up): not upstream's, kept out of __tests__/workerd so a sync keeps it.
+      "__tests__/local-workerd/token-refresh-access.test.ts",
     ],
     setupFiles: ["@composable-os/gatekeeper-interface/testing/assert-workerd"],
   },

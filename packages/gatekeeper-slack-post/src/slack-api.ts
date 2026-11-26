@@ -125,7 +125,11 @@ export async function callSlack(
   if (response.status === 429) throw new SlackApiError(method, "ratelimited", 429);
   const data = await readJson(response);
   if (data.ok !== true) {
-    const code = typeof data.error === "string" ? data.error.slice(0, 100) : "unknown_error";
+    // Only an error code is quoted: anything else in `error` could quote the request or a token.
+    const code =
+      typeof data.error === "string" && /^[a-z0-9_.]{1,64}$/.test(data.error)
+        ? data.error
+        : "unknown_error";
     throw new SlackApiError(method, code, response.status);
   }
   return data;

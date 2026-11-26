@@ -1242,8 +1242,8 @@ export class StripeProvider implements PaymentProvider {
       throw new StripeCallError(
         detail,
         "refused",
-        typeof error.code === "string" ? error.code.slice(0, 60) : null,
-        typeof error.param === "string" ? error.param.slice(0, 60) : null,
+        isStripeIdentifier(error.code) ? error.code : null,
+        stripeParam(error.param),
         response.status,
       );
     }
@@ -1260,10 +1260,25 @@ function stripeErrorSummary(status: number, body: Record<string, unknown>): stri
   const parts = [`HTTP ${status}`];
   if (error && typeof error === "object") {
     const { type, code } = error as { type?: unknown; code?: unknown };
-    if (typeof type === "string") parts.push(type.slice(0, 60));
-    if (typeof code === "string") parts.push(code.slice(0, 60));
+    // Identifiers only: a field that is not one could quote the request (or a proxy echo of it).
+    if (isStripeIdentifier(type)) parts.push(type);
+    if (isStripeIdentifier(code)) parts.push(code);
   }
   return parts.join(", ");
+}
+
+/**
+ * A Stripe error's parameter name: any length of identifier characters (a deep `line_items[0][…]`
+ * runs past 60), kept to 200 so a long one is not taken for "no parameter" (`resource_missing`
+ * with no param reads as the customer being gone).
+ */
+function stripeParam(value: unknown): string | null {
+  return typeof value === "string" && /^[a-z0-9_.[\]]+$/.test(value) ? value.slice(0, 200) : null;
+}
+
+/** A Stripe error type, code or parameter name: a plain identifier of at most 60 characters. */
+function isStripeIdentifier(value: unknown): value is string {
+  return typeof value === "string" && /^[a-z0-9_.[\]]{1,60}$/.test(value);
 }
 
 /** A stable idempotency key for `text`: the hex SHA-256 of it. */

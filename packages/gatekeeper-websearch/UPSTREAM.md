@@ -18,6 +18,8 @@ as a symlink. The README's two images (`../../docs/images/web-search-*.svg`) are
 
 ## Local modifications
 
+- **A local test (2026-11-27, issue #517).** `__tests__/upstream-echo.test.ts`: the search error
+  is the HTTP status only. On this package's `keep` list in `scripts/gatekeeper-upstreams.mjs`.
 - **Scope rename.** `@gadgets/*` imports point at `@composable-os/gatekeeper-interface` and
   `@composable-os/gatekeeper-kit`. The 3 source files this touched start with a
   `// Vendored from cloudflare/cloudflare-os@… Modified locally` comment.

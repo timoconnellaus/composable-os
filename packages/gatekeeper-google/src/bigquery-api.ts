@@ -1,3 +1,4 @@
+// Vendored from cloudflare/cloudflare-os@a3ba4746b58f packages/gatekeeper-google/src/bigquery-api.ts (Apache-2.0). Modified locally: see UPSTREAM.md in this package.
 // BigQuery REST API wrapper.
 //
 // Implements the methods needed by BigQuerySession against the public BigQuery REST API
@@ -272,8 +273,9 @@ async function callRest<T>(
       rawBody = (await response.json().catch(() => ({}))) as GoogleErrorResponse;
       detail = rawBody.error?.message ?? `${response.status} ${response.statusText}`;
     } else {
-      detail = (await response.text().catch(() => "")).slice(0, 500)
-          || `${response.status} ${response.statusText}`;
+      // Not JSON: the status only, never the body (it may quote the request).
+      await response.body?.cancel().catch(() => undefined);
+      detail = `${response.status} ${response.statusText}`;
     }
     detail += ` [http=${response.status}]`;
     if (rawBody.error?.status) {
