@@ -802,7 +802,10 @@ sent again; a refusal **holds** it with its reason for a person (who may **retry
 with why), a transient one retries on a schedule. An entry that **depends on** another (a payment
 on its invoice) waits for it. Nothing is dated inside the books' **lock date** or sent from before
 the **start date**. While approval is on, a day's entries **await approval** until a person
-approves the day.
+approves the day. An entry the host knows was **applied** is never sent again, only looked up; a
+person's details travel in its `detail` alone, so an erase clears them there. A reference is
+unique per set of books: after a **change of books** the old books' unsent entries are skipped
+and nothing already sent is posted again.
 _Avoid_: queue (the automation events' outbox is **Outbox**), job, sync log
 
 ### Booking system contract

@@ -96,7 +96,7 @@ Choose which of the books' accounts (or, for a tax code, which tax rate) one kin
 
 ## accounting.post.retry
 
-Try a held entry again, or one waiting to retry, now (a person), once what held it is put right (a contact, an account in the books, a refusal). It is looked up by its reference before anything is written, so it is never in the books twice. An entry before the start date is never sent.
+Try a held entry again, or one waiting to retry, now (a person), once what held it is put right (a contact, an account in the books, a refusal). An entry already in the books whose reference was not found is looked up again, never sent again; any other is looked up by its reference before anything is written, so it is never in the books twice. One waiting in Approvals is decided there. An entry before the start date is never sent.
 
 |  |  |
 | --- | --- |
@@ -117,11 +117,11 @@ Try a held entry again, or one waiting to retry, now (a person), once what held 
 | Field | Type | Required | Limits | Description |
 | --- | --- | --- | --- | --- |
 | `id` | string | yes |   |   |
-| `state` | `"queued"` | yes |   |   |
+| `state` | `"queued"`, `"unknown"` | yes |   |   |
 
 ## accounting.post.skip
 
-Leave one entry out of the books for good (a person), with why: one waiting for approval, queued, held or waiting to retry. Never one being sent, sent, or whose outcome is not yet known. Its money is listed on the log as not in the books; an entry that depends on it is held.
+Leave one entry out of the books for good (a person), with why: one waiting for approval, queued, held or waiting to retry. Never one being sent, sent, in the books, or whose outcome is not yet known. One waiting in Approvals is turned down there with it. Its money is listed on the log as not in the books; an entry that depends on it is held.
 
 |  |  |
 | --- | --- |
