@@ -210,9 +210,16 @@ One **D1** database per deployment, with real tables ([ADR 0002](adr/0002-d1-rea
   `NATIVE_REDIRECT_URIS` is a registry setting. Gatekeeper callbacks arrive on the deployment's
   one callback hostname (`COS_CALLBACK_HOSTNAME`, `@composable-os/db/callbacks`), no client's;
   the gatekeeper checks the state or endpoint against what that client's connection stored. The
-  payments, text, inbound webhook, email and email-sending gatekeepers hold one deployment's
+  payments, text, inbound webhook and email-receiving gatekeepers hold one deployment's
   credentials or state for every account, so they are left out of every client's environment
-  until each is made per client.
+  until each is made per client. Email sending is per client (ADR 0616, "Email sending per
+  client"): a client's sender domains are registry rows (`registry_sender_domains`, one client a
+  domain, none under or over another client's), written and verified only by the operator
+  (`@composable-os/db/registry-senders`; verified once the domain is onboarded to Email Sending in
+  the deployment's account), and only the verified ones reach its environment
+  (`COS_SENDER_DOMAINS`). The client's integration host passes them to the email-send gatekeeper
+  with every bind, send and apply; with `SENDER_DOMAINS_PER_CLIENT` set the gatekeeper never reads
+  `ALLOWED_SENDER_DOMAINS` and refuses any sender off them.
 
 - **Core schema** (`core_*` tables): our versioned migrations, applied on deploy or upgrade. It covers
   the minimal core objects (People, Organisations, Activities, Tasks), users, settings, the approval

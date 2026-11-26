@@ -365,7 +365,7 @@ How each gets its credentials and the client it acts for:
 | Text | the deployment's provider | **no**: one events object for the deployment | **left out** |
 | Inbound webhooks | the secret each endpoint's owner sets | **no**: endpoint ids chosen by the user, global to the deployment | **left out** |
 | Email (receiving) | none | **no**: one mailbox per local part for the deployment | **left out** |
-| Email sending | Cloudflare Email Service | sender allowed by the deployment's `ALLOWED_SENDER_DOMAINS` | **left out** (one client could send as another's domain) |
+| Email sending | Cloudflare Email Service | sender allowed by the deployment's `ALLOWED_SENDER_DOMAINS` | **left out** (one client could send as another's domain); **per client since 2026-11-27**: each client's verified sender domains ("Email sending per client", below) |
 | The fake gatekeeper | none | one fake book for the deployment, a fixed local signing secret | **refused**: a directory will not start with `INTEGRATIONS_FAKE_PROVIDER` on or `GATEKEEPER_FAKE` bound |
 | Accounting, booking system | fakes and contracts only | — | no real gatekeeper yet |
 
@@ -399,6 +399,8 @@ this step, for the coordinator):
    full address, and a domain allowed for one client only.
 5. **Email sending**: the client's own sender domains, from its registry settings, passed when the
    account is provisioned; the deployment's `ALLOWED_SENDER_DOMAINS` no longer every client's.
+   Built 2026-11-27 ("Email sending per client", below), with two changes: the domains are rows of
+   their own (not settings), and they are passed with every bind, send and apply, not once.
 6. **Gmail push and Chat**: the drivers are named per mailbox and per space for the whole
    deployment, so two clients connecting one mailbox or space would share a driver: name them by
    account (or by client and mailbox), and confirm a push reaches only the accounts that asked,
@@ -412,9 +414,107 @@ this step, for the coordinator):
 - **Before a sign-in code can be emailed** to its staff or customers: a connected Gmail or Outlook
   mailbox of its own (shared OAuth apps, which work on a many-client host; Gmail needs Google's
   verification of the operator's app for its restricted scope), or email sending per client (5).
+  Email sending per client is built (2026-11-27, below): a verified sender domain of the client's
+  and an email-send connection bound to an address on it are enough.
 
 The runner's side of every callback (`ConnectCallback`'s props, the integration host's object
 name) gains the client in step 4 ("A gatekeeper calling back: the connection it was minted for").
+
+### Email sending per client (2026-11-27)
+Builds item 5 above, so a client on a many-client host can email its sign-in codes, staff invites
+and routine mail from its own domain and from no other client's. Email **receiving** (item 4)
+stays left out: `GATEKEEPER_EMAIL` is still `kept-apart` with no wrapper, in no client's
+environment.
+
+- **Where a client's sender domains live.** Registry migration 0796, `registry_sender_domains`:
+  one row per domain (the primary key, so a domain belongs to at most one client), its client
+  (removed with it), `verified` and `verified_at` (set together). A domain under or over another
+  client's (`mail.gym-a.example` beside `gym-a.example`) is refused by triggers, since whoever
+  holds a domain's DNS holds its subdomains'; one client may hold both. Each registry is one
+  deployment's and so one environment's (ADR 0613), so staging and live each hold their own rows.
+  Writes move the version stamp, so a running host sees them at its next check (up to
+  `REGISTRY_REFRESH_MS`, 10 seconds). Rows of their own rather than `CLIENT_SETTINGS`, so the
+  registry itself holds the one-client rule.
+- **What "verified" means.** Cloudflare Email Service sends only from a domain onboarded to Email
+  Sending in the sending Worker's account: the `send_email` binding refuses any other with
+  `E_SENDER_DOMAIN_NOT_AVAILABLE` ("not onboarded to Email Service, owned by another account, or
+  not active for sending"). Onboarding is done from the dashboard on a domain of the account, and
+  Cloudflare adds the sending records (an MX and SPF on `cf-bounce.<domain>`, DKIM at
+  `cf-bounce._domainkey.<domain>`, and a `p=reject` DMARC record when there is none); Email Sending's
+  settings show each record's state, and every record must be present and valid. Onboarding proves
+  control of the DNS, but it says nothing of **which client** a domain is: the deployment has one
+  binding, so every domain onboarded in its account can be sent from by every client. So a row is
+  **verified** when the operator has confirmed both that the domain is onboarded to Email Sending
+  in the deployment's account with all its records valid, and that it is this client's, as a
+  hostname is verified in the registry by the operator (`registry_hostnames.verified`, ADR 0613).
+  It is written unverified and verified after; an unverified row is held and never used.
+  Unverifying or removing a domain also stops the client's sends from it, including a send queued
+  before (the apply re-reads the domains). Nothing here calls Cloudflare: the docs read for this
+  (2026-11-27) describe checking a sending domain in the dashboard, and step 7 may add a check
+  through the API if one fits. The sender's domain must equal a verified domain exactly: a
+  subdomain is a row of its own.
+- **Into the client's environment.** `readRegistry` gives `senderDomains` (a client's verified
+  ones, sorted); it holds the one-client rule again and, failing closed, leaves out for both
+  clients any domain of a tree two clients hold (a registry without the triggers), naming it in
+  `problems`. The builder puts them in `COS_SENDER_DOMAINS` (`ENV_NAMES`, `per-client`, comma
+  separated), only from the registry's rows (the host's own value of the name, and
+  `ALLOWED_SENDER_DOMAINS`, never reach a client), and leaves the name out when there are none.
+  `GATEKEEPER_EMAIL_SEND` is now `shared` (in every client's environment), and `gatekeeperOffered`
+  offers it only to a client with `COS_SENDER_DOMAINS`: "not available to this business yet: it has
+  no verified sender domain".
+- **Where the client comes from on a send.** Only from the client's own environment, never from an
+  argument. Every send goes through the client's integration host in the runner, a
+  `ClientDurableObject` named with the host's proof of its client (ADR 0615), whose `env` is that
+  client's environment. It passes the gatekeeper `COS_SENDER_DOMAINS` as it is now:
+  - **bind**: `getGatekeeperClassFor(url, { senderDomains })`;
+  - **send**: the gatekeeper asks the session's approval queue `senderDomains()`, which the
+    integration host answers from its env (a queue without the method, or any answer that is not
+    a list of plain domains, gives none);
+  - **apply**: `applyForClient(action, { senderDomains, links })`, read again at apply, so a
+    domain unverified or moved since the email was queued is refused then.
+  The configurator's `allowedDomains` is the integration host's answer from the same env. No
+  operation input, extension code, request or app call carries a domain or a client: the
+  gatekeeper is reached only through the host's service binding, from that object.
+- **The gatekeeper on a many-client host.** Its var `SENDER_DOMAINS_PER_CLIENT` is `"true"` (set
+  by the deploy engine, step 7; empty in the committed configuration). Then
+  `ALLOWED_SENDER_DOMAINS` is never read; a sender is allowed only on the domains given for that
+  bind, send or apply; no domains, a malformed answer, an unverified domain or another client's
+  refuses, naming only the client's own domains, before anything is queued or sent; and the plain
+  `applyAction` and `applyStoppable` are refused (they carry no domains). It fails closed the other
+  way too: a gatekeeper without the var refuses `applyForClient`, and the integration host on a
+  many-client host applies only with it, so a deployment that forgot the var sends nothing.
+- **A single-client deployment is unchanged.** No `COS_CLIENT_ID`, so the integration host passes
+  no domains and calls the plain apply, and the gatekeeper reads `ALLOWED_SENDER_DOMAINS` as before
+  (its existing tests untouched).
+- **Addresses in the mail** (the table in "Addresses"): the sender is the address the client's own
+  connection is bound to; the staff invite's link is `APP_ORIGIN` (step 4), the practitioner
+  invite's `CUSTOMER_AUTH_URL`, a notification's links `APP_ORIGIN`; the host's mail sets no reply
+  address. A customer's sign-in code holds no link.
+- **Stored bodies.** A queued email is kept by the gatekeeper's facet, which lives in the client's
+  integration host object, so in that client's object storage. A synced email's body is stored at
+  `email-bodies/<external key>` through the files wrapper (step 4), so under
+  `clients/<client>/`: two clients syncing one message id write two objects, and neither reads the
+  other's (a key climbing out with `..` is refused).
+- **Written by the operator only.** `@composable-os/db/registry-senders`: `addSenderDomain`
+  (unverified; refused before writing when another client holds it or a domain of its tree),
+  `verifySenderDomain`, `unverifySenderDomain`, `removeSenderDomain`, `listSenderDomains`, over any
+  `D1Database` (D1's REST API from `cos`). No operation, route, tool, extension or the assistant
+  reaches it: which domains a client sends as is identity, the operator's alone, as its secrets are.
+  `secrets-unreachable` adds the module and the table to what no Worker code, core or pack names.
+  Step 7's commands call them.
+- **Tests.** `packages/db/test/registry-senders.test.ts` (the table's rules, the writes, the read,
+  the environment); `packages/gatekeeper-email-send/test/per-client.test.ts` (bind, send and apply
+  on a many-client host, the plain apply refused, an unflagged gatekeeper refusing the many-client
+  apply); the runner's two-client `email-sending.test.ts` (the real gatekeeper behind each client's
+  integration host: gym-a binds and sends from its own domain only, never gym-b's, gym-b's
+  unverified one or the deployment's list; a sign-in code, a staff invite and a notification for
+  gym-a from gym-a's domain with gym-a's links and nothing of gym-b's; gym-b's from its own; stored
+  bodies apart; and, once gym-a's only domain is unverified, no offer, bind, connection, send, or
+  apply of a queued invite); the app's two-client `email-sending.test.ts` (each environment's
+  domains; the host's mail goes to the runner as its own client, on its own connection, with its
+  own links, whatever hostname the request came in at).
+- **Not verified:** nothing here has run against the real Email Service; the onboarding and the
+  binding's errors are as Cloudflare's documentation describes them.
 
 ### For step 4 (the entries)
 These names are now filled in a client's environment, so a path step 4 made fail "naming step 6"
@@ -456,6 +556,13 @@ Read refused (ADR 0613); `writeClientSecret` binds the sealed bytes as BLOBs thr
 `D1Database` (over D1's REST API, hex literals); the command says that a running host serves the
 old value for up to 10 seconds.
 
+For step 7, email sending per client (2026-11-27): set `SENDER_DOMAINS_PER_CLIENT=true` on the
+fleet's `cos-gatekeeper-email-send`; a sender domain is added with `addSenderDomain` and marked
+with `verifySenderDomain` only after the operator confirms it is onboarded to Email Sending in the
+deployment's account with its records valid, and unverified or removed with the other two
+(`@composable-os/db/registry-senders`); `cos client export` carries the client's domains, and an
+import adds them unverified; removing a client removes its rows (the foreign key's cascade).
+
 ## Consequences
 - **A single-client deployment is unchanged:** no Worker of one binds `REGISTRY`, so nothing here
   is read; its Worker secrets, cookie names and vars are exactly as before, and every existing test
@@ -463,6 +570,7 @@ old value for up to 10 seconds.
 - **A many-client host needs `COS_ROOT_KEY` for anyone to sign in**, `COS_SECRETS_PRIVATE_KEY` for
   any given secret, and a verified staff hostname per client for its addresses.
 - **Payments, text, inbound webhooks and email are off on a many-client host** until their
-  gatekeepers are made per client (above), and the fake gatekeeper cannot run there.
+  gatekeepers are made per client (above), and the fake gatekeeper cannot run there. (2026-11-27:
+  email sending is per client now, below; email receiving stays off.)
 - **One new dependency**, `@hpke/core` (with `@hpke/common`), in packages/db.
 - **A registry outage or a rotation** behaves as ADR 0613 and "Rotation" above say.
