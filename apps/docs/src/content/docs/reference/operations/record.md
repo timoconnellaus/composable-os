@@ -556,6 +556,7 @@ Update field values of a record. On extension objects any writable field; on cor
 | `id` | string | yes | min length 1, max length 64 | Record id |
 | `values` | map of any | yes |   | Field values by registry field name (see schema.objects) |
 | `from` | string |   | min length 1, max length 64 | Only move the record if it is still in this state (or stage id), and move it out of it: for a write two people may make at once, such as checking a ticket in. Refused as a conflict (reason not_in_position or moved_meanwhile) when the record has left it. |
+| `while` | string |   | min length 1, max length 64 | Only write if the record is still in this state, and leave it there: for a correction that holds only in one state (why an item is out of service). Refused as a conflict (reason not_in_position) when it is elsewhere, and when it moves before the write commits. |
 
 ### Output
 

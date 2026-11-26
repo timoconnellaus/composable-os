@@ -3,6 +3,7 @@
 //
 // Safety: field names are looked up in the registry and only registry-defined identifiers reach
 // the SQL text. Every user value is a bound parameter. LIKE patterns escape `%`, `_` and `\`.
+import { foldUniqueText } from "@composable-os/sdk";
 import { type RawBuilder, type SqlBool, sql } from "kysely";
 import { z } from "zod";
 import { ValidationError } from "./errors.ts";
@@ -257,7 +258,24 @@ function compileNode(
   }
   if (!field.column) fail(path, `${object.name}.${name} has no column`);
   if (!NULLS.includes(op) && value === undefined) fail(path, `${op} needs a value`);
-  return comparison(field, sql.ref(`${alias}.${field.column}`), op, value, path);
+  return comparison(
+    field,
+    sql.ref(`${alias}.${field.column}`),
+    op,
+    foldedValue(object, name, op, value),
+    path,
+  );
+}
+
+/**
+ * The value a filter compares a folded unique field with (ADR 0864): folded as the host keeps
+ * the field, so ` tm-03 ` finds `TM-03`. Other fields and other operators as given.
+ */
+function foldedValue(object: ObjectDefinition, name: string, op: string, value: unknown): unknown {
+  if (!["eq", "neq", "in", "not_in"].includes(op)) return value;
+  if (!(object.unique ?? []).some((rule) => rule.fold && rule.fields.includes(name))) return value;
+  const fold = (v: unknown) => (typeof v === "string" ? foldUniqueText(v) : v);
+  return Array.isArray(value) ? value.map(fold) : fold(value);
 }
 
 /**

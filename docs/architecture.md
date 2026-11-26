@@ -1388,8 +1388,14 @@ equipment tag).
 `packages/core/src/records/trash-states.ts`). A state that is not final and that only the host
 leaves (`by: ["host"]`, with or without `tools`) is guarded: a record in it is put in the Trash by
 a record write only from inside one of those tools, or by a person holding one of their
-permissions, never by an AI, an automation or other code, whatever the preset. The host's own
-removals (a series' records) are not held.
+permissions (`personMayCall`, the pipeline's own check), never by an AI, an automation or other
+code, whatever the preset. A record in a guarded state may hold the record a relation names
+(`states.holds`): an open fault keeps its item out of the Trash but for whoever may triage it. The
+Trash is tied to the state it was judged in (the `unmoved` guard). The host's own removals (a
+series' records) are not held. A field may be `lockedIn` some states
+([ADR 0865](adr/0865-a-field-locked-in-some-states-and-a-write-while-in-one.md)): only its
+extension's tools and the host change it there; `record.update { while }` writes only while the
+record is still in a state.
 
 **`recurring`** ([ADR 0500](adr/0500-recurring-a-weekly-rule-in-local-time.md),
 `packages/core/src/recurring/`, `packages/core/src/time/local.ts`). A series (a timetable line)
@@ -2141,7 +2147,9 @@ the write path that gives the message; installing over records that already disa
 unless its zone was set by hand. A reconcile that fills on a host with more than one location
 says how many records it filed under the main location (`fill_main_location`, a warning on the
 approval and a notice to the admins), and `location.relocate` moves a room with every record that
-uses it in one batch. Coverage, the zone readers and staff limits are the stage's later steps.
+uses it in one batch, down the whole chain of records that agree with it (three levels, ten
+objects at most), with one history entry naming them and the target held open at commit.
+Coverage, the zone readers and staff limits are the stage's later steps.
 
 **Video and files** (stage 42, [ADR 0475](adr/0475-video-and-file-media-in-stream.md),
 `packages/core/src/operations/media-video.ts`, `packages/core/src/records/stream.ts`). A media
