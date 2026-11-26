@@ -28,7 +28,7 @@ One thing the business owns and looks after: a machine, a rack, a tool, a van. I
 | `name` | `text` | Name | yes |   |   |
 | `category` | `select` | Category |   | one of `cardio`, `strength`, `free_weights`, `studio`, `wet_area`, `tool`, `test_gear`, `vehicle`, `other` |   |
 | `place` | `text` | Place |   |   | Where it is: a room, an area of the floor, a van. |
-| `tag` | `text` | Tag |   |   | The code on its sticker. No two items in the register share one; an import matches on it. |
+| `tag` | `text` | Tag |   |   | The code on its sticker. No two items in the register share one; an import matches on it. Given when the item is added; after that only a manager changes it (correctTag). |
 | `make` | `text` | Make |   |   |   |
 | `model` | `text` | Model |   |   |   |
 | `serial` | `text` | Serial number |   |   |   |
@@ -140,7 +140,7 @@ A report that something is wrong with an item: what is wrong and how bad. Report
 | Field | Type | Label | Required | Details | Description |
 | --- | --- | --- | --- | --- | --- |
 | `title` | `text` | Title |   |   |   |
-| `item` | `relation` | Item | yes | to `equipment.item` |   |
+| `item` | `relation` | Item |   | to `equipment.item`; read-only |   |
 | `description` | `longText` | What is wrong |   | read-only | What is wrong with it. Do not describe an injury here. |
 | `severity` | `select` | How bad |   | one of `safety_risk`, `not_working`, `worn`; default `"not_working"`; read-only |   |
 | `photo` | `image` | Photo |   |   |   |
@@ -176,8 +176,12 @@ A report that something is wrong with an item: what is wrong and how bad. Report
     "field": "state",
     "initial": "reported",
     "create": {
-      "closed": "item.retiredFlag"
+      "closed": "item.retiredFlag",
+      "requires": [
+        "item"
+      ]
     },
+    "holds": "item",
     "moves": [
       {
         "from": "reported",

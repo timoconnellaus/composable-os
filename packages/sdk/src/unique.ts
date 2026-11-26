@@ -25,7 +25,13 @@ export interface UniqueSpec {
 
 /** A text value of a folded uniqueness rule as the host keeps it (ADR 0864). */
 export function foldUniqueText(value: string): string {
-  return value.normalize("NFKC").trim().toUpperCase();
+  // Invisible format characters (a zero-width space, a joiner, a byte order mark) are no part of
+  // a code anyone reads: `TM-03` and `TM-03` followed by a zero-width space are one tag.
+  return value
+    .normalize("NFKC")
+    .replace(/\p{Cf}/gu, "")
+    .trim()
+    .toUpperCase();
 }
 
 export const uniqueManifestSchema = z

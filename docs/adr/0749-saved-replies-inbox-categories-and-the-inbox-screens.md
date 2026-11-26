@@ -70,6 +70,24 @@ stale guards of migrations 1050 and 1051 are now mapped to `conflict`, not an in
 **Every operation here is staff only** (none is open to customers or the public, ADR 0402), and a
 runtime extension may not declare any of them (`savedReply.*` joins the inbox's refused names).
 
+**Amended 2026-11-26 (review of PR #494, the follow-up PR):**
+
+- *An AI only suggests a category.* `conversation.setCategory` from an assistant, MCP, an
+  automation or an extension always waits for a person in Approvals (`alwaysReview`), whatever
+  the preset: the spec's "suggest a category ... a person applies".
+- *Making a Person from an unknown sender is one write.* `conversation.linkPerson` takes either
+  `personId` or `newPerson` (names; the sender's address becomes their email) and makes the Person
+  and the link in one batch, refused whole, so the screen never leaves a Person made and unlinked,
+  and pressing again makes no second one.
+- *The screens follow the host's permissions.* Whether an account reads or works the inbox is the
+  session's `inbox:read` and `inbox:work` as the host decides them (not the role); an account
+  without them sees a plain "no access" page. The conversation page's thread, reply box and
+  person panel are keyed by the conversation, so nothing typed or read on one shows on the next.
+- *The development route.* `/gatekeeper/fake/inbox` (cos-runner) is gated at run time by
+  `INTEGRATIONS_FAKE_PROVIDER`, as `/gatekeeper/fake/cron` is; it has no authentication and is not
+  compiled out of the bundle: with the flag on (development and e2e only, never a deployment)
+  anyone who reaches the server can write conversations through it.
+
 ## Consequences
 
 - Sending is not in these screens until `message.send` exists (step 2, and step 4 for chat): the

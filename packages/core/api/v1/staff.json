@@ -28456,7 +28456,7 @@
     },
     {
       "name": "conversation.linkPerson",
-      "description": "Link a conversation from an unknown sender to a Person (make the Person first with person.create when there is none): its messages move onto their timeline and the unknown address is cleared from it. Needs records:write as well. People only. Returns the conversation.",
+      "description": "Link a conversation from an unknown sender to a Person: an existing one (personId), or a new one made from its sender in the same write (newPerson: their names; the sender's address becomes their email), so a failure leaves no Person behind. Its messages move onto their timeline and the unknown address is cleared from it. Needs records:write as well. People only. Returns the conversation.",
       "risk": "write",
       "audiences": [
         "staff"
@@ -28478,6 +28478,31 @@
             "format": "starts_with",
             "pattern": "^per_.*"
           },
+          "newPerson": {
+            "description": "Make a new Person from the sender instead of linking an existing one",
+            "type": "object",
+            "properties": {
+              "givenName": {
+                "type": "string",
+                "minLength": 1,
+                "maxLength": 100
+              },
+              "familyName": {
+                "anyOf": [
+                  {
+                    "type": "string",
+                    "maxLength": 100
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              }
+            },
+            "required": [
+              "givenName"
+            ]
+          },
           "version": {
             "description": "The version you read: the write is refused if the conversation changed since",
             "type": "integer",
@@ -28486,8 +28511,7 @@
           }
         },
         "required": [
-          "id",
-          "personId"
+          "id"
         ]
       },
       "output": {
@@ -29010,7 +29034,7 @@
     },
     {
       "name": "conversation.setCategory",
-      "description": "File a conversation under one of the inbox's categories (inbox.categories lists them), or under none (category null). Returns the conversation.",
+      "description": "File a conversation under one of the inbox's categories (inbox.categories lists them), or under none (category null). From an assistant, MCP, an automation or an extension it is a suggestion: it waits for a person to apply it in Approvals. Returns the conversation.",
       "risk": "write",
       "audiences": [
         "staff"
@@ -56684,7 +56708,7 @@
     },
     {
       "name": "location.relocate",
-      "description": "Move a located record (a room) to another location together with every record that uses it (its classes and series, past and future, in the Trash too), in one change: the way to correct a record filed at the wrong location, since a used room's location never changes on its own. Times and zones are kept. A request from an AI always waits for a person to apply it. Returns how many records of each object moved.",
+      "description": "Move a located record (a room) to another location together with every record that uses it (its classes and series, past and future, in the Trash too, and what uses those in turn, such as bookings with a location of their own, up to three levels), in one change: the way to correct a record filed at the wrong location, since a used room's location never changes on its own. Times and zones are kept. A request from an AI always waits for a person to apply it. Returns how many records of each object moved.",
       "risk": "write",
       "audiences": [
         "staff"
@@ -83403,6 +83427,12 @@
           },
           "from": {
             "description": "Only move the record if it is still in this state (or stage id), and move it out of it: for a write two people may make at once, such as checking a ticket in. Refused as a conflict (reason not_in_position or moved_meanwhile) when the record has left it.",
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "while": {
+            "description": "Only write if the record is still in this state, and leave it there: for a correction that holds only in one state (why an item is out of service). Refused as a conflict (reason not_in_position) when it is elsewhere, and when it moves before the write commits.",
             "type": "string",
             "minLength": 1,
             "maxLength": 64
@@ -113438,6 +113468,59 @@
         "required": [
           "itemId",
           "outReason"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "x.equipment.item",
+        "x.equipment.register"
+      ],
+      "pack": "equipment"
+    },
+    {
+      "name": "x.equipment.correctTag",
+      "description": "Change an item's tag (the code on its sticker), when a sticker is replaced or was entered wrong. Once an item is added its tag is changed only here, by a manager (equipment:manage), and only while the item is in service: the sticker of a machine out of service stays with it. The tag is unique in the register, whatever its case or spaces. The assistant, an MCP client or an automation may ask, and it waits for a person to approve it. (Extension tool from Equipment 0.1.0.)",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "itemId": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64
+          },
+          "tag": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 100
+          }
+        },
+        "required": [
+          "itemId",
+          "tag"
+        ],
+        "additionalProperties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "itemId": {
+            "type": "string"
+          },
+          "tag": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "itemId",
+          "tag"
         ],
         "additionalProperties": false
       },

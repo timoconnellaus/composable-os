@@ -455,8 +455,10 @@ function connectPath(accountId: string, nonce: string): string {
 /**
  * Development and e2e only (cos-runner routes it only while the fake provider is on): an email to
  * the shared inbox, written by the host's own writers as the inbound email hook (stage 36 step 2)
- * will write one. POST { personId } or { sender } (an unknown address), with subject and text.
- * A new open conversation each time; returns its id.
+ * will write one. POST { personId } or { sender } (an unknown address), with subject and text
+ * (the snippet), and optionally full (the whole body, kept in blob storage as synced mail is, for
+ * "Show full email"). A new open conversation each time; returns its id. No authentication: it
+ * runs only while INTEGRATIONS_FAKE_PROVIDER is "true" (ADR 0749).
  */
 export async function seedInboxMessage(env: Env, request: Request): Promise<Response> {
   const body = (await request.json()) as {
@@ -464,6 +466,7 @@ export async function seedInboxMessage(env: Env, request: Request): Promise<Resp
     sender?: string;
     subject?: string;
     text?: string;
+    full?: string;
   };
   if (!body.personId && !body.sender) {
     return Response.json({ error: "personId or sender" }, { status: 400 });
@@ -480,6 +483,10 @@ export async function seedInboxMessage(env: Env, request: Request): Promise<Resp
     now,
   });
   await db.batch([created.statement]);
+  const externalKey = `email:<${crypto.randomUUID()}@fake.invalid>`;
+  // Where synced mail keeps a full body (sync/ingest.ts, bodyKeyFor).
+  const bodyRef = body.full ? `email-bodies/${encodeURIComponent(externalKey)}` : null;
+  if (bodyRef) await env.BLOBS.put(bodyRef, body.full as string);
   const message = await messageStatements(db.query, {
     conversation: {
       id: created.id,
@@ -492,7 +499,8 @@ export async function seedInboxMessage(env: Env, request: Request): Promise<Resp
     direction: "inbound",
     subject,
     body: body.text ?? "",
-    externalKey: `email:<${crypto.randomUUID()}@fake.invalid>`,
+    externalKey,
+    bodyRef,
     now,
   });
   await db.batch(message.statements);

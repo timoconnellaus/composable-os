@@ -37,6 +37,7 @@ import { checkGrant } from "./permissions.ts";
 import { documentMaxBytesOf, documentSchemaOf } from "./rich-text.ts";
 import type { RoutineSendInput, RoutineSendResult } from "./routine-mail.ts";
 import { buildContext, type RawHostModules, runExtension } from "./runtime.ts";
+import { guardedStateTools } from "./states.ts";
 
 type Values = Record<string, unknown> & { id: string };
 type OperationFake = (input: Record<string, unknown>) => unknown;
@@ -362,6 +363,8 @@ export function createTestHost(extension: Extension, options: TestHostOptions = 
     table(object).set(id, row);
     return row;
   };
+  /** The tool `runTool` is running: the Trash rule lets its own leaving tools through. */
+  let runningTool: string | null = null;
   const builtIn: Record<string, OperationFake> = {
     "record.create": (input) => {
       const object = String(input.object);
@@ -429,13 +432,84 @@ export function createTestHost(extension: Extension, options: TestHostOptions = 
           });
         }
       }
+      // The relation a guarded record holds another by (`states.holds`, ADR 0863) changes by no
+      // one while it is guarded, the pack's own code included, as in the host. (`lockedIn`, ADR
+      // 0865, binds everyone but the pack's own code and the host: every write here is the pack's.)
+      {
+        const local = object.startsWith(`${manifest.id}.`)
+          ? object.slice(manifest.id.length + 1)
+          : "";
+        const spec = manifest.objects[local];
+        const held = spec?.states?.holds;
+        const values = input.values as Record<string, unknown>;
+        if (
+          spec?.states &&
+          held &&
+          Object.hasOwn(values, held) &&
+          (values[held] ?? null) !== (row[held] ?? null) &&
+          guardedStateTools(spec, row[spec.states.field]) !== null
+        ) {
+          throw new ExtensionToolError(
+            "invalid_input",
+            `${object}.${held} does not change while it is ${String(row[spec.states.field])}`,
+            { field: held, rule: "field_locked" },
+          );
+        }
+      }
+      if (typeof input.while === "string") {
+        // `while` (ADR 0865): write only while the record is still in this state.
+        const local = object.startsWith(`${manifest.id}.`)
+          ? object.slice(manifest.id.length + 1)
+          : "";
+        const field = manifest.objects[local]?.states?.field;
+        if (!field || row[field] !== input.while) {
+          throw new ExtensionToolError("conflict", `${object} is no longer ${input.while}`, {
+            reason: "not_in_position",
+            while: input.while,
+            current: field ? (row[field] ?? null) : null,
+          });
+        }
+      }
       checkDocuments(object, input.values as Record<string, unknown>);
       const next = { ...row, ...(input.values as Record<string, unknown>), id: row.id };
       rows.set(row.id, next);
       return shape(object, next);
     },
     "record.delete": (input) => {
-      table(String(input.object)).delete(String(input.id));
+      // The Trash held to the moves (ADR 0863), as the host holds it for a tool: a record in a
+      // state only tools leave, or one an open record holds, goes only from inside a leaving tool.
+      const object = String(input.object);
+      const row = table(object).get(String(input.id));
+      const local = object.startsWith(`${manifest.id}.`)
+        ? object.slice(manifest.id.length + 1)
+        : "";
+      const spec = manifest.objects[local];
+      const mayLeave = (tools: readonly string[] | null) =>
+        tools === null || (runningTool !== null && tools.includes(runningTool));
+      if (row && spec?.states && !mayLeave(guardedStateTools(spec, row[spec.states.field]))) {
+        throw new ExtensionToolError(
+          "forbidden",
+          `${object} cannot be put in the Trash in its state`,
+          {
+            rule: "state_trash",
+          },
+        );
+      }
+      for (const [name, holder] of Object.entries(manifest.objects)) {
+        const held = holder.states?.holds;
+        const states = holder.states;
+        if (!held || !states || holder.fields[held]?.to !== object) continue;
+        for (const other of table(`${manifest.id}.${name}`).values()) {
+          if (other[held] !== input.id) continue;
+          if (!mayLeave(guardedStateTools(holder, other[states.field]))) {
+            throw new ExtensionToolError("forbidden", `${object} is held by an open ${name}`, {
+              rule: "state_trash",
+              reason: "held",
+            });
+          }
+        }
+      }
+      table(object).delete(String(input.id));
       return { id: input.id };
     },
     "record.list": (input) => {
@@ -897,7 +971,14 @@ export function createTestHost(extension: Extension, options: TestHostOptions = 
       options: { caller?: StartedBy } = {},
     ): Promise<T> {
       const caller = options.caller ?? { kind: "staff", userId: "usr_admin", name: "Admin" };
-      const response = await runExtension(extension, { kind: "tool", tool, input, caller }, raw);
+      runningTool = tool;
+      const response = await runExtension(
+        extension,
+        { kind: "tool", tool, input, caller },
+        raw,
+      ).finally(() => {
+        runningTool = null;
+      });
       if (!response.ok) {
         throw new ExtensionToolError(
           response.error.code,

@@ -1344,6 +1344,7 @@ function registryField(field: FieldState, object: string): FieldDefinition {
     ...(def.default !== undefined ? { default: def.default } : {}),
     ...(def.defaultSetting ? { defaultSetting: def.defaultSetting } : {}),
     ...(def.personApproves ? { personApproves: true } : {}),
+    ...(def.lockedIn?.length ? { lockedIn: [...def.lockedIn] } : {}),
     ...(def.to ? { to: def.to } : {}),
     ...(def.many !== undefined ? { many: def.many } : {}),
     // No currency of its own: the deployment's base currency applies (ADR 0101).

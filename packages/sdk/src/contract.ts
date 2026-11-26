@@ -105,6 +105,12 @@ interface FieldBase {
    * (ADR 0480). A gym's booking rules.
    */
   personApproves?: boolean;
+  /**
+   * States of the object's `states` in which the field does not change (stage 59, ADR 0865): a
+   * write that changes it while the record is in one of them is refused, for every caller but the
+   * extension's own tools and the host. An item's tag while it is out of service.
+   */
+  lockedIn?: readonly string[];
 }
 
 export type SelectOption =

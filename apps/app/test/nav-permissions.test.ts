@@ -30,4 +30,13 @@ describe("nav items gated on a permission", () => {
   it("keeps the Inbox for every staff role without a pack role", () => {
     for (const role of ROLES) expect(holdsPermission({ role }, [], "inbox:read")).toBe(true);
   });
+
+  // The inbox's controls follow the host's inbox:work (components/inbox/access.tsx), not the role:
+  // the session reports it, a viewer and a pack-role account do not hold it.
+  it("reports inbox:work, held by admins and members and not by viewers", () => {
+    expect(NAV_PERMISSIONS).toContain("inbox:work");
+    expect(holdsPermission({ role: "admin" }, [], "inbox:work")).toBe(true);
+    expect(holdsPermission({ role: "member" }, [], "inbox:work")).toBe(true);
+    expect(holdsPermission({ role: "viewer" }, [], "inbox:work")).toBe(false);
+  });
 });

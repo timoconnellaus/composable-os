@@ -76,6 +76,8 @@ export interface ExtensionFieldOptions {
   defaultSetting?: string;
   /** A person's to change: other actors' writes wait for a person (ADR 0507). */
   personApproves?: boolean;
+  /** States in which it does not change but by its extension's own tools and the host (ADR 0865). */
+  lockedIn?: readonly string[];
   to?: string;
   many?: boolean;
   currency?: string;
@@ -680,6 +682,11 @@ export interface StatesDefinition {
     | undefined;
   /** Moves asked for by name, resolved by the host (ADR 0503). */
   requests?: Readonly<Record<string, readonly string[]>> | undefined;
+  /**
+   * A relation (one record) to another object of this extension whose record this one keeps out
+   * of the Trash while it is in a guarded state (ADR 0863, amended): an open fault holds its item.
+   */
+  holds?: string | undefined;
   /** A cascade from the record a relation points to (ADR 0507). */
   follows?:
     | {

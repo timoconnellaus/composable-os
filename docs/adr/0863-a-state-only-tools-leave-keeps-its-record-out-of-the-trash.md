@@ -87,3 +87,49 @@ MCP client are refused under balanced (asked and, once approved, not applied) an
 autonomous; a manager in person Trashes it and a member Trashes an item in service; an open fault
 is refused to a member and Trashed once closed; a restore whose tag was taken says so. With the
 rule taken out of `trashRecord`, those tests fail (listed in the pull request).
+
+## Amended 2026-11-26, after the second review of PR #491 (issue #498)
+- **A record may hold another out of the Trash: `states.holds`.** The rule above covered only the
+  record being put in the Trash. An item in service is any member's to Trash, so a member could
+  Trash an item with an open safety-risk fault, make a new one with the same tag, and the register
+  showed no open fault. The behaviour had nothing that says "while related open records exist",
+  so it gains one, declared rather than implied for every relation (an implied one would have
+  changed Bookings, whose late-cancelled bookings point at classes): `states.holds: "<relation>"`
+  names a relation (one record) to another of the extension's objects. While a record is in a
+  guarded state, the record it points to is put in the Trash only by whoever may put the holding
+  record there: one of its leaving tools, from inside it, or a person who could call one of them.
+  Equipment's fault holds its item: an item with an open fault is put in the Trash only by a
+  person who may triage (`equipment:manage`). The refusal is `forbidden`, `rule: "state_trash"`,
+  `reason: "held"`, naming the holder's object. **Caveat**: the hold is judged when the Trash is
+  asked for; a fault reported in the same moment as the Trash commits is not seen (the item's
+  Trash is tied to the item's own state at commit, below, not to the count of its faults), and a
+  holder that names its target through a relation others may re-point holds only what it names
+  now: Equipment makes the fault's `item` read-only for that reason.
+- **The Trash is tied to the state it was judged in.** The write now carries the `unmoved` guard
+  (migration 0670): a move of the record landing between the read and the commit fails the batch
+  as a conflict ("What this is for changed while it was being made…"), so a take-out landing first
+  is never followed by a member's Trash of the now out-of-service item.
+- **Who may is the pipeline's own check.** A person "who could call one of the tools" is decided
+  by building the tool's operation from the installed manifest and asking `personMayCall` (moved
+  to `pack-roles.ts` from the screens' gate, which uses it too): the tool's audiences, actors, pack
+  role, grants and restriction, exactly as calling it would be judged. The rule no longer reads the
+  manifest's permissions itself.
+- **Offers** (merged after this ADR): a discount's `draft`, `active` and `paused` are guarded
+  (`activateDiscount`, `pauseDiscount`, `endDiscount`, permission `offers:manage`, not restricted):
+  a discount in one of them is put in the Trash by a person who may use one of those tools (every
+  member), no longer by the assistant or an automation; once `ended` (final), by anyone who writes
+  records. Its tests pass with the rule; nothing else is needed.
+
+## Amended 2026-11-26, after the review of PR #502
+- **A hold's relation is fixed.** The contract refuses `states.holds` on a relation that is not
+  `readOnly` (only the extension's own code sets it), and the host refuses any change of it while
+  the record is in a guarded state, the declaring extension's own code included (`field_locked`):
+  a hold re-pointed or cleared would let go of what it held. The host's own writes are not held.
+- **A holder is named only to whoever may read it.** The rule reads the holders org-wide; its
+  refusal gives the holder's id and state only when the caller may read that record, and otherwise
+  says only that an open record of that kind holds it.
+- **The test host holds it too** (`@composable-os/sdk/testing`): a pack tool's `record.delete` of a
+  record in a guarded state, or of one an open record holds, is refused unless the tool is one of
+  the leaving tools, and a hold is never re-pointed while guarded, so a pack's own tests refuse
+  where the host would.
+- `guardedStateTools` lives in the SDK (`states.ts`), so the host and the test host judge alike.

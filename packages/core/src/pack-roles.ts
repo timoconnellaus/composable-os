@@ -34,12 +34,17 @@
 import type { CoreDatabase, CrmDb } from "@composable-os/db";
 import type { DeviceRoleManifest, ExtensionManifest, RoleManifest } from "@composable-os/sdk";
 import { type Kysely, sql } from "kysely";
-import { audiencesOf } from "./audiences.ts";
+import { allowsAudience, audiencesOf } from "./audiences.ts";
 import { getObject } from "./fields/index.ts";
 import type { AnyOperation } from "./operation.ts";
 import type { LooksAfter, LooksAfterLimit, LooksAfterTeam } from "./pack-role-looks-after.ts";
 import type { MineLimit, MineReach } from "./pack-role-mine.ts";
-import { FIXED_ROLE_CORE_GRANTS, holdsPermission, type Role } from "./principals.ts";
+import {
+  FIXED_ROLE_CORE_GRANTS,
+  holdsPermission,
+  type Role,
+  staffPrincipal,
+} from "./principals.ts";
 
 /** A pack role as an account holds it. */
 export interface HeldPackRole {
@@ -420,6 +425,21 @@ export function roleMineFor(
   if (!role || !mine) return undefined;
   if (op.name.startsWith("x.") && !op.name.startsWith(`x.${role.extension}.`)) return undefined;
   return grantOpens(rights.grants, op) ? undefined : Object.freeze({ userId, reach: mine });
+}
+
+/**
+ * Whether a person with these rights could call `op` (with `input`), by the pipeline's own
+ * checks for a person's call: the operation's audience, its actors and `staffAuthority`.
+ */
+export function personMayCall(
+  op: AnyOperation,
+  user: { id: string; role: Role },
+  rights: StaffRights,
+  input: unknown = {},
+): boolean {
+  if (!allowsAudience(op, staffPrincipal(user))) return false;
+  if (op.actors && !op.actors.includes("human")) return false;
+  return staffAuthority(user, rights, op, input) !== null;
 }
 
 /**

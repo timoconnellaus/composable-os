@@ -137,3 +137,32 @@ trashed classes, and an AI only asks; names as long as the contract allows insta
 - Bookings, Memberships and Rostering declare `located` and `agree` in steps 4 and 6; nothing in a
   shipped pack is located yet, so nothing changes on a host today.
 - The zone readers that still read only the organisation's zone become location-aware in step 3.
+
+## Amended 2026-11-26, after the review of PR #502
+- **`location.relocate` moves the whole chain.** It followed one level only, so a room whose
+  classes are agreed with by bookings with a location field of their own could not be moved at all
+  (the room's classes disagreed with it, their bookings with them), and the refusal pointed at
+  `location.relocate` itself. It now follows every object whose `agree` passes through what moves,
+  level by level, down to `RELOCATE_MAX_DEPTH` (3) levels below the record and
+  `RELOCATE_MAX_OBJECTS` (10) objects: each level's relation is marked from the deepest up, the
+  record is moved, then each level is named again with the new location from the top down, so every
+  agree trigger reads the end state. Past the bound, or when one object is reached by two paths, it
+  is refused before anything is written, naming the object and saying to move the furthest records
+  first (`relocate_too_deep`, `relocate_twice`); no refusal names the operation that made it. Three
+  statements per object whatever the row count.
+- **What it records.** One history entry, on the moved record, naming what moved with it: per
+  object the count and up to 200 ids (and how many more), within D1's limits whatever the count, where
+  an entry per moved record would not be.
+- **The target is held open at commit**: a statement that fails the batch when the location is no
+  longer open (it sets a state the location's CHECK refuses, only where the state is not 'open'),
+  answered as a conflict ("That location was closed while this was being made").
+- **Zones are kept, and from then on count as chosen.** A relocate files records where they belong;
+  it does not say when they happen, so a class at 09:00 Sydney stays 09:00 Sydney. After it, a later
+  move by a record write follows the zone-following rule as written: a zone equal to the location it
+  is moved from follows the new one; a zone kept from before the relocate differs from its present
+  location's, so it is treated as chosen and kept. We did not make the pre-relocate zone still
+  count as the default: the record would need to remember where it was filed before, and a misfiled
+  record's zone is more often right than its filing (its times were given in it). To have it follow
+  later moves, set its zone to its location's once.
+- The `__agree_` and `__occupies_` index names are fitted (`fitName`) like the trigger names: one
+  that fits is unchanged, so no index is renamed.

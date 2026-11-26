@@ -39,6 +39,7 @@ import { defineOperation, type HandlerContext } from "../operation.ts";
 import { holdsPermission, roleHasPermission } from "../principals.ts";
 import { jsonList } from "../records/common.ts";
 import { assertLinkTargets, loadRecordTitles, recordRefSchema } from "../records/links.ts";
+import { personCreate } from "./person.ts";
 
 const conversationId = z.string().startsWith("cnv_").max(64).describe("Conversation id (cnv_…)");
 const userId = z.string().startsWith("usr_").max(64);
@@ -559,15 +560,27 @@ export const conversationSetPrivate = defineOperation({
 export const conversationLinkPerson = defineOperation({
   name: "conversation.linkPerson",
   description:
-    "Link a conversation from an unknown sender to a Person (make the Person first with " +
-    "person.create when there is none): its messages move onto their timeline and the unknown " +
-    "address is cleared from it. Needs records:write as well. People only. Returns the " +
-    "conversation.",
-  input: z.object({
-    id: conversationId,
-    personId: z.string().startsWith("per_").max(64),
-    version: expectedVersion,
-  }),
+    "Link a conversation from an unknown sender to a Person: an existing one (personId), or a " +
+    "new one made from its sender in the same write (newPerson: their names; the sender's " +
+    "address becomes their email), so a failure leaves no Person behind. Its messages move onto " +
+    "their timeline and the unknown address is cleared from it. Needs records:write as well. " +
+    "People only. Returns the conversation.",
+  input: z
+    .object({
+      id: conversationId,
+      personId: z.string().startsWith("per_").max(64).optional(),
+      newPerson: z
+        .object({
+          givenName: z.string().trim().min(1).max(100),
+          familyName: z.string().trim().max(100).nullish(),
+        })
+        .optional()
+        .describe("Make a new Person from the sender instead of linking an existing one"),
+      version: expectedVersion,
+    })
+    .refine((v) => (v.personId === undefined) !== (v.newPerson === undefined), {
+      message: "Pass personId or newPerson, not both",
+    }),
   output: conversationSchema,
   permission: "inbox:work",
   risk: "write",
@@ -586,12 +599,30 @@ export const conversationLinkPerson = defineOperation({
         personId: row.person_id,
       });
     }
-    await assertLinkTargets(ctx.db, [{ object: "person", id: input.personId }], ctx.simulation);
+    let personId: string;
+    if (input.newPerson) {
+      // The Person and the link go in one batch: refused whole (a taken address, a conversation
+      // someone linked a moment before), so there is never a Person made and left unlinked.
+      // person.create's handler only queues writes and returns the Person (as person.createWith).
+      const address = row.sender_address;
+      const person = (await personCreate.handler(
+        {
+          givenName: input.newPerson.givenName,
+          familyName: input.newPerson.familyName ?? null,
+          ...(address ? { emails: [{ email: address }] } : {}),
+        },
+        ctx,
+      )) as { id: string };
+      personId = person.id;
+    } else {
+      personId = input.personId as string;
+      await assertLinkTargets(ctx.db, [{ object: "person", id: personId }], ctx.simulation);
+    }
     ctx.write(
       ctx.db
         .updateTable("core_conversation")
         .set({
-          person_id: input.personId,
+          person_id: personId,
           sender_address: null,
           sender_hash: null,
           updated_at: ctx.now,
@@ -600,7 +631,7 @@ export const conversationLinkPerson = defineOperation({
         .where("id", "=", row.id),
       // Its messages (not its notes) join the Person's timeline: one statement however many.
       sql`INSERT OR IGNORE INTO core_activity_links (activity_id, object_type, record_id)
-        SELECT a.id, 'person', ${input.personId} FROM core_activity a
+        SELECT a.id, 'person', ${personId} FROM core_activity a
         WHERE a.conversation_id = ${row.id} AND a.type IN ('email', 'chat')`.compile(ctx.db),
     );
     ctx.recordChange({
@@ -608,7 +639,7 @@ export const conversationLinkPerson = defineOperation({
       id: row.id,
       action: "update",
       before: { personId: null },
-      after: { personId: input.personId },
+      after: { personId, newPerson: input.newPerson !== undefined },
     });
     return ctx.afterCommit(() => readBack(ctx, row.id));
   },

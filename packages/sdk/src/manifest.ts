@@ -146,6 +146,8 @@ export const fieldManifestSchema = z.object({
   default: z.union([z.string().max(1000), z.number(), z.boolean()]).optional(),
   defaultSetting: z.string().max(40).optional(),
   personApproves: z.boolean().optional(),
+  // Stage 59 (ADR 0865): states in which the field does not change but by the pack's own tools.
+  lockedIn: z.array(z.string().min(1).max(100)).min(1).max(20).optional(),
   // Stage 54 step 2 (ADR 0811): only those granted this restricted permission of the pack read it.
   restricted: z.string().max(80).optional(),
   to: z.string().max(80).optional(),
