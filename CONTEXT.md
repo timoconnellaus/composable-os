@@ -1034,9 +1034,24 @@ only that client's part. What has no wrapper or value yet, the host's own names 
 unlisted are left out (`ENV_NAMES`). It is frozen, and handed out only for a client that is
 served: active, of the deployment's environment (`COS_HOST_ENVIRONMENT`), its schema not behind;
 otherwise the answer is a refusal with its reason and no environment. On a single-client
-deployment it is the real `env` itself. `@composable-os/db/client-environment`; no entry uses it
-yet (step 4).
+deployment it is the real `env` itself. `@composable-os/db/client-environment`. Every entry of
+the app and the runner decides the client first and runs on its environment (step 4, ADR 0615):
+the hostname, a message's **client stamp**, a Workflow's id and params, a Durable Object's name,
+a minted entrypoint's props, or `callAs` from the app to the runner; code below an entry that is
+handed no `env` reads it with `requestEnv()`.
 _Avoid_: tenant context
+
+**Client stamp** (stage 66; ADR 0615)
+What a wrapper of a many-client host puts beside what one client sends into a shared binding, so
+the other side acts as that client: `{ cosClient, body }` on a queue message, `{ cosClient,
+params }` and the id `<client>_<id>` on a Workflow instance, the name `<client>:<name>` of a
+Durable Object. The sender cannot choose it, and the consumer refuses what has none.
+_Avoid_: tenant tag
+
+**Fan-out** (stage 66; ADR 0615)
+How a many-client host runs a cron: the tick sends one message per client served to the Worker's
+own fan-out queue (`CLIENT_FANOUT`) and does no client's work; each client's tick runs as its
+message is consumed, in its environment, acked or retried alone.
 
 **Control plane**
 `crm-control` on the hosted CRM's `app.` host (`products/crm/apps/control`): sign-up, plans,
