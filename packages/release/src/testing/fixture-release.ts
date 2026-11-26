@@ -359,7 +359,8 @@ export async function buildFixtureRelease(options: FixtureOptions): Promise<Fixt
       },
       {
         type: "durable_object",
-        name: "Workspace",
+        // As the release's manifest names one (scripts/release/manifest-lib.ts): `<worker>:<Class>`.
+        name: "demo-runner:Workspace",
         implicit: true,
         usedBy: ["demo-runner"],
         optional: false,

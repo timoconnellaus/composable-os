@@ -1,8 +1,11 @@
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { describe, expect, it } from "vitest";
 import {
   appBuild,
   type ClientProductDefinition,
   clientLocation,
+  clientNameMaps,
   clientNames,
   clientWeb,
   contrastRatio,
@@ -51,6 +54,77 @@ describe("deployed names", () => {
   it("leave a name that is not the platform's alone", () => {
     expect(deployedName(demo, "someone-elses-queue")).toBe("someone-elses-queue");
     expect(deployedName(demo, `${LOCAL_PREFIX}x`)).toBe(`${LOCAL_PREFIX}x`);
+  });
+});
+
+describe("a client product's name maps", () => {
+  const manifest = {
+    workers: [{ name: "demo-app" }, { name: "demo-runner" }, { name: "demo-gatekeeper-payments" }],
+    resources: [
+      { type: "d1", name: "demo" },
+      { type: "queue", name: "demo-automation-events" },
+      { type: "workflow", name: "demo-automation" },
+      // As a release's manifest names a Durable Object class: `<worker>:<Class>`.
+      { type: "durable_object", name: "demo-runner:Workspace" },
+      { type: "durable_object", name: "demo-gatekeeper-payments:PaymentsEvents" },
+    ],
+  };
+  const gym = defineClientProduct({
+    id: "gym",
+    label: "Gym",
+    platform: { version: "1.0.0", release: "demo", repository: "example/demo" },
+    packs: [],
+    environments: { staging: { live: false, hostname: "admin-staging.gym.example" } },
+  });
+
+  it("rename every Worker and named resource, and list no Durable Object class", () => {
+    const maps = clientNameMaps(demo, clientNames(gym, "staging"), manifest);
+    expect(maps.workers).toEqual({
+      "demo-app": "gym-staging-app",
+      "demo-runner": "gym-staging-runner",
+      "demo-gatekeeper-payments": "gym-staging-gatekeeper-payments",
+    });
+    expect(maps.resources).toEqual({
+      demo: "gym-staging",
+      "demo-automation-events": "gym-staging-automation-events",
+      "demo-automation": "gym-staging-automation",
+    });
+  });
+
+  it("give only names the installer accepts (--names, create-composable-os main.ts)", () => {
+    // The first real client install stopped here (0.1.0-beta.14): a `<worker>:<Class>` entry in
+    // the resources map is not a name, and the installer refused the whole argument.
+    const maps = clientNameMaps(demo, clientNames(gym, "staging"), manifest);
+    for (const name of [...Object.values(maps.workers), ...Object.values(maps.resources)]) {
+      expect(name).toMatch(/^[a-z0-9-]+$/);
+    }
+  });
+
+  it("hold for the manifest a real release is built with (the golden manifest)", () => {
+    const golden = JSON.parse(
+      readFileSync(
+        join(import.meta.dirname, "../../../scripts/release/test/testdata/golden-manifest.json"),
+        "utf8",
+      ),
+    ) as { workers: { name: string }[]; resources: { name: string; type: string }[] };
+    const app = golden.workers.find((w) => w.name.endsWith("-app"))?.name ?? "";
+    const prefix = app.slice(0, -"app".length);
+    const release: ProductDefinition = {
+      ...demo,
+      names: {
+        app,
+        runner: `${prefix}runner`,
+        gatekeeperPrefix: `${prefix}gatekeeper-`,
+        database: prefix.slice(0, -1),
+        resourcePrefix: prefix,
+      },
+    };
+    expect(golden.resources.some((r) => r.type === "durable_object")).toBe(true);
+    const maps = clientNameMaps(release, clientNames(gym, "staging"), golden);
+    const names = [...Object.values(maps.workers), ...Object.values(maps.resources)];
+    expect(names.length).toBeGreaterThan(5);
+    for (const name of names) expect(name).toMatch(/^[a-z0-9-]+$/);
+    for (const name of names) expect(name.startsWith("gym-staging")).toBe(true);
   });
 });
 
