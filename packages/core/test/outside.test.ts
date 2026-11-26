@@ -20,7 +20,7 @@ import {
   readMembers,
   readTimetable,
 } from "../src/outside/ingest.ts";
-import { suppressedRefHash } from "../src/outside/match.ts";
+import { outsideRefHash } from "../src/outside/match.ts";
 import { erasedAddressHash } from "../src/records/erase-subject.ts";
 import { context, createUser, db, timeline, unique } from "./helpers.ts";
 
@@ -363,7 +363,7 @@ describe("the booking system's copy", () => {
     await env.DB.prepare(
       "INSERT INTO core_outside_suppressed (hash, kind, created_at) VALUES (?, 'ref', ?)",
     )
-      .bind(await suppressedRefHash("fake-person-002"), NOW)
+      .bind(await outsideRefHash(db.query, "person", "fake-person-002"), NOW)
       .run();
     const plan = await loadMembers(session, admin.id);
     expect(plan.counts.dropped).toBe(2);
@@ -662,7 +662,7 @@ describe("the booking system's copy", () => {
     const left = await env.DB.prepare(
       "SELECT count(*) AS n FROM core_outside_unlinked WHERE hash = ?",
     )
-      .bind(await suppressedRefHash("fake-person-007"))
+      .bind(await outsideRefHash(db.query, "person", "fake-person-007"))
       .first<{ n: number }>();
     expect(left?.n).toBe(0);
   });

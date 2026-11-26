@@ -48,7 +48,8 @@ import {
   unlinkedOf,
   usersByAddress,
 } from "./match.ts";
-import { businessToday, type ListKind } from "./settings.ts";
+import { isFullName, scrubNames, wholeName } from "./names.ts";
+import { businessToday, type ListKind, onCurrentList } from "./settings.ts";
 
 type Db = Kysely<CoreDatabase>;
 
@@ -111,6 +112,8 @@ export interface IngestCounts {
   notKept: number;
   /** Kept nothing of them: an erased Person's ref or address. */
   dropped: number;
+  /** Of those, dropped by a ref an erase suppressed ("dropped: previously erased"). */
+  previouslyErased: number;
   /** Linked now by address. */
   linked: number;
   /** A link already held, kept. */
@@ -256,6 +259,11 @@ function tally(outcomes: readonly OutsideOutcome[]) {
   const n = (o: OutsideOutcome["outcome"]) => outcomes.filter((x) => x.outcome === o).length;
   return {
     dropped: n("dropped"),
+    // Dropped by a suppressed ref: a ref the booking system reuses for someone new stays dropped
+    // until a person lifts it (outside.suppression.lift), so staff are told how many.
+    previouslyErased: outcomes.filter(
+      (x) => x.outcome === "dropped" && "why" in x && x.why === "suppressed",
+    ).length,
     linked: n("linked"),
     links: n("kept"),
     waiting: n("waiting"),
@@ -324,11 +332,17 @@ export async function planMembers(db: Db, data: MembersData, meta: ListMeta): Pr
     m.status === "live" && (m.until === null || m.until >= today);
 
   const [bookedRows, heldRows] = await Promise.all([
-    db.selectFrom("core_outside_booking").select("person_ref").distinct().execute(),
+    db
+      .selectFrom("core_outside_booking")
+      .select("person_ref")
+      .distinct()
+      .where(onCurrentList("list_id"))
+      .execute(),
     db
       .selectFrom("core_outside_person")
       .select(["ref", "person_id as to", "link_how", "link_by", "link_why", "linked_at"])
       .where("link_how", "is not", null)
+      .where(onCurrentList("list_id"))
       .execute(),
   ]);
   const booked = new Set(bookedRows.map((r) => r.person_ref));
@@ -570,10 +584,15 @@ export async function planTimetable(
       "s.link_why",
       "s.linked_at",
       "u.id as exists",
+      "u.deactivated_at",
     ])
     .where("s.link_how", "is not", null)
+    .where(onCurrentList("s.list_id"))
     .execute();
-  const held = heldLinks(heldRows.map((r) => ({ ...r, exists: r.exists === null ? 0 : 1 })));
+  // A coach's link holds only to an active staff account: one deactivated is matched again.
+  const held = heldLinks(
+    heldRows.map((r) => ({ ...r, exists: r.exists === null || r.deactivated_at !== null ? 0 : 1 })),
+  );
   for (const [ref, decision] of await unlinkedOf(
     db,
     "staff",
@@ -587,7 +606,7 @@ export async function planTimetable(
     s.email === null ? null : normaliseStaff(s.email);
   const addresses = staff.map(staffAddress).filter((a): a is string => a !== null);
   const bookingPeople = [...new Set(data.bookings.map((b) => b.person))];
-  const [holders, droppedPeople] = await Promise.all([
+  const [holders, droppedPeople, droppedStaff] = await Promise.all([
     usersByAddress(db, addresses),
     // A list with no ids of its own names a person by their address (`email:<address>`): one on
     // the erased-address list keeps no booking either.
@@ -599,6 +618,14 @@ export async function planTimetable(
         return address ? [address] : [];
       }),
     ),
+    // A coach who is an erased Person (their ref or address suppressed, their address erased)
+    // keeps nothing either (stage 65 step 10): no row, no name, and their classes name no coach.
+    droppedOf(
+      db,
+      staff.map((s) => s.ref),
+      addresses,
+      "staff",
+    ),
   ]);
   const outcomes = decideMatches(
     staff.map((s) => ({ ref: s.ref, address: staffAddress(s) })),
@@ -606,13 +633,18 @@ export async function planTimetable(
       fold: normaliseStaff,
       holders,
       held,
-      dropped: { refs: new Set(), addresses: new Set() },
+      dropped: droppedStaff,
     },
   );
+  const goneStaff = new Set<string>();
   const staffRows: Record<string, unknown>[] = [];
   const matchRows: Record<string, unknown>[] = [];
   outcomes.forEach((o, i) => {
     const s = staff[i] as BookingSystemStaff;
+    if (o.outcome === "dropped") {
+      goneStaff.add(s.ref);
+      return;
+    }
     const prior = held.get(s.ref);
     let link: HeldOutsideLink | null = null;
     if (o.outcome === "kept" || o.outcome === "held_none") link = prior ?? null;
@@ -643,7 +675,7 @@ export async function planTimetable(
     starts_at: new Date(Date.parse(c.startsAt)).toISOString(),
     ends_at: new Date(Date.parse(c.endsAt)).toISOString(),
     location_name: c.location === null ? null : cut(locations.get(c.location) ?? null),
-    staff_ref: c.staff,
+    staff_ref: c.staff !== null && goneStaff.has(c.staff) ? null : c.staff,
     places: c.places,
     booked: c.booked,
     waiting: c.waiting,
@@ -667,6 +699,30 @@ export async function planTimetable(
     description: cut(t.description),
     active: t.active ? 1 : 0,
   }));
+  // An erased coach dropped here may still be named in this list's own text ("Strength with
+  // <coach>"): their full name, as listed now, leaves it before it is written (the same rule as
+  // the erase's, outside/names.ts). A member named in a title has no name kept to match after the
+  // erase (it would need keyed hashes of erased names; not built).
+  const goneNames = staff
+    .filter((s) => goneStaff.has(s.ref) && isFullName(s.displayName))
+    .map((s) => wholeName(s.displayName));
+  let textScrubbed = 0;
+  if (goneNames.length) {
+    for (const c of classRows) {
+      const title = scrubNames(c.title, goneNames);
+      if (title !== null) {
+        c.title = title.slice(0, MAX_TEXT);
+        textScrubbed += 1;
+      }
+    }
+    for (const t of typeRows) {
+      const name = scrubNames(t.name, goneNames);
+      const description = scrubNames(t.description, goneNames);
+      if (name !== null || description !== null) textScrubbed += 1;
+      if (name !== null) t.name = name.slice(0, MAX_TEXT);
+      if (description !== null) t.description = description.slice(0, MAX_TEXT);
+    }
+  }
 
   const statements = [
     ...listStatements("timetable", listId, meta, classRows.length),
@@ -735,11 +791,13 @@ export async function planTimetable(
       kept: staffRows.length,
       notKept: 0,
       ...tally(outcomes),
-      dropped: bookings.length - bookingRows.length,
+      dropped: bookings.length - bookingRows.length + goneStaff.size,
       items: {
         classes: classRows.length,
         bookings: bookingRows.length,
         classTypes: typeRows.length,
+        // Classes and class types whose text named an erased coach, scrubbed (ADR 0926).
+        textScrubbed,
       },
     },
   };

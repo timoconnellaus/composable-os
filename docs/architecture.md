@@ -206,7 +206,9 @@ One **D1** database per deployment, with real tables ([ADR 0002](adr/0002-d1-rea
   record and the audit log, an erase scrubs or deletes shared activities, pending actions, AI
   summaries and vectors, assistant threads, sync's suggestions and signatures, extension
   data (generically, through relation metadata), automation run history, notifications,
-  integration events and the outbox, duplicate pairs, and the R2 bodies of synced email (through
+  integration events and the outbox, duplicate pairs, the booking system's copy (its rows go and
+  their outside refs and addresses are suppressed by keyed hash, ADR 0926), and the R2 bodies of
+  synced email (through
   `core_blob_deletion`, drained after the commit and by the 10-minute cron). Erased people's
   addresses go on the **erased-address list** (`core_erased_address`, SHA-256 hashes only), which
   `sync.ingest` checks so they are not collected again. Each erase writes an **erase log** entry
@@ -575,7 +577,19 @@ Stage 6a ([ADR 0110](adr/0110-integration-host-per-connection.md) to
   ambiguous ones to To match, keeps nothing of an erased address or suppressed ref, and links
   people later from `person.create`, `person.update`, `person.restore` and `import.csv.commit`.
   `outside.status`, `outside.matches` and `outside.settings.get` read it with `bookingSystem:manage`; `outside.link` and `outside.unlink`
-  are a person's with it, and `outside.settings.update` a human admin's.
+  are a person's with it, and `outside.settings.update` a human admin's. Erase, merge and purge
+  reach it (`outside/erase.ts`, ADR 0926): the rows linked to an erased Person, rows linked to
+  nobody on an address only they hold, and coaches on it with no staff account (never a row
+  linked to another Person or a staff account) go in the erase's batch, in a few set-based statements whatever the copy holds, their names leave
+  the copy's class titles, and the linked rows' refs and their unshared addresses go into
+  `core_outside_suppressed` (keyed hashes with the salt's fingerprint, and a row per erase in
+  `core_outside_suppressed_erase`, carried in the erase log), which
+  every load, a coach included, and `outside.link` check, refusing a salt that changed; their
+  refs are never free-text erase terms. A merge moves links to the survivor and reconciles To
+  match; a purge drops a purged Person's links. `outside.lists.remove` (a person with
+  `bookingSystem:manage`) removes a kind or both: the list stops counting at once, every read
+  holds to the current lists (`onCurrentList`), and the rows of no current list go in passes of
+  2,000 rows, at most 100 a call (`outside/remove.ts`), finished by the daily maintenance.
   Inbound webhooks and sync events land in `core_integration_event`; cos-runner's cron turns them
   into `webhook` and `syncEvent` automation triggers (ADR 0173), dropping private activities.
 - **Notification delivery** ([ADR 0172](adr/0172-notification-delivery.md)): cos-runner's minute

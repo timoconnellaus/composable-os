@@ -29,6 +29,34 @@ No fields.
 | `kind` | `"person"`, `"staff"` | yes |   |   |
 | `linkedTo` | string | yes |   |   |
 
+## outside.lists.remove
+
+Remove the booking system's copy: the current members list (its outside people, their memberships and passes, membership types, links and To match), the timetable list (classes, class types, bookings, coaches and their To match), or all of it, which is what disconnecting the booking system means for a loaded list. The list stops counting at once and its rows are deleted at once, 2000 a statement and at most 200000 a call: when done is false, the daily maintenance finishes the rest, or call again with finish: true (nothing reads it meanwhile, and a list loaded since is never touched). Kept: the settings, the lists' log (counts only, 30 days), erased people's suppressions (so no later list brings them back), staff's unlink decisions (a hash, no person) and the timeline. Nothing is written to the booking system. A person with bookingSystem:manage only, never an AI, an MCP client, an extension or an automation.
+
+|  |  |
+| --- | --- |
+| Permission | `bookingSystem:manage` |
+| Risk | `write` |
+| Audiences | `staff` |
+| Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
+
+### Input
+
+| Field | Type | Required | Limits | Description |
+| --- | --- | --- | --- | --- |
+| `kind` | `"members"`, `"timetable"`, `"all"` | yes |   | members, timetable, or all (disconnect the booking system's lists) |
+| `finish` | boolean |   |   | Only finish a removal already made (after done: false): removes no current list, so a list loaded since stays |
+
+### Output
+
+| Field | Type | Required | Limits | Description |
+| --- | --- | --- | --- | --- |
+| `removed` | array of `"members"`, `"timetable"` | yes |   | The kinds whose current list was removed |
+| `rows` | integer | yes | ≥ -9007199254740991, ≤ 9007199254740991 | Rows of the copy deleted by this call |
+| `remaining` | integer | yes | ≥ -9007199254740991, ≤ 9007199254740991 | Rows left for the next call; 0 when done |
+| `done` | boolean | yes |   |   |
+
 ## outside.matches
 
 To match: the outside people and coaches the host could not link by address, each with why (several_people: more than one Person or staff account has the address; shared_address: several outside people share it, as a family on one mailbox; no_address: the list gives none) and the candidates (Persons, or staff accounts) to choose from. Nobody is linked until a person links them with outside.link. Paged by ref. Needs bookingSystem:manage.
@@ -172,6 +200,32 @@ No fields.
 | `counts.staffLinked` | integer | yes | ≥ -9007199254740991, ≤ 9007199254740991 |   |
 | `counts.waitingPeople` | integer | yes | ≥ -9007199254740991, ≤ 9007199254740991 |   |
 | `counts.waitingStaff` | integer | yes | ≥ -9007199254740991, ≤ 9007199254740991 |   |
+
+## outside.suppression.lift
+
+Lift the suppression of an outside ref an erase left: when the booking system has given an erased person's old ref to someone new, every load drops that ref (counted as previously erased) until a person lifts it. The new person is then kept and matched as anyone is. The erased person's addresses stay suppressed. This undoes an erase's protection for that ref: if the booking system still lists the erased person under it, they come back. Needs both bookingSystem:manage and records:erase (the erase's own permission), a person only, never an AI, an MCP client, an extension or an automation.
+
+|  |  |
+| --- | --- |
+| Permission | `bookingSystem:manage` |
+| Risk | `write` |
+| Audiences | `staff` |
+| Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
+
+### Input
+
+| Field | Type | Required | Limits | Description |
+| --- | --- | --- | --- | --- |
+| `kind` | `"person"`, `"staff"` | yes |   |   |
+| `ref` | string | yes | min length 1, max length 600 | The outside person's or coach's ref, as listed |
+| `why` | string | yes | min length 1, max length 500 | Why: kept with the link and audited |
+
+### Output
+
+| Field | Type | Required | Limits | Description |
+| --- | --- | --- | --- | --- |
+| `lifted` | boolean | yes |   |   |
 
 ## outside.unlink
 

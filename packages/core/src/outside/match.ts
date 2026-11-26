@@ -13,14 +13,15 @@ import {
   matchPeople,
 } from "@composable-os/gatekeeper-booking-system";
 import { CompiledQuery, type Kysely, sql } from "kysely";
+import { saltedHash } from "../contact/suppression.ts";
 import { foldAddress, foldedSql, normaliseCustomerEmail } from "../customers/accounts.ts";
+import { ConfigError } from "../errors.ts";
 import { newId } from "../ids.ts";
 import type { HandlerContext } from "../operation.ts";
 import { chunk, jsonList } from "../records/common.ts";
-import { sha256Ref } from "../records/erase-log.ts";
-import { erasedAddressHash } from "../records/erase-subject.ts";
 import { erasedAddresses } from "../sync/ingest.ts";
 import { SYSTEM_USER } from "../users.ts";
+import { onCurrentList } from "./settings.ts";
 
 type Db = Kysely<CoreDatabase>;
 
@@ -66,9 +67,53 @@ export async function usersByAddress(
   return out;
 }
 
-/** The hash a suppressed outside ref is kept by. */
-export function suppressedRefHash(ref: string): Promise<string> {
-  return sha256Ref(`outside-ref:${ref}`);
+/** An outside person (`person`) or coach (`staff`). */
+export type OutsideKind = "person" | "staff";
+
+/**
+ * The hash an outside ref is kept by, in `core_outside_suppressed` (an erased Person's) and
+ * `core_outside_unlinked` (staff's "nobody here"): keyed with the deployment's salt, as the
+ * consent register's suppression list (ADR 0675), never the ref itself. A list with no ids of its
+ * own uses the address as the ref, so a plain digest would be one anyone could recompute from an
+ * address; the salt keeps one deployment's hashes from matching another's (stage 65 step 10).
+ */
+export function outsideRefHash(db: Db, kind: OutsideKind, ref: string): Promise<string> {
+  return saltedHash(db, `outside:${kind}:ref:${ref}`);
+}
+
+/** The hash an outside address is suppressed by: its normalised form, keyed the same way. */
+export function outsideAddressHash(db: Db, address: string): Promise<string> {
+  return saltedHash(db, `outside:address:${normaliseCustomerEmail(address) ?? address}`);
+}
+
+/**
+ * A fingerprint of the deployment's salt: a keyed hash of a constant, never the salt. Kept on every
+ * suppression row and in the erase log, so a salt lost and remade (a restore without it) is found
+ * and refused, never silently matching nothing.
+ */
+export function saltFingerprint(db: Db): Promise<string> {
+  return saltedHash(db, "outside:fingerprint");
+}
+
+/**
+ * Refuses, loudly, when suppressions were keyed with another salt than the one in use: every
+ * suppression would match nothing and erased people would come back with the next list. One
+ * statement (the table is small: erased people only).
+ */
+export async function assertSuppressionSalt(db: Db): Promise<void> {
+  const fingerprint = await saltFingerprint(db);
+  const other = await db
+    .selectFrom("core_outside_suppressed")
+    .select("hash")
+    .where("fingerprint", "is not", null)
+    .where("fingerprint", "!=", fingerprint)
+    .limit(1)
+    .executeTakeFirst();
+  if (other) {
+    throw new ConfigError(
+      "The booking system's copy cannot be read: erased people's suppressions were kept with another deployment salt than the one in use (the salt was lost, perhaps by a restore). Restore the core_settings row text_number_salt from the backup before loading or linking anything, or erased people would come back.",
+    );
+  }
 }
 
 /**
@@ -80,14 +125,20 @@ export async function droppedOf(
   db: Db,
   refs: readonly string[],
   addresses: readonly string[],
-): Promise<{ refs: Set<string>; addresses: Set<string> }> {
+  kind: OutsideKind = "person",
+): Promise<{ refs: Set<string>; addresses: Set<string>; suppressed: Set<string> }> {
+  await assertSuppressionSalt(db);
   const refHashes = await Promise.all(
-    [...new Set(refs)].map(async (ref) => ({ ref, hash: await suppressedRefHash(ref) })),
+    [...new Set(refs)].map(async (ref) => ({ ref, hash: await outsideRefHash(db, kind, ref) })),
   );
   const addressHashes = await Promise.all(
-    [...new Set(addresses)].map(async (a) => ({ address: a, hash: await erasedAddressHash(a) })),
+    [...new Set(addresses)].map(async (a) => ({
+      address: a,
+      hash: await outsideAddressHash(db, a),
+    })),
   );
   const hashes = [...refHashes.map((h) => h.hash), ...addressHashes.map((h) => h.hash)];
+  // One JSON parameter (D1 binds at most 100), however many a list holds.
   const suppressed = hashes.length
     ? new Set(
         (
@@ -100,13 +151,32 @@ export async function droppedOf(
       )
     : new Set<string>();
   const erased = await erasedAddresses(db, [...new Set(addresses)]);
+  const suppressedAddresses = addressHashes
+    .filter((h) => suppressed.has(h.hash))
+    .map((h) => h.address);
   return {
     refs: new Set(refHashes.filter((h) => suppressed.has(h.hash)).map((h) => h.ref)),
-    addresses: new Set([
-      ...erased,
-      ...addressHashes.filter((h) => suppressed.has(h.hash)).map((h) => h.address),
-    ]),
+    // Either: on the erased-address list, or suppressed in the copy.
+    addresses: new Set([...erased, ...suppressedAddresses]),
+    // Only the copy's own suppressions (an erase's), which nothing outlives.
+    suppressed: new Set(suppressedAddresses),
   };
+}
+
+/**
+ * THE rule an erase and a load share (ADR 0926), so they cannot drift: an outside row linked to a
+ * Person other than the ones being erased (by address or by staff), or a coach linked to a staff
+ * account, belongs to that Person or account. An erase never deletes it, and a load never drops it
+ * for an address on the erased-address list (an erased member's address their family member, or
+ * a staff account, still lists). Only a suppressed ref or a suppressed outside address drops it.
+ * `link.to` is the Person or staff account linked (a load passes only links to live Persons and
+ * active staff accounts); `erasing` the Persons an erase is removing (none at a load).
+ */
+export function keptByLink(
+  link: { to: string | null } | undefined,
+  erasing: ReadonlySet<string> = new Set(),
+): boolean {
+  return link?.to !== null && link?.to !== undefined && !erasing.has(link.to);
 }
 
 /** A link held on an outside row. A staff link with no Person is staff saying "nobody here". */
@@ -134,7 +204,11 @@ export function decideMatches(
     fold(address: string): string | null;
     holders: ReadonlyMap<string, readonly string[]>;
     held: ReadonlyMap<string, HeldOutsideLink>;
-    dropped: { refs: ReadonlySet<string>; addresses: ReadonlySet<string> };
+    dropped: {
+      refs: ReadonlySet<string>;
+      addresses: ReadonlySet<string>;
+      suppressed?: ReadonlySet<string>;
+    };
   },
 ): OutsideOutcome[] {
   const byRef = new Map<string, OutsideOutcome>();
@@ -142,7 +216,18 @@ export function decideMatches(
   for (const r of rows) {
     if (ctx.dropped.refs.has(r.ref)) {
       byRef.set(r.ref, { ref: r.ref, outcome: "dropped", why: "suppressed" });
-    } else if (r.address !== null && ctx.dropped.addresses.has(r.address)) {
+    } else if (
+      r.address !== null &&
+      (ctx.dropped.suppressed ?? ctx.dropped.addresses).has(r.address)
+    ) {
+      byRef.set(r.ref, { ref: r.ref, outcome: "dropped", why: "erased_address" });
+    } else if (
+      r.address !== null &&
+      ctx.dropped.addresses.has(r.address) &&
+      !keptByLink(ctx.held.get(r.ref))
+    ) {
+      // On the erased-address list, and linked to nobody else: dropped. One linked to a live
+      // Person or an active staff account is theirs, and stays (keptByLink).
       byRef.set(r.ref, { ref: r.ref, outcome: "dropped", why: "erased_address" });
     } else if (ctx.held.get(r.ref)?.how === "staff" && ctx.held.get(r.ref)?.to === null) {
       byRef.set(r.ref, { ref: r.ref, outcome: "held_none" });
@@ -172,13 +257,13 @@ export const normaliseStaff = (address: string): string | null => normaliseCusto
 /** The hashes `core_outside_unlinked` keeps staff's "nobody here" under, for these refs. */
 export async function unlinkedOf(
   db: Db,
-  kind: "person" | "staff",
+  kind: OutsideKind,
   refs: readonly string[],
 ): Promise<Map<string, { by: string; at: string }>> {
   const out = new Map<string, { by: string; at: string }>();
   if (!refs.length) return out;
   const hashes = await Promise.all(
-    [...new Set(refs)].map(async (ref) => ({ ref, hash: await suppressedRefHash(ref) })),
+    [...new Set(refs)].map(async (ref) => ({ ref, hash: await outsideRefHash(db, kind, ref) })),
   );
   const rows = await db
     .selectFrom("core_outside_unlinked")
@@ -276,6 +361,7 @@ export async function matchPersonAddresses(
       join.onRef("m.ref", "=", "o.ref").on("m.kind", "=", "person"),
     )
     .select(["o.ref", "o.address_folded", "o.person_id", "o.link_how", "m.ref as waiting"])
+    .where(onCurrentList("o.list_id"))
     .where((eb) =>
       eb.or([
         ...(folded.length ? [eb("o.address_folded", "in", jsonList(folded))] : []),

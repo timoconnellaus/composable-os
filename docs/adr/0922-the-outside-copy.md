@@ -126,3 +126,18 @@ whose erase leaves a person's data behind (ADR 0320).
   it is done there.
 - Saving a list's column mapping and value maps (`core_outside_settings.mappings`) is step 4's,
   with the file source's operations; a Person's outside panel (`outside.person`) is step 5's.
+
+## Amended 2026-11-26 (stage 65 step 10, [ADR 0926](0926-erase-merge-and-removal-of-the-outside-copy.md))
+- **Suppression is by keyed hash.** `core_outside_suppressed` and `core_outside_unlinked` keep the
+  deployment-salted hash (`saltedHash`, as the consent register's suppression list, ADR 0675) of
+  `outside:<person|staff>:ref:<ref>` and of `outside:address:<address>`, not a plain SHA-256 of the
+  ref and the erased-address list's hash of the address: a list with no ids uses the address as the
+  ref, so a plain digest could be recomputed from an address. No list had been loaded outside tests,
+  so nothing stored was rehashed.
+- **A timetable load drops a suppressed coach** (by ref or address, or an address on the
+  erased-address list) as a members load drops an outside person: no row, and their classes name
+  no coach.
+- **Reads hold to the current lists** (`onCurrentList`), so a removed list's rows still waiting for
+  `outside.lists.remove`'s next pass are no copy.
+- The consequence "until step 10 an erased Person's outside row keeps its address" no longer holds:
+  erase removes it, merge moves links, purge drops them.

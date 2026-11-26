@@ -8,18 +8,20 @@
 //   outside.matches          staff (bookingSystem:manage)           To match: who waits, and for whom
 //   outside.link             staff (bookingSystem:manage, a person) link an outside person or coach
 //   outside.unlink           staff (bookingSystem:manage, a person) unlink one, with why
+//   outside.lists.remove     staff (bookingSystem:manage, a person) remove a list, or both
 //
-// Loading a list (`outside.file.preview`, `outside.file.load`) and removing one are step 4's; they
-// plan through `outside/ingest.ts`. None of these writes to the booking system, a Person's fields,
+// Loading a list (`outside.file.preview`, `outside.file.load`) is step 4's; it plans through
+// `outside/ingest.ts`. Removing one (step 10) plans through `outside/remove.ts`. None of these writes to the booking system, a Person's fields,
 // an order, a membership or booking here, or an allowance. Linking and the settings are a person's
 // at the screen (`actors: ["human"]`, never MCP, Code Mode, an extension or an automation): who is
 // a member decides prices and what a customer may open. An AI may read the lists' state and To
 // match for an account that holds bookingSystem:manage, to explain them.
-import { sql } from "kysely";
+import { type SqlBool, sql } from "kysely";
 import { z } from "zod";
-import { ValidationError } from "../errors.ts";
+import { ForbiddenError, ValidationError } from "../errors.ts";
 import { defineOperation, type HandlerContext } from "../operation.ts";
-import { LINK_SUBJECT, suppressedRefHash } from "../outside/match.ts";
+import { droppedOf, LINK_SUBJECT, outsideRefHash } from "../outside/match.ts";
+import { planRemoval, REMOVE_MAX_STATEMENTS, REMOVE_PASS_ROWS } from "../outside/remove.ts";
 import {
   businessToday,
   currentLists,
@@ -27,7 +29,10 @@ import {
   listAge,
   loadOutsideSettings,
   MAX_LARGEST_AGE_DAYS,
+  onCurrentList,
 } from "../outside/settings.ts";
+import { holdsPermission } from "../principals.ts";
+import { putEraseLog } from "../records/erase-log.ts";
 import { visibleTable } from "../visibility/index.ts";
 
 const httpsLink = z
@@ -81,6 +86,7 @@ export const outsideSettingsGet = defineOperation({
     const types = await ctx.db
       .selectFrom("core_outside_membership_type")
       .select(["ref", "name", "kind", "active"])
+      .where(onCurrentList("list_id"))
       .orderBy("kind")
       .orderBy("name")
       .execute();
@@ -201,23 +207,28 @@ export const outsideStatus = defineOperation({
       loadOutsideSettings(ctx.db),
       currentLists(ctx.db),
       businessToday(ctx.db, ctx.now),
-      sql<Record<string, number>>`SELECT
-        (SELECT count(*) FROM core_outside_person) AS people,
-        (SELECT count(*) FROM core_outside_membership) AS memberships,
-        (SELECT count(*) FROM core_outside_class) AS classes,
-        (SELECT count(*) FROM core_outside_booking) AS bookings,
-        (SELECT count(*) FROM core_outside_staff) AS staff,
+      // Only current lists' rows: a removed list's rows waiting for the removal's next pass are
+      // no copy (stage 65 step 10).
+      sql<Record<string, number>>`WITH current AS (
+          SELECT id FROM core_outside_list WHERE state = 'current'
+        ) SELECT
+        (SELECT count(*) FROM core_outside_person WHERE list_id IN current) AS people,
+        (SELECT count(*) FROM core_outside_membership WHERE list_id IN current) AS memberships,
+        (SELECT count(*) FROM core_outside_class WHERE list_id IN current) AS classes,
+        (SELECT count(*) FROM core_outside_booking WHERE list_id IN current) AS bookings,
+        (SELECT count(*) FROM core_outside_staff WHERE list_id IN current) AS staff,
         (SELECT count(*) FROM core_outside_staff s JOIN core_user u ON u.id = s.user_id
-          AND u.deactivated_at IS NULL) AS staffLinked,
-        (SELECT count(*) FROM core_outside_match WHERE kind = 'person') AS waitingPeople,
-        (SELECT count(*) FROM core_outside_match WHERE kind = 'staff') AS waitingStaff`.execute(
-        ctx.db,
-      ),
+          AND u.deactivated_at IS NULL WHERE s.list_id IN current) AS staffLinked,
+        (SELECT count(*) FROM core_outside_match m JOIN core_outside_person o ON o.ref = m.ref
+          WHERE m.kind = 'person' AND o.list_id IN current) AS waitingPeople,
+        (SELECT count(*) FROM core_outside_match m JOIN core_outside_staff s ON s.ref = m.ref
+          WHERE m.kind = 'staff' AND s.list_id IN current) AS waitingStaff`.execute(ctx.db),
       // Linked to a live Person: a link to one in the Trash, erased or merged away is no link.
       ctx.db
         .selectFrom("core_outside_person as o")
         .innerJoin(visibleTable(ctx, "person", "p"), "p.id", "o.person_id")
         .where("p.deleted_at", "is", null)
+        .where(onCurrentList("o.list_id"))
         .select((eb) => eb.fn.countAll<number>().as("n"))
         .executeTakeFirst(),
     ]);
@@ -327,6 +338,14 @@ export const outsideMatches = defineOperation({
         "s.display_name",
         "s.address as staffAddress",
       ])
+      // None of a removed list's rows waiting for removal: they are no copy.
+      .where((eb) =>
+        eb.or([
+          sql<SqlBool>`coalesce(o.list_id, s.list_id) IS NULL`,
+          onCurrentList("o.list_id"),
+          onCurrentList("s.list_id"),
+        ]),
+      )
       .orderBy("m.kind")
       .orderBy("m.ref")
       .limit(limit + 1);
@@ -406,11 +425,13 @@ async function assertOutsideRow(ctx: HandlerContext, kind: "person" | "staff", r
           .selectFrom("core_outside_person")
           .select("ref")
           .where("ref", "=", ref)
+          .where(onCurrentList("list_id"))
           .executeTakeFirst()
       : await ctx.db
           .selectFrom("core_outside_staff")
           .select("ref")
           .where("ref", "=", ref)
+          .where(onCurrentList("list_id"))
           .executeTakeFirst();
   if (!row) {
     throw new ValidationError(
@@ -418,6 +439,32 @@ async function assertOutsideRow(ctx: HandlerContext, kind: "person" | "staff", r
         ? "Nobody with that ref is in the current members list."
         : "No coach with that ref is in the current timetable list.",
       { field: "ref", rule: "outside_not_listed" },
+    );
+  }
+}
+
+/**
+ * An erased Person's outside ref or address never links again, by hand either (stage 65 step 10):
+ * a load keeps no row of theirs, and this holds should one be there by any other way.
+ */
+async function assertNotSuppressed(ctx: HandlerContext, kind: "person" | "staff", ref: string) {
+  const row =
+    kind === "person"
+      ? await ctx.db
+          .selectFrom("core_outside_person")
+          .select("address")
+          .where("ref", "=", ref)
+          .executeTakeFirst()
+      : await ctx.db
+          .selectFrom("core_outside_staff")
+          .select("address")
+          .where("ref", "=", ref)
+          .executeTakeFirst();
+  const dropped = await droppedOf(ctx.db, [ref], row?.address ? [row.address] : [], kind);
+  if (dropped.refs.size || dropped.addresses.size) {
+    throw new ValidationError(
+      "This outside record is of an erased person: it is never linked again.",
+      { field: "ref", rule: "outside_erased" },
     );
   }
 }
@@ -456,6 +503,7 @@ export const outsideLink = defineOperation({
   auditSummary: (output) => ({ kind: output.kind, linkedTo: output.linkedTo }),
   async handler(input, ctx) {
     await assertOutsideRow(ctx, input.kind, input.ref);
+    await assertNotSuppressed(ctx, input.kind, input.ref);
     const set = { link_how: "staff" as const, link_by: ctx.user.id, link_why: input.why };
     if (input.kind === "person") {
       const person = await ctx.db
@@ -510,7 +558,7 @@ export const outsideLink = defineOperation({
       ctx.db
         .deleteFrom("core_outside_unlinked")
         .where("kind", "=", input.kind)
-        .where("hash", "=", await suppressedRefHash(input.ref)),
+        .where("hash", "=", await outsideRefHash(ctx.db, input.kind, input.ref)),
     );
     return {
       kind: input.kind,
@@ -561,7 +609,7 @@ export const outsideUnlink = defineOperation({
         .insertInto("core_outside_unlinked")
         .values({
           kind: input.kind,
-          hash: await suppressedRefHash(input.ref),
+          hash: await outsideRefHash(ctx.db, input.kind, input.ref),
           unlinked_by: ctx.user.id,
           unlinked_at: ctx.now,
         })
@@ -575,6 +623,108 @@ export const outsideUnlink = defineOperation({
   },
 });
 
+export const outsideListsRemove = defineOperation({
+  name: "outside.lists.remove",
+  description:
+    "Remove the booking system's copy: the current members list (its outside people, their " +
+    "memberships and passes, membership types, links and To match), the timetable list (classes, " +
+    "class types, bookings, coaches and their To match), or all of it, which is what " +
+    "disconnecting the booking system means for a loaded list. The list stops counting at once " +
+    `and its rows are deleted at once, ${REMOVE_PASS_ROWS} a statement and at most ` +
+    `${REMOVE_MAX_STATEMENTS * REMOVE_PASS_ROWS} a call: when done is false, the daily maintenance ` +
+    "finishes the rest, or call again with finish: true (nothing reads it meanwhile, and a list " +
+    "loaded since is never touched). Kept: the settings, the lists' log (counts only, 30 " +
+    "days), erased people's suppressions (so no later list brings them back), staff's unlink " +
+    "decisions (a hash, no person) and the timeline. Nothing is written to the booking system. A " +
+    "person with bookingSystem:manage only, never an AI, an MCP client, an extension or an " +
+    "automation.",
+  input: z.object({
+    kind: z
+      .enum([...LIST_KINDS, "all"])
+      .describe("members, timetable, or all (disconnect the booking system's lists)"),
+    finish: z
+      .boolean()
+      .optional()
+      .describe(
+        "Only finish a removal already made (after done: false): removes no current list, so a list loaded since stays",
+      ),
+  }),
+  output: z.object({
+    removed: z.array(z.enum(LIST_KINDS)).describe("The kinds whose current list was removed"),
+    rows: z.number().int().describe("Rows of the copy deleted by this call"),
+    remaining: z.number().int().describe("Rows left for the next call; 0 when done"),
+    done: z.boolean(),
+  }),
+  permission: "bookingSystem:manage",
+  risk: "write",
+  actors: ["human"],
+  mcp: { expose: false },
+  auditSummary: (output) => output,
+  async handler(input, ctx) {
+    const kinds = input.kind === "all" ? [...LIST_KINDS] : [input.kind];
+    const plan = await planRemoval(ctx.db, kinds, ctx.now, { markLists: !input.finish });
+    if (plan.statements.length) ctx.write(...plan.statements);
+    return {
+      removed: plan.lists,
+      rows: plan.rows,
+      remaining: plan.remaining,
+      done: plan.remaining === 0,
+    };
+  },
+});
+
+export const outsideSuppressionLift = defineOperation({
+  name: "outside.suppression.lift",
+  description:
+    "Lift the suppression of an outside ref an erase left: when the booking system has given an " +
+    "erased person's old ref to someone new, every load drops that ref (counted as previously " +
+    "erased) until a person lifts it. The new person is then kept and matched as anyone is. The " +
+    "erased person's addresses stay suppressed. This undoes an erase's protection for that ref: " +
+    "if the booking system still lists the erased person under it, they come back. Needs both " +
+    "bookingSystem:manage and records:erase (the erase's own permission), a person only, never " +
+    "an AI, an MCP client, an extension or an automation.",
+  input: z.object({ kind: z.enum(["person", "staff"]), ref, why }),
+  output: z.object({ lifted: z.boolean() }),
+  permission: "bookingSystem:manage",
+  risk: "write",
+  actors: ["human"],
+  mcp: { expose: false },
+  // A ref may be the address itself (a list with no ids of its own): never in the audit log.
+  redact: ["ref"],
+  auditSummary: (output) => output,
+  async handler(input, ctx) {
+    // It undoes an erase's protection: the erase's permission too, as erasure.allowAddress takes.
+    if (!holdsPermission(ctx.user, ctx.permissionGrants, "records:erase")) {
+      throw new ForbiddenError("Lifting an erase's suppression needs records:erase", {
+        permission: "records:erase",
+      });
+    }
+    const hash = await outsideRefHash(ctx.db, input.kind, input.ref);
+    const row = await ctx.db
+      .selectFrom("core_outside_suppressed")
+      .select("hash")
+      .where("kind", "=", "ref")
+      .where("hash", "=", hash)
+      .executeTakeFirst();
+    if (!row) return { lifted: false };
+    // Kept in the erase log, so a re-apply after a restore keeps the decision.
+    if (ctx.blobs && !ctx.simulation) {
+      await putEraseLog(ctx.blobs, {
+        v: 1,
+        kind: "allow",
+        at: ctx.now,
+        addresses: [],
+        outside: [{ hash, kind: "ref" }],
+      });
+    }
+    ctx.write(
+      ctx.db.deleteFrom("core_outside_suppressed").where("hash", "=", hash),
+      ctx.db.deleteFrom("core_outside_suppressed_erase").where("hash", "=", hash),
+    );
+    return { lifted: true };
+  },
+});
+
 export const outsideOperations = [
   outsideSettingsGet,
   outsideSettingsUpdate,
@@ -582,4 +732,6 @@ export const outsideOperations = [
   outsideMatches,
   outsideLink,
   outsideUnlink,
+  outsideListsRemove,
+  outsideSuppressionLift,
 ];

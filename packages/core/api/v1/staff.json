@@ -38600,7 +38600,7 @@
     },
     {
       "name": "erasure.allowAddress",
-      "description": "Take an email address off the erased-address list, so mail and calendar sync can match and suggest it again: for a person who was erased and has come back by consent. Admins only, and only a person in the app. Records the decision in the erase log, so a re-apply after a restore keeps it.",
+      "description": "Take an email address off the erased-address list, so mail and calendar sync can match and suggest it again: for a person who was erased and has come back by consent. The booking system's copy matches them again too: the address's suppression goes, with the outside refs the same erase suppressed (theirs). Admins only, and only a person in the app. Records the decision in the erase log, so a re-apply after a restore keeps it.",
       "risk": "write",
       "audiences": [
         "staff"
@@ -38622,10 +38622,35 @@
         "properties": {
           "removed": {
             "type": "boolean"
+          },
+          "bookingSystem": {
+            "type": "object",
+            "properties": {
+              "addresses": {
+                "type": "number",
+                "description": "The address's suppression in the booking system's copy, lifted"
+              },
+              "refs": {
+                "type": "number",
+                "description": "Outside refs the same erase suppressed (the Person's own), lifted with it"
+              },
+              "refsLeft": {
+                "type": "number",
+                "description": "Refs left suppressed because several erases suppressed this address and whose consent this is cannot be told: a person with records:erase lifts the right one with outside.suppression.lift"
+              }
+            },
+            "required": [
+              "addresses",
+              "refs",
+              "refsLeft"
+            ],
+            "additionalProperties": false,
+            "description": "The booking system's copy (stage 65): the address and the refs the same erase suppressed are matched again from the next list"
           }
         },
         "required": [
-          "removed"
+          "removed",
+          "bookingSystem"
         ],
         "additionalProperties": false
       },
@@ -38635,7 +38660,7 @@
     },
     {
       "name": "erasure.reapply",
-      "description": "After the database is restored from a backup or Time Travel, erase again every person and organisation the erase log says was erased, and restore the erased-address list. The log lives in blob storage, outside the database, and holds only hashes. Safe to run more than once. Admins only, and only a person in the app.",
+      "description": "After the database is restored from a backup or Time Travel, erase again every person and organisation the erase log says was erased, and restore the erased-address list and the booking-system copy's suppressions. The log lives in blob storage, outside the database, and holds only hashes. Safe to run more than once. Admins only, and only a person in the app.",
       "risk": "destructive",
       "audiences": [
         "staff"
@@ -38669,13 +38694,18 @@
           "addresses": {
             "type": "number",
             "description": "Addresses on the erased-address list"
+          },
+          "outsideSuppressed": {
+            "type": "number",
+            "description": "Booking-system refs and addresses suppressed again (stage 65), by keyed hash"
           }
         },
         "required": [
           "entries",
           "people",
           "organisations",
-          "addresses"
+          "addresses",
+          "outsideSuppressed"
         ],
         "additionalProperties": false
       },
@@ -69249,6 +69279,65 @@
           "bodiesDeleted": {
             "type": "number",
             "description": "Synced email bodies deleted from blob storage now (the rest are retried)"
+          },
+          "bookingSystem": {
+            "description": "Whenever the host holds a booking system's copy (stage 65): what the erase did to it. Present even when nothing of theirs was found. A copy remains in the booking system, for staff to deal with there",
+            "type": "object",
+            "properties": {
+              "deletedLinked": {
+                "type": "number",
+                "description": "Outside people linked to them (by address or by staff): deleted, their refs suppressed"
+              },
+              "deletedUnlinked": {
+                "type": "number",
+                "description": "Outside people linked to nobody on an address only they held (their household's unmatched copies): deleted, no ref suppressed, as one may be a family member's: such a row comes back if the booking system later lists it under another address"
+              },
+              "coaches": {
+                "type": "number",
+                "description": "Coaches on their address with no staff account: deleted, their refs suppressed unless someone else holds the address"
+              },
+              "keptLinkedToOthers": {
+                "type": "number",
+                "description": "Outside people and coaches on their address kept, because linked to another Person or a staff account: kept at later loads too while that link holds, though their address is on the erased-address list"
+              },
+              "keptWaiting": {
+                "type": "number",
+                "description": "Outside people on their address left waiting in To match, because another Person holds the address too: the next load drops them while they list an address of theirs on the erased-address list"
+              },
+              "keptNamedElsewhere": {
+                "type": "number",
+                "description": "Outside people linked to nobody that list their full name on an address someone else holds (a child on a parent's mailbox): left, as they cannot be told from a namesake; staff decide"
+              },
+              "sharedAddresses": {
+                "type": "number",
+                "description": "Their addresses another Person, customer account or kept outside person also holds: not suppressed in the copy (a count only). Their own live addresses are on the erased-address list and redacted from the audit whatever this says"
+              },
+              "textScrubbed": {
+                "type": "number",
+                "description": "Classes and class types whose text named them (a full name of two words or more, whole words, any case), scrubbed. A later timetable scrubs an erased coach's name again; a member's name a later list writes into a title is not matched (no name is kept after the erase)"
+              },
+              "copyRemains": {
+                "type": "boolean",
+                "const": true,
+                "description": "The booking system itself still holds them: the host cannot remove it there"
+              },
+              "note": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "deletedLinked",
+              "deletedUnlinked",
+              "coaches",
+              "keptLinkedToOthers",
+              "keptWaiting",
+              "keptNamedElsewhere",
+              "sharedAddresses",
+              "textScrubbed",
+              "copyRemains",
+              "note"
+            ],
+            "additionalProperties": false
           }
         },
         "required": [
@@ -70974,6 +71063,79 @@
       ]
     },
     {
+      "name": "outside.lists.remove",
+      "description": "Remove the booking system's copy: the current members list (its outside people, their memberships and passes, membership types, links and To match), the timetable list (classes, class types, bookings, coaches and their To match), or all of it, which is what disconnecting the booking system means for a loaded list. The list stops counting at once and its rows are deleted at once, 2000 a statement and at most 200000 a call: when done is false, the daily maintenance finishes the rest, or call again with finish: true (nothing reads it meanwhile, and a list loaded since is never touched). Kept: the settings, the lists' log (counts only, 30 days), erased people's suppressions (so no later list brings them back), staff's unlink decisions (a hash, no person) and the timeline. Nothing is written to the booking system. A person with bookingSystem:manage only, never an AI, an MCP client, an extension or an automation.",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "members",
+              "timetable",
+              "all"
+            ],
+            "description": "members, timetable, or all (disconnect the booking system's lists)"
+          },
+          "finish": {
+            "description": "Only finish a removal already made (after done: false): removes no current list, so a list loaded since stays",
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "kind"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "removed": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "enum": [
+                "members",
+                "timetable"
+              ]
+            },
+            "description": "The kinds whose current list was removed"
+          },
+          "rows": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991,
+            "description": "Rows of the copy deleted by this call"
+          },
+          "remaining": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991,
+            "description": "Rows left for the next call; 0 when done"
+          },
+          "done": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "removed",
+          "rows",
+          "remaining",
+          "done"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "outside.matches",
+        "outside.settings.get",
+        "outside.status"
+      ]
+    },
+    {
       "name": "outside.matches",
       "description": "To match: the outside people and coaches the host could not link by address, each with why (several_people: more than one Person or staff account has the address; shared_address: several outside people share it, as a family on one mailbox; no_address: the list gives none) and the candidates (Persons, or staff accounts) to choose from. Nobody is linked until a person links them with outside.link. Paged by ref. Needs bookingSystem:manage.",
       "risk": "read",
@@ -71504,6 +71666,61 @@
         "additionalProperties": false
       },
       "invalidates": []
+    },
+    {
+      "name": "outside.suppression.lift",
+      "description": "Lift the suppression of an outside ref an erase left: when the booking system has given an erased person's old ref to someone new, every load drops that ref (counted as previously erased) until a person lifts it. The new person is then kept and matched as anyone is. The erased person's addresses stay suppressed. This undoes an erase's protection for that ref: if the booking system still lists the erased person under it, they come back. Needs both bookingSystem:manage and records:erase (the erase's own permission), a person only, never an AI, an MCP client, an extension or an automation.",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "person",
+              "staff"
+            ]
+          },
+          "ref": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 600,
+            "description": "The outside person's or coach's ref, as listed"
+          },
+          "why": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500,
+            "description": "Why: kept with the link and audited"
+          }
+        },
+        "required": [
+          "kind",
+          "ref",
+          "why"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "lifted": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "lifted"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "outside.matches",
+        "outside.settings.get",
+        "outside.status"
+      ]
     },
     {
       "name": "outside.unlink",
@@ -73085,7 +73302,7 @@
     },
     {
       "name": "person.erase",
-      "description": "Permanently delete a person now, for GDPR erasure requests (admins only). Works on live people and people in Trash, and also erases anyone merged into them. Emails, phones, affiliations and tags go; activities and tasks linked only to them are deleted; system activities about them (field changes, job changes, merges) are removed from every timeline. Audit-log content that mentions them (their id, emails or phone numbers) is replaced with \"[erased]\"; who did what and when is kept. In-app assistant conversations that referenced them are redacted the same way (tool calls and results that mention them lose their content; their ids, emails, phone numbers and names in text become \"[erased]\"). Former emails and phones count too. Synced email bodies, suggested contacts, signatures, extension data related to them, automation run history and notifications about them are deleted or redacted, and their addresses are added to the erased-address list so mail sync does not collect them again. Their customer account, its sessions and sign-in codes, invites for their addresses and their erase requests are deleted (an open request is closed as erased). Their birthday, health answers and minor mark are deleted; what they agreed to is kept, no longer theirs, as the business's evidence until the retention period ends (agreement.retention, counted from the erase), then deleted: agreementsKept says how many and until when. Every subscription they pay for or hold that still runs is asked at the payment provider to end when the period already paid for ends (one paused, unpaid or waiting for its first payment ends at once): nothing is refunded and nothing more is charged; admins are told of one that could not be asked, and of one another person is still on. Cannot be undone; use person.delete for a reversible delete.",
+      "description": "Permanently delete a person now, for GDPR erasure requests (admins only). Works on live people and people in Trash, and also erases anyone merged into them. Emails, phones, affiliations and tags go; activities and tasks linked only to them are deleted; system activities about them (field changes, job changes, merges) are removed from every timeline. Audit-log content that mentions them (their id, emails or phone numbers) is replaced with \"[erased]\"; who did what and when is kept. In-app assistant conversations that referenced them are redacted the same way (tool calls and results that mention them lose their content; their ids, emails, phone numbers and names in text become \"[erased]\"). Former emails and phones count too. Synced email bodies, suggested contacts, signatures, extension data related to them, automation run history and notifications about them are deleted or redacted, and their addresses are added to the erased-address list so mail sync does not collect them again. Their customer account, its sessions and sign-in codes, invites for their addresses and their erase requests are deleted (an open request is closed as erased). Their birthday, health answers and minor mark are deleted; what they agreed to is kept, no longer theirs, as the business's evidence until the retention period ends (agreement.retention, counted from the erase), then deleted: agreementsKept says how many and until when. Every subscription they pay for or hold that still runs is asked at the payment provider to end when the period already paid for ends (one paused, unpaid or waiting for its first payment ends at once): nothing is refunded and nothing more is charged; admins are told of one that could not be asked, and of one another person is still on. In the booking system's copy, the outside people linked to them, those linked to nobody on an address only they hold, and coaches on it with no staff account go, with their memberships, passes, bookings and To match; their addresses (but one someone else holds) and the linked rows' refs are suppressed, so no later list brings them back. A row linked to anyone else, or waiting because another Person holds the address, stays. bookingSystem says what happened, and that a copy remains in the booking system itself. Cannot be undone; use person.delete for a reversible delete.",
       "risk": "destructive",
       "audiences": [
         "staff"
@@ -73183,6 +73400,65 @@
           "bodiesDeleted": {
             "type": "number",
             "description": "Synced email bodies deleted from blob storage now (the rest are retried)"
+          },
+          "bookingSystem": {
+            "description": "Whenever the host holds a booking system's copy (stage 65): what the erase did to it. Present even when nothing of theirs was found. A copy remains in the booking system, for staff to deal with there",
+            "type": "object",
+            "properties": {
+              "deletedLinked": {
+                "type": "number",
+                "description": "Outside people linked to them (by address or by staff): deleted, their refs suppressed"
+              },
+              "deletedUnlinked": {
+                "type": "number",
+                "description": "Outside people linked to nobody on an address only they held (their household's unmatched copies): deleted, no ref suppressed, as one may be a family member's: such a row comes back if the booking system later lists it under another address"
+              },
+              "coaches": {
+                "type": "number",
+                "description": "Coaches on their address with no staff account: deleted, their refs suppressed unless someone else holds the address"
+              },
+              "keptLinkedToOthers": {
+                "type": "number",
+                "description": "Outside people and coaches on their address kept, because linked to another Person or a staff account: kept at later loads too while that link holds, though their address is on the erased-address list"
+              },
+              "keptWaiting": {
+                "type": "number",
+                "description": "Outside people on their address left waiting in To match, because another Person holds the address too: the next load drops them while they list an address of theirs on the erased-address list"
+              },
+              "keptNamedElsewhere": {
+                "type": "number",
+                "description": "Outside people linked to nobody that list their full name on an address someone else holds (a child on a parent's mailbox): left, as they cannot be told from a namesake; staff decide"
+              },
+              "sharedAddresses": {
+                "type": "number",
+                "description": "Their addresses another Person, customer account or kept outside person also holds: not suppressed in the copy (a count only). Their own live addresses are on the erased-address list and redacted from the audit whatever this says"
+              },
+              "textScrubbed": {
+                "type": "number",
+                "description": "Classes and class types whose text named them (a full name of two words or more, whole words, any case), scrubbed. A later timetable scrubs an erased coach's name again; a member's name a later list writes into a title is not matched (no name is kept after the erase)"
+              },
+              "copyRemains": {
+                "type": "boolean",
+                "const": true,
+                "description": "The booking system itself still holds them: the host cannot remove it there"
+              },
+              "note": {
+                "type": "string"
+              }
+            },
+            "required": [
+              "deletedLinked",
+              "deletedUnlinked",
+              "coaches",
+              "keptLinkedToOthers",
+              "keptWaiting",
+              "keptNamedElsewhere",
+              "sharedAddresses",
+              "textScrubbed",
+              "copyRemains",
+              "note"
+            ],
+            "additionalProperties": false
           },
           "dependantsWithoutGuardian": {
             "description": "People this person was the only live guardian of (ADR 0540): they stay, with no guardian linked, and a note on their timeline",
@@ -74301,7 +74577,7 @@
     },
     {
       "name": "person.merge",
-      "description": "Merge a duplicate person (mergedId) into another (survivorId). The survivor keeps its own values unless fields says to take the duplicate's (per field: 'survivor' or 'merged'); empty survivor fields are filled from the duplicate (the birthday too: the survivor's is kept unless it has none). Emails, phones, social profiles and tags are combined, and the duplicate's affiliations, activity links and task links move to the survivor (the survivor keeps its primary affiliation if it has one). The duplicate goes to Trash pointing at the survivor, and can be restored from there (without what moved). A customer account moves to the survivor; when both people have one, the merge is refused until staff disable one (the disabled one is then deleted). Returns the survivor.",
+      "description": "Merge a duplicate person (mergedId) into another (survivorId). The survivor keeps its own values unless fields says to take the duplicate's (per field: 'survivor' or 'merged'); empty survivor fields are filled from the duplicate (the birthday too: the survivor's is kept unless it has none). Emails, phones, social profiles and tags are combined, and the duplicate's affiliations, activity links and task links move to the survivor (the survivor keeps its primary affiliation if it has one). The duplicate goes to Trash pointing at the survivor, and can be restored from there (without what moved). Links to the booking system's copy move to the survivor. A customer account moves to the survivor; when both people have one, the merge is refused until staff disable one (the disabled one is then deleted). Returns the survivor.",
       "risk": "destructive",
       "audiences": [
         "staff"

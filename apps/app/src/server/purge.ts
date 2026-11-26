@@ -7,6 +7,7 @@ import {
   drainAllBlobDeletions,
   errorForLog,
   expirePendingActions,
+  finishOutsideRemoval,
   measureStorage,
   notifyOverdueEraseRequests,
   parseFloor,
@@ -114,6 +115,14 @@ export async function runScheduledMaintenance(env: PurgeEnv, clock?: () => Date)
   if (idempotencyKeys?.deleted) console.log(`idempotency keys: ${idempotencyKeys.deleted} purged`);
   // Wrong guesses per client address are counted per hour, and kept no longer (ADR 0940).
   await step("wrong guesses", () => purgeWrongGuesses(db, clock?.() ?? new Date()));
+  // A removal of the booking system's copy left unfinished (stage 65, ADR 0926): finished here,
+  // within one call's bounds; what is left waits for the next day.
+  const outside = await step("booking system removal", () => finishOutsideRemoval(db, now));
+  if (outside?.rows) {
+    console.log(
+      `booking system: ${outside.rows} row(s) of a removed list deleted${outside.remaining ? ", more due" : ""}`,
+    );
+  }
   // Erase requests past their due date: admins are told once a day until staff close them.
   const eraseRequests = await step("overdue erase requests", () =>
     notifyOverdueEraseRequests(db, clock?.() ?? new Date()),
@@ -143,6 +152,7 @@ export async function runScheduledMaintenance(env: PurgeEnv, clock?: () => Date)
     orders,
     agreements,
     idempotencyKeys,
+    outside,
   };
 }
 

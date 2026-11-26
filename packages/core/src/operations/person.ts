@@ -38,6 +38,7 @@ import { queueMergeSignals } from "../journeys/signals.ts";
 import { listInputSchema, pageSchema, runListQuery, selectFields } from "../list.ts";
 import { defineOperation, type HandlerContext } from "../operation.ts";
 import { queueMergeOrders } from "../orders/merge.ts";
+import { queueMergeOutside } from "../outside/erase.ts";
 import { matchPersonAddresses } from "../outside/match.ts";
 import { queueMergePersonCodes } from "../people-codes/people.ts";
 import { queueMergePractitioners } from "../practitioners/merge.ts";
@@ -1137,7 +1138,8 @@ export const personMerge = defineOperation({
     "tags are combined, and the duplicate's affiliations, activity links and task links move " +
     "to the survivor (the survivor keeps its primary affiliation if it has one). The " +
     "duplicate goes to Trash pointing at the survivor, and can be restored from there " +
-    "(without what moved). A customer account moves to the survivor; when both people have " +
+    "(without what moved). Links to the booking system's copy move to the survivor. A customer " +
+    "account moves to the survivor; when both people have " +
     "one, the merge is refused until staff disable one (the disabled one is then deleted). " +
     "Returns the survivor.",
   input: z.object({
@@ -1295,6 +1297,9 @@ export const personMerge = defineOperation({
     ctx.write(...(await mergeChoiceStatements(ctx.db, survivor.id, merged.id, ctx.now)));
     // Personal links follow the Person too (ADR 0723): a live one stays answerable, by the survivor.
     ctx.write(mergeLinkStatement(survivor.id, merged.id));
+    // Links to the booking system's copy follow the Person; the survivor takes the duplicate's
+    // place in To match (stage 65, ADR 0926).
+    await queueMergeOutside(ctx, survivor.id, merged.id);
     // One primary affiliation per person: the survivor's wins.
     if (survivor.primaryAffiliation) {
       ctx.write(
@@ -1478,7 +1483,13 @@ export const personErase = defineOperation({
     "payment provider to end when the period already paid for ends (one paused, unpaid or " +
     "waiting for its first payment ends at once): nothing is refunded and nothing more is " +
     "charged; admins are told of one that could not be asked, and of one another person is " +
-    "still on. Cannot be undone; use person.delete for a reversible delete.",
+    "still on. In the booking system's copy, the outside people linked to them, those linked to " +
+    "nobody on an address only they hold, and coaches on it with no staff account go, with their " +
+    "memberships, passes, bookings and To match; their addresses (but one someone else holds) " +
+    "and the linked rows' refs are suppressed, so no later list brings them back. A row linked " +
+    "to anyone else, or waiting because another Person holds the address, stays. bookingSystem " +
+    "says what happened, and that a copy remains in the booking system itself. Cannot " +
+    "be undone; use person.delete for a reversible delete.",
   input: z.object({ id: personId }),
   output: z.object({
     id: z.string(),

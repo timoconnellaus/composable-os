@@ -125,8 +125,33 @@ business, and its lawyer or the booking system's support, to confirm. The load s
 - **Step 9** — unclear — the roster is "later" by decision 1 and the owner's change of plan calls step 9
   moot without amending the spec — The roster (migration 1411).
 
-- **Step 10** — not built — needs: step 3 — Erase, merge, removal (erase is reserved,
-  `docs/parallel-work.md`; must land before step 4).
+- **Step 10** — built — PR #508 — Erase, merge, removal (built 2026-11-26, branch
+  `feat/stage-65-erase-merge`; ADR 0926; migration 1412): `packages/core/src/outside/erase.ts`:
+  `person.erase` (through `queueErase`) deletes, by ADR 0926's rule, the outside rows linked to
+  the Person, rows linked to nobody on an address only they hold, and coaches on it with no staff
+  account (never a row linked to another Person or a staff account), with their memberships,
+  passes, bookings, To match rows, their id in others' candidates and staff's unlink decisions,
+  and the linked rows' full names in class titles, in the erase's batch; their addresses (but a
+  shared one) and the linked rows' names join the erase's terms (never refs); the linked rows'
+  refs and the unshared addresses go into `core_outside_suppressed` by keyed hash (the
+  deployment's salt, as ADR 0675's suppression list) with the salt's fingerprint and a row per
+  erase (`core_outside_suppressed_erase`), carried in the erase log and put back by
+  `erasure.reapply`, which with every load, link and erase refuses a changed salt; the result's
+  `bookingSystem` always says what happened and that a copy remains in the booking system. One
+  rule (`keptByLink`) keeps a row linked to another Person or a staff account at the erase and at
+  every later load; a later timetable scrubs an erased coach's name from its titles; every address
+  an erase considered is recorded per erase, so consent lifts exactly that erase's own. Loads drop a suppressed coach too and
+  count what a suppressed ref drops (`previouslyErased`); `outside.link` refuses a suppressed ref
+  or address; `outside.suppression.lift` (a person with records:erase too) lifts a reused ref; `erasure.allowAddress`
+  lifts an address with that erase's refs. `person.merge` moves links to the survivor and
+  reconciles To match; `trash.purge` drops a purged Person's links. `outside.lists.remove`
+  (`outside/remove.ts`; a person with `bookingSystem:manage`, never an AI, MCP, Code Mode, an
+  extension or an automation): a kind or `all`, stops counting at once, rows of no current list go
+  in passes of 2,000, at most 100 a call, finished by the daily maintenance or `finish: true`;
+  every read holds to the current lists (`onCurrentList`). Step 3's unlink hash moved to the same
+  keyed hash. Built here though the spec lists it under step 4: `outside.lists.remove`. Tests:
+  `outside-erase.test.ts`, `outside-bounds.test.ts`, the copy in `erase-stores.test.ts`'s
+  every-store erase (criterion 12, the removal part of 3). Step 4 may now merge.
 
 ## Goal
 

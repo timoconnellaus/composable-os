@@ -12,6 +12,7 @@ import { eraseJourneyStatements } from "../journeys/entries.ts";
 import { queueEraseSignals } from "../journeys/signals.ts";
 import { decodeCursor, encodeCursor } from "../list.ts";
 import { defineOperation } from "../operation.ts";
+import { queuePurgeOutside } from "../outside/erase.ts";
 import {
   chunk,
   jsonList,
@@ -303,6 +304,11 @@ export const trashPurge = defineOperation({
       purged.filter((r) => r.object === "person").map((r) => r.id),
     );
     if (journeys.length) ctx.write(...journeys);
+    // Their links in the booking system's copy go; the outside people stay, unlinked (ADR 0926).
+    queuePurgeOutside(
+      ctx,
+      purged.filter((r) => r.object === "person").map((r) => r.id),
+    );
     // Duplicate pairs have no foreign key: a purged record's pairs (dismissed ones too) go with it.
     for (const object of ["person", "organisation"] as const) {
       const ids = purged.filter((r) => r.object === object).map((r) => r.id);
