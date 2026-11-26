@@ -6,7 +6,13 @@ Core D1 schema for a deployment.
   `migrations_dir` here, so `wrangler d1 migrations apply DB` applies them. Never touch `x_*`
   tables from a core migration.
 - `applyMigrations(db, migrations)`: the same runner for tests and upgrade code. It shares the
-  `core_migrations` bookkeeping table with wrangler.
+  `core_migrations` bookkeeping table with wrangler. `{ table: "registry_migrations" }` applies
+  the registry's.
+- `registry-migrations/`: the registry's own migrations (stage 66, ADR 0613), for the `REGISTRY`
+  database of a host that serves many clients, never a client's. `@composable-os/db/registry`
+  reads it (client ids, exact hostnames, settings, the version stamp, `isSchemaBehind`), and
+  `@composable-os/db/client-environment` builds a client's environment from it (`DB` from
+  `@composable-os/db/client-db`). Neither is exported from `@composable-os/db`.
 - `getMigrationLevel(db)`: the applied level, reported by `/api/health`.
 - `createDb(d1)`: typed [Kysely](https://kysely.dev) access to core tables (ADR 0014).
 - `createCrmDb(d1)`: the handle operations use: `{ query: Kysely, batch(statements) }`, where
