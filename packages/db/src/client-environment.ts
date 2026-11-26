@@ -21,6 +21,7 @@ import {
   type BindingWrapper,
   buildClientEnvironment,
   clientOf,
+  clientStampOf,
   envNameUse,
   type HostBindings,
   hasBindingWrapper,
@@ -54,6 +55,7 @@ export type { BindingWrapper, HostBindings };
 export {
   BINDING_WRAPPERS,
   clientOf,
+  clientStampOf,
   envNameUse,
   hasBindingWrapper,
   keepRateLimitApart,

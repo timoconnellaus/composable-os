@@ -21,10 +21,14 @@
 //   "refuse"`): it has no client to answer for, so it gets nothing rather than another's.
 // - The two-client test mode (`COS_TEST_DB=two-clients`) gives one whose unscoped code is the
 //   suite's own client (`unscoped: <its database>`), while a second client takes turns in scope.
-/** One client's scope: the database its requests reach, and its id on a many-client host. */
+/** One client's scope: the database its requests reach, and its stamp on a many-client host. */
 export interface ClientScope {
   readonly database: object;
-  /** The client's id (the registry's), or null where it is not known (a single client). */
+  /**
+   * The client's stamp, `<environment>:<client>` (`clientStampOf`, `@composable-os/db`): its
+   * id alone would be shared by its live and staging environments. Null where it is not known (a
+   * single client; a scope `invoke` made with no entry).
+   */
   readonly client: string | null;
 }
 
@@ -98,8 +102,9 @@ export function currentClientScope(): ClientScope | null {
 }
 
 /**
- * The client's id the code runs for, or null (a single client; a scope an entry did not name).
- * A shared cache outside the isolate (the Workers Cache API) puts it in its key.
+ * The stamp of the client the code runs for (`<environment>:<client>`), or null (a single
+ * client; a scope an entry did not name). A shared cache outside the isolate (the Workers Cache
+ * API) puts it in its key.
  */
 export function currentClientId(): string | null {
   return currentClientScope()?.client ?? null;

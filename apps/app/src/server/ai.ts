@@ -41,8 +41,8 @@ import {
   vectorizeStore,
 } from "@composable-os/core";
 import { type CrmDb, createCrmDb, databaseOf } from "@composable-os/db";
-import { clientOf } from "@composable-os/db/client-environment";
 import { voiceContextFor } from "./assistant/voice.ts";
+import { clientKeyOf } from "./client-key.ts";
 
 export interface AiAppEnv extends AiEnv, HostedAiAdminEnv {
   /** "true": stand-in speech providers (local dev and e2e only), like AI_FAKE_MODEL. */
@@ -59,18 +59,18 @@ export interface AiAppEnv extends AiEnv, HostedAiAdminEnv {
 // vectors, and on a many-client host each client's environment is its own object.
 const devVectors = new WeakMap<object, VectorStore>();
 /** What a per-environment value is kept under: a client's environment, or one for a single client. */
+/** The embedding drain's one slot on a deployment that serves one client. */
 const SINGLE_CLIENT = {};
-const environmentKey = (env: object): object => (clientOf(env) === null ? SINGLE_CLIENT : env);
 
 /** The vector store: Vectorize, or (local dev / e2e with AI_FAKE_MODEL) one in memory. */
 export function vectorStoreFor(env: AiAppEnv): VectorStore | undefined {
   const index = env.VECTORIZE as VectorizeLike | undefined;
   if (index && typeof index.query === "function") return vectorizeStore(index);
   if (env.AI_FAKE_MODEL === "true" && !env.AI) {
-    let store = devVectors.get(environmentKey(env));
+    let store = devVectors.get(clientKeyOf(env));
     if (!store) {
       store = memoryVectorStore();
-      devVectors.set(environmentKey(env), store);
+      devVectors.set(clientKeyOf(env), store);
     }
     return store;
   }

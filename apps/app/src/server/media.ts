@@ -10,7 +10,7 @@ import {
   streamHostFromEnv,
   type VideoHost,
 } from "@composable-os/core";
-import { clientOf } from "@composable-os/db/client-environment";
+import { clientStampOf } from "@composable-os/db/client-environment";
 import { requestEnv } from "./request-env.ts";
 
 /** The part of Cloudflare's Images binding this uses. */
@@ -111,7 +111,7 @@ export function clientVideoHosts(deployment: VideoEnv): () => VideoHost | undefi
     const env = requestEnv();
     let held = hosts.get(env);
     if (!held) {
-      const client = clientOf(env);
+      const client = clientStampOf(env);
       held = {
         host: client ? clientVideoHost(deployment, env as unknown as VideoEnv, client) : undefined,
       };

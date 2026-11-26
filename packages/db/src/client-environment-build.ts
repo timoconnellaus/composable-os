@@ -174,6 +174,8 @@ function wrapperFor(name: string): BindingWrapper | null {
 
 /** Which client an environment built here is for. Keyed by the environment object itself. */
 const clientOfEnvironment = new WeakMap<object, ClientId>();
+/** Which of its environments (live, staging) an environment built here is the client's. */
+const environmentNameOf = new WeakMap<object, string>();
 
 /**
  * The views of a client's environment an object's base class holds (client-objects.ts), each with
@@ -202,6 +204,29 @@ export function clientOf(env: object): ClientId | null {
   } catch {
     return null;
   }
+}
+
+/**
+ * The one name a client's environment goes by outside the host, where a client's id alone would
+ * be shared by its live and its staging environment: `<environment>:<client>` (review of #522,
+ * M2). It is the creator stamped on the client's videos, and what the zone's shared caches (the
+ * widget cache, public content) key the client by. The shape is decided here and nowhere else.
+ * Null for a single-client deployment's `env`.
+ */
+export function clientStampOf(env: object): string | null {
+  const client = clientOf(env);
+  if (!client) return null;
+  let own: object | undefined = clientOfEnvironment.has(env) ? env : undefined;
+  if (!own) {
+    try {
+      own = environmentOfView.get(env)?.();
+    } catch {
+      return null;
+    }
+  }
+  const environment = own ? environmentNameOf.get(own) : undefined;
+  if (!environment) return null;
+  return `${environment}:${client}`;
 }
 
 /**
@@ -366,6 +391,7 @@ export function buildClientEnvironment<E extends HostBindings>(env: E, part: Cli
   out.DB = frozen(openClientDatabase(env, client));
   Object.freeze(out);
   clientOfEnvironment.set(out, client.id);
+  environmentNameOf.set(out, client.environment);
   return out as unknown as E;
 }
 
@@ -383,5 +409,7 @@ export function withOAuthHelpers<E extends object>(env: E, helpers: unknown): E 
   if ("OAUTH_PROVIDER" in env) throw new Error("This environment has OAuth helpers already");
   const out = Object.freeze({ ...env, OAUTH_PROVIDER: helpers });
   clientOfEnvironment.set(out, client);
+  const environment = environmentNameOf.get(env);
+  if (environment) environmentNameOf.set(out, environment);
   return out as E;
 }

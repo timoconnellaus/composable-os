@@ -15,7 +15,8 @@ import { env as workerEnv } from "cloudflare:workers";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { type ClientScope, provideClientScope, runInClientScope } from "@composable-os/core";
 import { servesManyClients } from "@composable-os/db/client-entries";
-import { clientOf } from "@composable-os/db/client-environment";
+import { clientStampOf } from "@composable-os/db/client-environment";
+import { provideObjectScope } from "@composable-os/db/client-objects";
 
 const current = new AsyncLocalStorage<Env>();
 
@@ -24,6 +25,8 @@ const current = new AsyncLocalStorage<Env>();
 // and code outside every client's scope is refused rather than given another client's.
 if (servesManyClients(workerEnv)) {
   provideClientScope(new AsyncLocalStorage<ClientScope>(), { unscoped: "refuse" });
+  // Every call that enters one of the app's client objects, in that client's scope.
+  provideObjectScope((env, run) => runInClientEnv(env as Env, run));
 }
 
 /**
@@ -39,7 +42,7 @@ export const deploymentEnv: Env = workerEnv;
  * for it is its own: the scope is its database, one object per client environment.
  */
 export function runInClientEnv<T>(env: Env, run: () => T): T {
-  const scope = { database: env.DB as object, client: clientOf(env) };
+  const scope = { database: env.DB as object, client: clientStampOf(env) };
   return current.run(env, () => runInClientScope(scope, run));
 }
 

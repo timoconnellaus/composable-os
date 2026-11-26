@@ -12,10 +12,11 @@ import {
   planReconcile,
 } from "@composable-os/core";
 import { createCrmDb } from "@composable-os/db";
-import { clientOf, environmentFor } from "@composable-os/db/client-environment";
+import { clientStampOf, environmentFor } from "@composable-os/db/client-environment";
 import { setUpTwoClients, TWO_CLIENTS } from "@composable-os/db/testing/two-clients";
 import { manifestSchema } from "@composable-os/sdk";
 import { beforeAll, describe, expect, it } from "vitest";
+import { clientKeyOf } from "../src/server/client-key.ts";
 import { type AppParts, hostFetch } from "../src/server/entry.ts";
 import { createAppHandler } from "../src/server/mcp/handler.ts";
 import { clientVideoHosts } from "../src/server/media.ts";
@@ -154,7 +155,19 @@ describe("each client's video host", () => {
         return { same: resolve() === video, details: await video.provider.details(upload.uid) };
       });
       expect(made.same).toBe(true);
-      expect(made.details?.creator).toBe(clientOf(clientsEnv));
+      // `<environment>:<client>`: a client's staging and live never share a creator (#522, M2).
+      expect(made.details?.creator).toBe(`live:${client}`);
+      expect(made.details?.creator).toBe(clientStampOf(clientsEnv));
     }
+  });
+});
+
+describe("a value kept per client environment (review of #522, M1)", () => {
+  it("is refused for an environment the directory did not make, never kept in one shared slot", async () => {
+    const aEnv = await clientEnv(a.id);
+    expect(clientKeyOf(aEnv)).toBe(aEnv);
+    // A copy of a client's environment is no client's: refused, not the single client's slot.
+    expect(() => clientKeyOf({ ...aEnv })).toThrow(/Not a client's environment/);
+    expect(() => clientKeyOf({})).toThrow(/Not a client's environment/);
   });
 });

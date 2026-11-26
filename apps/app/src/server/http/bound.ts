@@ -71,8 +71,8 @@ import {
   refusalResponse,
   servesManyClients,
 } from "@composable-os/db/client-entries";
-import { clientOf } from "@composable-os/db/client-environment";
 import { PROOF } from "@composable-os/db/client-proofs";
+import { clientKeyOf } from "../client-key.ts";
 import { type MediaEnv, mediaResizerFor, mediaStoreFor } from "../media.ts";
 import { runInClientEnv } from "../request-env.ts";
 import { handleAgreementPdf, isAgreementPdfPath } from "./agreement-pdf.ts";
@@ -117,7 +117,6 @@ const NOTICE_EVERY_MS = 60 * 60 * 1000;
 // When each environment's notice was last tried (stage 66 step 5, ADR 0617): a client's admins
 // are told about their own app, whatever another client's did.
 let noticeAt = new WeakMap<object, number>();
-const SINGLE_CLIENT = {};
 
 /** The dedupe key prefix of the admins' daily notice that a client app names no visitor. */
 export const NO_VISITOR_NOTICE = "public_limit.no_visitor:";
@@ -125,7 +124,7 @@ export const NO_VISITOR_NOTICE = "public_limit.no_visitor:";
 /** Tells the admins, once a day (tried at most once an hour per isolate), that no visitor came. */
 async function noVisitorNotice(env: ApiEnv): Promise<void> {
   const at = Date.now();
-  const key = clientOf(env) === null ? SINGLE_CLIENT : env;
+  const key = clientKeyOf(env);
   if (at - (noticeAt.get(key) ?? 0) < NOTICE_EVERY_MS) return;
   noticeAt.set(key, at);
   const now = new Date(at).toISOString();

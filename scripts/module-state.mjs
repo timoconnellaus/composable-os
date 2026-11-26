@@ -11,6 +11,10 @@
 //   once, the deployment's own values, a counter, a log line's dedupe.
 // - `call`: lives for one request or call (an AsyncLocalStorage), or runs only in a browser.
 //
+// What the check cannot see, for reviewers: a container exported and changed from another file, an
+// alias of a container (`const m = cache; m.set(…)`), and state made by a call at module level (a
+// closure a factory returns, a registry object a function builds).
+//
 // Adding a cache? Key it by client first: in packages/core, `clientState(() => …)`; elsewhere a
 // WeakMap keyed by the client's environment (on a single client, one slot, as `SINGLE_CLIENT`
 // does in apps/app/src/server/operations.ts). Then list it here, saying what it is keyed by.
@@ -206,6 +210,22 @@ export const MODULE_STATE = {
   "packages/db/src/client-environment-build.ts#clientOfEnvironment": [
     "client",
     "which client each environment object is",
+  ],
+  "packages/db/src/client-environment-build.ts#environmentNameOf": [
+    "client",
+    "which of its environments (live, staging) each client environment object is",
+  ],
+  "packages/db/src/client-environment-build.ts#environmentOfView": [
+    "client",
+    "each object's view of its client's environment, by view (#520)",
+  ],
+  "packages/db/src/client-objects.ts#insideCall": [
+    "call",
+    "whether a call is already inside a checked one: one call's (#520)",
+  ],
+  "packages/db/src/client-objects.ts#enterScope": [
+    "independent",
+    "how an object's call enters its client's scope: the host Worker's, given once at load",
   ],
   "packages/db/src/client-environment.ts#directories": [
     "client",

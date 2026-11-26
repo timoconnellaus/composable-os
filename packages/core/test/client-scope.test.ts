@@ -7,6 +7,7 @@
 import { env } from "cloudflare:workers";
 import { AsyncLocalStorage } from "node:async_hooks";
 import { afterAll, beforeAll, describe, expect, it } from "vitest";
+import { cachedContent, setContentCacheStore } from "../src/content/cache.ts";
 import { cacheApiWidgetCache, memoryWidgetCache, widgetCacheKey } from "../src/dashboards/cache.ts";
 import { forgetSchemaNames, schemaNames } from "../src/dashboards/run.ts";
 import {
@@ -151,6 +152,41 @@ describe.skipIf(clientScopesHeld())("module-level state on a host that serves ma
     expect(asOwnClient(() => itemFailed(item))).toBe(true);
     expect(asOtherClient(() => itemFailed(item))).toBe(false);
     forgetFailedItems();
+  });
+
+  it("puts the client in the public content cache's key, though a copied database shares its epoch (review of #522, M3)", async () => {
+    const object = `probe${extId("content")}.page`;
+    await env.DB.prepare(
+      "INSERT INTO core_content_generation (object_type, generation, epoch, changed_at) VALUES (?, 1, 'same-epoch', ?)",
+    )
+      .bind(object, new Date().toISOString())
+      .run();
+    const stored = new Map<string, Response>();
+    setContentCacheStore({
+      async match(request) {
+        return stored.get(request.url)?.clone();
+      },
+      async put(request, response) {
+        stored.set(request.url, response);
+      },
+    });
+    try {
+      // Two clients whose databases hold the same epoch and generation (one copied from the other).
+      const live = { database: env.DB, client: "live:gym-one" };
+      const copied = { database: env.DB, client: "live:gym-two" };
+      const read = (who: string) => () =>
+        cachedContent(db.query, object, { q: 1 }, async () => who);
+      expect(await runInClientScope(live, read("gym-one"))).toBe("gym-one");
+      expect(await runInClientScope(copied, read("gym-two"))).toBe("gym-two");
+      expect(await runInClientScope(live, read("again"))).toBe("gym-one");
+      expect(stored.size).toBe(2);
+      // A scope that names no client caches nothing in the zone's cache.
+      const unnamed = { database: env.DB, client: null };
+      expect(await runInClientScope(unnamed, read("unnamed"))).toBe("unnamed");
+      expect(stored.size).toBe(2);
+    } finally {
+      setContentCacheStore(undefined);
+    }
   });
 
   it("puts the client in the shared widget cache's key, and caches nothing for code that names none", async () => {

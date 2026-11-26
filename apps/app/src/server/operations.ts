@@ -26,12 +26,12 @@ import {
   withCodeModeRateLimit,
 } from "@composable-os/core";
 import { createCrmDb } from "@composable-os/db";
-import { clientOf } from "@composable-os/db/client-environment";
 import { type AiAppEnv, aiContextFor } from "./ai.ts";
 import { approvalExpiryDays } from "./approval-expiry.ts";
 import type { AssistantAgent } from "./assistant/agent.ts";
 import { threadStub } from "./assistant/http.ts";
 import { type AgentJob, jobName } from "./assistant/job.ts";
+import { clientKeyOf } from "./client-key.ts";
 import { type DeskEnv, deskHostFor } from "./desk.ts";
 import { hostMailFor } from "./host-mail.ts";
 import { blobStoreFor, integrationRuntimeFor } from "./integrations.ts";
@@ -185,7 +185,6 @@ function rpcHost(stub: ExtensionHost): ExtensionHost {
 // Once per environment (stage 66 step 5, ADR 0617): on a many-client host each client's
 // environment is its own object, and each client's database needs its own install.
 const shippedInstalls = new WeakMap<object, Promise<void>>();
-const SINGLE_CLIENT = {};
 
 /**
  * Installs the shipped extensions bundled with this release once per isolate (and client),
@@ -194,7 +193,7 @@ const SINGLE_CLIENT = {};
  */
 export function ensureShippedExtensions(env: OperationsEnv): Promise<void> {
   if (!env.RUNNER) return Promise.resolve();
-  const key = clientOf(env) === null ? SINGLE_CLIENT : env;
+  const key = clientKeyOf(env);
   const held = shippedInstalls.get(key);
   if (held) return held;
   const shippedInstall = runner({ RUNNER: env.RUNNER })

@@ -24,8 +24,15 @@ such call would touch most of core.
 ### The client scope
 `packages/core/src/client-scope.ts`. A **client scope** is the database a client's requests reach
 (one object per client and isolate: the client's environment's `DB`, or a single client's D1
-binding) and the client's id. It is held by an `AsyncLocalStorage`, which follows the code through
-every `await`, callback and `waitUntil` it starts.
+binding) and the client's stamp. It is held by an `AsyncLocalStorage`, which follows the code
+through every `await`, timer, stream and `waitUntil` it starts, but not across two boundaries
+the runtime enters afresh (below).
+
+The **client's stamp** is `<environment>:<client>` (`clientStampOf`, `@composable-os/db`, the one
+place the shape is written): a client has the same id in its live and its staging environment, so
+whatever leaves the host's isolates keyed by client (a video's creator, the zone's shared caches)
+is keyed by the stamp. _Coordinator's decision during the review of #522 (M2), told to the owner,
+who may change it: staging and live are not assumed to have their own Stream account and zone._
 
 - **Given once, at load, by the host Worker** (`provideClientScope`): the app's
   `server/request-env.ts` and the runner's `client-scope.ts`, only when the deployment serves many
@@ -33,8 +40,19 @@ every `await`, callback and `waitUntil` it starts.
   `client-scope.ts` imports nothing.
 - **Set at every entry** once it has decided the client: the app's `runInClientEnv` (every fetch,
   cron tick, queue batch, routine delivery and the client-app door, as step 4 placed it), the
-  runner's `callAs`, its fan-out ticks and parked and stamped queue batches, and its automation
-  Workflow (`inClientScope`).
+  runner's `callAs`, its fan-out ticks and parked and stamped queue batches (`inClientScope`),
+  and every call that enters a client's Durable Object: #520's `refreshOnEachCall` runs each
+  checked call through a hook the app and the runner give at load (`provideObjectScope`,
+  `@composable-os/db/client-objects`), with the environment the object was admitted with. A hook,
+  not the store moved into `@composable-os/db`: one function in, nothing of core's API moves, and
+  core's primitive stays import-free for the browser.
+- **Not carried across two boundaries, so each is entered again:**
+  - a Workflow's `step.do` callback: the engine calls it with no AsyncLocalStorage context, so the
+    automation Workflow's `durable(env, step, …)` wraps every step's callback in
+    `inClientScope(env, …)`; the Workflow's `run()` itself does nothing outside steps;
+  - an `RpcTarget` callback from a Worker Loader worker (an extension's host module call), and a
+    gatekeeper's callback into a sink the runner handed it: `RunHost.call` and the webhook,
+    payment and text sinks enter their client's scope on each call.
 - **Set by `invoke`** for an operation called where no scope is held (a Durable Object's own call,
   a test): the scope of its handle's database (`databaseOf`, `@composable-os/db`, which maps every
   handle made by `createCrmDb` or `createDb`, and the read-only twin, to the binding it was made
@@ -53,15 +71,18 @@ rate-limits-down notice to a client's admins (the pipeline).
 
 ### Caches outside the isolate
 The Workers Cache API is the zone's, so every client of a host shares it. The widget cache key
-(`widgetCacheKey`: dashboards, Today's pack items and Today's takings) gains the scope's client id,
-and code whose scope names no client (an operation in a Durable Object's own call) uses no shared
-cache at all. A single client's keys are as they were. Public content was already keyed by a
-random epoch in the client's own database. Settings → AI's usage cache needs the account's API
-token, which a client's environment never holds.
+(`widgetCacheKey`: dashboards, Today's pack items and Today's takings) and the public content key
+(`cachedContent`, which also holds the random epoch of the client's own database, an epoch a
+copied database would share) gain the scope's client stamp, and code whose scope names no client
+(an operation `invoke` scoped on its own) uses neither shared cache. A single client's keys are as
+they were. Settings → AI's usage cache needs the account's API token, which a client's environment
+never holds.
 
 ### Keyed elsewhere
 Outside core a cache is keyed by the client's environment object (each client's is one frozen
-object per isolate), with one slot for a single client so nothing changes there: the shipped
+object per isolate), with one slot for a single client so nothing changes there (`clientKeyOf`
+in the app and the runner; on a many-client host an environment the directory did not make is
+refused, never given the single client's slot): the shipped
 extensions' install per isolate (`ensureShippedExtensions`, which installed only the first
 client's), a client's own extensions read from its files (by environment, then content hash), the
 in-memory vector stand-in, the no-visitor notice; the embedding drain is one per client's database.
@@ -89,14 +110,20 @@ made from another file are not seen: those are review's, and the two-client test
   vitest in batches of one file per worker: in this mode the pool's workerd exits when a worker
   starts its second file (its setup file loads the whole of core).
 - `apps/app/test-two-clients/caches.test.ts`: through the app's real entries, one client with an
-  extension the other lacks, their requests side by side.
+  extension the other lacks, their requests side by side; the video creator's stamp; the refusal
+  of an environment that is no client's.
+- `apps/runner/test-two-clients/scopes.test.ts`, under the store that refuses code outside a
+  scope: a record-triggered automation runs to completion for each client, a parked event is
+  consumed and its run completes, `callAs` reads the named client's schema, a fan-out tick
+  dispatches the client's integration events, a host module call from outside any scope runs in
+  its run's client's, and a call through `refreshOnEachCall` runs in its object's client's.
 
 ### The creator-checked video host
 One Stream account and one token hold every client's videos. `creatorCheckedVideoHost(shared,
 client)` (`records/stream.ts`) is that account as one client's:
 
 - every upload (basic: `creator` in the body; resumable: `Upload-Creator`) and every copy is
-  stamped with the client as its creator;
+  stamped with the client's stamp (`<environment>:<client>`) as its creator;
 - every call that names a video (its details, securing it, its captions, deleting it) first reads
   its details and is refused with the one not-found unless Stream says this client created it
   (none, or another, is refused);
@@ -113,12 +140,14 @@ one host as before, with no creator and no check.
 ## Consequences
 - A many-client host's module-level state is its clients' own, by construction for everything
   converted, and by the tripwire's list for everything else.
-- Code a many-client host runs outside every scope fails loudly rather than silently sharing.
-  What is not yet scoped: a Durable Object's own code outside an operation in the runner (the
-  integration host, the workspace, the code-mode gate) and the app's agent objects outside
-  `runInClientEnv`; their operations are scoped by `invoke`, but a direct read of a converted
-  cache from such code is refused. Wrapping each object's calls in its client's scope belongs with
-  the object base class of the hardening after #512 (#515, PR #520), once it lands.
+- Code a many-client host runs outside every scope fails loudly rather than silently sharing. A
+  new boundary the runtime enters afresh (another kind of callback) must enter its client's
+  scope itself, as Workflow steps and Loader callbacks do.
+- A registry change rebuilds every client's environment in an isolate, and the caches keyed
+  weakly by it go with it: each client's schema, entitlements and shipped-install memo are read
+  again once (and `installShipped` runs once per client).
+- A deployment imported as a client (step 7) brings videos with no creator, which every client's
+  host refuses: its import has to stamp them (Stream's `POST /stream/{uid}` with `creator`).
 - Video calls on a many-client host cost one more Stream call each (the details check), and the
   first playback token per video per isolate one more.
 - The product label stays the deployment's: every client of a host is the same product

@@ -184,8 +184,8 @@ One **D1** database per deployment, with real tables ([ADR 0002](adr/0002-d1-rea
   names, query embeddings, Today's failed items, the rate-limits-down notice) is a `clientState`,
   one value per **client scope**: the database a client's requests reach, held by an
   AsyncLocalStorage the host Worker gives core at load (`provideClientScope`), set by each entry
-  once it decides the client and by `invoke` where none did; code outside every scope is refused.
-  The shared widget cache's key holds the client. Caches in the app and the runner are keyed by
+  once it decides the client, by every call into a client's Durable Object, by each Workflow step and Worker Loader callback (which the runtime enters with no scope), and by `invoke` where none did; code outside every scope is refused.
+  The zone's shared caches (widgets, public content) key by the client's stamp, `<environment>:<client>`. Caches in the app and the runner are keyed by
   the client's environment. `scripts/check-module-state.mjs` (in `pnpm lint`) finds every piece
   of module-level state in the code the host's Workers load, gatekeepers included, and fails
   unless `scripts/module-state.mjs` lists it with its reason. On a many-client host each client's
