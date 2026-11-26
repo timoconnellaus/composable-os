@@ -107,7 +107,7 @@ business, and its lawyer or the booking system's support, to confirm. The load s
   statements is refused. **Gate: step 4 does not merge before step 10** (erase reaching the copy),
   because from step 4 on a list can be loaded and `person.erase` would leave its copy behind.
 
-- **Step 4** — built — PR #PRNUM — The file source (built 2026-11-27, branch
+- **Step 4** — built — PR #519 — The file source (built 2026-11-27, branch
   `feat/stage-65-file-source`; ADR 0923; migration 1413): `outside/file.ts` decodes an exported
   file by its content (UTF-8 with or without a mark, UTF-16 either order, Windows-1252; a
   workbook, old Excel, PDF, zip, gzip, web page, XML, JSON or binary refused), bounds it before and
