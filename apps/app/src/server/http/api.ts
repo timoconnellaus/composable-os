@@ -33,6 +33,7 @@ import {
   getBetterAuth,
   getCustomerIdentity,
   getPractitionerIdentity,
+  hostOnlyCookies,
   type IdentityEnv,
   isSessionCookie,
   PRACTITIONER_AUTH_BASE_PATH,
@@ -177,7 +178,7 @@ function hasCookie(request: Request, prefix: string, env: ApiEnv): boolean {
   const cookie = request.headers.get("cookie") ?? "";
   // Better Auth prefixes secure cookies with `__Secure-`; a many-client host's are `__Host-`
   // only, and nothing else counts there (`isSessionCookie`).
-  const hostOnly = Boolean((env as { COS_CLIENT_ID?: string }).COS_CLIENT_ID);
+  const hostOnly = hostOnlyCookies(env);
   return cookie.split(/;\s*/).some((part) => isSessionCookie(part, prefix, hostOnly));
 }
 

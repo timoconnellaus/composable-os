@@ -48,6 +48,7 @@
 import { WorkerEntrypoint } from "cloudflare:workers";
 import {
   CUSTOMER_COOKIE_PREFIX,
+  hostOnlyCookies,
   isSessionCookie,
   PRACTITIONER_COOKIE_PREFIX,
   validClientAddress,
@@ -190,7 +191,7 @@ export async function boundContext(
       { reason: "binding_takes_cookies_only", httpStatus: 401 },
     );
   }
-  const hostOnly = Boolean((env as { COS_CLIENT_ID?: string }).COS_CLIENT_ID);
+  const hostOnly = hostOnlyCookies(env);
   const asCustomer = cookiesOnly(request, CUSTOMER_COOKIE_PREFIX, hostOnly);
   const asPractitioner = cookiesOnly(request, PRACTITIONER_COOKIE_PREFIX, hostOnly);
   if (asCustomer && asPractitioner) {

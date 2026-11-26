@@ -34,6 +34,7 @@ export {
   clientAddressSecret,
   codeRequestRefusal,
   createBetterAuth,
+  hostOnlyCookies,
   isSessionCookie,
   requestStaffCode,
   STAFF_CODE_ATTEMPTS,

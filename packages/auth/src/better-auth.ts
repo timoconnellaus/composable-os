@@ -58,17 +58,19 @@ export interface BetterAuthOptions {
 }
 
 /**
+ * Whether cookies are `__Host-` only: on a host of many clients (stage 66, ADR 0616), whose
+ * client environment has `COS_CLIENT_ID`. Read here, as a marker, so the code that checks cookie
+ * names never names it.
+ */
+export function hostOnlyCookies(env: object): boolean {
+  return Boolean((env as { COS_CLIENT_ID?: string }).COS_CLIENT_ID);
+}
+
+/**
  * Whether a cookie (`name=value` or a name) is a session cookie of `prefix` (stage 66, ADR
- * 0616): on a host of many clients (`hostOnly`, the client's environment has `COS_CLIENT_ID`) only
- * the `__Host-` name counts, so a sibling hostname that plants `cos-customer.*` on the parent
- * domain cannot make a staff request look like two hats; elsewhere with or without `__Secure-`.
- *
- * Better Auth's cookie options for one sign-in (staff, customer, practitioner). On a host that
- * serves many clients (stage 66, ADR 0616) every cookie it sets is `__Host-` prefixed: Secure,
- * `Path=/` and no `Domain`, so a page on a sibling hostname of the fleet's domain can never plant
- * one (a cookie it sets with `Domain=` cannot carry the prefix, and a cookie without the prefix is
- * not read). A single-client deployment keeps its names (`__Secure-<prefix>.*` on https), so
- * nobody is signed out.
+ * 0616): on a host of many clients (`hostOnly`, `hostOnlyCookies(env)`) only the `__Host-` name
+ * counts, so a sibling hostname that plants `cos-customer.*` on the parent domain cannot make a
+ * staff request look like two hats; elsewhere with or without `__Secure-` or `__Host-`.
  */
 export function isSessionCookie(part: string, prefix: string, hostOnly: boolean): boolean {
   const name = part.trim();
@@ -79,7 +81,12 @@ export function isSessionCookie(part: string, prefix: string, hostOnly: boolean)
 }
 
 /**
- * Better Auth's cookie options (see the comment above `isSessionCookie`).
+ * Better Auth's cookie options for one sign-in (staff, customer, practitioner). On a host that
+ * serves many clients (stage 66, ADR 0616) every cookie it sets is `__Host-` prefixed: Secure,
+ * `Path=/` and no `Domain`, so a page on a sibling hostname of the fleet's domain can never plant
+ * one (a cookie it sets with `Domain=` cannot carry the prefix, and a cookie without the prefix is
+ * not read). A single-client deployment keeps its names (`__Secure-<prefix>.*` on https), so
+ * nobody is signed out.
  */
 export function cookieOptions(
   prefix: string,
