@@ -16,6 +16,7 @@ import {
   purgeIntegrationEvents,
   purgeNotificationDeliveries,
   purgeNotifications,
+  purgeRecordFiles,
   purgeRoutineMail,
   purgeRunHistory,
   purgeWrongGuesses,
@@ -112,6 +113,12 @@ export async function runScheduledMaintenance(env: PurgeEnv, clock?: () => Date)
     purgeIdempotencyKeys(db, clock?.() ?? new Date()),
   );
   if (idempotencyKeys?.deleted) console.log(`idempotency keys: ${idempotencyKeys.deleted} purged`);
+  // A note's uploads never attached to it within the day (stage 56 step 3, ADR 0834): deleted,
+  // their R2 objects queued for the 10-minute cron's drain.
+  const files = await step("unattached files", () =>
+    purgeRecordFiles(db.query, clock?.() ?? new Date()),
+  );
+  if (files?.deleted) console.log(`files: ${files.deleted} unattached upload(s) purged`);
   // Wrong guesses per client address are counted per hour, and kept no longer (ADR 0940).
   await step("wrong guesses", () => purgeWrongGuesses(db, clock?.() ?? new Date()));
   // Erase requests past their due date: admins are told once a day until staff close them.
@@ -143,6 +150,7 @@ export async function runScheduledMaintenance(env: PurgeEnv, clock?: () => Date)
     orders,
     agreements,
     idempotencyKeys,
+    files,
   };
 }
 

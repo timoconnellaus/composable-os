@@ -6,8 +6,9 @@
 // retired kind is no longer offered and keeps its notes. Note, the kind of every note written
 // without one, stays every staff account's and is never retired.
 //
-// Retention, evidence, files and the client's uploads are later steps of the stage: their settings
-// join this page with them.
+// Whether photos and PDFs may be attached to a kind's notes, and the files' storage total and its
+// limit (stage 56 step 3, ADR 0834), are here too. Retention, evidence and the client's uploads
+// are later steps of the stage: their settings join this page with them.
 
 import { levelWords, type NoteLevel } from "@composable-os/client";
 import type { CoreOutput } from "@composable-os/core";
@@ -118,6 +119,7 @@ function NotesSettingsPage() {
                       Never below {levelWords(kind.lowestLevel).label.toLowerCase()}
                     </Badge>
                   ) : null}
+                  {kind.filesAllowed ? <Badge variant="outline">Files</Badge> : null}
                   {!kind.active ? <Badge variant="secondary">Retired</Badge> : null}
                   <span className="text-muted-foreground text-sm">
                     {kind.sections.length
@@ -150,7 +152,71 @@ function NotesSettingsPage() {
           )}
         </CardContent>
       </Card>
+      <FileStorage isAdmin={isAdmin} />
     </PageLayout>
+  );
+}
+
+const GB = 1024 * 1024 * 1024;
+const inGb = (bytes: number) =>
+  `${(bytes / GB).toLocaleString(undefined, { maximumFractionDigits: 2 })} GB`;
+
+/**
+ * What the files attached to notes take, and the limit past which uploads are refused (stage 56
+ * step 3, ADR 0834). Shown to admins (settings:manage), who also change the limit.
+ */
+function FileStorage({ isAdmin }: { isAdmin: boolean }) {
+  // Refused to anyone but an admin: the card is then not shown.
+  const storage = useOp("file.storage.get", {}, { retry: false });
+  const setCap = useOpMutation("file.storage.setCap");
+  const [cap, setCapText] = useState("");
+  if (!storage.data) return null;
+  const { usedBytes, files, capBytes } = storage.data;
+
+  async function submit(event: FormEvent) {
+    event.preventDefault();
+    try {
+      await setCap.mutateAsync({ capBytes: Math.round(Number(cap) * GB) });
+      toast.success("Storage limit saved");
+      setCapText("");
+      await storage.refetch();
+    } catch (error) {
+      toast.error(errorMessage(error));
+    }
+  }
+
+  return (
+    <Card>
+      <CardHeader>
+        <CardTitle>Files</CardTitle>
+      </CardHeader>
+      <CardContent className="grid gap-3">
+        <p className="text-sm" data-testid="file-storage">
+          {files.toLocaleString()} {files === 1 ? "file" : "files"} take {inGb(usedBytes)} of{" "}
+          {inGb(capBytes)}. Past the limit, uploads are refused; nothing kept is deleted.
+        </p>
+        {isAdmin ? (
+          <form className="flex flex-wrap items-end gap-2" onSubmit={submit}>
+            <div className="grid gap-2">
+              <Label htmlFor="file-storage-cap">Limit, in GB</Label>
+              <Input
+                id="file-storage-cap"
+                type="number"
+                min={1}
+                max={10240}
+                step={1}
+                placeholder={String(Math.round(capBytes / GB))}
+                value={cap}
+                onChange={(e) => setCapText(e.target.value)}
+              />
+            </div>
+            <Button type="submit" disabled={setCap.isPending || !cap}>
+              Save limit
+            </Button>
+          </form>
+        ) : null}
+      </CardContent>
+    </Card>
   );
 }
 
@@ -188,6 +254,7 @@ function KindEditor({ kind, onDone }: { kind: Kind | null; onDone: () => void })
   const [name, setName] = useState(kind?.name ?? "");
   const [defaultLevel, setDefaultLevel] = useState<NoteLevel>(kind?.defaultLevel ?? "staff");
   const [lowestLevel, setLowestLevel] = useState<NoteLevel>(kind?.lowestLevel ?? "staff");
+  const [filesAllowed, setFilesAllowed] = useState(kind?.filesAllowed ?? false);
   const [sections, setSections] = useState<SectionDraft[]>(() =>
     (kind?.sections ?? []).map((s) => ({
       row: nextRow++,
@@ -218,6 +285,7 @@ function KindEditor({ kind, onDone }: { kind: Kind | null; onDone: () => void })
         name,
         defaultLevel,
         lowestLevel,
+        filesAllowed,
         sections: sections
           .filter((s) => s.label.trim())
           .map((s) => ({
@@ -284,6 +352,14 @@ function KindEditor({ kind, onDone }: { kind: Kind | null; onDone: () => void })
               ? "Note is the kind of every note written without one, so everyone on the staff reads it and none of its sections is required. Add a kind of your own for notes kept tighter."
               : `${levelWords(defaultLevel).hint} A change applies to notes written from now on.`}
           </p>
+          <Label className="font-normal">
+            <Checkbox
+              checked={filesAllowed}
+              onCheckedChange={(checked) => setFilesAllowed(checked === true)}
+              data-testid="note-kind-files"
+            />
+            Photos and PDFs may be attached to a note of this kind
+          </Label>
 
           <fieldset className="grid gap-3">
             <legend className="mb-1 text-sm font-medium">Template</legend>

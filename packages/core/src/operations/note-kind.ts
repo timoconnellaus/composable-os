@@ -335,16 +335,23 @@ export const noteKindsSave = defineOperation({
   description:
     "Write a kind of note: a new one (no id), or a change to one's name, the level a note of it " +
     "starts at (defaultLevel), the lowest level a note of it may have (lowestLevel) and its " +
-    "template (sections given whole and in order, at most 12: label, an optional hint, required). " +
+    "template (sections given whole and in order, at most 12: label, an optional hint, required), " +
+    "and whether photos and PDFs may be attached to its notes (filesAllowed). " +
     "A changed level applies to notes written from now on. Needs notes:manage. An assistant's or " +
     "MCP client's write always waits for a person who holds it too, and may change only the name " +
-    "and the template: who reads a kind's notes is a person's to set.",
+    "and the template: who reads a kind's notes, and what may be attached, is a person's to set.",
   input: z.object({
     id: kindId.optional().describe("The kind to change; empty: a new one"),
     name: z.string().trim().min(1).max(80),
     defaultLevel: levelEnum.optional().describe("Where a note of it starts. Default: staff"),
     lowestLevel: levelEnum.optional().describe("The lowest level a note of it may have"),
     sections: z.array(sectionInput).max(MAX_SECTIONS).default([]),
+    filesAllowed: z
+      .boolean()
+      .optional()
+      .describe(
+        "Whether photos and PDFs may be attached to a note of it (a person's to set). Default: as it was, or no",
+      ),
   }),
   output: noteKindSchema,
   permission: "notes:manage",
@@ -358,6 +365,14 @@ export const noteKindsSave = defineOperation({
     const defaultLevel = input.defaultLevel ?? before?.defaultLevel ?? "staff";
     const lowestLevel = input.lowestLevel ?? before?.lowestLevel ?? "staff";
     assertWordingOnly(ctx, before, { defaultLevel, lowestLevel });
+    const filesAllowed = input.filesAllowed ?? before?.filesAllowed ?? false;
+    if (ctx.actor !== "human" && filesAllowed !== (before?.filesAllowed ?? false)) {
+      // What may be attached to a client's notes is a person's to set, as who reads them is.
+      throw new ForbiddenError(
+        "Only a person sets whether files may be attached to a kind of note",
+        { rule: "note_kind_files_person" },
+      );
+    }
     if (LEVEL_RANK[defaultLevel] < LEVEL_RANK[lowestLevel]) {
       throw new ValidationError("A kind's notes cannot start below its lowest level", {
         field: "defaultLevel",
@@ -398,6 +413,7 @@ export const noteKindsSave = defineOperation({
       default_level: defaultLevel,
       lowest_level: lowestLevel,
       sections: JSON.stringify(sections),
+      files_allowed: filesAllowed ? (1 as const) : (0 as const),
       updated_by: ctx.user.id,
       updated_at: ctx.now,
     };
@@ -418,13 +434,16 @@ export const noteKindsSave = defineOperation({
     } else {
       ctx.write(ctx.db.updateTable("core_note_kind").set(values).where("id", "=", id));
     }
-    const snapshot = (k: Pick<NoteKind, "name" | "defaultLevel" | "lowestLevel" | "sections">) => ({
+    const snapshot = (
+      k: Pick<NoteKind, "name" | "defaultLevel" | "lowestLevel" | "sections" | "filesAllowed">,
+    ) => ({
       name: k.name,
       defaultLevel: k.defaultLevel,
       lowestLevel: k.lowestLevel,
       sections: k.sections,
+      filesAllowed: k.filesAllowed,
     });
-    const after = snapshot({ name: input.name, defaultLevel, lowestLevel, sections });
+    const after = snapshot({ name: input.name, defaultLevel, lowestLevel, sections, filesAllowed });
     ctx.recordChange({
       object: "noteKind",
       id,

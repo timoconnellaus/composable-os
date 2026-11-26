@@ -9,6 +9,7 @@
 // (ADR 0832): its author, or `notes:manage` (with `notes:sensitive` for a sensitive one), and a
 // level is changed and a note deleted by a person only.
 import type { CoreDatabase } from "@composable-os/db";
+import { RECORD_FILES_PER_NOTE } from "@composable-os/sdk";
 import { type Compilable, type CompiledQuery, type Kysely, type Selectable, sql } from "kysely";
 import { z } from "zod";
 import { enqueueEmbeddings } from "../ai/embedding.ts";
@@ -29,6 +30,12 @@ import {
 } from "../list.ts";
 import { defineOperation, type HandlerContext, type RecordChange } from "../operation.ts";
 import { jsonList } from "../records/common.ts";
+import {
+  filesOfNotes,
+  type RecordFile,
+  recordFileSchema,
+  STAGED_FILE_HOURS,
+} from "../records/files.ts";
 import {
   assertLinkTargets,
   linkedRecordSchema,
@@ -169,6 +176,15 @@ const logInputSchema = z.discriminatedUnion("type", [
       .describe(
         `${levelSchema.description} Default: the kind's own; never below the kind's lowest.`,
       ),
+    files: z
+      .array(z.string().startsWith("fil_").max(64))
+      .min(1)
+      .max(RECORD_FILES_PER_NOTE)
+      .optional()
+      .describe(
+        "Files you uploaded for this note (the upload route, within the day), attached to it: " +
+          "a kind that takes files only. A note with files needs no body. A person only.",
+      ),
   }),
   z.object({ type: z.literal("email"), ...commonLogFields, payload: activityPayloadSchemas.email }),
   z.object({
@@ -217,6 +233,11 @@ export const activitySchema = z.object({
   kind: z.object({ id: z.string(), name: z.string() }).optional(),
   /** A note written from its kind's template: the sections filled in, as their labels were. */
   sections: z.array(filledSectionSchema).nullable().optional(),
+  /**
+   * A note's files (stage 56 step 3, ADR 0834): their names, types and sizes; each is served by
+   * the file route to the note's readers only. Absent on a locked note (note.open lists them).
+   */
+  files: z.array(recordFileSchema).optional(),
 });
 export type Activity = z.infer<typeof activitySchema>;
 
@@ -311,17 +332,28 @@ function activityQuery(reader: Reader) {
 async function toActivities(
   db: Kysely<CoreDatabase>,
   rows: ActivityRow[],
-  { unlock = false } = {},
+  { unlock = false, withFiles = true } = {},
 ): Promise<Activity[]> {
   const links = await loadLinks(
     db,
     "core_activity_links",
     rows.map((r) => r.id),
   );
+  const isLocked = (row: ActivityRow) => row.level === "sensitive" && !unlock;
+  // The files of the notes shown with their text: one statement for the page. Not on the feed
+  // across all records (activity.list), which lists no note's files.
+  const files = withFiles
+    ? await filesOfNotes(
+        db,
+        rows.filter((row) => row.type === "note" && !isLocked(row)).map((row) => row.id),
+      )
+    : new Map<string, RecordFile[]>();
   return rows.map((row) => {
-    const locked = row.level === "sensitive" && !unlock;
+    const locked = isLocked(row);
+    const own = files.get(row.id);
     return {
       ...activityOf(row, links.get(row.id) ?? []),
+      ...(own?.length && !locked ? { files: own } : {}),
       ...(locked ? { subject: null, body: null, payload: {}, sections: null, locked: true } : {}),
     };
   });
@@ -446,7 +478,7 @@ function assertOnePerson(level: NoteLevel, links: readonly { object: string }[])
  * Who may change or delete a note (ADR 0832): its author, or `notes:manage` (and, for a sensitive
  * note, `notes:sensitive`), which give an AI actor nothing. Other activity types are unchanged.
  */
-function assertMayChange(ctx: HandlerContext, activity: Activity): void {
+export function assertMayChange(ctx: HandlerContext, activity: Activity): void {
   if (activity.type !== "note" || activity.authorUserId === ctx.user.id) return;
   const rights = noteRights(ctx as NoteViewer);
   if (rights?.manage && (levelOf(activity) !== "sensitive" || rights.sensitive)) return;
@@ -513,7 +545,9 @@ function queueLinks(
   }
 }
 
-function requireContent(type: string, subject: string | null, body: string | null) {
+function requireContent(type: string, subject: string | null, body: string | null, files = 0) {
+  // A note may be its files alone: a photo with no words (stage 56 step 3).
+  if (type === "note" && files > 0) return;
   if (type === "note" && !body?.trim()) {
     throw new ValidationError("A note needs a body", { field: "body" });
   }
@@ -558,6 +592,52 @@ async function noteOfKind(
   return { kind, level, sections: null, body: input.body?.trim() ? input.body : null };
 }
 
+/**
+ * Attaches the caller's own uploads, waiting for this note, to it (stage 56 step 3, ADR 0834): a
+ * person's (no AI actor uploads, nor attaches what a person uploaded), onto a note of a kind that
+ * takes files. Each must be theirs, uploaded within the day and on no note yet; any that is not
+ * is refused as not found, whatever the reason. The batch fails whole if one was attached or
+ * purged meanwhile.
+ */
+async function queueAttachFiles(
+  ctx: HandlerContext,
+  id: string,
+  kind: NoteKind,
+  files: readonly string[],
+): Promise<void> {
+  if (ctx.actor !== "human") {
+    throw new ForbiddenError("Only a person attaches files to a note", { rule: "file_person" });
+  }
+  if (!kind.filesAllowed) {
+    throw new ValidationError(
+      "Notes of this kind take no files: an admin can allow them in Settings → Notes",
+      { field: "files", rule: "kind_no_files" },
+    );
+  }
+  const since = new Date(Date.parse(ctx.now) - STAGED_FILE_HOURS * 3_600_000).toISOString();
+  const waiting = sql<boolean>`note_id IS NULL AND uploaded_by = ${ctx.user.id} AND created_at >= ${since} AND id IN (SELECT value FROM json_each(${JSON.stringify(files)}))`;
+  const found = await ctx.db
+    .selectFrom("core_record_file")
+    .select(sql<number>`count(*)`.as("n"))
+    .where(waiting)
+    .executeTakeFirst();
+  if (Number(found?.n ?? 0) !== files.length) {
+    throw new ValidationError("A file to attach was not found: upload it again", {
+      field: "files",
+      rule: "file_not_found",
+    });
+  }
+  ctx.write(
+    sql`INSERT INTO core_record_file_guard (rule, ok) SELECT 'attach', (SELECT count(*) =${files.length} FROM core_record_file WHERE ${waiting})`.compile(
+      ctx.db,
+    ),
+    ctx.db
+      .updateTable("core_record_file")
+      .set({ note_id: id, attached_at: ctx.now })
+      .where(waiting),
+  );
+}
+
 // --- Operations --------------------------------------------------------------------------------
 
 export const activityLog = defineOperation({
@@ -582,7 +662,8 @@ export const activityLog = defineOperation({
     const subject = input.subject?.trim() || null;
     const note = input.type === "note" ? await noteOfKind(ctx, input) : null;
     const body = note ? note.body : input.body?.trim() ? input.body : null;
-    requireContent(input.type, subject, body);
+    const files = input.type === "note" ? [...new Set(input.files ?? [])] : [];
+    requireContent(input.type, subject, body, files.length);
     const links = uniqueRefs(input.links);
     const level: NoteLevel = note?.level ?? "staff";
     if (level !== "staff" && ctx.actor !== "human") {
@@ -623,9 +704,11 @@ export const activityLog = defineOperation({
       }),
     );
     queueLinks(ctx, id, links);
+    if (files.length && note) await queueAttachFiles(ctx, id, note.kind, files);
     const after = {
       type: input.type,
       ...activitySnapshot({ subject, body, payload, occurredAt }, linkKeys(links)),
+      ...(files.length ? { files: files.length } : {}),
       ...(note ? { kind: note.kind.id } : {}),
       ...(level !== "staff" ? { level } : {}),
     };
@@ -1021,7 +1104,7 @@ export const activityList = defineOperation({
       const row = byId.get(id);
       return row ? [row] : [];
     });
-    const items = await toActivities(ctx.db, ordered);
+    const items = await toActivities(ctx.db, ordered, { withFiles: false });
     return {
       items: selectFields(items, input.fields, ACTIVITY_FIELDS),
       nextCursor: page.nextCursor,

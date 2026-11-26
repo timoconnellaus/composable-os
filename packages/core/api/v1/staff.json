@@ -1611,6 +1611,72 @@
                 "type": "null"
               }
             ]
+          },
+          "files": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string",
+                  "description": "The name it was uploaded with"
+                },
+                "type": {
+                  "type": "string",
+                  "enum": [
+                    "image/jpeg",
+                    "image/png",
+                    "image/webp",
+                    "application/pdf"
+                  ]
+                },
+                "bytes": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                "width": {
+                  "anyOf": [
+                    {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "height": {
+                  "anyOf": [
+                    {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "createdAt": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "name",
+                "type",
+                "bytes",
+                "width",
+                "height",
+                "createdAt"
+              ],
+              "additionalProperties": false
+            }
           }
         },
         "required": [
@@ -2008,6 +2074,72 @@
                       "type": "null"
                     }
                   ]
+                },
+                "files": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string"
+                      },
+                      "name": {
+                        "type": "string",
+                        "description": "The name it was uploaded with"
+                      },
+                      "type": {
+                        "type": "string",
+                        "enum": [
+                          "image/jpeg",
+                          "image/png",
+                          "image/webp",
+                          "application/pdf"
+                        ]
+                      },
+                      "bytes": {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      },
+                      "width": {
+                        "anyOf": [
+                          {
+                            "type": "integer",
+                            "minimum": -9007199254740991,
+                            "maximum": 9007199254740991
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "height": {
+                        "anyOf": [
+                          {
+                            "type": "integer",
+                            "minimum": -9007199254740991,
+                            "maximum": 9007199254740991
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "createdAt": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "name",
+                      "type",
+                      "bytes",
+                      "width",
+                      "height",
+                      "createdAt"
+                    ],
+                    "additionalProperties": false
+                  }
                 }
               },
               "required": [
@@ -2280,6 +2412,72 @@
                       "type": "null"
                     }
                   ]
+                },
+                "files": {
+                  "type": "array",
+                  "items": {
+                    "type": "object",
+                    "properties": {
+                      "id": {
+                        "type": "string"
+                      },
+                      "name": {
+                        "type": "string",
+                        "description": "The name it was uploaded with"
+                      },
+                      "type": {
+                        "type": "string",
+                        "enum": [
+                          "image/jpeg",
+                          "image/png",
+                          "image/webp",
+                          "application/pdf"
+                        ]
+                      },
+                      "bytes": {
+                        "type": "integer",
+                        "minimum": -9007199254740991,
+                        "maximum": 9007199254740991
+                      },
+                      "width": {
+                        "anyOf": [
+                          {
+                            "type": "integer",
+                            "minimum": -9007199254740991,
+                            "maximum": 9007199254740991
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "height": {
+                        "anyOf": [
+                          {
+                            "type": "integer",
+                            "minimum": -9007199254740991,
+                            "maximum": 9007199254740991
+                          },
+                          {
+                            "type": "null"
+                          }
+                        ]
+                      },
+                      "createdAt": {
+                        "type": "string"
+                      }
+                    },
+                    "required": [
+                      "id",
+                      "name",
+                      "type",
+                      "bytes",
+                      "width",
+                      "height",
+                      "createdAt"
+                    ],
+                    "additionalProperties": false
+                  }
                 }
               },
               "required": [
@@ -2435,6 +2633,18 @@
                   "coaches",
                   "sensitive"
                 ]
+              },
+              "files": {
+                "description": "Files you uploaded for this note (the upload route, within the day), attached to it: a kind that takes files only. A note with files needs no body. A person only.",
+                "minItems": 1,
+                "maxItems": 20,
+                "type": "array",
+                "items": {
+                  "type": "string",
+                  "maxLength": 64,
+                  "format": "starts_with",
+                  "pattern": "^fil_.*"
+                }
               }
             },
             "required": [
@@ -3007,6 +3217,72 @@
                 "type": "null"
               }
             ]
+          },
+          "files": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string",
+                  "description": "The name it was uploaded with"
+                },
+                "type": {
+                  "type": "string",
+                  "enum": [
+                    "image/jpeg",
+                    "image/png",
+                    "image/webp",
+                    "application/pdf"
+                  ]
+                },
+                "bytes": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                "width": {
+                  "anyOf": [
+                    {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "height": {
+                  "anyOf": [
+                    {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "createdAt": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "name",
+                "type",
+                "bytes",
+                "width",
+                "height",
+                "createdAt"
+              ],
+              "additionalProperties": false
+            }
           }
         },
         "required": [
@@ -3265,6 +3541,72 @@
                 "type": "null"
               }
             ]
+          },
+          "files": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string",
+                  "description": "The name it was uploaded with"
+                },
+                "type": {
+                  "type": "string",
+                  "enum": [
+                    "image/jpeg",
+                    "image/png",
+                    "image/webp",
+                    "application/pdf"
+                  ]
+                },
+                "bytes": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                "width": {
+                  "anyOf": [
+                    {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "height": {
+                  "anyOf": [
+                    {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "createdAt": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "name",
+                "type",
+                "bytes",
+                "width",
+                "height",
+                "createdAt"
+              ],
+              "additionalProperties": false
+            }
           }
         },
         "required": [
@@ -3503,6 +3845,72 @@
                 "type": "null"
               }
             ]
+          },
+          "files": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string",
+                  "description": "The name it was uploaded with"
+                },
+                "type": {
+                  "type": "string",
+                  "enum": [
+                    "image/jpeg",
+                    "image/png",
+                    "image/webp",
+                    "application/pdf"
+                  ]
+                },
+                "bytes": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                "width": {
+                  "anyOf": [
+                    {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "height": {
+                  "anyOf": [
+                    {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "createdAt": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "name",
+                "type",
+                "bytes",
+                "width",
+                "height",
+                "createdAt"
+              ],
+              "additionalProperties": false
+            }
           }
         },
         "required": [
@@ -3745,6 +4153,72 @@
                 "type": "null"
               }
             ]
+          },
+          "files": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string",
+                  "description": "The name it was uploaded with"
+                },
+                "type": {
+                  "type": "string",
+                  "enum": [
+                    "image/jpeg",
+                    "image/png",
+                    "image/webp",
+                    "application/pdf"
+                  ]
+                },
+                "bytes": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                "width": {
+                  "anyOf": [
+                    {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "height": {
+                  "anyOf": [
+                    {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "createdAt": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "name",
+                "type",
+                "bytes",
+                "width",
+                "height",
+                "createdAt"
+              ],
+              "additionalProperties": false
+            }
           }
         },
         "required": [
@@ -4089,6 +4563,72 @@
                 "type": "null"
               }
             ]
+          },
+          "files": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string",
+                  "description": "The name it was uploaded with"
+                },
+                "type": {
+                  "type": "string",
+                  "enum": [
+                    "image/jpeg",
+                    "image/png",
+                    "image/webp",
+                    "application/pdf"
+                  ]
+                },
+                "bytes": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                "width": {
+                  "anyOf": [
+                    {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "height": {
+                  "anyOf": [
+                    {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "createdAt": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "name",
+                "type",
+                "bytes",
+                "width",
+                "height",
+                "createdAt"
+              ],
+              "additionalProperties": false
+            }
           }
         },
         "required": [
@@ -41919,6 +42459,361 @@
       ]
     },
     {
+      "name": "file.checkUpload",
+      "description": "Whether an upload of a file of this size may go ahead: onto this note (its author or someone allowed to manage notes, a kind that takes files, at most 20 files a note), or waiting for a note not yet saved; and within the business's storage. The upload route asks it before reading the file. Read-only.",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "note": {
+            "type": "string",
+            "maxLength": 64,
+            "format": "starts_with",
+            "pattern": "^act_.*",
+            "description": "The note (act_…)"
+          },
+          "bytes": {
+            "type": "integer",
+            "minimum": 0,
+            "maximum": 9007199254740991,
+            "description": "The size the upload says it is"
+          }
+        },
+        "required": [
+          "bytes"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "ok": {
+            "type": "boolean",
+            "const": true
+          }
+        },
+        "required": [
+          "ok"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
+      "name": "file.delete",
+      "description": "Remove a file from its note, at once and for good (it does not go to the Trash): its note's author or someone allowed to manage notes, or the person who uploaded it while it waits for its note. A person only. Returns the file's id.",
+      "risk": "destructive",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "maxLength": 64,
+            "format": "starts_with",
+            "pattern": "^fil_.*",
+            "description": "A record file's id (fil_…)"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "id"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "file.checkUpload",
+        "file.serve",
+        "file.storage.get"
+      ]
+    },
+    {
+      "name": "file.serve",
+      "description": "Whether the caller may be served one record file now, and how: only a person who may read the note it is attached to, at this moment (its level, a private note's owner), and never a note in the Trash. Anything else is not found. Serves of a file on a note kept from the whole staff are recorded in the audit log. The file route (`/api/files/<id>`) streams it. Read-only.",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "maxLength": 64,
+            "format": "starts_with",
+            "pattern": "^fil_.*",
+            "description": "A record file's id (fil_…)"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "key": {
+            "type": "string"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "image/jpeg",
+              "image/png",
+              "image/webp",
+              "application/pdf"
+            ]
+          },
+          "bytes": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "filename": {
+            "type": "string",
+            "description": "The name to save it under, ending in its type's extension"
+          }
+        },
+        "required": [
+          "id",
+          "key",
+          "type",
+          "bytes",
+          "filename"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
+      "name": "file.storage.get",
+      "description": "How much storage the files attached to notes take, how many there are, and the limit past which uploads are refused. People allowed to manage notes. Read-only.",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {}
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "usedBytes": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991,
+            "description": "What every file attached to notes takes"
+          },
+          "files": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "capBytes": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991,
+            "description": "The limit: uploads past it are refused"
+          }
+        },
+        "required": [
+          "usedBytes",
+          "files",
+          "capBytes"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
+      "name": "file.storage.setCap",
+      "description": "Change the limit on what the files attached to notes may take, in bytes (1 GB to 10 TB; default 10 GB). Uploads past it are refused; nothing already kept is deleted. A human admin in the app only.",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "capBytes": {
+            "type": "integer",
+            "minimum": 1073741824,
+            "maximum": 10995116277760
+          }
+        },
+        "required": [
+          "capBytes"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "usedBytes": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991,
+            "description": "What every file attached to notes takes"
+          },
+          "files": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "capBytes": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991,
+            "description": "The limit: uploads past it are refused"
+          },
+          "previousCapBytes": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          }
+        },
+        "required": [
+          "usedBytes",
+          "files",
+          "capBytes",
+          "previousCapBytes"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "file.checkUpload",
+        "file.serve",
+        "file.storage.get"
+      ]
+    },
+    {
+      "name": "file.upload",
+      "description": "Store a photo or PDF a person uploaded to attach to a note: a JPEG, PNG or WebP picture (at most 10 MB) or a PDF (at most 20 MB), typed from its bytes, never its name; location, camera and other metadata are removed from a picture before it is kept. With a note, it is attached to that note at once (its author or someone allowed to manage notes; a kind that takes files; at most 20 a note). Without one, it waits for the note it goes with (activity.log's files) and is deleted if no note takes it within a day. The file comes from the upload route, not from this input. A person only.",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "name": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 200,
+            "description": "The file's name, as uploaded"
+          },
+          "note": {
+            "type": "string",
+            "maxLength": 64,
+            "format": "starts_with",
+            "pattern": "^act_.*",
+            "description": "The note (act_…)"
+          }
+        },
+        "required": [
+          "name"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "name": {
+            "type": "string",
+            "description": "The name it was uploaded with"
+          },
+          "type": {
+            "type": "string",
+            "enum": [
+              "image/jpeg",
+              "image/png",
+              "image/webp",
+              "application/pdf"
+            ]
+          },
+          "bytes": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "width": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "height": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "note": {
+            "type": [
+              "string",
+              "null"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "name",
+          "type",
+          "bytes",
+          "width",
+          "height",
+          "createdAt",
+          "note"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "file.checkUpload",
+        "file.serve",
+        "file.storage.get"
+      ]
+    },
+    {
       "name": "finance.close",
       "description": "Close a month's finance figures: its book entries and report rows are written as the host's figures stand now and never change. A month is closed once it has ended and the month before it is closed; closing a reopened month writes its next version and keeps the old. Payments and refunds that arrive later are never refused: they are counted in the first open month, marked as belonging to this one. A person only, with finance:close. Refused when anything it read changed meanwhile (try again).",
       "risk": "write",
@@ -59635,7 +60530,7 @@
     },
     {
       "name": "note.kinds.save",
-      "description": "Write a kind of note: a new one (no id), or a change to one's name, the level a note of it starts at (defaultLevel), the lowest level a note of it may have (lowestLevel) and its template (sections given whole and in order, at most 12: label, an optional hint, required). A changed level applies to notes written from now on. Needs notes:manage. An assistant's or MCP client's write always waits for a person who holds it too, and may change only the name and the template: who reads a kind's notes is a person's to set.",
+      "description": "Write a kind of note: a new one (no id), or a change to one's name, the level a note of it starts at (defaultLevel), the lowest level a note of it may have (lowestLevel) and its template (sections given whole and in order, at most 12: label, an optional hint, required), and whether photos and PDFs may be attached to its notes (filesAllowed). A changed level applies to notes written from now on. Needs notes:manage. An assistant's or MCP client's write always waits for a person who holds it too, and may change only the name and the template: who reads a kind's notes, and what may be attached, is a person's to set.",
       "risk": "write",
       "audiences": [
         "staff"
@@ -59712,6 +60607,10 @@
                 "label"
               ]
             }
+          },
+          "filesAllowed": {
+            "description": "Whether photos and PDFs may be attached to a note of it (a person's to set). Default: as it was, or no",
+            "type": "boolean"
           }
         },
         "required": [
@@ -60054,6 +60953,72 @@
                 "type": "null"
               }
             ]
+          },
+          "files": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "name": {
+                  "type": "string",
+                  "description": "The name it was uploaded with"
+                },
+                "type": {
+                  "type": "string",
+                  "enum": [
+                    "image/jpeg",
+                    "image/png",
+                    "image/webp",
+                    "application/pdf"
+                  ]
+                },
+                "bytes": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                "width": {
+                  "anyOf": [
+                    {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "height": {
+                  "anyOf": [
+                    {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "createdAt": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "id",
+                "name",
+                "type",
+                "bytes",
+                "width",
+                "height",
+                "createdAt"
+              ],
+              "additionalProperties": false
+            }
           }
         },
         "required": [

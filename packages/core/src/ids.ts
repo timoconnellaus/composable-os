@@ -102,6 +102,8 @@ export const ID_PREFIXES = {
   personCarer: "pcr",
   /** A kind of note and its template (stage 56 step 2, ADR 0833). */
   noteKind: "nkd",
+  /** A photo or PDF attached to a note (stage 56 step 3, ADR 0834). */
+  recordFile: "fil",
   /** A Person's check-in code: an app code or a card (stage 51, ADR 0783). */
   personCode: "pc",
   refundDue: "rdu",

@@ -520,6 +520,30 @@ export function toOperationError(error: unknown): OperationError {
       { rule: "note_changed" },
     );
   }
+  // An upload's limits, held at commit (migration 1233, ADR 0834): another upload took the room
+  // a moment before. Nothing was stored.
+  if (message.includes("core_file_cap")) {
+    return new ValidationError(
+      "The business's file storage is full: nothing was stored. An admin can make room or raise the limit in Settings → Notes",
+      { reason: "storage_full", httpStatus: 413 },
+    );
+  }
+  if (message.includes("core_file_note_full") || message.includes("core_file_staged_full")) {
+    return new ValidationError("There is no room for another file there: nothing was stored", {
+      reason: "too_many",
+    });
+  }
+  if (message.includes("core_file_changed")) {
+    return new ConflictError(
+      "A file to attach was attached or deleted a moment before, so nothing was saved. Try again.",
+      { rule: "file_changed" },
+    );
+  }
+  if (message.includes("core_record_file_fixed")) {
+    return new ConflictError("A file stays with the note it was attached to", {
+      rule: "file_fixed",
+    });
+  }
   if (message.includes("core_staff_changed")) {
     return new ConflictError(
       "The roster changed while this was being done, so nothing was changed. Try again.",

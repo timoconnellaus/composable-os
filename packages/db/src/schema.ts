@@ -1222,6 +1222,25 @@ export interface CoreNoteKindTable {
   updated_at: string;
 }
 
+/**
+ * Migration 1233 (stage 56 step 3, ADR 0834): a photo or PDF attached to a note, kept privately
+ * in R2 at `key` (`files/<id>`). Unattached (`note_id` null) until its note is saved.
+ */
+export interface CoreRecordFileTable {
+  id: string;
+  note_id: Defaulted<string | null>;
+  key: string;
+  name: string;
+  type: "image/jpeg" | "image/png" | "image/webp" | "application/pdf";
+  bytes: number;
+  width: Defaulted<number | null>;
+  height: Defaulted<number | null>;
+  sha256: string;
+  uploaded_by: string;
+  created_at: string;
+  attached_at: Defaulted<string | null>;
+}
+
 /** Migration 1231 (stage 56, ADR 0831): a staff account that looks after a Person. */
 export interface CorePersonCarerTable {
   id: string;
@@ -4693,6 +4712,8 @@ export interface CoreDatabase {
   core_person_link: CorePersonLinkTable;
   core_person_carer: CorePersonCarerTable;
   core_note_kind: CoreNoteKindTable;
+  core_record_file: CoreRecordFileTable;
+  core_record_file_guard: { rule: string; ok: number };
   core_agreement_document: CoreAgreementDocumentTable;
   core_agreement_version: CoreAgreementVersionTable;
   core_agreement_point: CoreAgreementPointTable;

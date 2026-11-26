@@ -19,6 +19,7 @@ import {
   restorableUntil,
   TRASH_RETENTION_DAYS,
 } from "../records/common.ts";
+import { deleteFilesOfNotes } from "../records/files.ts";
 import { queueEraseLinks } from "../records/person-links.ts";
 import { queueEraseRestricted } from "../records/restricted.ts";
 import { visibleTable } from "../visibility/index.ts";
@@ -258,6 +259,23 @@ export const trashPurge = defineOperation({
             .where("deleted_at", "<", cutoff),
         );
       }
+    }
+    // A purged note's files go with it (stage 56 step 3, ADR 0834), their R2 objects queued by
+    // trigger: they were served to no one while it was in the Trash. After the notes' delete, and
+    // only for a note it deleted (one restored meanwhile keeps its files).
+    const notes = purged.filter((r) => r.object === "activity").map((r) => r.id);
+    if (notes.length) {
+      ctx.write(
+        deleteFilesOfNotes(ctx.db, notes).where(({ not, exists, selectFrom, ref }) =>
+          not(
+            exists(
+              selectFrom(PURGE_TABLES.activity)
+                .select("id")
+                .whereRef("id", "=", ref("core_record_file.note_id")),
+            ),
+          ),
+        ),
+      );
     }
     // A purged Person's family links go as an erased Person's do (ADR 0540); while they were in
     // the Trash their links gave nothing.

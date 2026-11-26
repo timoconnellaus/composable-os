@@ -37,6 +37,7 @@ import {
   scrubJson,
   subjectMatcher,
 } from "./erase-subject.ts";
+import { deleteFilesOfNotes } from "./files.ts";
 import { findOwnedActivitiesAndTasks } from "./links.ts";
 
 export interface EraseRequest {
@@ -305,6 +306,13 @@ export async function queueErase(ctx: HandlerContext, request: EraseRequest): Pr
     .where("object_type", "=", object)
     .where("record_id", "in", recordIds)
     .execute();
+  // 3d. Record files (stage 56 step 3, ADR 0834): the files of every note the erase deletes, and
+  // a Person's, of every note about them, kept or not (a photo cannot be scrubbed of whom it
+  // shows). Their R2 objects are queued by trigger in this batch. Stage 56 step 7 keeps an
+  // evidence kind's notes and files detached instead.
+  const fileNotes =
+    object === "person" ? [...new Set([...activityIds, ...linked.map((l) => l.id)])] : activityIds;
+  if (fileNotes.length) ctx.write(deleteFilesOfNotes(ctx.db, fileNotes));
   ctx.write(deleteSummariesStatement(ctx.db, [...recordIds, ...activityIds, ...taskIds]));
   const touched = [
     ...recordIds.map((id) => ({ object, id })),

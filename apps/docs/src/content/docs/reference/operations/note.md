@@ -88,7 +88,7 @@ Retire a kind of note (retired: true): the composer no longer offers it and its 
 
 ## note.kinds.save
 
-Write a kind of note: a new one (no id), or a change to one's name, the level a note of it starts at (defaultLevel), the lowest level a note of it may have (lowestLevel) and its template (sections given whole and in order, at most 12: label, an optional hint, required). A changed level applies to notes written from now on. Needs notes:manage. An assistant's or MCP client's write always waits for a person who holds it too, and may change only the name and the template: who reads a kind's notes is a person's to set.
+Write a kind of note: a new one (no id), or a change to one's name, the level a note of it starts at (defaultLevel), the lowest level a note of it may have (lowestLevel) and its template (sections given whole and in order, at most 12: label, an optional hint, required), and whether photos and PDFs may be attached to its notes (filesAllowed). A changed level applies to notes written from now on. Needs notes:manage. An assistant's or MCP client's write always waits for a person who holds it too, and may change only the name and the template: who reads a kind's notes, and what may be attached, is a person's to set.
 
 |  |  |
 | --- | --- |
@@ -111,6 +111,7 @@ Write a kind of note: a new one (no id), or a change to one's name, the level a 
 | `sections[].label` | string | yes | min length 1, max length 80 |   |
 | `sections[].hint` | string or null |   |   | A line under the label, as a prompt |
 | `sections[].required` | boolean |   | default `false` |   |
+| `filesAllowed` | boolean |   |   | Whether photos and PDFs may be attached to a note of it (a person's to set). Default: as it was, or no |
 
 ### Output
 
@@ -187,3 +188,11 @@ Open a note to read its text: a sensitive note is listed on timelines without it
 | `sections.key` | string | yes |   |   |
 | `sections.label` | string | yes |   |   |
 | `sections.text` | string | yes |   |   |
+| `files` | array of object |   |   |   |
+| `files[].id` | string | yes |   |   |
+| `files[].name` | string | yes |   | The name it was uploaded with |
+| `files[].type` | `"image/jpeg"`, `"image/png"`, `"image/webp"`, `"application/pdf"` | yes |   |   |
+| `files[].bytes` | integer | yes | ≥ -9007199254740991, ≤ 9007199254740991 |   |
+| `files[].width` | integer or null | yes |   |   |
+| `files[].height` | integer or null | yes |   |   |
+| `files[].createdAt` | string | yes |   |   |
