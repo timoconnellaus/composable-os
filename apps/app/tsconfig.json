@@ -14,5 +14,5 @@
       ]
     }
   },
-  "include": ["src", "test", "worker-configuration.d.ts"]
+  "include": ["src", "test", "test-two-clients", "worker-configuration.d.ts"]
 }

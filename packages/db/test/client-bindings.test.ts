@@ -471,20 +471,13 @@ describe("Durable Object namespaces: the client in every name", () => {
 });
 
 describe("the runner: the client named on every call", () => {
-  it("offers each listed method through asClient(<client>), and nothing else", async () => {
+  it("offers each listed method as callAs(<client>, <method>, args), and nothing else", async () => {
     const calls: { client: string; method: string; args: unknown[] }[] = [];
-    const target = (client: string) =>
-      Object.fromEntries(
-        [...RUNNER_METHODS, "fetch", "asClient"].map((method) => [
-          method,
-          (...args: unknown[]) => {
-            calls.push({ client, method, args });
-            return Promise.resolve({ client });
-          },
-        ]),
-      );
     const runner = {
-      asClient: (client: string) => target(client),
+      callAs: (client: string, method: string, args: unknown[]) => {
+        calls.push({ client, method, args });
+        return Promise.resolve({ client });
+      },
       ping: () => Promise.resolve("the real binding"),
       fetch: () => Promise.resolve(new Response("the real binding")),
     };
@@ -498,15 +491,19 @@ describe("the runner: the client named on every call", () => {
       { client: "gym-a", method: "ping", args: [] },
       { client: "gym-a", method: "runTool", args: [{ tool: "x" }] },
     ]);
-    // Exactly the listed methods: no fetch, connect, asClient or then to reach the binding by.
+    // Exactly the listed methods: no fetch, connect, callAs or then to reach the binding by.
     expect(Object.keys(a).sort()).toEqual([...RUNNER_METHODS].sort());
-    for (const absent of ["fetch", "connect", "asClient", "then"]) {
+    for (const absent of ["fetch", "connect", "callAs", "then"]) {
       expect(a[absent], absent).toBeUndefined();
     }
     expect(Object.isFrozen(a)).toBe(true);
     // A client named inside a payload is only data: the call is still A's.
     await a.integration?.("call", { client: "gym-b" });
-    expect(calls.at(-1)?.client).toBe("gym-a");
+    expect(calls.at(-1)).toEqual({
+      client: "gym-a",
+      method: "integration",
+      args: ["call", { client: "gym-b" }],
+    });
     expectNoWayBack(a, runner);
   });
 });

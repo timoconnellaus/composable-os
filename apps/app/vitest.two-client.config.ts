@@ -1,0 +1,104 @@
+// cos-app as a many-client host's (stage 66 step 4, ADR 0615): the committed wrangler.jsonc, plus
+// what the deploy engine adds for a fleet deployment and never commits (step 7): the registry
+// (REGISTRY) and every client's database (CLIENT_DB). Its suite is test-two-clients/: two clients
+// on one deployment, through the app's real entries (src/server/entry.ts; TanStack Start itself
+// needs its build, so the suite stands a recorder in its place).
+import { fileURLToPath } from "node:url";
+import { readD1Migrations } from "@cloudflare/vitest-plugin";
+import { defineWorkersTestConfig } from "@composable-os/config/vitest";
+import { addClientDb } from "@composable-os/db/testing/vitest";
+import { mergeConfig } from "vitest/config";
+
+const migrationsDir = fileURLToPath(new URL("../../packages/db/migrations", import.meta.url));
+const registryMigrationsDir = fileURLToPath(
+  new URL("../../packages/db/registry-migrations", import.meta.url),
+);
+
+// A stand-in cos-runner that answers `callAs` with the client it was called as, so the suite sees
+// what the app's RUNNER wrapper sends (the real runner's entries are apps/runner's suite).
+const RUNNER_STUB = `
+import { WorkerEntrypoint } from "cloudflare:workers";
+export default class extends WorkerEntrypoint {
+  async callAs(client, method, args) { return { client, method, args }; }
+  async ping() { throw new Error("a many-client host's runner is called as a client"); }
+}`;
+
+// A client's web app as step 8 will upload it: its one binding, HOST, to ClientApp, the client
+// fixed in the binding's props. It forwards every request as it came, Host header and all.
+const WEB_APP = `export default { fetch: (request, env) => env.HOST.fetch(request) };`;
+
+/** The pool's name for the Worker under test, which auxiliary Workers bind to. */
+const SELF_WORKER = "vitest-plugin-runner-";
+
+const webApp = (name: string, props?: Record<string, string>) => ({
+  name,
+  modules: true,
+  script: WEB_APP,
+  compatibilityDate: "2026-10-01",
+  serviceBindings: {
+    HOST: { name: SELF_WORKER, entrypoint: "ClientApp", ...(props ? { props } : {}) },
+  },
+});
+
+export default mergeConfig(
+  defineWorkersTestConfig({
+    include: ["test-two-clients/**/*.test.ts"],
+    workers: async () => ({
+      wrangler: { configPath: "./wrangler.jsonc" },
+      main: "./test-two-clients/worker.ts",
+      miniflare: await addClientDb({
+        d1Databases: ["REGISTRY"],
+        bindings: {
+          TEST_MIGRATIONS: await readD1Migrations(migrationsDir),
+          REGISTRY_MIGRATIONS: await readD1Migrations(registryMigrationsDir),
+          // The deployment's own: a client's environment never holds it (step 6 derives each
+          // client's). The suite shows a client's sign-in refuses without its own.
+          BETTER_AUTH_SECRET: "the-host-wide-secret-the-host-wide-secret",
+          AI_FAKE_MODEL: "true",
+        },
+        serviceBindings: {
+          RUNNER: "cos-runner",
+          WEB_GYM_A: "web-gym-a",
+          WEB_NO_CLIENT: "web-no-client",
+          WEB_PAUSED: "web-paused",
+          WEB_NOBODY: "web-nobody",
+        },
+        workers: [
+          {
+            name: "cos-runner",
+            modules: true,
+            script: RUNNER_STUB,
+            compatibilityDate: "2026-10-01",
+          },
+          webApp("web-gym-a", { client: "gym-a" }),
+          webApp("web-no-client"),
+          webApp("web-paused", { client: "gym-paused" }),
+          webApp("web-nobody", { client: "gym-nobody" }),
+        ],
+      }),
+    }),
+  }),
+  {
+    plugins: [
+      {
+        name: "cos-screens-built-stub",
+        resolveId: (id: string) =>
+          id === "virtual:cos-screens-built" ? "\0cos-screens-built" : null,
+        load: (id: string) =>
+          id === "\0cos-screens-built" ? "export const BUILT_SCREENS = {};" : null,
+      },
+    ],
+    resolve: {
+      alias: {
+        "#/server/call-operation": fileURLToPath(
+          new URL("./test/stubs/call-operation.ts", import.meta.url),
+        ),
+        "#": fileURLToPath(new URL("./src", import.meta.url)),
+      },
+    },
+    define: {
+      __APP_VERSION__: JSON.stringify("0.0.0-test"),
+      __APP_COMMIT__: JSON.stringify("test"),
+    },
+  },
+);

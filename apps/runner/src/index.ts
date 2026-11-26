@@ -2,7 +2,7 @@
 // stage 0 Workflow, and the extension host. Since ADR 0043 the host is split: code runs here, in
 // the stateless entrypoint (the executor: tools, manifest evaluation, type checks, Code Mode), so
 // runs proceed in parallel; git, working copies and the build cache stay in the workspace DO.
-import { RpcTarget, WorkerEntrypoint } from "cloudflare:workers";
+import { WorkerEntrypoint } from "cloudflare:workers";
 import {
   type AutomationQueueMessage,
   type AutomationTestInput,
@@ -47,6 +47,7 @@ import {
   watchSubscriberSignup,
 } from "@composable-os/core";
 import { createCrmDb } from "@composable-os/db";
+import { RUNNER_METHODS } from "@composable-os/db/client-bindings";
 import {
   clientEnvironment,
   consumeByClient,
@@ -143,15 +144,14 @@ export function extensionHost(env: Env, options: ExecutorOptions = {}): Extensio
 /**
  * The runner's RPC methods, on one environment: the real `env` of a single-client deployment, or
  * one client's on a many-client host (stage 66, ADR 0615). `Runner` serves them as itself on a
- * single client, and through `asClient(<client>)` on many.
+ * single client, and through `callAs(<client>, …)` on many.
  */
-export class ClientRunner extends RpcTarget implements RunnerRpc {
+export class ClientRunner implements RunnerRpc {
   readonly #env: Env;
   /** The runner's own `env`: only for the fake gatekeeper, which is a gatekeeper, not a client. */
   readonly #host: Env;
 
   constructor(env: Env, host: Env) {
-    super();
     this.#env = env;
     this.#host = host;
   }
@@ -317,27 +317,36 @@ async function consumeAutomationEvents(
  * cos-runner's entry. Only the host's own Workers reach it: it has no public route (`workers_dev`
  * off, no routes), and cos-app is bound to it. On a single-client deployment its methods run on
  * its own `env`, as always. On a many-client host (stage 66, ADR 0615) every call names the
- * client, `asClient(<client>).<method>(...)` (cos-app's RUNNER wrapper does it), and the methods
+ * client, `callAs(<client>, <method>, args)` (cos-app's RUNNER wrapper does it), and the methods
  * on the runner itself refuse: there is no client to run them as. Its crons fan out, one message
  * per client, and its queues and Workflows act as the client stamped on each message and instance.
  */
 export default class Runner extends WorkerEntrypoint<Env> implements RunnerRpc {
-  /** The runner's methods as one client, in that client's environment (many-client host only). */
-  async asClient(client: string): Promise<ClientRunner> {
+  /**
+   * One of the runner's methods (`RUNNER_METHODS`, and no other) as `client`, in that client's
+   * environment: a many-client host's only. The client is its own argument, never read from the
+   * method's arguments.
+   */
+  async callAs(client: string, method: string, args: unknown[]): Promise<unknown> {
     if (!servesManyClients(this.env)) {
       throw new NoClientError("A client was named on a single-client deployment");
     }
-    return new ClientRunner(await clientEnvironment(this.env, client), this.env);
+    if (!(RUNNER_METHODS as readonly string[]).includes(method)) {
+      throw new NoClientError(`${method} is not one of the runner's methods`);
+    }
+    const target = new ClientRunner(await clientEnvironment(this.env, client), this.env);
+    const run = (target as unknown as Record<string, (...a: unknown[]) => unknown>)[method];
+    if (typeof run !== "function") throw new NoClientError(`${method} is not offered`);
+    return run.apply(target, Array.isArray(args) ? args : []);
   }
 
   /** The methods on the runner's own `env`: a single-client deployment's only. */
   #self(): ClientRunner {
     if (servesManyClients(this.env)) {
-      throw new NoClientError("A many-client host's runner is called as a client: asClient(<id>)");
+      throw new NoClientError("A many-client host's runner is called as a client: callAs(<id>, …)");
     }
     return new ClientRunner(this.env, this.env);
   }
-
   ping() {
     return this.#self().ping();
   }

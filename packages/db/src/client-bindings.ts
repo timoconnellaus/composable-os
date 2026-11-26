@@ -561,8 +561,11 @@ export function keepObjectsApart<N extends DurableObjectNamespace<never> | Durab
 
 /** What the runner offers the app on a many-client host: its methods, as one client. */
 export interface ClientRunnerEntry {
-  /** The runner's methods for `client`: the runner builds that client's environment. */
-  asClient(client: string): unknown;
+  /**
+   * One of `RUNNER_METHODS` as `client`, with its arguments: the runner builds that client's
+   * environment and runs the method on it.
+   */
+  callAs(client: string, method: string, args: unknown[]): unknown;
 }
 
 /**
@@ -601,8 +604,8 @@ export const RUNNER_METHODS = [
 
 /**
  * The service binding to the runner (RUNNER), kept apart: each method of `RUNNER_METHODS` calls
- * `asClient(<client>)` with the client as its own argument, then the method on what that returns,
- * so the runner runs it in that client's environment (and never reads a client from a payload).
+ * `callAs(<client>, <method>, args)`, the client its own argument, so the runner runs it in that
+ * client's environment (and never reads a client from a payload).
  * The runner trusts the client it is told because only the host's own Workers are bound to it (it
  * has no public route: `workers_dev` off, no routes). No other method is offered: no `fetch`, no
  * `connect`, nothing forwarded by name.
@@ -611,8 +614,7 @@ export function keepRunnerApart<R>(runner: R, client: ClientId): R {
   const entry = runner as unknown as ClientRunnerEntry;
   const methods: Record<string, (...args: unknown[]) => unknown> = {};
   for (const method of RUNNER_METHODS) {
-    methods[method] = (...args: unknown[]) =>
-      (entry.asClient(client) as Record<string, (...a: unknown[]) => unknown>)[method]?.(...args);
+    methods[method] = (...args: unknown[]) => entry.callAs(client, method, args);
   }
   return Object.freeze(methods) as unknown as R;
 }
