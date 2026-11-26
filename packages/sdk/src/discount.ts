@@ -444,4 +444,25 @@ export function checkObjectDiscount(
       );
     }
   }
+  // Past its first state a discount's terms are changed only by a person (ADR 0699): nothing but
+  // the host creates one past it, and nothing but the host (a person's tool) moves one back to it,
+  // so there is no way round that rule.
+  for (const [state, movers] of Object.entries(states.create?.in ?? {})) {
+    if (state === states.initial || liveSet.has(state)) continue;
+    if (movers.some((mover) => mover !== "host")) {
+      contract(
+        `objects.${name}.states.create.in.${state}`,
+        `A discount is made in "${states.initial}": past it, its terms are a person's to change, so only the host may create one in "${state}"`,
+      );
+    }
+  }
+  states.moves.forEach((move, i) => {
+    if (move.to !== states.initial) return;
+    if (move.by.some((mover) => mover !== "host")) {
+      contract(
+        `objects.${name}.states.moves.${i}.by`,
+        `Moving a discount back to "${states.initial}" would make its terms anyone's to change again: declare it by ["host"] with a person's tool, or leave it out`,
+      );
+    }
+  });
 }

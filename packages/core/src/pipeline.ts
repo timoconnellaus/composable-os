@@ -2967,6 +2967,10 @@ function staffStanding(ctx: InvocationContext): Standing {
  */
 function personsOwnRun(ctx: InvocationContext): boolean {
   if (ctx.actor !== "extension") return false;
+  // A run that stands as an AI's (ADR 0590: it used a model, read outside text through a
+  // gatekeeper, or is a runtime extension's, whose code an AI may have written) is never a
+  // person's act, whoever called the tool (review of PR #479, S1).
+  if (ctx.markStanding === "ai") return false;
   const tool = ctx.extension?.tool;
   if (tool?.calledBy?.actor === "human") return true;
   return tool?.startedByApproval === true && tool.startedBy !== ADJUDICATOR_PRINCIPAL;
