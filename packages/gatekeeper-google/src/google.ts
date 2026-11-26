@@ -1137,9 +1137,15 @@ type GoogleVerifierProps = {
 };
 
 // Extract the HTTP status from the ad-hoc Error messages thrown by the Google API helpers
-// (which embed it as `: <status> ` or `[http=<status>]`). Returns undefined if not found.
-function httpStatusFromError(error: unknown): number | undefined {
+// (which embed it as `: <status> ` or `[http=<status>]`). Returns undefined if not found. A
+// token-endpoint failure (`GoogleTokenError`, whose class an RPC hop drops but whose message keeps
+// its shape) carries no API status: a wrong client secret's 401 is a broken connection, never the
+// observer's "no access" (issue #517 follow-up). Exported for its test.
+export function httpStatusFromError(error: unknown): number | undefined {
   if (!(error instanceof Error)) return undefined;
+  if (error.name === "GoogleTokenError" || /^Google token (?:refresh|exchange) failed/.test(error.message)) {
+    return undefined;
+  }
   let m = error.message.match(/\[http=(\d{3})\]/) ?? error.message.match(/:\s(\d{3})(?:\s|$)/);
   return m ? Number(m[1]) : undefined;
 }

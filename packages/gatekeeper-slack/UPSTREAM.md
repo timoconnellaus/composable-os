@@ -18,6 +18,10 @@ kept as a symlink.
 
 ## Local modifications
 
+- **Upstream error text (2026-11-27, issue #517).** Slack's `error` field is quoted only when it is
+  an error code (`slackCode`, `src/slack-api.ts`): in the OAuth exchange, the token refresh and
+  every API error. Test: `src/upstream-echo.test.ts`, on this package's `keep` list in
+  `scripts/gatekeeper-upstreams.mjs`.
 - **Scope rename.** `@gadgets/*` imports point at `@composable-os/gatekeeper-interface`,
   `@composable-os/gatekeeper-kit` and `@composable-os/gatekeeper-configurator-ui` (including
   `vi.mock("@gadgets/configurator-ui")` in tests). The 7 source files this touched start with a
