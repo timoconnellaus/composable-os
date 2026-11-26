@@ -17,6 +17,7 @@ import {
   WORKFLOW_ID_SEPARATOR,
 } from "./client-bindings.ts";
 import {
+  clientOf,
   environmentFor,
   type HostBindings,
   hostDirectory,
@@ -116,6 +117,20 @@ export async function decideRequest<E extends HostBindings>(
 /** Why an entry that was told a client cannot run as it. */
 export class NoClientError extends Error {
   override name = "NoClientError";
+  /** `unknown`: no client, or none the registry has; `updating`: a client not served now. */
+  readonly reason: "unknown" | "updating";
+  constructor(message: string, reason: "unknown" | "updating" = "unknown") {
+    super(message);
+    this.reason = reason;
+  }
+}
+
+/** The answer an entry gives when it cannot run as the client it was told (a NoClientError). */
+export function refusalResponse(error: unknown, request?: Request): Response {
+  if (error instanceof NoClientError && error.reason === "updating") {
+    return beingUpdatedResponse(request);
+  }
+  return unknownHostResponse();
 }
 
 /**
@@ -141,7 +156,7 @@ export async function clientEnvironment<E extends HostBindings>(
   const record = await directory.client(client);
   if (!record) throw new NoClientError("Not a client of this host");
   if ((options.served ?? true) && clientRefusal(record)) {
-    throw new NoClientError("This client is not served right now (being updated)");
+    throw new NoClientError("This client is not served right now (being updated)", "updating");
   }
   const clientEnv = await environmentFor(env, client);
   if (!clientEnv) throw new NoClientError("Not a client of this host");
@@ -179,16 +194,57 @@ export function messagesByClient<Body>(messages: readonly Message<unknown>[]): {
 }
 
 /**
+ * One client's share of a batch, shaped as the batch itself: its messages carry the bodies
+ * without the stamp, and acking or retrying one acks or retries the message underneath (the
+ * first answer counts). The consumers' code below runs on it unchanged.
+ */
+function clientBatch<Body>(
+  batch: MessageBatch<unknown>,
+  entries: { message: Message<unknown>; body: Body }[],
+): MessageBatch<Body> & { answered: () => boolean[] } {
+  const done = entries.map(() => false);
+  const messages: Message<Body>[] = entries.map(({ message, body }, i) => ({
+    id: message.id,
+    timestamp: message.timestamp,
+    attempts: message.attempts,
+    body,
+    ack: () => {
+      if (done[i]) return;
+      done[i] = true;
+      message.ack();
+    },
+    retry: (options?: QueueRetryOptions) => {
+      if (done[i]) return;
+      done[i] = true;
+      message.retry(options);
+    },
+  }));
+  return {
+    queue: batch.queue,
+    metadata: batch.metadata,
+    messages,
+    ackAll: () => {
+      for (const message of messages) message.ack();
+    },
+    retryAll: (options?: QueueRetryOptions) => {
+      for (const message of messages) message.retry(options);
+    },
+    answered: () => [...done],
+  };
+}
+
+/**
  * A queue consumer's batch on a many-client host, one client at a time, each in its own
- * environment: `handle` runs once per client with that client's bodies. A client whose handling
- * fails has its own messages retried and nobody else's; a message with no stamp, or for a client
- * the host does not know, is retried until the queue's dead-letter queue holds it, never acted
- * on; a client not served right now (being updated) has its messages retried later.
+ * environment: `handle` runs once per client with that client's share of the batch (the bodies
+ * without the stamp, shaped as a batch). A client whose handling throws has its own messages
+ * retried and nobody else's; a message with no stamp, or for a client the host does not know or
+ * does not serve now (being updated), is retried, never acted on, until the queue's dead-letter
+ * queue holds it or the client is served again.
  */
 export async function consumeByClient<E extends HostBindings, Body>(
   env: E,
   batch: MessageBatch<unknown>,
-  handle: (clientEnv: E, bodies: Body[], client: ClientId) => Promise<void>,
+  handle: (clientEnv: E, share: MessageBatch<Body>, client: ClientId) => Promise<void>,
   options: { retryDelaySeconds?: number } = {},
 ): Promise<{ handled: ClientId[]; failed: ClientId[]; refused: number }> {
   const delaySeconds = options.retryDelaySeconds ?? 10;
@@ -211,18 +267,14 @@ export async function consumeByClient<E extends HostBindings, Body>(
         for (const { message } of entries) message.retry({ delaySeconds });
         return;
       }
+      const share = clientBatch<Body>(batch, entries);
       try {
-        await handle(
-          clientEnv,
-          entries.map((entry) => entry.body),
-          client,
-        );
-        for (const { message } of entries) message.ack();
+        await handle(clientEnv, share, client);
         handled.push(client);
       } catch (error) {
         failed.push(client);
         console.error(`${batch.queue}: one client's messages failed, retrying`, String(error));
-        for (const { message } of entries) message.retry({ delaySeconds });
+        share.retryAll({ delaySeconds });
       }
     }),
   );
@@ -383,11 +435,15 @@ export async function workflowRun<E extends HostBindings, Params>(
  */
 export class ClientObject<E extends HostBindings> {
   #env: E | null = null;
+  readonly #host: E;
+  readonly #adopt: ((clientEnv: E) => void) | undefined;
   readonly client: ClientId | null;
   /** The object's name as its caller gave it (without the client), or undefined. */
   readonly name: string | undefined;
 
   constructor(ctx: DurableObjectState, env: E, adopt?: (clientEnv: E) => void) {
+    this.#host = env;
+    this.#adopt = adopt;
     const stored = ctx.id.name;
     if (!servesManyClients(env)) {
       this.client = null;
@@ -404,12 +460,26 @@ export class ClientObject<E extends HostBindings> {
           `A Durable Object on a many-client host is named <client>${OBJECT_NAME_SEPARATOR}<name>: refused`,
         );
       }
-      // An object carries on with work it holds for a paused client (an alarm, a socket), but
-      // never for one the registry does not have.
-      const clientEnv = await clientEnvironment(env, parts.client, { served: false });
-      this.#env = clientEnv;
-      adopt?.(clientEnv);
+      await this.refresh();
     });
+  }
+
+  /**
+   * Reads the client's environment again (a long-lived object, such as the assistant's thread
+   * with its sockets, calls it on each message): the registry's latest, so settings changed and a
+   * client removed reach an object that outlives a version stamp. An object carries on with work
+   * it holds for a paused client (an alarm, a socket), but never for one the registry no longer
+   * has: then this throws and the message is refused. Single-client: the real `env`.
+   */
+  async refresh(): Promise<E> {
+    if (this.client === null) {
+      if (this.#env) return this.#env;
+      throw new NoClientError("This object's name carries no client: refused");
+    }
+    const clientEnv = await clientEnvironment(this.#host, this.client, { served: false });
+    this.#env = clientEnv;
+    this.#adopt?.(clientEnv);
+    return clientEnv;
   }
 
   /** The environment the object runs with: the client's, or the real one on a single client. */
@@ -434,4 +504,26 @@ export function propsClientEnvironment<E extends HostBindings>(
 ): Promise<E> {
   if (!servesManyClients(env)) return Promise.resolve(env);
   return clientEnvironment(env, props?.client ?? null, options);
+}
+
+// --- Secrets and addresses: each client's own, step 6 ----------------------------------------
+
+/**
+ * Why `name` cannot be read from `env`, when `env` is a client's environment and the name is one
+ * of the secrets or addresses stage 66 step 6 fills in per client (`per-client` in ENV_NAMES):
+ * until then a client's environment has none, and a place that needs one fails with this rather
+ * than fall back to the deployment's single value, which would mix clients. Null otherwise
+ * (a single-client deployment's `env`, or a value that is there).
+ */
+export function perClientMissing(env: object, name: string): string | null {
+  if (clientOf(env) === null) return null;
+  const value = (env as Record<string, unknown>)[name];
+  if (typeof value === "string" && value.length > 0) return null;
+  return `${name} is each client's own on a many-client host; stage 66 step 6 (secrets and addresses per client) fills it in and is not built yet`;
+}
+
+/** `perClientMissing` as a refusal: throws its reason, or does nothing. */
+export function requirePerClient(env: object, name: string): void {
+  const missing = perClientMissing(env, name);
+  if (missing) throw new Error(missing);
 }

@@ -64,7 +64,13 @@ import {
   tellAdmins,
 } from "@composable-os/core";
 import { createCrmDb } from "@composable-os/db";
+import {
+  propsClientEnvironment,
+  refusalResponse,
+  servesManyClients,
+} from "@composable-os/db/client-entries";
 import { type MediaEnv, mediaResizerFor, mediaStoreFor } from "../media.ts";
+import { runInClientEnv } from "../request-env.ts";
 import { handleAgreementPdf, isAgreementPdfPath } from "./agreement-pdf.ts";
 import {
   type ApiEnv,
@@ -265,9 +271,27 @@ export async function handleBound(request: Request, env: ApiEnv): Promise<Respon
  * The entrypoint a company's web app binds to:
  * `"services": [{ "binding": "HOST", "service": "<product>-app", "entrypoint": "ClientApp" }]`.
  * It has one method, `fetch`; there is no RPC method that takes a caller.
+ *
+ * On a many-client host (stage 66, ADR 0615) the client is fixed on the binding itself, in its
+ * props (`"props": { "client": "<id>" }`, set by the deploy when it uploads the web app, step 8):
+ * a web app's code cannot change its own binding's props, so whatever hostname, header or body
+ * it sends, it reaches only its own client. A binding with no client in its props is refused (a
+ * 404, as an unknown hostname), and a client not served now gets "being updated".
  */
-export class ClientApp extends WorkerEntrypoint<Env> {
-  override fetch(request: Request): Promise<Response> {
-    return handleBound(request, this.env as unknown as ApiEnv);
+export class ClientApp extends WorkerEntrypoint<Env, ClientAppProps> {
+  override async fetch(request: Request): Promise<Response> {
+    if (!servesManyClients(this.env)) return handleBound(request, this.env as unknown as ApiEnv);
+    let env: Env;
+    try {
+      env = await propsClientEnvironment(this.env, this.ctx.props);
+    } catch (error) {
+      return refusalResponse(error, request);
+    }
+    return runInClientEnv(env, () => handleBound(request, env as unknown as ApiEnv));
   }
+}
+
+/** What the host fixes on a web app's binding to ClientApp, on a many-client host. */
+export interface ClientAppProps {
+  client?: string;
 }

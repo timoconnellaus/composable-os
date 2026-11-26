@@ -19,6 +19,7 @@ import {
   keepVectorsApart,
   keepWorkflowApart,
   objectNameParts,
+  RUNNER_METHODS,
 } from "../src/client-bindings.ts";
 import type { ClientDb } from "../src/client-db.ts";
 import { stampOf, workflowClientOf } from "../src/client-entries.ts";
@@ -470,26 +471,26 @@ describe("Durable Object namespaces: the client in every name", () => {
 });
 
 describe("the runner: the client named on every call", () => {
-  it("sends every method through asClient(<client>), and offers no raw fetch", async () => {
+  it("offers each listed method through asClient(<client>), and nothing else", async () => {
     const calls: { client: string; method: string; args: unknown[] }[] = [];
-    const runner = {
-      asClient: (client: string) =>
-        new Proxy(
-          {},
-          {
-            get:
-              (_t, method) =>
-              (...args: unknown[]) => {
-                calls.push({ client, method: String(method), args });
-                return Promise.resolve({ client });
-              },
+    const target = (client: string) =>
+      Object.fromEntries(
+        [...RUNNER_METHODS, "fetch", "asClient"].map((method) => [
+          method,
+          (...args: unknown[]) => {
+            calls.push({ client, method, args });
+            return Promise.resolve({ client });
           },
-        ),
+        ]),
+      );
+    const runner = {
+      asClient: (client: string) => target(client),
       ping: () => Promise.resolve("the real binding"),
+      fetch: () => Promise.resolve(new Response("the real binding")),
     };
     const a = keepRunnerApart(runner, A) as unknown as Record<
       string,
-      (...a: unknown[]) => Promise<unknown>
+      ((...a: unknown[]) => Promise<unknown>) | undefined
     >;
     expect(await a.ping?.()).toEqual({ client: "gym-a" });
     await a.runTool?.({ tool: "x" });
@@ -497,11 +498,15 @@ describe("the runner: the client named on every call", () => {
       { client: "gym-a", method: "ping", args: [] },
       { client: "gym-a", method: "runTool", args: [{ tool: "x" }] },
     ]);
-    expect(() => a.fetch?.(new Request("https://runner/"))).toThrow(ClientPartError);
-    expect((a as unknown as { then?: unknown }).then).toBeUndefined();
-    expect(Object.keys(a)).toEqual([]);
-    expect(Object.getPrototypeOf(a)).toBeNull();
-    expect((a as unknown as { asClient: unknown }).asClient).not.toBe(runner.asClient);
+    // Exactly the listed methods: no fetch, connect, asClient or then to reach the binding by.
+    expect(Object.keys(a).sort()).toEqual([...RUNNER_METHODS].sort());
+    for (const absent of ["fetch", "connect", "asClient", "then"]) {
+      expect(a[absent], absent).toBeUndefined();
+    }
+    expect(Object.isFrozen(a)).toBe(true);
+    // A client named inside a payload is only data: the call is still A's.
+    await a.integration?.("call", { client: "gym-b" });
+    expect(calls.at(-1)?.client).toBe("gym-a");
     expectNoWayBack(a, runner);
   });
 });

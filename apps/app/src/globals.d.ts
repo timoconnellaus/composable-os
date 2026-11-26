@@ -29,3 +29,12 @@ declare module "virtual:cos-screens" {
 declare module "virtual:cos-screens-built" {
   export const BUILT_SCREENS: Readonly<Record<string, string>>;
 }
+
+// Node's AsyncLocalStorage, as workerd provides it under nodejs_compat (src/server/request-env.ts
+// holds the request's environment in one). Only what the app uses: no Node types here.
+declare module "node:async_hooks" {
+  export class AsyncLocalStorage<T> {
+    getStore(): T | undefined;
+    run<R>(store: T, callback: () => R): R;
+  }
+}

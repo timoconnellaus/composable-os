@@ -19,7 +19,7 @@
 // `calendarEntry` on, its public title and place and its times in UTC, nothing else.
 import { type RateLimitBinding, readCustomerFeed } from "@composable-os/core";
 import { createCrmDb } from "@composable-os/db";
-import { isFeedPath, serveFeed } from "./calendar-feed.ts";
+import { feedSecret, isFeedPath, serveFeed } from "./calendar-feed.ts";
 
 export interface CustomerFeedEnv {
   DB: D1Database;
@@ -54,7 +54,7 @@ export function handleCustomerFeed(
       tokenLimit: env.CUSTOMER_FEED_RATE_LIMIT,
       addressLimit: env.CUSTOMER_FEED_ADDRESS_RATE_LIMIT,
       keys: { token: "cfeed", address: "cfeed-from" },
-      secret: env.BETTER_AUTH_SECRET ?? "",
+      secret: feedSecret(env),
       failure: "customer calendar feed could not be served",
       async read(token, at) {
         const feed = await readCustomerFeed(createCrmDb(env.DB).query, token, at);

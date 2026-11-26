@@ -88,13 +88,34 @@ function inCursor(client: ClientId, cursor: unknown): string | undefined {
 function ownObject<T extends R2Object | R2ObjectBody>(client: ClientId, object: T): T {
   const key = ownKey(client, object.key);
   if (key === null) refuse("The store answered with an object outside the client's part");
-  return new Proxy(object, {
-    get(target, property) {
-      if (property === "key") return key;
-      const value = Reflect.get(target, property, target);
-      return typeof value === "function" ? value.bind(target) : value;
-    },
-  });
+  const view: Record<string, unknown> = {
+    key,
+    version: object.version,
+    size: object.size,
+    etag: object.etag,
+    httpEtag: object.httpEtag,
+    checksums: object.checksums,
+    uploaded: object.uploaded,
+    httpMetadata: object.httpMetadata,
+    customMetadata: object.customMetadata,
+    range: object.range,
+    storageClass: object.storageClass,
+    ssecKeyMd5: object.ssecKeyMd5,
+    writeHttpMetadata: (headers: Headers) => object.writeHttpMetadata(headers),
+  };
+  if ("body" in object) {
+    const body = object as R2ObjectBody;
+    Object.defineProperties(view, {
+      body: { get: () => body.body, enumerable: true },
+      bodyUsed: { get: () => body.bodyUsed, enumerable: true },
+    });
+    view.arrayBuffer = () => body.arrayBuffer();
+    view.bytes = () => body.bytes();
+    view.text = () => body.text();
+    view.json = () => body.json();
+    view.blob = () => body.blob();
+  }
+  return view as unknown as T;
 }
 
 function ownUpload(client: ClientId, upload: R2MultipartUpload): R2MultipartUpload {
@@ -531,8 +552,7 @@ export function keepObjectsApart<N extends DurableObjectNamespace<never> | Durab
       },
       getByName: (name: string, options?: DurableObjectNamespaceGetDurableObjectOptions) =>
         inner.getByName(clientObjectName(client, name), options),
-      jurisdiction: (jurisdiction: DurableObjectJurisdiction) =>
-        wrap(inner.jurisdiction(jurisdiction)),
+      // No `jurisdiction()`: nothing in the host uses it, and it is left out rather than wrapped.
     }) as unknown as DurableObjectNamespace;
   return wrap(real) as unknown as N;
 }
@@ -546,31 +566,53 @@ export interface ClientRunnerEntry {
 }
 
 /**
- * The service binding to the runner (RUNNER), kept apart: every method call `m(...args)` becomes
- * `asClient(<client>).m(...args)`, so the runner runs it in that client's environment. The
- * runner trusts the client it is told because only the host's own Workers are bound to it (it
- * has no public route: `workers_dev` off, no routes). A raw `fetch` or `connect` is refused.
+ * Every method of the runner's RPC (apps/runner/src/rpc.ts, `RunnerRpc`), listed: the RUNNER
+ * wrapper offers these and nothing else. apps/runner's two-client suite fails when the runner's
+ * `ClientRunner` has a method this list does not.
+ */
+export const RUNNER_METHODS = [
+  "ping",
+  "startHelloWorkflow",
+  "helloWorkflowStatus",
+  "commit",
+  "shipped",
+  "commitShipped",
+  "evaluate",
+  "runTool",
+  "versions",
+  "files",
+  "listWorkspace",
+  "workingCopy",
+  "writeFiles",
+  "commitWorkingCopy",
+  "eject",
+  "runCode",
+  "runProducer",
+  "describeChange",
+  "installShipped",
+  "integration",
+  "gatekeeperFetch",
+  "testAutomation",
+  "startManualRun",
+  "retryRun",
+  "replayRun",
+  "cancelRun",
+] as const;
+
+/**
+ * The service binding to the runner (RUNNER), kept apart: each method of `RUNNER_METHODS` calls
+ * `asClient(<client>)` with the client as its own argument, then the method on what that returns,
+ * so the runner runs it in that client's environment (and never reads a client from a payload).
+ * The runner trusts the client it is told because only the host's own Workers are bound to it (it
+ * has no public route: `workers_dev` off, no routes). No other method is offered: no `fetch`, no
+ * `connect`, nothing forwarded by name.
  */
 export function keepRunnerApart<R>(runner: R, client: ClientId): R {
   const entry = runner as unknown as ClientRunnerEntry;
-  const handler: ProxyHandler<object> = {
-    get(_target, property) {
-      // Not a thenable (an awaited binding must not look like a promise), and nothing else.
-      if (typeof property !== "string" || property === "then") return undefined;
-      if (property === "fetch" || property === "connect") {
-        return () => refuse(`RUNNER.${property} is not offered to a client: call its methods`);
-      }
-      return (...args: unknown[]) => {
-        const target = entry.asClient(client) as Record<string, (...a: unknown[]) => unknown>;
-        return target[property]?.(...args);
-      };
-    },
-    has: () => false,
-    ownKeys: () => [],
-    getOwnPropertyDescriptor: () => undefined,
-    getPrototypeOf: () => null,
-    set: () => false,
-    defineProperty: () => false,
-  };
-  return new Proxy(Object.create(null), handler) as R;
+  const methods: Record<string, (...args: unknown[]) => unknown> = {};
+  for (const method of RUNNER_METHODS) {
+    methods[method] = (...args: unknown[]) =>
+      (entry.asClient(client) as Record<string, (...a: unknown[]) => unknown>)[method]?.(...args);
+  }
+  return Object.freeze(methods) as unknown as R;
 }

@@ -19,6 +19,7 @@
 import { addressKey } from "@composable-os/auth";
 import { type CalendarEvent, writeCalendar } from "@composable-os/calendar-file";
 import { type RateLimitBinding, rateLimit, sha256Hex } from "@composable-os/core";
+import { requirePerClient } from "@composable-os/db/client-entries";
 
 /** One event as a feed reads it; the route writes it. */
 export interface FeedEvent {
@@ -55,6 +56,16 @@ export interface FeedRoute {
 
 /** A token as written in the address: 43 base64url characters, then `.ics`. */
 const TOKEN_PATH = /^([A-Za-z0-9_-]{43})\.ics$/;
+
+/**
+ * The key of a feed's client-address bucket: the auth secret, or "" with none (as before). A
+ * client's environment on a many-client host has no auth secret until stage 66 step 6, and the
+ * feed refuses rather than key every client's addresses alike.
+ */
+export function feedSecret(env: { BETTER_AUTH_SECRET?: string }): string {
+  requirePerClient(env, "BETTER_AUTH_SECRET");
+  return env.BETTER_AUTH_SECRET ?? "";
+}
 
 /** Whether `pathname` is under `prefix` (every such path is answered by the feed). */
 export function isFeedPath(prefix: string, pathname: string): boolean {

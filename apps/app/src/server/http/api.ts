@@ -75,6 +75,7 @@ import {
   ValidationError,
 } from "@composable-os/core";
 import { type CrmDb, createCrmDb } from "@composable-os/db";
+import { perClientMissing } from "@composable-os/db/client-entries";
 import { sendSignInCode, signInMailProblem } from "../host-mail.ts";
 import { integrationRuntimeFor } from "../integrations.ts";
 import {
@@ -120,6 +121,17 @@ export async function clientAddressOf(
  */
 export async function connectionAddress(request: Request, env: ApiEnv): Promise<ClientAddress> {
   return (await clientAddressOf(request.headers.get("cf-connecting-ip"), env)) ?? UNKNOWN_ADDRESS;
+}
+
+/**
+ * Why customer or practitioner sign-in is not set up: no CUSTOMER_AUTH_SECRET, which on a
+ * many-client host is each client's own and comes with stage 66 step 6.
+ */
+function signInNotSetUp(env: ApiEnv, who: "Customer" | "Practitioner"): string {
+  const perClient = perClientMissing(env, "CUSTOMER_AUTH_SECRET");
+  return perClient
+    ? `${who} sign-in is not set up here: ${perClient}`
+    : `${who} sign-in is not set up on this deployment (CUSTOMER_AUTH_SECRET)`;
 }
 
 /** Customer sign-in for this env, or null when CUSTOMER_AUTH_SECRET is not set. */
@@ -432,7 +444,7 @@ async function nativeRoute(
   if (route === "/auth/customer/code" || route === "/auth/customer/sign-in") {
     const identity = customers(env);
     if (!identity) {
-      throw notSetUp("Customer sign-in is not set up on this deployment (CUSTOMER_AUTH_SECRET)");
+      throw notSetUp(signInNotSetUp(env, "Customer"));
     }
     const email = field(input, "email", 254);
     if (route === "/auth/customer/code") {
@@ -606,7 +618,7 @@ export async function handlePractitionerAuth(request: Request, env: ApiEnv): Pro
     return Response.json(
       {
         code: "SIGN_IN_NOT_SET_UP",
-        message: "Practitioner sign-in is not set up on this deployment (CUSTOMER_AUTH_SECRET)",
+        message: signInNotSetUp(env, "Practitioner"),
       },
       { status: 503 },
     );
@@ -624,7 +636,7 @@ export async function handleCustomerAuth(request: Request, env: ApiEnv): Promise
     return Response.json(
       {
         code: "SIGN_IN_NOT_SET_UP",
-        message: "Customer sign-in is not set up on this deployment (CUSTOMER_AUTH_SECRET)",
+        message: signInNotSetUp(env, "Customer"),
       },
       { status: 503 },
     );

@@ -99,6 +99,7 @@ import {
   withSavedLines,
 } from "@composable-os/core";
 import { type CrmDb, createCrmDb } from "@composable-os/db";
+import { ClientObject } from "@composable-os/db/client-entries";
 import { Agent, type Connection, type ConnectionContext, type WSMessage } from "agents";
 import "./routine-agents.ts";
 import { activeUser } from "../acting-user.ts";
@@ -113,6 +114,7 @@ import {
   extensionHostFor,
   type OperationsEnv,
 } from "../operations.ts";
+import { runInClientEnv } from "../request-env.ts";
 import {
   COMPACTION_ROLE,
   type FinishedTurn,
@@ -212,9 +214,15 @@ export class AssistantAgent extends withAssistantVoice(Agent<Cloudflare.Env>) im
   /** Erases that arrived while a turn ran: applied to its messages before they are stored. */
   #scrubs: ConversationScrub[] = [];
   #compactionHost: ThreadCompaction | null = null;
+  /**
+   * Whose thread this is on a many-client host (stage 66, ADR 0615): its name is
+   * `<client>:user:<id>`, given by the ASSISTANT wrapper, and it runs on that client's
+   * environment. A single-client deployment's: the real `env`.
+   */
+  readonly #client = new ClientObject(this.ctx, this.env as unknown as AssistantEnv);
 
   get #env(): AssistantEnv {
-    return this.env as unknown as AssistantEnv;
+    return this.#client.env;
   }
 
   /** The thread's tables, created on first use (idempotent). */
@@ -550,6 +558,9 @@ export class AssistantAgent extends withAssistantVoice(Agent<Cloudflare.Env>) im
   override async onMessage(connection: Connection<SocketState>, message: WSMessage) {
     const state = connection.state;
     if (!state?.userId || typeof message !== "string") return;
+    // A socket outlives a registry stamp: each message runs on the client's latest environment,
+    // and a client the registry no longer has is refused (stage 66, ADR 0615).
+    await this.#client.refresh();
     if (this.handleVoiceFrame(connection, message)) return;
     let frame: ThreadClientFrame;
     try {
@@ -627,6 +638,7 @@ export class AssistantAgent extends withAssistantVoice(Agent<Cloudflare.Env>) im
 
   /** Starts a turn and returns its event stream (SSE). Only one turn runs at a time. */
   async startTurn(request: TurnRequest): Promise<TurnStart> {
+    await this.#client.refresh();
     try {
       const running = this.#startTurn(request);
       return { ok: true, stream: this.#subscribe(running, 0), threadId: this.#meta("thread_id") };
@@ -772,19 +784,22 @@ export class AssistantAgent extends withAssistantVoice(Agent<Cloudflare.Env>) im
     this.#assertOwner(userId);
     const user = await this.#actingUser(userId);
     const threadId = await this.#threadId(user);
-    return deliverRoutineMessage(
-      {
-        env: this.#env,
-        user,
-        threadId,
-        delivered: (runId) =>
-          this.#messages
-            .list({ limit: THREAD_WINDOW })
-            .some((m) => routineRunOf(m.parts) === runId),
-        post: (parts) => this.#post(userId, parts),
-        write: (prompt) => this.#routineTurn(user, threadId, prompt),
-      },
-      delivery,
+    // A routine's agent step reads the request's environment (routine-agents.ts): this client's.
+    return runInClientEnv(this.#env as unknown as Env, () =>
+      deliverRoutineMessage(
+        {
+          env: this.#env,
+          user,
+          threadId,
+          delivered: (runId) =>
+            this.#messages
+              .list({ limit: THREAD_WINDOW })
+              .some((m) => routineRunOf(m.parts) === runId),
+          post: (parts) => this.#post(userId, parts),
+          write: (prompt) => this.#routineTurn(user, threadId, prompt),
+        },
+        delivery,
+      ),
     );
   }
 

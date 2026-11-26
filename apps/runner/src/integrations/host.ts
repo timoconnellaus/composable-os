@@ -55,6 +55,7 @@ import {
   vendorBinding,
 } from "@composable-os/core";
 import { createCrmDb } from "@composable-os/db";
+import { ClientObject, perClientMissing } from "@composable-os/db/client-entries";
 import { runnerJudge } from "../extensions/ai.ts";
 import { paymentEventDeps } from "./payments.ts";
 import { HostQueue, type QueueCaller, type QueueHost } from "./queue.ts";
@@ -307,6 +308,14 @@ export class TextSink extends RpcTarget {
 export class IntegrationHost extends DurableObject<Env> {
   /** Configurator `ui` capabilities by resource pattern, for this isolate's lifetime. */
   #configurators = new Map<string, Stub>();
+  /**
+   * Whose connection this is on a many-client host (stage 66, ADR 0615): named
+   * `<client>:<connectionId>` by the INTEGRATION_HOST wrapper, it runs on that client's
+   * environment, and every entrypoint it mints for a gatekeeper carries that client in its props.
+   */
+  readonly #client = new ClientObject(this.ctx, this.env, (clientEnv) => {
+    this.env = clientEnv;
+  });
 
   // --- State ----------------------------------------------------------------------------------
 
@@ -314,7 +323,7 @@ export class IntegrationHost extends DurableObject<Env> {
     const meta = await this.ctx.storage.get<Meta>("meta");
     if (meta) return meta;
     // First use: read the mirror row the operation wrote.
-    const id = this.ctx.id.name ?? "";
+    const id = this.#client.name ?? "";
     const row = await this.env.DB.prepare(
       "SELECT id, vendor, scope, owner_user_id, title FROM core_integration_connection WHERE id = ?",
     )
@@ -392,7 +401,12 @@ export class IntegrationHost extends DurableObject<Env> {
   ): Promise<ConnectStart> {
     const meta = await this.#meta();
     const origin = appOrigin ?? this.env.APP_ORIGIN;
-    if (!origin) throw new Error("The CRM's public origin is unknown (APP_ORIGIN)");
+    if (!origin) {
+      throw new Error(
+        perClientMissing(this.env, "APP_ORIGIN") ??
+          "The CRM's public origin is unknown (APP_ORIGIN)",
+      );
+    }
     const nonce = token();
     await this.ctx.storage.put<PendingConnect>("connect", {
       vendor,
@@ -407,7 +421,7 @@ export class IntegrationHost extends DurableObject<Env> {
       ({ url } = await (await this.#account(vendor)).reconnect());
     } else {
       const callback = this.ctx.exports.ConnectCallback({
-        props: { connectionId: meta.connectionId, vendor },
+        props: { connectionId: meta.connectionId, vendor, client: this.#client.client },
       });
       ({ url } = await this.#vendor(vendor).connectAccount(callback, {}));
     }
@@ -1219,7 +1233,7 @@ export class IntegrationHost extends DurableObject<Env> {
     const controller = await this.ctx.storage.get<Stub>(`controller:${id}`);
     if (!controller) throw new Error("The hook controller is gone");
     const initiator = this.ctx.exports.HostHookInitiator({
-      props: { connectionId: meta.connectionId, hookId: id },
+      props: { connectionId: meta.connectionId, hookId: id, client: this.#client.client },
     });
     await controller.enable(initiator, { workspaceId: meta.connectionId });
     await this.ctx.storage.put<HookRecord>(`hook:${id}`, {
