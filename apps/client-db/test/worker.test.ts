@@ -14,13 +14,13 @@ const mint = (props: unknown) =>
   (exports as unknown as { ClientDbQueries: Minting }).ClientDbQueries({ props });
 
 /** The query service, as the app binds it (`CLIENT_DB_QUERIES`, the deploy's props, #515 S1). */
-const queries = mint(clientDbCallerProps(KEY, "cos-app"));
+const queries = mint(clientDbCallerProps(KEY, "live", "cos-app"));
 
 /** A client's database as the directory opens it: each call with the host's proof of it. */
 const proven = (client: string, options: { locationHint?: DurableObjectLocationHint } = {}) =>
   clientDatabaseService(queries, client, {
     ...options,
-    proof: bindingProof(KEY, PROOF.clientDb, client),
+    proof: bindingProof(KEY, PROOF.clientDb, "live", client),
   });
 
 describe("cos-client-db", () => {
@@ -95,22 +95,26 @@ describe("ClientDbQueries checks its caller and each call's client (#515, S1)", 
   it("answers the host's Workers, by their binding's props, under the key or the one before", async () => {
     for (const caller of ["cos-app", "cos-runner"] as const) {
       for (const key of [KEY, keys.TEST_PROPS_KEY_PREVIOUS]) {
-        const service = mint(clientDbCallerProps(key, caller));
-        expect(await select(service, "gym-a", bindingProof(KEY, PROOF.clientDb, "gym-a"))).toBe(1);
+        const service = mint(clientDbCallerProps(key, "live", caller));
+        expect(
+          await select(service, "gym-a", bindingProof(KEY, PROOF.clientDb, "live", "gym-a")),
+        ).toBe(1);
       }
     }
   });
 
   it("refuses a binding with no props, another caller, a copied name, or another key's proof", async () => {
     const plain = (exports as unknown as { ClientDbQueries: ClientDbQueryService }).ClientDbQueries;
-    const proof = bindingProof(KEY, PROOF.clientDb, "gym-a");
+    const proof = bindingProof(KEY, PROOF.clientDb, "live", "gym-a");
     for (const service of [
       plain,
       mint({}),
-      mint({ caller: "cos-front", proof: clientDbCallerProps(KEY, "cos-app").proof }),
+      mint({ caller: "cos-front", proof: clientDbCallerProps(KEY, "live", "cos-app").proof }),
       mint({ caller: "cos-app" }),
-      mint({ caller: "cos-runner", proof: clientDbCallerProps(KEY, "cos-app").proof }),
-      mint(clientDbCallerProps(`${KEY}-other`, "cos-app")),
+      mint({ caller: "cos-runner", proof: clientDbCallerProps(KEY, "live", "cos-app").proof }),
+      mint(clientDbCallerProps(`${KEY}-other`, "live", "cos-app")),
+      // A staging host's binding, under the same key: this cos-client-db serves live (M4).
+      mint(clientDbCallerProps(KEY, "staging", "cos-app")),
     ]) {
       await expect(select(service, "gym-a", proof)).rejects.toThrow(
         /not one of the host's Workers/,
@@ -121,9 +125,11 @@ describe("ClientDbQueries checks its caller and each call's client (#515, S1)", 
   it("refuses a call with no proof of its client, or another client's, or another key's", async () => {
     for (const proof of [
       undefined,
-      bindingProof(KEY, PROOF.clientDb, "gym-b"),
-      bindingProof(KEY, PROOF.clientApp, "gym-a"),
-      bindingProof(`${KEY}-other`, PROOF.clientDb, "gym-a"),
+      bindingProof(KEY, PROOF.clientDb, "live", "gym-b"),
+      bindingProof(KEY, PROOF.clientApp, "live", "gym-a"),
+      bindingProof(`${KEY}-other`, PROOF.clientDb, "live", "gym-a"),
+      // A staging host's proof of the same client, under the same key (review of #520, M4).
+      bindingProof(KEY, PROOF.clientDb, "staging", "gym-a"),
       "0".repeat(32),
     ]) {
       await expect(select(queries, "gym-a", proof), String(proof)).rejects.toThrow(

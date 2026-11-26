@@ -46,7 +46,7 @@ export const BINDING_KEY_FOR_TESTS = "two-client-suite-binding-key-0123456789abc
 
 /** A web app's props for `client`, as step 8's deploy writes them: with its generation (S3). */
 const propsFor = (client: { id: string; generation: string }) =>
-  clientAppProps(TEST_PROPS_KEY, client.id, client.generation);
+  clientAppProps(TEST_PROPS_KEY, "live", client.id, client.generation);
 
 /** The pool's name for the Worker under test, which auxiliary Workers bind to. */
 const SELF_WORKER = "vitest-plugin-runner-";
@@ -115,12 +115,12 @@ export default mergeConfig(
           webApp("web-gym-a", propsFor(TWO_CLIENTS.a)),
           webApp("web-no-client"),
           webApp("web-paused", propsFor(TWO_CLIENTS.paused)),
-          webApp("web-nobody", clientAppProps(TEST_PROPS_KEY, "gym-nobody", null)),
+          webApp("web-nobody", clientAppProps(TEST_PROPS_KEY, "live", "gym-nobody", null)),
           // gym-b named with gym-a's proof, and gym-b with none: what code without the key mints.
           webApp("web-forged", { client: "gym-b", proof: propsFor(TWO_CLIENTS.a).proof }),
           webApp("web-unproven", { client: "gym-b" }),
           // gym-a's props as they were for an earlier client of the id (another generation, S3).
-          webApp("web-earlier", clientAppProps(TEST_PROPS_KEY, "gym-a", "f6".repeat(16))),
+          webApp("web-earlier", clientAppProps(TEST_PROPS_KEY, "live", "gym-a", "f6".repeat(16))),
         ],
       }),
     }),

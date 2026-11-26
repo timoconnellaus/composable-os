@@ -336,7 +336,7 @@ describe("buildClientEnvironment", () => {
     expect(calls[0]).toEqual({
       client: "gym-a",
       locationHint: "oc",
-      proof: bindingProof(real.TEST_PROPS_KEY, PROOF.clientDb, "gym-a"),
+      proof: bindingProof(real.TEST_PROPS_KEY, PROOF.clientDb, "live", "gym-a"),
     });
     const nowhere = buildClientEnvironment(host, {
       client: { ...gymA, locationHint: null },
@@ -347,7 +347,7 @@ describe("buildClientEnvironment", () => {
       .catch(() => undefined);
     expect(calls.at(-1)).toEqual({
       client: "gym-a",
-      proof: bindingProof(real.TEST_PROPS_KEY, PROOF.clientDb, "gym-a"),
+      proof: bindingProof(real.TEST_PROPS_KEY, PROOF.clientDb, "live", "gym-a"),
     });
   });
 

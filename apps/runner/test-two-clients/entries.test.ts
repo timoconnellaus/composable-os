@@ -59,7 +59,7 @@ interface CallAs {
 /** An execution context with the props the deploy fixes on cos-app's binding (S4). */
 const fromApp = () =>
   Object.assign(createExecutionContext(), {
-    props: runnerCallerProps(TEST_PROPS_KEY),
+    props: runnerCallerProps(TEST_PROPS_KEY, "live"),
   }) as ExecutionContext;
 const entry = new Runner(fromApp(), env as unknown as Env) as unknown as CallAs;
 /** The runner's methods as `client`, as cos-app's RUNNER wrapper calls them. */
@@ -123,9 +123,9 @@ describe("the runner's RPC on a many-client host", () => {
     for (const props of [
       { caller: "cos-front" },
       { ...RUNNER_CALLER },
-      runnerCallerProps(`${TEST_PROPS_KEY}x`),
+      runnerCallerProps(`${TEST_PROPS_KEY}x`, "live"),
       // The object-naming key's proof is no props proof (#515, S4: two keys).
-      runnerCallerProps(KEY),
+      runnerCallerProps(KEY, "live"),
     ]) {
       const forged = new Runner(
         Object.assign(createExecutionContext(), { props }) as ExecutionContext,
@@ -535,10 +535,10 @@ describe("Durable Objects, Workflows and minted entrypoints decide their client 
       // Its proof is of gym-a, its generation and the parts: there is no client to pass.
       const owner = (instance as Record<symbol, ClientObject<Env>>)[CLIENT_OBJECT];
       expect(owner?.proof(PROOF.callback, "conn-s2")).toBe(
-        bindingProof(TEST_PROPS_KEY, PROOF.callback, a.id, a.generation, "conn-s2"),
+        bindingProof(TEST_PROPS_KEY, PROOF.callback, "live", a.id, a.generation, "conn-s2"),
       );
       expect(owner?.proof(PROOF.callback, b.id, "conn-s2")).not.toBe(
-        bindingProof(TEST_PROPS_KEY, PROOF.callback, b.id, b.generation, "conn-s2"),
+        bindingProof(TEST_PROPS_KEY, PROOF.callback, "live", b.id, b.generation, "conn-s2"),
       );
     });
   });
@@ -565,7 +565,7 @@ describe("Durable Objects, Workflows and minted entrypoints decide their client 
       client === a.id ? a.generation : client === b.id ? b.generation : "";
     const minted = (client: string, connection: string, key = TEST_PROPS_KEY) => ({
       client,
-      proof: bindingProof(key, PROOF.callback, client, generation(client), connection),
+      proof: bindingProof(key, PROOF.callback, "live", client, generation(client), connection),
     });
     await expect(propsClientEnvironment(host, {}, PROOF.callback, "c")).rejects.toThrow(
       /No client/,
@@ -579,10 +579,13 @@ describe("Durable Objects, Workflows and minted entrypoints decide their client 
       { client: b.id },
       { client: b.id, proof: minted(a.id, "c").proof },
       { client: b.id, proof: minted(b.id, "other").proof },
-      { client: b.id, proof: bindingProof(TEST_PROPS_KEY, PROOF.clientApp, b.id, b.generation) },
       {
         client: b.id,
-        proof: bindingProof(TEST_PROPS_KEY, PROOF.callback, b.id, "f6".repeat(16), "c"),
+        proof: bindingProof(TEST_PROPS_KEY, PROOF.clientApp, "live", b.id, b.generation),
+      },
+      {
+        client: b.id,
+        proof: bindingProof(TEST_PROPS_KEY, PROOF.callback, "live", b.id, "f6".repeat(16), "c"),
       },
       minted(b.id, "c", `${TEST_PROPS_KEY}-other`),
     ]) {
@@ -603,7 +606,7 @@ describe("Durable Objects, Workflows and minted entrypoints decide their client 
     } as unknown as Env;
     const old = {
       client: a.id,
-      proof: bindingProof(TEST_PROPS_KEY, PROOF.callback, a.id, a.generation, "c"),
+      proof: bindingProof(TEST_PROPS_KEY, PROOF.callback, "live", a.id, a.generation, "c"),
     };
     await expect(propsClientEnvironment(host, old, PROOF.callback, "c")).resolves.toBeTruthy();
     // Once the previous key is dropped, the old props are no proof.
@@ -612,8 +615,8 @@ describe("Durable Objects, Workflows and minted entrypoints decide their client 
       /not minted by the host/,
     );
     // The runner's caller props rotate the same way.
-    expect(isRunnerCaller(runnerCallerProps(TEST_PROPS_KEY), host)).toBe(true);
-    expect(isRunnerCaller(runnerCallerProps(TEST_PROPS_KEY), after)).toBe(false);
+    expect(isRunnerCaller(runnerCallerProps(TEST_PROPS_KEY, "live"), host)).toBe(true);
+    expect(isRunnerCaller(runnerCallerProps(TEST_PROPS_KEY, "live"), after)).toBe(false);
   });
 });
 

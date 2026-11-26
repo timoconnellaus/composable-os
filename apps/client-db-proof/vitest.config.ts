@@ -15,6 +15,7 @@ export default defineWorkersTestConfig({
         PROOF_KEY: "test-proof-key",
         // The props key deploy.mjs sets as both Workers' secret, and the binding's props (S1).
         COS_PROPS_KEY: TEST_PROPS_KEY,
+        COS_HOST_ENVIRONMENT: "live",
         COS_TIMING_RUNS: process.env.COS_TIMING_RUNS ?? "",
       },
       serviceBindings: {

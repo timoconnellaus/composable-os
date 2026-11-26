@@ -10,11 +10,12 @@ import { isObjectName, OBJECT_NAME_SEPARATOR, objectNameParts } from "./client-b
 import { admissionOf, NoClientError, servesManyClients, waitsForClient } from "./client-entries.ts";
 import { type HostBindings, REGISTRY_REFRESH_MS } from "./client-environment.ts";
 import {
-  bindingProof,
   generationPart,
   hostBindingKey,
   hostPropsKey,
+  PROOF,
   PROPS_KEY,
+  propsProof,
 } from "./client-proofs.ts";
 import type { ClientId } from "./registry.ts";
 
@@ -119,17 +120,26 @@ export class ClientObject<E extends HostBindings> {
    * The host's proof of this object's client, its generation and `parts` for `purpose`, for
    * props this object mints (an entrypoint it hands a gatekeeper): made with the props key in
    * the object's real `env`, which nothing else here hands out. It signs for this object's own
-   * client only, so code in one client's object cannot make a proof for another (#515, S2).
-   * Single-client: null, nothing is checked.
+   * client only, so code in one client's object cannot make a proof for another (#515, S2), and
+   * only for what an object mints (`MINTED_BY_OBJECTS`: a gatekeeper's callback), never a web
+   * app's props or anything a later purpose adds (review of #520). Single-client: null, nothing
+   * is checked.
    */
   proof(purpose: string, ...parts: string[]): string | null {
     if (this.client === null) return null;
+    if (!MINTED_BY_OBJECTS.includes(purpose)) {
+      throw new NoClientError(`An object mints no ${purpose} proof`);
+    }
     if (!this.#env) throw new NoClientError("This object's client is not decided: refused");
-    const key = hostPropsKey(this.#host);
-    if (!key) throw new NoClientError(`${PROPS_KEY} is not bound: nothing can be minted`);
-    return bindingProof(key, purpose, this.client, generationPart(this.#generation), ...parts);
+    if (!hostPropsKey(this.#host)) {
+      throw new NoClientError(`${PROPS_KEY} is not bound: nothing can be minted`);
+    }
+    return propsProof(this.#host, purpose, this.client, generationPart(this.#generation), ...parts);
   }
 }
+
+/** The purposes an object may mint a proof for: a gatekeeper's callback only. */
+const MINTED_BY_OBJECTS: readonly string[] = [PROOF.callback];
 
 /** Where an object class keeps its `ClientObject`, for `refreshOnEachCall`. */
 export const CLIENT_OBJECT: unique symbol = Symbol.for("cos.client-object");

@@ -55,8 +55,14 @@ const queries = (env: Env) => env.CLIENT_DB_QUERIES as unknown as ClientDbQueryS
  * (#515, S1): under the props key deploy.mjs sets as both Workers' secret.
  */
 function proofOf(env: Env, client: string): string {
-  const key = (env as unknown as { COS_PROPS_KEY?: string }).COS_PROPS_KEY ?? "";
-  return bindingProof(key, PROOF.clientDb, client);
+  const own = env as unknown as { COS_PROPS_KEY?: string; COS_HOST_ENVIRONMENT?: string };
+  // In the environment deploy.mjs sets on both Workers (review of #520, M4).
+  return bindingProof(
+    own.COS_PROPS_KEY ?? "",
+    PROOF.clientDb,
+    own.COS_HOST_ENVIRONMENT ?? "",
+    client,
+  );
 }
 
 function database(env: Env, which: Database, client = env.CLIENT_ID): D1Database {

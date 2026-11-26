@@ -197,19 +197,21 @@ function putSecret(dir, name, value) {
 // 2. The Worker that holds the clients' databases, first.
 const dbConfig = readConfig(`${clientDbDir}/wrangler.jsonc`);
 dbConfig.name = dbWorker;
+// The environment every proof binds (review of #520, M4): the proof is a live-like run.
+dbConfig.vars = { ...dbConfig.vars, COS_HOST_ENVIRONMENT: "live" };
 const dbOutput = deploy(clientDbDir, dbConfig);
 putSecret(clientDbDir, "COS_PROPS_KEY", propsKey);
 
 // 3. The proof Worker, bound to it by script name.
 const config = readConfig(`${here}/wrangler.jsonc`);
 config.name = name;
-config.vars = { ...config.vars, LOCATION_HINT: location };
+config.vars = { ...config.vars, LOCATION_HINT: location, COS_HOST_ENVIRONMENT: "live" };
 config.d1_databases = config.d1_databases.map((db) =>
   db.binding === "DB" ? { ...db, database_name: name, database_id: database.uuid } : db,
 );
 config.services = config.services.map((service) =>
   service.service === LOCAL_DB_WORKER
-    ? { ...service, service: dbWorker, props: clientDbCallerProps(propsKey, "cos-app") }
+    ? { ...service, service: dbWorker, props: clientDbCallerProps(propsKey, "live", "cos-app") }
     : service,
 );
 config.durable_objects.bindings = config.durable_objects.bindings.map((binding) =>

@@ -34,7 +34,7 @@ export function clientDbQueriesBinding(
   return {
     name: worker,
     entrypoint: "ClientDbQueries",
-    props: clientDbCallerProps(TEST_PROPS_KEY, caller),
+    props: clientDbCallerProps(TEST_PROPS_KEY, "live", caller),
   };
 }
 
@@ -91,7 +91,12 @@ export async function clientDbWorker(name = CLIENT_DB_TEST_WORKER) {
     compatibilityFlags: ["nodejs_compat"],
     durableObjects: { CLIENT_DB: { className: "ClientDb", useSQLite: true } },
     // cos-client-db's own copy of the props key, and the one before (deploy engine, step 7).
-    bindings: { COS_PROPS_KEY: TEST_PROPS_KEY, COS_PROPS_KEY_PREVIOUS: TEST_PROPS_KEY_PREVIOUS },
+    bindings: {
+      COS_PROPS_KEY: TEST_PROPS_KEY,
+      COS_PROPS_KEY_PREVIOUS: TEST_PROPS_KEY_PREVIOUS,
+      // Its environment, bound into every proof it accepts (review of #520, M4).
+      COS_HOST_ENVIRONMENT: "live",
+    },
   };
 }
 

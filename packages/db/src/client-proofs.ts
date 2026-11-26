@@ -133,14 +133,46 @@ export function acceptedPropsKeys(env: object): string[] {
   );
 }
 
-/** Whether `proof` is a props proof of `parts` for `purpose` under a key `env` accepts. */
+/** The environments a host serves its clients in (registry_clients.environment). */
+const ENVIRONMENTS = ["live", "staging"] as const;
+export type ProofEnvironment = (typeof ENVIRONMENTS)[number];
+
+/**
+ * The environment a Worker's `env` holds (`COS_HOST_ENVIRONMENT`: the host's Workers and
+ * cos-client-db each have it), or null when it holds none or another value. Every props proof
+ * binds it (review of #520, M4), so a staging host's proof is no proof on a live one even if the
+ * two shared a key or a cos-client-db.
+ */
+export function proofEnvironment(env: object): ProofEnvironment | null {
+  const value = (env as Record<string, unknown>).COS_HOST_ENVIRONMENT;
+  return (ENVIRONMENTS as readonly unknown[]).includes(value) ? (value as ProofEnvironment) : null;
+}
+
+/**
+ * Whether `proof` is a props proof of `parts` for `purpose`, in `env`'s environment, under a key
+ * `env` accepts. False when `env` names no environment: nothing is accepted then.
+ */
 export function isPropsProof(
   env: object,
   proof: unknown,
   purpose: string,
   ...parts: string[]
 ): boolean {
-  return acceptedPropsKeys(env).some((key) => isBindingProof(key, proof, purpose, ...parts));
+  const environment = proofEnvironment(env);
+  if (!environment) return false;
+  return acceptedPropsKeys(env).some((key) =>
+    isBindingProof(key, proof, purpose, environment, ...parts),
+  );
+}
+
+/** A props proof of `parts` for `purpose`, in `env`'s environment, under its props key now. */
+export function propsProof(env: object, purpose: string, ...parts: string[]): string {
+  const key = hostPropsKey(env);
+  if (!key) throw new Error(`${PROPS_KEY} is not bound: nothing can be minted`);
+  const environment = proofEnvironment(env);
+  if (!environment)
+    throw new Error("COS_HOST_ENVIRONMENT is not live or staging: nothing can be minted");
+  return bindingProof(key, purpose, environment, ...parts);
 }
 
 /** A client's secret generation as a proof binds it ("" for a client written before 0792). */
@@ -177,8 +209,11 @@ export function isBindingProof(
 export const RUNNER_CALLER = Object.freeze({ caller: "cos-app" });
 
 /** The props of cos-app's binding to cos-runner, as the deploy engine writes them (step 7). */
-export function runnerCallerProps(propsKey: string): { caller: string; proof: string } {
-  return { ...RUNNER_CALLER, proof: bindingProof(propsKey, PROOF.runnerCaller) };
+export function runnerCallerProps(
+  propsKey: string,
+  environment: ProofEnvironment,
+): { caller: string; proof: string } {
+  return { ...RUNNER_CALLER, proof: bindingProof(propsKey, PROOF.runnerCaller, environment) };
 }
 
 /**
@@ -187,12 +222,13 @@ export function runnerCallerProps(propsKey: string): { caller: string; proof: st
  */
 export function clientAppProps(
   propsKey: string,
+  environment: ProofEnvironment,
   client: string,
   generation: string | null,
 ): { client: string; proof: string } {
   return {
     client,
-    proof: bindingProof(propsKey, PROOF.clientApp, client, generationPart(generation)),
+    proof: bindingProof(propsKey, PROOF.clientApp, environment, client, generationPart(generation)),
   };
 }
 
@@ -207,9 +243,10 @@ export type ClientDbCaller = (typeof CLIENT_DB_CALLERS)[number];
  */
 export function clientDbCallerProps(
   propsKey: string,
+  environment: ProofEnvironment,
   caller: ClientDbCaller,
 ): { caller: ClientDbCaller; proof: string } {
-  return { caller, proof: bindingProof(propsKey, PROOF.clientDbCaller, caller) };
+  return { caller, proof: bindingProof(propsKey, PROOF.clientDbCaller, environment, caller) };
 }
 
 /** What each proof is for: one purpose a kind of thing, so a proof of one is never another's. */

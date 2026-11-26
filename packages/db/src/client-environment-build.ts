@@ -15,7 +15,7 @@ import {
 } from "./client-bindings.ts";
 import { type ClientDb, clientDatabaseService } from "./client-db.ts";
 import type { ClientDbQueryService } from "./client-db-service.ts";
-import { bindingProof, hostPropsKey, PROOF, PROPS_KEY } from "./client-proofs.ts";
+import { hostPropsKey, PROOF, PROPS_KEY, propsProof } from "./client-proofs.ts";
 
 /** The names a wrapper applies to. */
 const named =
@@ -231,16 +231,16 @@ function openClientDatabase(env: HostBindings, client: ClientRecord): D1Database
   if (!service) {
     throw new Error("No CLIENT_DB_QUERIES binding: a client's database cannot be opened");
   }
-  // Each call carries the host's proof of the client, made here with the props key (#515, S1):
-  // cos-client-db answers a call for a client only with it, so the service binding alone, without
-  // the key, opens no client's database.
-  const key = hostPropsKey(env);
-  if (!key) {
+  // Each call carries the host's proof of the client in the host's environment, made here with
+  // the props key (#515, S1; review of #520, M4): cos-client-db answers a call for a client only
+  // with it, so the service binding alone, without the key, opens no client's database, and a
+  // staging host's proof opens no live one.
+  if (!hostPropsKey(env)) {
     throw new Error(`No ${PROPS_KEY}: a client's database cannot be opened`);
   }
   return clientDatabaseService(service, client.id, {
     ...(client.locationHint ? { locationHint: client.locationHint } : {}),
-    proof: bindingProof(key, PROOF.clientDb, client.id),
+    proof: propsProof(env, PROOF.clientDb, client.id),
   });
 }
 
