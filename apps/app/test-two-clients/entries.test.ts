@@ -387,10 +387,18 @@ describe("the crons and the queue (criterion 7)", () => {
       cron: "17 3 * * *",
       scheduledTime: 1,
     });
-    const batch = createMessageBatch<unknown>("cos-routine-delivery", [
+    // The fan-out queue's batch: each tick in its client's environment, one at a time.
+    const ticks = createMessageBatch<unknown>("cos-app-fanout", [
       { id: "t-a", timestamp: new Date(), attempts: 1, body: tick(a.id) },
       { id: "t-b", timestamp: new Date(), attempts: 1, body: tick(b.id) },
       { id: "t-p", timestamp: new Date(), attempts: 1, body: tick(paused.id) },
+    ]);
+    const tickCtx = createExecutionContext();
+    await hostQueue(ticks, host);
+    const ticked = await getQueueResult(ticks, tickCtx);
+    expect(ticked.explicitAcks.sort()).toEqual(["t-a", "t-b", "t-p"]);
+    // The delivery queue's batch: a tick-shaped body here is only a message with no stamp.
+    const batch = createMessageBatch<unknown>("cos-routine-delivery", [
       // A routine's message for a user A does not have: A's delivery fails and is retried alone.
       {
         id: "r-a",
@@ -405,11 +413,12 @@ describe("the crons and the queue (criterion 7)", () => {
         attempts: 1,
         body: { userId: A.userId, routineId: "r", runId: null },
       },
+      { id: "r-tick", timestamp: new Date(), attempts: 1, body: tick(a.id) },
     ]);
     const ctx = createExecutionContext();
     await hostQueue(batch, host);
     const result = await getQueueResult(batch, ctx);
-    expect(result.explicitAcks.sort()).toEqual(["t-a", "t-b", "t-p"]);
-    expect(result.retryMessages.map((m) => m.msgId).sort()).toEqual(["r-a", "r-none"]);
+    expect(result.explicitAcks).toEqual([]);
+    expect(result.retryMessages.map((m) => m.msgId).sort()).toEqual(["r-a", "r-none", "r-tick"]);
   });
 });

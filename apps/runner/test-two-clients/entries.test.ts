@@ -14,12 +14,16 @@ import { type ActingUser, invokeByName, newId, vendorBinding } from "@composable
 import { createCrmDb } from "@composable-os/db";
 import { RUNNER_METHODS } from "@composable-os/db/client-bindings";
 import {
+  consumeByClient,
+  consumeFanOut,
+  FANOUT_CONSUMER,
   gatekeeperOffered,
+  PARKING,
   propsClientEnvironment,
   stampOf,
   workflowRun,
 } from "@composable-os/db/client-entries";
-import { environmentFor } from "@composable-os/db/client-environment";
+import { clientOf, environmentFor } from "@composable-os/db/client-environment";
 import { setUpTwoClients, TWO_CLIENTS } from "@composable-os/db/testing/two-clients";
 import { beforeAll, describe, expect, it } from "vitest";
 import Runner, { ClientRunner, extensionHost } from "../src/index.ts";
@@ -417,5 +421,178 @@ describe("Durable Objects, Workflows and minted entrypoints decide their client 
     await expect(propsClientEnvironment(host, {})).rejects.toThrow(/No client/);
     expect(await propsClientEnvironment(host, { client: a.id })).toBe(await clientEnv(a.id));
     await expect(propsClientEnvironment(host, { client: "gym-nobody" })).rejects.toThrow();
+  });
+});
+
+describe("a client not served for a while (review of #512, S3 and S5)", () => {
+  const event = (id: string) => ({
+    v: 1,
+    kind: "record",
+    id: `audit-${id}:0`,
+    at: new Date().toISOString(),
+    origin: { surface: "ui" },
+    changes: [],
+  });
+  /** A fan-out queue the suite holds: what is sent to it, and with what delay. */
+  const fanOutQueue = () => {
+    const sent: { body: unknown; delaySeconds?: number }[] = [];
+    return {
+      sent,
+      send: async (body: unknown, options?: { delaySeconds?: number }) => {
+        sent.push({ body, delaySeconds: options?.delaySeconds });
+      },
+      sendBatch: async (messages: Iterable<{ body: unknown }>) => {
+        for (const m of messages) sent.push({ body: m.body });
+      },
+    };
+  };
+
+  it("parks a paused client's events for the whole pause, never retrying, then handles them", async () => {
+    const queue = fanOutQueue();
+    const host = () => ({ ...(env as unknown as Env), CLIENT_FANOUT: queue }) as unknown as Env;
+    const start = 1_000_000;
+    // A message for the paused client: parked on the fan-out queue, the original acked.
+    const first = createMessageBatch<unknown>("cos-automation-events", [
+      {
+        id: "p-1",
+        timestamp: new Date(),
+        attempts: 1,
+        body: { cosClient: paused.id, body: event("p") },
+      },
+    ]);
+    const ctx = createExecutionContext();
+    await consumeByClient(host(), first, async () => {}, { now: () => start });
+    const firstResult = await getQueueResult(first, ctx);
+    expect(firstResult.explicitAcks).toEqual(["p-1"]);
+    expect(firstResult.retryMessages).toEqual([]);
+    expect(queue.sent.at(-1)?.delaySeconds).toBe(PARKING.firstDelaySeconds);
+    // Ten minutes of pause: each time it comes back it is parked again, waiting longer, never
+    // retried (so `max_retries` is never reached).
+    const delays: number[] = [];
+    let at = start;
+    while (at - start < 10 * 60 * 1000) {
+      const parked = queue.sent.at(-1);
+      at += (parked?.delaySeconds ?? 0) * 1000;
+      const batch = createMessageBatch<unknown>("cos-runner-fanout", [
+        { id: `again-${at}`, timestamp: new Date(at), attempts: 1, body: parked?.body },
+      ]);
+      const c = createExecutionContext();
+      await consumeFanOut(
+        host(),
+        batch,
+        { tick: async () => {}, parked: { "cos-automation-events": async () => {} } },
+        { now: () => at },
+      );
+      const r = await getQueueResult(batch, c);
+      expect(r.retryMessages).toEqual([]);
+      delays.push(queue.sent.at(-1)?.delaySeconds ?? 0);
+    }
+    expect(delays.slice(0, 4)).toEqual([120, 240, 480, 900]);
+    expect(Math.max(...delays)).toBe(PARKING.maxDelaySeconds);
+    // The client resumes: the parked event is handled by the events' consumer, in its environment.
+    await (env as unknown as { REGISTRY: D1Database }).REGISTRY.prepare(
+      "UPDATE registry_clients SET status = 'active' WHERE id = ?",
+    )
+      .bind(paused.id)
+      .run();
+    try {
+      const handled: string[] = [];
+      const parked = queue.sent.at(-1);
+      const last = createMessageBatch<unknown>("cos-runner-fanout", [
+        { id: "resumed", timestamp: new Date(at), attempts: 1, body: parked?.body },
+      ]);
+      const c = createExecutionContext();
+      await consumeFanOut(
+        host(),
+        last,
+        {
+          tick: async () => {},
+          parked: {
+            "cos-automation-events": async (clientEnv, share) => {
+              handled.push(String(clientOf(clientEnv)));
+              share.ackAll();
+            },
+          },
+        },
+        { now: () => at },
+      );
+      const r = await getQueueResult(last, c);
+      expect(handled).toEqual([paused.id]);
+      expect(r.explicitAcks).toEqual(["resumed"]);
+    } finally {
+      await (env as unknown as { REGISTRY: D1Database }).REGISTRY.prepare(
+        "UPDATE registry_clients SET status = 'paused' WHERE id = ?",
+      )
+        .bind(paused.id)
+        .run();
+    }
+  });
+
+  it("gives a parked message up after 7 days, as a dead letter, and never acts on it", async () => {
+    const queue = fanOutQueue();
+    const host = { ...(env as unknown as Env), CLIENT_FANOUT: queue } as unknown as Env;
+    const parkedAt = 5_000;
+    const batch = createMessageBatch<unknown>("cos-runner-fanout", [
+      {
+        id: "old",
+        timestamp: new Date(),
+        attempts: 1,
+        body: {
+          cosParked: 1,
+          queue: "cos-automation-events",
+          stamped: { cosClient: paused.id, body: event("old") },
+          parkedAt,
+          delaySeconds: 900,
+        },
+      },
+    ]);
+    const handled: string[] = [];
+    const ctx = createExecutionContext();
+    await consumeFanOut(
+      host,
+      batch,
+      {
+        tick: async () => {},
+        parked: {
+          "cos-automation-events": async () => {
+            handled.push("acted");
+          },
+        },
+      },
+      { now: () => parkedAt + PARKING.giveUpAfterMs + 1 },
+    );
+    const r = await getQueueResult(batch, ctx);
+    expect(r.explicitAcks).toEqual(["old"]);
+    expect(handled).toEqual([]);
+    expect(queue.sent).toEqual([]);
+  });
+
+  it("runs a fan-out batch one client's tick at a time, each acked on its own", async () => {
+    let running = 0;
+    let most = 0;
+    const order: string[] = [];
+    const batch = createMessageBatch<unknown>("cos-runner-fanout", [
+      { id: "1", timestamp: new Date(), attempts: 1, body: tick(a.id) },
+      { id: "2", timestamp: new Date(), attempts: 1, body: tick(b.id) },
+      { id: "3", timestamp: new Date(), attempts: 1, body: tick(a.id) },
+    ]);
+    const ctx = createExecutionContext();
+    await consumeFanOut(env as unknown as Env, batch, {
+      tick: async (clientEnv) => {
+        running += 1;
+        most = Math.max(most, running);
+        order.push(String(clientOf(clientEnv)));
+        await new Promise((resolve) => setTimeout(resolve, 5));
+        running -= 1;
+        if (order.length === 2) throw new Error("gym-b's tick fails");
+      },
+      parked: {},
+    });
+    const r = await getQueueResult(batch, ctx);
+    expect(most).toBe(1);
+    expect(order).toEqual([a.id, b.id, a.id]);
+    expect(r.explicitAcks.sort()).toEqual(["1", "3"]);
+    expect(r.retryMessages.map((m) => m.msgId)).toEqual(["2"]);
+    expect(FANOUT_CONSUMER.max_batch_size).toBe(1);
   });
 });

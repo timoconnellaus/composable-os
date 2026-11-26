@@ -23,10 +23,12 @@ import {
 } from "@composable-os/core";
 import {
   consumeByClient,
+  consumeDeadLetters,
   consumeFanOut,
   decideRequest,
   fanOutCron,
-  fanOutMessageOf,
+  isDeadLetterQueue,
+  isFanOutQueue,
   servesManyClients,
 } from "@composable-os/db/client-entries";
 import { runAdjudicatorCron } from "./adjudicator.ts";
@@ -236,31 +238,31 @@ export async function hostQueue(batch: MessageBatch<unknown>, env: Env): Promise
     );
     return;
   }
-  const ticks = batch.messages.filter((message) => fanOutMessageOf(message.body));
-  const deliveries = batch.messages.filter((message) => !fanOutMessageOf(message.body));
-  if (ticks.length) {
-    await consumeFanOut(env, ticks, (clientEnv, tick) =>
-      runInClientEnv(clientEnv, () => runAppCron(clientEnv, tick.cron)),
-    );
+  // By the queue the batch came from, never by what a message looks like (review of #512, M1).
+  if (isFanOutQueue(batch.queue)) {
+    await consumeFanOut(env, batch, {
+      tick: (clientEnv, tick) =>
+        runInClientEnv(clientEnv, () => runAppCron(clientEnv, tick.cron)),
+      parked: { [ROUTINE_DELIVERY_QUEUE]: deliverRoutines },
+    });
+    return;
   }
-  if (deliveries.length) {
-    await consumeByClient<Env, RoutineDeliveryMessage>(
-      env,
-      {
-        queue: batch.queue,
-        metadata: batch.metadata,
-        messages: deliveries,
-        ackAll: () => {
-          for (const message of deliveries) message.ack();
-        },
-        retryAll: (options) => {
-          for (const message of deliveries) message.retry(options);
-        },
-      },
-      (clientEnv, share) =>
-        runInClientEnv(clientEnv, () =>
-          handleRoutineDeliveries(share, clientEnv as unknown as AssistantHttpEnv),
-        ),
-    );
+  if (isDeadLetterQueue(batch.queue)) {
+    consumeDeadLetters(batch);
+    return;
   }
+  await consumeByClient<Env, RoutineDeliveryMessage>(env, batch, deliverRoutines);
+}
+
+/** The queue cos-runner sends a routine's messages to (wrangler.jsonc's consumer). */
+export const ROUTINE_DELIVERY_QUEUE = "cos-routine-delivery";
+
+/** One client's routine deliveries, in its environment. */
+function deliverRoutines(clientEnv: Env, share: MessageBatch<unknown>): Promise<void> {
+  return runInClientEnv(clientEnv, () =>
+    handleRoutineDeliveries(
+      share as MessageBatch<RoutineDeliveryMessage>,
+      clientEnv as unknown as AssistantHttpEnv,
+    ),
+  );
 }

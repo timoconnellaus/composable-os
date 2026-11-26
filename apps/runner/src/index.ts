@@ -51,9 +51,11 @@ import { RUNNER_METHODS } from "@composable-os/db/client-bindings";
 import {
   clientEnvironment,
   consumeByClient,
+  consumeDeadLetters,
   consumeFanOut,
   fanOutCron,
-  fanOutMessageOf,
+  isDeadLetterQueue,
+  isFanOutQueue,
   NoClientError,
   servesManyClients,
 } from "@composable-os/db/client-entries";
@@ -292,6 +294,9 @@ export class ClientRunner implements RunnerRpc {
   }
 }
 
+/** The queue of automation events (wrangler.jsonc's consumer). */
+const AUTOMATION_EVENTS_QUEUE = "cos-automation-events";
+
 /**
  * The automation events consumer (ADR 0130) on one environment: a batch at a time. A failed
  * batch is retried (and dead-lettered after max_retries); run creation is idempotent, so a retry
@@ -439,30 +444,24 @@ export default class Runner extends WorkerEntrypoint<Env> implements RunnerRpc {
       await consumeAutomationEvents(this.env, batch as MessageBatch<AutomationQueueMessage>);
       return;
     }
-    const ticks = batch.messages.filter((message) => fanOutMessageOf(message.body));
-    const events = batch.messages.filter((message) => !fanOutMessageOf(message.body));
-    if (ticks.length) {
-      await consumeFanOut(this.env, ticks, async (clientEnv, tick) => {
-        await minuteTick(clientEnv, new Date(tick.scheduledTime));
-      });
-    }
-    if (events.length) {
-      await consumeByClient<Env, AutomationQueueMessage>(
-        this.env,
-        {
-          queue: batch.queue,
-          metadata: batch.metadata,
-          messages: events,
-          ackAll: () => {
-            for (const message of events) message.ack();
-          },
-          retryAll: (options) => {
-            for (const message of events) message.retry(options);
-          },
+    // By the queue the batch came from, never by what a message looks like (review of #512, M1).
+    if (isFanOutQueue(batch.queue)) {
+      await consumeFanOut(this.env, batch, {
+        tick: async (clientEnv, tick) => {
+          await minuteTick(clientEnv, new Date(tick.scheduledTime));
         },
-        consumeAutomationEvents,
-      );
+        parked: {
+          [AUTOMATION_EVENTS_QUEUE]: (clientEnv, share) =>
+            consumeAutomationEvents(clientEnv, share as MessageBatch<AutomationQueueMessage>),
+        },
+      });
+      return;
     }
+    if (isDeadLetterQueue(batch.queue)) {
+      consumeDeadLetters(batch);
+      return;
+    }
+    await consumeByClient<Env, AutomationQueueMessage>(this.env, batch, consumeAutomationEvents);
   }
 
   /**

@@ -242,20 +242,98 @@ function clientBatch<Body>(
 }
 
 /**
- * A queue consumer's batch on a many-client host, one client at a time, each in its own
- * environment: `handle` runs once per client with that client's share of the batch (the bodies
- * without the stamp, shaped as a batch). A client whose handling throws has its own messages
- * retried and nobody else's; a message with no stamp, or for a client the host does not know or
- * does not serve now (being updated), is retried, never acted on, until the queue's dead-letter
- * queue holds it or the client is served again.
+ * How long a message for a client the host does not serve now (paused, moving, schema behind)
+ * waits before it is tried again (review of #512, S3). It is parked, not retried: re-sent to the
+ * Worker's own fan-out queue with a delay, so a pause never uses up the queue's `max_retries`
+ * (3 for cos-routine-delivery, 5 for cos-automation-events, at 10 s each: about 30 to 50 s, which
+ * every update's pause outlasts). The first wait is a minute, each next one twice the last, at
+ * most 15 minutes (so a client resumed after a 10-minute pause has its messages within 15 minutes
+ * of resuming), and a message parked for 7 days is given up and reported as a dead letter.
+ */
+export const PARKING = Object.freeze({
+  firstDelaySeconds: 60,
+  maxDelaySeconds: 15 * 60,
+  giveUpAfterMs: 7 * 24 * 60 * 60 * 1000,
+});
+
+/** A stamped message waiting for its client to be served again, on the fan-out queue. */
+export interface ParkedMessage {
+  cosParked: 1;
+  /** The queue it came from: its consumer's code handles it when the client is served. */
+  queue: string;
+  /** The message as it was sent: the client's stamp and the body. */
+  stamped: StampedMessage<unknown>;
+  parkedAt: number;
+  delaySeconds: number;
+}
+
+export function parkedMessageOf(body: unknown): ParkedMessage | null {
+  if (!body || typeof body !== "object") return null;
+  const parked = body as Partial<ParkedMessage>;
+  if (parked.cosParked !== 1 || typeof parked.queue !== "string") return null;
+  if (!stampOf(parked.stamped)) return null;
+  if (typeof parked.parkedAt !== "number" || typeof parked.delaySeconds !== "number") return null;
+  return parked as ParkedMessage;
+}
+
+/** Parks one stamped message on the fan-out queue; false when there is none to park it on. */
+async function park(env: HostBindings, parked: Omit<ParkedMessage, "cosParked">): Promise<boolean> {
+  const queue = (env as unknown as Record<string, Queue<ParkedMessage> | undefined>)[
+    FANOUT_BINDING
+  ];
+  if (!queue) return false;
+  await queue.send({ cosParked: 1, ...parked }, { delaySeconds: parked.delaySeconds });
+  return true;
+}
+
+/** A dead letter, said where the operator's logs and alerts read it (stage 66, ADR 0615). */
+function reportDeadLetter(queue: string, message: { id: string; body: unknown }, why: string) {
+  const stamp = stampOf(message.body) ?? stampOf(parkedMessageOf(message.body)?.stamped);
+  console.error(
+    JSON.stringify({
+      event: "cos.queue.dead_letter",
+      queue,
+      client: stamp?.client ?? null,
+      message: message.id,
+      why,
+    }),
+  );
+}
+
+/** Whether `name` is one of the host's dead-letter queues (`<queue>-dlq`). */
+export function isDeadLetterQueue(name: string): boolean {
+  return name.endsWith("-dlq");
+}
+
+/**
+ * A batch of a dead-letter queue: each message is reported (`cos.queue.dead_letter`, with its
+ * client) and acked. A fleet deployment binds each Worker as the consumer of its queues'
+ * dead-letter queues (step 7), so nothing is lost without the operator being told.
+ */
+export function consumeDeadLetters(batch: MessageBatch<unknown>): void {
+  for (const message of batch.messages) {
+    reportDeadLetter(batch.queue, message, "retried until the queue gave up on it");
+    message.ack();
+  }
+}
+
+/**
+ * A queue consumer's batch on a many-client host, each client's share in that client's
+ * environment: `handle` runs once per client with its share of the batch (the bodies without the
+ * stamp, shaped as a batch). A client whose handling throws has its own messages retried and
+ * nobody else's. A message with no stamp, or for a client the registry does not have, is retried,
+ * never acted on, until the queue's dead-letter queue holds it. A message for a client not served
+ * now (paused, moving, schema behind) is parked (`PARKING`) and handled when the client is served
+ * again, without using up a retry.
  */
 export async function consumeByClient<E extends HostBindings, Body>(
   env: E,
   batch: MessageBatch<unknown>,
   handle: (clientEnv: E, share: MessageBatch<Body>, client: ClientId) => Promise<void>,
-  options: { retryDelaySeconds?: number } = {},
-): Promise<{ handled: ClientId[]; failed: ClientId[]; refused: number }> {
+  options: { retryDelaySeconds?: number; now?: () => number } = {},
+): Promise<{ handled: ClientId[]; failed: ClientId[]; refused: number; parked: number }> {
   const delaySeconds = options.retryDelaySeconds ?? 10;
+  const now = options.now ?? Date.now;
   const { byClient, unstamped } = messagesByClient<Body>(batch.messages);
   for (const message of unstamped) {
     console.error(`${batch.queue}: a message with no client's stamp was refused`);
@@ -264,12 +342,30 @@ export async function consumeByClient<E extends HostBindings, Body>(
   const handled: ClientId[] = [];
   const failed: ClientId[] = [];
   let refused = unstamped.length;
+  let parked = 0;
   await Promise.all(
     [...byClient].map(async ([client, entries]) => {
       let clientEnv: E;
       try {
         clientEnv = await clientEnvironment(env, client);
       } catch (error) {
+        if (error instanceof NoClientError && error.reason === "updating") {
+          for (const { message } of entries) {
+            const sent = await park(env, {
+              queue: batch.queue,
+              stamped: message.body as StampedMessage<unknown>,
+              parkedAt: now(),
+              delaySeconds: PARKING.firstDelaySeconds,
+            });
+            if (sent) {
+              parked += 1;
+              message.ack();
+            } else {
+              message.retry({ delaySeconds: PARKING.maxDelaySeconds });
+            }
+          }
+          return;
+        }
         refused += entries.length;
         console.error(`${batch.queue}: messages refused`, String(error));
         for (const { message } of entries) message.retry({ delaySeconds });
@@ -286,7 +382,7 @@ export async function consumeByClient<E extends HostBindings, Body>(
       }
     }),
   );
-  return { handled, failed, refused };
+  return { handled, failed, refused, parked };
 }
 
 // --- Crons: fanned out through a queue, one message per client -------------------------------
@@ -294,9 +390,29 @@ export async function consumeByClient<E extends HostBindings, Body>(
 /**
  * The binding of a Worker's fan-out queue: its own producer and consumer, bound only on a
  * many-client host (the deploy engine adds it for a fleet deployment, never the committed
- * single-client configuration). The host's own: never in a client's environment.
+ * single-client configuration). The host's own: never in a client's environment. It carries the
+ * crons' ticks and the parked messages of clients not served for a while.
  */
 export const FANOUT_BINDING = "CLIENT_FANOUT";
+
+/** The fan-out queues, one per Worker: a batch of one is recognised by its queue's name. */
+export const FANOUT_QUEUES = Object.freeze({ app: "cos-app-fanout", runner: "cos-runner-fanout" });
+
+/**
+ * What the deploy engine sets for each fan-out queue's consumer (step 7): one message an
+ * invocation, so one client's minute tick never shares an invocation's CPU, memory or
+ * subrequests with another's; a tick that fails is retried alone. `consumeFanOut` holds to one at
+ * a time whatever batch it is given.
+ */
+export const FANOUT_CONSUMER = Object.freeze({
+  max_batch_size: 1,
+  max_batch_timeout: 1,
+  max_retries: 3,
+});
+
+export function isFanOutQueue(name: string): boolean {
+  return (Object.values(FANOUT_QUEUES) as string[]).includes(name);
+}
 
 /** One client's share of one cron tick. */
 export interface FanOutMessage {
@@ -358,40 +474,96 @@ export async function fanOutCron(
   return clients.length;
 }
 
+/** What a Worker does with what arrives on its fan-out queue. */
+export interface FanOutHandlers<E> {
+  /** One client's tick of one cron. */
+  tick: (clientEnv: E, message: FanOutMessage) => Promise<void>;
+  /**
+   * A parked message's consumer, by the queue it came from, given the client's share as a batch
+   * of one (the consumer acks or retries it as it would on its own queue).
+   */
+  parked: Readonly<Record<string, (clientEnv: E, share: MessageBatch<unknown>) => Promise<void>>>;
+}
+
 /**
- * A batch of the fan-out queue: each message is one client's tick, run in that client's
- * environment and acked on its own; one that fails is retried alone. A client no longer served
- * (paused, or being updated since the tick) is skipped: the next tick comes.
+ * A batch of the fan-out queue, one message at a time (`FANOUT_CONSUMER`: a batch of one; a
+ * larger one is still handled one by one), each acked or retried on its own:
+ * - a tick runs in its client's environment; a client no longer served is skipped (the next tick
+ *   comes); one that fails is retried alone;
+ * - a parked message is handled by its queue's consumer once its client is served again, parked
+ *   again (twice the wait, at most `PARKING.maxDelaySeconds`) while it is not, and reported as a
+ *   dead letter when it has waited `PARKING.giveUpAfterMs` or its client is gone.
  */
 export async function consumeFanOut<E extends HostBindings>(
   env: E,
-  messages: readonly Message<unknown>[],
-  tick: (clientEnv: E, message: FanOutMessage) => Promise<void>,
+  batch: MessageBatch<unknown>,
+  handlers: FanOutHandlers<E>,
+  options: { now?: () => number } = {},
 ): Promise<void> {
-  await Promise.all(
-    messages.map(async (message) => {
-      const fanOut = fanOutMessageOf(message.body);
-      if (!fanOut) {
-        console.error("cron fan-out: a message that is not a client's tick was dropped");
-        message.ack();
-        return;
-      }
+  const now = options.now ?? Date.now;
+  for (const message of batch.messages) {
+    const fanOut = fanOutMessageOf(message.body);
+    const parked = fanOut ? null : parkedMessageOf(message.body);
+    if (!fanOut && !parked) {
+      reportDeadLetter(batch.queue, message, "not a tick or a parked message");
+      message.ack();
+      continue;
+    }
+    if (fanOut) {
       let clientEnv: E;
       try {
         clientEnv = await clientEnvironment(env, fanOut.client);
       } catch {
         message.ack();
-        return;
+        continue;
       }
       try {
-        await tick(clientEnv, fanOut);
+        await handlers.tick(clientEnv, fanOut);
         message.ack();
       } catch (error) {
         console.error("cron fan-out: one client's tick failed, retrying", String(error));
         message.retry({ delaySeconds: 30 });
       }
-    }),
-  );
+      continue;
+    }
+    if (!parked) continue;
+    const stamp = stampOf(parked.stamped);
+    const consumer = handlers.parked[parked.queue];
+    if (!stamp || !consumer) {
+      reportDeadLetter(batch.queue, message, "parked from a queue this Worker does not consume");
+      message.ack();
+      continue;
+    }
+    let clientEnv: E;
+    try {
+      clientEnv = await clientEnvironment(env, stamp.client);
+    } catch (error) {
+      const waiting = error instanceof NoClientError && error.reason === "updating";
+      if (waiting && now() - parked.parkedAt < PARKING.giveUpAfterMs) {
+        const delaySeconds = Math.min(parked.delaySeconds * 2, PARKING.maxDelaySeconds);
+        await park(env, { ...parked, delaySeconds });
+        message.ack();
+      } else {
+        reportDeadLetter(
+          parked.queue,
+          message,
+          waiting ? "its client was not served for 7 days" : "its client is gone",
+        );
+        message.ack();
+      }
+      continue;
+    }
+    const share = clientBatch<unknown>(
+      { queue: parked.queue, metadata: batch.metadata } as MessageBatch<unknown>,
+      [{ message, body: stamp.body }],
+    );
+    try {
+      await consumer(clientEnv, share);
+    } catch (error) {
+      console.error(`${parked.queue}: a parked message failed, retrying`, String(error));
+      share.retryAll({ delaySeconds: 30 });
+    }
+  }
 }
 
 // --- Workflows -----------------------------------------------------------------------------
