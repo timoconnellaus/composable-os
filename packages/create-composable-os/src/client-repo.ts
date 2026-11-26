@@ -43,7 +43,7 @@ import {
 } from "@composable-os/release";
 import { writeBrand } from "./app.ts";
 import { lineDiff } from "./diff.ts";
-import { recordHostModules, STATE_FILE, upgradeHostModules } from "./host-modules.ts";
+import { HOST_MODULES, recordHostModules, STATE_FILE, upgradeHostModules } from "./host-modules.ts";
 import type { Io } from "./io.ts";
 import {
   CliError,
@@ -762,8 +762,8 @@ export const product = defineClientProduct(${JSON.stringify(product, null, 2)});
   // Each app's host module, beside its client: the template's, which does the binding or the
   // HTTPS sign-in, and keeps a signed-in customer signed in. New files only.
   const hostModules: [string | undefined, string, string[]][] = [
-    [webDir, "web", ["host.ts"]],
-    [mobileDir, "mobile", ["host.ts", "secure-store.ts", "secure-random.ts"]],
+    [webDir, "web", HOST_MODULES.web],
+    [mobileDir, "mobile", HOST_MODULES.mobile],
   ];
   for (const [app, kind, files] of hostModules) {
     if (!app) continue;
