@@ -123,6 +123,23 @@ One **D1** database per deployment, with real tables ([ADR 0002](adr/0002-d1-rea
   still opens `createCrmDb(env.DB)` on D1. `apps/client-db-proof` is the Worker that times it
   against D1 on Cloudflare (docs/deploying.md).
 
+- **The registry and the client's environment** (stage 66 step 3,
+  [ADR 0613](adr/0613-the-registry-and-the-clients-environment.md)): a host that serves many
+  clients has one more D1 database, the registry (`REGISTRY`), with its own migrations in
+  `packages/db/registry-migrations` (`registry_*` tables: clients, hostnames, settings, the
+  encrypted secrets' columns, a version stamp moved by triggers). Only the operator writes it;
+  `@composable-os/db/registry` reads it in one batch whatever the number of clients, and nothing
+  in packages/core or a pack names it. `@composable-os/db/client-environment` turns the real `env`
+  and a client into that client's environment: `DB` is `clientDatabase(CLIENT_DB, client)`, the
+  settings in `CLIENT_SETTINGS` are the client's (or the deployment's), the operator's shared
+  values pass through, a shared binding is in only through its wrapper (`BindingWrapper`; rate
+  limits have one), and everything else, the host's own names and the secrets and addresses step 6
+  fills in included, is left out (`ENV_NAMES`, checked against every name the app and the runner
+  declare or read). `ClientDirectory` holds the registry per isolate, reads its stamp at most every
+  10 seconds, matches a hostname exactly in memory and keeps one environment object per client
+  until the registry changes. With no `REGISTRY` bound, the client's environment is the real
+  `env`: a single-client deployment is unchanged. No entry calls it yet (step 4).
+
 - **Core schema** (`core_*` tables): our versioned migrations, applied on deploy or upgrade. It covers
   the minimal core objects (People, Organisations, Activities, Tasks), users, settings, the approval
   queue and the audit log. Deletes are soft (Trash); a daily cron trigger on `cos-app` purges

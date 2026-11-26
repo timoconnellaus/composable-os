@@ -1018,9 +1018,22 @@ through the same interface as D1. A deployment with one client uses D1 itself. T
 D1 binding stands, with D1's results, errors and limits; the test suites run on it with
 `COS_TEST_DB=client-db`. Built in step 1; no Worker of the host binds it yet.
 
-**Registry** (stage 66, spec agreed)
+**Registry** (stage 66; ADR 0613)
 The host's own database of its clients: their hostnames, per-client settings and secrets. Only
-the operator writes it; no operation, extension or assistant reaches it.
+the operator writes it; no operation, extension or assistant reaches it. A D1 database of its own
+(the `REGISTRY` binding, bound only on a host that serves many clients) with its own migrations
+(`packages/db/registry-migrations`), read by `@composable-os/db/registry`: clients, their
+verified hostnames (looked up exactly, never derived), their settings by env name, the encrypted
+secrets' columns, and a version stamp every write moves. Built in step 3; nothing writes it yet.
+
+**Client's environment** (stage 66; ADR 0613)
+What an entry of a host that serves many clients hands everything below it: an object shaped
+like the Worker's `env` for one client, with `DB` that client's database, its settings from the
+registry, the operator's shared values, and each shared binding through a wrapper that reaches
+only that client's part. What has no wrapper or value yet, the host's own names and anything
+unlisted are left out (`ENV_NAMES`). On a single-client deployment it is the real `env` itself.
+`@composable-os/db/client-environment`; no entry uses it yet (step 4).
+_Avoid_: tenant context
 
 **Control plane**
 `crm-control` on the hosted CRM's `app.` host (`products/crm/apps/control`): sign-up, plans,
