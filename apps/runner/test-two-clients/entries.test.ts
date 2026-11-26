@@ -10,14 +10,20 @@ import {
   env,
   getQueueResult,
 } from "cloudflare:test";
-import { type ActingUser, invokeByName, newId } from "@composable-os/core";
+import { type ActingUser, invokeByName, newId, vendorBinding } from "@composable-os/core";
 import { createCrmDb } from "@composable-os/db";
 import { RUNNER_METHODS } from "@composable-os/db/client-bindings";
-import { propsClientEnvironment, stampOf, workflowRun } from "@composable-os/db/client-entries";
+import {
+  gatekeeperOffered,
+  propsClientEnvironment,
+  stampOf,
+  workflowRun,
+} from "@composable-os/db/client-entries";
 import { environmentFor } from "@composable-os/db/client-environment";
 import { setUpTwoClients, TWO_CLIENTS } from "@composable-os/db/testing/two-clients";
 import { beforeAll, describe, expect, it } from "vitest";
 import Runner, { ClientRunner, extensionHost } from "../src/index.ts";
+import { availableVendors, hostFor, integrationRuntime } from "../src/integrations/runtime.ts";
 
 const { a, b, paused, behind } = TWO_CLIENTS;
 
@@ -286,6 +292,91 @@ describe("the runner's D1 binding", () => {
       "SELECT count(*) AS n FROM sqlite_master WHERE type = 'table' AND name NOT LIKE '\\_cf\\_%' ESCAPE '\\'",
     ).first<{ n: number }>();
     expect(row?.n).toBe(0);
+  });
+});
+
+describe("gatekeepers on a many-client host (B1)", () => {
+  /** A gatekeeper binding the suite can see the use of: every method records and answers. */
+  const fakeGatekeeper = (name: string) => ({ fetch: async () => new Response(name) });
+  const every = [
+    "google",
+    "microsoft",
+    "slack",
+    "slack-post",
+    "mcp",
+    "email",
+    "email-send",
+    "zoominfo",
+    "websearch",
+    "webhook",
+    "payments",
+    "text",
+  ];
+  const withGatekeepers = () =>
+    ({
+      ...(env as unknown as Env),
+      ...Object.fromEntries(every.map((v) => [vendorBinding(v), fakeGatekeeper(v)])),
+    }) as unknown as Env;
+
+  it("offers no gatekeeper that holds one account for every client, and every other one", async () => {
+    const host = withGatekeepers();
+    for (const id of [a.id, b.id]) {
+      const admitted = await environmentFor(host, id);
+      if (!admitted.served) throw new Error("served");
+      const offered = availableVendors(admitted.env).sort();
+      expect(offered).toEqual(
+        ["google", "mcp", "microsoft", "slack", "slack-post", "websearch", "zoominfo"].sort(),
+      );
+      for (const vendor of ["payments", "text", "webhook", "email", "email-send"]) {
+        // Not in the client's environment at all, and the reason says why.
+        expect(vendorBinding(vendor) in admitted.env, vendor).toBe(false);
+        const why = gatekeeperOffered(admitted.env, vendorBinding(vendor));
+        expect(why).toEqual({
+          offered: false,
+          why: expect.stringMatching(/not available on this host yet/),
+        });
+      }
+    }
+    // A single-client deployment offers every bound gatekeeper, as before.
+    const single = Object.fromEntries(
+      every.map((v) => [vendorBinding(v), fakeGatekeeper(v)]),
+    ) as unknown as Env;
+    expect(availableVendors(single).sort()).toEqual([...every].sort());
+  });
+
+  it("a connection of gym-a's is not one of gym-b's: B cannot use, enable or replace it", async () => {
+    const host = withGatekeepers();
+    const admittedA = await environmentFor(host, a.id);
+    const admittedB = await environmentFor(host, b.id);
+    if (!admittedA.served || !admittedB.served) throw new Error("served");
+    const connectionId = `conn_${crypto.randomUUID().replace(/-/g, "")}`;
+    const admin = await adminIn(admittedA.env);
+    const now = new Date().toISOString();
+    await admittedA.env.DB.prepare(
+      "INSERT INTO core_integration_connection (id, vendor, scope, owner_user_id, title, status, created_at, updated_at) VALUES (?, 'google', 'org', ?, 'A mail', 'connecting', ?, ?)",
+    )
+      .bind(connectionId, admin.id, now, now)
+      .run();
+    // B's runtime reaches B's object of that name, which has no such connection: every way in
+    // (its resources, a call, a hook's start, a sync) is refused, and A's object is untouched.
+    const runtimeB = integrationRuntime(admittedB.env);
+    await expect(
+      (async () => await hostFor(admittedB.env, connectionId).supportedResources())(),
+    ).rejects.toThrow(/No connection/);
+    await expect(
+      (async () => await hostFor(admittedB.env, connectionId).startHook("hook-1"))(),
+    ).rejects.toThrow();
+    await expect(
+      (async () => await hostFor(admittedB.env, connectionId).setSync({} as never))(),
+    ).rejects.toThrow();
+    expect(typeof runtimeB.startConnect).toBe("function");
+    // A's own object knows it.
+    const meta = await admittedA.env.DB.prepare(
+      "SELECT id FROM core_integration_connection WHERE id = ?",
+    )
+      .bind(connectionId)
+      .first<{ id: string }>();
+    expect(meta?.id).toBe(connectionId);
   });
 });
 

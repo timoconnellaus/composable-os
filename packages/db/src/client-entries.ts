@@ -18,7 +18,9 @@ import {
 } from "./client-bindings.ts";
 import {
   clientOf,
+  envNameUse,
   type HostBindings,
+  hasBindingWrapper,
   hostDirectory,
   hostMode,
   type Refusal,
@@ -514,6 +516,32 @@ export function propsClientEnvironment<E extends HostBindings>(
 ): Promise<E> {
   if (!servesManyClients(env)) return Promise.resolve(env);
   return clientEnvironment(env, props?.client ?? null);
+}
+
+// --- Gatekeepers ---------------------------------------------------------------------------
+
+/**
+ * Whether the gatekeeper bound as `binding` (`GATEKEEPER_<NAME>`) is offered in `env`. On a
+ * many-client host a gatekeeper whose credentials or hook state belong to the whole deployment
+ * is kept apart in `ENV_NAMES` with no wrapper (the one list, which the environment builder reads
+ * too): it is in no client's environment, and here the reason says so. Single-client: whether it
+ * is bound, as before.
+ */
+export function gatekeeperOffered(
+  env: object,
+  binding: string,
+): { offered: true } | { offered: false; why: string } {
+  const bound = Boolean((env as Record<string, unknown>)[binding]);
+  if (clientOf(env) !== null) {
+    const use = envNameUse(binding);
+    if (use?.use === "kept-apart" && !hasBindingWrapper(binding)) {
+      return {
+        offered: false,
+        why: `${binding} is not available on this host yet: it holds one account for every client (stage 66, ADR 0615)`,
+      };
+    }
+  }
+  return bound ? { offered: true } : { offered: false, why: `${binding} is not deployed here` };
 }
 
 // --- Secrets and addresses: each client's own, step 6 ----------------------------------------

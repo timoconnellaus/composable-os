@@ -71,6 +71,9 @@ function manyClientEnv(registry: D1Database = real.REGISTRY, environment = "live
     // Shared.
     STREAM_ACCOUNT_ID: "stream-account",
     LOADER: { name: "loader" },
+    // A gatekeeper that keeps each account in its own object (shared); payments is kept apart
+    // (B1 of the review of #512) and so left out, like any kept-apart name with no wrapper.
+    GATEKEEPER_GOOGLE: { name: "google" },
     GATEKEEPER_PAYMENTS: { name: "payments" },
     // Kept apart: each by its wrapper (rate limits, files and the runner here).
     MCP_RATE_LIMIT: recordingRateLimit(),
@@ -170,7 +173,7 @@ describe("buildClientEnvironment", () => {
         "COS_ORG_EXTENSIONS",
         "COS_PACKS",
         "DB",
-        "GATEKEEPER_PAYMENTS",
+        "GATEKEEPER_GOOGLE",
         "LOADER",
         "MCP_RATE_LIMIT",
         "RUNNER",
@@ -189,7 +192,8 @@ describe("buildClientEnvironment", () => {
     expect("STREAM_SIGNING_JWK" in built).toBe(false);
     // Shared values are the same objects.
     expect(built.LOADER).toBe(host.LOADER);
-    expect(built.GATEKEEPER_PAYMENTS).toBe(host.GATEKEEPER_PAYMENTS);
+    expect(built.GATEKEEPER_GOOGLE).toBe(host.GATEKEEPER_GOOGLE);
+    expect("GATEKEEPER_PAYMENTS" in built).toBe(false);
     // DB is a client's database, not the D1 binding.
     expect(built.DB).not.toBe(real.DB);
     expect(clientOf(built)).toBe("gym-a");

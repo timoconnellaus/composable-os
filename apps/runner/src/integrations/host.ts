@@ -55,7 +55,11 @@ import {
   vendorBinding,
 } from "@composable-os/core";
 import { createCrmDb } from "@composable-os/db";
-import { ClientObject, perClientMissing } from "@composable-os/db/client-entries";
+import {
+  ClientObject,
+  gatekeeperOffered,
+  perClientMissing,
+} from "@composable-os/db/client-entries";
 import { runnerJudge } from "../extensions/ai.ts";
 import { paymentEventDeps } from "./payments.ts";
 import { HostQueue, type QueueCaller, type QueueHost } from "./queue.ts";
@@ -348,6 +352,14 @@ export class IntegrationHost extends DurableObject<Env> {
   }
 
   #vendor(vendor: string): Stub {
+    const offered = gatekeeperOffered(this.env, vendorBinding(vendor));
+    if (!offered.offered) {
+      throw new Error(
+        offered.why.includes("not available on this host")
+          ? `The ${vendor} gatekeeper is not available on this host yet`
+          : `The ${vendor} gatekeeper is not deployed here`,
+      );
+    }
     const binding = (this.env as unknown as Record<string, unknown>)[vendorBinding(vendor)];
     if (!binding) throw new Error(`The ${vendor} gatekeeper is not deployed here`);
     if (vendor === "fake" && this.env.INTEGRATIONS_FAKE_PROVIDER !== "true") {

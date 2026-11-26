@@ -145,10 +145,22 @@ export const ENV_NAMES: Readonly<Record<string, EnvNameUse>> = {
 /** Names matched by their shape, after `ENV_NAMES` and the settings. */
 export const ENV_NAME_PATTERNS: ReadonlyArray<{ pattern: RegExp; use: EnvNameUse }> = [
   { pattern: /^AI_KEY_[A-Z0-9_]+$/, use: SECRET("the client's own AI provider keys") },
+  // Gatekeepers whose Worker holds one deployment's credentials or state for every account, so
+  // one client would act with another's (ADR 0616, "Gatekeepers"): left out of every client's
+  // environment until each is made per client. Payments: one Stripe key and one events object per
+  // provider. Text: one events object for the deployment. Webhook: endpoint ids chosen by the
+  // user, one object each for the deployment. Email: one mailbox per local part for the
+  // deployment. Email sending: the deployment's sender domains.
+  {
+    pattern: /^GATEKEEPER_(?:PAYMENTS|TEXT|WEBHOOK|EMAIL|EMAIL_SEND)$/,
+    use: APART(
+      "each client's own provider account, endpoints and mailboxes: the gatekeeper's work, listed in ADR 0616",
+    ),
+  },
   {
     pattern: /^GATEKEEPER_[A-Z0-9_]+$/,
     use: SHARED(
-      "a gatekeeper Worker: called with a connection minted for one client, whose object is that client's (stage 66)",
+      "a gatekeeper Worker: called with a connection minted for one client, whose object is that client's; its OAuth app is the operator's own, and each account's tokens are in that account's object (stage 66, ADR 0616)",
     ),
   },
   { pattern: /^[A-Z0-9_]+_RATE_LIMIT$/, use: APART("the client in every key") },
