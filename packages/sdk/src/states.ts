@@ -99,7 +99,7 @@ export type WindowNumber = number | string | { field?: string; setting?: string 
  * out) and then `minutesBefore` minutes. Each of the two is a `WindowNumber`. A string is short
  * for `{ at }`. When any of them has no value the window cannot be worked out, and a customer's
  * move is refused. Every field a path passes through is this extension's own: a field of its
- * objects, or one it adds to another extension's object (`fields: { "programs.classtype": … }`).
+ * objects, or one it adds to another extension's object (`fields: { "deals.deal": … }`).
  */
 export interface WindowBound {
   at: string;
@@ -688,7 +688,7 @@ export function windowChecks(
  * The field a path names (ADR 0503; two relations from ADR 0505): `field` on the object, or
  * `relation.field` / `relation.relation.field` through relations of one record. Every field on
  * the way is this extension's: a field of one of its objects, or one it adds to another object
- * (`fields: { "programs.classtype": { … } }`). Undefined when the path names no such field.
+ * (`fields: { "deals.deal": { … } }`). Undefined when the path names no such field.
  */
 export function resolveFieldPath(
   m: ExtensionManifest,

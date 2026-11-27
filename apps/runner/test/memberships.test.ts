@@ -1,9 +1,9 @@
 // Stage 32b, build step 6: the Memberships pack (packs/memberships) in the real host, beside
-// Programs, installed as shipped, with real D1, the real payments gatekeeper and its fake
+// Bookings, installed as shipped, with real D1, the real payments gatekeeper and its fake
 // provider. Its holders are spent by a fixture spender with stage 31's ids (`bookings.booking`,
 // packs/memberships/test/fixtures/bookings): when the Bookings pack lands, this test moves to it.
 //
-// What is checked: the pack installs only beside Programs and its holders' conditions hold
+// What is checked: the pack installs only beside Bookings (no Programs, stage 78) and its holders' conditions hold
 // against the spender at install; a member subscribes to a membership plan on the fake provider's
 // page and the provider's verified events grant the membership, which a booking spends (3 a
 // week, by class type and off-peak window); a member buys a class pack, which is granted with its
@@ -27,7 +27,6 @@ import { createAdmin, db, host, newCustomer, refusal, run, unique } from "./help
 import { filesByName, packFiles } from "./pack-files.ts";
 
 const files: Record<string, Record<string, string>> = {
-  programs: packFiles("programs"),
   memberships: packFiles("memberships"),
   bookings: filesByName(
     import.meta.glob<string>("../../../packs/memberships/test/fixtures/bookings/*.ts", {
@@ -39,12 +38,11 @@ const files: Record<string, Record<string, string>> = {
 };
 const OURS = new Set(Object.keys(files));
 
-/** The extension host of a deployment whose product lists Programs and Memberships. */
+/** The extension host of a deployment whose product lists Bookings and Memberships. */
 const shippedHost: ExtensionHost = {
   ...host,
   shipped: async () => [
     ...(await host.shipped()).filter((s) => !OURS.has(s.id)),
-    { id: "programs", version: "0.1.0" },
     { id: "memberships", version: "0.1.0" },
     { id: "bookings", version: "0.0.1" },
   ],
@@ -150,12 +148,12 @@ beforeAll(async () => {
   admin = await createAdmin();
   await setPreset("balanced");
   await refreshSchemaRegistry(db.query);
-  // Memberships requires Programs (class types).
+  // Memberships requires Bookings (its class types and services), and Programs no more.
   const early = await refusal(
     run("extension.install", { id: "memberships", shipped: true }, staff(admin)),
   );
-  expect(JSON.stringify(early)).toContain("requires the programs extension");
-  await run("extension.install", { id: "programs", shipped: true }, staff(admin));
+  expect(JSON.stringify(early)).toContain("requires the bookings extension");
+  expect(JSON.stringify(early)).not.toContain("programs");
   await run("extension.install", { id: "bookings", shipped: true }, staff(admin));
   await run("extension.install", { id: "memberships", shipped: true }, staff(admin));
   await refreshSchemaRegistry(db.query);
@@ -180,8 +178,8 @@ beforeAll(async () => {
     { id: payments.connection.id, url: "payments://merchant/fake" },
     staff(admin),
   );
-  yoga = await create("programs.classtype", { name: "Yoga" });
-  spin = await create("programs.classtype", { name: "Spin" });
+  yoga = await create("bookings.classtype", { name: "Yoga" });
+  spin = await create("bookings.classtype", { name: "Spin" });
 });
 
 afterAll(async () => {

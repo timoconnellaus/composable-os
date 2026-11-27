@@ -1539,7 +1539,7 @@ no zone says first which steps are not proved.
    one was given, every kind of resource listable, and nothing with the run's prefix there yet.
 1. `cos fleet keys` (the keys file in the runner's temp folder, mode 0600, never printed), then
    `cos fleet install --env staging` of `0.1.0` with `--location <location>` and `--ai off`. The app
-   Worker's deployed bindings must name `0.1.0`. With `--zone`, `cos` attaches the callback
+   Worker's deployed bindings must name `0.1.0`, and the runner's two Workflows must be listed in the account. With `--zone`, `cos` attaches the callback
    hostname to the app Worker as a Workers Custom Domain (the check confirms it), and the host's
    health is awaited there.
 2. `cos client add alpha`, then `cos client add bravo`: both listed active, each staff hostname a

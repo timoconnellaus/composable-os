@@ -7,10 +7,11 @@ import { TEST_USER } from "./test-user.ts";
 const STORAGE_STATE = join(dirname(fileURLToPath(import.meta.url)), ".auth/user.json");
 
 /** Shipped packs some spec installs (`extension.install` with `shipped: true`). */
-// Content before Courses, which requires it (and Programs).
+// Bookings before Programs, which requires it (stage 78); Content before Courses, which requires
+// it (and Programs).
 const E2E_PACKS = [
-  "programs",
   "bookings",
+  "programs",
   "content",
   "courses",
   "memberships",

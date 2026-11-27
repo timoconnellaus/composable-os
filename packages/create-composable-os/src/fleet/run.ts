@@ -502,7 +502,7 @@ async function withContext(
   // Opened (and the operator's session taken) only on the command's first call to it (S1).
   const operator = lazyOperator(
     registry,
-    () =>
+    (session) =>
       openOperator({
         api: s.api,
         accountId: s.accountId,
@@ -510,7 +510,10 @@ async function withContext(
         origin,
         ...(deps.fetch ? { fetch: deps.fetch } : {}),
         redact: (v) => deps.redactor.add(v),
-        stale: { onStale: (what, n) => n === 1 && deps.io.err(`  ${what}: ${STALE_NOTE}`) },
+        stale: {
+          onStale: (what, n) => n === 1 && deps.io.err(`  ${what}: ${STALE_NOTE}`),
+          stillHolds: session.stillHolds,
+        },
       }),
     { command, ...(flags["take-over"] ? { takeOver: true } : {}) },
   );

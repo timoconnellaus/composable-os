@@ -1268,6 +1268,15 @@ release carries every pack; a product lists the packs its deployments install (`
 (ADR 0420 as amended).
 _Avoid_: module, plugin (a plugin is an assistant plugin, ADR 0347), app
 
+**General pack** and **domain pack**
+The two tiers of packs (stage 78, ADR 0980). A **general pack** is one a business of a different
+kind would install unchanged (Bookings, Memberships, Rostering, Forms, Shop and most others); a
+**domain pack** serves one kind of business (Programs, a gym's exercise bank and training). A domain
+pack may require a general pack; a general pack never requires a domain pack. A gym is general
+packs, plus Programs, plus the gym's words. There is no parent pack: behaviours and base records
+are the layer packs share.
+_Avoid_: vertical pack, core pack (core is the host), parent pack
+
 **Block**
 A screen, or part of one, for a pack or the base layer, in a web skin or a native skin: a folder
 with a `block.json` (its pack, skin, operations, files and the blocks it depends on). Shipped,
@@ -1775,11 +1784,11 @@ A date range in which a series makes nothing, and whose records already made are
 gym's holidays) (ADR 0500).
 
 **Class type** (Bookings)
-A kind of class (Strength, Yoga, Kids): Programs' `programs.classtype`, on which Bookings adds its
-**booking rules** (when booking opens and closes, when a cancel is late, when the waitlist stops,
-the reminder, and whether only staff book it). Each rule left empty is the organisation's setting
-(Settings → Extensions → Bookings): 7 days, at the start, 60 minutes, 120 minutes, 180 minutes,
-off (stage 31, ADRs 0504 and 0505).
+A kind of class (Strength, Yoga, Kids): Bookings' own `bookings.classtype` (Programs' until stage
+78, ADR 0980), with its **booking rules** (when booking opens and closes, when a cancel is late,
+when the waitlist stops, the reminder, and whether only staff book it). Each rule left empty is the
+organisation's setting (Settings → Extensions → Bookings): 7 days, at the start, 60 minutes, 120
+minutes, 180 minutes, off (stage 31, ADRs 0504 and 0505). Programs assigns class programs to it.
 
 **Class** (Bookings)
 One dated occurrence of a series, or a one-off: a class type at a time in a zone, with a room, a

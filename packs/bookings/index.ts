@@ -220,13 +220,10 @@ export default defineExtension({
   label: "Bookings",
   description:
     "A timetable of classes made from weekly series, rooms and coaches, and the bookings members " +
-    "make and cancel within the gym's rules. Class types are Programs'.",
-  // The class type is Programs' (spec 31): the host installs Bookings only beside Programs.
-  requires: ["programs"],
+    "make and cancel within the gym's rules, by class type.",
   permissions: {
     // person.get / person.createWith: a booking's person on a class list, and a walk-in staff book.
-    // programs.classtype: a class type's name and booking rules on staff's day view.
-    read: ["person", "programs.classtype"],
+    read: ["person"],
     write: ["person"],
     // record.*, my.* and state.resolve are not listed: they are granted by object (Bookings'
     // own, and the read and write lists above), and a listed one would reach every object.
@@ -264,94 +261,110 @@ export default defineExtension({
     ],
     modules: ["ops", "routine-mail", "email-send", "storage"],
   },
-  // Bookings' fields on Programs' class type: how it shows, and its booking rules when they
-  // differ from the organisation's (Settings → Extensions → Bookings). Empty: the organisation's.
-  fields: {
-    "programs.classtype": {
-      colour: {
-        type: "text",
-        label: "Colour",
-        description: "How its classes show on the timetable, e.g. #2f6fed.",
-      },
-      opensDays: {
-        type: "number",
-        label: "Booking opens (days before)",
-        description:
-          "Members may book this many days before a class, at the same time of day. Empty: the " +
-          "organisation's setting.",
-        min: 0,
-        max: 365,
-        step: 1,
-        personApproves: true,
-      },
-      closesMinutes: minutes(
-        "Booking closes (minutes before)",
-        "Members may book until this many minutes before a class starts (0: until it starts). " +
-          "Empty: the organisation's setting.",
-      ),
-      lateMinutes: minutes(
-        "Late cancel from (minutes before)",
-        "A cancel this close to the start or closer is late and keeps the class it used. Empty: " +
-          "the organisation's setting.",
-      ),
-      promotionMinutes: minutes(
-        "Waitlist stops (minutes before)",
-        "Nobody is moved in from the waitlist after this: a place freed later goes to whoever " +
-          "books first. Empty: the organisation's setting.",
-      ),
-      reminderMinutes: {
-        ...minutes(
-          "Reminder (minutes before)",
-          "When members booked into a class are emailed a reminder, at most two days before. " +
+  objects: {
+    // A kind of class (stage 78, ADR 0980): what a series and its classes are of, how it shows,
+    // and its booking rules when they differ from the organisation's (Settings → Extensions →
+    // Bookings; empty: the organisation's). It was Programs' object, with these rules added onto
+    // it by Bookings; it is Bookings' own so that Bookings installs without Programs. Programs,
+    // a domain pack, relates its class programs to it.
+    classtype: {
+      label: "Class type",
+      plural: "Class types",
+      icon: "users",
+      titleField: "name",
+      description:
+        "A kind of class (Strength, Yoga, Kids): what a series and its classes are of, with its " +
+        "booking rules when they differ from the organisation's.",
+      navigation: "settings",
+      // Every signed-in member reads a class type's name and order (a class program assigned to
+      // it, a member's timetable); its rules are read through the class by the host.
+      signedIn: { read: ["name", "order"] },
+      fields: {
+        name: { type: "text", label: "Name", required: true },
+        order: { type: "number", label: "Order" },
+        colour: {
+          type: "text",
+          label: "Colour",
+          description: "How its classes show on the timetable, e.g. #2f6fed.",
+        },
+        opensDays: {
+          type: "number",
+          label: "Booking opens (days before)",
+          description:
+            "Members may book this many days before a class, at the same time of day. Empty: the " +
+            "organisation's setting.",
+          min: 0,
+          max: 365,
+          step: 1,
+          personApproves: true,
+        },
+        closesMinutes: minutes(
+          "Booking closes (minutes before)",
+          "Members may book until this many minutes before a class starts (0: until it starts). " +
             "Empty: the organisation's setting.",
         ),
-        // At most two days: the reminder's minute scan reads the classes this far ahead (ADR 0570).
-        max: 2_880,
-      },
-      dropInPrice: {
-        type: "number",
-        label: "Drop-in price",
-        description:
-          "What one class costs someone paying for it on the website, in the organisation's " +
-          "currency. Empty: the organisation's setting; empty there too, no drop-ins.",
-        min: 0,
-        max: 100_000,
-        step: 0.01,
-        personApproves: true,
-      },
-      staffOnly: {
-        type: "boolean",
-        label: "Booked by staff only",
-        description: "Members cannot book its classes themselves; staff book them in.",
-        personApproves: true,
-      },
-      // Preparation and pack-down (stage 45 decision 19, ADR 0627): minutes added to the coach's
-      // pay hours for each class of this type. Pay only: they never make two classes clash.
-      rosterBeforeMinutes: {
-        type: "number",
-        label: "Set-up minutes (pay)",
-        description:
-          "Minutes before each class counted in its coach's pay hours (set-up). Empty: none. " +
-          "They never stop a coach taking the class before.",
-        min: 0,
-        max: 240,
-        step: 1,
-        personApproves: true,
-      },
-      rosterAfterMinutes: {
-        type: "number",
-        label: "Pack-down minutes (pay)",
-        description:
-          "Minutes after each class counted in its coach's pay hours (pack-down). Empty: none. " +
-          "They never stop a coach taking the class after.",
-        min: 0,
-        max: 240,
-        step: 1,
-        personApproves: true,
+        lateMinutes: minutes(
+          "Late cancel from (minutes before)",
+          "A cancel this close to the start or closer is late and keeps the class it used. Empty: " +
+            "the organisation's setting.",
+        ),
+        promotionMinutes: minutes(
+          "Waitlist stops (minutes before)",
+          "Nobody is moved in from the waitlist after this: a place freed later goes to whoever " +
+            "books first. Empty: the organisation's setting.",
+        ),
+        reminderMinutes: {
+          ...minutes(
+            "Reminder (minutes before)",
+            "When members booked into a class are emailed a reminder, at most two days before. " +
+              "Empty: the organisation's setting.",
+          ),
+          // At most two days: the reminder's minute scan reads the classes this far ahead (ADR 0570).
+          max: 2_880,
+        },
+        dropInPrice: {
+          type: "number",
+          label: "Drop-in price",
+          description:
+            "What one class costs someone paying for it on the website, in the organisation's " +
+            "currency. Empty: the organisation's setting; empty there too, no drop-ins.",
+          min: 0,
+          max: 100_000,
+          step: 0.01,
+          personApproves: true,
+        },
+        staffOnly: {
+          type: "boolean",
+          label: "Booked by staff only",
+          description: "Members cannot book its classes themselves; staff book them in.",
+          personApproves: true,
+        },
+        // Preparation and pack-down (stage 45 decision 19, ADR 0627): minutes added to the coach's
+        // pay hours for each class of this type. Pay only: they never make two classes clash.
+        rosterBeforeMinutes: {
+          type: "number",
+          label: "Set-up minutes (pay)",
+          description:
+            "Minutes before each class counted in its coach's pay hours (set-up). Empty: none. " +
+            "They never stop a coach taking the class before.",
+          min: 0,
+          max: 240,
+          step: 1,
+          personApproves: true,
+        },
+        rosterAfterMinutes: {
+          type: "number",
+          label: "Pack-down minutes (pay)",
+          description:
+            "Minutes after each class counted in its coach's pay hours (pack-down). Empty: none. " +
+            "They never stop a coach taking the class after.",
+          min: 0,
+          max: 240,
+          step: 1,
+          personApproves: true,
+        },
       },
     },
-  },
-  objects: {
     room: {
       label: "Room",
       plural: "Rooms",
@@ -421,7 +434,7 @@ export default defineExtension({
         classType: {
           type: "relation",
           label: "Class type",
-          to: "programs.classtype",
+          to: "bookings.classtype",
           required: true,
         },
         weekdays: { type: "multiSelect", label: "Weekdays", options: WEEKDAYS, required: true },
@@ -488,7 +501,7 @@ export default defineExtension({
         // when its booking opens, so one day more (as horizonAtLeast adds for a class type's).
         horizonDays: 57,
         // Never less than the longest window a class type opens booking (ADR 0500, 0505).
-        horizonAtLeast: { object: "programs.classtype", field: "opensDays" },
+        horizonAtLeast: { object: "classtype", field: "opensDays" },
       },
       indexes: [["state"], ["classType"]],
     },
@@ -515,7 +528,7 @@ export default defineExtension({
         classType: {
           type: "relation",
           label: "Class type",
-          to: "programs.classtype",
+          to: "bookings.classtype",
           required: true,
         },
         startsAt: { type: "datetime", label: "Starts", required: true },
@@ -675,7 +688,7 @@ export default defineExtension({
         classType: {
           type: "relation",
           label: "Class type",
-          to: "programs.classtype",
+          to: "bookings.classtype",
           readOnly: true,
           description: "The class's type, copied by the host: what a membership's limits read.",
         },

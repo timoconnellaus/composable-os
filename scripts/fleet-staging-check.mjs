@@ -195,7 +195,13 @@ export function explainFailure(output) {
       "The token lacks a permission this needs (the first error line says which call).",
     ],
   ];
-  for (const [a, b, why] of rules) if (a.test(text) && b.test(text)) return why;
+  // Only what an error line says, both parts on one line: a long command's output names queues,
+  // plans and upgrades in its ordinary lines, which say nothing of why it failed (the second real
+  // run: a missing service binding was explained as Queues not being on the plan).
+  const errors = text.split("\n").filter((line) => /(error|failed|refused|HTTP \d{3})/i.test(line));
+  for (const [a, b, why] of rules) {
+    if (errors.some((line) => a.test(line) && b.test(line))) return why;
+  }
   return null;
 }
 
@@ -910,6 +916,24 @@ async function deployedVersion(ctx) {
  * `SENDER_DOMAINS_PER_CLIENT=true` and the runner binds it as `GATEKEEPER_EMAIL_SEND`. Reads only
  * the run's own Workers, by their exact names.
  */
+/**
+ * The Workflows the staging fleet's runner defines, as the account lists them: `<prefix>-
+ * automation-staging` (every automation runs in it) and `<prefix>-hello-staging`. Uploading the
+ * runner does not create them; the deploy engine's `PUT /workflows/{name}` does. Names missing,
+ * one line; none when both are there for the run's runner.
+ */
+export const WORKFLOWS = Object.freeze(["automation", "hello"]);
+export async function workflowProblems(api, accountId, prefix) {
+  const listed = await api.listWorkflows(accountId);
+  const names = new Set(listed.map((w) => w.name ?? w.id));
+  const missing = WORKFLOWS.map((w) => `${prefix}-${w}-staging`).filter(
+    (name) => owned(name, prefix) && !names.has(name),
+  );
+  return missing.length
+    ? [`no Workflow ${missing.join(", ")} in the account: the runner's Workflows were not created`]
+    : [];
+}
+
 export async function emailGatekeeperProblems(api, accountId, prefix) {
   const gatekeeper = workerName(prefix, "gatekeeper-email-send");
   const runner = workerName(prefix, "runner");
@@ -1078,8 +1102,11 @@ export function checkSteps() {
         await ctx.snapshot();
         const version = await deployedVersion(ctx);
         if (version !== VERSIONS.from) fail(`the app Worker runs ${version}, not ${VERSIONS.from}`);
+        const flows = await workflowProblems(ctx.api, ctx.accountId, ctx.prefix);
+        if (flows.length) fail(flows.join("; "));
         await attached(ctx, [ctx.hosts.callback]);
         const notes = [
+          `the runner's Workflows ${WORKFLOWS.map((w) => `${ctx.prefix}-${w}-staging`).join(" and ")} exist`,
           `installed ${VERSIONS.from} in ${(install.ms / 1000).toFixed(0)} s (AI off, location ${ctx.location}); the app Worker runs it`,
         ];
         if (!ctx.zoneId) {

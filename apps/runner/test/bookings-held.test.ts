@@ -47,7 +47,7 @@ beforeAll(async () => {
   admin = await createAdmin();
   await setPreset("balanced");
   await refreshSchemaRegistry(db.query);
-  for (const id of ["programs", "bookings", "memberships"]) {
+  for (const id of ["bookings", "memberships"]) {
     await run("extension.install", { id, shipped: true });
   }
   await refreshSchemaRegistry(db.query);
@@ -89,7 +89,7 @@ describe("a full approval queue (ADR 0573)", () => {
     expect(await pendingIds("input LIKE ?", "%Filler %")).toHaveLength(500);
 
     const type = await run<{ id: string }>("record.create", {
-      object: "programs.classtype",
+      object: "bookings.classtype",
       values: { name: unique("Strength") },
     });
     const startsAt = new Date(Date.now() + 2 * DAY).toISOString();

@@ -175,12 +175,12 @@ beforeAll(async () => {
   admin = await createAdmin();
   await setPreset("balanced");
   await refreshSchemaRegistry(db.query);
-  for (const id of ["programs", "bookings", "rostering", "rosterrelay", "staffrelay"]) {
+  for (const id of ["bookings", "rostering", "rosterrelay", "staffrelay"]) {
     await run("extension.install", { id, shipped: true }, staff());
   }
   await refreshSchemaRegistry(db.query);
   await run("settings.update", { timezone: ZONE }, staff()).catch(() => undefined);
-  type = await create("programs.classtype", { name: unique("Strength") });
+  type = await create("bookings.classtype", { name: unique("Strength") });
   duty = await create(DUTY, { name: unique("Cleaning"), place: "Main floor" });
 }, 120_000);
 
@@ -477,7 +477,7 @@ describe("the staff and the kinds of work (x.rostering.people)", () => {
     expect(accounts).not.toContain(gone.id);
     expect(answer.kinds).toEqual(
       expect.arrayContaining([
-        expect.objectContaining({ object: "programs.classtype", id: type }),
+        expect.objectContaining({ object: "bookings.classtype", id: type }),
         expect.objectContaining({ object: DUTY, id: duty }),
       ]),
     );

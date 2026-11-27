@@ -207,3 +207,12 @@ first.
   Content's objects too (posts and the rest). The other way, a block depending on a block of a
   pack the host may lack, would leave a client copying a renderer for a pack it never deploys.
 
+## Amended 2026-11-27 (stage 78, ADR 0980): which pack may require which
+
+`requires` is now bound by a rule (ADR [0980](0980-general-and-domain-packs.md)): a **domain**
+pack may require a **general** one, a general pack never a domain one. Programs (domain) requires
+Bookings (general); Bookings requires nothing. **Courses, a general pack, still requires Programs**
+for its session lesson: a known breach, left until the lesson can exist only with Programs (stage
+78 step 6). `cos deploy` follows `requires` to the end as before, so a product listing Courses now
+brings Programs, Bookings and Content. The rule is not yet declared in the manifest or checked
+(stage 78 step 4).

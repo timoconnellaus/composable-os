@@ -207,6 +207,7 @@ describe("drafting", () => {
 describe("the tools on the test host", () => {
   const host = () =>
     createTestHost(programs, {
+      validate: { knownObjects: ["bookings.classtype"] },
       records: { "programs.exercise": bank.map((e) => ({ ...e })) },
       ai: { extract: async () => ({ weeks: 6, sessionsPerWeek: 2, focus: "planche" }) },
     });

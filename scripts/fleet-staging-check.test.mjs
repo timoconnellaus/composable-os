@@ -36,6 +36,7 @@ import {
   teardownReport,
   VERSIONS,
   verdict,
+  workflowProblems,
 } from "./fleet-staging-check.mjs";
 
 const TOKEN = "fake-token-0123456789";
@@ -135,6 +136,10 @@ async function seed(cf, api, prefix = PREFIX) {
   await api.putQueueConsumer(ACCOUNT, crmQueue.queue_id, "crm-app", {});
   cf.workflows.set(`${prefix}-automation-staging`, {
     className: "AutomationWorkflow",
+    script: `${prefix}-runner-staging`,
+  });
+  cf.workflows.set(`${prefix}-hello-staging`, {
+    className: "HelloWorkflow",
     script: `${prefix}-runner-staging`,
   });
   cf.workflows.set("crm-automation", { className: "AutomationWorkflow", script: "crm-runner" });
@@ -245,6 +250,25 @@ test("the inventory lists every kind the run made, its Durable Object namespaces
     "worker cosstg-123-operator-staging",
     "worker cosstg-123-runner-staging",
     "workflow cosstg-123-automation-staging",
+    "workflow cosstg-123-hello-staging",
+  ]);
+});
+
+test("the install's Workflows: both of the run's must be listed, paged as the real API pages them", async () => {
+  const { cf, api } = world();
+  await seed(cf, api);
+  assert.deepEqual(await workflowProblems(api, ACCOUNT, PREFIX), []);
+  // More Workflows than one page holds, of another product: the run's are still found.
+  for (let i = 0; i < 60; i++) cf.workflows.set(`aaa-other-${i}`, { className: "X", script: "x" });
+  for (const name of [`${PREFIX}-automation-staging`, `${PREFIX}-hello-staging`]) {
+    const flow = cf.workflows.get(name);
+    cf.workflows.delete(name);
+    cf.workflows.set(name, flow); // listed last, on the second page
+  }
+  assert.deepEqual(await workflowProblems(api, ACCOUNT, PREFIX), []);
+  cf.workflows.delete(`${PREFIX}-hello-staging`);
+  assert.deepEqual(await workflowProblems(api, ACCOUNT, PREFIX), [
+    `no Workflow ${PREFIX}-hello-staging in the account: the runner's Workflows were not created`,
   ]);
 });
 
@@ -266,7 +290,7 @@ test("teardown deletes all of it (buckets emptied first, namespaces with their W
       `${PREFIX}-routine-delivery-staging ← ${PREFIX}-runner-staging`,
     ],
   );
-  assert.equal(result.deleted.filter((d) => d.kind !== "consumer").length, 15);
+  assert.equal(result.deleted.filter((d) => d.kind !== "consumer").length, 16);
   // In order: the consumers, the domain before its Worker, the Workers before what they bound.
   assert.equal(result.deleted[0].kind, "consumer");
   assert.equal(result.deleted[2].kind, "domain");
@@ -1286,6 +1310,20 @@ test("what a failure needed, said plainly; secrets cut out; cos's list and expor
     /permission/,
   );
   assert.equal(explainFailure("Error: something else"), null);
+  // The second real run: queues made and plans named in ordinary lines, then a missing service
+  // binding. It is not explained as Queues missing from the plan.
+  const install = [
+    "  Queue cosstg-1-app-fanout-staging: created",
+    "  note: an upgrade of the plan is not needed",
+    "    Error: PUT /accounts/***/workers/scripts/cosstg-1-runner-staging failed (HTTP 400): 10143: Service binding 'GATEKEEPER_EMAIL_SEND' references Worker 'cosstg-1-gatekeeper-email-send-staging' which was not found.",
+  ].join("\n");
+  assert.equal(explainFailure(install), null);
+  assert.match(
+    explainFailure(
+      "Error: POST /accounts/x/queues failed (HTTP 403): 11001: Queues are not entitled on this plan",
+    ),
+    /Queues are not available/,
+  );
   assert.equal(
     sanitize(`token ${TOKEN} account ${ACCOUNT}`, [TOKEN, ACCOUNT]),
     "token *** account ***",

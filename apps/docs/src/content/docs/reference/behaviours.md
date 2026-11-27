@@ -154,7 +154,7 @@ Declared as `public: PublicSpec` on an object. Declared by: [`bookings.room`](/p
 
 What every signed-in customer may read of this object (ADR 0447), whoever's record it is: the fields in `read`, of the records that meet `when` (the shape of `public.when`), or of every live record without it. Beside a `customer` declaration it shares those records with every signed-in customer while each still reads and writes their own as before (a class's sessions beside a client's own); on its own it opens the records to read only (an exercise bank). Never read by the public. Only shipped extensions and an org's own may declare it.
 
-Declared as `signedIn: SignedInSpec` on an object. Declared by: [`programs.exercise`](/packs/programs/data-model/), [`programs.classtype`](/packs/programs/data-model/), [`programs.assignment`](/packs/programs/data-model/), [`programs.session`](/packs/programs/data-model/).
+Declared as `signedIn: SignedInSpec` on an object. Declared by: [`bookings.classtype`](/packs/bookings/data-model/), [`programs.exercise`](/packs/programs/data-model/), [`programs.assignment`](/packs/programs/data-model/), [`programs.session`](/packs/programs/data-model/).
 
 ## customerVia
 

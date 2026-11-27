@@ -183,7 +183,7 @@ beforeAll(async () => {
   // reach the outbox; Balanced (routine email goes on its own, ADR 0590) is tested at the end.
   await setPreset("autonomous");
   await refreshSchemaRegistry(db.query);
-  for (const id of ["programs", "bookings", "memberships"]) {
+  for (const id of ["bookings", "memberships"]) {
     await run("extension.install", { id, shipped: true }, staff());
   }
   await refreshSchemaRegistry(db.query);
@@ -213,7 +213,7 @@ beforeAll(async () => {
     );
     expect(automation.pausedReason).toBeNull();
   }
-  type = await create("programs.classtype", { name: unique("Strength") });
+  type = await create("bookings.classtype", { name: unique("Strength") });
 }, 120_000);
 
 afterAll(async () => {
@@ -538,9 +538,9 @@ describe("the reminder (criterion 13)", () => {
   });
 
   it("honours the class type's own setting", async () => {
-    const own = await create("programs.classtype", {
+    const own = await create("bookings.classtype", {
       name: unique("Yoga"),
-      "bookings.reminderMinutes": 60,
+      reminderMinutes: 60,
     });
     const k = await klass(own, 2 * DAY);
     const startsAt = Date.parse(String((await get(CLASS, k)).startsAt));

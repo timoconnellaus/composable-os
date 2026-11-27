@@ -90,7 +90,7 @@ beforeAll(async () => {
   admin = await createAdmin();
   await setPreset("balanced");
   await refreshSchemaRegistry(db.query);
-  for (const id of ["programs", "bookings", "memberships"]) {
+  for (const id of ["bookings", "memberships"]) {
     await run("extension.install", { id, shipped: true }, staff());
   }
   await refreshSchemaRegistry(db.query);
@@ -98,8 +98,8 @@ beforeAll(async () => {
 
 describe("a real pass pays for a real booking", () => {
   it("by its class types, weekdays and times; the use counts; a cancel in time gives it back", async () => {
-    const strength = await create("programs.classtype", { name: unique("Strength") });
-    const yoga = await create("programs.classtype", { name: unique("Yoga") });
+    const strength = await create("bookings.classtype", { name: unique("Strength") });
+    const yoga = await create("bookings.classtype", { name: unique("Yoga") });
     const startsIn = 3 * HOUR;
     const at = Date.now() + startsIn;
     const { weekday, minute } = local(at);

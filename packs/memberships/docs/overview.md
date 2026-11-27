@@ -3,7 +3,7 @@ title: Memberships
 summary: What a gym sells its members, membership plans paid every month and passes bought once, and the classes and one-to-one sessions each pays for.
 stage: 32
 spec: docs/stages/32-memberships.md
-adrs: [0485, 0487, 0489, 0493, 0494, 0510, 0511, 0512, 0513, 0530, 0531, 0532, 0647, 0764]
+adrs: [0485, 0487, 0489, 0493, 0494, 0510, 0511, 0512, 0513, 0530, 0531, 0532, 0647, 0764, 0980]
 ---
 
 ## What it is for
@@ -16,8 +16,8 @@ training sessions). What a member holds, a membership or a pass, pays for their 
 for them. The limits (how many uses, which class types or services, which days and times) are
 refused by the host for every writer, never by a screen.
 
-It requires [Programs](/packs/programs/) (the class types a plan names) and Bookings (the services
-it names, and what it pays for).
+It requires Bookings: the class types and services a plan names, and what it pays for, are
+Bookings'. It needs no Programs.
 
 ## Concepts
 

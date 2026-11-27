@@ -24,5 +24,6 @@ The decisions this pack rests on, as recorded in the repository's ADRs.
 | [ADR 0532](https://github.com/timoconnellaus/composable-os/blob/main/docs/adr/0532-the-memberships-dashboard-and-staff-side.md) | The Memberships dashboard, views, the Person page and the members' blocks |
 | [ADR 0647](https://github.com/timoconnellaus/composable-os/blob/main/docs/adr/0647-cooling-off-a-new-member-ends-it-for-a-full-refund-a-person-approves.md) | Cooling off: a new member ends it for a full refund, a person approves each refund |
 | [ADR 0764](https://github.com/timoconnellaus/composable-os/blob/main/docs/adr/0764-appointments-in-the-bookings-pack.md) | Appointments in the Bookings pack, booked by staff |
+| [ADR 0980](https://github.com/timoconnellaus/composable-os/blob/main/docs/adr/0980-general-and-domain-packs.md) | General and domain packs, and the class type in Bookings |
 
 The specification is stage 32's, [32-memberships.md](https://github.com/timoconnellaus/composable-os/blob/main/docs/stages/32-memberships.md).

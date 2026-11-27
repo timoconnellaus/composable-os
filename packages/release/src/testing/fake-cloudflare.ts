@@ -978,12 +978,28 @@ export class FakeCloudflare {
       return ok(namespaces, { page: 1, total_pages: 1 });
     }
     if (path === `${a}/workflows` && method === "GET") {
-      return ok(
-        [...this.workflows.keys()].map((name) => ({ id: name, name })),
-        { page: 1, total_pages: 1 },
-      );
+      // Paged as the real API documents it: `total_count`, and no `total_pages`.
+      const page = Number(url.searchParams.get("page") ?? 1);
+      const perPage = Number(url.searchParams.get("per_page") ?? 50);
+      const all = [...this.workflows.keys()].map((name) => ({ id: name, name }));
+      return ok(all.slice((page - 1) * perPage, page * perPage), {
+        page,
+        per_page: perPage,
+        total_count: all.length,
+      });
     }
     m = new RegExp(`^${a}/workflows/([^/]+)$`).exec(path);
+    if (m && method === "PUT") {
+      const workflow = decodeURIComponent(m[1] as string);
+      const scriptName = String(b.script_name ?? "");
+      const className = String(b.class_name ?? "");
+      if (!scriptName || !className) {
+        return fail(400, 10021, "class_name and script_name are required");
+      }
+      if (!this.scripts.has(scriptName)) return fail(404, 10007, `script ${scriptName} not found`);
+      this.workflows.set(workflow, { className, script: scriptName });
+      return ok({ id: workflow, name: workflow });
+    }
     if (m && method === "DELETE") {
       if (!this.workflows.delete(decodeURIComponent(m[1] as string))) {
         return fail(404, 10200, "workflow not found");
@@ -1059,6 +1075,8 @@ export class FakeCloudflare {
     if (rest === "" && method === "PUT") {
       if (!form) return fail(400, 10021, "expected multipart");
       const { metadata, modules, sources } = await this.readUpload(form);
+      const missing = this.missingReference(store, name, metadata);
+      if (missing) return missing;
       const migrations = metadata.migrations as { old_tag?: string; new_tag?: string } | undefined;
       if (migrations) {
         if ((migrations.old_tag ?? undefined) !== script?.migrationTag) {
@@ -1124,6 +1142,8 @@ export class FakeCloudflare {
       const { metadata, modules, sources } = await this.readUpload(form);
       if (metadata.migrations)
         return fail(400, 10211, "migrations are not supported with versions");
+      const missing = this.missingReference(store, name, metadata);
+      if (missing) return missing;
       this.registerWorkflows(name, metadata);
       this.applySecrets(script, metadata);
       const id = this.id("ver");
@@ -1177,11 +1197,49 @@ export class FakeCloudflare {
       .map((s) => s.name);
   }
 
+  /**
+   * As the real API refuses an upload or a version whose binding names what does not exist: a
+   * service binding to a missing Worker answers 400, code 10143 (seen on Cloudflare, 2026-11-27:
+   * "Service binding 'X' references Worker 'Y' which was not found."). A Worker binding itself is
+   * allowed (it exists once this upload does).
+   */
+  private missingReference(
+    store: Map<string, FakeScript>,
+    name: string,
+    metadata: Record<string, unknown>,
+  ): Response | null {
+    const bindings = (metadata.bindings ?? []) as {
+      type: string;
+      name: string;
+      service?: string;
+      script_name?: string;
+    }[];
+    const exists = (worker: string) =>
+      worker === name || store.has(worker) || this.scripts.has(worker);
+    for (const b of bindings) {
+      // A D1 binding to a database the account does not have: 10181, as a deploy error quoted in
+      // workers-sdk issue #17195 shows it.
+      const database = (b as { id?: string; database_id?: string }).database_id;
+      if (b.type === "d1" && database && !this.d1.has(database)) {
+        return fail(400, 10181, `D1 binding "${b.name}" references a database that was not found`);
+      }
+      if (b.type === "service" && b.service && !exists(b.service)) {
+        return fail(
+          400,
+          10143,
+          `Service binding '${b.name}' references Worker '${b.service}' which was not found. Verify the Worker exists in your account and that the service name is correct.`,
+        );
+      }
+    }
+    return null;
+  }
+
   private needsMigration(metadata: Record<string, unknown>) {
     const bindings = (metadata.bindings ?? []) as { type: string; script_name?: string }[];
     return bindings.some((b) => b.type === "durable_object_namespace" && !b.script_name);
   }
 
+  /** Checks a Workflow binding's names are resolved. It creates nothing (see below). */
   private registerWorkflows(script: string, metadata: Record<string, unknown>) {
     const bindings = (metadata.bindings ?? []) as {
       type: string;
@@ -1194,9 +1252,9 @@ export class FakeCloudflare {
       if (b.workflow_name.startsWith("$") || b.script_name?.startsWith("$")) {
         throw new Error(`unresolved placeholder in workflow binding ${b.workflow_name}`);
       }
-      if (!b.script_name || b.script_name === script) {
-        this.workflows.set(b.workflow_name, { className: String(b.class_name), script });
-      }
+      // As the real API: uploading the Worker does not create the Workflow; a separate
+      // `PUT /workflows/{name}` does (workers-sdk's triggersDeploy, the Workflows API reference).
+      void script;
     }
   }
 

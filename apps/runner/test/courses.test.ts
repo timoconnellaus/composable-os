@@ -38,22 +38,25 @@ import { createAdmin, db, host, newCustomer, refusal, run } from "./helpers.ts";
 import { packFiles } from "./pack-files.ts";
 
 const files = {
+  bookings: packFiles("bookings"),
   programs: packFiles("programs"),
   content: packFiles("content"),
   courses: packFiles("courses"),
 };
 
-/** The extension host of a deployment whose product lists Programs, Content and Courses. */
+/** The extension host of a deployment whose product lists Programs, Content and Courses, with
+ * Bookings, which Programs requires (stage 78). */
 const shippedHost: ExtensionHost = {
   ...host,
   shipped: async () => [
-    ...(await host.shipped()),
+    ...(await host.shipped()).filter((s) => !(s.id in files)),
+    { id: "bookings", version: "0.1.0" },
     { id: "content", version: "0.1.0" },
     { id: "courses", version: "0.1.0" },
     { id: "programs", version: "0.1.0" },
   ],
   commitShipped: (id) =>
-    id === "programs" || id === "content" || id === "courses"
+    id === "bookings" || id === "programs" || id === "content" || id === "courses"
       ? host.commit({
           id,
           files: files[id],
@@ -230,6 +233,8 @@ beforeAll(async () => {
     run("extension.install", { id: "courses", shipped: true }, staff(admin)),
   );
   expect(JSON.stringify(early)).toContain("requires the programs extension");
+  // Programs requires Bookings (stage 78, ADR 0980), whose class types it assigns to.
+  await run("extension.install", { id: "bookings", shipped: true }, staff(admin));
   await run("extension.install", { id: "programs", shipped: true }, staff(admin));
   // And Content, whose rich text blocks draw a text lesson: without it, refused again.
   const second = await refusal(

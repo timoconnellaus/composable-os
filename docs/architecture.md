@@ -1492,7 +1492,7 @@ Staff and the host are not bound. `states.requests` names moves a caller asks fo
 time, `late_cancelled` after); `resolveStateRequest` is the dry run a tool shows first, through
 the tool-only operation `state.resolve`. Since step 3 ([ADR 0505](adr/0505-window-numbers-through-two-relations-and-settings.md))
 a path may pass through two relations, every field on the way the declaring extension's (a field
-it adds to another pack's object counts: Bookings' rules on Programs' class type), a number may
+it adds to another pack's object counts, as Leads' fields on `deals.deal`), a number may
 be `{ field, setting }` (the field, else the extension's setting), read in the write; and
 `staffOnly` may list several booleans, a boolean formula among them.
 `states.create.in` lists states a record may be created in, with who may (a booking created
@@ -2379,7 +2379,7 @@ with source `import` (never orders), finding each student by email, and progress
 `sourceId`. A student's own progress is reported as a conflict and kept.
 
 `cos programs import <folder>` (stage 41, ADR 0448 amended, `src/programs-import/`) is the door
-for a gym's exercise bank, class types, programs in the Programs pack's shorthand (read by the
+for a gym's exercise bank, class types (Bookings' `bookings.classtype` since stage 78, ADR 0980), programs in the Programs pack's shorthand (read by the
 pack's own `readProgramText`) and past training: sessions done before, with no assignment, and
 their sets, both `source: import`. Every batch is dry-run, then written in order, each naming the
 records the ones before made by id. Whatever the door writes starts no automation and sends no
@@ -2393,8 +2393,8 @@ the only thing saved. Publishable records' pages carry the publish controls
 
 **Programs** (`packs/programs`, stage 41, steps 1 to 6; [ADR 0448](adr/0448-programs-the-layout-assignments-and-the-log.md)):
 an exercise bank, programs whose layout is one document (weeks, sessions, blocks, items, levels,
-typed sets, notes for coaches or members), versions, class types, assignments to a person or a
-class type that pin a version and make dated sessions carrying their own plans, and a log of every
+typed sets, notes for coaches or members), versions, assignments to a person or to Bookings' class
+type (it requires Bookings: a domain pack on a general one, stage 78, ADR 0980) that pin a version and make dated sessions carrying their own plans, and a log of every
 set against its target, one row per set and person (`unique` on `person` and `setKey`, so a
 retried or doubled save changes the set instead of logging it twice). Its tools compose the host's
 operations: `assign`, `today`, `sessionGet`, `classToday`, `logAdd`, `logUpdate`, `logRemove` (a
@@ -2421,13 +2421,13 @@ waitlist; [ADRs 0504](adr/0504-the-bookings-pack.md) and [0520](adr/0520-a-waitl
 rooms, coaches, series (`recurring`, making classes in local time, the horizon at least the
 longest window a class type opens), classes (places shown exactly, public while scheduled),
 closures, and bookings: a claimant on its class, one live per Person per class, windows on its
-create and its cancels worked out from the class type's own rule (Bookings' fields on Programs'
-`programs.classtype`) or the organisation's setting, a staff-only rule (the class type's, or a
+create and its cancels worked out from the class type's own rule (its own `bookings.classtype`,
+Programs' until stage 78, ADR 0980) or the organisation's setting, a staff-only rule (the class type's, or a
 class not scheduled), the requested `cancel` the host resolves to in time or late, and an
 allowance spender (`paidBy` the Memberships pack's `membership` and `pass`, the class's start as
 its time, its class type and local weekday and minute copied; `waived` for a walk-in paid at the
 desk, [ADR 0506](adr/0506-a-spender-paid-another-way.md); `released: "cancelled_by_us"` for its
-bookings ahead when a membership ends by cooling off, ADR 0647). It requires Programs. Its tools:
+bookings ahead when a membership ends by cooling off, ADR 0647). It requires no other pack. Its tools:
 `timetable`, `classGet` (public), `book` (joins a full class's waitlist unless asked not to),
 `cancel` (with `state.resolve`'s preview), `leaveWaitlist`, `mine` (with a waiter's position)
 (customers), `bookFor`, `cancelFor`, `day`, `classList` (staff). Hooks, web blocks (the timetable,
@@ -2508,7 +2508,7 @@ through `sellable.recurring.grants`), pass types (`memberships.passtype`, sellab
 `memberships.pass` valid for the type's days through `grants.valid`, and an intro offer one per
 Person through `sellable.onePerPerson`). Memberships and passes are allowance holders with every
 term read-only (the host and the pack's own tools write them), spent by stage 31's
-`bookings.booking` by class type (Programs' `programs.classtype`, so it requires Programs) and the
+`bookings.booking` by class type (Bookings' `bookings.classtype`, so it requires Bookings only) and the
 local weekday and minute; only the membership declares `emptyIsUnlimited`. Its tools read the
 plans and pass types (public), start a pass's order (`buy`), give a member their holdings with
 `allowance.get`'s count (`mine`) and staff a Person's (`holdings`), and give or void a pass by hand
@@ -3200,7 +3200,11 @@ calculates a price, checks a capacity or checks a permission, and a native block
 spinner takes no colour from `native-base/theme.ts` or that names a colour of its own (ADR 0424,
 amended 2026-11-24): a dark theme is the theme changed. A block may depend on a block of a pack its
 pack requires (the Courses players on Content's rich text); `cos add` and `cos deploy` read each
-pack's `requires` from the release's `roles.json`.
+pack's `requires` from the release's `roles.json`. Packs are in two tiers (stage 78,
+[ADR 0980](adr/0980-general-and-domain-packs.md)): a **general** pack, which a business of another
+kind would install unchanged, never requires a **domain** pack, which serves one kind (Programs, a
+gym's training, requires Bookings; Bookings requires nothing). Courses still requires Programs
+until its session lesson is optional (stage 78 step 6); the tier is not yet declared or checked.
 
 **Screens in the admin** (stage 47, [ADR 0660](adr/0660-pack-screens-in-the-admin.md)): a shipped
 pack declares its staff screens (`screens` in its manifest: label, web block and export, `nav`,

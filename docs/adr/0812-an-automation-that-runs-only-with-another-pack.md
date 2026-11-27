@@ -78,3 +78,11 @@ step calling one fails and is recorded in the run.
 - **Pausing the automation (`paused_reason`) at install and clearing it on the other's install**:
   every change of any extension's status would have to find and update the automations that wait
   for it, and a person's "enable" would clear the pause while the extension is still missing.
+
+## Note, 2026-11-27 (stage 78, ADR 0980)
+
+ADR [0980](0980-general-and-domain-packs.md) makes "the extra parts exist only when the other pack
+is installed" the rule between packs that work together. `onlyWith` on an automation is the only
+such part today; stage 78 step 5 proposes it for fields, relations, permissions, tools, views and
+document variants, and that installing the other pack re-checks the extensions waiting for it,
+which this ADR says it does not. Until then this ADR stands as written.

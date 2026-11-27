@@ -342,12 +342,12 @@ beforeAll(async () => {
   admin = await createAdmin();
   await setPreset("balanced");
   await refreshSchemaRegistry(db.query);
-  for (const id of ["programs", "bookings", "memberships", "deskrelay"]) {
+  for (const id of ["bookings", "memberships", "deskrelay"]) {
     await run("extension.install", { id, shipped: true }, staff());
   }
   await refreshSchemaRegistry(db.query);
   await run("settings.update", { timezone: ZONE }, staff()).catch(() => undefined);
-  type = await create("programs.classtype", { name: unique("Strength") });
+  type = await create("bookings.classtype", { name: unique("Strength") });
 }, 120_000);
 
 afterAll(() => setPreset("balanced"));
