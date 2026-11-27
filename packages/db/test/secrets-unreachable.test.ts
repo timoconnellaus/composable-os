@@ -51,6 +51,13 @@ const FORBIDDEN: ReadonlyArray<{ what: string; pattern: RegExp }> = [
       /@composable-os\/db\/registry-(?:secrets|sealing)|db\/src\/registry-(?:secrets|sealing)/,
   },
   { what: "the secrets table", pattern: /\bregistry_secrets\b/ },
+  // A client's sender domains are identity too (ADR 0616, "Email sending per client"): only the
+  // operator writes them, and the directory alone reads them into the client's environment.
+  {
+    what: "the sender domains' writes",
+    pattern: /@composable-os\/db\/registry-senders|db\/src\/registry-senders/,
+  },
+  { what: "the sender domains' table", pattern: /\bregistry_sender_domains\b/ },
   { what: "the root key", pattern: /(?<![A-Za-z0-9_])COS_ROOT_KEY(?![A-Za-z0-9_])/ },
   {
     what: "the secrets key",
@@ -114,6 +121,9 @@ describe("no Worker code, operation, tool or pack reaches a client's secrets", (
         "the secrets module":
           'import { readClientSecrets } from "@composable-os/db/registry-secrets";',
         "the secrets table": "SELECT * FROM registry_secrets",
+        "the sender domains' writes":
+          'import { verifySenderDomain } from "@composable-os/db/registry-senders";',
+        "the sender domains' table": "UPDATE registry_sender_domains SET verified = 1",
         "the root key": "env.COS_ROOT_KEY",
         "the secrets key": "env.COS_SECRETS_PRIVATE_KEY_PREVIOUS",
       }[what] as string;

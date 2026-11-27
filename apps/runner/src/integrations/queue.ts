@@ -38,6 +38,7 @@ import {
 } from "@composable-os/core";
 import { createCrmDb } from "@composable-os/db";
 import { runnerJudge } from "../extensions/ai.ts";
+import { clientSenderDomains } from "./senders.ts";
 
 export type QueueCaller =
   | { kind: "actor"; caller: IntegrationCaller; user: ActingUser }
@@ -201,6 +202,19 @@ export class HostQueue extends RpcTarget {
     } catch (error) {
       console.error("failed to count an observation", error);
     }
+  }
+
+  /**
+   * The client's verified sender domains, on a host of many clients (stage 66; ADR 0616, "Email
+   * sending per client"): the email-send gatekeeper allows a send only from one of them. From the
+   * client's own environment (this queue's host is the client's integration host object), never
+   * from anything the caller sent. Throws on a single-client deployment, whose gatekeeper reads
+   * its own ALLOWED_SENDER_DOMAINS (and fails closed if it were ever asked there).
+   */
+  async senderDomains(): Promise<string[]> {
+    const domains = clientSenderDomains(this.#host.env);
+    if (domains === null) throw new Error("Sender domains are a host of many clients' only");
+    return domains;
   }
 
   /**
