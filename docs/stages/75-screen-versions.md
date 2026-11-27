@@ -156,7 +156,25 @@ here (CONTRIBUTING.md, Working in parallel).
   host address fixed into a build (item 6), the blocks (item 10). `build.json` is to become step
   3's manifest (`@composable-os/sdk/screen-version`) once PR #538 has merged
 
-- **Step 3** — not built — The version store
+- **Step 3** — built — PR #538 — The version store: versions
+  (kind `web`), manifests (`@composable-os/sdk/screen-version`), the checks, kept apart per client;
+  `screens.versionBegin`/`versionPut`/`versionSeal`/`versionList`/`versionGet`, the upload route,
+  the retention sweep and the hold step 4 fills; migration 1490, ADR 0961. Left by its review
+  for later steps, not built:
+  - For step 4 (review B2): guard `core_screen_version_hold`. A trigger refuses deleting a hold
+    whose `until` is null or still ahead, and refuses an UPDATE that moves `version_id`, so plain
+    SQL cannot make a published version sweepable.
+  - For step 5 (review B3): the store promises only that a file served is one the manifest names,
+    typed by a host-chosen extension, whose bytes hashed to its name on arrival. It does not
+    check that the bytes match the type. Serving must:
+    - send `X-Content-Type-Options: nosniff` and a CSP;
+    - take the content type from the file's row (the objects are stored as
+      `application/octet-stream`);
+    - serve versions on the client's web hostname only, never the staff or admin origin;
+    - refuse requests carrying `Service-Worker: script` unless the client opts in, and keep a
+      kill-switch or `Clear-Site-Data` answer for a rollback;
+    - decide on `.well-known/*` paths, which the store accepts, and on serving `.map` source maps;
+    - percent-decode the request path once, then match it exactly (no `%` is in a stored path).
 
 - **Step 4** — not built — needs: step 3 — The pointer and `screens.publish`
 

@@ -63,6 +63,7 @@ describe("core registry", () => {
         // Whom a checklist done on its own can be for (checklist.whoChoices, ADR 0651: the
         // grantable permissions among them) is read by whoever writes checklists.
         // Outside practitioners' accounts are listed with practitioners:manage (stage 43, ADR 0581).
+        // Screen versions are read with screens:upload (stage 75 step 3, ADR 0961).
         const readsByName: Record<string, string> = {
           "savedReply.list": "inbox:work",
           "savedReply.fill": "inbox:work",
@@ -73,6 +74,7 @@ describe("core registry", () => {
         } else if (op.risk === "read") {
           expect([
             "practitioners:manage",
+            "screens:upload",
             "accounting:manage",
             "bookingSystem:manage",
             "invoices:payments",

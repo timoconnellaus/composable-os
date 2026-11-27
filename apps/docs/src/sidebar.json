@@ -662,6 +662,30 @@
         ]
       },
       {
+        "label": "Screen versions",
+        "collapsed": true,
+        "items": [
+          {
+            "slug": "capabilities/screen-versions"
+          },
+          {
+            "slug": "capabilities/screen-versions/operations"
+          },
+          {
+            "slug": "capabilities/screen-versions/permissions"
+          },
+          {
+            "slug": "capabilities/screen-versions/behaviours"
+          },
+          {
+            "slug": "capabilities/screen-versions/screens"
+          },
+          {
+            "slug": "capabilities/screen-versions/decisions"
+          }
+        ]
+      },
+      {
         "label": "Today",
         "collapsed": true,
         "items": [

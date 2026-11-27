@@ -55,13 +55,16 @@ export function useOp<N extends CoreOperationName>(
 }
 
 /** The read operations that page by cursor: `cursor` in, `nextCursor` out. */
-type PagedOperationName = {
-  [N in CoreOperationName]: CoreInput<N> extends { cursor?: string | undefined }
-    ? CoreOutput<N> extends { nextCursor: string | null }
+// Filtered by key remapping, one name at a time: indexing a mapped type over every operation name
+// passed TypeScript's instantiation depth once the registry grew (stage 75 step 3).
+type PagedOperationName = keyof {
+  [N in CoreOperationName as CoreOutput<N> extends { nextCursor: string | null }
+    ? CoreInput<N> extends { cursor?: string | undefined }
       ? N
       : never
-    : never;
-}[CoreOperationName];
+    : never]: true;
+} &
+  CoreOperationName;
 
 /** Runs a cursor-paged read as an infinite query, under the same key as `useOp` would use. */
 export function useInfiniteOp<N extends PagedOperationName>(

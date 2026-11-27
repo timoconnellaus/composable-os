@@ -98,6 +98,7 @@ import { roomsOperations } from "./rooms.ts";
 import { routineOperations } from "./routine.ts";
 import { routineMailOperations } from "./routine-mail.ts";
 import { savedReplyOperations } from "./saved-reply.ts";
+import { screenVersionOperations } from "./screen-versions.ts";
 import { screenOperations } from "./screens.ts";
 import { searchOperations } from "./search.ts";
 import { settingsOperations } from "./settings.ts";
@@ -241,6 +242,7 @@ export const coreOperations = [
   ...staffingTimeApproveOperations,
   ...staffingScreenOperations,
   ...screenOperations,
+  ...screenVersionOperations,
   ...todayOperations,
   ...checklistOperations,
   ...checklistDayOperations,

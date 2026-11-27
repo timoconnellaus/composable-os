@@ -188,6 +188,12 @@
 - [Booking system copy: operations](https://docs.composableos.dev/capabilities/outside/operations/)
 - [Booking system copy: permissions](https://docs.composableos.dev/capabilities/outside/permissions/)
 - [Booking system copy: screens](https://docs.composableos.dev/capabilities/outside/screens/)
+- [Screen versions: behaviours](https://docs.composableos.dev/capabilities/screen-versions/behaviours/)
+- [Screen versions: decisions](https://docs.composableos.dev/capabilities/screen-versions/decisions/)
+- [Screen versions](https://docs.composableos.dev/capabilities/screen-versions/): A client's built screens stored in the host as versions that never change once sealed, checked file by file, kept apart per client.
+- [Screen versions: operations](https://docs.composableos.dev/capabilities/screen-versions/operations/)
+- [Screen versions: permissions](https://docs.composableos.dev/capabilities/screen-versions/permissions/)
+- [Screen versions: screens](https://docs.composableos.dev/capabilities/screen-versions/screens/)
 - [Today: behaviours](https://docs.composableos.dev/capabilities/today/behaviours/)
 - [Today: decisions](https://docs.composableos.dev/capabilities/today/decisions/)
 - [Today](https://docs.composableos.dev/capabilities/today/): The day at a glance for one person, in the business's own time zone. The host's numbers (takings, changes waiting, shifts with nobody on them, checklists missed, unread notices) and the numbers installed packs declare, each shown only to someone who could already read it, with the rows behind each.
