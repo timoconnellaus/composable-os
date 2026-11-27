@@ -287,6 +287,65 @@
       "invalidates": []
     },
     {
+      "name": "accounting.approveDay",
+      "description": "Approve one day's entries for the books (a person): while approval is on, each day's entries (its summary, transfers, contacts and documents) wait until a person approves the whole day; then they are sent. Skip an entry first to leave it out. Each day approved for the first time counts towards the days after which entries go on their own; a day nobody approved does not count.",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "day": {
+            "type": "string",
+            "description": "The day the entries belong to, YYYY-MM-DD"
+          }
+        },
+        "required": [
+          "day"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "day": {
+            "type": "string"
+          },
+          "approved": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991,
+            "description": "Entries now queued to send"
+          },
+          "approvedDays": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "approveUntil": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "automatic": {
+            "type": "boolean"
+          }
+        },
+        "required": [
+          "day",
+          "approved",
+          "approvedDays",
+          "approveUntil",
+          "automatic"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "accounting.settings.get"
+      ]
+    },
+    {
       "name": "accounting.map.clear",
       "description": "Forget which books account or tax rate one kind of host money goes to. Entries not yet sent that need it are held until it is mapped again; nothing sent changes. A person only.",
       "risk": "write",
@@ -466,6 +525,102 @@
         "required": [
           "changed",
           "row"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "accounting.settings.get"
+      ]
+    },
+    {
+      "name": "accounting.post.retry",
+      "description": "Try a held entry again, or one waiting to retry, now (a person), once what held it is put right (a contact, an account in the books, a refusal). An entry already in the books whose reference was not found is looked up again, never sent again; any other is looked up by its reference before anything is written, so it is never in the books twice. One waiting in Approvals is decided there. An entry before the start date is never sent.",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "The entry's id"
+          }
+        },
+        "required": [
+          "id"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "queued",
+              "unknown"
+            ]
+          }
+        },
+        "required": [
+          "id",
+          "state"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "accounting.settings.get"
+      ]
+    },
+    {
+      "name": "accounting.post.skip",
+      "description": "Leave one entry out of the books for good (a person), with why: one waiting for approval, queued, held or waiting to retry. Never one being sent, sent, in the books, or whose outcome is not yet known. One waiting in Approvals is turned down there with it. Its money is listed on the log as not in the books; an entry that depends on it is held.",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 64,
+            "description": "The entry's id"
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "maxLength": 500,
+            "description": "Why it is left out"
+          }
+        },
+        "required": [
+          "id",
+          "reason"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string",
+            "const": "skipped"
+          }
+        },
+        "required": [
+          "id",
+          "state"
         ],
         "additionalProperties": false
       },

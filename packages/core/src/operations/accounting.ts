@@ -9,11 +9,17 @@
 //   accounting.map.set          accounting:manage, a person: which books account or tax rate one
 //                               kind of host money goes to
 //   accounting.map.clear        accounting:manage, a person: forget one mapping row
+//   accounting.approveDay       accounting:manage, a person: a day's entries go to the books
+//                               (step 4, ADR 0882); the fourteenth approved day ends approval
+//   accounting.post.retry       accounting:manage, a person: a held entry is tried again
+//   accounting.post.skip        accounting:manage, a person: an entry is never sent, with why
 //
 // Every write is a person's whatever is granted (`actors: ["human"]`): no assistant, MCP client,
 // automation or extension changes where the business's money goes in its books. None is open to
 // customers or the public (ADR 0402), and none writes an order, a payment or a refund.
 
+import type { CoreDatabase } from "@composable-os/db";
+import { CompiledQuery, type Kysely } from "kysely";
 import { z } from "zod";
 import {
   ACCOUNTING_MAP_KINDS,
@@ -28,9 +34,10 @@ import {
   requireBooks,
   requireConnection,
 } from "../accounting/settings.ts";
-import { ConflictError, NotFoundError, ValidationError } from "../errors.ts";
-import { defineOperation } from "../operation.ts";
+import { ConflictError, NotFoundError, type OperationError, ValidationError } from "../errors.ts";
+import { afterCommit, defineOperation, type HandlerContext } from "../operation.ts";
 import { parseLocalDate } from "../time/local.ts";
+import { rejectOnFacets } from "./approval.ts";
 
 const localDate = z
   .string()
@@ -134,6 +141,63 @@ export const accountingSettingsGet = defineOperation({
   },
 });
 
+/**
+ * A change of books (ADR 0882). Nothing already in the old books is posted again to the new ones:
+ * the old books' entries not sent are skipped, with why, by the admin making the change, and the
+ * new books get their own entries from their own start date. Refused while an entry may be on its
+ * way to the old books (being sent, or of unknown outcome), and, on one connection, for other books
+ * once that connection has entries: references are unique per connection.
+ */
+async function changeOfBooks(
+  ctx: import("../operation.ts").HandlerContext,
+  from: string,
+  to: string | null,
+): Promise<void> {
+  const inFlight = await ctx.db
+    .selectFrom("core_accounting_post")
+    .select("id")
+    .where("connection_id", "=", from)
+    .where("state", "in", ["sending", "unknown"])
+    .limit(1)
+    .executeTakeFirst();
+  if (inFlight) {
+    throw new ConflictError(
+      "An entry is on its way to the current books: try again once it is settled (a few minutes)",
+      { rule: "accounting_books_in_flight" },
+    );
+  }
+  if (to === from) {
+    const any = await ctx.db
+      .selectFrom("core_accounting_post")
+      .select("id")
+      .where("connection_id", "=", from)
+      .limit(1)
+      .executeTakeFirst();
+    if (any) {
+      throw new ConflictError(
+        "Entries were made for these books: connect the other books as their own connection",
+        { rule: "accounting_books_same_connection" },
+      );
+    }
+    return;
+  }
+  ctx.write(
+    ctx.db
+      .updateTable("core_accounting_post")
+      .set({
+        state: "skipped",
+        skipped_by: ctx.user.id,
+        skipped_at: ctx.now,
+        skip_reason: "The books were changed: not sent to the old books",
+        next_attempt_at: null,
+        updated_at: ctx.now,
+      })
+      .where("connection_id", "=", from)
+      .where("state", "in", ["awaiting_approval", "queued", "retrying", "held"])
+      .where("applied_at", "is", null),
+  );
+}
+
 export const accountingSettingsUpdate = defineOperation({
   name: "accounting.settings.update",
   description:
@@ -175,6 +239,7 @@ export const accountingSettingsUpdate = defineOperation({
     let resource = before.resource;
     let title: string | null = null;
     let status: string | null = null;
+    let booksChanged = false;
     if (input.books !== undefined) {
       const same =
         input.books?.connectionId === before.connectionId &&
@@ -193,6 +258,10 @@ export const accountingSettingsUpdate = defineOperation({
       } else {
         connectionId = null;
         resource = null;
+      }
+      booksChanged = !same;
+      if (!same && before.connectionId) {
+        await changeOfBooks(ctx, before.connectionId, connectionId);
       }
     } else if (connectionId && resource) {
       const books = await requireBooks(ctx.db, connectionId, resource).catch(() => null);
@@ -248,8 +317,17 @@ export const accountingSettingsUpdate = defineOperation({
     // Only what this call changes is written over the row, so a count the runner or an approval
     // made since it was read (`approved_days`) is kept. The insert, for a first save, is whole.
     const changes = {
-      ...(input.books !== undefined ? { connection_id: connectionId, resource } : {}),
-      ...(input.startDate !== undefined ? { start_date: startDate } : {}),
+      // Other books: the daily pass starts again from their start date (ADR 0882).
+      ...(input.books !== undefined
+        ? { connection_id: connectionId, resource, ...(booksChanged ? { daily_date: null } : {}) }
+        : {}),
+      // A new start: the daily pass starts from it (only before anything was sent, above).
+      ...(input.startDate !== undefined
+        ? {
+            start_date: startDate,
+            ...(input.startDate !== before.startDate ? { daily_date: null } : {}),
+          }
+        : {}),
       // Approval put back on: the count starts again, and the admins are told again when it ends.
       ...(input.restartApproval ? { approved_days: 0, automatic_told_at: null } : {}),
       ...(input.approveUntil !== undefined ? { approve_until: approveUntil } : {}),
@@ -389,6 +467,22 @@ export const accountingMapSet = defineOperation({
         .values({ connection_id: connectionId, kind: input.kind, host_key: hostKey, ...values })
         .onConflict((oc) => oc.columns(["connection_id", "kind", "host_key"]).doUpdateSet(values)),
     );
+    // Entries held for a mapping are tried again: the runner resolves every mapping when it sends,
+    // so one still missing holds it again, with what is still to map.
+    ctx.write(
+      ctx.db
+        .updateTable("core_accounting_post")
+        .set({
+          state: "queued",
+          error_code: null,
+          error_text: null,
+          next_attempt_at: null,
+          updated_at: ctx.now,
+        })
+        .where("connection_id", "=", connectionId)
+        .where("state", "=", "held")
+        .where("error_code", "=", "unmapped"),
+    );
     ctx.recordChange({
       object: "accounting_map",
       id: `${input.kind}:${hostKey}`,
@@ -440,9 +534,335 @@ export const accountingMapClear = defineOperation({
   },
 });
 
+// --- The outbox (stage 61 step 4, ADR 0882) ----------------------------------------------------
+
+export const accountingApproveDay = defineOperation({
+  name: "accounting.approveDay",
+  description:
+    "Approve one day's entries for the books (a person): while approval is on, each day's " +
+    "entries (its summary, transfers, contacts and documents) wait until a person approves the " +
+    "whole day; then they are sent. Skip an entry first to leave it out. Each day approved for " +
+    "the first time counts towards the days after which entries go on their own; a day nobody " +
+    "approved does not count.",
+  input: z.object({ day: localDate.describe("The day the entries belong to, YYYY-MM-DD") }),
+  output: z.object({
+    day: z.string(),
+    approved: z.number().int().describe("Entries now queued to send"),
+    approvedDays: z.number().int(),
+    approveUntil: z.number().int(),
+    automatic: z.boolean(),
+  }),
+  permission: "accounting:manage",
+  risk: "write",
+  actors: ["human"],
+  mcp: { expose: false },
+  async handler(input, ctx) {
+    const settings = await loadAccountingSettings(ctx.db);
+    const connectionId = requireConnection(settings);
+    const waiting = await ctx.db
+      .selectFrom("core_accounting_post")
+      .select(["id", "amount"])
+      .where("connection_id", "=", connectionId)
+      .where("belongs_date", "=", input.day)
+      .where("state", "=", "awaiting_approval")
+      .limit(1000)
+      .execute();
+    if (!waiting.length) {
+      throw new ConflictError("Nothing on that day waits for approval", {
+        rule: "accounting_nothing_to_approve",
+      });
+    }
+    const counted = await ctx.db
+      .selectFrom("core_accounting_post")
+      .select("id")
+      .where("connection_id", "=", connectionId)
+      .where("belongs_date", "=", input.day)
+      .where("approved_at", "is not", null)
+      .limit(1)
+      .executeTakeFirst();
+    // Counted the first time the day is approved, decided in the same batch as the approval, so
+    // two people approving the day at once count it once.
+    ctx.write(
+      ctx.db
+        .updateTable("core_accounting_settings")
+        .set((eb) => ({ approved_days: eb("approved_days", "+", 1) }))
+        .where("id", "=", 1)
+        .where("connection_id", "=", connectionId)
+        .where(({ not, exists, selectFrom }) =>
+          not(
+            exists(
+              selectFrom("core_accounting_post")
+                .select("id")
+                .where("connection_id", "=", connectionId)
+                .where("belongs_date", "=", input.day)
+                .where("approved_at", "is not", null),
+            ),
+          ),
+        ),
+    );
+    ctx.write(
+      ctx.db
+        .updateTable("core_accounting_post")
+        .set({
+          state: "queued",
+          approved_by: ctx.user.id,
+          approved_at: ctx.now,
+          next_attempt_at: null,
+          updated_at: ctx.now,
+        })
+        .where("connection_id", "=", connectionId)
+        .where("belongs_date", "=", input.day)
+        .where("state", "=", "awaiting_approval"),
+    );
+    const approvedDays = settings.approvedDays + (counted ? 0 : 1);
+    ctx.recordChange({
+      object: "accounting_day",
+      id: input.day,
+      action: "update",
+      before: { state: "awaiting_approval", entries: waiting.length },
+      after: {
+        state: "approved",
+        entries: waiting.length,
+        amount: waiting.reduce((sum, p) => sum + p.amount, 0),
+        approvedDays,
+      },
+    });
+    return {
+      day: input.day,
+      approved: waiting.length,
+      approvedDays,
+      approveUntil: settings.approveUntil,
+      automatic: approvedDays >= settings.approveUntil,
+    };
+  },
+});
+
+const postId = z.string().min(1).max(64).describe("The entry's id");
+
+async function loadPost(db: Kysely<CoreDatabase>, id: string) {
+  const post = await db
+    .selectFrom("core_accounting_post")
+    .select([
+      "id",
+      "state",
+      "reference",
+      "amount",
+      "error_code",
+      "belongs_date",
+      "applied_at",
+      "pending_action_id",
+    ])
+    .where("id", "=", id)
+    .executeTakeFirst();
+  if (!post) throw new NotFoundError("accounting entry", id);
+  return post;
+}
+
+/**
+ * Fails the whole batch, its audit row included, when the move it checks did not land: the runner
+ * claimed or settled the entry between the read and the write (an insert over the entry's own id,
+ * which the outbox's insert trigger refuses). So a raced retry or skip never says it happened.
+ */
+function landed(
+  id: string,
+  state: string,
+  now: string,
+  reason: string | null = null,
+): CompiledQuery {
+  return CompiledQuery.raw(
+    `INSERT INTO core_accounting_post (id) SELECT ?1 WHERE NOT EXISTS (
+       SELECT 1 FROM core_accounting_post WHERE id = ?1 AND state = ?2 AND updated_at = ?3
+         AND (?4 IS NULL OR skip_reason = ?4))`,
+    [id, state, now, reason],
+  );
+}
+
+/** What a raced retry or skip answers: the entry moved meanwhile, and nothing was changed. */
+async function moved(error: OperationError, input: { id: string }, ctx: HandlerContext) {
+  if ((error.details as { rule?: unknown } | undefined)?.rule !== "accounting_post_fixed") {
+    return null;
+  }
+  const now = await loadPost(ctx.db, input.id).catch(() => null);
+  return new ConflictError(
+    `The entry moved to ${now?.state ?? "another state"} while you acted: nothing was changed`,
+    { rule: "accounting_post_moved" },
+  );
+}
+
+/** A pending action in Approvals, by id. */
+async function pendingAction(db: Kysely<CoreDatabase>, id: string | null) {
+  if (!id) return null;
+  return (
+    (await db
+      .selectFrom("core_pending_action")
+      .select(["id", "status", "connection_id", "facet_key", "gk_action"])
+      .where("id", "=", id)
+      .executeTakeFirst()) ?? null
+  );
+}
+
+export const accountingPostRetry = defineOperation({
+  name: "accounting.post.retry",
+  description:
+    "Try a held entry again, or one waiting to retry, now (a person), once what held it is put " +
+    "right (a contact, an account in the books, a refusal). An entry already in the books whose " +
+    "reference was not found is looked up again, never sent again; any other is looked up by its " +
+    "reference before anything is written, so it is never in the books twice. One waiting in " +
+    "Approvals is decided there. An entry before the start date is never sent.",
+  input: z.object({ id: postId }),
+  output: z.object({ id: z.string(), state: z.enum(["queued", "unknown"]) }),
+  permission: "accounting:manage",
+  risk: "write",
+  actors: ["human"],
+  mcp: { expose: false },
+  explainFailure: moved,
+  async handler(input, ctx) {
+    const post = await loadPost(ctx.db, input.id);
+    if (post.state !== "held" && post.state !== "retrying") {
+      throw new ConflictError(`Only a held entry is tried again; this one is ${post.state}`, {
+        rule: "accounting_not_held",
+      });
+    }
+    if (post.error_code === "before_start") {
+      // Retryable once the start date is moved earlier than its day (before anything was sent).
+      const { startDate } = await loadAccountingSettings(ctx.db);
+      if (!startDate || post.belongs_date < startDate) {
+        throw new ConflictError("Its day is before the start date: it is never sent", {
+          rule: "accounting_not_held",
+        });
+      }
+    }
+    if (post.error_code === "pending_review") {
+      const action = await pendingAction(ctx.db, post.pending_action_id);
+      if (action?.status === "pending") {
+        throw new ConflictError(
+          "It waits in Approvals: approve or reject it there, and the books' answer is recorded",
+          { rule: "accounting_in_approvals" },
+        );
+      }
+    }
+    // In the books (the host knew it was applied): looked up again, never sent again.
+    const state: "unknown" | "queued" = post.applied_at ? "unknown" : "queued";
+    ctx.write(
+      ctx.db
+        .updateTable("core_accounting_post")
+        .set({
+          state,
+          attempts: post.applied_at ? undefined : 0,
+          lookups: 0,
+          unknowns: 0,
+          next_attempt_at: null,
+          error_code: post.applied_at ? "applied" : null,
+          error_text: post.applied_at ? "A person asked to look it up again" : null,
+          pending_action_id: null,
+          updated_at: ctx.now,
+        })
+        .where("id", "=", post.id)
+        .where("state", "=", post.state),
+      landed(post.id, state, ctx.now),
+    );
+    ctx.recordChange({
+      object: "accounting_post",
+      id: post.id,
+      action: "update",
+      before: { state: post.state, reference: post.reference, error: post.error_code },
+      after: { state, reference: post.reference },
+    });
+    return { id: post.id, state };
+  },
+});
+
+/** The states a person may skip from: never one that may be in the books. */
+const SKIPPABLE = ["awaiting_approval", "queued", "retrying", "held"] as const;
+
+export const accountingPostSkip = defineOperation({
+  name: "accounting.post.skip",
+  description:
+    "Leave one entry out of the books for good (a person), with why: one waiting for approval, " +
+    "queued, held or waiting to retry. Never one being sent, sent, in the books, or whose " +
+    "outcome is not yet known. One waiting in Approvals is turned down there with it. Its money " +
+    "is listed on the log as not in the books; an entry that depends on it is held.",
+  input: z.object({
+    id: postId,
+    reason: z.string().trim().min(1).max(500).describe("Why it is left out"),
+  }),
+  output: z.object({ id: z.string(), state: z.literal("skipped") }),
+  permission: "accounting:manage",
+  risk: "write",
+  actors: ["human"],
+  mcp: { expose: false },
+  explainFailure: moved,
+  async handler(input, ctx) {
+    const post = await loadPost(ctx.db, input.id);
+    if (!(SKIPPABLE as readonly string[]).includes(post.state) || post.applied_at) {
+      throw new ConflictError(
+        post.applied_at
+          ? "This entry is in the books: it is never skipped"
+          : `This entry is ${post.state}: only one not sent and not being sent is skipped`,
+        { rule: "accounting_not_skippable" },
+      );
+    }
+    ctx.write(
+      ctx.db
+        .updateTable("core_accounting_post")
+        .set({
+          state: "skipped",
+          skipped_by: ctx.user.id,
+          skipped_at: ctx.now,
+          skip_reason: input.reason,
+          next_attempt_at: null,
+          updated_at: ctx.now,
+        })
+        .where("id", "=", post.id)
+        .where("state", "=", post.state),
+      landed(post.id, "skipped", ctx.now, input.reason),
+    );
+    // Waiting in Approvals: turned down with it, so nothing approvable is left behind.
+    const action = await pendingAction(ctx.db, post.pending_action_id);
+    const rejecting = action?.status === "pending" ? action : null;
+    if (rejecting) {
+      ctx.write(
+        ctx.db
+          .updateTable("core_pending_action")
+          .set({
+            status: "rejected",
+            status_reason: `Skipped in the accounting outbox by ${ctx.user.name}: ${input.reason}`,
+            decided_by: ctx.user.id,
+            decided_at: ctx.now,
+            decided_via: "tap",
+          })
+          .where("id", "=", rejecting.id)
+          .where("status", "=", "pending"),
+      );
+    }
+    ctx.recordChange({
+      object: "accounting_post",
+      id: post.id,
+      action: "update",
+      before: { state: post.state, reference: post.reference, amount: post.amount },
+      after: {
+        state: "skipped",
+        reference: post.reference,
+        reason: input.reason,
+        ...(rejecting ? { rejectedAction: rejecting.id } : {}),
+      },
+    });
+    const output = { id: post.id, state: "skipped" as const };
+    if (!rejecting) return output;
+    const integrations = ctx.integrations;
+    return afterCommit(async () => {
+      await rejectOnFacets(integrations, [rejecting]);
+      return output;
+    });
+  },
+});
+
 export const accountingOperations = [
   accountingSettingsGet,
   accountingSettingsUpdate,
   accountingMapSet,
   accountingMapClear,
+  accountingApproveDay,
+  accountingPostRetry,
+  accountingPostSkip,
 ] as const;

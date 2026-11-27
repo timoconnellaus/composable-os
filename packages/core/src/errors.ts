@@ -654,8 +654,15 @@ export function toOperationError(error: unknown): OperationError {
   }
   // The accounting outbox (migration 1330): an entry sent to the books, or skipped, never changes
   // and is never deleted; a reference is queued once.
+  if (message.includes("core_accounting_post_applied")) {
+    return new ConflictError(
+      "This entry is in the books: it is only looked up by its reference, never sent again.",
+      { rule: "accounting_post_applied" },
+    );
+  }
   if (
     message.includes("core_accounting_post_fixed") ||
+    message.includes("core_accounting_post_claim") ||
     message.includes("UNIQUE constraint failed: core_accounting_post")
   ) {
     return new ConflictError(

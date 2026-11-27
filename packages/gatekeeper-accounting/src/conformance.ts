@@ -282,6 +282,43 @@ export const CONFORMANCE_CHECKS: readonly ConformanceCheck[] = [
     },
   },
   {
+    name: "finds every write by its reference straight after it is written (read after write)",
+    async run(ctx) {
+      const contact = ctx.reference("contact");
+      const day = ctx.reference("summary");
+      const payout = ctx.reference("payout");
+      const written = [
+        [
+          contact,
+          await sent(
+            ctx.session.upsertContact({ reference: contact, name: "Conformance read" }),
+            "the contact",
+          ),
+        ],
+        [day, await sent(ctx.session.postSummary(summary(ctx, day)), "the summary")],
+        [
+          payout,
+          await sent(
+            ctx.session.postTransfer({
+              reference: payout,
+              currency: ctx.books.baseCurrency,
+              date: ctx.date,
+              text: `Conformance payout ${payout}`,
+              clearingAccount: ctx.clearing.ref,
+              bankAccount: ctx.bank.ref,
+              amount: 1000,
+              lines: [],
+            }),
+            "the transfer",
+          ),
+        ],
+      ] as const;
+      for (const [reference, ref] of written) {
+        same((await ctx.session.findByReference(reference))?.ref, ref, `${reference} at once`);
+      }
+    },
+  },
+  {
     name: "refuses a summary whose lines do not balance",
     async run(ctx) {
       const input = summary(ctx, ctx.reference("summary"));

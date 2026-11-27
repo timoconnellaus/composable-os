@@ -24,6 +24,7 @@ import {
   type RunToolResult,
   releaseWaitingRoutineMessages,
   retryOutbox,
+  runAccountingDue,
   runAckDue,
   runAgreementsDue,
   runChecklistDue,
@@ -581,6 +582,7 @@ export async function minuteTick(env: Env, at: Date) {
       customerSignup: null,
       deferredRuns: null,
       routineMessages: null,
+      accounting: null,
     };
   }
   const schedules = await minuteStep("schedules", () => runAutomationCron(env, at));
@@ -721,6 +723,16 @@ export async function minuteTick(env: Env, at: Date) {
     );
     return { ready: released.ready.length, expired: released.expired, texts };
   });
+  // Accounting (stage 61 step 4, ADR 0882): the outbox's entries go to the books as the host, a
+  // bounded number a minute, each once; from 02:00 in the business's zone the daily pass builds
+  // the settled days. A quiet minute is one indexed read.
+  const accounting = await minuteStep("accounting", () =>
+    runAccountingDue({
+      db: createCrmDb(env.DB).query,
+      integrations: integrationRuntime(env),
+      clock: () => at,
+    }),
+  );
   return {
     paused: false,
     schedules,
@@ -745,6 +757,7 @@ export async function minuteTick(env: Env, at: Date) {
 
     deferredRuns,
     routineMessages,
+    accounting,
   };
 }
 

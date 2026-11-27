@@ -1,6 +1,36 @@
 // @composable-os/core: the operations registry and everything an operation needs. See README.md.
 
 export {
+  type DepRef,
+  type MapRef,
+  postReference,
+  type QueuePostInput,
+  queuePost,
+  queuePostStatement,
+  SENDABLE_KINDS,
+} from "./accounting/outbox.ts";
+export {
+  APPLIED_LOOKUP_MINUTES,
+  accountingDue,
+  accountingRefusal,
+  CALL_DEADLINE_MS,
+  DAILY_HOUR,
+  DAYS_PER_RUN,
+  type DayBuilder,
+  LOOKUPS_PER_RUN,
+  MAX_UNKNOWNS,
+  PAUSE_TRIES,
+  RETRY_MINUTES,
+  RETRY_NOTICE_TRIES,
+  type RunnerDeps,
+  type RunResult,
+  runAccounting,
+  runAccountingDue,
+  SENDS_PER_RUN,
+  STALE_MS,
+  UNCERTAIN_LOOKUP_MINUTES,
+} from "./accounting/runner.ts";
+export {
   ACCOUNTING_MAP_KINDS,
   type AccountingSettings,
   accountingVendors,

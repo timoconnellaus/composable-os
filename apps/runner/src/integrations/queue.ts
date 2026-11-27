@@ -115,6 +115,8 @@ export interface QueueHost {
   facetKey: string;
   resourceTitle: string;
   apply(facetKey: string, action: number, stoppable?: Stoppable): Promise<void>;
+  /** The books' ref an applied accounting write named (ADR 0882), or null. */
+  appliedRef?(facetKey: string, action: number): Promise<string | null>;
   reject(facetKey: string, action: number): Promise<void>;
   /** Keeps a hook controller stub in the host's storage; returns its hook id. */
   stashController(controller: unknown): Promise<string>;
@@ -136,7 +138,13 @@ export class HostQueue extends RpcTarget {
   readonly #caller: QueueCaller;
   readonly tracker = new ObservationTracker();
   readonly pending: PendingApproval[] = [];
-  readonly applied: { action: number; actionKind: string | null; title: string }[] = [];
+  readonly applied: {
+    action: number;
+    actionKind: string | null;
+    title: string;
+    /** For the host's accounting call: the books' ref the write named (ADR 0882). */
+    ref?: string;
+  }[] = [];
   /**
    * Actions that were to apply at once and failed (stage 32b review): the gatekeeper's message
    * says whether nothing changed or the outcome is unknown, for the host's own call to tell.
@@ -552,10 +560,19 @@ export class HostQueue extends RpcTarget {
       }
       try {
         await host.apply(host.facetKey, action, contact?.stoppable);
+        // The host's accounting call records the books' ref at once (ADR 0882); a ref that cannot
+        // be read leaves it to look the reference up.
+        const ref =
+          this.#caller.kind === "system" && this.#caller.purpose === "accounting"
+            ? await (host.appliedRef?.(host.facetKey, action) ?? Promise.resolve(null)).catch(
+                () => null,
+              )
+            : null;
         this.applied.push({
           action,
           actionKind: description.actionKind?.tag ?? null,
           title: description.title,
+          ...(typeof ref === "string" && ref.length > 0 && ref.length <= 255 ? { ref } : {}),
         });
         await auditOutboundApplied(db, submission, { ok: true }, decision.judgeUsage);
       } catch (error) {
@@ -576,9 +593,13 @@ export class HostQueue extends RpcTarget {
             ok: false,
             message: agreements
               ? `Not sent (${outcome.outcome})`
-              : error instanceof Error
-                ? error.message
-                : String(error),
+              : // The books' gatekeeper's words, cut as the outbox keeps them (ADR 0882).
+                (error instanceof Error ? error.message : String(error)).slice(
+                  0,
+                  this.#caller.kind === "system" && this.#caller.purpose === "accounting"
+                    ? 300
+                    : undefined,
+                ),
           },
           decision.judgeUsage,
         );

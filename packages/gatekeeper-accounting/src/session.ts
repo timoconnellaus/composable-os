@@ -353,7 +353,12 @@ export abstract class AccountingGatekeeper<P extends object = object>
    */
   async applyAction(action: number): Promise<void> {
     try {
-      await this.#actions().apply(requireActionId(action));
+      const id = requireActionId(action);
+      this.#lastRef = null;
+      await this.#actions().apply(id);
+      // The books' ref of the record the write names, kept for the host to read straight after
+      // (`appliedRef`, ADR 0882), so it needs no second call to the books to find it.
+      if (this.#lastRef !== null) this.ctx.storage.kv.put(`accounting-ref:${id}`, this.#lastRef);
     } catch (error) {
       const outcome =
         error instanceof ActionApplyError
@@ -365,6 +370,15 @@ export abstract class AccountingGatekeeper<P extends object = object>
         `${applyOutcomeTag(outcome)}${error instanceof Error ? error.message : String(error)}`,
       );
     }
+  }
+
+  /**
+   * The books' ref an applied write named, for the integration host to give the host's own call
+   * (ADR 0882): the ref, or `null` when this facet did not apply it.
+   */
+  async appliedRef(action: number): Promise<string | null> {
+    const id = requireActionId(action);
+    return this.#refs.get(id) ?? this.ctx.storage.kv.get<string>(`accounting-ref:${id}`) ?? null;
   }
 
   /** Drops a rejected write; nothing is sent. */

@@ -6,6 +6,34 @@ sidebar:
 editUrl: false
 ---
 
+## accounting.approveDay
+
+Approve one day's entries for the books (a person): while approval is on, each day's entries (its summary, transfers, contacts and documents) wait until a person approves the whole day; then they are sent. Skip an entry first to leave it out. Each day approved for the first time counts towards the days after which entries go on their own; a day nobody approved does not count.
+
+|  |  |
+| --- | --- |
+| Permission | `accounting:manage` |
+| Risk | `write` |
+| Audiences | `staff` |
+| Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
+
+### Input
+
+| Field | Type | Required | Limits | Description |
+| --- | --- | --- | --- | --- |
+| `day` | string | yes |   | The day the entries belong to, YYYY-MM-DD |
+
+### Output
+
+| Field | Type | Required | Limits | Description |
+| --- | --- | --- | --- | --- |
+| `day` | string | yes |   |   |
+| `approved` | integer | yes | ≥ -9007199254740991, ≤ 9007199254740991 | Entries now queued to send |
+| `approvedDays` | integer | yes | ≥ -9007199254740991, ≤ 9007199254740991 |   |
+| `approveUntil` | integer | yes | ≥ -9007199254740991, ≤ 9007199254740991 |   |
+| `automatic` | boolean | yes |   |   |
+
 ## accounting.map.clear
 
 Forget which books account or tax rate one kind of host money goes to. Entries not yet sent that need it are held until it is mapped again; nothing sent changes. A person only.
@@ -65,6 +93,57 @@ Choose which of the books' accounts (or, for a tax code, which tax rate) one kin
 | `row.booksName` | string | yes |   |   |
 | `row.setBy` | string | yes |   |   |
 | `row.setAt` | string | yes |   |   |
+
+## accounting.post.retry
+
+Try a held entry again, or one waiting to retry, now (a person), once what held it is put right (a contact, an account in the books, a refusal). An entry already in the books whose reference was not found is looked up again, never sent again; any other is looked up by its reference before anything is written, so it is never in the books twice. One waiting in Approvals is decided there. An entry before the start date is never sent.
+
+|  |  |
+| --- | --- |
+| Permission | `accounting:manage` |
+| Risk | `write` |
+| Audiences | `staff` |
+| Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
+
+### Input
+
+| Field | Type | Required | Limits | Description |
+| --- | --- | --- | --- | --- |
+| `id` | string | yes | min length 1, max length 64 | The entry's id |
+
+### Output
+
+| Field | Type | Required | Limits | Description |
+| --- | --- | --- | --- | --- |
+| `id` | string | yes |   |   |
+| `state` | `"queued"`, `"unknown"` | yes |   |   |
+
+## accounting.post.skip
+
+Leave one entry out of the books for good (a person), with why: one waiting for approval, queued, held or waiting to retry. Never one being sent, sent, in the books, or whose outcome is not yet known. One waiting in Approvals is turned down there with it. Its money is listed on the log as not in the books; an entry that depends on it is held.
+
+|  |  |
+| --- | --- |
+| Permission | `accounting:manage` |
+| Risk | `write` |
+| Audiences | `staff` |
+| Actors | `human` |
+| Also | not offered to MCP clients (`mcp.expose: false`) |
+
+### Input
+
+| Field | Type | Required | Limits | Description |
+| --- | --- | --- | --- | --- |
+| `id` | string | yes | min length 1, max length 64 | The entry's id |
+| `reason` | string | yes | min length 1, max length 500 | Why it is left out |
+
+### Output
+
+| Field | Type | Required | Limits | Description |
+| --- | --- | --- | --- | --- |
+| `id` | string | yes |   |   |
+| `state` | `"skipped"` | yes |   |   |
 
 ## accounting.settings.get
 

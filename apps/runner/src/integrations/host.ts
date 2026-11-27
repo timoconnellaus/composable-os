@@ -872,6 +872,7 @@ export class IntegrationHost extends ClientDurableObject(DurableObject<Env>) {
       facetKey: record.key,
       resourceTitle: record.title,
       apply: (facetKey, action, stoppable) => this.applyOutbound(facetKey, action, stoppable),
+      appliedRef: (facetKey, action) => this.#appliedRef(facetKey, action),
       reject: async (facetKey, action) => {
         await this.rejectOutbound(facetKey, action);
       },
@@ -1257,6 +1258,15 @@ export class IntegrationHost extends ClientDurableObject(DurableObject<Env>) {
   }
 
   // --- Outbound -------------------------------------------------------------------------------
+
+  /** The books' ref an accounting facet's applied write named (ADR 0882), or null. */
+  async #appliedRef(facetKey: string, action: number): Promise<string | null> {
+    const { facet } = await this.#facetFor(facetKey);
+    // Only an accounting facet answers it (AccountingGatekeeper.appliedRef); no other has it.
+    const books = facet as unknown as { appliedRef?(action: number): Promise<unknown> };
+    const ref = await books.appliedRef?.(action);
+    return typeof ref === "string" ? ref : null;
+  }
 
   async applyOutbound(facetKey: string, action: number, stoppable?: Stoppable): Promise<void> {
     const { facet, record } = await this.#facetFor(facetKey);

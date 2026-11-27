@@ -254,6 +254,14 @@ export interface AccountingSession {
   findContacts(query: AccountingContactQuery): Promise<AccountingContact[]>;
   /** For documents the host posted; at most 100 refs a call. */
   documentStatus(refs: string[]): Promise<AccountingDocumentStatus[]>;
+  /**
+   * The record the host wrote with `reference`, or `null`. **Read after write**: once a write
+   * has been answered (applied), its reference is found by the very next call, so a gatekeeper
+   * whose system searches an index that lags reads the record by the system's own key or keeps
+   * the reference itself until the search catches up (ADR 0880, as amended 2026-11-26). The host
+   * does not stake a second write on it: a write it knows was applied is never sent again, and an
+   * uncertain one is looked up for 36 minutes before it is (ADR 0882).
+   */
   findByReference(reference: string): Promise<AccountingRecord | null>;
 
   /** Writes (outbound actions, journalled). `accounting.contact`. */

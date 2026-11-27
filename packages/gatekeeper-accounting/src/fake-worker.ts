@@ -116,6 +116,9 @@ const BOOKS_METHODS = [
   "failNext",
   "writesOf",
   "setLockDate",
+  "setUnavailable",
+  "setLookupLag",
+  "hangNext",
   "recordPaymentInBooks",
   "addInvoiceInBooks",
 ] as const;
@@ -129,6 +132,15 @@ export class FakeAccountingBooks extends DurableObject<Env> {
   /** Runs one method on the books, keeping what it changed even when it then throws. */
   async run(method: BooksMethod, args: unknown[]): Promise<unknown> {
     if (!BOOKS_METHODS.includes(method)) throw new TypeError(`Not a books method: ${method}`);
+    const waiting = this.#load();
+    if (waiting.hangNext && (FAKE_WRITE_METHODS as readonly string[]).includes(method)) {
+      // A write that hangs: taken off first, so only this one waits; the books are read again
+      // after it, so what happened meanwhile is kept.
+      const ms = waiting.hangNext;
+      waiting.hangNext = 0;
+      this.ctx.storage.kv.put("state", waiting);
+      await new Promise((resolve) => setTimeout(resolve, ms));
+    }
     const books = new FakeBooks(this.#load(), TITLE);
     const target = books as unknown as Record<BooksMethod, (...a: unknown[]) => unknown>;
     try {
@@ -253,6 +265,21 @@ export class FakeBooksControl extends WorkerEntrypoint<Env> {
 
   async setLockDate(books: string, date: string | null): Promise<void> {
     await booksStub(this.env, books).run("setLockDate", [date]);
+  }
+
+  /** Each reference written from now on is missed by its next `lookups` look-ups. */
+  async setLookupLag(books: string, lookups: number): Promise<void> {
+    await booksStub(this.env, books).run("setLookupLag", [lookups]);
+  }
+
+  /** The next write waits `ms` before it is written (a call that hangs). */
+  async hangNext(books: string, ms: number): Promise<void> {
+    await booksStub(this.env, books).run("hangNext", [ms]);
+  }
+
+  /** The books go down (every call refused `unavailable`), or come back. */
+  async setUnavailable(books: string, on: boolean): Promise<void> {
+    await booksStub(this.env, books).run("setUnavailable", [on]);
   }
 
   async recordPaymentInBooks(books: string, document: string, amount: number, date: string) {

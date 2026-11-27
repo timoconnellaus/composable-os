@@ -3148,8 +3148,22 @@ start date is fixed once an entry to those books may be in them), items (`core_a
 per money event) and contact questions (`core_accounting_match`). `accounting:manage` is a core
 permission, admins by default and grantable, never to a pack role; `accounting.settings.get`
 reads with it, `accounting.map.set` and `.clear` write with it, a person only, and
-`accounting.settings.update` is a human admin's (`settings:manage`). Sending, the host-only
-connection, summaries, documents and the screens are later steps.
+`accounting.settings.update` is a human admin's (`settings:manage`). Step 3 made the connection
+the host's alone (ADR 0881). Step 4 built the outbox's runner (ADR 0882, migration 1332): host code
+queues an entry once by its reference (`accounting/outbox.ts`, `queuePost`), with the mapping's keys
+and its dependency's books ref resolved only when it is sent; the minute cron's `runAccountingDue`
+(`accounting/runner.ts`) reads the books first (an outage touches nothing), claims each entry before
+it calls the books as the host (a 5-minute deadline) and records the outcome onto that claim only,
+never sends again a write it knows was applied (its books ref comes with the applied action), looks
+an uncertain one up for 36 minutes before it is sent again (at most three times, then held), holds
+a refusal with its reason and retries a transient one on a schedule (pausing everything for its
+first two tries only), tells the bookkeepers of holds, dates an entry past the books' lock date,
+never sends one from before the start date, and runs the daily pass from 02:00 in the
+organisation's zone after the sends; at most 25 sends and 25 look-ups a run. References are unique
+per set of books; a change of books skips the old books' unsent entries. A person's details travel
+only in an entry's `detail`, which an erase can clear on a sent entry. A person approves each day (`accounting.approveDay`) until
+fourteen are approved, and retries or skips an entry (`accounting.post.retry`, `.skip`). Summaries,
+documents and the screens are later steps.
 
 Two reasons this is the centre of the design. Extension tools cannot run several writes as one
 transaction, so anything that must be atomic (take the last place and create the order) has to be

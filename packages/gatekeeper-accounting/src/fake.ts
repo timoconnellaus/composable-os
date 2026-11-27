@@ -79,6 +79,14 @@ export type FakeBooksState = {
   /** The next writes' failures, in order, each for one method or for any write. */
   failures: { method: FakeWriteMethod | "any"; failure: FakeFailure }[];
   seq: number;
+  /** The books cannot be reached: every read and write is refused `unavailable` (an outage). */
+  unavailable?: boolean;
+  /** Each reference written from now on is missed by its next `lag` look-ups (a lagging search). */
+  lag?: number;
+  /** The look-ups each lagging reference still misses. */
+  hidden?: Record<string, number>;
+  /** The next write waits this long before it is written (a call that hangs), in milliseconds. */
+  hangNext?: number;
 };
 
 /** The marker the fake's lost answers carry across RPC, so the gatekeeper's side throws it again. */
@@ -170,6 +178,31 @@ export class FakeBooks implements AccountingSystem {
     this.state.books.lockDate = date;
   }
 
+  /** The books go down (every read and write refused `unavailable`, nothing written), or come back. */
+  setUnavailable(on: boolean): void {
+    this.state.unavailable = on;
+  }
+
+  /**
+   * Makes the books' reference search lag: each reference written from now on is missed by its
+   * next `lookups` calls of `findByReference`, then found. 0 stops the lag.
+   */
+  setLookupLag(lookups: number): void {
+    this.state.lag = Math.max(0, Math.floor(lookups));
+  }
+
+  /** The next write waits `ms` before it is written, as a call that hangs (the gatekeeper's DO). */
+  hangNext(ms: number): void {
+    this.state.hangNext = Math.max(0, Math.floor(ms));
+  }
+
+  /** Refuses the call, read or write, while the books are down: nothing is read or written. */
+  #reachable(): void {
+    if (this.state.unavailable) {
+      throw refuse("unavailable", "The fake books cannot be reached (an outage, as asked).");
+    }
+  }
+
   /** The bookkeeper records a payment on a document in the books (a transfer in the bank feed). */
   recordPaymentInBooks(document: string, amount: number, date: string): string {
     const doc = this.#document(document);
@@ -207,18 +240,22 @@ export class FakeBooks implements AccountingSystem {
   // --- Reads. ------------------------------------------------------------------------------------
 
   async describeBooks(): Promise<AccountingBooks> {
+    this.#reachable();
     return structuredClone(this.state.books);
   }
 
   async listAccounts(): Promise<AccountingAccount[]> {
+    this.#reachable();
     return structuredClone(this.state.accounts);
   }
 
   async listTaxRates(): Promise<AccountingTaxRate[]> {
+    this.#reachable();
     return structuredClone(this.state.taxRates);
   }
 
   async findContacts(query: AccountingContactQuery): Promise<AccountingContact[]> {
+    this.#reachable();
     return this.state.contacts
       .filter(
         (c) =>
@@ -232,6 +269,7 @@ export class FakeBooks implements AccountingSystem {
   }
 
   async documentStatus(refs: string[]): Promise<AccountingDocumentStatus[]> {
+    this.#reachable();
     const out: AccountingDocumentStatus[] = [];
     for (const ref of refs) {
       const doc = this.state.records.find(
@@ -260,6 +298,12 @@ export class FakeBooks implements AccountingSystem {
   }
 
   async findByReference(reference: string): Promise<AccountingRecord | null> {
+    this.#reachable();
+    const missed = this.state.hidden?.[reference] ?? 0;
+    if (missed > 0 && this.state.hidden) {
+      this.state.hidden[reference] = missed - 1;
+      return null;
+    }
     const contact = this.state.contacts.find((c) => c.reference === reference);
     if (contact) return { ref: contact.ref, kind: "contact", reference, voided: false };
     const record = this.state.records.find((r) => r.reference === reference);
@@ -366,6 +410,7 @@ export class FakeBooks implements AccountingSystem {
 
   /** Runs one write with the next failure that applies to it, and counts it by reference. */
   #write(method: FakeWriteMethod, reference: string | null, write: () => string): string {
+    this.#reachable();
     const index = this.state.failures.findIndex((f) => f.method === method || f.method === "any");
     const failure = index === -1 ? null : this.state.failures.splice(index, 1)[0]?.failure;
     if (failure && typeof failure === "object") {
@@ -375,7 +420,12 @@ export class FakeBooks implements AccountingSystem {
       throw new ActionOutcomeUnknownError(`${FAKE_UNKNOWN_TAG}The answer to ${method} was lost.`);
     }
     const ref = write();
-    if (reference !== null) this.state.writes[reference] = (this.state.writes[reference] ?? 0) + 1;
+    if (reference !== null) {
+      this.state.writes[reference] = (this.state.writes[reference] ?? 0) + 1;
+      if (this.state.lag) {
+        this.state.hidden = { ...this.state.hidden, [reference]: this.state.lag };
+      }
+    }
     if (failure === "unknown_after_write") {
       throw new ActionOutcomeUnknownError(
         `${FAKE_UNKNOWN_TAG}${method} was written, and then its answer was lost.`,
