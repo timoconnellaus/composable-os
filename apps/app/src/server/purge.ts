@@ -3,6 +3,7 @@
 // trash.purge through the operations pipeline as an automation (SYSTEM_USER, origin `system`),
 // so every round is gated by the approval policy and floor, and audited.
 import {
+  clearStaleGraceSeals,
   compactPendingActions,
   drainAllBlobDeletions,
   errorForLog,
@@ -115,6 +116,12 @@ export async function runScheduledMaintenance(env: PurgeEnv, clock?: () => Date)
   if (idempotencyKeys?.deleted) console.log(`idempotency keys: ${idempotencyKeys.deleted} purged`);
   // Wrong guesses per client address are counted per hour, and kept no longer (ADR 0940).
   await step("wrong guesses", () => purgeWrongGuesses(db, clock?.() ?? new Date()));
+  // A refresh's sealed answer a device never came back for, past its window (ADR 0419, amended
+  // 2026-11-27): useless by then, and kept no longer.
+  const seals = await step("refresh grace seals", () =>
+    clearStaleGraceSeals(db, clock?.() ?? new Date()),
+  );
+  if (seals) console.log(`device sessions: ${seals} stale refresh answer(s) cleared`);
   // A removal of the booking system's copy left unfinished (stage 65, ADR 0926): finished here,
   // within one call's bounds; what is left waits for the next day.
   const outside = await step("booking system removal", () => finishOutsideRemoval(db, now));

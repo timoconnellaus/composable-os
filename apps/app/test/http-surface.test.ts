@@ -403,12 +403,12 @@ describe("native apps: tokens (ADR 0419, criterion 4)", () => {
       .data;
     const second = await auth("refresh", { refreshToken: first.refreshToken });
     expect(second.status).toBe(200);
-    expect((await apiWith("me.get", {}, bearer(second.body.data.accessToken))).status).toBe(200);
-    // The answer was lost: the token just rotated past, sent again at once, gets the same answer
-    // (ADR 0419, amended 2026-11-27), never a second rotation.
+    // The answer was lost: the token just rotated past, sent again before the answer is used,
+    // gets the same answer once (ADR 0419, amended 2026-11-27), never a second rotation.
     const again = await auth("refresh", { refreshToken: first.refreshToken });
     expect(again.status).toBe(200);
     expect(again.body.data).toEqual(second.body.data);
+    expect((await apiWith("me.get", {}, bearer(second.body.data.accessToken))).status).toBe(200);
     const third = await auth("refresh", { refreshToken: second.body.data.refreshToken });
     expect(third.status).toBe(200);
     // Two rotations back is reuse: the session ends.
