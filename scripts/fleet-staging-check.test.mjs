@@ -77,9 +77,14 @@ const ownClass = (className) => ({
 
 /** What an install of the run's fleet makes, and things of another product's beside it. */
 async function seed(cf, api, prefix = PREFIX) {
+  // As the first real run left them: the app binds its fan-out queue to send to it, and consumes
+  // it with a dead-letter queue; the runner consumes its own (run 45966813610).
   cf.scripts.set(
     `${prefix}-app-staging`,
-    script(`${prefix}-app-staging`, [ownClass("ParkingLedger")]),
+    script(`${prefix}-app-staging`, [
+      ownClass("ParkingLedger"),
+      { type: "queue", name: "CLIENT_FANOUT", queue_name: `${prefix}-app-fanout-staging` },
+    ]),
   );
   cf.scripts.set(
     `${prefix}-runner-staging`,
@@ -113,8 +118,20 @@ async function seed(cf, api, prefix = PREFIX) {
   await api.createR2(ACCOUNT, "crm-blobs");
   await api.createKv(ACCOUNT, `${prefix}-oauth-staging`);
   const queue = await api.createQueue(ACCOUNT, `${prefix}-app-fanout-staging`);
-  await api.createQueue(ACCOUNT, "crm-events");
-  await api.putQueueConsumer(ACCOUNT, queue.queue_id, `${prefix}-app-staging`, {});
+  await api.createQueue(ACCOUNT, `${prefix}-app-fanout-staging-dlq`);
+  const runnerQueue = await api.createQueue(ACCOUNT, `${prefix}-routine-delivery-staging`);
+  const crmQueue = await api.createQueue(ACCOUNT, "crm-events");
+  await api.putQueueConsumer(
+    ACCOUNT,
+    queue.queue_id,
+    `${prefix}-app-staging`,
+    {},
+    undefined,
+    `${prefix}-app-fanout-staging-dlq`,
+  );
+  await api.putQueueConsumer(ACCOUNT, runnerQueue.queue_id, `${prefix}-runner-staging`, {});
+  // Another product's consumer: never removed.
+  await api.putQueueConsumer(ACCOUNT, crmQueue.queue_id, "crm-app", {});
   cf.workflows.set(`${prefix}-automation-staging`, {
     className: "AutomationWorkflow",
     script: `${prefix}-runner-staging`,
@@ -211,6 +228,8 @@ test("the inventory lists every kind the run made, its Durable Object namespaces
     "durable_object cosstg-123-gatekeeper-email-send-staging_EmailSendGatekeeper",
     "kv cosstg-123-oauth-staging",
     "queue cosstg-123-app-fanout-staging",
+    "queue cosstg-123-app-fanout-staging-dlq",
+    "queue cosstg-123-routine-delivery-staging",
     "r2 cosstg-123-blobs-staging",
     "r2 cosstg-123-exports-staging",
     "worker cosstg-123-app-staging",
@@ -232,13 +251,23 @@ test("teardown deletes all of it (buckets emptied first, namespaces with their W
   assert.deepEqual(result.unlisted, []);
   // The namespaces are not deleted on their own: they went with their Workers.
   assert.ok(!result.deleted.some((d) => d.kind === "durable_object"));
-  assert.equal(result.deleted.length, 13);
-  // In order: the domain before its Worker, the Workers before what they bound.
-  assert.equal(result.deleted[0].kind, "domain");
+  // The run's queues' consumers first (with the dead-letter link), never another's.
+  assert.deepEqual(
+    result.deleted.filter((d) => d.kind === "consumer").map((d) => d.name),
+    [
+      `${PREFIX}-app-fanout-staging ← ${PREFIX}-app-staging`,
+      `${PREFIX}-routine-delivery-staging ← ${PREFIX}-runner-staging`,
+    ],
+  );
+  assert.equal(result.deleted.filter((d) => d.kind !== "consumer").length, 15);
+  // In order: the consumers, the domain before its Worker, the Workers before what they bound.
+  assert.equal(result.deleted[0].kind, "consumer");
+  assert.equal(result.deleted[2].kind, "domain");
   assert.ok(
-    result.deleted.findIndex((d) => d.kind === "worker") <
+    result.deleted.findLastIndex((d) => d.kind === "worker") <
       result.deleted.findIndex((d) => d.kind === "queue"),
   );
+  assert.equal([...cf.queues.values()].find((q) => q.name === "crm-events").consumers.length, 1);
   assert.equal(result.deleted.find((d) => d.name === `${PREFIX}-exports-staging`).objects, 3);
   assert.deepEqual(others(cf), before);
   assert.ok(![...cf.r2Objects.keys()].some((k) => k.startsWith(PREFIX)));
@@ -250,6 +279,132 @@ test("teardown deletes all of it (buckets emptied first, namespaces with their W
   const again = await teardown(api, ACCOUNT, PREFIX);
   assert.deepEqual(again.deleted, []);
   assert.deepEqual(again.remaining, []);
+});
+
+test("mode remove cleans up what run 45966813610 left, from the prefix listing alone (no ledger)", async () => {
+  const { cf, api } = world();
+  const prefix = prefixOf("45966813610");
+  // What that run left: the app and the runner (each consuming queues, binding them to send,
+  // with dead-letter queues), their Durable Object namespaces, twelve queues; beside another
+  // product's queue and Worker.
+  const queue = async (name) => (await api.createQueue(ACCOUNT, name)).queue_id;
+  const bindings = { app: [], runner: [] };
+  for (const [worker, names] of [
+    ["app", ["app-fanout-staging", "app-parking-staging"]],
+    ["runner", ["runner-fanout-staging", "runner-parking-staging"]],
+  ]) {
+    for (const name of names) {
+      const id = await queue(`${prefix}-${name}`);
+      await queue(`${prefix}-${name}-dlq`);
+      await api.putQueueConsumer(
+        ACCOUNT,
+        id,
+        `${prefix}-${worker}-staging`,
+        {},
+        undefined,
+        `${prefix}-${name}-dlq`,
+      );
+      bindings[worker].push({
+        type: "queue",
+        name: name.toUpperCase(),
+        queue_name: `${prefix}-${name}`,
+      });
+    }
+  }
+  for (const name of ["automation-events", "routine-delivery"]) {
+    const id = await queue(`${prefix}-${name}-staging`);
+    await queue(`${prefix}-${name}-dlq-staging`);
+    await api.putQueueConsumer(
+      ACCOUNT,
+      id,
+      `${prefix}-runner-staging`,
+      {},
+      undefined,
+      `${prefix}-${name}-dlq-staging`,
+    );
+    bindings.app.push({
+      type: "queue",
+      name: name.toUpperCase(),
+      queue_name: `${prefix}-${name}-staging`,
+    });
+  }
+  cf.scripts.set(
+    `${prefix}-app-staging`,
+    script(`${prefix}-app-staging`, [
+      ownClass("AgentJob"),
+      ownClass("ParkingLedger"),
+      ...bindings.app,
+    ]),
+  );
+  cf.scripts.set(
+    `${prefix}-runner-staging`,
+    script(`${prefix}-runner-staging`, [ownClass("ParkingLedger"), ...bindings.runner]),
+  );
+  cf.scripts.set(
+    "crm-app",
+    script("crm-app", [{ type: "queue", name: "EVENTS", queue_name: "crm-events" }]),
+  );
+  await api.putQueueConsumer(ACCOUNT, await queue("crm-events"), "crm-app", {});
+  const before = (await inventory(api, ACCOUNT, prefix)).items;
+  assert.equal(before.filter((i) => i.kind === "queue").length, 12);
+  assert.equal(before.filter((i) => i.kind === "worker").length, 2);
+  let report = "";
+  const code = await teardownCommand(prefix, {
+    api,
+    accountId: ACCOUNT,
+    dir: null,
+    secrets: [TOKEN, ACCOUNT],
+    log: () => {},
+    writeSummary: (t) => {
+      report += t;
+    },
+  });
+  assert.equal(code, 0, report);
+  assert.match(report, /Nothing with the prefix cosstg-45966813610 is left in the account\./);
+  assert.deepEqual((await inventory(api, ACCOUNT, prefix)).items, []);
+  // Another product's Worker, queue and consumer are as they were.
+  assert.ok(cf.scripts.has("crm-app"));
+  assert.equal([...cf.queues.values()].find((q) => q.name === "crm-events").consumers.length, 1);
+});
+
+test("a delete answered 404 is gone only if the listing after agrees", async () => {
+  for (const reallyGone of [true, false]) {
+    const { cf, api } = world();
+    await seed(cf, api);
+    const domain = cf.domains.find((d) => d.hostname.startsWith(`alpha-admin.${PREFIX}.`));
+    cf.failOn = (method, path) => {
+      if (method !== "DELETE" || !path.endsWith(`/workers/domains/${domain.id}`)) return undefined;
+      // As the first real run's callback domain: "Origin … not found".
+      if (reallyGone) cf.domains.splice(cf.domains.indexOf(domain), 1);
+      return refuse(100114, `Origin '${domain.id}' not found.`, 404);
+    };
+    let report = "";
+    const code = await teardownCommand(PREFIX, {
+      api,
+      accountId: ACCOUNT,
+      dir: null,
+      secrets: [TOKEN, ACCOUNT],
+      log: () => {},
+      writeSummary: (t) => {
+        report += t;
+      },
+    });
+    if (reallyGone) {
+      assert.equal(code, 0, report);
+      assert.match(
+        report,
+        /Gone before its delete \(not found, and not listed after\): domain `alpha-admin\.cosstg-123\.fleet\.example`/,
+      );
+    } else {
+      assert.equal(code, 1, report);
+      // Not found, yet still listed: left, never counted as gone.
+      assert.ok(!/Gone before its delete/.test(report), report);
+      assert.match(
+        report,
+        /Still there with the prefix \(1\):\*\* domain `alpha-admin\.cosstg-123\.fleet\.example`/,
+      );
+    }
+  }
 });
 
 test("a namespace that outlives its Worker's deletion is what is left, and the command fails", async () => {
