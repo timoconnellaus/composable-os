@@ -193,3 +193,13 @@ Bookings gains `service` and `appointment`: one-to-one sessions booked by staff,
 that occupies its room and spends a pass or membership that pays for sessions, with a late cancel
 and a no-show kept until a person excuses them. See
 [ADR 0764](0764-appointments-in-the-bookings-pack.md).
+
+## Amended 2026-11-27 (stage 78, ADR 0980): the class type is Bookings' own
+
+"Class types are Programs'" no longer holds. The class type is **`bookings.classtype`**, Bookings'
+own object (name, order, colour and the rules Bookings used to add to Programs' class type, now
+its own fields), and **Bookings requires nothing**: `requires: ["programs"]` is gone. The series,
+class and booking relate to `bookings.classtype`; `recurring.horizonAtLeast` names the local
+`classtype`; the tools, the waitlist's cut-off and the dashboards read Bookings' own object
+(`rec_x_bookings_classtype`). Programs requires Bookings instead (a domain pack on a general one,
+ADR [0980](0980-general-and-domain-packs.md)). No host held class types, so there is no migration.

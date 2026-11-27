@@ -159,11 +159,11 @@ beforeAll(async () => {
   admin = await createAdmin();
   await setPreset("balanced");
   await refreshSchemaRegistry(db.query);
-  for (const id of ["programs", "bookings", "memberships"]) {
+  for (const id of ["bookings", "memberships"]) {
     await run("extension.install", { id, shipped: true }, staff());
   }
   await refreshSchemaRegistry(db.query);
-  classType = await create("programs.classtype", { name: unique("Strength") });
+  classType = await create("bookings.classtype", { name: unique("Strength") });
 });
 
 describe("one claim across classes and appointments (criterion 1, 2)", () => {

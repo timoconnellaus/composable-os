@@ -282,7 +282,7 @@ beforeAll(async () => {
   admin = await createAdmin();
   await setPreset("balanced");
   await refreshSchemaRegistry(db.query);
-  for (const id of ["programs", "bookings", "memberships"]) {
+  for (const id of ["bookings", "memberships"]) {
     await run("extension.install", { id, shipped: true }, staff());
   }
   await refreshSchemaRegistry(db.query);
@@ -330,7 +330,7 @@ beforeAll(async () => {
   // The general settings, which others may change, say something else: texts never read them.
   await setting("org_name", "Example Fitness Company");
   await setting("org_timezone", ZONE);
-  type = await create("programs.classtype", { name: unique("Strength") });
+  type = await create("bookings.classtype", { name: unique("Strength") });
 }, 120_000);
 
 afterAll(async () => {

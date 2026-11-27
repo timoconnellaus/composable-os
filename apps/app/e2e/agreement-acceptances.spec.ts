@@ -289,11 +289,11 @@ test("staff with the health permission read a health yes; a coach sees only the 
 
   // A coach (an account with the coach role) on a class the member is booked on: the mark, and
   // nothing of the form.
-  for (const id of ["programs", "bookings"]) {
+  for (const id of ["bookings"]) {
     await op(page.request, "extension.install", { id, shipped: true }, false);
   }
   const classType = await op<{ id: string }>(page.request, "record.create", {
-    object: "programs.classtype",
+    object: "bookings.classtype",
     values: { name: unique("Strength ") },
   });
   // A class already running, and always today in UTC (the class's zone): one starting in 30

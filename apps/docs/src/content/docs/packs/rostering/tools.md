@@ -665,7 +665,7 @@ Say whether a member of staff may do a kind of work (a class type, a duty): qual
 | --- | --- | --- | --- | --- |
 | `account` | string | yes | min length 1, max length 64 |   |
 | `kind` | object | yes |   |   |
-| `kind.object` | string | yes | min length 1, max length 81 | programs.classtype or rostering.duty |
+| `kind.object` | string | yes | min length 1, max length 81 | bookings.classtype or rostering.duty |
 | `kind.id` | string | yes | min length 1, max length 64 |   |
 | `qualified` | boolean |   | default `true` |   |
 

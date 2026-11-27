@@ -1307,8 +1307,8 @@ export async function deploy(flags: Flags, deps: Deps): Promise<number> {
   const { bundle } = await verified(source, product.platform.version, scoped);
   const manifest = bundle.manifest;
   const inRelease = kitPacks(bundle.clientFiles);
-  // A listed pack brings the packs it requires (Courses: Programs and Content): the host installs
-  // them too, as the pack cannot install without them.
+  // A listed pack brings the packs it requires (Courses: Programs, Bookings and Content): the host
+  // installs them too, as the pack cannot install without them.
   const brought = requiredPacks(bundle.clientFiles, product.packs);
   const missing = [...product.packs, ...brought].filter((pack) => !inRelease.has(pack));
   if (missing.length) {
@@ -1564,8 +1564,8 @@ export function kitPacks(kit: ClientKit): Set<string> {
 
 /**
  * The packs a product's packs require and it does not list, from the release's roles.json (each
- * pack's `requires`, ADR 0478), followed to the end: Courses brings Programs and Content. A kit
- * older than the list brings none.
+ * pack's `requires`, ADR 0478), followed to the end: Courses brings Programs, Bookings (which
+ * Programs requires) and Content. A kit older than the list brings none.
  */
 export function requiredPacks(kit: ClientKit, packs: readonly string[]): string[] {
   const file = kit.get(`${KIT.contract}roles.json`);

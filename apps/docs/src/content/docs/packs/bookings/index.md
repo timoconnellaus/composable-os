@@ -25,14 +25,17 @@ personal training session), booked by staff for a client with one of its coaches
 that covers sessions or at the desk. A coach is never booked into a session over a class, a duty
 or another session, and a private room is never taken twice.
 
-It requires the [Programs](/packs/programs/) pack, whose class types it uses, and spends the uses
-that [Memberships](/packs/memberships/) holds.
+It requires no other pack: its class types are its own. It spends the uses that
+[Memberships](/packs/memberships/) holds, when that pack is installed. The Programs pack, a gym's
+training, requires Bookings and assigns its class programs to Bookings' class types.
 
 ## Concepts
 
-- **Class type**: Programs' kind of class (`programs.classtype`). Bookings adds its rules to it:
-  how many days ahead it opens, when booking closes, when a cancel is late, whether only staff
-  book it, and a drop-in price.
+- **Class type** (`bookings.classtype`): a kind of class (Strength, Yoga, Kids), with its name,
+  order and colour, and its own rules when they differ from the organisation's: how many days
+  ahead it opens, when booking closes, when a cancel is late, when the waitlist stops, when the
+  reminder goes, whether only staff book it, a drop-in price, and the set-up and pack-down
+  minutes counted in its coach's pay.
 - **Series** (`bookings.series`): a class type on chosen weekdays at a local time, with its coach,
   room and places. The host makes its classes ahead of time.
 - **Class** (`bookings.class`): one dated class, made by a series or by hand. It has places, a

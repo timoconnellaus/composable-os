@@ -625,25 +625,25 @@ const handstandLogged: LoggedOut[] = [
 export const classTypes: Out<"my.list"> = {
   items: [
     {
-      object: "programs.classtype",
+      object: "bookings.classtype",
       id: "ct_handstands",
       title: "Handstands",
       values: { name: "Handstands", order: 1 },
     },
     {
-      object: "programs.classtype",
+      object: "bookings.classtype",
       id: "ct_mobility",
       title: "Mobility",
       values: { name: "Mobility", order: 2 },
     },
     {
-      object: "programs.classtype",
+      object: "bookings.classtype",
       id: "ct_rings",
       title: "Strength and Rings",
       values: { name: "Strength and Rings", order: 3 },
     },
     {
-      object: "programs.classtype",
+      object: "bookings.classtype",
       id: "ct_open",
       title: "Open Gym",
       values: { name: "Open Gym", order: 4 },
@@ -865,7 +865,7 @@ const pastSets: Out<"my.list"> = {
 /** A list read of sessions or sets, as a member (`my.list`) or a coach (`record.list`) makes it. */
 export function listRead(input: In<"my.list">): Out<"my.list"> {
   if (input.object === "programs.log") return pastSets;
-  if (input.object === "programs.classtype") return classTypes;
+  if (input.object === "bookings.classtype") return classTypes;
   if (input.object === "programs.exercise") return bankPage(input);
   if (input.object === "programs.program") return programList;
   if (input.object === "programs.session") {

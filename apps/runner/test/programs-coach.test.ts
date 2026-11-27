@@ -617,8 +617,10 @@ describe("the coach role (ADR 0889)", () => {
   });
 
   it("a team and a limit are a shipped pack's, and their mistakes are named", async () => {
+    // Programs relates to Bookings' class type, which it requires (stage 78, ADR 0980).
+    const BOOKINGS = { knownObjects: ["bookings.classtype"] };
     const manifest = toManifest(programsPack);
-    expect(validateManifest(manifest).issues).toEqual([]);
+    expect(validateManifest(manifest, BOOKINGS).issues).toEqual([]);
     const broken = structuredClone(manifest);
     const assignment = broken.objects.assignment as { team?: Record<string, unknown> };
     assignment.team = { person: "classType", staff: ["assignedByName"], live: ["gone"] };
@@ -626,7 +628,9 @@ describe("the coach role (ADR 0889)", () => {
       "programs.session": "classType",
       "bookings.class": "person",
     };
-    const messages = validateManifest(broken).issues.map((i) => `${i.path}: ${i.message}`);
+    const messages = validateManifest(broken, BOOKINGS).issues.map(
+      (i) => `${i.path}: ${i.message}`,
+    );
     expect(messages).toEqual(
       expect.arrayContaining([
         expect.stringMatching(/^objects\.assignment\.team\.person: .*relation field .* to person/),
@@ -640,12 +644,14 @@ describe("the coach role (ADR 0889)", () => {
     const coachField = (loose.objects.assignment as { fields: Record<string, unknown> }).fields
       .coach as { personApproves?: boolean };
     delete coachField.personApproves;
-    expect(validateManifest(loose).issues.map((i) => `${i.path}: ${i.message}`)).toEqual([
+    expect(validateManifest(loose, BOOKINGS).issues.map((i) => `${i.path}: ${i.message}`)).toEqual([
       expect.stringMatching(/^objects\.assignment\.team\.staff\.0: .*a person approves/),
     ]);
     const noTeam = structuredClone(manifest);
     delete (noTeam.objects.assignment as { team?: unknown }).team;
-    expect(validateManifest(noTeam).issues.map((i) => i.path)).toContain("roles.coach.looksAfter");
+    expect(validateManifest(noTeam, BOOKINGS).issues.map((i) => i.path)).toContain(
+      "roles.coach.looksAfter",
+    );
     // Code written in the app cannot say who looks after whom.
     const runtime = await checkManifest(
       db.query,

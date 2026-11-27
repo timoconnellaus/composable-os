@@ -84,7 +84,7 @@ WHERE ${IN_PERIOD}`,
       sql: `SELECT t.id AS type_id, coalesce(t.name, 'No class type') AS type,
   sum(CASE WHEN b.state = 'attended' THEN 1 ELSE 0 END) AS came,
   sum(CASE WHEN ${HELD} THEN 1 ELSE 0 END) AS booked
-${BOOKINGS.replace("WHERE", "LEFT JOIN rec_x_programs_classtype t ON t.id = c.class_type WHERE")}
+${BOOKINGS.replace("WHERE", "LEFT JOIN rec_x_bookings_classtype t ON t.id = c.class_type WHERE")}
 GROUP BY t.id, t.name ORDER BY came DESC, type LIMIT 20`,
       mapping: { x: "type", y: ["came", "booked"] },
       layout: { w: 6, h: 2 },
@@ -131,7 +131,7 @@ ${BOOKINGS} GROUP BY month ORDER BY month`,
         "Bookings that joined a waiting list, and how many were moved in from it, per class type.",
       sql: `SELECT coalesce(t.name, 'No class type') AS type, count(*) AS joined,
   sum(CASE WHEN b.promoted_at IS NOT NULL THEN 1 ELSE 0 END) AS got_in
-${BOOKINGS.replace("WHERE", "LEFT JOIN rec_x_programs_classtype t ON t.id = c.class_type WHERE")} AND ${WAITED}
+${BOOKINGS.replace("WHERE", "LEFT JOIN rec_x_bookings_classtype t ON t.id = c.class_type WHERE")} AND ${WAITED}
 GROUP BY t.id, t.name ORDER BY joined DESC, type LIMIT 20`,
       mapping: { columns: ["type", "joined", "got_in"] },
       layout: { w: 6, h: 2 },

@@ -327,7 +327,7 @@ beforeAll(async () => {
   admin = await createAdmin();
   await setPreset("balanced");
   await refreshSchemaRegistry(db.query);
-  for (const id of ["programs", "bookings", "memberships"]) {
+  for (const id of ["bookings", "memberships"]) {
     await run("extension.install", { id, shipped: true }, staff());
   }
   await refreshSchemaRegistry(db.query);
@@ -370,7 +370,7 @@ beforeAll(async () => {
     { extension: "bookings", values: { bookingsUrl: `${SITE}/bookings` } },
     staff(),
   );
-  type = await create("programs.classtype", { name: unique("Strength") });
+  type = await create("bookings.classtype", { name: unique("Strength") });
 }, 120_000);
 
 describe("which number is textable (ADR 0673)", { timeout: 60_000 }, () => {

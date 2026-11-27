@@ -77,7 +77,7 @@ export default defineExtension({
 `;
 
 async function setUp(page: Page) {
-  for (const id of ["programs", "bookings"]) {
+  for (const id of ["bookings"]) {
     await op(page.request, "extension.install", { id, shipped: true }, false);
   }
   await op(page.request, "extension.install", {
@@ -95,7 +95,7 @@ async function oneOff(
 ) {
   const name = unique("Strength ");
   const classType = await op<{ id: string }>(page.request, "record.create", {
-    object: "programs.classtype",
+    object: "bookings.classtype",
     values: { name, ...typeValues },
   });
   const startsAt = new Date(Date.now() + startsIn).toISOString();
@@ -235,7 +235,7 @@ test("a member books a class from the timetable and cancels it in time", async (
 test("staff book a walk-in into a class only staff book, paid at the desk", async ({ page }) => {
   test.setTimeout(120_000);
   await setUp(page);
-  const klass = await oneOff(page, 2 * HOUR, { "bookings.staffOnly": true });
+  const klass = await oneOff(page, 2 * HOUR, { staffOnly: true });
   await openScreen(page, "Bookings", "Front desk");
   // The day the class is on, where this browser is: the desk shows its own zone's days.
   const zone = await page.evaluate(() => Intl.DateTimeFormat().resolvedOptions().timeZone);
@@ -676,7 +676,7 @@ test("a visitor pays for a class on the website and is booked", async ({
     id: payments,
     url: "payments://merchant/fake",
   });
-  const klass = await oneOff(page, 5 * HOUR, { "bookings.dropInPrice": 22 });
+  const klass = await oneOff(page, 5 * HOUR, { dropInPrice: 22 });
   // A visitor: no account, no cookies.
   const visitor = await browser.newContext({ baseURL, storageState: { cookies: [], origins: [] } });
   const visitorPage = await visitor.newPage();

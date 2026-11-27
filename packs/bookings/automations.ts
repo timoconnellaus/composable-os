@@ -23,7 +23,7 @@ import {
 
 const CLASS = "bookings.class";
 const BOOKING = "bookings.booking";
-const CLASS_TYPE = "programs.classtype";
+const CLASS_TYPE = "bookings.classtype";
 
 /**
  * The email-send connection the host sends from: a person binds it to each automation, which is
@@ -248,7 +248,7 @@ async function cutOff(ctx: ExtensionContext, cls: ClassFacts): Promise<number | 
     const type = await ctx.ops
       .call<RecordShape>("record.get", { object: CLASS_TYPE, id: cls.classType })
       .catch(() => null);
-    const own = type?.values["bookings.promotionMinutes"] ?? type?.values.promotionMinutes;
+    const own = type?.values.promotionMinutes;
     if (typeof own === "number") minutes = own;
   }
   if (minutes === null) {

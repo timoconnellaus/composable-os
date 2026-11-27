@@ -167,7 +167,7 @@ export function useRoutineMail() {
     admin = await createAdmin();
     await setPreset("balanced");
     await refreshSchemaRegistry(db.query);
-    for (const id of ["programs", "bookings", "memberships"]) {
+    for (const id of ["bookings", "memberships"]) {
       await run("extension.install", { id, shipped: true }, staff());
     }
     await refreshSchemaRegistry(db.query);
@@ -201,7 +201,7 @@ export function useRoutineMail() {
       { extension: "bookings", values: { bookingsUrl: `${SITE}/bookings` } },
       staff(),
     );
-    classType = await create("programs.classtype", { name: unique("Strength") });
+    classType = await create("bookings.classtype", { name: unique("Strength") });
   }, 120_000);
 
   afterAll(async () => {
