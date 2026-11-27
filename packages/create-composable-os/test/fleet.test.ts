@@ -1018,6 +1018,12 @@ describe("hostnames on Cloudflare, two clients (stage 66 step 8)", () => {
     expect(await hostnameCommand(edged(), "verify", "gym-a", "www.gym-a.example")).toBe(1);
     expect(cf.routes).toEqual([]);
     expect((await readRegistry(registry)).addresses.get(id("gym-a"))?.web).toBeNull();
+    // The domain names gym-a, but Cloudflare has not proved it (no CNAME yet): nothing changes.
+    txtRecords.set("_cos-client.www.gym-a.example", ["cos-client=gym-a"]);
+    expect(await hostnameCommand(edged(), "verify", "gym-a", "www.gym-a.example")).toBe(1);
+    expect(out.lines.join("\n")).toContain("Cloudflare has not proved it");
+    expect(cf.routes).toEqual([]);
+    txtRecords.clear();
     // Cloudflare proved it (its CNAME), but the domain does not say it is gym-a's: nothing changes.
     cf.activateCustomHostname("www.gym-a.example");
     expect(await hostnameCommand(edged(), "verify", "gym-a", "www.gym-a.example")).toBe(1);
