@@ -90233,6 +90233,735 @@
       "invalidates": []
     },
     {
+      "name": "screens.versionBegin",
+      "description": "Begin storing a new version of the client's screens (a build made outside the host, by its repository's CI or a person's machine). Returns the open version's id, when it is swept unless sealed (24 hours), the limits of a version, and which of the files' hashes you name the client already holds, so those are not sent again. Then send each other file to the upload route (screens.versionPut) and seal it with its manifest (screens.versionSeal). Changes nothing anyone sees: a version is published only by screens.publish.",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "sha256": {
+            "default": [],
+            "description": "The hashes of the build's files, to learn which the client already holds",
+            "maxItems": 1000,
+            "type": "array",
+            "items": {
+              "type": "string",
+              "pattern": "^[0-9a-f]{64}$"
+            }
+          }
+        }
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "expiresAt": {
+            "type": "string"
+          },
+          "limits": {
+            "type": "object",
+            "properties": {
+              "maxFiles": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "maxFileBytes": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "maxTotalBytes": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "maxPathLength": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "maxPathDepth": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              "maxManifestBytes": {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              }
+            },
+            "required": [
+              "maxFiles",
+              "maxFileBytes",
+              "maxTotalBytes",
+              "maxPathLength",
+              "maxPathDepth",
+              "maxManifestBytes"
+            ],
+            "additionalProperties": false
+          },
+          "held": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "The hashes given that the client holds: do not send them"
+          }
+        },
+        "required": [
+          "id",
+          "expiresAt",
+          "limits",
+          "held"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "screens.mine",
+        "screens.versionGet",
+        "screens.versionList"
+      ]
+    },
+    {
+      "name": "screens.versionGet",
+      "description": "One screen version: what screens.versionList says of it, and for a sealed version its manifest and its files (each path, SHA-256, size and the content type the host serves it with); for an open one, the files it has been sent so far. Read-only.",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "version": {
+            "type": "string",
+            "pattern": "^scv_[0-9A-HJKMNP-TV-Z]{26}$",
+            "description": "The version's id (scv_…)"
+          }
+        },
+        "required": [
+          "version"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "open",
+              "sealed"
+            ]
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "createdBy": {
+            "type": "string",
+            "description": "The staff user who began it"
+          },
+          "expiresAt": {
+            "description": "Open: when it is swept unless sealed",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "sealedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "sealedBy": {
+            "description": "The staff user who sealed it",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "entry": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "contract": {
+            "description": "The API contract version it was built against",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "buildTool": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "fileCount": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "totalBytes": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "manifestSha256": {
+            "description": "The SHA-256 of its canonical manifest",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "manifest": {
+            "anyOf": [
+              {},
+              {
+                "type": "null"
+              }
+            ],
+            "description": "The canonical manifest, once sealed"
+          },
+          "files": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "path": {
+                  "type": "string"
+                },
+                "sha256": {
+                  "type": "string"
+                },
+                "size": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                },
+                "contentType": {
+                  "type": "string"
+                }
+              },
+              "required": [
+                "path",
+                "sha256",
+                "size",
+                "contentType"
+              ],
+              "additionalProperties": false
+            }
+          },
+          "received": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "sha256": {
+                  "type": "string"
+                },
+                "size": {
+                  "type": "integer",
+                  "minimum": -9007199254740991,
+                  "maximum": 9007199254740991
+                }
+              },
+              "required": [
+                "sha256",
+                "size"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "id",
+          "state",
+          "createdAt",
+          "createdBy",
+          "expiresAt",
+          "sealedAt",
+          "sealedBy",
+          "entry",
+          "contract",
+          "buildTool",
+          "fileCount",
+          "totalBytes",
+          "manifestSha256",
+          "manifest",
+          "files",
+          "received"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
+      "name": "screens.versionList",
+      "description": "The client's screen versions, newest first: each one's state (open while its files are uploaded, sealed once it is checked and fixed), who began and sealed it, its entry, the API contract version it was built against, its file count and size, and its manifest's hash. Read-only. The last ten sealed versions are always kept, and any version held.",
+      "risk": "read",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "query",
+      "input": {
+        "type": "object",
+        "properties": {
+          "state": {
+            "description": "Only versions in this state",
+            "type": "string",
+            "enum": [
+              "open",
+              "sealed"
+            ]
+          },
+          "limit": {
+            "default": 50,
+            "type": "integer",
+            "minimum": 1,
+            "maximum": 100
+          }
+        }
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "versions": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "id": {
+                  "type": "string"
+                },
+                "state": {
+                  "type": "string",
+                  "enum": [
+                    "open",
+                    "sealed"
+                  ]
+                },
+                "createdAt": {
+                  "type": "string"
+                },
+                "createdBy": {
+                  "type": "string",
+                  "description": "The staff user who began it"
+                },
+                "expiresAt": {
+                  "description": "Open: when it is swept unless sealed",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "sealedAt": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "sealedBy": {
+                  "description": "The staff user who sealed it",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "entry": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "contract": {
+                  "description": "The API contract version it was built against",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "buildTool": {
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                },
+                "fileCount": {
+                  "anyOf": [
+                    {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "totalBytes": {
+                  "anyOf": [
+                    {
+                      "type": "integer",
+                      "minimum": -9007199254740991,
+                      "maximum": 9007199254740991
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ]
+                },
+                "manifestSha256": {
+                  "description": "The SHA-256 of its canonical manifest",
+                  "type": [
+                    "string",
+                    "null"
+                  ]
+                }
+              },
+              "required": [
+                "id",
+                "state",
+                "createdAt",
+                "createdBy",
+                "expiresAt",
+                "sealedAt",
+                "sealedBy",
+                "entry",
+                "contract",
+                "buildTool",
+                "fileCount",
+                "totalBytes",
+                "manifestSha256"
+              ],
+              "additionalProperties": false
+            }
+          }
+        },
+        "required": [
+          "versions"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": []
+    },
+    {
+      "name": "screens.versionPut",
+      "description": "Store one file of an open screen version, named by the SHA-256 of its bytes (lowercase hex). The file comes from the upload route, never this input; it is hashed on arrival and refused unless it is that hash, or past a version's limits (a file at most 25 MB, a version at most 1000 files and 50 MB). A file the client holds already is not stored again. Putting the same file twice is harmless.",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "version": {
+            "type": "string",
+            "pattern": "^scv_[0-9A-HJKMNP-TV-Z]{26}$",
+            "description": "The version's id (scv_…)"
+          },
+          "sha256": {
+            "type": "string",
+            "pattern": "^[0-9a-f]{64}$",
+            "description": "The file's SHA-256"
+          }
+        },
+        "required": [
+          "version",
+          "sha256"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "sha256": {
+            "type": "string"
+          },
+          "size": {
+            "type": "integer",
+            "minimum": -9007199254740991,
+            "maximum": 9007199254740991
+          },
+          "stored": {
+            "type": "boolean",
+            "description": "False when the client held this file already"
+          }
+        },
+        "required": [
+          "sha256",
+          "size",
+          "stored"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "screens.mine",
+        "screens.versionGet",
+        "screens.versionList"
+      ]
+    },
+    {
+      "name": "screens.versionSeal",
+      "description": "Seal an open screen version with its manifest: the files (each path, SHA-256 and size), the entry (an .html file among them), the API contract version it was built against (v1) and what built it from what (a tool, and a repository, commit or ref; never a person's name). The host checks every path (relative, no . or .. part, no two differing only in case, an extension it serves), the limits, the entry, and that every file named is one the client holds at that size. Sealed, the version is exactly its manifest's files and never changes; a file it was sent that the manifest does not name is no part of it. Sealing publishes nothing (screens.publish does).",
+      "risk": "write",
+      "audiences": [
+        "staff"
+      ],
+      "kind": "mutation",
+      "input": {
+        "type": "object",
+        "properties": {
+          "version": {
+            "type": "string",
+            "pattern": "^scv_[0-9A-HJKMNP-TV-Z]{26}$",
+            "description": "The version's id (scv_…)"
+          },
+          "manifest": {
+            "type": "object",
+            "properties": {
+              "format": {
+                "type": "string",
+                "const": "cos-screens/1"
+              },
+              "entry": {
+                "type": "string",
+                "maxLength": 200
+              },
+              "contract": {
+                "type": "string",
+                "pattern": "^v[1-9][0-9]{0,3}$"
+              },
+              "files": {
+                "minItems": 1,
+                "maxItems": 1000,
+                "type": "array",
+                "items": {
+                  "type": "object",
+                  "properties": {
+                    "path": {
+                      "type": "string",
+                      "maxLength": 200
+                    },
+                    "sha256": {
+                      "type": "string",
+                      "pattern": "^[0-9a-f]{64}$"
+                    },
+                    "size": {
+                      "type": "integer",
+                      "minimum": 0,
+                      "maximum": 26214400
+                    }
+                  },
+                  "required": [
+                    "path",
+                    "sha256",
+                    "size"
+                  ],
+                  "additionalProperties": false
+                }
+              },
+              "build": {
+                "type": "object",
+                "properties": {
+                  "tool": {
+                    "type": "string",
+                    "minLength": 1,
+                    "maxLength": 100
+                  },
+                  "from": {
+                    "type": "object",
+                    "properties": {
+                      "repository": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 300
+                      },
+                      "commit": {
+                        "type": "string",
+                        "pattern": "^[0-9a-f]{7,64}$"
+                      },
+                      "ref": {
+                        "type": "string",
+                        "minLength": 1,
+                        "maxLength": 200
+                      }
+                    },
+                    "additionalProperties": false
+                  }
+                },
+                "required": [
+                  "tool"
+                ],
+                "additionalProperties": false
+              }
+            },
+            "required": [
+              "format",
+              "entry",
+              "contract",
+              "files",
+              "build"
+            ],
+            "additionalProperties": false,
+            "description": "The manifest the build wrote"
+          }
+        },
+        "required": [
+          "version",
+          "manifest"
+        ]
+      },
+      "output": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string"
+          },
+          "state": {
+            "type": "string",
+            "enum": [
+              "open",
+              "sealed"
+            ]
+          },
+          "createdAt": {
+            "type": "string"
+          },
+          "createdBy": {
+            "type": "string",
+            "description": "The staff user who began it"
+          },
+          "expiresAt": {
+            "description": "Open: when it is swept unless sealed",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "sealedAt": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "sealedBy": {
+            "description": "The staff user who sealed it",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "entry": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "contract": {
+            "description": "The API contract version it was built against",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "buildTool": {
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "fileCount": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "totalBytes": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "minimum": -9007199254740991,
+                "maximum": 9007199254740991
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "manifestSha256": {
+            "description": "The SHA-256 of its canonical manifest",
+            "type": [
+              "string",
+              "null"
+            ]
+          },
+          "unused": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            },
+            "description": "Hashes the version was sent that the manifest does not name: not part of it"
+          }
+        },
+        "required": [
+          "id",
+          "state",
+          "createdAt",
+          "createdBy",
+          "expiresAt",
+          "sealedAt",
+          "sealedBy",
+          "entry",
+          "contract",
+          "buildTool",
+          "fileCount",
+          "totalBytes",
+          "manifestSha256",
+          "unused"
+        ],
+        "additionalProperties": false
+      },
+      "invalidates": [
+        "screens.mine",
+        "screens.versionGet",
+        "screens.versionList"
+      ]
+    },
+    {
       "name": "search.global",
       "description": "Search everything by name, email, domain or text: people (names, emails), organisations (name, domains), activities (subject, body) and tasks (title, notes). Every word must match the start of a word in the record, so partial input works ('ada lov', 'acme.co'). Best matches first, titles weighted over body text. Restrict with objects. Returns typed hits with title, subtitle and highlighted parts. Read-only.",
       "risk": "read",

@@ -9,6 +9,7 @@
     "./formula": "./src/formula/index.ts",
     "./questions": "./src/questions.ts",
     "./rich-text": "./src/rich-text.ts",
+    "./screen-version": "./src/screen-version.ts",
     "./testing": "./src/testing.ts"
   },
   "scripts": {

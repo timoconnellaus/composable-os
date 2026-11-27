@@ -17,8 +17,10 @@ import { provideStaffCodes } from "@composable-os/auth";
 import {
   coreInvoker,
   handleMedia,
+  handleScreenVersions,
   isApiPath,
   isMediaPath,
+  isScreenVersionsPath,
   type RoutineDeliveryMessage,
 } from "@composable-os/core";
 import { isCallbackHostname, isCallbackRequest } from "@composable-os/db/callbacks";
@@ -147,6 +149,17 @@ export function dispatch(
       uploads: true,
       // `cos content import` (ADR 0470): a person's staff device token, beside the surface.
       tokenUploads: true,
+    });
+  }
+  // A screen version's files (stage 75 step 3, ADR 0961): a person's staff device token only,
+  // beside the surface, as `cos content import`'s uploads are. The client-app binding never
+  // mounts it.
+  if (isScreenVersionsPath(pathname)) {
+    const api = env as unknown as ApiEnv & MediaEnv;
+    return handleScreenVersions(request, {
+      invoker: coreInvoker,
+      context: (req) => apiContext(req, api),
+      media: mediaStoreFor(api),
     });
   }
   // A staff member's private calendar feed (stage 45 step 5, ADR 0628): a calendar app polls

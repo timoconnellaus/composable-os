@@ -1074,6 +1074,61 @@ export interface CoreWrongGuessTable {
   locked_until: string | null;
 }
 
+/** Files of a client's screen versions, by hash (migration 1490, ADR 0961): stored once each. */
+export interface CoreScreenBlobTable {
+  sha256: string;
+  size: number;
+  /** Where its bytes are in the files binding: `screens/<sha256>/<the version that stored it>`. */
+  object_key: string;
+  stored_at: string;
+  last_put_at: string;
+}
+
+/** A screen version, open while its files are put, then sealed and never changed (migration 1490). */
+export interface CoreScreenVersionTable {
+  id: string;
+  state: "open" | "sealed";
+  created_at: string;
+  created_by: string;
+  expires_at: string | null;
+  sealed_at: string | null;
+  sealed_by: string | null;
+  /** The canonical manifest (`canonicalScreenVersionManifest`, `@composable-os/sdk`). */
+  manifest: string | null;
+  manifest_sha256: string | null;
+  entry: string | null;
+  contract: string | null;
+  build_tool: string | null;
+  file_count: number | null;
+  total_bytes: number | null;
+}
+
+/** A sealed screen version's files: exactly its manifest's (migration 1490). */
+export interface CoreScreenVersionFileTable {
+  version_id: string;
+  path: string;
+  sha256: string;
+  size: number;
+  /** Decided by the host from the path's extension, never taken from the upload. */
+  content_type: string;
+}
+
+/** The files an open screen version has been sent (migration 1490). */
+export interface CoreScreenVersionUploadTable {
+  version_id: string;
+  sha256: string;
+  size: number;
+  received_at: string;
+}
+
+/** A sealed screen version kept whatever its age: published, or published lately (migration 1490). */
+export interface CoreScreenVersionHoldTable {
+  version_id: string;
+  reason: string;
+  until: string | null;
+  created_at: string;
+}
+
 export interface CoreIdempotencyClaimTable {
   scope: string;
   idempotency_key: string;
@@ -4695,6 +4750,11 @@ export interface CoreDatabase {
   core_idempotency_key: CoreIdempotencyKeyTable;
   core_idempotency_claim: CoreIdempotencyClaimTable;
   core_wrong_guess: CoreWrongGuessTable;
+  core_screen_blob: CoreScreenBlobTable;
+  core_screen_version: CoreScreenVersionTable;
+  core_screen_version_file: CoreScreenVersionFileTable;
+  core_screen_version_upload: CoreScreenVersionUploadTable;
+  core_screen_version_hold: CoreScreenVersionHoldTable;
   core_device_session: CoreDeviceSessionTable;
   core_user_invite: CoreUserInviteTable;
   core_native_handoff: CoreNativeHandoffTable;

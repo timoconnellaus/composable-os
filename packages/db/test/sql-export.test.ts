@@ -74,10 +74,21 @@ lines', X'00', X'0102', NULL),
   "INSERT INTO x_proof_fts (rowid, body) VALUES (5, 'kangaroo wallaby'), (9, 'quokka')",
 ];
 
+// A sealed screen version (stage 75 step 3, migration 1490), made as the host makes one: open,
+// its files, then sealed. Its triggers must hold again once the import has made them.
+const SHA = "a".repeat(64);
+const SCREEN_VERSION = [
+  `INSERT INTO core_screen_blob VALUES ('${SHA}', 12, 'screens/${SHA}/scv_export', '2026-11-27', '2026-11-27')`,
+  "INSERT INTO core_screen_version (id, state, created_at, created_by, expires_at) VALUES ('scv_export', 'open', '2026-11-27', 'usr_x', '2026-11-28')",
+  `INSERT INTO core_screen_version_file VALUES ('scv_export', 'index.html', '${SHA}', 12, 'text/html; charset=utf-8')`,
+  `UPDATE core_screen_version SET state = 'sealed', expires_at = NULL, sealed_at = '2026-11-27', sealed_by = 'usr_x', manifest = '{}', manifest_sha256 = '${SHA}', entry = 'index.html', contract = 'v1', build_tool = 'test', file_count = 1, total_bytes = 12 WHERE id = 'scv_export'`,
+];
+
 async function makeSource(db: D1Database) {
   await applyMigrations(db, bindings.TEST_MIGRATIONS);
   await seedDatabase(db, { people: 60, organisations: 10, activities: 20, tasks: 10 });
   await db.batch(["PRAGMA defer_foreign_keys = ON", ...FIXTURE].map((sql) => db.prepare(sql)));
+  await db.batch(SCREEN_VERSION.map((sql) => db.prepare(sql)));
   // Many small rows, with gaps in their rowids.
   const rows = Array.from({ length: 1500 }, (_, i) =>
     db.prepare("INSERT INTO x_proof_plain (v) VALUES (?)").bind(`row ${i} ${"·".repeat(40)}`),
@@ -151,6 +162,12 @@ describe("export and import as SQL", () => {
     const fromClient = await collect(client, holdOf("imported"));
     await importDatabase(bindings.DB2, fromClient, options);
     expect(await contents(bindings.DB2)).toEqual(source);
+
+    // A client's screen versions go with it (stage 75 step 3), and stay fixed where they land.
+    expect(source.tables.core_screen_version?.length).toBe(1);
+    await expect(
+      bindings.DB2.prepare("UPDATE core_screen_version SET entry = 'x' WHERE id = 'scv_export'").run(),
+    ).rejects.toThrow(/core_screen_version_sealed/);
 
     // Nothing of the import is left behind, and no trigger fired while the rows went in.
     const leftovers = await bindings.DB2.prepare(

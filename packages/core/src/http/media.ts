@@ -164,9 +164,9 @@ async function tokenUpload(
  * gave them. A cookie is not taken, so no page on another site can post here; the context the host
  * builds from such a token is a human's, and anything else is refused before the body is read.
  */
-async function staffTokenContext(
+export async function staffTokenContext(
   request: Request,
-  options: MediaRouteOptions,
+  options: Pick<MediaRouteOptions, "context">,
 ): Promise<AnyInvocationContext> {
   if (!/^Bearer\s+cos_at_\S+$/i.test(request.headers.get("authorization") ?? "")) {
     throw new ForbiddenError("Upload with a staff device token: sign in with cos first", {
@@ -247,7 +247,7 @@ async function captionUpload(
 }
 
 /** The body, refused once it passes `max` bytes, whatever the header said. */
-async function readCapped(request: Request, max: number): Promise<Uint8Array> {
+export async function readCapped(request: Request, max: number): Promise<Uint8Array> {
   if (!request.body) return new Uint8Array();
   const reader = request.body.getReader();
   const parts: Uint8Array[] = [];

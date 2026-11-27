@@ -178,6 +178,8 @@ export const ID_PREFIXES = {
   outsideList: "osl",
   /** A place the business works from (stage 64, ADR 0910). */
   location: "loc",
+  /** A version of a client's screens: built outside the host, sealed, never changed (stage 75, ADR 0961). */
+  screenVersion: "scv",
 } as const;
 
 export type IdKind = keyof typeof ID_PREFIXES;

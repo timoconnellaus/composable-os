@@ -207,6 +207,7 @@ export const PERMISSIONS = [
   "finance:close",
   "bookingSystem:manage",
   "practitioners:manage",
+  "screens:upload",
 ] as const;
 export type Permission = (typeof PERMISSIONS)[number];
 
@@ -270,6 +271,7 @@ export const GRANTABLE_PERMISSIONS = [
   "finance:close",
   "bookingSystem:manage",
   "practitioners:manage",
+  "screens:upload",
 ] as const;
 
 /**

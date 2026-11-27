@@ -25,6 +25,7 @@ import {
   runAuditPurge,
   runOrderNotices,
   runTrashPurge,
+  sweepScreenVersions,
 } from "@composable-os/core";
 import { createCrmDb } from "@composable-os/db";
 import { blobStoreFor, integrationRuntimeFor } from "./integrations.ts";
@@ -36,6 +37,8 @@ export interface PurgeEnv {
   RUNNER?: Fetcher;
   /** Expired approvals wake the automation runs waiting on them (ADR 0130). */
   AUTOMATION_EVENTS?: Queue;
+  /** The files binding: screen version files the sweep finds no row for are deleted from it. */
+  BLOBS?: R2Bucket;
 }
 
 export async function runScheduledPurge(env: PurgeEnv, clock?: () => Date) {
@@ -123,6 +126,16 @@ export async function runScheduledMaintenance(env: PurgeEnv, clock?: () => Date)
       `booking system: ${outside.rows} row(s) of a removed list deleted${outside.remaining ? ", more due" : ""}`,
     );
   }
+  // Screen versions (stage 75 step 3, ADR 0961): uploads never sealed, sealed versions past the
+  // retention rule (all but the ten newest, unless held), and the files no version names.
+  const screens = await step("screen versions", () =>
+    sweepScreenVersions(db, clock?.() ?? new Date(), blobStoreFor(env)),
+  );
+  if (screens && (screens.openRemoved || screens.sealedRemoved || screens.filesQueued)) {
+    console.log(
+      `screen versions: ${screens.openRemoved} unsealed and ${screens.sealedRemoved} old version(s) removed, ${screens.filesQueued} file(s) queued for deletion`,
+    );
+  }
   // Erase requests past their due date: admins are told once a day until staff close them.
   const eraseRequests = await step("overdue erase requests", () =>
     notifyOverdueEraseRequests(db, clock?.() ?? new Date()),
@@ -153,6 +166,7 @@ export async function runScheduledMaintenance(env: PurgeEnv, clock?: () => Date)
     agreements,
     idempotencyKeys,
     outside,
+    screens,
   };
 }
 
