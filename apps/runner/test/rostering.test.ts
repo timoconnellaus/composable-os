@@ -277,12 +277,12 @@ beforeAll(async () => {
   admin = await createAdmin();
   await setPreset("balanced");
   await refreshSchemaRegistry(db.query);
-  for (const id of ["programs", "bookings", "rostering", "rosterrelay"]) {
+  for (const id of ["bookings", "rostering", "rosterrelay"]) {
     await run("extension.install", { id, shipped: true }, staff());
   }
   await refreshSchemaRegistry(db.query);
   await run("settings.update", { timezone: ZONE }, staff()).catch(() => undefined);
-  type = await create("programs.classtype", { name: unique("Strength") });
+  type = await create("bookings.classtype", { name: unique("Strength") });
   duty = await create(DUTY, { name: unique("Cleaning"), place: "Main floor" });
 }, 120_000);
 
@@ -379,7 +379,7 @@ describe("the coach's reach (criterion 6)", () => {
     for (const who of [kim, lee]) {
       await run(
         "x.rostering.qualify",
-        { account: who.user.id, kind: { object: "programs.classtype", id: type } },
+        { account: who.user.id, kind: { object: "bookings.classtype", id: type } },
         staff(),
       );
     }
@@ -1281,10 +1281,10 @@ describe("pay (step 6: criteria 8 and 10 on the shipped packs)", () => {
   it("a class with set-up minutes is totalled, locked, exported and then kept", async () => {
     await setStart();
     const paid = await coach("Paid Coach Pat");
-    const withSetup = await create("programs.classtype", {
+    const withSetup = await create("bookings.classtype", {
       name: unique("Spin"),
-      "bookings.rosterBeforeMinutes": 15,
-      "bookings.rosterAfterMinutes": 5,
+      rosterBeforeMinutes: 15,
+      rosterAfterMinutes: 5,
     });
     const startsAt = new Date(Date.now() - 20 * DAY).toISOString();
     const klassId = await create(CLASS, {
@@ -1403,9 +1403,9 @@ describe("a staff member's own pay-period totals on the shipped pack", () => {
     const other = await coach("Own Hours Oli");
     await grant(mine.user, [ROSTER]);
     await grant(other.user, [ROSTER]);
-    const spin = await create("programs.classtype", {
+    const spin = await create("bookings.classtype", {
       name: unique("Own spin"),
-      "bookings.rosterBeforeMinutes": 10,
+      rosterBeforeMinutes: 10,
     });
     const at = (ms: number) => new Date(Date.now() + ms).toISOString();
     for (const [who, days] of [
@@ -1572,7 +1572,7 @@ describe("a redacted input in the approval queue is read only by who could appro
 });
 
 describe("what pay is totalled from is a rosterer's to change, with Rostering installed", () => {
-  const minutes = "bookings.rosterBeforeMinutes";
+  const minutes = "rosterBeforeMinutes";
   const ai = () => staff({ actor: "assistant", origin: { surface: "assistant" } });
   async function people() {
     const member = await account(unique("Member Min"), "member");
@@ -1587,56 +1587,56 @@ describe("what pay is totalled from is a rosterer's to change, with Rostering in
 
   it("a class type's set-up and pack-down minutes, by update, create and createMany", async () => {
     const { member, rosterer } = await people();
-    const kind = await create("programs.classtype", { name: unique("Pilates") });
+    const kind = await create("bookings.classtype", { name: unique("Pilates") });
     await rostering(
       run(
         "record.update",
-        { object: "programs.classtype", id: kind, values: { [minutes]: 30 } },
+        { object: "bookings.classtype", id: kind, values: { [minutes]: 30 } },
         asUser(member),
       ),
     );
     await rostering(
       run(
         "record.update",
-        { object: "programs.classtype", id: kind, values: { "bookings.rosterAfterMinutes": 30 } },
+        { object: "bookings.classtype", id: kind, values: { rosterAfterMinutes: 30 } },
         asUser(member),
       ),
     );
     await rostering(
       run(
         "record.create",
-        { object: "programs.classtype", values: { name: unique("Barre"), [minutes]: 30 } },
+        { object: "bookings.classtype", values: { name: unique("Barre"), [minutes]: 30 } },
         asUser(member),
       ),
     );
     await rostering(
       run(
         "record.createMany",
-        { object: "programs.classtype", records: [{ name: unique("Barre"), [minutes]: 30 }] },
+        { object: "bookings.classtype", records: [{ name: unique("Barre"), [minutes]: 30 }] },
         asUser(member),
       ),
     );
     // The rest of a class type is still a member's, and a rosterer sets the minutes.
     await run(
       "record.update",
-      { object: "programs.classtype", id: kind, values: { "bookings.colour": "#123456" } },
+      { object: "bookings.classtype", id: kind, values: { colour: "#123456" } },
       asUser(member),
     );
     await run(
       "record.update",
-      { object: "programs.classtype", id: kind, values: { [minutes]: 15 } },
+      { object: "bookings.classtype", id: kind, values: { [minutes]: 15 } },
       asUser(rosterer),
     );
-    expect((await get("programs.classtype", kind))[minutes]).toBe(15);
+    expect((await get("bookings.classtype", kind))[minutes]).toBe(15);
   });
 
   it("an assistant's change of them waits, and only a rosterer's approval applies it", async () => {
     const { member, rosterer } = await people();
-    const kind = await create("programs.classtype", { name: unique("Spin") });
+    const kind = await create("bookings.classtype", { name: unique("Spin") });
     const asked = await refusal(
       run(
         "record.update",
-        { object: "programs.classtype", id: kind, values: { [minutes]: 45 } },
+        { object: "bookings.classtype", id: kind, values: { [minutes]: 45 } },
         ai(),
       ),
     );
@@ -1646,7 +1646,7 @@ describe("what pay is totalled from is a rosterer's to change, with Rostering in
       "forbidden",
     );
     await run("approval.approve", { actionIds: [id] }, asUser(rosterer));
-    expect((await get("programs.classtype", kind))[minutes]).toBe(45);
+    expect((await get("bookings.classtype", kind))[minutes]).toBe(45);
   });
 
   it("the times of a class that has started: a rosterer's; a future class still a member's", async () => {

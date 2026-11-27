@@ -105,7 +105,7 @@ const limits = (readOnly: boolean) =>
     classTypes: {
       type: "relation",
       label: "Class types",
-      to: "programs.classtype",
+      to: "bookings.classtype",
       many: true,
       description: "Empty: every class type.",
       ...(readOnly ? { readOnly: true } : {}),
@@ -191,12 +191,12 @@ export default defineExtension({
   description:
     "Membership plans paid every month and class passes bought once, with what each allows " +
     "and what a member has left.",
-  // A plan and a pass name the class types they pay for: Programs' (stage 31 extends them); and
-  // the services (Bookings' one-to-one sessions, stage 49), so Bookings is installed first. What
-  // they pay for, classes and sessions, is Bookings' anyway.
-  requires: ["programs", "bookings"],
+  // A plan and a pass name the class types and the services (one-to-one sessions, stage 49) they
+  // pay for, both Bookings' (the class type since stage 78, ADR 0980), so Bookings is installed
+  // first. What they pay for, classes and sessions, is Bookings' anyway.
+  requires: ["bookings"],
   permissions: {
-    read: ["person", "programs.classtype"],
+    read: ["person", "bookings.classtype"],
     // record.* and my.* are not listed: they are granted by object (Memberships' own, and the
     // read list above), and a listed one would reach every object.
     operations: [

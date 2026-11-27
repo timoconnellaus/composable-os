@@ -110,14 +110,14 @@ beforeAll(async () => {
   admin = await createAdmin();
   await setPreset("balanced");
   await refreshSchemaRegistry(db.query);
-  for (const id of ["programs", "bookings", "memberships"]) {
+  for (const id of ["bookings", "memberships"]) {
     await run("extension.install", { id, shipped: true }, staff());
   }
   await refreshSchemaRegistry(db.query);
-  kids = await create("programs.classtype", { name: unique("Kids") });
-  staffOnly = await create("programs.classtype", {
+  kids = await create("bookings.classtype", { name: unique("Kids") });
+  staffOnly = await create("bookings.classtype", {
     name: unique("Squad"),
-    "bookings.staffOnly": true,
+    staffOnly: true,
   });
 }, 120_000);
 

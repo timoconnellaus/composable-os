@@ -6,7 +6,7 @@ sidebar:
 editUrl: false
 ---
 
-It requires no other pack.
+Requires [bookings](/packs/bookings/): the host refuses to install it while one is missing.
 
 ## Exercise (`programs.exercise`)
 
@@ -118,42 +118,6 @@ A plan of weeks of sessions, built from the bank: a class program, a client's ow
 
 </details>
 
-## Class type (`programs.classtype`)
-
-A kind of class (Mobility, Handstands): what a class program is assigned to.
-
-|  |  |
-| --- | --- |
-| Plural | Class types |
-| Title field | `name` |
-| Listed in | settings |
-| Behaviours | [`signedIn`](/reference/behaviours/#signedin) |
-
-### Fields
-
-| Field | Type | Label | Required | Details | Description |
-| --- | --- | --- | --- | --- | --- |
-| `name` | `text` | Name | yes |   |   |
-| `order` | `number` | Order |   |   |   |
-
-### Behaviour declarations
-
-<details>
-<summary>The declarations as the manifest gives them</summary>
-
-```json
-{
-  "signedIn": {
-    "read": [
-      "name",
-      "order"
-    ]
-  }
-}
-```
-
-</details>
-
 ## Assignment (`programs.assignment`)
 
 A published version of a program given to a person or to a class type from a start date: its dated sessions are made from that version and keep it.
@@ -175,7 +139,7 @@ A published version of a program given to a person or to a class type from a sta
 | `programVersion` | `number` | Version |   | read-only | The program's published version this follows. |
 | `kind` | `select` | For |   | one of `personal`, `class`; read-only | A person's own, or a class type's (read by every signed-in member). |
 | `person` | `relation` | Person |   | to `person` |   |
-| `classType` | `relation` | Class type |   | to `programs.classtype` |   |
+| `classType` | `relation` | Class type |   | to `bookings.classtype` |   |
 | `startDate` | `date` | Starts | yes |   |   |
 | `endDate` | `date` | Ends |   |   |   |
 | `sessionCount` | `number` | Sessions |   | min 0; read-only |   |
@@ -188,7 +152,7 @@ A published version of a program given to a person or to a class type from a sta
 
 - `program` → `programs.program`
 - `person` → `person`
-- `classType` → `programs.classtype`
+- `classType` → `bookings.classtype`
 
 ### Behaviour declarations
 
@@ -296,7 +260,7 @@ One dated session of an assignment: its plan as the assigned version had it, and
 | `programVersion` | `number` | Version |   | read-only |   |
 | `kind` | `select` | For |   | one of `personal`, `class`; read-only | A person's own, or a class type's (read by every signed-in member). |
 | `person` | `relation` | Person |   | to `person` |   |
-| `classType` | `relation` | Class type |   | to `programs.classtype` |   |
+| `classType` | `relation` | Class type |   | to `bookings.classtype` |   |
 | `programTitle` | `text` | Program |   | read-only | The program's title in the assigned version, so a member reads it with the session. |
 | `classTypeName` | `text` | Class type (name) |   | read-only |   |
 | `date` | `date` | Date | yes |   |   |
@@ -318,7 +282,7 @@ One dated session of an assignment: its plan as the assigned version had it, and
 - `assignment` → `programs.assignment`
 - `program` → `programs.program`
 - `person` → `person`
-- `classType` → `programs.classtype`
+- `classType` → `bookings.classtype`
 
 ### Behaviour declarations
 

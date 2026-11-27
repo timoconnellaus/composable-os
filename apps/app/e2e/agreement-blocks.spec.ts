@@ -99,7 +99,7 @@ async function setUp(page: Page, baseURL: string) {
     customer: await op(page.request, "customer.settings.get", {}),
     order: await op(page.request, "order.settings.get", {}),
   };
-  for (const id of ["programs", "bookings", "memberships"]) {
+  for (const id of ["bookings", "memberships"]) {
     await op(page.request, "extension.install", { id, shipped: true }, false);
   }
   await op(page.request, "extension.install", {
@@ -202,7 +202,7 @@ async function agreeAgain(page: Page, doc: Doc) {
 async function oneOff(page: Page, startsIn: number, typeValues: Record<string, unknown> = {}) {
   const name = unique("Strength ");
   const classType = await op<{ id: string }>(page.request, "record.create", {
-    object: "programs.classtype",
+    object: "bookings.classtype",
     values: { name, ...typeValues },
   });
   const klass = await op<{ id: string }>(page.request, "record.create", {
@@ -408,7 +408,7 @@ test("a visitor pays for a class, agreeing to a drawn waiver and a health form o
         { key: "q2", text: "Fixture question two?", noteOnYes: false },
       ],
     });
-    const klass = await oneOff(page, 5 * HOUR, { "bookings.dropInPrice": 22 });
+    const klass = await oneOff(page, 5 * HOUR, { dropInPrice: 22 });
     const origin = new URL(baseURL ?? "").origin;
     const visitor = await browser.newContext({
       baseURL,

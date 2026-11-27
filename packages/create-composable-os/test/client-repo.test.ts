@@ -337,28 +337,56 @@ describe("cos deploy", () => {
     expect(world.cf.liveBinding("shop-runner", "COS_PACKS")?.text).toBe("ticketing");
     // Content and Programs too, though their packages say optional: the runner installs every
     // pack an explicit COS_PACKS names (apps/runner/test/listed-packs.test.ts, ADR 0420).
-    setPacks(dir, ["ticketing", "content", "programs"]);
+    setPacks(dir, ["ticketing", "content", "bookings", "programs"]);
     const again = await cos("deploy", "--skip-build", "--no-typecheck");
     expect(again.code, again.output).toBe(0);
     expect(world.cf.liveBinding("shop-runner", "COS_PACKS")?.text).toBe(
-      "ticketing,content,programs",
+      "ticketing,content,bookings,programs",
     );
   });
 
-  it("installs the packs a listed pack requires with it (Courses: Programs and Content)", async () => {
+  it("installs the packs a listed pack requires with it (Courses: Programs, Bookings and Content)", async () => {
     await publish("1.0.0");
     const dir = await created();
     setPacks(dir, ["courses"]);
     const deployed = await cos("deploy", "--skip-build", "--no-typecheck");
     expect(deployed.code, deployed.output).toBe(0);
-    expect(deployed.output).toContain("Installing programs, content too");
-    expect(world.cf.liveBinding("shop-runner", "COS_PACKS")?.text).toBe("courses,programs,content");
+    // Followed to the end: Programs requires Bookings (stage 78, ADR 0980).
+    expect(deployed.output).toContain("Installing programs, bookings, content too");
+    expect(world.cf.liveBinding("shop-runner", "COS_PACKS")?.text).toBe(
+      "courses,programs,bookings,content",
+    );
     // Listed already, nothing is brought or said.
-    setPacks(dir, ["content", "programs", "courses"]);
+    setPacks(dir, ["content", "bookings", "programs", "courses"]);
     const again = await cos("deploy", "--skip-build", "--no-typecheck");
     expect(again.code, again.output).toBe(0);
     expect(again.output).not.toContain("too: a pack product.ts lists requires");
-    expect(world.cf.liveBinding("shop-runner", "COS_PACKS")?.text).toBe("content,programs,courses");
+    expect(world.cf.liveBinding("shop-runner", "COS_PACKS")?.text).toBe(
+      "content,bookings,programs,courses",
+    );
+  });
+
+  it("brings Bookings with Programs, and nothing with Bookings: a general pack requires no domain pack (ADR 0980)", async () => {
+    await publish("1.0.0");
+    const dir = await created();
+    // A gym's training only: Programs, a domain pack, brings Bookings for its class types.
+    setPacks(dir, ["programs"]);
+    const programs = await cos("deploy", "--skip-build", "--no-typecheck");
+    expect(programs.code, programs.output).toBe(0);
+    expect(programs.output).toContain("Installing bookings too");
+    expect(world.cf.liveBinding("shop-runner", "COS_PACKS")?.text).toBe("programs,bookings");
+    // A business that is not a gym: Bookings alone brings no Programs.
+    setPacks(dir, ["bookings"]);
+    const bookings = await cos("deploy", "--skip-build", "--no-typecheck");
+    expect(bookings.code, bookings.output).toBe(0);
+    expect(bookings.output).not.toContain("too: a pack product.ts lists requires");
+    expect(world.cf.liveBinding("shop-runner", "COS_PACKS")?.text).toBe("bookings");
+    // Memberships brings Bookings, and no Programs either.
+    setPacks(dir, ["memberships"]);
+    const memberships = await cos("deploy", "--skip-build", "--no-typecheck");
+    expect(memberships.code, memberships.output).toBe(0);
+    expect(memberships.output).toContain("Installing bookings too");
+    expect(world.cf.liveBinding("shop-runner", "COS_PACKS")?.text).toBe("memberships,bookings");
   });
 
   it("trusts only packs.json: a tool in the contract does not make a pack carried", async () => {
@@ -1270,15 +1298,12 @@ describe("blocks (criterion 10)", () => {
     const added = await cos("add", "web-account");
     expect(added.code, added.output).toBe(0);
     const blocks = join(dir, "apps", "web", "src", "blocks");
-    // The shell, and each listed pack's section, and Programs' (Bookings and Memberships bring it).
-    for (const block of [
-      "web-account",
-      "bookings-timetable",
-      "memberships-mine",
-      "programs-progress",
-    ]) {
+    // The shell and each listed pack's section. Not Programs': Bookings and Memberships are
+    // general packs and bring no domain pack (stage 78, ADR 0980).
+    for (const block of ["web-account", "bookings-timetable", "memberships-mine"]) {
       expect(existsSync(join(blocks, block, "LICENSE")), block).toBe(true);
     }
+    expect(existsSync(join(blocks, "programs-progress"))).toBe(false);
     const wiring = () => readFileSync(join(blocks, "account-sections.gen.ts"), "utf8");
     expect(wiring()).toContain(
       'import { createBookingsHooks } from "@composable-os/pack-bookings/client";',
@@ -1286,11 +1311,10 @@ describe("blocks (criterion 10)", () => {
     expect(wiring()).toContain('import { Timetable } from "./bookings-timetable/timetable.tsx";');
     expect(wiring()).toContain('import { MyMemberships } from "./memberships-mine/mine.tsx";');
     expect(wiring()).toContain('import type { WebSectionEntry } from "./web-account/account.tsx";');
-    // In the host's order: Bookings 10, Memberships 20, Training 50.
+    // In the host's order: Bookings 10, Memberships 20.
     expect([...wiring().matchAll(/key: "([^"]+)"/g)].map((m) => m[1])).toEqual([
       "bookings.bookings",
       "memberships.memberships",
-      "programs.training",
     ]);
     expect(wiring()).not.toContain("courses");
     expect(added.output).toContain("account-sections.gen.ts");
@@ -1299,11 +1323,14 @@ describe("blocks (criterion 10)", () => {
       expect.arrayContaining(["web-account", "bookings-timetable", "memberships-mine"]),
     );
 
-    // Courses added to product.ts: the next cos add copies its section and writes it in.
+    // Courses added to product.ts: the next cos add copies its section and writes it in, and
+    // Programs' (Courses brings Programs).
     setPacks(dir, ["bookings", "memberships", "courses"]);
     const again = await cos("add", "web-account");
     expect(again.code, again.output).toBe(0);
     expect(existsSync(join(blocks, "courses-my-courses", "my-courses.tsx"))).toBe(true);
+    expect(existsSync(join(blocks, "programs-progress", "LICENSE"))).toBe(true);
+    expect(wiring()).toContain('key: "programs.training"');
     expect(wiring()).toContain(
       'import { MyCoursesSection } from "./courses-my-courses/my-courses.tsx";',
     );

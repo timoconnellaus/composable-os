@@ -124395,7 +124395,7 @@
                 "type": "string",
                 "minLength": 1,
                 "maxLength": 81,
-                "description": "programs.classtype or rostering.duty"
+                "description": "bookings.classtype or rostering.duty"
               },
               "id": {
                 "type": "string",

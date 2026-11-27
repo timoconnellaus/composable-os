@@ -46,8 +46,11 @@ beforeAll(async () => {
 
 describe("a client product's listed packs (ADR 0420, amended)", () => {
   it("are installed at the first boot, optional or not: objects, tools and public reads", async () => {
-    const results = await boot("content,programs,ticketing");
+    // Programs with Bookings, which it requires: what `cos deploy` writes for a product listing
+    // Programs (stage 78, ADR 0980).
+    const results = await boot("bookings,content,programs,ticketing");
     expect(outcomes(results)).toEqual({
+      bookings: "installed",
       content: "installed",
       programs: "installed",
       ticketing: "installed",
@@ -60,7 +63,7 @@ describe("a client product's listed packs (ADR 0420, amended)", () => {
     const guest: OutsideInvocationContext = {
       principal: { kind: "public" },
       db,
-      extensionHost: deploymentWith("content,programs,ticketing"),
+      extensionHost: deploymentWith("bookings,content,programs,ticketing"),
     };
     await expect(invokeByName("x.ticketing.eventsOnSale", {}, guest)).resolves.toMatchObject({
       events: [],
@@ -69,18 +72,19 @@ describe("a client product's listed packs (ADR 0420, amended)", () => {
   });
 
   it("a product that adds a pack in a later deploy gets it installed; the others are left as they are", async () => {
-    expect(outcomes(await boot("content,programs,ticketing"))).toEqual({
+    expect(outcomes(await boot("bookings,content,programs,ticketing"))).toEqual({
+      bookings: "unchanged",
       content: "unchanged",
       programs: "unchanged",
       ticketing: "unchanged",
     });
     // (Deals is in the release too, and this product now lists it.)
-    expect(outcomes(await boot("content,deals,programs,ticketing")).deals).toBe("installed");
+    expect(outcomes(await boot("bookings,content,deals,programs,ticketing")).deals).toBe("installed");
   });
 
   it("a product that drops a pack leaves it installed with its data; nothing is deleted", async () => {
-    await boot("content,deals,programs,ticketing");
-    const results = await boot("content,programs,ticketing");
+    await boot("bookings,content,deals,programs,ticketing");
+    const results = await boot("bookings,content,programs,ticketing");
     expect(results.map((r) => r.id)).not.toContain("deals");
     const row = await db.query
       .selectFrom("core_extensions")

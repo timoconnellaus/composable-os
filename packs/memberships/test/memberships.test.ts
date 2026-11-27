@@ -31,7 +31,7 @@ const MEMBER = { kind: "customer", customerId: "cus_1", personId: "per_member" }
 const PUBLIC = { kind: "public" } as const;
 const KNOWN = {
   knownObjects: [
-    "programs.classtype",
+    "bookings.classtype",
     "bookings.booking",
     "bookings.service",
     "bookings.appointment",
@@ -173,10 +173,11 @@ function hostWith(): TestHost {
 }
 
 describe("the manifest", () => {
-  it("passes the contract, requires Programs and Bookings, and declares what the host enforces", () => {
+  it("passes the contract, requires Bookings only, and declares what the host enforces", () => {
     const host = createTestHost(memberships, { validate: KNOWN });
     expect(host.issues).toEqual([]);
-    expect(host.manifest.requires).toEqual(["programs", "bookings"]);
+    // Its class types and services are Bookings' (stage 78, ADR 0980): no Programs.
+    expect(host.manifest.requires).toEqual(["bookings"]);
     const { plan, membership, passtype, pass } = host.manifest.objects as Record<
       string,
       // biome-ignore lint/suspicious/noExplicitAny: reading the declaration's shape in a test.

@@ -1,7 +1,7 @@
 // Stage 38 step 5 (ADR 0706): the Knowledge pack (packs/knowledge) in the real host, its tools run
 // in the sandbox, installed the way a product that lists the pack installs it, with real D1.
 // Content is installed beside it (posts are publishable too, and never a procedure's search), and
-// Bookings (with Programs, which it requires) for a pack-role account: a coach.
+// Bookings for a pack-role account: a coach.
 //
 // What it shows: a member drafts a procedure and cannot publish it; a person publishes it, and
 // everyone who must read it is told; a coach (a pack role) reads the published wording and never
@@ -178,7 +178,7 @@ type ToRead = {
 
 beforeAll(async () => {
   admin = await createAdmin();
-  for (const id of ["content", "programs", "bookings", "knowledge"]) {
+  for (const id of ["content", "bookings", "knowledge"]) {
     await run("extension.install", { id, shipped: true }, staff(admin));
   }
   await refreshSchemaRegistry(db.query);
