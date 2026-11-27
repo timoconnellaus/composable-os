@@ -74,7 +74,9 @@ checks this against Wrangler's own loader. Plain `wrangler dev` on `apps/app` is
 `pnpm dev`. `crm-runner` declares no secrets and loads all of its `.dev.vars`.
 
 The first user of a deployment (Better Auth sign-up, or the first Cloudflare Access user to load
-the app) becomes its admin. After that, an admin adds people on Settings → Users with an invite
+the app) becomes its admin; an installed pack's principal is not a user here. On a host of many
+clients only the first admin the operator named, by the setup link (see "A client's first admin"
+under "A host of many clients"). After that, an admin adds people on Settings → Users with an invite
 (ADR 0455): the address, the role, and optionally a pack role or permissions the account holds from
 the start. With Better Auth the person signs in on the sign-in page with "Email me a code"; the
 code, and the invite email, go out from the host's mail connection (also on Settings → Users, the
